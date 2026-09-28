@@ -41,7 +41,6 @@ const messages = {
     brand: "スライド",
     decks: "デッキ",
     designSystems: "デザインシステム",
-    team: "チーム",
   },
   settings: {
     agentObservability: "エージェントの可観測性",
@@ -55,6 +54,13 @@ const messages = {
     emailNotificationsDescription:
       "誰かがあなたのデッキにコメントまたは返信したときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
+    notificationsEmail: "メール",
+    commentsAndReplies: "コメントと返信",
+    commentsAndRepliesDescription:
+      "誰かがあなたのデッキにコメントまたは返信したとき。",
+    retry: "再試行",
+    mcpAbout:
+      "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     languageTitle: "言語",
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -127,7 +133,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -186,8 +192,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "アプリで開く",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -581,6 +585,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "保存済み" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -646,10 +651,31 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "エラー 403",
+    noAccessTitle: "アクセス権がありません",
+    noAccessDescription:
+      "デッキのオーナーにアクセスをリクエストするか、正しいアカウントに切り替えてください。",
+    noteLabel: "オーナーへのメモを追加（任意）",
+    notePlaceholder: "このデッキを確認しています",
+    requesting: "リクエスト中",
+    requestFailed: "リクエストを送信できませんでした。もう一度お試しください。",
+    requestSentDescription:
+      "オーナーがリクエストを承認したら、すぐにメールでお知らせします。",
+    goHome: "ホームへ",
+    signedInAs: "ログイン中のアカウント:",
+    switchAccount: "アカウントを切り替える",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5分間進捗がなかったため生成を一時停止しました",
+    generationStalledDescription:
+      "保存済みのスライドはそのまま残っています。チャットでこのデッキの続きを作成できます。",
+    continueInChat: "チャットで続ける",
+    continueGenerationPrompt:
+      "このデッキのスライド生成を続けてください。最初に現在のスライドと保存済みの生成コンテキストを確認してください。完成済みのスライドは残し、不足分だけ追加してください。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -685,6 +711,9 @@ const messages = {
     accessApprovalTitle: "アクセスを許可しました",
     accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
     accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalRequesterEmailed: "メールでお知らせしました。",
+    accessApprovalRequesterEmailFailed:
+      "{{email}} にメールを送信できませんでした。デッキを開けるようになったことを伝えてください。",
     accessApprovalAlreadyMessage:
       "{{email}} はすでにこのデッキにアクセスできます。",
     accessApprovalErrorTitle: "アクセスを許可できませんでした",
@@ -699,7 +728,7 @@ const messages = {
     tryAgain: "再試行",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "スライドに画像をアップロードするには、エージェント作成欄のモデルメニューから Builder.io に接続してください。空のキャンバスに画像をドロップすると、プロバイダーなしでもエージェントに送信できます。",
+      "画像をアップロードするにはオブジェクトストレージを接続してください。Builder.io（無料）を接続するか、設定 → ファイルアップロードで独自の S3 互換ストレージキーを追加してください。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -811,6 +840,11 @@ const messages = {
     chooseAnotherFile: "別のファイルを選択",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製品のピッチ資料を作成",
+      roadmap: "製品ロードマップを作成",
+      explainer: "プレゼンでテーマを説明",
+    },
     suggestedPrompts: "おすすめのプロンプト",
     importMenu: {
       import: "インポート",
@@ -818,8 +852,14 @@ const messages = {
       invalidPdf: "PDFファイルを選択してください。",
       invalidPptx: "PPTXファイルを選択してください。",
       invalidFile: "PDFまたはPPTXファイルを選択してください。",
+      networkFailed:
+        "インポートがタイムアウトしたか、ネットワーク接続が切断されました。接続を確認して、もう一度お試しください。",
       notStarted:
         "必要なサインインを完了してから、インポートを再試行してください。",
+      unsupportedFileType:
+        "このファイル形式はサポートされていません。対応しているファイルを選択してください。",
+      uploadLimitExceeded:
+        "アップロードが許可された上限を超えています。ファイルを小さくするか、選択するファイルを減らして再試行してください。",
     },
     importDeck: "デッキをインポート",
     context: {
@@ -859,6 +899,10 @@ const messages = {
       notReady:
         "コンテキストを読み込み中、または利用できません。送信前に再試行するか削除してください。",
       emptySource: "このソースには利用可能なコンテキストがありません。",
+      websiteReadFailed:
+        "このウェブサイトを自動で読み取れませんでした。関連するテキストをコピーして貼り付けてください。",
+      figmaReadFailed:
+        "Design でこの Figma 参照を読み込めませんでした。Design に保存されている Figma アクセストークンと、紐づくアカウントでファイルを開けることを確認して、もう一度お試しください。",
       tooMany: "参照は20件まで選択できます。",
       search: "参照を検索",
       designCategory: "デザイン",
@@ -868,7 +912,7 @@ const messages = {
       starting: "開始中…",
       generate: "生成",
       connectionRequired:
-        "ホームの入力欄の上でBuilder.ioに接続してから再試行してください。",
+        "ホームの入力欄の上でAIプロバイダーに接続するか、自分のAIキーを追加してから再試行してください。",
       invalidPdf: "PDFファイルを選択してください。",
       notReady:
         "読み込み中または失敗したコンテキストと接続状況を確認して再試行してください。",
@@ -920,8 +964,11 @@ const messages = {
     loadFailedDescription:
       "保存済みのコンテンツはそのままです。接続を確認して再試行してください。",
     retry: "再試行",
+    fileStorageStatusUnavailable:
+      "オブジェクトストレージの状態を確認できませんでした。ファイルをアップロードする前に再試行してください。",
+    fileStorageSetupRequired:
+      "オブジェクトストレージが接続されていません。無料のBuilder.ioを接続するか、設定 → ファイルアップロードで独自のS3互換ストレージキーを追加してください。",
     decksTitle: "デッキ",
-    newDeck: "新しいデッキ",
     deckLengthQuestion: "このデッキの長さはどれくらいにしますか？",
     deckLengthHeader: "デッキの長さ",
     deckLengthShort: "短め（3〜5 枚）",
@@ -951,6 +998,8 @@ const messages = {
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",
     importFrom: "インポート元",
+    referenceFileStorageUnavailable:
+      "ファイルストレージが設定されていません。参照ファイルをインポートするには、Builder.io または別のファイルプロバイダーを接続してください。",
     attachedFiles: "添付ファイル",
     imported: "インポート済み",
     importedReferenceDeck: "インポートした参考デッキ",
@@ -1007,6 +1056,11 @@ const messages = {
     emptyTitle: "まだデッキがありません",
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
   },
 };
 

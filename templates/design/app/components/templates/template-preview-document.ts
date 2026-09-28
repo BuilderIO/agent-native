@@ -76,8 +76,6 @@ export function templatePreviewDocument(html: string): string {
   if (!head || !("childNodes" in head))
     throw new Error("Preview document has no head");
   const origins = [...renderOrigins].join(" ");
-  // Only the two version-matched runtime assets may load from the app origin.
-  // Preview content has no action transport or editor/session bridge.
   const policy = [
     "default-src 'none'",
     `script-src 'unsafe-inline' 'unsafe-eval' ${runtimes.tailwind} ${runtimes.alpine} ${origins}`,

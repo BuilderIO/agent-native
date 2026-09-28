@@ -1,7 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Page,
+  type Request,
+  type TestInfo,
+} from "@playwright/test";
 
 import { collectAppPageErrors, renderedText } from "../../beta/lib/app";
 import {
@@ -24,12 +30,16 @@ const FINDINGS_PATH = join(
 const REVIEW_SURFACE_TIMEOUT_MS = 15_000;
 const REVIEW_SURFACE_LOADING_SELECTOR =
   "[data-first-run-startup-loading]:visible, [aria-busy='true']:not(.sr-only):visible, .skeleton-shimmer:visible";
+const SECRETS_ENDPOINTS = new Set([
+  "/_agent-native/secrets",
+  "/_agent-native/secrets/adhoc",
+]);
 
 type PostLinkState = "onboarding" | "app" | "unresolved";
 
 async function waitForPostLinkState(
   page: Page,
-  pendingRequests?: Map<string, number>,
+  pendingRequests?: Map<Request, number>,
 ): Promise<PostLinkState> {
   const deadline = Date.now() + REVIEW_SURFACE_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -98,8 +108,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
   await expect
     .poll(
       async () => {
-        // The auth document is server-rendered before React hydrates it. Reapply
-        // the value until the controlled form accepts the input event.
         await emailInput.fill(email);
         return submit.isEnabled();
       },
@@ -111,12 +119,6 @@ async function fillMagicLinkEmail(page: Page, email: string): Promise<void> {
     .toBe(true);
 }
 
-/**
- * One app per run by default. The deterministic canary already covers every
- * app every day; this lane spends model tokens, so it walks the fleet on a
- * rotation instead of paying for all of it daily. The index comes from the UTC
- * day so consecutive runs land on different apps without storing any state.
- */
 function agentTargets(): SignupTarget[] {
   const all = selectedSignupTargets();
   if (all.length === 0) {
@@ -143,12 +145,82 @@ function agentTargets(): SignupTarget[] {
   return [all[dayIndex % all.length]!];
 }
 
+function trackNetwork(page: Page, origin: string) {
+  const networkEvents: string[] = [];
+  const pendingRequests = new Map<Request, number>();
+  const isDiagnosticRequest = (url: string): boolean => {
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.origin === origin &&
+        (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
+          parsed.pathname.startsWith("/_agent-native/actions/") ||
+          SECRETS_ENDPOINTS.has(parsed.pathname) ||
+          parsed.pathname === "/_agent-native/auth/magic-link" ||
+          parsed.pathname === "/_agent-native/auth/session" ||
+          parsed.pathname === "/_agent-native/org/me" ||
+          parsed.pathname === "/ask" ||
+          parsed.pathname === "/home")
+      );
+    } catch {
+      return false;
+    }
+  };
+  page.on("request", (request) => {
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    pendingRequests.set(request, Date.now());
+  });
+  page.on("response", (response) => {
+    if (!isDiagnosticRequest(response.url())) return;
+    const url = response.url();
+    const pathname = new URL(url).pathname;
+    const request = response.request();
+    const startedAt = pendingRequests.get(request);
+    if (!SECRETS_ENDPOINTS.has(pathname)) pendingRequests.delete(request);
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(`${response.status()} ${pathname} ${elapsed}`);
+  });
+  page.on("requestfinished", (request) => {
+    const url = request.url();
+    if (!isDiagnosticRequest(url)) return;
+    const pathname = new URL(url).pathname;
+    if (!SECRETS_ENDPOINTS.has(pathname)) return;
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
+    const elapsed =
+      startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+    networkEvents.push(`FINISHED ${pathname} ${elapsed}`);
+  });
+  page.on("requestfailed", (request) => {
+    if (!isDiagnosticRequest(request.url())) return;
+    const url = request.url();
+    const pathname = new URL(url).pathname;
+    const startedAt = pendingRequests.get(request);
+    pendingRequests.delete(request);
+    if (SECRETS_ENDPOINTS.has(pathname)) {
+      const elapsed =
+        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
+      networkEvents.push(
+        `FAILED ${pathname} ${elapsed} ${request.failure()?.errorText ?? "unknown"}`,
+      );
+      return;
+    }
+    networkEvents.push(
+      `FAILED ${pathname} ${request.failure()?.errorText ?? "unknown"}`,
+    );
+  });
+  return { networkEvents, pendingRequests };
+}
+
 async function capture(
   page: Page,
   label: string,
   consoleErrors: string[],
   networkEvents: string[],
-  pendingRequests: Map<string, number>,
+  pendingRequests: Map<Request, number>,
+  testInfo: TestInfo,
 ): Promise<JourneyStep> {
   const domDiagnostics = await page
     .evaluate(() => {
@@ -205,8 +277,8 @@ async function capture(
     })
     .catch((error) => `<DOM diagnostics unreadable: ${String(error)}>`);
   const pending = [...pendingRequests.entries()].map(
-    ([url, startedAt]) =>
-      `PENDING ${new URL(url).pathname} ${Date.now() - startedAt}ms`,
+    ([request, startedAt]) =>
+      `PENDING ${new URL(request.url()).pathname} ${Date.now() - startedAt}ms`,
   );
   const requestDiagnostics = [...networkEvents.slice(-30), ...pending];
   const diagnosticText = `DOM diagnostics:\n${domDiagnostics}\n\nNetwork diagnostics:\n${requestDiagnostics.join(" | ") || "none"}`;
@@ -222,14 +294,18 @@ async function capture(
         `${diagnosticText}\n\n<page text unreadable: ${String(error)}>`,
     );
 
+  const screenshot = await page.screenshot({ fullPage: false });
+  const screenshotPath = testInfo.outputPath(
+    `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`,
+  );
+  mkdirSync(dirname(screenshotPath), { recursive: true });
+  writeFileSync(screenshotPath, screenshot);
+
   return {
     label,
     url: page.url(),
-    // A page whose text cannot be read is not a page with no text: handing the
-    // model an empty string there would have it judge a blank screen and
-    // report a phantom finding, or miss a real one.
     visibleText,
-    screenshot: await page.screenshot({ fullPage: false }),
+    screenshot,
     consoleErrors: [...consoleErrors],
     networkEvents: requestDiagnostics,
   };
@@ -246,53 +322,19 @@ test.afterAll(() => {
 
 for (const target of targets) {
   test(`agent review of ${target.environment} ${target.app} signup`, async ({
+    browser,
     page,
   }, testInfo) => {
     test.setTimeout(420_000);
     const { errors } = collectAppPageErrors(page, target.origin);
-    const networkEvents: string[] = [];
-    const pendingRequests = new Map<string, number>();
-    const isDiagnosticRequest = (url: string): boolean => {
-      try {
-        const parsed = new URL(url);
-        return (
-          parsed.origin === target.origin &&
-          (parsed.pathname.startsWith("/_agent-native/onboarding/") ||
-            parsed.pathname.startsWith("/_agent-native/actions/") ||
-            parsed.pathname === "/_agent-native/auth/session" ||
-            parsed.pathname === "/_agent-native/org/me" ||
-            parsed.pathname === "/ask" ||
-            parsed.pathname === "/home")
-        );
-      } catch {
-        return false;
-      }
-    };
-    page.on("request", (request) => {
-      if (isDiagnosticRequest(request.url())) {
-        pendingRequests.set(request.url(), Date.now());
-      }
-    });
-    page.on("response", (response) => {
-      if (!isDiagnosticRequest(response.url())) return;
-      const startedAt = pendingRequests.get(response.url());
-      pendingRequests.delete(response.url());
-      const elapsed =
-        startedAt === undefined ? "?" : `${Date.now() - startedAt}ms`;
-      networkEvents.push(
-        `${response.status()} ${new URL(response.url()).pathname} ${elapsed}`,
-      );
-    });
-    page.on("requestfailed", (request) => {
-      if (!isDiagnosticRequest(request.url())) return;
-      pendingRequests.delete(request.url());
-      networkEvents.push(
-        `FAILED ${new URL(request.url()).pathname} ${request.failure()?.errorText ?? "unknown"}`,
-      );
-    });
+    const initialPageNetwork = trackNetwork(page, target.origin);
+    let postLinkPage: Page = page;
+    let postLinkErrors = () => errors;
+    let postLinkNetwork = initialPageNetwork;
     const steps: JourneyStep[] = [];
     const email = createQaEmail(target.app, target.environment);
     const emailRequestedAt = Date.now() - 5_000;
+    let originalVerificationMessageId: string | undefined;
 
     await test.step("open the sign-in page", async () => {
       await page.goto(`${target.origin}/sign-in`, {
@@ -304,8 +346,9 @@ for (const target of targets) {
           page,
           "sign-in page",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });
@@ -321,16 +364,15 @@ for (const target of targets) {
       const submit = page.locator("#magic-link-submit");
       await fillMagicLinkEmail(page, email);
       await submit.click();
-      // Give the app the moment a real user would give it before judging
-      // whether the submit visibly did anything.
       await page.waitForTimeout(4_000);
       steps.push(
         await capture(
           page,
           "after requesting the link",
           errors,
-          networkEvents,
-          pendingRequests,
+          initialPageNetwork.networkEvents,
+          initialPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       const result = await emailResult;
@@ -345,49 +387,234 @@ for (const target of targets) {
         throw result.error;
       }
       const message = result.message;
+      originalVerificationMessageId = message.id;
       const link = verificationLinkFor(message, target.origin);
-      await page.goto(link, { waitUntil: "domcontentloaded" });
-      const postLinkState = await waitForPostLinkState(page, pendingRequests);
+      const verificationPage = await page.context().newPage();
+      const { errors: verificationErrors } = collectAppPageErrors(
+        verificationPage,
+        target.origin,
+      );
+      const verificationPageNetwork = trackNetwork(
+        verificationPage,
+        target.origin,
+      );
+      await verificationPage.goto(link, { waitUntil: "domcontentloaded" });
+      const postLinkState = await waitForPostLinkState(
+        verificationPage,
+        verificationPageNetwork.pendingRequests,
+      );
       steps.push(
         await capture(
-          page,
+          verificationPage,
           "after following the emailed link",
-          errors,
-          networkEvents,
-          pendingRequests,
+          [...errors, ...verificationErrors],
+          verificationPageNetwork.networkEvents,
+          verificationPageNetwork.pendingRequests,
+          testInfo,
         ),
       );
       if (postLinkState === "onboarding") {
-        await completeFirstRunOnboarding(page);
-        await waitForPostLinkState(page, pendingRequests);
+        await completeFirstRunOnboarding(verificationPage);
+        await waitForPostLinkState(
+          verificationPage,
+          verificationPageNetwork.pendingRequests,
+        );
         steps.push(
           await capture(
-            page,
+            verificationPage,
             "after completing first-run onboarding",
-            errors,
-            networkEvents,
-            pendingRequests,
+            [...errors, ...verificationErrors],
+            verificationPageNetwork.networkEvents,
+            verificationPageNetwork.pendingRequests,
+            testInfo,
           ),
         );
       }
+      postLinkPage = verificationPage;
+      postLinkErrors = () => [...errors, ...verificationErrors];
+      postLinkNetwork = verificationPageNetwork;
     });
 
     await test.step("reload the way a stuck user would", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await waitForPostLinkState(page, pendingRequests);
+      await postLinkPage.reload({ waitUntil: "domcontentloaded" });
+      await waitForPostLinkState(postLinkPage, postLinkNetwork.pendingRequests);
       steps.push(
         await capture(
-          page,
+          postLinkPage,
           "after a browser reload",
-          errors,
-          networkEvents,
-          pendingRequests,
+          postLinkErrors(),
+          postLinkNetwork.networkEvents,
+          postLinkNetwork.pendingRequests,
+          testInfo,
         ),
       );
     });
 
-    // A review that could not run is not a clean review: let this throw and
-    // fail the lane rather than reporting an empty finding list.
+    if (target.app === "content") {
+      await test.step("return to Recent from a new session", async () => {
+        const context = await browser.newContext();
+        try {
+          const signInPage = await context.newPage();
+          const { errors: signInErrors } = collectAppPageErrors(
+            signInPage,
+            target.origin,
+          );
+          const signInNetwork = trackNetwork(signInPage, target.origin);
+          await signInPage.goto(`${target.origin}/sign-in`, {
+            waitUntil: "domcontentloaded",
+          });
+          await renderedText(signInPage, `${target.origin}/sign-in`);
+          await fillMagicLinkEmail(signInPage, email);
+          const emailRequestedAt = Date.now() - 5_000;
+          const emailResult = waitForVerificationEmail(
+            email,
+            emailRequestedAt,
+            new Set(
+              originalVerificationMessageId
+                ? [originalVerificationMessageId]
+                : [],
+            ),
+          ).then(
+            (message) => ({ status: "fulfilled" as const, message }),
+            (error) => ({ status: "rejected" as const, error }),
+          );
+          await signInPage.locator("#magic-link-submit").click();
+          const result = await emailResult;
+          if (result.status === "rejected") {
+            if (isMailosaurInconclusiveError(result.error)) {
+              const marker = testInfo.outputPath("mailosaur-inconclusive.txt");
+              mkdirSync(dirname(marker), { recursive: true });
+              writeFileSync(marker, `${result.error.message}\n`, "utf8");
+              testInfo.skip(true, `INCONCLUSIVE: ${result.error.message}`);
+              return;
+            }
+            throw result.error;
+          }
+
+          const returningPage = await context.newPage();
+          const { errors: returningErrors } = collectAppPageErrors(
+            returningPage,
+            target.origin,
+          );
+          const returningNetwork = trackNetwork(returningPage, target.origin);
+          await returningPage.goto(
+            verificationLinkFor(result.message, target.origin),
+            { waitUntil: "domcontentloaded" },
+          );
+          expect(
+            await waitForPostLinkState(
+              returningPage,
+              returningNetwork.pendingRequests,
+            ),
+          ).toBe("app");
+
+          const recentToggle = returningPage.getByRole("button", {
+            name: "Recent",
+            exact: true,
+          });
+          await expect(recentToggle).toBeVisible();
+          if ((await recentToggle.getAttribute("aria-expanded")) !== "true") {
+            await recentToggle.click();
+          }
+          const recentSection = returningPage
+            .locator("section")
+            .filter({ has: recentToggle });
+          const recentNav = recentSection.getByRole("navigation", {
+            name: "Recent",
+            exact: true,
+          });
+          const recentEmpty = recentSection.getByText(/No recent visits/i);
+          await expect
+            .poll(
+              async () =>
+                (await recentNav.count()) + (await recentEmpty.count()),
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            )
+            .toBeGreaterThan(0);
+          await expect(
+            recentSection.getByText(/Something went wrong/i),
+          ).toHaveCount(0);
+          await expect(
+            recentSection.getByRole("button", { name: /Retry/i }),
+          ).toHaveCount(0);
+          steps.push(
+            await capture(
+              returningPage,
+              "content Recent after returning sign-in",
+              [...errors, ...signInErrors, ...returningErrors],
+              [
+                ...signInNetwork.networkEvents,
+                ...returningNetwork.networkEvents,
+              ],
+              new Map([
+                ...signInNetwork.pendingRequests,
+                ...returningNetwork.pendingRequests,
+              ]),
+              testInfo,
+            ),
+          );
+        } finally {
+          await context.close();
+        }
+      });
+    }
+
+    if (target.app === "design") {
+      await test.step("open API keys after signup", async () => {
+        const secretsResponses = Promise.all(
+          [...SECRETS_ENDPOINTS].map((pathname) =>
+            postLinkPage.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === pathname &&
+                response.request().method() === "GET",
+              { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+            ),
+          ),
+        );
+        await postLinkPage.goto(`${target.origin}/settings/keys`, {
+          waitUntil: "domcontentloaded",
+        });
+        const responses = await secretsResponses;
+        for (const [index, response] of responses.entries()) {
+          const pathname = [...SECRETS_ENDPOINTS][index];
+          expect(
+            response.ok(),
+            `GET ${pathname} returned HTTP ${response.status()}`,
+          ).toBe(true);
+        }
+        await expect(
+          postLinkPage.getByRole("heading", { name: /API keys/i }),
+        ).toBeVisible({ timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
+        await expect(postLinkPage.getByText(/No keys yet/i)).toBeVisible({
+          timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000,
+        });
+        await expect
+          .poll(
+            () =>
+              [...postLinkNetwork.pendingRequests.keys()].some((request) =>
+                SECRETS_ENDPOINTS.has(new URL(request.url()).pathname),
+              ),
+            { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 },
+          )
+          .toBe(false);
+        await expect(
+          postLinkPage.locator(
+            '[role="status"][aria-label="Loading settings"]',
+          ),
+        ).toHaveCount(0, { timeout: REVIEW_SURFACE_TIMEOUT_MS + 5_000 });
+        steps.push(
+          await capture(
+            postLinkPage,
+            "design API keys",
+            postLinkErrors(),
+            postLinkNetwork.networkEvents,
+            postLinkNetwork.pendingRequests,
+            testInfo,
+          ),
+        );
+      });
+    }
+
     const review = await reviewSignupJourney(
       target.app,
       target.environment,
@@ -409,8 +636,6 @@ for (const target of targets) {
         contentType: "image/png",
       });
     }
-    // Advisory by design: model-reported issues are surfaced in the job
-    // summary and the rolling issue, never used to fail a build or page anyone.
     console.log(markdown);
   });
 }

@@ -90,7 +90,7 @@ export function LibraryPrimaryActions({
         triggerIcon="chevron"
         size="sm"
         variant="default"
-        className="w-8 self-stretch border-s border-primary-foreground/20 px-0 shadow-none"
+        className="w-8 self-stretch rounded-e-md border-s border-primary-foreground/20 px-0 shadow-none"
         menuSide="bottom"
         menuAlign="end"
       />

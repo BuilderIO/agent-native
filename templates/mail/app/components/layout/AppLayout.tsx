@@ -5,21 +5,35 @@ import {
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+import {
+  BuilderCreditNotice,
+  InvitationBanner,
+  OrgSwitcher,
+} from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
   EnvironmentBadge,
   FeedbackButton,
+  RouterSidebarLink,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import { AI_FILTER_LABEL } from "@shared/ai-filter";
+import {
+  aiFilterRuleLabelName,
+  aiFilterRuleMode,
+  normalizedAiFilterLabelId,
+} from "@shared/ai-filter-rules";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels";
 import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Label, SavedMailFilter } from "@shared/types";
 import {
   IconArrowUpRight,
@@ -29,17 +43,7 @@ import {
   IconCheck,
   IconPlus,
   IconRefresh,
-  IconPin,
-  IconPinnedFilled,
-  IconArchive,
-  IconClock,
-  IconFileText,
-  IconInbox,
   IconLayoutSidebarLeftCollapse,
-  IconLayoutSidebarLeftExpand,
-  IconMailForward,
-  IconStar,
-  IconTrash,
   IconX,
   IconFilter,
 } from "@tabler/icons-react";
@@ -63,6 +67,13 @@ import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   Popover,
   PopoverTrigger,
   PopoverContent,
@@ -75,6 +86,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { AccountFilterContext } from "@/hooks/use-account-filter";
+import { useAutomations } from "@/hooks/use-automations";
 import {
   applyDraftSaveResult,
   DRAFT_DELETE_FAILED_EVENT,
@@ -117,8 +129,13 @@ import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_PARAM,
+  isInboxScopedLabel,
+  pinnedTriageLabels,
   resolvePinnedLabels,
   resolveDefaultMailHref,
+  labelTabHref,
+  resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -143,10 +160,7 @@ type SnoozeTarget = {
   accountEmail?: string;
 };
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
-const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
 const ACCOUNT_POLL_INTERVAL_MS = 2000;
-// Bounds the account-status poll so a hung fetch can't leave the in-flight
-// guard stuck and stall the interval forever.
 const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
 
 function wasMailChatOpen(): boolean {
@@ -206,18 +220,15 @@ function AccountAvatar({
   return <div className={fallbackClassName}>{email[0]?.toUpperCase()}</div>;
 }
 
-/**
- * Routes that render the slim "standard layout" chrome instead of the full
- * inbox chrome (tabs, search bar, account stack, compose pen, draft queue
- * badge button, theme toggle, etc.). These pages have their own internal
- * toolbars and only need a generic h-12 header with the page title + the
- * AgentToggleButton.
- */
+function isSettingsPath(pathname: string): boolean {
+  return pathname === "/settings" || pathname.startsWith("/settings/");
+}
+
 function isStandardLayoutPath(pathname: string): boolean {
   return (
-    pathname === "/settings" ||
-    pathname.startsWith("/settings/") ||
+    isSettingsPath(pathname) ||
     pathname === "/agent" ||
+    pathname === "/chat" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -226,7 +237,6 @@ function isStandardLayoutPath(pathname: string): boolean {
   );
 }
 
-/** Extract the trailing segment of a nested label name, e.g. "[Superhuman]/AI/Pitch" → "Pitch" */
 function shortLabelName(name: string): string {
   const lastSlash = name.lastIndexOf("/");
   if (lastSlash >= 0) return name.slice(lastSlash + 1).replace(/_/g, " ");
@@ -264,13 +274,6 @@ export interface LabelTreeRow {
   displayName: string;
 }
 
-/**
- * Sort labels by full path (case-insensitive, natural) and compute each
- * row's nesting depth and leaf display name. A parent path that has no
- * label of its own (e.g. "1-clients" when only "1-clients/electric kiwi"
- * exists) is never synthesized — the child just sorts and indents where
- * the parent would have been.
- */
 export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
   return [...labels]
     .sort((a, b) =>
@@ -285,14 +288,6 @@ export function labelTreeRows(labels: readonly Label[]): LabelTreeRow[] {
     }));
 }
 
-/**
- * Move `draggedId` next to `targetId` (before it when `side` is "left",
- * after when "right"), or to the end of the list when `targetId` is
- * undefined — the drop landed outside this list's own items (e.g. a saved
- * filter dropped on a pinned-label tab). Shared by both drag-reorderable
- * groups in the top bar: pinned labels and saved filters each reorder their
- * own array through this, never each other's.
- */
 export function reorderById<T>(
   items: readonly T[],
   getId: (item: T) => string,
@@ -323,7 +318,6 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
-// System views that can be shown/hidden via settings
 const collapsibleViews = [
   { id: "unread", labelKey: "mail.views.unread" },
   { id: "starred", labelKey: "mail.views.starred" },
@@ -332,16 +326,33 @@ const collapsibleViews = [
   { id: "archive", labelKey: "mail.views.archive" },
   { id: "trash", labelKey: "mail.views.trash" },
 ];
+const filteredView = {
+  id: AI_FILTER_LABEL,
+  labelKey: "mail.aiFilter.filteredMode",
+};
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const isAgentChatRoute = location.pathname === "/chat";
 
   const t = useT();
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
   }
 
-  const content = isStandardLayoutPath(location.pathname) ? (
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    isSettingsPath(location.pathname) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
+  const content = settingsOwnsChrome ? (
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {children}
+    </div>
+  ) : isStandardLayoutPath(location.pathname) ? (
     <StandardLayout>{children}</StandardLayout>
   ) : (
     <AppLayoutInner>{children}</AppLayoutInner>
@@ -349,17 +360,21 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      enabled={!isAgentChatRoute}
       browserTabId={getBrowserTabId()}
       position="right"
       disableChatShortcut
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
+      onFullscreenRequest={() => void navigate("/chat")}
+      composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
+      dynamicSuggestions={false}
       suggestions={[
-        t("agent.suggestionSummarize"),
-        t("agent.suggestionReplies"),
-        t("agent.suggestionWidget"),
+        t("agent.ruleSuggestionFilter"),
+        t("agent.ruleSuggestionImportant"),
+        t("agent.ruleSuggestionArchive"),
       ]}
     >
       {content}
@@ -431,9 +446,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     rememberAndOpenPalette();
   }, [paletteOpen, rememberAndOpenPalette]);
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  // When the user requests snooze from the list, we need to snooze the live
-  // focused/selected rows — not whatever is currently in navigation state.
-  // This override wins over `targetEmail` while the modal is open.
   const [snoozeOverride, setSnoozeOverride] = useState<{
     targets: SnoozeTarget[];
   } | null>(null);
@@ -441,7 +453,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
-  // Parse view and threadId from pathname since AppLayout is outside <Routes>
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const view = pathSegments[0] || "inbox";
   const threadId = pathSegments[1] || undefined;
@@ -466,10 +477,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  // Remember which view (label or inbox tab) the user was in before searching —
-  // SearchBar always routes searches through /all?q=..., so on clear we'd
-  // otherwise drop a user searching from Starred/Sent/Archive or from a
-  // label-filtered tab back into plain Inbox.
   const preSearchViewRef = useRef<{
     view: string;
     label: string | null;
@@ -500,10 +507,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const search = params.toString();
     return `/${v}${search ? `?${search}` : ""}`;
   }, []);
-  // When the search param is cleared externally (browser back/forward,
-  // agent navigation), drop the searchFocused flag — otherwise the bar
-  // stays mounted with an empty input and no focus, since nothing fires
-  // onBlur after the input was already blurred by a prior Enter.
   const prevSearchQueryRef = useRef(activeSearchQuery);
   useEffect(() => {
     if (prevSearchQueryRef.current && !activeSearchQuery) {
@@ -524,8 +527,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const googleStatusReady = !googleStatus.isLoading && !googleStatus.isError;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
-  // Account filter: which accounts' emails to show. Empty set = all accounts.
-  // Persisted to localStorage so it survives page refreshes.
   const [activeAccounts, setActiveAccounts] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set<string>();
     try {
@@ -537,7 +538,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     } catch {}
     return new Set<string>();
   });
-  // Persist active accounts to localStorage
   useEffect(() => {
     if (activeAccounts.size === 0) {
       localStorage.removeItem("active-accounts");
@@ -548,12 +548,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       );
     }
   }, [activeAccounts]);
-  // useLabels degrades gracefully on its own (placeholderData keeps the last
-  // known labels around on a failed background refresh) — there is no error
-  // state to surface here.
   const { data: labelsData } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
+  // The Filtered shortcut describes the whole connected mailbox, regardless
+  // of which accounts are selected for the current label list.
+  const {
+    data: connectedLabelsData,
+    accountErrors: connectedLabelErrors,
+    isError: connectedLabelsFailed,
+  } = useLabels();
   const labels = labelsData ?? EMPTY_LABELS;
   const labelDisplayNames = useMemo(
     () => buildLabelDisplayNames(labels),
@@ -561,14 +565,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const [tabSettingsOpen, setTabSettingsOpen] = useState(false);
   const [labelSearch, setLabelSearch] = useState("");
-  // Spin the refresh icon only when the user clicked the button — background
-  // poll-driven `inboxIsFetching` should not animate the icon. Reset shortly
-  // after click so the spin always feels like a deliberate action.
   const [isManuallyRefreshing, setIsManuallyRefreshing] = useState(false);
 
   const isGoogleConnected = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  // Keep the pinned label order exactly as stored so the settings checkbox can
-  // actually turn Important off.
   const userPinnedLabels = settings?.pinnedLabels;
   const combineInbox = settings?.combineInbox === true;
   const showAllTab = settings?.showAllTab !== false;
@@ -578,12 +577,61 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
+  const { data: automations = [] } = useAutomations();
+  const aiTags = useMemo(() => {
+    const tags = new Map<string, { id: string; name: string }>();
+    for (const rule of automations) {
+      if (
+        rule.domain !== "mail" ||
+        rule.kind !== "ai-filter" ||
+        aiFilterRuleMode(rule) !== "tag"
+      ) {
+        continue;
+      }
+      const name = aiFilterRuleLabelName(rule).trim();
+      const normalizedName = normalizedAiFilterLabelId(name);
+      const id =
+        labels.find(
+          (label) => normalizedAiFilterLabelId(label.name) === normalizedName,
+        )?.id ?? normalizedName;
+      if (name && id && !tags.has(normalizedName)) {
+        tags.set(normalizedName, { id, name });
+      }
+    }
+    return [...tags.values()];
+  }, [automations, labels]);
+  const aiTagDisplayNames = useMemo(
+    () => new Map(aiTags.map((tag) => [tag.id, tag.name])),
+    [aiTags],
+  );
+  const hasFilteredRule = automations.some(
+    (rule) =>
+      rule.domain === "mail" &&
+      rule.kind === "ai-filter" &&
+      aiFilterRuleMode(rule) === "filtered",
+  );
+  const hasFilteredLabel =
+    connectedLabelsFailed ||
+    Boolean(connectedLabelErrors?.length) ||
+    [connectedLabelsData ?? EMPTY_LABELS, labels].some((labelSet) =>
+      labelSet.some(
+        (label) =>
+          normalizedAiFilterLabelId(label.name) ===
+          normalizedAiFilterLabelId(AI_FILTER_LABEL),
+      ),
+    );
+  const hasFilteredPin = userPinnedLabels?.includes(AI_FILTER_LABEL) === true;
+  const systemViews = useMemo(
+    () =>
+      hasFilteredRule || hasFilteredLabel || hasFilteredPin
+        ? [...collapsibleViews, filteredView]
+        : collapsibleViews,
+    [hasFilteredLabel, hasFilteredPin, hasFilteredRule],
+  );
 
-  // The top bar's tabs, their counts, and the account/sync status all come
-  // from one server call — see shared/inbox-threads.ts. InboxPage requests
-  // the identical `input` while on /inbox, so React Query dedupes the two
-  // into a single request; here the bar stays populated (with the default
-  // tab's data) on every other route too.
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
@@ -646,87 +694,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (inboxThreads.isLoading && !inboxThreads.data) ||
     (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("mail-sidebar-pinned") === "true";
-  });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
-  });
-  const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =
-    useState(false);
-  const perAppChatOpen = usePerAppChatOpen();
-  useEffect(() => {
-    if (!perAppChatOpen) setSidebarExpandedWhileChatOpen(false);
-  }, [perAppChatOpen]);
-  useEffect(() => {
-    if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
-    else localStorage.removeItem("mail-sidebar-pinned");
-  }, [sidebarPinned]);
-  useEffect(() => {
-    if (sidebarCollapsed) {
-      localStorage.setItem(SIDEBAR_COLLAPSE_KEY, "true");
-    } else {
-      localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
-    }
-  }, [sidebarCollapsed]);
-  const showSidebar = isMobile ? sidebarOpen : sidebarOpen || sidebarPinned;
-  const showCollapsedSidebar =
-    !isMobile &&
-    showSidebar &&
-    (sidebarPinned
-      ? sidebarCollapsed
-      : perAppChatOpen && !sidebarExpandedWhileChatOpen);
-  const closeSidebar = useCallback(() => {
-    if (!sidebarPinned || isMobile) setSidebarOpen(false);
-  }, [sidebarPinned, isMobile]);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
-  const collapseButton =
-    !isMobile && (sidebarPinned || (perAppChatOpen && showSidebar)) ? (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => {
-              if (!sidebarPinned && perAppChatOpen) {
-                setSidebarExpandedWhileChatOpen((value) => !value);
-                return;
-              }
-              setSidebarCollapsed((value) => !value);
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            aria-label={
-              showCollapsedSidebar
-                ? t("sidebar.expandSidebar")
-                : t("sidebar.collapseSidebar")
-            }
-          >
-            {showCollapsedSidebar ? (
-              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-            ) : (
-              <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">
-          {showCollapsedSidebar
-            ? t("sidebar.expandSidebar")
-            : t("sidebar.collapseSidebar")}
-        </TooltipContent>
-      </Tooltip>
-    ) : null;
-  const feedbackButton = (
-    <FeedbackButton
-      variant={showCollapsedSidebar ? "icon" : "sidebar"}
-      side="right"
-    />
-  );
-
-  // Drag-to-reorder tabs. Two independently-orderable groups share this one
-  // mechanism: pinned labels reorder `pinnedLabels`, saved filters reorder
-  // `savedFilters` — a drag never crosses groups, it just falls back to
-  // "append within its own group" (see handleTabDrop).
   type DragItem = { group: "label" | "filter"; id: string };
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropIndicator, setDropIndicator] = useState<{
@@ -734,10 +704,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     side: "left" | "right";
   } | null>(null);
 
-  // Pinned collapsible system views (Sent, Archive, ...) render as their own
-  // top-bar shortcuts, ahead of the server-computed inbox-split tabs below —
-  // an orthogonal feature from the inbox split itself, so it stays
-  // client-side off the same `pinnedLabels` settings list.
   type RenderedTab = {
     id: string;
     pinnedId?: string;
@@ -756,31 +722,36 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const systemViewTabs = useMemo<RenderedTab[]>(() => {
     if (combineInbox) return [];
     return pinnedLabels
-      .filter((id) => collapsibleViews.some((v) => v.id === id))
+      .filter((id) => systemViews.some((v) => v.id === id))
       .map((id) => {
-        const sysView = collapsibleViews.find((v) => v.id === id)!;
+        const sysView = systemViews.find((v) => v.id === id)!;
         return {
           id: sysView.id,
           label: t(sysView.labelKey),
-          href: `/${sysView.id}`,
-          isActive: view === sysView.id,
+          href:
+            sysView.id === AI_FILTER_LABEL
+              ? labelTabHref(AI_FILTER_LABEL)
+              : `/${sysView.id}`,
+          isActive:
+            sysView.id === AI_FILTER_LABEL
+              ? view === "all" && activeLabel === AI_FILTER_LABEL
+              : view === sysView.id,
           isSystemView: true,
         };
       });
-  }, [combineInbox, pinnedLabels, view, t]);
+  }, [activeLabel, combineInbox, pinnedLabels, systemViews, view, t]);
 
-  // The inbox split (Important / pinned labels / saved filters / Other) with
-  // its counts comes from one account-scoped snapshot, shared across each
-  // tab's separately cached row page.
   const dataTabs = useMemo<RenderedTab[]>(() => {
     return inboxTabs.map((tab) => {
       const label = labels.find((l) => l.id === tab.id);
+      const aiTagName = aiTagDisplayNames.get(tab.id);
       return {
         id: tab.id,
         pinnedId: tab.kind === "label" ? tab.id : undefined,
         filterId: tab.kind === "filter" ? tab.id : undefined,
-        label: tab.kind === "all" ? t("mail.views.all") : tab.name,
-        fullLabel: label?.name,
+        label:
+          tab.kind === "all" ? t("mail.views.all") : (aiTagName ?? tab.name),
+        fullLabel: aiTagName ?? label?.name,
         href: inboxTabHref(tab.id),
         isActive: view === "inbox" && activeInboxTabId === tab.id,
         color: label?.color,
@@ -790,34 +761,40 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         isSystemView: false,
       };
     });
-  }, [inboxTabs, activeInboxTabId, labels, t, view]);
+  }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
     () => [...systemViewTabs, ...dataTabs],
     [systemViewTabs, dataTabs],
   );
 
-  // System views NOT pinned (go in the "more" dropdown)
   const hiddenViews = useMemo(
-    () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
-    [pinnedLabels],
+    () => systemViews.filter((v) => !pinnedLabels.includes(v.id)),
+    [pinnedLabels, systemViews],
   );
 
-  // The top-bar inbox tabs are hidden on mobile, so mirror the label/filter
-  // ones in the drawer. Pinned system views already appear in the fixed
-  // drawer list below and must not be duplicated here.
   const mobileInboxTabs = dataTabs;
 
   // Is current view one of the hidden ones? If so force-show it
-  const currentInHidden = hiddenViews.some((v) => v.id === view);
+  const currentHiddenView = hiddenViews.find(
+    (v) =>
+      v.id === view ||
+      (v.id === AI_FILTER_LABEL &&
+        view === "all" &&
+        activeLabel === AI_FILTER_LABEL),
+  );
+  const currentInHidden = currentHiddenView !== undefined;
 
-  // User labels available for pinning
   const userLabels = useMemo(() => {
+    const aiTagIds = new Set(aiTags.map((tag) => tag.id));
     const filtered = labels.filter(
-      (l) => !["inbox", ...collapsibleViews.map((v) => v.id)].includes(l.id),
+      (l) =>
+        !["inbox", ...systemViews.map((v) => v.id)].includes(l.id) &&
+        !aiTagIds.has(l.id) &&
+        !aiTagIds.has(normalizedAiFilterLabelId(l.name)),
     );
     return filtered;
-  }, [labels]);
+  }, [aiTags, labels, systemViews]);
 
   const handleCompose = useCallback(() => {
     trackEvent("compose_opened", {
@@ -835,7 +812,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     });
   }, [compose]);
 
-  // Spam / block / mute actions (need current email context)
   const isMailboxView = [
     "inbox",
     "starred",
@@ -847,22 +823,66 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const {
+    data: currentViewEmails = [],
+    isPlaceholderData: currentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
     { enabled: isMailboxView },
+  );
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
   );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();
 
-  // Find the target email: from open thread, or the focused row in the list via navigation state
   const [focusedListId, setFocusedListId] = useState<string | null>(null);
 
-  // Poll navigation.json for the focused email ID (synced by InboxPage)
   useEffect(() => {
-    if (threadId) return; // thread view has its own context
+    if (threadId) return;
     const fetchNav = async () => {
       try {
         const res = await fetch(
@@ -877,23 +897,19 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       } catch {}
     };
     void fetchNav();
-    // Re-check when palette opens
     if (paletteOpen) void fetchNav();
   }, [threadId, paletteOpen]);
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    // Fall back to the first email in the list — if it's auto-focused in the
-    // UI, or the synced id points at a row that has since disappeared, shortcuts
-    // should still work.
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(
@@ -1102,7 +1118,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [activeFilterId, navigate, savedFilters, updateSettings],
   );
 
-  // Drag-to-reorder tab handlers
   const handleTabDragStart = useCallback(
     (e: React.DragEvent, item: DragItem) => {
       setDragItem(item);
@@ -1170,7 +1185,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setDropIndicator(null);
   }, []);
 
-  // Global keyboard shortcuts
   const cycleTab = useCallback(
     (reverse?: boolean) => {
       if (topBarTabs.length < 2) return;
@@ -1210,9 +1224,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     setSnoozeOpen(true);
   }, [targetEmail]);
 
-  // List snooze requests carry the current focused/selected rows. Swipe
-  // requests still carry one target; keyboard and command-palette requests may
-  // carry many.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (
@@ -1289,7 +1300,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       window.removeEventListener("agent-native:open-command-menu", handler);
   }, [openPalette]);
 
-  // Sequence shortcuts (g + key = go to view)
   useSequenceShortcuts([
     {
       keys: ["g", "i"],
@@ -1308,65 +1318,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     { keys: ["g", "#"], handler: () => navigate("/trash") },
   ]);
 
-  // The whole-inbox rail badge reads the Gmail "inbox" system label's own
-  // unread count from the same sync-cache label list the tab bar uses —
-  // summing the (possibly overlapping) split tabs would double-count threads
-  // that match more than one label/filter tab.
   const inboxSidebarUnreadCount = inboxMetadata?.labels.find(
     (label) => label.id === "inbox",
   )?.unreadCount;
-  const railNavItems = [
-    {
-      id: "inbox",
-      label: t("mail.views.inbox"),
-      href: "/inbox",
-      icon: IconInbox,
-      count: inboxSidebarUnreadCount,
-    },
-    {
-      id: "unread",
-      label: t("mail.views.unread"),
-      href: "/unread",
-      icon: IconMailForward,
-    },
-    {
-      id: "starred",
-      label: t("mail.views.starred"),
-      href: "/starred",
-      icon: IconStar,
-    },
-    {
-      id: "snoozed",
-      label: t("mail.views.snoozed"),
-      href: "/snoozed",
-      icon: IconClock,
-    },
-    {
-      id: "sent",
-      label: t("mail.views.sent"),
-      href: "/sent",
-      icon: IconMailForward,
-    },
-    {
-      id: "draft-queue",
-      label: t("mail.views.draftQueue"),
-      href: "/draft-queue",
-      icon: IconFileText,
-      count: queuedDrafts.count,
-    },
-    {
-      id: "archive",
-      label: t("mail.views.archive"),
-      href: "/archive",
-      icon: IconArchive,
-    },
-    {
-      id: "trash",
-      label: t("mail.views.trash"),
-      href: "/trash",
-      icon: IconTrash,
-    },
-  ];
 
   const accountFilterValue = useMemo(
     () => ({ activeAccounts, allAccounts: accounts }),
@@ -1377,36 +1331,276 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     <AccountFilterContext.Provider value={accountFilterValue}>
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
-        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 border-b border-border/50 bg-card px-2 inbox-zero-header">
-          {/* Hamburger menu */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
-                aria-label={t("mail.toolbar.toggleMenu")}
-              >
-                <IconMenu2 className="h-4 w-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.toolbar.menu")}</TooltipContent>
-          </Tooltip>
+        <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border/50 bg-card px-2 inbox-zero-header hide-scrollbar">
+          <Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>
+            {/* Hamburger menu */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <button
+                    className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
+                    aria-label={t("mail.toolbar.toggleMenu")}
+                  >
+                    <IconMenu2 className="h-4 w-4" />
+                  </button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("mail.toolbar.menu")}</TooltipContent>
+            </Tooltip>
+
+            {/* Sidebar drawer */}
+            <DialogContent
+              hideClose
+              aria-describedby={undefined}
+              aria-modal="true"
+              className="inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0"
+            >
+              <DialogTitle className="sr-only">{t("mail.appName")}</DialogTitle>
+              <div className="agent-layout-left-drawer flex min-h-0 flex-1 flex-col overflow-hidden">
+                <AppSidebarHeader
+                  brandName={t("mail.appName")}
+                  appId="mail"
+                  brandHref="/inbox"
+                  collapsed={false}
+                >
+                  <DialogClose asChild>
+                    <button
+                      type="button"
+                      className="ms-auto flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                      aria-label={t("mail.toolbar.closeSidebar")}
+                    >
+                      <IconX className="h-4 w-4" />
+                    </button>
+                  </DialogClose>
+                </AppSidebarHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {/* Accounts */}
+                  {hasAccounts && (
+                    <div className="px-4 pt-5 pb-4 border-b border-border/20">
+                      <div className="space-y-2">
+                        {accounts.map((account) => {
+                          const isActive =
+                            activeAccounts.size === 0 ||
+                            activeAccounts.has(account.email);
+                          return (
+                            <button
+                              key={account.email}
+                              onClick={() => {
+                                setActiveAccounts((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.size === 0) {
+                                    for (const a of accounts) {
+                                      if (a.email !== account.email)
+                                        next.add(a.email);
+                                    }
+                                  } else if (next.has(account.email)) {
+                                    next.delete(account.email);
+                                    if (next.size === 0) return new Set();
+                                  } else {
+                                    next.add(account.email);
+                                    if (next.size === accounts.length)
+                                      return new Set();
+                                  }
+                                  return next;
+                                });
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
+                                isActive ? "opacity-100" : "opacity-30",
+                              )}
+                            >
+                              <AccountAvatar
+                                email={account.email}
+                                photoUrl={account.photoUrl}
+                                imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
+                                fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
+                              />
+                              <span className="text-[13px] text-foreground truncate">
+                                {account.email}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="px-2 py-3">
+                    <div className="space-y-0.5">
+                      {[
+                        {
+                          id: "inbox",
+                          label: t("mail.views.inbox"),
+                          href: "/inbox",
+                        },
+                        {
+                          id: "unread",
+                          label: t("mail.views.unread"),
+                          href: "/unread",
+                        },
+                        {
+                          id: "starred",
+                          label: t("mail.views.starred"),
+                          href: "/starred",
+                        },
+                        {
+                          id: "snoozed",
+                          label: t("mail.views.snoozed"),
+                          href: "/snoozed",
+                        },
+                        {
+                          id: "sent",
+                          label: t("mail.views.sent"),
+                          href: "/sent",
+                        },
+                        {
+                          id: "draft-queue",
+                          label: t("mail.views.draftQueue"),
+                          href: "/draft-queue",
+                        },
+                        {
+                          id: "scheduled",
+                          label: t("mail.views.scheduled"),
+                          href: "/scheduled",
+                        },
+                        {
+                          id: "drafts",
+                          label: t("mail.views.drafts"),
+                          href: "/drafts",
+                        },
+                        {
+                          id: "archive",
+                          label: t("mail.views.archive"),
+                          href: "/archive",
+                        },
+                        {
+                          id: "trash",
+                          label: t("mail.views.trash"),
+                          href: "/trash",
+                        },
+                      ].map((item) => (
+                        <Link
+                          key={item.id}
+                          to={item.href}
+                          onClick={closeSidebar}
+                          className={cn(
+                            "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
+                            view === item.id
+                              ? "bg-primary/10 font-medium text-primary"
+                              : "text-primary hover:bg-accent/60",
+                          )}
+                        >
+                          <span>{item.label}</span>
+                          {item.id === "draft-queue" &&
+                            queuedDrafts.count > 0 && (
+                              <span className="text-[12px] text-amber-300 tabular-nums">
+                                {queuedDrafts.count}
+                              </span>
+                            )}
+                          {item.id === "inbox" &&
+                            !!inboxSidebarUnreadCount &&
+                            inboxSidebarUnreadCount > 0 && (
+                              <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                {inboxSidebarUnreadCount}
+                              </span>
+                            )}
+                        </Link>
+                      ))}
+                    </div>
+
+                    {/* Mobile equivalents for the hidden top-bar inbox tabs */}
+                    {mobileInboxTabs.length > 0 && (
+                      <>
+                        <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
+                          {t("mail.views.labels")}
+                        </h2>
+                        <div className="space-y-0.5">
+                          {mobileInboxTabs.map((tab) => {
+                            const count = tab.unread;
+                            const depth = tab.fullLabel
+                              ? labelDepth(tab.fullLabel)
+                              : 0;
+                            return (
+                              <Link
+                                key={tab.id}
+                                to={tab.href}
+                                onClick={closeSidebar}
+                                className={cn(
+                                  "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
+                                  tab.isActive
+                                    ? "bg-primary/10 font-medium text-primary"
+                                    : "text-primary hover:bg-accent/60",
+                                )}
+                              >
+                                <span
+                                  className="flex min-w-0 items-center gap-2"
+                                  style={{ paddingLeft: depth * 12 }}
+                                >
+                                  {tab.color && (
+                                    <span
+                                      className="h-2 w-2 rounded-full shrink-0"
+                                      style={{ backgroundColor: tab.color }}
+                                    />
+                                  )}
+                                  <span
+                                    className="truncate"
+                                    title={tab.fullLabel ?? tab.label}
+                                  >
+                                    {tab.label}
+                                  </span>
+                                </span>
+                                {count !== undefined && count > 0 && (
+                                  <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                    {count}
+                                  </span>
+                                )}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
+                <AppSidebarFooter
+                  collapsed={false}
+                  collapsible={false}
+                  feedback={feedbackButton}
+                  orgSwitcher={
+                    <OrgSwitcher
+                      compact={false}
+                      hideBuilderCreditNotice
+                      className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+                    />
+                  }
+                  footerExtras={
+                    <>
+                      <DevDatabaseLink />
+                      <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
+                    </>
+                  }
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="hidden sm:flex items-center gap-2 overflow-x-auto hide-scrollbar">
+              <nav className="flex w-max shrink-0 items-center gap-2 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar">
                 {[1, 2, 3].map((i) => (
                   <span
                     key={i}
-                    className="h-4 rounded bg-muted animate-pulse"
+                    className="h-4 shrink-0 rounded bg-muted animate-pulse"
                     style={{ width: `${48 + i * 12}px` }}
                   />
                 ))}
               </nav>
             ) : (
               <nav
-                className="hidden sm:flex flex-nowrap min-w-0 items-center gap-1 overflow-x-auto hide-scrollbar"
+                className="flex w-max shrink-0 flex-nowrap items-center gap-1 sm:w-auto sm:flex-1 sm:min-w-0 sm:overflow-x-auto sm:hide-scrollbar"
                 data-mail-tab-list
               >
                 {topBarTabs.map((tab, tabIndex) => {
@@ -1424,7 +1618,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     dropIndicator?.tabIndex === tabIndex &&
                     dropIndicator.side === "right";
                   const link = (
-                    <Link
+                    <RouterSidebarLink
                       to={tab.href}
                       aria-current={tab.isActive ? "page" : undefined}
                       draggable={canDrag}
@@ -1458,7 +1652,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           {count}
                         </span>
                       )}
-                    </Link>
+                    </RouterSidebarLink>
                   );
                   return (
                     <div
@@ -1488,10 +1682,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 {/* If navigated to an unpinned view (e.g. via keyboard shortcut), show it */}
                 {currentInHidden && (
                   <span className="flex shrink-0 items-center whitespace-nowrap px-2.5 py-1 text-[13px] text-foreground font-semibold">
-                    {t(
-                      collapsibleViews.find((v) => v.id === view)?.labelKey ??
-                        "mail.views.inbox",
-                    )}
+                    {t(currentHiddenView?.labelKey ?? "mail.views.inbox")}
                   </span>
                 )}
               </nav>
@@ -1513,7 +1704,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <PopoverTrigger asChild>
                       <button
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          "flex h-9 w-9 items-center justify-center rounded transition-colors sm:h-6 sm:w-6",
                           tabSettingsOpen
                             ? "text-foreground bg-accent/50"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
@@ -1533,7 +1724,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   className="w-60 max-w-[calc(100vw-2rem)] p-0"
                 >
                   <Link
-                    to="/settings?section=ai-filter#tags"
+                    to={`${mailSettingsRoute("ai-filter")}#tags`}
                     onClick={() => setTabSettingsOpen(false)}
                     className="flex items-center gap-2 border-b border-border/30 px-3 py-2 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/50"
                   >
@@ -1544,7 +1735,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <IconArrowUpRight className="size-3.5 text-muted-foreground" />
                   </Link>
                   <TabSettingsPopover
-                    systemViews={collapsibleViews}
+                    systemViews={systemViews}
+                    aiTags={aiTags}
+                    labels={labels}
                     userLabels={userLabels}
                     labelDisplayNames={labelDisplayNames}
                     pinnedLabels={pinnedLabels}
@@ -1570,8 +1763,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               </Popover>
             </div>
           </>
-
-          <div className="flex-1" />
 
           {inboxSyncing && (
             <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
@@ -1607,7 +1798,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setSearchFocused(true)}
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                   aria-label={t("mail.search.label")}
                 >
                   <IconSearch className="h-4 w-4" />
@@ -1639,7 +1830,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   if (inboxIsFetching) return;
                   setIsManuallyRefreshing(true);
                   markExternalEmailRefresh();
-                  void queryClient.invalidateQueries({ queryKey: ["emails"] });
+                  void queryClient.invalidateQueries({
+                    queryKey: ["emails"],
+                  });
                   void queryClient.invalidateQueries({
                     queryKey: LABELS_QUERY_KEY,
                   });
@@ -1670,7 +1863,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 onClick={handleCompose}
                 variant="outline"
                 size="sm"
-                className="h-9 sm:h-7 px-3 text-[13px]"
+                className="h-9 shrink-0 px-3 text-[13px] sm:h-7"
                 aria-label={t("mail.toolbar.composeEmail")}
               >
                 <span>{t("mail.toolbar.compose")}</span>
@@ -1696,7 +1889,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     <button
                       type="button"
                       aria-label={t("mail.toolbar.accounts")}
-                      className="flex items-center hover:opacity-90 transition-opacity ms-1"
+                      className="flex shrink-0 items-center hover:opacity-90 transition-opacity ms-1"
                     >
                       <div
                         className="flex items-center"
@@ -1747,17 +1940,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                     setActiveAccounts((prev) => {
                       const next = new Set(prev);
                       if (next.size === 0) {
-                        // Switching from "all" → deselect this one (keep others)
                         for (const a of accounts) {
                           if (a.email !== email) next.add(a.email);
                         }
                       } else if (next.has(email)) {
                         next.delete(email);
-                        // If nothing left, reset to "all"
                         if (next.size === 0) return new Set();
                       } else {
                         next.add(email);
-                        // If all are now checked, reset to "all" (empty set)
                         if (next.size === accounts.length) return new Set();
                       }
                       return next;
@@ -1775,359 +1965,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </Popover>
           )}
 
+          <NotificationsBell browserNotifications />
           <AgentToggleButton />
         </header>
-
-        {/* Sidebar overlay / pinned rail */}
-        {showSidebar && (
-          <>
-            {(!sidebarPinned || isMobile) && (
-              <div
-                className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
-            <div
-              className={cn(
-                "agent-layout-left-drawer flex flex-col overflow-hidden border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
-                showCollapsedSidebar ? "w-14" : "w-[260px]",
-                sidebarPinned && !isMobile
-                  ? "absolute start-0 top-12 bottom-0 z-10"
-                  : "fixed start-0 top-0 bottom-0 z-40",
-              )}
-            >
-              <AppSidebarHeader
-                brandName={t("mail.appName")}
-                appId="mail"
-                brandHref="/inbox"
-                collapsed={showCollapsedSidebar}
-              >
-                {!showCollapsedSidebar && (
-                  <div className="ms-auto flex items-center gap-1">
-                    {isMobile ? (
-                      // The drawer is always a slide-out overlay on mobile,
-                      // so "pin" has nothing to pin here — offer to close it.
-                      <button
-                        type="button"
-                        onClick={() => setSidebarOpen(false)}
-                        className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                        aria-label={t("mail.toolbar.closeSidebar")}
-                      >
-                        <IconX className="h-4 w-4" />
-                      </button>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (sidebarPinned) {
-                                setSidebarPinned(false);
-                                setSidebarOpen(true);
-                                return;
-                              }
-                              setSidebarPinned(true);
-                              setSidebarOpen(true);
-                            }}
-                            className={cn(
-                              "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                              sidebarPinned && "text-foreground bg-accent/50",
-                            )}
-                            aria-label={
-                              sidebarPinned
-                                ? t("mail.toolbar.unpinSidebar")
-                                : t("mail.toolbar.pinSidebar")
-                            }
-                          >
-                            {sidebarPinned ? (
-                              <IconPinnedFilled className="h-4 w-4" />
-                            ) : (
-                              <IconPin className="h-4 w-4" />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {sidebarPinned
-                            ? t("mail.toolbar.unpinSidebar")
-                            : t("mail.toolbar.pinSidebar")}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                  </div>
-                )}
-              </AppSidebarHeader>
-              {showCollapsedSidebar ? (
-                <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
-                  {railNavItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = view === item.id;
-                    return (
-                      <Tooltip key={item.id}>
-                        <TooltipTrigger asChild>
-                          <Link
-                            to={item.href}
-                            aria-label={item.label}
-                            className={cn(
-                              "relative flex size-9 items-center justify-center rounded-md text-primary transition-colors hover:bg-accent/60 hover:text-primary",
-                              isActive &&
-                                "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
-                            )}
-                          >
-                            <Icon className="h-4 w-4" />
-                            {item.count && item.count > 0 ? (
-                              <span className="absolute end-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                            ) : null}
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {item.label}
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </nav>
-              ) : (
-                <>
-                  <div className="min-h-0 flex-1 overflow-y-auto">
-                    {/* Accounts */}
-                    {hasAccounts && (
-                      <div className="px-4 pt-5 pb-4 border-b border-border/20">
-                        <div className="space-y-2">
-                          {accounts.map((account) => {
-                            const isActive =
-                              activeAccounts.size === 0 ||
-                              activeAccounts.has(account.email);
-                            return (
-                              <button
-                                key={account.email}
-                                onClick={() => {
-                                  setActiveAccounts((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.size === 0) {
-                                      for (const a of accounts) {
-                                        if (a.email !== account.email)
-                                          next.add(a.email);
-                                      }
-                                    } else if (next.has(account.email)) {
-                                      next.delete(account.email);
-                                      if (next.size === 0) return new Set();
-                                    } else {
-                                      next.add(account.email);
-                                      if (next.size === accounts.length)
-                                        return new Set();
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                className={cn(
-                                  "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-start transition-opacity",
-                                  isActive ? "opacity-100" : "opacity-30",
-                                )}
-                              >
-                                <AccountAvatar
-                                  email={account.email}
-                                  photoUrl={account.photoUrl}
-                                  imageClassName="h-8 w-8 rounded-full object-cover shrink-0"
-                                  fallbackClassName="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-[12px] font-semibold text-primary shrink-0"
-                                />
-                                <span className="text-[13px] text-foreground truncate">
-                                  {account.email}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="px-2 py-3">
-                      <div className="space-y-0.5">
-                        {[
-                          {
-                            id: "inbox",
-                            label: t("mail.views.inbox"),
-                            href: "/inbox",
-                          },
-                          {
-                            id: "unread",
-                            label: t("mail.views.unread"),
-                            href: "/unread",
-                          },
-                          {
-                            id: "starred",
-                            label: t("mail.views.starred"),
-                            href: "/starred",
-                          },
-                          {
-                            id: "snoozed",
-                            label: t("mail.views.snoozed"),
-                            href: "/snoozed",
-                          },
-                          {
-                            id: "sent",
-                            label: t("mail.views.sent"),
-                            href: "/sent",
-                          },
-                          {
-                            id: "draft-queue",
-                            label: t("mail.views.draftQueue"),
-                            href: "/draft-queue",
-                          },
-                          {
-                            id: "scheduled",
-                            label: t("mail.views.scheduled"),
-                            href: "/scheduled",
-                          },
-                          {
-                            id: "drafts",
-                            label: t("mail.views.drafts"),
-                            href: "/drafts",
-                          },
-                          {
-                            id: "archive",
-                            label: t("mail.views.archive"),
-                            href: "/archive",
-                          },
-                          {
-                            id: "trash",
-                            label: t("mail.views.trash"),
-                            href: "/trash",
-                          },
-                        ].map((item) => (
-                          <Link
-                            key={item.id}
-                            to={item.href}
-                            onClick={closeSidebar}
-                            className={cn(
-                              "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
-                              view === item.id
-                                ? "bg-primary/10 font-medium text-primary"
-                                : "text-primary hover:bg-accent/60",
-                            )}
-                          >
-                            <span>{item.label}</span>
-                            {item.id === "draft-queue" &&
-                              queuedDrafts.count > 0 && (
-                                <span className="text-[12px] text-amber-300 tabular-nums">
-                                  {queuedDrafts.count}
-                                </span>
-                              )}
-                            {item.id === "inbox" &&
-                              !!inboxSidebarUnreadCount &&
-                              inboxSidebarUnreadCount > 0 && (
-                                <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                  {inboxSidebarUnreadCount}
-                                </span>
-                              )}
-                          </Link>
-                        ))}
-                      </div>
-
-                      {/* Mobile equivalents for the hidden top-bar inbox tabs */}
-                      {mobileInboxTabs.length > 0 && (
-                        <>
-                          <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
-                            {t("mail.views.labels")}
-                          </h2>
-                          <div className="space-y-0.5">
-                            {mobileInboxTabs.map((tab) => {
-                              const count = tab.unread;
-                              const depth = tab.fullLabel
-                                ? labelDepth(tab.fullLabel)
-                                : 0;
-                              return (
-                                <Link
-                                  key={tab.id}
-                                  to={tab.href}
-                                  onClick={closeSidebar}
-                                  className={cn(
-                                    "flex items-center justify-between rounded px-2 py-1.5 text-xs transition-colors",
-                                    tab.isActive
-                                      ? "bg-primary/10 font-medium text-primary"
-                                      : "text-primary hover:bg-accent/60",
-                                  )}
-                                >
-                                  <span
-                                    className="flex min-w-0 items-center gap-2"
-                                    style={{ paddingLeft: depth * 12 }}
-                                  >
-                                    {tab.color && (
-                                      <span
-                                        className="h-2 w-2 rounded-full shrink-0"
-                                        style={{ backgroundColor: tab.color }}
-                                      />
-                                    )}
-                                    <span
-                                      className="truncate"
-                                      title={tab.fullLabel ?? tab.label}
-                                    >
-                                      {tab.label}
-                                    </span>
-                                  </span>
-                                  {count !== undefined && count > 0 && (
-                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                      {count}
-                                    </span>
-                                  )}
-                                </Link>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <AppSidebarFooter
-                    collapsed={showCollapsedSidebar}
-                    collapsible={false}
-                    feedback={feedbackButton}
-                    orgSwitcher={
-                      <OrgSwitcher
-                        compact={showCollapsedSidebar}
-                        className={cn(
-                          "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
-                          showCollapsedSidebar
-                            ? "!size-9 !p-0 [&>svg]:!size-4"
-                            : "min-w-0 flex-1",
-                        )}
-                      />
-                    }
-                    footerExtras={
-                      <>
-                        <DevDatabaseLink />
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Link
-                              to="/settings"
-                              onClick={closeSidebar}
-                              aria-label={t("mail.toolbar.settings")}
-                              className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                            >
-                              <IconSettings className="size-4" />
-                            </Link>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            {t("mail.toolbar.settings")}
-                          </TooltipContent>
-                        </Tooltip>
-                        <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
-                        {collapseButton}
-                      </>
-                    }
-                  />
-                </>
-              )}
-            </div>
-          </>
-        )}
 
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            !isMobile &&
-              showSidebar &&
-              (showCollapsedSidebar ? "ps-14" : "ps-[260px]"),
+            !isMobile && sidebarOpen && "ps-[260px]",
           )}
         >
           <InvitationBanner />
@@ -2155,9 +2000,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         </div>
       </div>
-
       {(() => {
-        // Filter out inline drafts (rendered in thread view, not the popout composer)
         const popoutDrafts = compose.drafts.filter((d) => !d.inline);
         if (popoutDrafts.length === 0) return null;
         const popoutActiveId =
@@ -2363,19 +2206,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
 }
 
-// ─── Standard Layout (settings, team, tools, draft-queue) ────────────────────
-
-/**
- * Slim chrome used on secondary pages. Renders a clean h-12 header (title +
- * AgentToggleButton) instead of the inbox-specific top bar (tabs, search,
- * account stack, compose pen, etc.).
- *
- * Pages can hoist a custom title or right-side actions via
- * `useSetPageTitle` / `useSetHeaderActions` from `./HeaderActions`.
- */
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
+  const isAgentChatRoute = location.pathname === "/chat";
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
@@ -2423,9 +2257,6 @@ function StandardLayout({ children }: AppLayoutProps) {
   );
   const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
-  // Extensions (`/extensions` list and `/extensions/:id` viewer) render their own h-12
-  // toolbar inside the shared
-  // ExtensionViewer / ExtensionsListPage components. Skip our header to avoid stacking.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -2471,7 +2302,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <AgentToggleButton />
+            {!isAgentChatRoute && <AgentToggleButton />}
           </div>
         </header>
       )}
@@ -2575,6 +2406,7 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
           </div>
 
+          <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
           <div className="shrink-0 border-t border-border p-2 space-y-1.5">
             <SidebarFooterActions
               feedback={feedbackButton}
@@ -2585,23 +2417,11 @@ function StandardLayout({ children }: AppLayoutProps) {
               data-sidebar-footer-utilities
               className="flex items-center gap-0.5"
             >
-              <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+              <OrgSwitcher
+                hideBuilderCreditNotice
+                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
               <DevDatabaseLink />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Link
-                    to="/settings"
-                    onClick={() => setSidebarOpen(false)}
-                    aria-label={t("mail.toolbar.settings")}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary"
-                  >
-                    <IconSettings className="size-4" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("mail.toolbar.settings")}
-                </TooltipContent>
-              </Tooltip>
               <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
             </div>
           </div>
@@ -2621,8 +2441,6 @@ function StandardLayout({ children }: AppLayoutProps) {
     </div>
   );
 }
-
-// ─── Tab Settings Popover ────────────────────────────────────────────────────
 
 function CheckboxRow({
   checked,
@@ -2668,6 +2486,8 @@ function CheckboxRow({
 
 function TabSettingsPopover({
   systemViews,
+  aiTags,
+  labels,
   userLabels,
   labelDisplayNames,
   pinnedLabels,
@@ -2685,6 +2505,8 @@ function TabSettingsPopover({
   onRename,
 }: {
   systemViews: { id: string; labelKey: string }[];
+  aiTags: { id: string; name: string }[];
+  labels: Label[];
   userLabels: Label[];
   labelDisplayNames: ReadonlyMap<string, string>;
   pinnedLabels: string[];
@@ -2705,12 +2527,19 @@ function TabSettingsPopover({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const searchEnabled =
-    systemViews.length + userLabels.length + savedFilters.length > 10;
+    systemViews.length +
+      aiTags.length +
+      userLabels.length +
+      savedFilters.length >
+    10;
   const q = searchEnabled ? search.toLowerCase() : "";
 
   const filteredViews = search
     ? systemViews.filter((v) => t(v.labelKey).toLowerCase().includes(q))
     : systemViews;
+  const filteredAiTags = search
+    ? aiTags.filter((tag) => tag.name.toLowerCase().includes(q))
+    : aiTags;
   const filteredSavedFilters = search
     ? savedFilters.filter(
         (filter) =>
@@ -2719,8 +2548,6 @@ function TabSettingsPopover({
       )
     : savedFilters;
 
-  // Split labels into Gmail categories and regular user labels
-  // Keep Important with regular labels so it can be toggled like any other tab.
   const gmailCategoryIds = new Set([
     "note-to-self",
     "promotions",
@@ -2729,7 +2556,6 @@ function TabSettingsPopover({
     "forums",
     "personal",
   ]);
-  // Ensure all known Gmail categories always appear (some are virtual, not from API)
   const knownCategories: Label[] = [
     {
       id: "note-to-self",
@@ -2756,17 +2582,20 @@ function TabSettingsPopover({
     : mergedCategories;
   const filteredLabels = allLabels.filter((l) => !gmailCategoryIds.has(l.id));
 
-  // Nested by full label path so e.g. "1-clients/electric kiwi" sorts and
-  // indents under where "1-clients" would sort, even when "1-clients" isn't
-  // a label of its own.
   const labelRows = labelTreeRows(filteredLabels);
 
   const showViews = filteredViews.length > 0;
+  const showAiTags = filteredAiTags.length > 0;
   const showSavedFilters = filteredSavedFilters.length > 0;
   const showCategories = filteredCategories.length > 0;
   const showLabels = labelRows.length > 0;
   const noResults =
-    !showViews && !showSavedFilters && !showCategories && !showLabels && search;
+    !showAiTags &&
+    !showViews &&
+    !showSavedFilters &&
+    !showCategories &&
+    !showLabels &&
+    search;
 
   return (
     <>
@@ -2806,6 +2635,24 @@ function TabSettingsPopover({
             <p className="px-3 py-3 text-[12px] text-muted-foreground/50">
               {t("mail.search.noMatches")}
             </p>
+          )}
+
+          {/* AI rule tags stay separate from the Gmail label tree. */}
+          {showAiTags && (
+            <div>
+              <p className="px-3 pt-2 pb-1 text-[10px] font-medium text-muted-foreground/50 uppercase tracking-wider">
+                {t("mail.aiFilter.aiTagsTitle")}
+              </p>
+              {filteredAiTags.map((tag) => (
+                <CheckboxRow
+                  key={tag.id}
+                  checked={pinnedLabels.includes(tag.id)}
+                  label={labelAliases[tag.id]?.trim() || tag.name}
+                  color={labels.find((label) => label.id === tag.id)?.color}
+                  onToggle={() => onToggle(tag.id)}
+                />
+              ))}
+            </div>
           )}
 
           {/* System views */}
@@ -2976,8 +2823,6 @@ function TabSettingsPopover({
   );
 }
 
-// ─── Account Popover ─────────────────────────────────────────────────────────
-
 function AccountPopover({
   accounts,
   canAddAccount,
@@ -3040,7 +2885,6 @@ function AccountPopover({
     return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data, accounts.length]);
 
-  // Empty activeAccounts means "all selected"
   const allSelected = activeAccounts.size === 0;
 
   return (

@@ -13,7 +13,10 @@ vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
   putUserSetting: vi.fn(),
 }));
-vi.mock("../settings/store.js", () => ({ getSetting: vi.fn() }));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: vi.fn(),
+}));
 
 import { runWithRequestContext } from "../server/request-context.js";
 import { createOrganization, resolveOrgIdForEmail } from "./context.js";
@@ -121,8 +124,6 @@ describe("per-request org membership memo", () => {
   });
 
   it("evicts a transient failure instead of memoizing it", async () => {
-    // 08006 = connection failure; `queryOrgMembers` rethrows transient errors
-    // rather than reporting them as "no memberships".
     mockExecute.mockRejectedValueOnce(
       Object.assign(new Error("connection failure"), { code: "08006" }),
     );

@@ -202,12 +202,7 @@ export function useNewDeckGenerationRun(
     routeCleanupTokenRef.current = token;
     return () => {
       const runAtExit = currentRunRef.current;
-      // Let a StrictMode effect replay replace the token before cleanup runs.
       queueMicrotask(() => {
-        // A run that reached a chat tab keeps its mapping past this unmount:
-        // browser history can restore the deck URL with `generationSubmitId`
-        // mid-generation, and the mapping is the only way back to that tab.
-        // Keys are unique per submit, so a leftover entry is never reused.
         if (
           routeCleanupTokenRef.current === token &&
           runAtExit.submitMessageId &&
@@ -304,12 +299,6 @@ export function useNewDeckGenerationRun(
     return () => clearTimeout(timer);
   }, [currentContinuation.submitMessageId, runKey]);
 
-  // A targeted send can dispatch chatSubmitTarget and the run's first
-  // chatRunning event in the same synchronous stack (sendToTab ->
-  // reportAgentChatSubmitTarget -> markOptimisticRunning). The `setRun` state
-  // update below only commits on the next render, too late for that first
-  // event, so the tab id also lands here in a ref the chatRunning listener
-  // (installed alongside this one, not after it) can read immediately.
   const tabIdRef = useRef(currentRun.tabId);
   useLayoutEffect(() => {
     const submitId = currentRun.submitMessageId;
@@ -356,8 +345,6 @@ export function useNewDeckGenerationRun(
     const submitId = currentRun.submitMessageId;
     if (!submitId) return;
     const deckId = currentRun.deckId;
-    // Re-sync in case this effect reinstalls (e.g. StrictMode) without a
-    // chatSubmitTarget event in between.
     tabIdRef.current = currentRun.tabId;
     const getRunKey = () => `${deckId}:${submitId}:${tabIdRef.current}`;
     const clearStopDebounce = () => {

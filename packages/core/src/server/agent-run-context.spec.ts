@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
-const getRunOwnerEmailMock = vi.hoisted(() => vi.fn());
+const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./auth.js", () => ({
   getSession: getSessionMock,
@@ -15,7 +15,7 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../agent/run-store.js", () => ({
-  getRunOwnerEmail: getRunOwnerEmailMock,
+  getTurnInitiatorByRun: getTurnInitiatorByRunMock,
 }));
 
 import {
@@ -26,6 +26,7 @@ import {
 } from "./agent-run-context.js";
 import {
   getRequestContext,
+  markRequestIdentityAuthenticatedAtMs,
   getRequestOrgId,
   getRequestRunContext,
   getRequestTimezone,
@@ -49,20 +50,23 @@ describe("server/agent-run-context", () => {
     getSessionMock.mockReset();
     getOrgContextMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
-    getRunOwnerEmailMock.mockReset();
+    getTurnInitiatorByRunMock.mockReset();
     getSessionMock.mockResolvedValue(null);
     getOrgContextMock.mockResolvedValue({ orgId: null });
     resolveOrgIdForEmailMock.mockResolvedValue(null);
-    getRunOwnerEmailMock.mockResolvedValue(null);
+    getTurnInitiatorByRunMock.mockResolvedValue(null);
   });
 
   it("resolves and caches a signed-in owner from the session", async () => {
     const event = makeEvent();
-    getSessionMock.mockResolvedValue({
-      email: "alice@example.com",
-      authUserId: "ba-user-1",
-      name: "Alice",
-      orgId: "org-session",
+    getSessionMock.mockImplementation(async (event) => {
+      markRequestIdentityAuthenticatedAtMs(event, "alice@example.com", 1_234);
+      return {
+        email: "alice@example.com",
+        authUserId: "ba-user-1",
+        name: "Alice",
+        orgId: "org-session",
+      };
     });
 
     const owner = await resolveAgentRunOwnerContext(event);
@@ -73,6 +77,7 @@ describe("server/agent-run-context", () => {
       authUserId: "ba-user-1",
       name: "Alice",
       anonymous: false,
+      identityAuthenticatedAtMs: 1_234,
     });
     expect(cached).toBe(owner);
     expect(getSessionMock).toHaveBeenCalledTimes(1);
@@ -186,12 +191,15 @@ describe("server/agent-run-context", () => {
           authUserId: "ba-user-1",
           name: "Alice",
           anonymous: false,
+          identityAuthenticatedAtMs: 1_234,
         },
         isBackgroundWorker: true,
       },
       async () => ({
         userEmail: getRequestUserEmail(),
         authUserId: getRequestContext()?.authUserId,
+        identityAuthenticatedAtMs:
+          getRequestContext()?.identityAuthenticatedAtMs,
         userName: getRequestUserName(),
         orgId: getRequestOrgId(),
         timezone: getRequestTimezone(),
@@ -203,6 +211,7 @@ describe("server/agent-run-context", () => {
     expect(seen).toEqual({
       userEmail: "alice@example.com",
       authUserId: "ba-user-1",
+      identityAuthenticatedAtMs: 1_234,
       userName: "Alice",
       orgId: "org-session",
       timezone: "America/Los_Angeles",
@@ -245,51 +254,58 @@ describe("server/agent-run-context", () => {
     );
   });
 
-  it("seeds the durable background owner from the persisted run row", async () => {
+  it("seeds the durable worker from the persisted turn initiator", async () => {
     const event = makeEvent();
-    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    getTurnInitiatorByRunMock.mockResolvedValue({
+      email: "editor@example.com",
+      authUserId: "editor-user-id",
+      orgId: "editor-org",
+      orgScope: null,
+      anonymous: false,
+      firstRunId: "run_123",
+    });
 
     const seeded = await seedBackgroundAgentRunOwnerContext(event, "run_123");
 
     expect(seeded).toEqual({
-      owner: "owner@example.com",
+      owner: "editor@example.com",
+      authUserId: "editor-user-id",
       anonymous: false,
+      orgId: "editor-org",
+      orgScope: null,
     });
     await expect(resolveAgentRunOwnerContext(event)).resolves.toBe(seeded);
     expect(getSessionMock).not.toHaveBeenCalled();
   });
 
-  it("preserves the foreground org binding for cookieless background workers", async () => {
+  it("preserves an explicitly org-less foreground initiator", async () => {
     const event = makeEvent();
-    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
+    getTurnInitiatorByRunMock.mockResolvedValue({
+      email: "editor@example.com",
+      orgId: null,
+      anonymous: false,
+      firstRunId: "run_123",
+    });
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-another-membership");
 
-    const seeded = await seedBackgroundAgentRunOwnerContext(
-      event,
-      "run_123",
-      "org-from-foreground",
-    );
-
-    await expect(
-      resolveAgentRunOrgId({ event, ownerContext: seeded! }),
-    ).resolves.toBe("org-from-foreground");
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
-  });
-
-  it("preserves an explicitly org-less foreground request in the worker", async () => {
-    const event = makeEvent();
-    getRunOwnerEmailMock.mockResolvedValue("owner@example.com");
-    resolveOrgIdForEmailMock.mockResolvedValue("org-from-membership");
-
-    const seeded = await seedBackgroundAgentRunOwnerContext(
-      event,
-      "run_123",
-      null,
-    );
+    const seeded = await seedBackgroundAgentRunOwnerContext(event, "run_123");
 
     await expect(
       resolveAgentRunOrgId({ event, ownerContext: seeded! }),
     ).resolves.toBeUndefined();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a legacy run has no persisted initiator", async () => {
+    const event = makeEvent();
+    getTurnInitiatorByRunMock.mockResolvedValue(null);
+
+    await expect(
+      seedBackgroundAgentRunOwnerContext(event, "run_123"),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      statusMessage: "Agent turn initiator is unavailable",
+    });
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 });

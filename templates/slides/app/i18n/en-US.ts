@@ -40,7 +40,6 @@ const messages = {
     brand: "Slides",
     decks: "Decks",
     designSystems: "Design Systems",
-    team: "Team",
   },
   settings: {
     agentObservability: "Agent Observability",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "Get an email when someone comments on or replies in your deck.",
     saveFailed: "Failed to save",
+    notificationsEmail: "Email",
+    commentsAndReplies: "Comments and replies",
+    commentsAndRepliesDescription:
+      "When someone comments on or replies in your deck.",
+    retry: "Retry",
+    mcpAbout:
+      "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -126,7 +132,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -185,8 +191,6 @@ const messages = {
     slideUnavailable: "Slide unavailable",
     couldNotLoadSlide: "Could not load slide.",
     openInApp: "Open in app",
-    teamDescription:
-      "Set up a team to share presentations with your colleagues.",
   },
 
   designSystems: {
@@ -580,6 +584,7 @@ const messages = {
     generating: "Generating slides...",
     generate: "Generate Slides",
   },
+  deckResult: { saved: "Saved" },
   history: {
     unknownTime: "Unknown time",
     justNow: "Just now",
@@ -646,10 +651,31 @@ const messages = {
     enterFullscreen: "Enter fullscreen",
     clickToEnterFullscreen: "Click to enter fullscreen",
   },
+  deckAccessPage: {
+    errorCode: "Error 403",
+    noAccessTitle: "You don't have access",
+    noAccessDescription:
+      "Ask the deck owner for access, or switch to the right account.",
+    noteLabel: "Add a note for the owner (optional)",
+    notePlaceholder: "I'm reviewing this deck",
+    requesting: "Requesting",
+    requestFailed: "Your request wasn't sent. Please try again.",
+    requestSentDescription:
+      "We’ll email you as soon as the owner approves your request.",
+    goHome: "Go home",
+    signedInAs: "Signed in as",
+    switchAccount: "Switch account",
+  },
   deckEditor: {
     lookingForDeck: "Looking for this deck",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
+    generationStalled: "Generation paused after 5 minutes without progress",
+    generationStalledDescription:
+      "Your saved slides are still here. Continue from this deck in chat.",
+    continueInChat: "Continue in chat",
+    continueGenerationPrompt:
+      "Continue generating slides for this deck. Check its current slides and saved generation context first. Keep completed slides and add only the missing slides.",
     checkingSharedAccess:
       "Checking whether this presentation is shared with your account.",
     joinTeamDescription:
@@ -685,6 +711,9 @@ const messages = {
     accessApprovalTitle: "Access granted",
     accessApprovalAlreadyTitle: "Access already granted",
     accessApprovalMessage: "{{email}} can now open this deck.",
+    accessApprovalRequesterEmailed: "We emailed them to let them know.",
+    accessApprovalRequesterEmailFailed:
+      "We couldn't email {{email}}. Let them know they can open the deck now.",
     accessApprovalAlreadyMessage: "{{email}} already has access to this deck.",
     accessApprovalErrorTitle: "Couldn't grant access",
     accessApprovalInvalid: "This access request is invalid or expired.",
@@ -698,7 +727,7 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect Builder.io (free tier available) from the agent composer model menu to upload images onto slides. Dropping an image onto empty canvas can still send it to the agent without a provider.",
+      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
@@ -806,6 +835,11 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Create a product pitch deck",
+      roadmap: "Create a product roadmap",
+      explainer: "Explain a topic in a presentation",
+    },
     suggestedPrompts: "Suggested prompts",
     importMenu: {
       import: "Import",
@@ -813,7 +847,13 @@ const messages = {
       invalidPdf: "Choose a PDF file.",
       invalidPptx: "Choose a PPTX file.",
       invalidFile: "Choose a PDF or PPTX file.",
+      networkFailed:
+        "The import request timed out or lost its network connection. Check your connection and retry.",
       notStarted: "Complete any required sign-in, then retry the import.",
+      unsupportedFileType:
+        "This file type isn't supported. Choose a supported file.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
     },
     importDeck: "Import Deck",
     context: {
@@ -852,6 +892,10 @@ const messages = {
       notReady:
         "Context is still loading or unavailable. Retry or remove it before sending.",
       emptySource: "This source returned no usable context.",
+      websiteReadFailed:
+        "This website couldn't be read automatically. Copy and paste the relevant text instead.",
+      figmaReadFailed:
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
       designCategory: "Design",
@@ -861,7 +905,7 @@ const messages = {
       starting: "Starting…",
       generate: "Generate",
       connectionRequired:
-        "Connect Builder.io above the home prompt, then try again.",
+        "Connect an AI provider above the home prompt or add your own AI key, then try again.",
       invalidPdf: "Choose a PDF file.",
       notReady:
         "Review the prompt's loading or failed context and connection status, then try again.",
@@ -913,8 +957,11 @@ const messages = {
     loadFailedDescription:
       "Your saved content is still available. Check the connection and try again.",
     retry: "Retry",
+    fileStorageStatusUnavailable:
+      "Couldn't check object storage. Retry before uploading files.",
+    fileStorageSetupRequired:
+      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
-    newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
     deckLengthShort: "Short (3–5 slides)",
@@ -944,6 +991,8 @@ const messages = {
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    referenceFileStorageUnavailable:
+      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",
@@ -1001,6 +1050,11 @@ const messages = {
     createFirstDeck: "Create your first deck",
     emptyDescription:
       "Build beautiful presentations with AI-powered generation.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
   },
 };
 

@@ -4,11 +4,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  AGENT_SIDEBAR_QUERY_PARAM,
-  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-  docsUrl,
-} from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconArchive,
   IconPhoto,
@@ -453,6 +449,10 @@ export function ClipsCommandMenu({
         )
         .join(t("settings.changelogCommentSignup"))
         .split(
+          "The empty comments state now explains how screen recordings help AI agents.",
+        )
+        .join(t("settings.changelogCommentsEmptyState"))
+        .split(
           'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
         )
         .join(t("settings.changelogShareLink"))}
@@ -493,7 +493,7 @@ export function ClipsCommandMenu({
               onSelect={() =>
                 void navigate(
                   withQuery(`/r/${context.recordingId}`, {
-                    [AGENT_SIDEBAR_QUERY_PARAM]: AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+                    panel: "agent",
                   }),
                 )
               }

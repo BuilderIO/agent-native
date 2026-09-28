@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "اتصال",
@@ -262,6 +264,15 @@ export default {
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",
     eventRules: "قواعد الدعوات",
+    eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
+    eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
+    eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
+    eventRulesConnectBuilder: "ربط Builder.io",
+    eventRulesAddJevApiKey: "إضافة مفتاح API",
+    eventRulesTabRules: "القواعد",
+    eventRulesHelpLabel: "حول تعليمات قواعد الدعوات",
+    eventRulesHelp:
+      "اكتب تعليمات تحدد لـ Jev الدعوات التي يقبلها أو يرفضها أو يخفيها تلقائيًا.",
     eventRuleAccept: "قبول تلقائي",
     eventRuleDecline: "رفض تلقائي",
     eventRuleHide: "إخفاء تلقائي",
@@ -270,6 +281,7 @@ export default {
       "مثال: ارفض عروض الموردين والفعاليات بعد ساعات العمل",
     eventRulePlaceholderHide: "مثال: أخفِ أوقات التركيز والتذكيرات",
     eventRulesSave: "حفظ القواعد",
+    eventRulesClearSaved: "مسح القواعد المحفوظة",
     eventRulesRecentActivity: "النشاط الأخير",
     eventRulesNoActivity: "لا يوجد نشاط بعد",
     eventRuleActivityAccepted: "تم القبول",
@@ -285,6 +297,39 @@ export default {
     eventRulesChecking: "جارٍ التحقق من حالة الأتمتة…",
     eventRulesConflict: "تخطّينا دعوة لأن قاعدتي القبول والرفض تطابقتا.",
     eventRulesUnregistered: "أتمتة Calendar غير مسجلة على هذا الخادم.",
+  },
+  calendarSettings: {
+    calendarsTab: "التقويمات",
+    bookingTab: "الحجز",
+    eventsGroup: "الأحداث",
+    appearanceGroup: "المظهر",
+    colorTheme: "سمة الألوان",
+    timezone: "المنطقة الزمنية للتقويم",
+    timezoneDescription: "يُستخدم لعرض الأحداث وإنشاء أحداث جديدة.",
+    defaultDuration: "المدة الافتراضية للحدث",
+    defaultDurationDescription:
+      "بالدقائق. يمكن لروابط الحجز تعيين مدة خاصة بها.",
+    durationInvalid: "أدخل مدة من 5 إلى 480 دقيقة.",
+    zoom: "Zoom",
+    connectedAs: "متصل باسم {{accounts}}",
+    setUp: "إعداد",
+    disconnectGoogleTitle: "هل تريد قطع الاتصال بتقويم Google؟",
+    disconnectGoogleDescription:
+      "يتوقف Calendar عن عرض الأحداث من حسابات Google ومزامنتها.",
+    disconnectZoomTitle: "هل تريد قطع الاتصال بـ Zoom؟",
+    disconnectZoomDescription:
+      "لن تحصل الأحداث والحجوزات الجديدة على روابط اجتماعات Zoom حتى تعيد الاتصال.",
+    manage: "إدارة",
+    edit: "تعديل",
+    cancel: "إلغاء",
+    save: "حفظ",
+    fallbackBookingPage: "صفحة الحجز البديلة",
+    fallbackBookingPageDescription:
+      "تُستخدم عندما لا يكون لرابط الحجز عنوان أو وصف خاص به.",
+    fallbackTitle: "العنوان",
+    fallbackDescription: "الوصف",
+    bookingLinksDescription:
+      "أنشئ روابط حجز وانسخ عناوين URL العامة الخاصة بها.",
   },
   eventDialog: {
     eventUpdated: "تم تحديث الحدث",
@@ -525,6 +570,14 @@ export default {
     meetingDetailsPending: "تم حجز موعدك. سيتابع المضيف معك بتفاصيل الاجتماع.",
     confirmed: "مؤكد",
     confirmedCount: "مؤكدة ({{count}})",
+    zoomNeedsReview: "تحقق من Zoom قبل إعادة المحاولة",
+    zoomCancellationNeedsReview: "تحقق من Zoom قبل إلغاء الحجز",
+    zoomCancellationRequiresHostReview:
+      "يجب على المنظّم مراجعة اجتماع Zoom قبل إلغاء هذا الحجز.",
+    zoomCancelTitle: "تحقق من Zoom قبل الإلغاء",
+    zoomCancelDescription:
+      "ربما أنشأ Zoom اجتماعًا لهذا الحجز. تحقق من حسابك في Zoom وألغِ الاجتماع هناك إن وُجد. تابع بعد إلغاء الاجتماع أو التأكد من عدم وجوده.",
+    zoomCancelConfirm: "تحققت من Zoom",
     confirming: "جارٍ التأكيد",
     conferencing: "عقد المؤتمرات",
     connectZoom: "قم بتوصيل Zoom",
@@ -1001,7 +1054,7 @@ export default {
     year: "سنة",
     zoom: "Zoom",
     zoomAdded: "تمت إضافة Zoom",
-    zoomAddFailed: "فشلت إضافة Zoom",
+    zoomAddFailed: zoomAddFailedMessages["ar-SA"],
     zoomConnectFailed: "لا يمكن الاتصال Zoom",
     zoomConnectionOpened: "تم فتح اتصال Zoom",
     zoomNotConfigured: "لم يتم تكوين Zoom OAuth.",

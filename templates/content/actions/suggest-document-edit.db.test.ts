@@ -82,6 +82,145 @@ async function createPage(content: string) {
 }
 
 describe("suggest-document-edit", () => {
+  it("creates independent edits under one proposal and replays its membership", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before = "We shipped quickly, and the results were good.";
+        const after = "We shipped quickly and the results were excellent.";
+        const { id, revision } = await createPage(before);
+        const args = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `granular-${id}`,
+          find: before,
+          replace: after,
+          summary: "Tighten release sentence",
+        };
+        const result = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+          suggestionIds: string[];
+          proposalId: string;
+        };
+        expect(result.suggestionIds).toHaveLength(2);
+        expect(result.suggestionId).toBe(result.suggestionIds[0]);
+        expect(result.proposalId).toBeTruthy();
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as {
+          suggestions: Array<{
+            id: string;
+            proposalId?: string;
+            operations: Array<{
+              before: { markdown: string; changedText: string };
+              after: { changedText: string };
+              anchor: { from: number; to: number };
+            }>;
+          }>;
+        };
+        const children = result.suggestionIds.map(
+          (childId) => listed.suggestions.find((item) => item.id === childId)!,
+        );
+        expect(
+          children.every((item) => item.proposalId === result.proposalId),
+        ).toBe(true);
+        expect(
+          children.map((item) => [
+            item.operations[0]!.before.changedText,
+            item.operations[0]!.after.changedText,
+          ]),
+        ).toEqual([
+          [",", ""],
+          ["good", "excellent"],
+        ]);
+        const replay = (await suggestDocumentEdit.run(
+          args,
+          ctx,
+        )) as typeof result;
+        expect(replay.suggestionIds).toEqual(result.suggestionIds);
+        expect(replay.proposalId).toBe(result.proposalId);
+
+        await updateDocument.run({ id, content: "A newer body." }, ctx);
+        const staleReplay = (await suggestDocumentEdit.run(
+          args,
+          ctx,
+        )) as typeof result;
+        expect(staleReplay.suggestionIds).toEqual(result.suggestionIds);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
+      },
+    );
+  });
+
+  it("creates no suggestion for a no-op replacement", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage("No change here.");
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `noop-${id}`,
+              find: "No change here.",
+              replace: "No change here.",
+            },
+            ctx,
+          ),
+        ).rejects.toThrow(/does not change the page/);
+        const listed = (await listResourceSuggestions.run(
+          { resourceType: "document", resourceId: id },
+          ctx,
+        )) as { suggestions: unknown[] };
+        expect(listed.suggestions).toEqual([]);
+      },
+    );
+  });
+
+  it("appends another agent edit to an explicit proposal", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const before =
+          "We shipped quickly, and the results were good.\nA second note is ready.";
+        const { id, revision } = await createPage(before);
+        const summary = "Review the release notes";
+        const first = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `append-first-${id}`,
+            find: "We shipped quickly, and the results were good.",
+            replace: "We shipped quickly and the results were excellent.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionIds: string[] };
+        const second = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `append-second-${id}`,
+            proposalId: first.proposalId,
+            find: "A second note is ready.",
+            replace: "A second note is approved.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionIds: string[] };
+        expect(second.proposalId).toBe(first.proposalId);
+        expect(second.suggestionIds).toHaveLength(1);
+        expect(second.suggestionIds[0]).not.toBe(first.suggestionIds[0]);
+      },
+    );
+  });
+
   it("creates a pending suggestion and leaves the page unchanged", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
@@ -195,8 +334,8 @@ describe("suggest-document-edit", () => {
         const range = resolveMarkdownSuggestionRange(canonical, operation);
 
         expect(range).toEqual({
-          from: canonical.indexOf(find),
-          to: canonical.indexOf(find) + find.length,
+          from: canonical.indexOf("carefully"),
+          to: canonical.indexOf("carefully") + "carefully".length,
         });
         expect(
           suggestionTextPresentationForSource(operation.before.changedText, {
@@ -258,15 +397,16 @@ describe("suggest-document-edit", () => {
           { id, content: "The page changed underneath the proposal." },
           ctx,
         );
-        const retry = (await suggestDocumentEdit.run(
-          {
-            ...args,
-            baseRevision:
-              "body:0:sha256:0000000000000000000000000000000000000000000000000000000000000000",
-          },
-          ctx,
-        )) as { suggestionId: string };
+        const retry = (await suggestDocumentEdit.run(args, ctx)) as {
+          suggestionId: string;
+        };
         expect(retry.suggestionId).toBe(first.suggestionId);
+        await expect(
+          suggestDocumentEdit.run(
+            { ...args, baseRevision: "a-different-base-revision" },
+            ctx,
+          ),
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -297,9 +437,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -331,7 +469,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(/already used for a suggestion on a different page/);
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -348,9 +486,30 @@ describe("suggest-document-edit", () => {
           find: "Shared inbox body.",
           replace: "Edited body.",
         };
-        const first = (await suggestDocumentEdit.run(args, ctx)) as {
-          suggestionId: string;
-        };
+        const createResourceSuggestion = (
+          await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+        ).default;
+        const { buildMarkdownSuggestionOperation } =
+          await import("./suggest-document-edit.js");
+        const first = (await createResourceSuggestion.run(
+          {
+            resourceType: "document",
+            resourceId: id,
+            adapterKind: "content.document-markdown",
+            baseRevision: revision,
+            summary: `Replace "${args.find}" with "${args.replace}"`,
+            idempotencyKey: args.idempotencyKey,
+            operations: [
+              buildMarkdownSuggestionOperation({
+                content: "Shared inbox body.",
+                find: args.find,
+                replace: args.replace,
+                start: 0,
+              }),
+            ],
+          },
+          ctx,
+        )) as { id: string };
         await (await import("@agent-native/core/db")).getDbExec().execute({
           sql: "UPDATE agent_review_suggestion_creations SET receipt_version = 1 WHERE idempotency_key = ?",
           args: [args.idempotencyKey],
@@ -359,7 +518,7 @@ describe("suggest-document-edit", () => {
           caller: "mcp" as const,
           userEmail: ctx.userEmail,
         })) as { suggestionId: string };
-        expect(retry.suggestionId).toBe(first.suggestionId);
+        expect(retry.suggestionId).toBe(first.id);
       },
     );
   });
@@ -385,15 +544,27 @@ describe("suggest-document-edit", () => {
 
         const result = await runWithRequestContext(
           { userEmail: "member@other-org", orgId: "org-shared" },
-          async () =>
-            (await suggestDocumentEdit.run(
-              {
-                id,
-                find: "Shared across orgs body.",
-                replace: "Edited body.",
-              },
-              { caller: "cli" as const, userEmail: "member@other-org" },
-            )) as { suggestionId: string },
+          async () => {
+            const input = {
+              id,
+              find: "Shared across orgs body.",
+              replace: "Edited body.",
+              idempotencyKey: `cross-org-${id}`,
+            };
+            const first = (await suggestDocumentEdit.run(input, {
+              caller: "cli" as const,
+              userEmail: "member@other-org",
+            })) as { suggestionId: string; proposalId: string };
+            const retry = (await suggestDocumentEdit.run(input, {
+              caller: "cli" as const,
+              userEmail: "member@other-org",
+            })) as { suggestionId: string; proposalId: string };
+            expect(retry).toMatchObject({
+              suggestionId: first.suggestionId,
+              proposalId: first.proposalId,
+            });
+            return first;
+          },
         );
         expect(result.suggestionId).toBeTruthy();
       },
@@ -418,9 +589,7 @@ describe("suggest-document-edit", () => {
             caller: "mcp" as const,
             userEmail: ctx.userEmail,
           }),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/belongs to another caller/);
       },
     );
   });
@@ -442,7 +611,7 @@ describe("suggest-document-edit", () => {
           userEmail: ctx.userEmail,
         });
         await expect(suggestDocumentEdit.run(args, ctx)).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
+          /belongs to another caller/,
         );
       },
     );
@@ -476,9 +645,7 @@ describe("suggest-document-edit", () => {
             },
             ctx,
           ),
-        ).rejects.toThrow(
-          /already created suggestion .* with a different edit/,
-        );
+        ).rejects.toThrow(/already created a different suggested edit/);
       },
     );
   });
@@ -594,11 +761,19 @@ describe("suggest-document-edit", () => {
     ).rejects.toThrow(/baseRevision and idempotencyKey/);
   });
 
-  it("rejects pages that cannot receive suggestions", async () => {
+  it("proposes an edit to an ordinary database item without changing its body", async () => {
     const { id, revision } = await createPage("Database item body.");
     const db = getDb();
     const now = new Date().toISOString();
     const databaseId = `suggest-edit-db-${sequence}`;
+    await db.insert(schema.documents).values({
+      id: `suggest-edit-db-doc-${sequence}`,
+      title: "Test database",
+      content: "",
+      ownerEmail: ctx.userEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
     await db.insert(schema.contentDatabases).values({
       id: databaseId,
       ownerEmail: ctx.userEmail,
@@ -607,6 +782,20 @@ describe("suggest-document-edit", () => {
       createdAt: now,
       updatedAt: now,
     });
+    const primaryId = `suggest-edit-primary-${sequence}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: primaryId,
+      ownerEmail: ctx.userEmail,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: primaryId, blocksSeeded: 1 })
+      .where(eq(schema.contentDatabases.id, databaseId));
     await db.insert(schema.contentDatabaseItems).values({
       id: `suggest-edit-item-${sequence}`,
       ownerEmail: ctx.userEmail,
@@ -618,18 +807,76 @@ describe("suggest-document-edit", () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
       async () => {
+        const result = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `db-${id}`,
+            find: "Database item body.",
+            replace: "x",
+          },
+          ctx,
+        )) as { suggestionId: string };
+        expect(result.suggestionId).toBeTruthy();
+        const [document] = await db
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        expect(document?.content).toBe("Database item body.");
+      },
+    );
+    const collaborator = "collaborator@example.com";
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-row-share-${sequence}`,
+      resourceId: id,
+      principalType: "user",
+      principalId: collaborator,
+      role: "commenter",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    const collaboratorContext = { ...ctx, userEmail: collaborator };
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
         await expect(
           suggestDocumentEdit.run(
             {
               id,
               baseRevision: revision,
-              idempotencyKey: `db-${id}`,
+              idempotencyKey: `row-only-${id}`,
               find: "Database item body.",
               replace: "x",
             },
-            ctx,
+            collaboratorContext,
           ),
-        ).rejects.toThrow(/cannot receive suggestions/i);
+        ).rejects.toThrow(/no primary Blocks field/);
+      },
+    );
+    await db.insert(schema.documentShares).values({
+      id: `suggest-edit-db-share-${sequence}`,
+      resourceId: `suggest-edit-db-doc-${sequence}`,
+      principalType: "user",
+      principalId: collaborator,
+      role: "viewer",
+      createdBy: ctx.userEmail,
+      createdAt: now,
+    });
+    await runWithRequestContext(
+      { userEmail: collaborator, orgId: null },
+      async () => {
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `row-and-db-${id}`,
+              find: "Database item body.",
+              replace: "x",
+            },
+            collaboratorContext,
+          ),
+        ).resolves.toMatchObject({ status: "pending" });
       },
     );
   });

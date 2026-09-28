@@ -31,6 +31,7 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
+    editorGroupTitle: "編輯器",
     editorTitle: "VS Code 擴充功能",
     editorDescription:
       "在 VS Code 的側邊面板中開啟並審閱計畫，而不是切換到單獨的瀏覽器標籤頁面。",
@@ -453,6 +454,7 @@ const messages = {
       requestAccess: "請求存取權限",
       requestAccessTitle: "請求存取此計畫",
       requestSent: "請求已傳送",
+      storageStatusUnavailable: "無法檢查檔案儲存空間。",
       retry: "重試",
       sendFeedback: "傳送意見回饋",
       feedbackPlaceholder: "描述此計畫錯誤出現前發生了什麼。",

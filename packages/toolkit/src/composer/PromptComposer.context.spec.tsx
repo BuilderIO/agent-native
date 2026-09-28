@@ -18,6 +18,16 @@ import type { TiptapComposerHandle } from "./TiptapComposer.js";
 let container: HTMLDivElement;
 let root: Root;
 
+function KeyedStaleIndexBoundary({
+  resetKey,
+  children,
+}: {
+  resetKey: string;
+  children: React.ReactNode;
+}) {
+  return <React.Fragment key={resetKey}>{children}</React.Fragment>;
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
@@ -32,6 +42,44 @@ afterEach(() => {
 });
 
 describe("controlled composer context", () => {
+  it("keeps the editor mounted while the host echoes each edit as initial text", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    const EchoingPrompt = () => {
+      const [text, setText] = React.useState("");
+      return (
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            agentChat: {
+              StaleIndexBoundary: KeyedStaleIndexBoundary,
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onSubmit={onSubmit}
+            initialText={text}
+            initialTextKey="stable-while-typing"
+            onTextChange={setText}
+            showModelSelector={false}
+            modelStatusChecksEnabled={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />
+        </ComposerRuntimeAdaptersProvider>
+      );
+    };
+
+    await act(async () => root.render(<EchoingPrompt />));
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(editor).not.toBeNull();
+
+    await act(async () => composerRef.current!.setText("typed at the end"));
+
+    expect(container.querySelector(".ProseMirror")).toBe(editor);
+    expect(editor.textContent).toBe("typed at the end");
+  });
+
   it("uses the shared upload menu without host entries and retains the explicit hidden mode", async () => {
     await mount();
     const trigger = container.querySelector<HTMLButtonElement>(
@@ -44,7 +92,7 @@ describe("controlled composer context", () => {
       ),
     );
     const menu = document.querySelector('[role="menu"]')!;
-    expect(menu.querySelector('[role="searchbox"]')).not.toBeNull();
+    expect(menu.querySelector('[role="searchbox"]')).toBeNull();
     expect(menu.textContent).toBe("Upload File");
     await act(async () =>
       document.dispatchEvent(
@@ -55,6 +103,54 @@ describe("controlled composer context", () => {
     expect(
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
+  });
+  it("requests storage setup only after choosing Upload File", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      plusMenuMode: "full",
+      onAttachmentRequest,
+    });
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[data-agent-composer-slot="plus-button"]',
+        )!
+        .click();
+    });
+    const uploadFile = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Upload File"));
+    expect(uploadFile).toBeDefined();
+    await act(async () => uploadFile!.click());
+
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+  });
+
+  it("requests storage setup from the upload-only button", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      onAttachmentRequest,
+      plusMenuMode: "upload-only",
+    });
+
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () =>
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    const uploadFile = document.querySelector<HTMLElement>('[role="menuitem"]');
+    expect(uploadFile).toBeDefined();
+    expect(uploadFile?.textContent).toContain("Upload File");
+    await act(async () => uploadFile!.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();
@@ -93,8 +189,29 @@ describe("controlled composer context", () => {
     return file;
   }
 
+  it("bounds the attachment strip and keeps overflow scrollable", async () => {
+    await mount();
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: Array.from(
+        { length: 10 },
+        (_, index) => new File(["reference"], `reference-${index}.pdf`),
+      ),
+    });
+
+    await act(async () =>
+      input.dispatchEvent(new Event("change", { bubbles: true })),
+    );
+
+    const strip = container.querySelector(".agent-composer-attachment-strip");
+    expect(strip?.className).toContain("max-h-24");
+    expect(strip?.className).toContain("overflow-y-auto");
+  });
+
   it.each(["host", "provider"] as const)(
-    "%s submission gating allows staging and blocks every send path until ready",
+    "%s submission gating prevents sends until ready",
     async (gate) => {
       const composerRef = React.createRef<TiptapComposerHandle>();
       const onSubmit = vi.fn();
@@ -102,6 +219,7 @@ describe("controlled composer context", () => {
       const onRemove = vi.fn();
       const onRetry = vi.fn();
       const onDisabledClick = vi.fn();
+      const onAttachmentRequest = vi.fn();
       let blocked = true;
       let files: PromptComposerFile[] = [];
       const render = async () => {
@@ -127,6 +245,8 @@ describe("controlled composer context", () => {
                 placeholder="Prepare your prompt"
                 showModelSelector={false}
                 modelStatusChecksEnabled={gate === "provider"}
+                attachmentsEnabled={!(gate === "provider" && blocked)}
+                onAttachmentRequest={onAttachmentRequest}
                 includeDefaultSlashSkills={false}
                 voiceEnabled={false}
                 onAttachmentsChange={(next) => {
@@ -152,6 +272,42 @@ describe("controlled composer context", () => {
         });
       };
       await render();
+      if (gate === "provider") {
+        expect(
+          container.querySelector('[data-testid="provider-setup"]'),
+        ).not.toBeNull();
+        expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+        const uploadTrigger = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Add context"]',
+        )!;
+        expect(uploadTrigger).not.toBeNull();
+        expect(uploadTrigger.disabled).toBe(false);
+        await act(async () =>
+          uploadTrigger.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+          ),
+        );
+        const uploadItem = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((element) => element.textContent === "Upload File")!;
+        expect(uploadItem).toBeDefined();
+        await act(async () => uploadItem.click());
+        expect(onAttachmentRequest).toHaveBeenCalledOnce();
+        expect(
+          container.querySelector<HTMLButtonElement>(
+            'button[aria-label="Send message"]',
+          )?.disabled,
+        ).toBe(true);
+        await act(async () =>
+          expect(
+            await composerRef.current!.submitWithText("Blocked prompt"),
+          ).toBe(false),
+        );
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(onDisabledClick).not.toHaveBeenCalled();
+        blocked = false;
+        await render();
+      }
       const editor = container.querySelector<HTMLElement>(
         '[contenteditable="true"]',
       )!;
@@ -196,33 +352,37 @@ describe("controlled composer context", () => {
       const send = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Send message"]',
       )!;
-      expect(send.disabled).toBe(true);
-      await act(async () => {
-        send.click();
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-        );
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            metaKey: true,
-            bubbles: true,
-          }),
-        );
-        editor.dispatchEvent(
-          new KeyboardEvent("keydown", {
-            key: "Enter",
-            ctrlKey: true,
-            bubbles: true,
-          }),
-        );
-        expect(await composerRef.current!.submitWithText("Quick start")).toBe(
-          false,
-        );
-      });
-      expect(onSubmit).not.toHaveBeenCalled();
-      expect(editor.textContent).toBe("Staged draft");
-      expect(files).toEqual([file]);
+      if (gate === "host") {
+        expect(send.disabled).toBe(true);
+        await act(async () => {
+          send.click();
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+          );
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              metaKey: true,
+              bubbles: true,
+            }),
+          );
+          editor.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              ctrlKey: true,
+              bubbles: true,
+            }),
+          );
+          expect(await composerRef.current!.submitWithText("Quick start")).toBe(
+            false,
+          );
+        });
+        expect(onSubmit).not.toHaveBeenCalled();
+        expect(editor.textContent).toBe("Staged draft");
+        expect(files).toEqual([file]);
+      } else {
+        expect(send.disabled).toBe(false);
+      }
       blocked = false;
       await render();
       await act(async () => {
@@ -378,10 +538,9 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("a failed provider preflight leaves the draft untouched and returns false", async () => {
+  it("keeps chat locked while provider status is unresolved", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
-    const preflight = vi.fn().mockResolvedValue("missing");
     await act(async () =>
       root.render(
         <ComposerRuntimeAdaptersProvider
@@ -391,7 +550,6 @@ describe("controlled composer context", () => {
                 state: "unknown",
                 missing: false,
               }),
-              fetchAgentEngineConfiguredState: preflight,
             },
           }}
         >
@@ -411,11 +569,12 @@ describe("controlled composer context", () => {
         false,
       ),
     );
-    expect(preflight).toHaveBeenCalledOnce();
     expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
     expect(
-      container.querySelector('[contenteditable="true"]')?.textContent,
-    ).toBe("Keep my draft");
+      container.querySelector('[contenteditable="false"]')?.textContent,
+    ).toContain("Keep my draft");
   });
 
   it.each(["click", "enter"])(

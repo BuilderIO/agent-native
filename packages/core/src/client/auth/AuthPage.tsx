@@ -1,7 +1,7 @@
 /** @jsxRuntime classic */
 
-import { MarketingHome } from "@agent-native/toolkit/marketing";
 import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
@@ -36,9 +36,6 @@ export interface AuthMarketingProps {
   features?: string[];
   authHeadline?: string;
   authDescription?: string;
-  screenshotSrc?: string;
-  screenshotWidth?: number;
-  screenshotHeight?: number;
   learnMoreUrl?: string;
 }
 
@@ -77,14 +74,12 @@ export interface AuthPageProps {
   brandMarkSrc: string;
   brandMarkLightSrc?: string;
   githubUrl: string;
+  appName?: string;
   showGoogle: boolean;
-  /** Show the organization SSO email-to-provider entry point. */
   organizationSsoEnabled?: boolean;
-  /** Whether identity SSO is available for this request. */
   identitySsoEnabled?: boolean;
-  /** Whether Google sign-in should start through the preview identity hub. */
   googleViaIdentitySso?: boolean;
-  /** @deprecated Automatic browser SSO handoff was removed. */
+  /** Whether canonical browser auth should attempt a silent identity handoff. */
   identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
@@ -443,11 +438,6 @@ export function isElectron(
   return userAgent.includes("Electron");
 }
 
-/**
- * Builder's desktop webview uses Electron without the Agent-Native marker.
- * This only selects the local workspace return origin; native deep-link
- * handling remains exclusive to Agent-Native Desktop.
- */
 export function isBuilderDesktop(
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
 ): boolean {
@@ -587,8 +577,6 @@ export function resolveGoogleAuthUrlPath(input: {
   const previewOrigin = input.builderPreview
     ? configuredOAuthOrigin(input.publicOAuthOrigin, input.currentOrigin)
     : "";
-  // The public OAuth authority is rooted at the app origin even when the
-  // preview itself is mounted under a workspace prefix such as /dispatch.
   return previewOrigin
     ? `${previewOrigin}${GOOGLE_AUTH_URL_PATH}`
     : `${input.runtimeAppBasePath}${GOOGLE_AUTH_URL_PATH}`;
@@ -716,13 +704,31 @@ export function shouldStartWithLocalDev(
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     !params.has("tab") &&
-    !params.has("c") &&
     !params.has("verified") &&
     !isVerificationLinkInvalid(params.get("error")) &&
     !path.endsWith("/login") &&
-    !path.endsWith("/signup") &&
-    !path.endsWith("/sign-in")
+    !path.endsWith("/signup")
   );
+}
+
+function AuthMarketingBackground() {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 901px)");
+    const update = () => setVisible(desktop.matches);
+    update();
+    if (typeof desktop.addEventListener === "function") {
+      desktop.addEventListener("change", update);
+      return () => desktop.removeEventListener("change", update);
+    }
+    desktop.addListener(update);
+    return () => desktop.removeListener(update);
+  }, []);
+
+  return visible ? (
+    <OceanBackground className="auth-marketing-screenshot" />
+  ) : null;
 }
 
 export function AuthPage(props: AuthPageProps) {
@@ -745,6 +751,7 @@ export function AuthPage(props: AuthPageProps) {
     brandMarkSrc,
     brandMarkLightSrc,
     githubUrl,
+    appName,
     showGoogle,
     organizationSsoEnabled = false,
     googleViaIdentitySso = false,
@@ -958,14 +965,14 @@ export function AuthPage(props: AuthPageProps) {
   }, []);
 
   React.useEffect(() => {
-    const nextTitle = marketing?.appName
-      ? `${marketing.appName} — ${t("pageTitleSignIn")}`
+    const nextTitle = appName
+      ? `${appName} — ${t("pageTitleSignIn")}`
       : t("pageTitleWelcome");
     document.title = nextTitle;
     document.documentElement.lang = locale;
     document.documentElement.dir = localeMetadata[locale]?.dir || "ltr";
     document.documentElement.dataset.locale = locale;
-  }, [locale, localeMetadata, marketing?.appName, t]);
+  }, [appName, locale, localeMetadata, t]);
 
   React.useEffect(() => {
     if (googleOnly) return;
@@ -1604,13 +1611,6 @@ export function AuthPage(props: AuthPageProps) {
     }
     let popup: Window | null = null;
     if (flow === "popup") {
-      // A same-frame redirect fallback is safe only at the true top level:
-      // Google's accounts pages refuse to render at all once they detect
-      // Sec-Fetch-Dest: iframe (a blank "403 — you do not have access to this
-      // page"), regardless of which host framed the page. This used to only
-      // guard Builder's own preview iframe, so any OTHER embedding — the
-      // Design app's local visual-edit canvas included — fell through to the
-      // redirect and hit that same 403 the moment the popup failed to open.
       const redirectFallbackUnsafe = isInFrame();
       try {
         popup = openOAuthPopup({
@@ -2398,8 +2398,11 @@ export function AuthPage(props: AuthPageProps) {
   }, [signupLocalModeNote]);
 
   const keys = headingKeys(view);
+  const localizedMarketing = marketingLocales[locale];
   const marketingCopy = marketing
-    ? { ...marketing, ...(marketingLocales[locale] ?? {}) }
+    ? localizedMarketing?.authHeadline && localizedMarketing.authDescription
+      ? { ...marketing, ...localizedMarketing }
+      : marketing
     : undefined;
   const marketingAppName =
     marketingCopy?.appName.replace(/^Agent-Native\s+/i, "") ?? "";
@@ -2412,6 +2415,7 @@ export function AuthPage(props: AuthPageProps) {
       view === "googleOnly");
   const cardClassName = [
     "card",
+    localDevAvailable ? "local-dev-available" : "",
     view === "verification" ? "verifying" : "",
     view === "magicLinkSent" ? "magic-link-complete" : "",
   ]
@@ -2571,7 +2575,7 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled && !googleOnly ? (
+      {identitySsoEnabled && !identitySsoAuto && !googleOnly ? (
         <div className="identity-sso-entry" id="identity-sso-entry">
           <a
             className="btn-primary btn-identity-sso"
@@ -2633,11 +2637,21 @@ export function AuthPage(props: AuthPageProps) {
           type="button"
           className="local-dev-full-options"
           id="local-dev-full-options"
-          hidden={fullAuthOptionsVisible}
-          data-i18n="localDevFullOptions"
-          onClick={() => setFullAuthOptionsVisible(true)}
+          hidden={!localDevAvailable}
+          aria-controls="full-auth-options"
+          aria-expanded={fullAuthOptionsVisible}
+          data-i18n={
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions"
+          }
+          onClick={() => setFullAuthOptionsVisible((visible) => !visible)}
         >
-          {t("localDevFullOptions")}
+          {t(
+            fullAuthOptionsVisible
+              ? "localDevHideFullOptions"
+              : "localDevFullOptions",
+          )}
         </button>
         {notice("local-dev")}
       </div>
@@ -2663,9 +2677,14 @@ export function AuthPage(props: AuthPageProps) {
               id="google-btn"
               type="button"
               disabled={googleBusy}
+              aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
-              {googleSvg()}
+              {googleBusy ? (
+                <IconLoader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                googleSvg()
+              )}
               <span data-i18n="googleButton">{t("googleButton")}</span>
             </button>
             {notice("google")}
@@ -3064,69 +3083,6 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   );
-  const localePicker = (
-    <div className="locale-picker">
-      <button
-        type="button"
-        className="locale-trigger"
-        id="auth-locale-trigger"
-        aria-haspopup="menu"
-        aria-expanded={localeMenuOpen}
-        aria-controls="auth-locale-menu"
-        aria-label={t("languageLabel")}
-        title={t("languageLabel")}
-        data-i18n-aria-label="languageLabel"
-        data-i18n-title="languageLabel"
-        onClick={() => setLocaleMenuOpen((open) => !open)}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 5h7" />
-          <path d="M7.5 4v1" />
-          <path d="M9.5 5c-.8 4.4-2.6 7.2-5.5 9" />
-          <path d="M5 9c1.2 2.1 3.2 3.8 6 5" />
-          <path d="M13 20l4-9 4 9" />
-          <path d="M14.5 17h5" />
-        </svg>
-      </button>
-      <div
-        className="locale-menu"
-        id="auth-locale-menu"
-        role="menu"
-        aria-labelledby="auth-locale-trigger"
-        hidden={!localeMenuOpen}
-      >
-        <button
-          type="button"
-          className="locale-menu-item"
-          role="menuitemradio"
-          aria-checked={localePreference === "system"}
-          data-locale-value="system"
-          onClick={() => selectLocale("system")}
-        >
-          <span className="locale-menu-check" aria-hidden="true">
-            ✓
-          </span>
-          <span data-system-language>{t("systemLanguage")}</span>
-        </button>
-        {localeOptions.map((option) => (
-          <button
-            type="button"
-            className="locale-menu-item"
-            role="menuitemradio"
-            aria-checked={localePreference === option.value}
-            data-locale-value={option.value}
-            key={option.value}
-            onClick={() => selectLocale(option.value)}
-          >
-            <span className="locale-menu-check" aria-hidden="true">
-              ✓
-            </span>
-            <span>{option.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
   const marketingContent = marketingCopy ? (
     <div className="marketing-content">
       <h2 className="app-name">
@@ -3200,24 +3156,89 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   ) : null;
   const marketingSurface = marketingCopy ? (
-    <MarketingHome
-      appName={marketingAppName}
-      variant="auth"
-      background={null}
-      auth={authCard}
-      className="auth-marketing-home"
-    >
-      <div className="auth-marketing-visual">
-        <div className="auth-marketing-screenshot-wrap">
-          <OceanBackground className="auth-marketing-screenshot" />
+    <main className="auth-marketing-home" data-agent-native-marketing-home>
+      <div className="auth-marketing-shell">
+        <div className="split auth-marketing-layout">
+          <aside className="form-panel w-full max-w-md justify-self-end">
+            {authCard}
+          </aside>
+          <section className="marketing-panel">
+            <div className="auth-marketing-visual">
+              <div className="auth-marketing-screenshot-wrap">
+                <AuthMarketingBackground />
+              </div>
+              {marketingContent}
+            </div>
+          </section>
         </div>
-        {marketingContent}
       </div>
-    </MarketingHome>
+    </main>
   ) : (
     <div className="auth-centered">{authCard}</div>
   );
-
+  const localePicker = (
+    <div className="locale-picker">
+      <button
+        type="button"
+        className="locale-trigger"
+        id="auth-locale-trigger"
+        aria-haspopup="menu"
+        aria-expanded={localeMenuOpen}
+        aria-controls="auth-locale-menu"
+        aria-label={t("languageLabel")}
+        title={t("languageLabel")}
+        data-i18n-aria-label="languageLabel"
+        data-i18n-title="languageLabel"
+        onClick={() => setLocaleMenuOpen((open) => !open)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 5h7" />
+          <path d="M7.5 4v1" />
+          <path d="M9.5 5c-.8 4.4-2.6 7.2-5.5 9" />
+          <path d="M5 9c1.2 2.1 3.2 3.8 6 5" />
+          <path d="M13 20l4-9 4 9" />
+          <path d="M14.5 17h5" />
+        </svg>
+      </button>
+      <div
+        className="locale-menu"
+        id="auth-locale-menu"
+        role="menu"
+        aria-labelledby="auth-locale-trigger"
+        hidden={!localeMenuOpen}
+      >
+        <button
+          type="button"
+          className="locale-menu-item"
+          role="menuitemradio"
+          aria-checked={localePreference === "system"}
+          data-locale-value="system"
+          onClick={() => selectLocale("system")}
+        >
+          <span className="locale-menu-check" aria-hidden="true">
+            ✓
+          </span>
+          <span data-system-language>{t("systemLanguage")}</span>
+        </button>
+        {localeOptions.map((option) => (
+          <button
+            type="button"
+            className="locale-menu-item"
+            role="menuitemradio"
+            aria-checked={localePreference === option.value}
+            data-locale-value={option.value}
+            key={option.value}
+            onClick={() => selectLocale(option.value)}
+          >
+            <span className="locale-menu-check" aria-hidden="true">
+              ✓
+            </span>
+            <span>{option.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
   return (
     <>
       {localePicker}

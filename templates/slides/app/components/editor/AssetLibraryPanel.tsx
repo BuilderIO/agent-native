@@ -5,6 +5,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
+import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
+
 interface Asset {
   id: string;
   url: string;
@@ -27,9 +31,14 @@ export default function AssetLibraryPanel({
   anchorRef,
 }: AssetLibraryPanelProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,8 +77,13 @@ export default function AssetLibraryPanel({
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    if (!fileStorageConfigured) {
+      e.target.value = "";
+      return;
+    }
     setUploading(true);
     const failures: string[] = [];
+    let storageSetupRequired = false;
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
@@ -81,6 +95,14 @@ export default function AssetLibraryPanel({
           });
           if (!res.ok) {
             const body = await res.json().catch(() => null);
+            if (
+              isMissingUploadProviderError(
+                res.status,
+                typeof body?.error === "string" ? body.error : undefined,
+              )
+            ) {
+              storageSetupRequired = true;
+            }
             failures.push(
               `${file.name}: ${body?.error || `HTTP ${res.status}`}`,
             );
@@ -90,6 +112,17 @@ export default function AssetLibraryPanel({
         }
       }
       await fetchAssets();
+      if (storageSetupRequired) {
+        const status = await storageQuery.refetch();
+        if (status.isSuccess && status.data.configured === true) {
+          toast.error(t("raw.assetUploadFailed"), {
+            description: t("home.fileStorageSetupRequired"),
+          });
+        } else {
+          setStoragePromptOpen(true);
+        }
+        return;
+      }
       if (failures.length > 0) {
         toast.error(t("raw.assetUploadFailed"), {
           description: failures.join("\n"),
@@ -99,6 +132,12 @@ export default function AssetLibraryPanel({
       setUploading(false);
       e.target.value = "";
     }
+  };
+
+  const requestUpload = () => {
+    if (uploading) return;
+    if (fileStorageConfigured) uploadInputRef.current?.click();
+    else setStoragePromptOpen(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -176,7 +215,12 @@ export default function AssetLibraryPanel({
 
       <div className="px-4 pb-4 space-y-3 overflow-y-auto flex-1">
         {/* Upload */}
-        <label className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-dashed border-border hover:border-[#609FF8]/40 hover:bg-accent cursor-pointer transition-all">
+        <button
+          type="button"
+          onClick={requestUpload}
+          disabled={uploading}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 transition-colors hover:border-primary/40 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+        >
           {uploading ? (
             <IconLoader2 className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
           ) : (
@@ -185,15 +229,23 @@ export default function AssetLibraryPanel({
           <span className="text-xs text-muted-foreground">
             {uploading ? "Uploading..." : "Upload images"}
           </span>
-          <input
-            type="file"
-            accept="image/*,.svg"
-            multiple
-            onChange={handleUpload}
-            className="hidden"
-            disabled={uploading}
-          />
-        </label>
+        </button>
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="image/*,.svg"
+          multiple
+          onChange={handleUpload}
+          className="hidden"
+          disabled={uploading || !fileStorageConfigured}
+        />
+        <UploadStorageGate
+          configured={fileStorageConfigured}
+          unavailable={!storageQuery.isSuccess}
+          open={storagePromptOpen}
+          onOpenChange={setStoragePromptOpen}
+          onRetry={() => void storageQuery.refetch()}
+        />
 
         {/* Grid */}
         {loading ? (

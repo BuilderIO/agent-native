@@ -164,6 +164,8 @@ export default {
     labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    mcpAbout:
+      "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
   pages: {
     presentEmpty: "没有可演示的内容",
@@ -172,7 +174,18 @@ export default {
     notFoundDescription: "您要查找的页面不存在。",
     notFoundSignIn: "登录",
     notFoundBackToDesigns: "返回设计",
-    teamCreateOrgDescription: "设置团队，与同事共享设计。",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "连接存储以上传文件",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
   },
   chat: {
     emptyState: "描述要创建的设计",
@@ -1411,6 +1424,18 @@ export default {
       confirmationRetryExhausted: "多次尝试后，实时编辑器桥接器仍未确认连接。",
       connectionNotConfirmed:
         "实时编辑器桥接器未确认连接。本地开发服务器是否仍在运行？",
+      permissionPromptTitle: "连接本地画面",
+      permissionPromptDescription:
+        "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
+      permissionPromptNoPrompt: "没有看到 Chrome 提示？",
+      permissionPromptSettingsInstructions:
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后允许访问设备上的应用。",
+      permissionCloseTitle: "要关闭设置吗？",
+      permissionCloseDescription:
+        "在 Chrome 中允许访问之前，实时编辑将无法使用。",
+      permissionCloseStay: "保持设置打开",
+      permissionCloseAnyway: "仍要关闭",
+      permissionPromptRetry: "重试连接",
     },
   },
   multiScreenCanvas: {

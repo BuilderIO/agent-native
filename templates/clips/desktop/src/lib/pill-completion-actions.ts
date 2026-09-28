@@ -43,7 +43,6 @@ export async function dismissCompletionCardWindow(deps: {
   close: () => Promise<void>;
   onReleaseFailure: (error: unknown) => void;
 }): Promise<void> {
-  // Releasing the preservation flag must never gate the user's window close.
   void Promise.resolve().then(deps.releaseHold).catch(deps.onReleaseFailure);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

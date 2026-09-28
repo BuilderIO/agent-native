@@ -177,6 +177,8 @@ export default {
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labTweaks: "デザインの調整",
     labTweaksDescription: "AI によるデザイン調整をお試しください。",
+    mcpAbout:
+      "Design を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Design でデザインを作成、編集できます。アプリが見られるのは、あなたが見られるものだけです。",
   },
   pages: {
     presentEmpty: "プレゼンするコンテンツがありません",
@@ -185,8 +187,18 @@ export default {
     notFoundDescription: "お探しのページは存在しません。",
     notFoundSignIn: "ログイン",
     notFoundBackToDesigns: "デザインに戻る",
-    teamCreateOrgDescription:
-      "同僚とデザインを共有するためのチームを設定します。",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
   },
   chat: {
     emptyState: "作成したいデザインを説明してください",
@@ -1477,6 +1489,18 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
+      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptDescription:
+        "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
+      permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
+      permissionPromptSettingsInstructions:
+        "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、デバイス上のアプリへのアクセスを許可します。",
+      permissionCloseTitle: "設定を閉じますか？",
+      permissionCloseDescription:
+        "Chrome でアクセスを許可するまで、ライブ編集は使えません。",
+      permissionCloseStay: "設定を開いたままにする",
+      permissionCloseAnyway: "閉じる",
+      permissionPromptRetry: "接続を再試行",
     },
   },
   multiScreenCanvas: {

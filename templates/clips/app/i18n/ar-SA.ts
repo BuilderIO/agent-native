@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
+  },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
     helpOtherSideTerm: "اقتطاع اللقطات من المقطع الأيمن بدلًا من ذلك",
@@ -415,11 +425,10 @@ const messages = {
     agentEmptyTitle: "انضم إلى المحادثة",
     agentEmptyDescription:
       "أنشئ حساب Clips مجانيًا للتعليق والتفاعل وطرح الأسئلة حول هذا المقطع.",
-    commentSignupTitle: "امنح وكيل الذكاء الاصطناعي الصورة كاملة",
-    commentSignupContext:
-      "شارك النص المكتوب والإطارات ذات الطوابع الزمنية في رابط واحد",
-    commentSignupFeedback: "حوّل الملاحظات المسجّلة إلى خطوات واضحة",
-    commentSignupDebug: "التقط أخطاء وحدة التحكم والطلبات الفاشلة",
+    commentSignupTitle:
+      "تسجيلات شاشة يستطيع وكيل الذكاء الاصطناعي رؤيتها وسماعها",
+    commentSignupDescription:
+      "Clips مسجل شاشة مجاني ومفتوح المصدر لمشاركة الأخطاء والملاحظات والشروحات خطوة بخطوة مع وكلاء الذكاء الاصطناعي.",
     agentEmptySignInPrompt: "لديك حساب بالفعل؟",
     signUp: "التسجيل",
     ownerInsights: "رؤى المالك",
@@ -563,6 +572,9 @@ const messages = {
     saveThumbnail: "حفظ الصورة المصغرة",
   },
   shareDialog: {
+    redactionsPendingTitle: "أكمل التنقيح قبل المشاركة",
+    redactionsPendingBody:
+      "عمليات التنقيح المعلّقة: {{count}}. طبّقها في المحرر قبل المشاركة؛ فما زال الفيديو يحتوي على المحتوى الأصلي.",
     publicDescription:
       "يمكن لأي شخص لديه الرابط المشاهدة — قم بتسجيل الدخول للتعليق أو الرد",
     shareRecording: "مشاركة التسجيل",
@@ -617,9 +629,6 @@ const messages = {
     customizeEmbed: "تخصيص التضمين",
     more: "المزيد",
     sharePlainTitle: "مشاركة {{title}}",
-    redactionsPendingBody:
-      "رُسمت {{count}} من مناطق الإخفاء على هذا التسجيل لكنها لم تُثبَّت بعد، لذا ما زال الملف يُظهر كل ما تحتها. افتح المحرّر وثبّتها، وستعود المشاركة متاحة.",
-    redactionsPendingTitle: "أكمِل مناطق الإخفاء أولًا",
   },
   shareUi: {
     owner: "المالك: {{email}}",
@@ -821,6 +830,8 @@ const messages = {
     changelogEmpty: "لا توجد تحديثات بعد.",
     changelogCommentSignup:
       "توضح لوحة التعليقات الفارغة بإيجاز سبب تجربة Clips وتوفر مسارًا واضحًا للتسجيل.",
+    changelogCommentsEmptyState:
+      "توضح الحالة الفارغة للتعليقات الآن كيف تساعد تسجيلات الشاشة وكلاء الذكاء الاصطناعي.",
     changelogShareLink:
       "يصل المستخدمون المسجّلون الذين يفتحون رابط مشاركة غير متاح أو منتهي الصلاحية أو خاص إلى مكتبتهم عند اختيار «العودة إلى الصفحة الرئيسية» بدلًا من صفحة التسويق العامة.",
     viewAllUpdates: "عرض كل التحديثات",
@@ -936,6 +947,50 @@ const messages = {
       "سيحذف Clips رمز bot المخزن لـ {{team}} ويتوقف عن إرسال معاينات Slack القابلة للتشغيل.",
     thisWorkspace: "هذه المساحة",
     slackConnected: "Slack متصل",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "حظر المتصفح النافذة المنبثقة. اسمح بالنوافذ المنبثقة لهذا الموقع ثم حاول مجددًا.",
+    recordingsTab: "التسجيلات",
+    meetingsTab: "الاجتماعات",
+    yourDefaults: "إعداداتك الافتراضية",
+    orgDefault: "الإعداد الافتراضي لـ {{org}}",
+    playbackSpeed: "سرعة التشغيل",
+    playbackSpeedDescription: "تُطبّق عند فتح تسجيل.",
+    visibility: "الرؤية",
+    visibilityDescription:
+      "تُطبّق على التسجيلات التي تنشئها. يمكنك تغييرها في أي تسجيل.",
+    useOrgDefault: "استخدام الإعداد الافتراضي لـ {{org}} ({{visibility}})",
+    useDefault: "استخدام الإعداد الافتراضي ({{visibility}})",
+    transcriptExport: "تصدير النصوص",
+    logoDescription: "يظهر في رسائل المشاركة وصفحات المقاطع العامة.",
+    change: "تغيير",
+    adminsOnly: "يمكن للمالكين والمسؤولين فقط تغيير هذا.",
+    brandColorInvalid: "أدخل رمز لون سداسيًا عشريًا.",
+    loadFailed: "تعذّر تحميل هذه الإعدادات.",
+    emailGroup: "البريد الإلكتروني",
+    calendarGroup: "التقويم",
+    googleCalendar: "Google Calendar",
+    connect: "اتصال",
+    reconnect: "إعادة الاتصال",
+    connectedAs: "متصل باسم {{account}}",
+    needsReconnect: "يجب إعادة ربط {{account}}.",
+    disconnectFailed: "تعذّر فصل التقويم.",
+    disconnectCalendarDescription:
+      "يتوقف Clips عن مزامنة الاجتماعات القادمة من {{account}}.",
+    calendarApp: "تطبيق Google Calendar",
+    desktopGroup: "سطح المكتب",
+    meetingCapture: "التقاط الاجتماعات",
+    meetingCaptureDescription:
+      "تُضبط الملاحظات والبدء التلقائي والإشعارات على كل جهاز في Clips Desktop.",
+    openClipsDesktop: "فتح Clips Desktop",
+    keySaved: "محفوظ",
+    keyNotSaved: "غير محفوظ",
+    manage: "إدارة",
+    add: "إضافة",
+    linkPreviews: "معاينات الروابط",
+    addWorkspace: "إضافة مساحة عمل",
+    storageAskAdmin: "اطلب من مالك أو مسؤول إعداد التخزين.",
   },
   insightsHub: {
     title: "الرؤى",
@@ -1681,6 +1736,7 @@ const messages = {
     backgroundNone: "بلا",
     notYetBurned:
       "وُضعت {{count}} من مناطق الإخفاء لكنها لم تُثبَّت بعد. لم يُخفَ شيء حتى الآن، ولا يمكن لأحد غيرك رؤية لقطة الشاشة هذه حتى تثبّتها.",
+    editsUnreadable: "تعذّر على Clips قراءة تعديلات لقطة الشاشة المحفوظة.",
     burnInHint: "إتلاف ما تغطيه مناطق الإخفاء نهائيًا وحذف الأصل",
     burnInTitle: "هل تريد تثبيت {{count}} من مناطق الإخفاء في لقطة الشاشة هذه؟",
     burnInWarning:

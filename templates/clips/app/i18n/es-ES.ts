@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Haz clic primero en esa sección y arrastra la línea roja hacia la derecha.",
@@ -434,12 +444,10 @@ const messages = {
     agentEmptyTitle: "Únete a la conversación",
     agentEmptyDescription:
       "Crea una cuenta gratuita de Clips para comentar, reaccionar y preguntar sobre este clip.",
-    commentSignupTitle: "Dale a tu agente de IA todo el contexto",
-    commentSignupContext:
-      "Comparte la transcripción y los fotogramas con marca de tiempo en un solo enlace",
-    commentSignupFeedback:
-      "Convierte el feedback grabado en próximos pasos claros",
-    commentSignupDebug: "Captura errores de consola y solicitudes fallidas",
+    commentSignupTitle:
+      "Grabaciones de pantalla que tu agente de IA puede ver y escuchar",
+    commentSignupDescription:
+      "Clips es una grabadora de pantalla gratuita y de código abierto para compartir errores, comentarios y demostraciones paso a paso con agentes de IA.",
     agentEmptySignInPrompt: "¿Ya tienes una cuenta?",
     signUp: "Registrarse",
     ownerInsights: "Estadísticas del propietario",
@@ -580,6 +588,9 @@ const messages = {
     saveThumbnail: "Guardar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Termina las ocultaciones antes de compartir",
+    redactionsPendingBody:
+      "Ocultaciones pendientes: {{count}}. Aplícalas en el editor antes de compartir; el video aún contiene el contenido original.",
     publicDescription:
       "Cualquiera que tenga el enlace puede verlo: inicie sesión para comentar o reaccionar.",
     shareRecording: "Compartir grabación",
@@ -636,9 +647,6 @@ const messages = {
     customizeEmbed: "Personalizar inserción",
     more: "Más",
     sharePlainTitle: "Compartir {{title}}",
-    redactionsPendingBody:
-      "Hay {{count}} ocultación(es) dibujada(s) en esta grabación que aún no se han aplicado, así que el archivo sigue mostrando todo lo que hay debajo. Abre el editor, aplícalas y podrás volver a compartir.",
-    redactionsPendingTitle: "Termina antes las difuminaciones",
   },
   shareUi: {
     owner: "Propietario: {{email}}",
@@ -844,6 +852,8 @@ const messages = {
     changelogEmpty: "Aún no hay actualizaciones.",
     changelogCommentSignup:
       "La barra lateral de comentarios vacía explica brevemente por qué probar Clips y ofrece una forma clara de registrarse.",
+    changelogCommentsEmptyState:
+      "El estado vacío de comentarios ahora explica cómo las grabaciones de pantalla ayudan a los agentes de IA.",
     changelogShareLink:
       "Quienes hayan iniciado sesión y abran un enlace compartido no disponible, vencido o privado llegarán a su biblioteca al elegir «Ir al inicio», en lugar de a la página pública de marketing.",
     viewAllUpdates: "Ver todas las actualizaciones",
@@ -958,6 +968,52 @@ const messages = {
       "Clips eliminará el token de bot almacenado para {{team}} y dejará de enviar vistas previas reproducibles de Slack.",
     thisWorkspace: "este espacio",
     slackConnected: "Slack conectado",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+    recordingsTab: "Grabaciones",
+    meetingsTab: "Reuniones",
+    yourDefaults: "Tus valores predeterminados",
+    orgDefault: "Valor predeterminado de {{org}}",
+    playbackSpeed: "Velocidad de reproducción",
+    playbackSpeedDescription: "Se aplica al abrir una grabación.",
+    visibility: "Visibilidad",
+    visibilityDescription:
+      "Se aplica a las grabaciones que creas. Puedes cambiarla en cualquier grabación.",
+    useOrgDefault: "Usar el valor predeterminado de {{org}} ({{visibility}})",
+    useDefault: "Usar el valor predeterminado ({{visibility}})",
+    transcriptExport: "Exportación de transcripciones",
+    logoDescription:
+      "Se muestra en los correos para compartir y en las páginas públicas de los clips.",
+    change: "Cambiar",
+    adminsOnly: "Solo los propietarios y administradores pueden cambiar esto.",
+    brandColorInvalid: "Introduce un código de color hexadecimal.",
+    loadFailed: "No se pudieron cargar estos ajustes.",
+    emailGroup: "Correo electrónico",
+    calendarGroup: "Calendario",
+    googleCalendar: "Google Calendar",
+    connect: "Conectar",
+    reconnect: "Volver a conectar",
+    connectedAs: "Conectado como {{account}}",
+    needsReconnect: "Hay que volver a conectar {{account}}.",
+    disconnectFailed: "No se pudo desconectar el calendario.",
+    disconnectCalendarDescription:
+      "Clips deja de sincronizar las próximas reuniones de {{account}}.",
+    calendarApp: "App de Google Calendar",
+    desktopGroup: "Escritorio",
+    meetingCapture: "Captura de reuniones",
+    meetingCaptureDescription:
+      "Las notas, el inicio automático y las notificaciones se configuran en cada dispositivo en Clips Desktop.",
+    openClipsDesktop: "Abrir Clips Desktop",
+    keySaved: "Guardada",
+    keyNotSaved: "Sin guardar",
+    manage: "Gestionar",
+    add: "Añadir",
+    linkPreviews: "Vistas previas de enlaces",
+    addWorkspace: "Añadir espacio de trabajo",
+    storageAskAdmin:
+      "Pide a un propietario o administrador que configure el almacenamiento.",
   },
   insightsHub: {
     title: "Estadísticas",
@@ -1719,6 +1775,8 @@ const messages = {
     backgroundNone: "Ninguno",
     notYetBurned:
       "Hay {{count}} ocultación(es) colocada(s) pero sin aplicar. Todavía no se oculta nada, y nadie más puede ver esta captura hasta que las apliques.",
+    editsUnreadable:
+      "Clips no pudo leer las ediciones guardadas de la captura.",
     burnInHint:
       "Destruye para siempre lo que cubren las ocultaciones y elimina el original",
     burnInTitle: "¿Aplicar {{count}} ocultación(es) a esta captura?",

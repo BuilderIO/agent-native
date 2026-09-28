@@ -116,10 +116,8 @@ export function useToggleSlideCommentReaction() {
   >("toggle-slide-comment-reaction");
 }
 
-/** Derive a display color for an author email */
 export { emailToColor };
 
-/** Relative time string (e.g., "2 min ago") */
 export function formatRelativeTime(isoString: string): string {
   const date = new Date(isoString);
   const diffMs = Date.now() - date.getTime();

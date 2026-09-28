@@ -1,31 +1,14 @@
-/**
- * Tests for create-design-state action sanitization fix.
- *
- * Issue: the action accepted raw fixture/capture data and persisted it without
- * the sanitization + size cap that capture-design-state.ts applies. A caller
- * could store arbitrary XSS markup or bloat the design_state row.
- *
- * Fix: apply sanitizeCaptureData + CAPTURE_DATA_MAX_BYTES (from
- * shared/capture-sanitize.ts) to both captureData and fixtureData before
- * the DB insert.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// ---------------------------------------------------------------------------
-// Mock the access layer to always grant editor access.
-// ---------------------------------------------------------------------------
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue({ role: "editor", resource: {} }),
 }));
 
-// Mock request-context so we have a real user email and orgId.
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "user@example.com",
   getRequestOrgId: () => "org_1",
 }));
 
-// Capture the values written to DB for assertion.
 let insertedValues: Record<string, unknown> | null = null;
 
 vi.mock("../server/db/index.js", () => ({
@@ -42,7 +25,6 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-// nanoid stub — returns a deterministic id in tests.
 vi.mock("nanoid", () => ({ nanoid: () => "test_id_123" }));
 
 import { CAPTURE_DATA_MAX_BYTES } from "../shared/capture-sanitize.js";
@@ -118,7 +100,6 @@ describe("create-design-state XSS sanitization", () => {
 
 describe("create-design-state size cap", () => {
   it("throws when captureData exceeds the size limit", async () => {
-    // Build a payload whose JSON exceeds 256 KB.
     const bigString = "x".repeat(CAPTURE_DATA_MAX_BYTES + 1);
     await expect(
       action.run({
@@ -145,8 +126,6 @@ describe("create-design-state size cap", () => {
   });
 
   it("accepts a payload right at the size limit", async () => {
-    // Build JSON that is exactly at the cap: { "blob": "xx...x" }
-    // We'll size the string so the full JSON is just under the cap.
     const envelope = '{"blob":""}';
     const padding =
       CAPTURE_DATA_MAX_BYTES - Buffer.byteLength(envelope, "utf8");

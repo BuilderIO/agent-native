@@ -51,9 +51,7 @@ interface SheetContentProps
   extends
     React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {
-  // When false, the default close button is hidden.
   showClose?: boolean;
-  // When false, the overlay backdrop is not rendered (e.g. for inline side panels).
   showOverlay?: boolean;
   overlayClassName?: string;
 }

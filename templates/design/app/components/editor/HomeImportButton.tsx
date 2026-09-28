@@ -11,7 +11,6 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,20 +98,21 @@ export function HomeImportButton() {
       />
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
-          <ButtonGroup aria-label={t("home.import")}>
-            <Button size="sm" disabled={busy} onClick={pickFile}>
-              <IconUpload />
-              {t("home.import")}
-            </Button>
+          <div className="inline-flex shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   ref={menuTrigger}
                   size="sm"
+                  className="design-home-import-button"
                   disabled={busy}
-                  aria-label={t("home.importOptions")}
+                  aria-label={t("home.import")}
                 >
-                  <IconChevronDown />
+                  <IconUpload />
+                  <span className="design-home-import-label">
+                    {t("home.import")}
+                  </span>
+                  <IconChevronDown className="design-home-import-chevron" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -138,7 +138,7 @@ export function HomeImportButton() {
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-          </ButtonGroup>
+          </div>
         </PopoverAnchor>
         <PopoverContent
           align="end"

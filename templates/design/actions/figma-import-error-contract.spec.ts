@@ -82,7 +82,6 @@ function jsonEnvelope(json: unknown) {
   return { response: { ok: true, status: 200, json } };
 }
 
-/** What the caller receives once the action route has had its say. */
 interface CapturedFailure {
   userFacing: boolean;
   message: string;
@@ -358,7 +357,6 @@ describe("figma import failure contract", () => {
   });
 
   it("reports our own provider quota cooldown as a wait, not a Figma rate limit", async () => {
-    // What core's providerQuotaExhaustedResponse synthesizes for its cooldown.
     mocks.executeProviderApiRequest.mockResolvedValue({
       response: {
         ok: false,
@@ -380,7 +378,6 @@ describe("figma import failure contract", () => {
     expect(failure.errorCode).toBe("figma_provider_quota_cooldown");
     expect(failure.statusCode).toBe(429);
     expect(failure.details).toEqual({ retryAfterSeconds: 42 });
-    // Never Figma plan guidance for an app-side wait.
     expect(failure.message).not.toMatch(/plan|upgrade/i);
   });
 
@@ -454,7 +451,6 @@ describe("figma import failure contract", () => {
     expect(failure.message).not.toMatch(
       /bucket|acme-private|s3\.internal|key=/i,
     );
-    // The actionable guidance must survive the redaction.
     expect(failure.message).toMatch(/Settings > File uploads/);
   });
 });
@@ -526,7 +522,6 @@ describe("image download failures keep their own diagnosis", () => {
     });
     expect(failure.errorCode).toBe("figma_asset_unavailable");
     expect(failure.statusCode).toBe(502);
-    // Distinguishable from the oversize answer without echoing the cause.
     expect(failure.message).not.toMatch(/limit|socket hang up/i);
   });
 });

@@ -44,7 +44,6 @@ export interface PinpointAppProps {
 }
 
 export const PinpointApp: Component<PinpointAppProps> = (props) => {
-  // Core state
   const [active, setActive] = createSignal(false);
   const [expanded, setExpanded] = createSignal(false);
   const [pins, setPins] = createSignal<Pin[]>([]);
@@ -66,10 +65,8 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   } | null>(null);
   const [dragRect, setDragRect] = createSignal<DOMRect | null>(null);
 
-  // Mode state
   const [mode, setMode] = createSignal<ToolbarMode>("select");
 
-  // Draw mode state
   const [drawMode, setDrawMode] = createSignal(false);
   const [drawStrokes, setDrawStrokes] = createSignal<DrawStroke[]>([]);
   const [currentStroke, setCurrentStroke] = createSignal<DrawStroke | null>(
@@ -83,15 +80,12 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   const [textInputPos, setTextInputPos] = createSignal({ x: 0, y: 0 });
   let isDrawing = false;
 
-  // Queue state
   const [queue, setQueue] = createSignal<QueuedAnnotation[]>([]);
 
-  // Select-for-send state
   const [selectedPinIds, setSelectedPinIds] = createSignal<Set<string>>(
     new Set(),
   );
 
-  // Settings state
   const [outputFormat, setOutputFormat] = createSignal(
     props.config.outputFormat || "detailed",
   );
@@ -129,14 +123,12 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     }
   }
 
-  // Storage adapter
   const storage: PinStorage =
     props.config.storage ||
     (props.config.endpoint
       ? new RestClient(props.config.endpoint)
       : new MemoryStore());
 
-  // Element picker
   const picker = new ElementPicker({
     ignoreSelector: "#pinpoint-root, [data-pinpoint-marker]",
     blockInteractions: blockInteractions(),
@@ -186,7 +178,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     },
   });
 
-  // Drag select
   const dragSelect = new DragSelect({
     ignoreSelector: "#pinpoint-root, [data-pinpoint-marker]",
     onDragStart: (rect) => setDragRect(rect),
@@ -199,25 +190,21 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     },
   });
 
-  // Text select
   const textSelect = new TextSelect({
     onSelect: (_selection) => {
       // Text selection handling
     },
   });
 
-  // Keyboard shortcuts
   const handleKeyDown = (e: KeyboardEvent) => {
     const mod = e.metaKey || e.ctrlKey;
 
-    // Cmd/Ctrl+Shift+. -> Toggle toolbar
     if (mod && e.shiftKey && e.key === ".") {
       e.preventDefault();
       toggleActive();
       return;
     }
 
-    // Cmd/Ctrl+Shift+D -> Toggle draw mode
     if (mod && e.shiftKey && (e.key === "D" || e.key === "d")) {
       e.preventDefault();
       if (active()) {
@@ -232,14 +219,12 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
 
     if (!active()) return;
 
-    // Cmd/Ctrl+Shift+C -> Copy annotations
     if (mod && e.shiftKey && e.key === "C") {
       e.preventDefault();
       void copyPins();
       return;
     }
 
-    // Cmd/Ctrl+Shift+Enter -> Send queue/selected to agent
     if (mod && e.shiftKey && e.key === "Enter") {
       e.preventDefault();
       if (queue().length > 0) {
@@ -252,14 +237,12 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       return;
     }
 
-    // Cmd/Ctrl+Z -> Undo draw stroke
     if (mod && e.key === "z" && drawMode()) {
       e.preventDefault();
       undoDrawStroke();
       return;
     }
 
-    // Esc -> Close popup/exit draw mode/collapse toolbar
     if (e.key === "Escape") {
       if (showTextInput()) {
         setShowTextInput(false);
@@ -279,7 +262,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     }
   };
 
-  // Right-click context menu
   const handleContextMenu = (e: MouseEvent) => {
     if (!active() || drawMode()) return;
     const element = document.elementFromPoint(e.clientX, e.clientY);
@@ -291,7 +273,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     setShowContextMenu(true);
   };
 
-  // Propagate blockInteractions setting changes
   createEffect(() => {
     picker.setBlockInteractions(blockInteractions());
   });
@@ -310,29 +291,24 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     });
   });
 
-  // Pin marker manager (DOM badges outside Shadow DOM)
   const markerManager = new PinMarkerManager(props.config.markerColor);
   markerManager.setOnClick((pin) => openEditPopup(pin));
   markerManager.setOnToggleSelect((pin) => togglePinSelect(pin));
 
-  // Load existing pins
   createEffect(() => {
     const pageUrl = window.location.pathname;
     void storage.load(pageUrl).then((loaded) => setPins(loaded));
   });
 
-  // Sync DOM markers whenever pins change
   createEffect(() => {
     const currentPins = pins();
     markerManager.update(currentPins);
   });
 
-  // Sync selected pin IDs to marker manager
   createEffect(() => {
     markerManager.setSelectedPins(selectedPinIds());
   });
 
-  // Mode change handler
   function handleModeChange(newMode: ToolbarMode) {
     setMode(newMode);
 
@@ -357,11 +333,10 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     }
   }
 
-  // Draw mode handlers
   function handleDrawStart(x: number, y: number) {
     isDrawing = true;
     const toolType = drawTool();
-    if (toolType === "text") return; // Handled separately
+    if (toolType === "text") return;
     setCurrentStroke({
       points: [{ x, y }],
       color: drawColor(),
@@ -381,7 +356,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
         points: [...stroke.points, { x, y }],
       });
     } else {
-      // For shapes, keep start and replace end
       setCurrentStroke({
         ...stroke,
         points: [stroke.points[0], { x, y }],
@@ -426,7 +400,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     setCurrentStroke(null);
   }
 
-  // Queue handlers
   function addToQueue(pin?: Pin) {
     const item: QueuedAnnotation = {
       id: crypto.randomUUID(),
@@ -437,7 +410,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
       item.pin = pin;
     }
 
-    // Include current drawings if any
     const strokes = drawStrokes();
     const notes = textNotes();
     if (strokes.length > 0 || notes.length > 0) {
@@ -472,7 +444,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     setQueue([]);
   }
 
-  // Pin select-for-send
   function togglePinSelect(pin: Pin) {
     setSelectedPinIds((prev) => {
       const next = new Set(prev);
@@ -584,7 +555,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
     if (!el) return;
     const pin = addPin(el, comment);
 
-    // Format rich context
     const { formatRichPinContext } =
       await import("../../output/agent-context.js");
     const richMessage = `Please fix: ${formatRichPinContext(pin)}`;
@@ -642,7 +612,6 @@ export const PinpointApp: Component<PinpointAppProps> = (props) => {
   function removePin(id: string) {
     setPins((prev) => prev.filter((p) => p.id !== id));
     void storage.delete(id);
-    // Also remove from selected
     setSelectedPinIds((prev) => {
       const next = new Set(prev);
       next.delete(id);

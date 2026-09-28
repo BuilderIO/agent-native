@@ -40,7 +40,6 @@ const messages = {
     brand: "幻燈片",
     decks: "幻燈片",
     designSystems: "設計系統",
-    team: "團隊",
   },
   settings: {
     agentObservability: "代理可觀測性",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
+    notificationsEmail: "電子郵件",
+    commentsAndReplies: "留言和回覆",
+    commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
+    retry: "重試",
+    mcpAbout:
+      "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -120,7 +125,7 @@ const messages = {
       "Google Picker 需要 GOOGLE_PICKER_API_KEY 和 GOOGLE_PICKER_APP_ID。",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
-      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
+      "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",
     sentToAgent: "已傳送給代理",
     imageUploadGenericError: "上傳這張圖片時發生問題。",
     uploading: "正在上傳…",
@@ -178,7 +183,6 @@ const messages = {
     slideUnavailable: "無法使用幻燈片",
     couldNotLoadSlide: "無法載入幻燈片。",
     openInApp: "在應用中開啟",
-    teamDescription: "設定團隊，與同事共用簡報。",
   },
   designSystems: {
     new: "新建設計系統",
@@ -565,6 +569,7 @@ const messages = {
     generating: "正在生成幻燈片...",
     generate: "生成幻燈片",
   },
+  deckResult: { saved: "已儲存" },
   history: {
     unknownTime: "未知時間",
     justNow: "剛剛",
@@ -629,10 +634,30 @@ const messages = {
     enterFullscreen: "進入全螢幕",
     clickToEnterFullscreen: "點選進入全螢幕",
   },
+  deckAccessPage: {
+    errorCode: "錯誤 403",
+    noAccessTitle: "你沒有存取權限",
+    noAccessDescription: "請向簡報擁有者申請存取權限，或切換到正確的帳號。",
+    noteLabel: "給擁有者新增備註（選填）",
+    notePlaceholder: "我正在審閱這份簡報",
+    requesting: "正在申請",
+    requestFailed: "你的申請未送出，請再試一次。",
+    requestSentDescription:
+      "擁有者核准你的申請後，我們會立即寄送電子郵件通知你。",
+    goHome: "返回首頁",
+    signedInAs: "目前登入帳號",
+    switchAccount: "切換帳號",
+  },
   deckEditor: {
     lookingForDeck: "正在尋找此幻燈片",
     joinTeamToOpen: "加入團隊以開啟此幻燈片",
     deckUnavailable: "幻燈片不可用",
+    generationStalled: "5 分鐘沒有進度，已暫停生成",
+    generationStalledDescription:
+      "已儲存的投影片仍會保留。你可以在聊天中繼續這份簡報。",
+    continueInChat: "在聊天中繼續",
+    continueGenerationPrompt:
+      "繼續為這份簡報產生投影片。請先檢查現有投影片和已儲存的產生背景。保留已完成的投影片，只新增缺少的內容。",
     checkingSharedAccess: "正在檢查此簡報是否與你的帳戶共用。",
     joinTeamDescription:
       "此連結指向團隊簡報。加入上方顯示的團隊後，幻燈片會自動在此開啟。",
@@ -665,6 +690,9 @@ const messages = {
     accessApprovalTitle: "已授予存取權限",
     accessApprovalAlreadyTitle: "已授予存取權限",
     accessApprovalMessage: "{{email}} 現在可以開啟此簡報。",
+    accessApprovalRequesterEmailed: "我們已寄送電子郵件通知對方。",
+    accessApprovalRequesterEmailFailed:
+      "無法寄送電子郵件給 {{email}}。請告知對方現在可以開啟簡報了。",
     accessApprovalAlreadyMessage: "{{email}} 已經可以存取此簡報。",
     accessApprovalErrorTitle: "無法授予存取權限",
     accessApprovalInvalid: "此存取請求無效或已過期。",
@@ -677,7 +705,7 @@ const messages = {
     tryAgain: "重試",
     imageUploadFailed: "圖片上傳失敗",
     imageUploadNeedsBuilder:
-      "請從代理編寫器的模型選單連接 Builder.io，以便將圖片上傳到投影片。即使沒有提供者，將圖片拖到空白畫布上仍可傳送給代理。",
+      "連接物件儲存以上傳圖片：連接 Builder.io（免費），或在「設定 → 檔案上傳」中新增自己的 S3 相容儲存金鑰。",
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",
@@ -780,6 +808,11 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製作產品提案簡報",
+      roadmap: "製作產品路線圖",
+      explainer: "在簡報中說明一個主題",
+    },
     suggestedPrompts: "建議提示",
     importMenu: {
       import: "匯入",
@@ -787,7 +820,11 @@ const messages = {
       invalidPdf: "請選擇 PDF 檔案。",
       invalidPptx: "請選擇 PPTX 檔案。",
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
+      networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      unsupportedFileType: "不支援此檔案類型。請選擇支援的檔案。",
+      uploadLimitExceeded:
+        "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
     importDeck: "匯入簡報",
     context: {
@@ -824,6 +861,9 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      websiteReadFailed: "無法自動讀取此網站。請改為複製並貼上相關文字。",
+      figmaReadFailed:
+        "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
       search: "搜尋參考資料",
       designCategory: "設計",
@@ -832,7 +872,8 @@ const messages = {
       invalidUrl: "請輸入有效的 HTTP 或 HTTPS URL。",
       starting: "正在啟動…",
       generate: "產生",
-      connectionRequired: "請先在首頁輸入框上方連接 Builder.io，然後重試。",
+      connectionRequired:
+        "請在首頁提示框上方連接 AI 供應商，或新增自己的 AI 金鑰，然後重試。",
       invalidPdf: "請選擇 PDF 檔案。",
       notReady: "請檢查待載入或失敗的參考內容與連線狀態，然後重試。",
       tooLong: "來源文字請控制在 20,000 字元以內。",
@@ -881,8 +922,10 @@ const messages = {
     loadFailed: "無法載入內容",
     loadFailedDescription: "您儲存的內容仍然可用。請檢查連線並重試。",
     retry: "重試",
+    fileStorageStatusUnavailable: "無法檢查物件儲存狀態。請在上傳檔案前重試。",
+    fileStorageSetupRequired:
+      "尚未連接物件儲存空間。請免費連接 Builder.io，或前往設定 → 檔案上傳新增自己的 S3 相容儲存金鑰。",
     decksTitle: "幻燈片",
-    newDeck: "新建幻燈片",
     deckLengthQuestion: "這份幻燈片需要多長？",
     deckLengthHeader: "幻燈片長度",
     deckLengthShort: "短（3–5 張）",
@@ -911,6 +954,8 @@ const messages = {
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
     importFrom: "匯入來源",
+    referenceFileStorageUnavailable:
+      "尚未設定檔案儲存空間。請連結 Builder.io 或其他檔案提供者，以匯入參考檔案。",
     attachedFiles: "已附加檔案",
     imported: "已匯入",
     importedReferenceDeck: "已匯入的參考投影片",
@@ -966,6 +1011,11 @@ const messages = {
     emptyTitle: "還沒有簡報",
     createFirstDeck: "建立你的第一份簡報",
     emptyDescription: "使用 AI 產生精美簡報。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "無法檢查 AI 連線。",
+    },
   },
 };
 

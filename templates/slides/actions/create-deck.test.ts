@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
-
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockGetRequestRunContext = vi.fn(() => ({
@@ -44,14 +42,10 @@ let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
-// db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-// resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
-// directly, so its clause is distinguished by the accessFilter sentinel that
-// leads its `and(...)` conditions rather than by a subsequent chained call.
 const titleWhereFn = vi.fn(async () => titleQueryRows);
 const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
   const clauses = (condition as { and?: unknown[] } | undefined)?.and;
@@ -73,13 +67,11 @@ const fromFn = vi.fn((table: unknown) => ({
 }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-// db.insert().values(...)
 const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
   insertedRow = row;
 });
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
-// db.update().set(...).where(...)
 const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
@@ -169,6 +161,78 @@ beforeEach(() => {
   mockTrack.mockClear();
   mockGetUserEmail.mockReturnValue("owner@example.com");
   mockGetOrgId.mockReturnValue(null);
+});
+
+describe("create-deck chat result", () => {
+  it("projects at most three sanitized slide previews without notes or design context", () => {
+    const chatUI = action.chatUI;
+    const projected = chatUI?.projectResult?.(
+      {},
+      {
+        id: "deck-1",
+        title: "D".repeat(240),
+        slideCount: 4,
+        slides: [
+          {
+            id: "slide-1",
+            layout: "title",
+            content: "<div><h1>One</h1><script>untrusted</script></div>",
+            notes: "presenter only",
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+          { id: "slide-3", content: "<div>Three</div>" },
+          { id: "slide-4", content: "<div>Four</div>" },
+        ],
+        designSystem: { agentContext: "private context" },
+      },
+    );
+
+    expect(chatUI?.renderer).toBe("slides.deck-result");
+    expect(projected).toMatchObject({
+      id: "deck-1",
+      title: "D".repeat(180),
+      slideCount: 4,
+      previews: [
+        { id: "slide-1", layout: "title" },
+        { id: "slide-2", layout: "content" },
+        { id: "slide-3", layout: "content" },
+      ],
+    });
+    const previewJson = JSON.stringify(projected?.previews);
+    expect(projected?.previews).toHaveLength(3);
+    expect(projected?.previews[0].content).toContain("<h1>One</h1>");
+    expect(previewJson).not.toContain("<script");
+    expect(previewJson).not.toContain("presenter only");
+    expect(JSON.stringify(projected)).not.toContain("private context");
+    expect(chatUI?.when?.({}, projected)).toBe(true);
+    expect(chatUI?.when?.({}, { error: "Create failed" })).toBe(false);
+    expect(chatUI?.projectResult?.({}, projected)).toEqual(projected);
+    expect(
+      chatUI?.projectResult?.({}, { id: "deck-1", title: "T", slideCount: -1 }),
+    ).toBeNull();
+  });
+
+  it("skips slide previews larger than the per-slide limit", () => {
+    const projected = action.chatUI?.projectResult?.(
+      {},
+      {
+        id: "deck-1",
+        title: "T",
+        slideCount: 2,
+        slides: [
+          { id: "oversized", content: "x".repeat(12_001) },
+          { id: "small", content: "<div>Small</div>" },
+        ],
+      },
+    );
+
+    expect(projected?.previews).toHaveLength(1);
+    expect(projected?.previews[0]).toMatchObject({
+      id: "small",
+      layout: "content",
+    });
+    expect(projected?.previews[0].content).toContain("Small");
+  });
 });
 
 describe("create-deck — save boundary", () => {

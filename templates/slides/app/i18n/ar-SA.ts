@@ -40,7 +40,6 @@ const messages = {
     brand: "الشرائح",
     decks: "العروض",
     designSystems: "أنظمة التصميم",
-    team: "الفريق",
   },
   settings: {
     agentObservability: "مراقبة الوكيل",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
+    notificationsEmail: "البريد الإلكتروني",
+    commentsAndReplies: "التعليقات والردود",
+    commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
+    retry: "إعادة المحاولة",
+    mcpAbout:
+      "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -124,7 +129,7 @@ const messages = {
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -183,8 +188,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "فتح في التطبيق",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
@@ -588,6 +591,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "تم الحفظ" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -658,10 +662,30 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "خطأ 403",
+    noAccessTitle: "ليس لديك صلاحية الوصول",
+    noAccessDescription: "اطلب الوصول من مالك العرض، أو بدّل إلى الحساب الصحيح.",
+    noteLabel: "أضف ملاحظة للمالك (اختياري)",
+    notePlaceholder: "أراجع هذا العرض",
+    requesting: "جارٍ الطلب",
+    requestFailed: "لم يُرسَل طلبك. يُرجى المحاولة مرة أخرى.",
+    requestSentDescription:
+      "سنرسل إليك بريدًا إلكترونيًا فور موافقة المالك على طلبك.",
+    goHome: "الانتقال إلى الرئيسية",
+    signedInAs: "تم تسجيل الدخول باسم",
+    switchAccount: "تبديل الحساب",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled: "تم إيقاف الإنشاء مؤقتًا بعد 5 دقائق دون تقدم",
+    generationStalledDescription:
+      "لا تزال الشرائح المحفوظة موجودة. يمكنك متابعة هذا العرض التقديمي في الدردشة.",
+    continueInChat: "المتابعة في الدردشة",
+    continueGenerationPrompt:
+      "تابع إنشاء الشرائح لهذا العرض التقديمي. افحص الشرائح الحالية وسياق الإنشاء المحفوظ أولًا. احتفظ بالشرائح المكتملة وأضف الشرائح الناقصة فقط.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -698,6 +722,9 @@ const messages = {
     accessApprovalTitle: "تم منح الوصول",
     accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
     accessApprovalMessage: "يمكن لـ {{email}} فتح هذا العرض الآن.",
+    accessApprovalRequesterEmailed: "أرسلنا إليه بريدًا إلكترونيًا لإعلامه.",
+    accessApprovalRequesterEmailFailed:
+      "تعذّر إرسال بريد إلكتروني إلى {{email}}. أخبره أنه يمكنه فتح العرض الآن.",
     accessApprovalAlreadyMessage:
       "لدى {{email}} صلاحية الوصول إلى هذا العرض بالفعل.",
     accessApprovalErrorTitle: "تعذّر منح الوصول",
@@ -712,7 +739,7 @@ const messages = {
     tryAgain: "إعادة المحاولة",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -823,6 +850,11 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "أنشئ عرضًا تقديميًا لمنتج",
+      roadmap: "أنشئ خارطة طريق لمنتج",
+      explainer: "اشرح موضوعًا في عرض تقديمي",
+    },
     suggestedPrompts: "الاقتراحات المقترحة",
     importMenu: {
       import: "استيراد",
@@ -830,7 +862,12 @@ const messages = {
       invalidPdf: "اختر ملف PDF.",
       invalidPptx: "اختر ملف PPTX.",
       invalidFile: "اختر ملف PDF أو PPTX.",
+      networkFailed:
+        "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
       notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      unsupportedFileType: "نوع الملف هذا غير مدعوم. اختر ملفًا مدعومًا.",
+      uploadLimitExceeded:
+        "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
     },
     importDeck: "استيراد عرض",
     context: {
@@ -869,6 +906,10 @@ const messages = {
       notReady:
         "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
       emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      websiteReadFailed:
+        "تعذّرت قراءة هذا الموقع تلقائيًا. انسخ النص ذي الصلة والصقه بدلًا من ذلك.",
+      figmaReadFailed:
+        "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
       tooMany: "اختر حتى 20 مرجعًا.",
       search: "البحث عن مراجع",
       designCategory: "التصميم",
@@ -878,7 +919,7 @@ const messages = {
       starting: "جارٍ البدء…",
       generate: "إنشاء",
       connectionRequired:
-        "اربط Builder.io أعلى حقل الصفحة الرئيسية ثم حاول مجددًا.",
+        "اربط موفر ذكاء اصطناعي أعلى حقل الصفحة الرئيسية أو أضف مفتاح الذكاء الاصطناعي الخاص بك، ثم حاول مجددًا.",
       invalidPdf: "اختر ملف PDF.",
       notReady: "راجع السياق المعلق أو المتعذر وحالة الاتصال ثم حاول مجددًا.",
       tooLong: "اجعل نص المصدر أقل من 20,000 حرف.",
@@ -928,8 +969,11 @@ const messages = {
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
     retry: "إعادة المحاولة",
+    fileStorageStatusUnavailable:
+      "تعذر التحقق من حالة تخزين الكائنات. أعد المحاولة قبل رفع الملفات.",
+    fileStorageSetupRequired:
+      "لا يوجد تخزين كائنات متصل. اربط Builder.io مجانًا أو أضف مفاتيح تخزين متوافقة مع S3 من إعدادات ← تحميل الملفات.",
     decksTitle: "العروض",
-    newDeck: "عرض جديد",
     deckLengthQuestion: "ما طول هذا العرض؟",
     deckLengthHeader: "طول العرض",
     deckLengthShort: "قصير (3–5 شرائح)",
@@ -959,6 +1003,8 @@ const messages = {
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
     importFrom: "استيراد من",
+    referenceFileStorageUnavailable:
+      "لم يتم إعداد تخزين الملفات. اربط Builder.io أو موفر ملفات آخر لاستيراد الملفات المرجعية.",
     attachedFiles: "المرفقات",
     imported: "تم الاستيراد",
     importedReferenceDeck: "عرض مرجعي مستورد",
@@ -1015,6 +1061,11 @@ const messages = {
     createFirstDeck: "أنشئ أول عرض لك",
     emptyDescription:
       "أنشئ عروضًا تقديمية جميلة باستخدام الإنشاء المدعوم بالذكاء الاصطناعي.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
   },
 };
 

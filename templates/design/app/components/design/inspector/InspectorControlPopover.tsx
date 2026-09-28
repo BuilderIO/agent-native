@@ -79,11 +79,6 @@ export function InspectorControlPopoverContent({
   );
 }
 
-/**
- * Canonical property row inside an inspector control popover. The 256px shell
- * has 16px insets, leaving 224px: exactly 28 8px columns. Labels consume nine
- * columns, the gutter one, and controls the remaining eighteen.
- */
 export function InspectorControlField({
   label,
   children,

@@ -40,7 +40,6 @@ const messages = {
     brand: "슬라이드",
     decks: "덱",
     designSystems: "디자인 시스템",
-    team: "팀",
   },
   settings: {
     agentObservability: "에이전트 관찰성",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
+    notificationsEmail: "이메일",
+    commentsAndReplies: "댓글 및 답글",
+    commentsAndRepliesDescription:
+      "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
+    retry: "다시 시도",
+    mcpAbout:
+      "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -126,7 +132,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -185,8 +191,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "앱에서 열기",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -576,6 +580,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "저장됨" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -641,10 +646,31 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "오류 403",
+    noAccessTitle: "액세스 권한이 없습니다",
+    noAccessDescription:
+      "덱 소유자에게 액세스를 요청하거나 올바른 계정으로 전환하세요.",
+    noteLabel: "소유자에게 보낼 메모 추가(선택 사항)",
+    notePlaceholder: "이 덱을 검토하고 있습니다",
+    requesting: "요청 중",
+    requestFailed: "요청이 전송되지 않았습니다. 다시 시도해 주세요.",
+    requestSentDescription:
+      "소유자가 요청을 승인하면 바로 이메일로 알려 드리겠습니다.",
+    goHome: "홈으로 이동",
+    signedInAs: "로그인한 계정:",
+    switchAccount: "계정 전환",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5분 동안 진행되지 않아 생성을 일시 중지했습니다",
+    generationStalledDescription:
+      "저장된 슬라이드는 그대로 있습니다. 채팅에서 이 덱의 생성을 이어가세요.",
+    continueInChat: "채팅에서 이어가기",
+    continueGenerationPrompt:
+      "이 덱의 슬라이드 생성을 계속하세요. 먼저 현재 슬라이드와 저장된 생성 컨텍스트를 확인하세요. 완료된 슬라이드는 유지하고 누락된 슬라이드만 추가하세요.",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -679,6 +705,9 @@ const messages = {
     accessApprovalTitle: "액세스 권한이 부여되었습니다",
     accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
     accessApprovalMessage: "이제 {{email}} 님이 이 덱을 열 수 있습니다.",
+    accessApprovalRequesterEmailed: "이메일로 알려 드렸습니다.",
+    accessApprovalRequesterEmailFailed:
+      "{{email}}에게 이메일을 보내지 못했습니다. 이제 덱을 열 수 있다고 알려 주세요.",
     accessApprovalAlreadyMessage:
       "{{email}} 님은 이미 이 덱에 액세스할 수 있습니다.",
     accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
@@ -693,7 +722,7 @@ const messages = {
     tryAgain: "다시 시도",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -801,6 +830,11 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "제품 피치 덱 만들기",
+      roadmap: "제품 로드맵 만들기",
+      explainer: "프레젠테이션으로 주제 설명하기",
+    },
     suggestedPrompts: "추천 프롬프트",
     importMenu: {
       import: "가져오기",
@@ -808,7 +842,13 @@ const messages = {
       invalidPdf: "PDF 파일을 선택하세요.",
       invalidPptx: "PPTX 파일을 선택하세요.",
       invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      networkFailed:
+        "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
       notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+      unsupportedFileType:
+        "지원되지 않는 파일 형식입니다. 지원되는 파일을 선택하세요.",
+      uploadLimitExceeded:
+        "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
     },
     importDeck: "덱 가져오기",
     context: {
@@ -847,6 +887,10 @@ const messages = {
       notReady:
         "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
       emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      websiteReadFailed:
+        "이 웹사이트를 자동으로 읽을 수 없습니다. 관련 텍스트를 복사해 붙여넣어 주세요.",
+      figmaReadFailed:
+        "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",
       search: "참조 검색",
       designCategory: "디자인",
@@ -856,7 +900,7 @@ const messages = {
       starting: "시작 중…",
       generate: "생성",
       connectionRequired:
-        "홈 입력창 위에서 Builder.io를 연결한 후 다시 시도하세요.",
+        "홈 프롬프트 위에서 AI 제공업체를 연결하거나 직접 AI 키를 추가한 후 다시 시도하세요.",
       invalidPdf: "PDF 파일을 선택하세요.",
       notReady:
         "대기 중이거나 실패한 컨텍스트와 연결 상태를 확인한 후 다시 시도하세요.",
@@ -907,8 +951,11 @@ const messages = {
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
     retry: "다시 시도",
+    fileStorageStatusUnavailable:
+      "개체 스토리지 상태를 확인할 수 없습니다. 파일을 업로드하기 전에 다시 시도하세요.",
+    fileStorageSetupRequired:
+      "연결된 개체 스토리지가 없습니다. 무료 Builder.io를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     decksTitle: "덱",
-    newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",
     deckLengthHeader: "덱 길이",
     deckLengthShort: "짧게(3–5장)",
@@ -938,6 +985,8 @@ const messages = {
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    referenceFileStorageUnavailable:
+      "파일 저장소가 설정되지 않았습니다. 참조 파일을 가져오려면 Builder.io 또는 다른 파일 제공업체를 연결하세요.",
     attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",
@@ -994,6 +1043,11 @@ const messages = {
     emptyTitle: "아직 덱이 없습니다",
     createFirstDeck: "첫 덱 만들기",
     emptyDescription: "AI 생성으로 아름다운 프레젠테이션을 만드세요.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
   },
 };
 

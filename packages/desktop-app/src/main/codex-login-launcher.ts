@@ -30,11 +30,9 @@ type SpawnProcess = (
 ) => ChildProcess;
 
 export interface DetachedLaunchOptions {
-  /** Wait for wrapper commands (such as macOS osascript) to exit. */
   waitForExit?: boolean;
 }
 
-/** Spawn a detached process and resolve only after spawn or error is known. */
 export function spawnDetached(
   command: string,
   args: string[],

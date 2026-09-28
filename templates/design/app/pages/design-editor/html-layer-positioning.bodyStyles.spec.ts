@@ -97,8 +97,6 @@ describe("setBodyInlineStyles", () => {
   });
 
   it("clears a value the inspector read out of a shorthand", () => {
-    // Fill shows #0f1115 from `background`; clearing it must not leave the
-    // shorthand behind, or the edit looks like it did nothing.
     const next = setBodyInlineStyles(
       doc(`<body style="background:#0f1115"></body>`),
       { backgroundColor: "" },

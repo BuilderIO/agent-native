@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   getAgentEngineEntry: vi.fn(() => null),
   isAgentEngineSettingConfigured: vi.fn(() => false),
   isStoredEngineUsable: vi.fn(() => false),
+  readDefaultAgentEngineSetting: (...args: any[]) => mocks.getSetting(...args),
   registerBuiltinEngines: () => mocks.registerBuiltinEngines(),
 }));
 
@@ -467,9 +468,6 @@ describe("listDispatchUsageMetrics", () => {
         ),
       ),
     ).toBe(false);
-    // A workspace roll-up spans other members, so it must NOT admit rows whose
-    // organization is unknown — a member shared with another organization
-    // would otherwise have that spend claimed here.
     expect(
       mocks.execute.mock.calls.some(([query]) => {
         const sql = String((query as { sql?: string }).sql);
@@ -485,9 +483,6 @@ describe("listDispatchUsageMetrics", () => {
   });
 
   it("admits unattributed usage for a one-member workspace", async () => {
-    // selectedUserEmail is null here, but the effective owner list is exactly
-    // the viewer, so the read is self-scoped and must count their own
-    // unattributed spend.
     mocks.currentOrgId.mockReturnValue("org-a");
     mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
     mocks.getUsageSummary.mockResolvedValue(null);

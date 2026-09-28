@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI कनेक्शन की जाँच हो रही है…",
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
+    common: { retry: "फिर से प्रयास करें" },
+  },
   timelineTrack: {
     helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
     helpOtherSideTerm: "इसके बजाय दाईं ओर वाले हिस्से से फ़ुटेज हटाएँ",
@@ -416,10 +424,9 @@ const messages = {
     agentEmptyTitle: "बातचीत में शामिल हों",
     agentEmptyDescription:
       "इस क्लिप पर टिप्पणी करने, प्रतिक्रिया देने और सवाल पूछने के लिए मुफ़्त Clips खाता बनाएं।",
-    commentSignupTitle: "अपने AI एजेंट को पूरी जानकारी दें",
-    commentSignupContext: "ट्रांसक्रिप्ट और टाइमस्टैम्प वाले फ़्रेम एक ही लिंक में साझा करें",
-    commentSignupFeedback: "रिकॉर्ड किए गए फ़ीडबैक को स्पष्ट अगले कदमों में बदलें",
-    commentSignupDebug: "कंसोल की त्रुटियाँ और विफल अनुरोध कैप्चर करें",
+    commentSignupTitle: "आपका AI एजेंट जिन स्क्रीन रिकॉर्डिंग को देख और सुन सकता है",
+    commentSignupDescription:
+      "Clips एक मुफ़्त और ओपन-सोर्स स्क्रीन रिकॉर्डर है, जिससे आप AI एजेंटों के साथ बग, फ़ीडबैक और चरण-दर-चरण निर्देश साझा कर सकते हैं।",
     agentEmptySignInPrompt: "क्या आपके पास पहले से खाता है?",
     signUp: "साइन अप करें",
     ownerInsights: "स्वामी इनसाइट्स",
@@ -556,6 +563,9 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
+    redactionsPendingBody:
+      "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
     publicDescription:
       "लिंक वाला कोई भी व्यक्ति देख सकता है - टिप्पणी करने या प्रतिक्रिया देने के लिए साइन इन करें",
     shareRecording: "रिकॉर्डिंग साझा करें",
@@ -611,9 +621,6 @@ const messages = {
     customizeEmbed: "एम्बेड अनुकूलित करें",
     more: "अधिक",
     sharePlainTitle: "{{title}} साझा करें",
-    redactionsPendingBody:
-      "इस रिकॉर्डिंग पर {{count}} छिपाव बनाए गए हैं, लेकिन अभी लागू नहीं किए गए हैं, इसलिए फ़ाइल में उनके नीचे का सब कुछ अब भी दिखता है। एडिटर खोलें, उन्हें लागू करें, और शेयर करना फिर से उपलब्ध हो जाएगा।",
-    redactionsPendingTitle: "पहले रिडैक्शन पूरे करें",
   },
   shareUi: {
     owner: "स्वामी: {{email}}",
@@ -810,6 +817,8 @@ const messages = {
     changelogEmpty: "अभी कोई अपडेट नहीं है।",
     changelogCommentSignup:
       "खाली टिप्पणियों वाला साइडबार Clips आज़माने की वजह संक्षेप में बताता है और साइन अप करने का स्पष्ट रास्ता देता है।",
+    changelogCommentsEmptyState:
+      "टिप्पणियाँ न होने पर अब बताया जाता है कि स्क्रीन रिकॉर्डिंग AI एजेंटों की कैसे मदद करती हैं।",
     changelogShareLink:
       "साइन इन किए हुए दर्शक अनुपलब्ध, समाप्त या निजी शेयर लिंक पर “होम जाएं” चुनने पर अब सार्वजनिक मार्केटिंग पेज के बजाय अपनी लाइब्रेरी पर पहुंचेंगे।",
     viewAllUpdates: "सभी अपडेट देखें",
@@ -921,6 +930,50 @@ const messages = {
       "Clips {{team}} के लिए संग्रहीत bot token हटा देगा और चलने योग्य Slack previews भेजना बंद कर देगा।",
     thisWorkspace: "यह वर्कस्पेस",
     slackConnected: "Slack कनेक्टेड",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ब्राउज़र ने पॉप-अप ब्लॉक कर दिया। इस साइट के लिए पॉप-अप की अनुमति दें और फिर से कोशिश करें।",
+    recordingsTab: "रिकॉर्डिंग",
+    meetingsTab: "मीटिंग",
+    yourDefaults: "आपके डिफ़ॉल्ट",
+    orgDefault: "{{org}} डिफ़ॉल्ट",
+    playbackSpeed: "प्लेबैक स्पीड",
+    playbackSpeedDescription: "रिकॉर्डिंग खोलने पर लागू होती है।",
+    visibility: "दृश्यता",
+    visibilityDescription:
+      "आपकी बनाई रिकॉर्डिंग पर लागू होती है। आप इसे किसी भी रिकॉर्डिंग पर बदल सकते हैं।",
+    useOrgDefault: "{{org}} का डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    useDefault: "डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    transcriptExport: "ट्रांसक्रिप्ट एक्सपोर्ट",
+    logoDescription: "शेयर ईमेल और सार्वजनिक क्लिप पेजों पर दिखता है।",
+    change: "बदलें",
+    adminsOnly: "केवल मालिक और एडमिन इसे बदल सकते हैं।",
+    brandColorInvalid: "हेक्स रंग कोड दर्ज करें।",
+    loadFailed: "ये सेटिंग्स लोड नहीं हो सकीं।",
+    emailGroup: "ईमेल",
+    calendarGroup: "कैलेंडर",
+    googleCalendar: "Google Calendar",
+    connect: "कनेक्ट करें",
+    reconnect: "फिर से कनेक्ट करें",
+    connectedAs: "{{account}} के रूप में कनेक्टेड",
+    needsReconnect: "{{account}} को फिर से कनेक्ट करना होगा।",
+    disconnectFailed: "कैलेंडर डिस्कनेक्ट नहीं हो सका।",
+    disconnectCalendarDescription:
+      "Clips {{account}} से आने वाली मीटिंग सिंक करना बंद कर देगा।",
+    calendarApp: "Google Calendar ऐप",
+    desktopGroup: "डेस्कटॉप",
+    meetingCapture: "मीटिंग कैप्चर",
+    meetingCaptureDescription:
+      "नोट्स, ऑटो-स्टार्ट और सूचनाएं हर डिवाइस पर Clips Desktop में सेट होती हैं।",
+    openClipsDesktop: "Clips Desktop खोलें",
+    keySaved: "सहेजा गया",
+    keyNotSaved: "सहेजा नहीं गया",
+    manage: "प्रबंधित करें",
+    add: "जोड़ें",
+    linkPreviews: "लिंक प्रीव्यू",
+    addWorkspace: "वर्कस्पेस जोड़ें",
+    storageAskAdmin: "स्टोरेज सेट अप करने के लिए किसी मालिक या एडमिन से कहें।",
   },
   insightsHub: {
     title: "इनसाइट्स",
@@ -1658,6 +1711,7 @@ const messages = {
     backgroundNone: "कोई नहीं",
     notYetBurned:
       "{{count}} छिपाव रखे गए हैं, लेकिन लागू नहीं किए गए हैं। अभी कुछ भी छिपा नहीं है, और जब तक आप उन्हें लागू नहीं करते, कोई और यह स्क्रीनशॉट नहीं देख सकता।",
+    editsUnreadable: "Clips सेव किए गए स्क्रीनशॉट संपादन नहीं पढ़ सका।",
     burnInHint: "छिपाव के नीचे की सामग्री को हमेशा के लिए मिटाएँ और मूल को हटाएँ",
     burnInTitle: "इस स्क्रीनशॉट में {{count}} छिपाव लागू करें?",
     burnInWarning:

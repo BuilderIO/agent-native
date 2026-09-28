@@ -27,7 +27,7 @@ import {
   sourceContentHash,
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
-import "./db/index.js"; // ensure registerShareableResource runs
+import "./db/index.js";
 
 export interface SourceWorkspaceFile {
   id: string;
@@ -39,30 +39,8 @@ export interface SourceWorkspaceFile {
   updatedAt: string | null;
 }
 
-// Per-file in-process write serialization for writeInlineSourceFile's full
-// read-check-write critical section.
-//
-// @agent-native/core/collab's mutation helpers each serialize their OWN Y.Doc
-// mutation via an internal per-docId lock, but that only protects the CRDT
-// mutation itself — not the read-then-decide-then-write sequence around
-// it. Two concurrent writers to a file that has NO collab doc yet (a real
-// case: doc creation is lazy, so nothing has opened this file in a live
-// session) can each observe hasCollabState()===false, so BOTH take the
-// seedFromText branch — which only takes effect for the first caller to
-// reach it — and, without this lock, both then proceed to persist their own
-// content, silently discarding whichever writer didn't "win" the seed (a
-// lost update, not a CRDT merge — reproduced in
-// insert-design-native-asset.interleave.spec.ts). Serializing the whole
-// critical section per file id closes this: the second writer's prepared
-// document read and expectedVersionHash check now happen AFTER the first
-// writer's collab mutation has landed, so it observes the true current state
-// and either converges its own diff cleanly or is rejected by the
-// expectedVersionHash guard — never silently clobbered.
 const _writeLocks = new Map<string, Promise<void>>();
 
-/**
- * Normalize affected-row metadata from PGlite and hosted Postgres.
- */
 export function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
@@ -84,10 +62,6 @@ export function affectedRowCount(result: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
-/**
- * Acquire the shared design-file table lock before any file or design row
- * locks in the design editing mutation boundary.
- */
 export async function lockDesignFilesTable(tx: unknown): Promise<void> {
   const execute = (tx as { execute?: unknown }).execute;
   if (typeof execute !== "function") {
@@ -99,19 +73,6 @@ export async function lockDesignFilesTable(tx: unknown): Promise<void> {
   );
 }
 
-// Exported so other write paths touching the same per-file critical section
-// (content read -> optimistic-concurrency hash check -> collab/SQL write) can
-// serialize under the SAME lock instead of each guarding independently. Two
-// callers can each pass their own hash check against a live read that's still
-// valid at check time, then both proceed to write — the check alone doesn't
-// prevent the interleave, only serializing the whole read-check-write section
-// per file id does. See actions/update-file.ts's content-write path.
-//
-// `_writeLocks` is intentionally only a fast in-process serialization layer.
-// Cross-process correctness comes from the content + updatedAt SQL CAS in
-// writeInlineSourceFile (and the operation-lineage CAS in update-file): a
-// different instance that commits first makes the losing update affect zero
-// rows, so it is rejected instead of overwriting the winner.
 export async function withSourceFileWriteLock<T>(
   fileId: string,
   fn: () => Promise<T>,
@@ -145,7 +106,6 @@ export function withPreparedSourceFileMutation<T>(
   );
 }
 
-/** Serialize cross-process mutations that reconcile a design's source/index. */
 export function designSourceMutationLockKey(designId: string): string {
   return `agent-native:design-source:${designId}`;
 }
@@ -220,7 +180,6 @@ export function getDesignSourceMutationExec(transaction: object): DbExec {
   return exec;
 }
 
-/** Keep design-file membership changes in the same lock domain as indexing. */
 export function withDesignSourceMutationTransaction<T>(
   designId: string,
   callback: (tx: DesignSourceMutationTransaction) => Promise<T>,
@@ -256,14 +215,6 @@ export interface SourceWorkspaceContext {
   sourceType: DesignSourceType;
   canEdit: boolean;
   files: SourceWorkspaceFile[];
-  /**
-   * The design's reserved board overlay file id (designs.data.boardFileId),
-   * when one has been created. The board file is deliberately excluded from
-   * `files` by default since it isn't a source file the code workbench edits.
-   * Callers that need to recognize "this id is the board, not a missing file"
-   * (e.g. read-source-file's graceful no-op) should check against this instead
-   * of treating an unresolved id as an error.
-   */
   boardFileId: string | null;
 }
 
@@ -429,12 +380,6 @@ export function readPreparedSourceText(
   }
 }
 
-/**
- * Lock and validate the durable collaboration row represented by a prepared
- * lease. Preparing the Y.Doc happens before the design transaction can take
- * its SQL locks, so the lease's base version must be checked again at the
- * final boundary instead of trusting its cached snapshot.
- */
 export async function lockPreparedSourceCollaboration(
   transaction: DbExec,
   fileId: string,
@@ -523,11 +468,9 @@ export async function writeInlineSourceFile(args: {
   file: SourceWorkspaceFile;
   content: string;
   expectedVersionHash?: string;
-  /** A content-only identity migration verified against the live source. */
   identityOnly?: boolean;
   operationSource?: string;
   operationRevision?: number;
-  /** Used only when the editor deliberately changes a screen's source mode. */
   allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
@@ -603,10 +546,6 @@ export async function writeInlineSourceFile(args: {
         !identityOnly &&
         args.expectedVersionHash !== current.versionHash
       ) {
-        // Typed so callers can catch-and-retry the same way they already do for
-        // the other two conflict sites below (see apply-shader-fill.ts /
-        // apply-component-prop-edit.ts / edit-design.ts) instead of only
-        // matching on message text.
         throw new SourceWorkspaceEditConflictError(
           "Source file changed since it was read. Re-read the file and retry.",
         );
@@ -657,10 +596,6 @@ export async function writeInlineSourceFile(args: {
           currentFile.contentOperationRevision ===
             identityOnlyOperationRevision &&
           currentFile.contentOperationResultHash === candidateHash;
-        // A retried request may carry the hash of its raw preimage after the
-        // first request has already atomically persisted the canonical result.
-        // Only the full content + operation-lineage proof above earns this
-        // idempotent fast path.
         if (exactPersistedOperation) {
           await validatePreparedNoop();
           return {
@@ -731,8 +666,6 @@ export async function writeInlineSourceFile(args: {
           (isStandaloneHttpUrl(current.content) ||
             isStandaloneHttpUrl(candidate));
         assertDesignHtmlEditIntegrity({
-          // A deliberate mode transition must validate a new HTML document as a
-          // document, not compare it with the old route string.
           previousContent: isSourceModeTransition ? candidate : current.content,
           nextContent: candidate,
           fileType: currentFile.fileType ?? args.file.fileType ?? "html",
@@ -782,9 +715,6 @@ export async function writeInlineSourceFile(args: {
         );
       }
 
-      // The JS lock is process-local. Guard the SQL mirror with the exact
-      // content + revision read above so a writer on another instance cannot
-      // commit between our read/live-doc mutation and this final persistence.
       const identityLineageWhere = identityOnly
         ? [
             currentFile.contentOperationSource == null
@@ -900,11 +830,6 @@ export type InlineSourceBatchCollaborationFileStatus = {
   status: "synced";
 };
 
-/**
- * Persist planned source documents and their prepared Y.Doc snapshots in one
- * SQL transaction. Prepared leases publish their cache updates only after the
- * shared transaction commits.
- */
 export async function writeInlineSourceFilesBatch(args: {
   designId: string;
   files: Array<{
@@ -912,12 +837,7 @@ export async function writeInlineSourceFilesBatch(args: {
     content: string;
     expectedVersionHash: string;
   }>;
-  /**
-   * Require the transaction to re-check the design-wide HTML membership set.
-   * Omit this for batches that intentionally touch only a subset of files.
-   */
   expectedHtmlFileIds?: readonly string[];
-  /** Additional metadata mutation to commit with the source documents. */
   afterFilesPersist?: (tx: DbExec, updatedAt: string) => Promise<void>;
 }): Promise<{
   files: Array<{

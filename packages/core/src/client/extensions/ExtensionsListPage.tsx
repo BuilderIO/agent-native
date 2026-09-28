@@ -101,7 +101,6 @@ function CreateToolInput({ className }: { className?: string }) {
 }
 
 export interface ExtensionsListPageProps {
-  /** Skip the standalone extensions navigation state when embedded in Settings. */
   embedded?: boolean;
 }
 

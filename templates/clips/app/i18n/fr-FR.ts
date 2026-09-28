@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionner ou fermer les réponses",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Vérification de la connexion à l’IA…",
+      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+    },
+    common: { retry: "Réessayer" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Cliquez d'abord sur cette section, puis faites glisser la ligne rouge vers la droite.",
@@ -435,13 +445,10 @@ const messages = {
     agentEmptyTitle: "Rejoignez la conversation",
     agentEmptyDescription:
       "Créez un compte Clips gratuit pour commenter, réagir et poser des questions sur ce clip.",
-    commentSignupTitle: "Donnez tout le contexte à votre agent IA",
-    commentSignupContext:
-      "Partagez la transcription et les images horodatées dans un seul lien",
-    commentSignupFeedback:
-      "Transformez les retours enregistrés en prochaines étapes concrètes",
-    commentSignupDebug:
-      "Capturez les erreurs de console et les requêtes échouées",
+    commentSignupTitle:
+      "Des enregistrements d’écran que votre agent IA peut voir et entendre",
+    commentSignupDescription:
+      "Clips est un enregistreur d’écran gratuit et open source pour partager des bugs, des retours et des démonstrations pas à pas avec des agents IA.",
     agentEmptySignInPrompt: "Vous avez déjà un compte ?",
     signUp: "S’inscrire",
     ownerInsights: "Insights du propriétaire",
@@ -582,6 +589,9 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    redactionsPendingTitle: "Terminer les masquages avant le partage",
+    redactionsPendingBody:
+      "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",
     publicDescription:
       "Toute personne disposant du lien peut voir — connectez-vous pour commenter ou réagir",
     shareRecording: "Partager l'enregistrement",
@@ -637,9 +647,6 @@ const messages = {
     customizeEmbed: "Personnaliser l’intégration",
     more: "Plus",
     sharePlainTitle: "Partager {{title}}",
-    redactionsPendingBody:
-      "{{count}} masquage(s) sont dessinés sur cet enregistrement mais n’ont pas encore été appliqués : le fichier montre donc toujours tout ce qu’ils recouvrent. Ouvrez l’éditeur, appliquez-les, et le partage sera de nouveau possible.",
-    redactionsPendingTitle: "Terminez d'abord les masquages",
   },
   shareUi: {
     owner: "Propriétaire : {{email}}",
@@ -844,6 +851,8 @@ const messages = {
     changelogEmpty: "Aucune mise à jour pour le moment.",
     changelogCommentSignup:
       "Le panneau de commentaires vide explique brièvement pourquoi essayer Clips et propose un moyen simple de s’inscrire.",
+    changelogCommentsEmptyState:
+      "L’état vide des commentaires explique désormais comment les enregistrements d’écran aident les agents IA.",
     changelogShareLink:
       "Les utilisateurs connectés qui ouvrent un lien de partage indisponible, expiré ou privé accèdent désormais à leur bibliothèque en choisissant « Retour à l’accueil », au lieu de la page marketing publique.",
     viewAllUpdates: "Voir toutes les mises à jour",
@@ -959,6 +968,53 @@ const messages = {
       "Clips supprimera le token bot stocké pour {{team}} et cessera d’envoyer des aperçus Slack lisibles.",
     thisWorkspace: "cet espace",
     slackConnected: "Slack connecté",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Le navigateur a bloqué la fenêtre contextuelle. Autorisez les fenêtres contextuelles pour ce site, puis réessayez.",
+    recordingsTab: "Enregistrements",
+    meetingsTab: "Réunions",
+    yourDefaults: "Vos valeurs par défaut",
+    orgDefault: "Valeur par défaut de {{org}}",
+    playbackSpeed: "Vitesse de lecture",
+    playbackSpeedDescription: "S'applique quand vous ouvrez un enregistrement.",
+    visibility: "Visibilité",
+    visibilityDescription:
+      "S'applique aux enregistrements que vous créez. Vous pouvez la modifier sur chaque enregistrement.",
+    useOrgDefault: "Utiliser la valeur par défaut de {{org}} ({{visibility}})",
+    useDefault: "Utiliser la valeur par défaut ({{visibility}})",
+    transcriptExport: "Export des transcriptions",
+    logoDescription:
+      "Affiché dans les e-mails de partage et sur les pages publiques des clips.",
+    change: "Modifier",
+    adminsOnly:
+      "Seuls les propriétaires et les administrateurs peuvent modifier ce réglage.",
+    brandColorInvalid: "Saisissez un code couleur hexadécimal.",
+    loadFailed: "Impossible de charger ces réglages.",
+    emailGroup: "E-mail",
+    calendarGroup: "Calendrier",
+    googleCalendar: "Google Calendar",
+    connect: "Connecter",
+    reconnect: "Reconnecter",
+    connectedAs: "Connecté en tant que {{account}}",
+    needsReconnect: "{{account}} doit être reconnecté.",
+    disconnectFailed: "Impossible de déconnecter le calendrier.",
+    disconnectCalendarDescription:
+      "Clips ne synchronise plus les réunions à venir de {{account}}.",
+    calendarApp: "Application Google Calendar",
+    desktopGroup: "Bureau",
+    meetingCapture: "Capture des réunions",
+    meetingCaptureDescription:
+      "Les notes, le démarrage automatique et les notifications se règlent sur chaque appareil dans Clips Desktop.",
+    openClipsDesktop: "Ouvrir Clips Desktop",
+    keySaved: "Enregistrée",
+    keyNotSaved: "Non enregistrée",
+    manage: "Gérer",
+    add: "Ajouter",
+    linkPreviews: "Aperçus de liens",
+    addWorkspace: "Ajouter un espace de travail",
+    storageAskAdmin:
+      "Demandez à un propriétaire ou à un administrateur de configurer le stockage.",
   },
   insightsHub: {
     title: "Insights",
@@ -1723,6 +1779,8 @@ const messages = {
     backgroundNone: "Aucun",
     notYetBurned:
       "{{count}} masquage(s) sont placés mais pas encore appliqués. Rien n’est encore masqué, et personne d’autre ne peut voir cette capture tant que vous ne les avez pas appliqués.",
+    editsUnreadable:
+      "Clips n’a pas pu lire les modifications enregistrées de la capture.",
     burnInHint:
       "Détruire définitivement ce que recouvrent les masquages et supprimer l’original",
     burnInTitle: "Appliquer {{count}} masquage(s) à cette capture ?",

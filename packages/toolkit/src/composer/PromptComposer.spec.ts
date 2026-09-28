@@ -7,7 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildPromptComposerSubmission,
   PromptComposer,
-  shouldGateComposerForMissingEngine,
+  resolveComposerModelStatusChecksEnabled,
+  shouldGateComposerForEngine,
+  shouldCheckModelStatus,
   type PromptComposerFile,
 } from "./PromptComposer.js";
 
@@ -25,35 +27,52 @@ afterEach(() => {
   container.remove();
 });
 
-describe("shouldGateComposerForMissingEngine", () => {
-  it("never disables the composer while the status check is unresolved", () => {
-    for (const state of ["unknown", "unavailable"]) {
-      expect(
-        shouldGateComposerForMissingEngine({ state, hasSetupComponent: true }),
-      ).toBe(false);
+describe("shouldGateComposerForEngine", () => {
+  it("blocks typing until provider status confirms the engine is configured", () => {
+    for (const state of ["unknown", "unavailable", "missing"] as const) {
+      expect(shouldGateComposerForEngine(state)).toBe(true);
     }
   });
 
-  it("gates only when a connect affordance can be rendered", () => {
+  it("leaves the composer usable once an engine is configured", () => {
+    expect(shouldGateComposerForEngine("configured")).toBe(false);
+  });
+});
+
+describe("shouldCheckModelStatus", () => {
+  it("checks hosted engines and skips local runtimes", () => {
+    expect(shouldCheckModelStatus({ selectedEngine: "openai" })).toBe(true);
+    expect(shouldCheckModelStatus({ selectedEngine: "codex-cli" })).toBe(false);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: true,
-      }),
+      shouldCheckModelStatus({ enabled: true, selectedEngine: "codex-cli" }),
     ).toBe(true);
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "missing",
-        hasSetupComponent: false,
-      }),
+      shouldCheckModelStatus({ enabled: false, selectedEngine: "openai" }),
     ).toBe(false);
   });
+});
 
-  it("leaves the composer usable once an engine is configured", () => {
+describe("resolveComposerModelStatusChecksEnabled", () => {
+  it("uses the persisted engine when no picker selection is provided", () => {
     expect(
-      shouldGateComposerForMissingEngine({
-        state: "configured",
-        hasSetupComponent: true,
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "codex-cli" }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({ defaultEngine: "openai" }),
+    ).toBe(true);
+  });
+
+  it("prefers an explicit engine and honors an explicit host override", () => {
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        selectedEngine: "codex-cli",
+        defaultEngine: "openai",
+      }),
+    ).toBe(false);
+    expect(
+      resolveComposerModelStatusChecksEnabled({
+        enabled: false,
+        selectedEngine: "openai",
       }),
     ).toBe(false);
   });
@@ -84,9 +103,6 @@ describe("buildPromptComposerSubmission", () => {
     expect(result).toEqual({ text: "Review\n\nPasted notes", files: [] });
   });
   it("passes images through files only — never inlines base64 into prompt text", async () => {
-    // Images are passed to `files` for the host to process through the
-    // attachment pipeline. They must NOT be inlined as base64 in `text`
-    // (≈700K tokens per MB of image data).
     const file = new File(["fake image"], "sketch.png", {
       type: "image/png",
     });
@@ -104,7 +120,6 @@ describe("buildPromptComposerSubmission", () => {
     });
 
     expect(result.files).toEqual([file]);
-    // text must not contain any base64 data or uploaded-image markup
     expect(result.text).not.toContain("data:image");
     expect(result.text).not.toContain("<uploaded-image");
   });
@@ -131,7 +146,6 @@ describe("buildPromptComposerSubmission", () => {
   });
 
   it("does not include image data in prompt text regardless of file size", async () => {
-    // Both small and large images stay in `files` only.
     const smallFile = new File(["small image"], "small.png", {
       type: "image/png",
     });

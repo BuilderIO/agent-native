@@ -95,16 +95,14 @@ export function Header() {
       <header
         className={cn(
           "hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6",
-          isHome && "design-home-header",
+          isHome && "h-14 border-b-0 design-home-header",
         )}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {title ?? <ResolvedTitle />}
         </div>
         {isHome ? (
-          <div className="design-home-header-search min-w-0 w-full max-w-175 justify-self-center">
-            {actions}
-          </div>
+          <div className="design-home-header-search w-full">{actions}</div>
         ) : null}
         <div className="flex items-center justify-end gap-2 shrink-0">
           {isHome ? <HomeImportButton /> : null}
@@ -117,11 +115,6 @@ export function Header() {
   );
 }
 
-/**
- * Mobile counterpart of the header actions slot: <Header> is `md:flex`, so
- * without this every control a page publishes through `useSetHeaderActions`
- * is unmounted below the `md` breakpoint.
- */
 export function MobileHeaderActions() {
   const isHome = useLocation().pathname === "/home";
   const actions = useHeaderActions();
@@ -130,11 +123,16 @@ export function MobileHeaderActions() {
     <div
       className={cn(
         "flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden",
-        isHome && "justify-center",
+        isHome &&
+          "design-home-mobile-header-actions justify-start overflow-visible border-b-0",
       )}
     >
-      {actions}
-      {isHome ? <HomeImportButton /> : null}
+      {isHome ? <div className="min-w-0 flex-1">{actions}</div> : actions}
+      {isHome ? (
+        <div className="shrink-0">
+          <HomeImportButton />
+        </div>
+      ) : null}
     </div>
   );
 }

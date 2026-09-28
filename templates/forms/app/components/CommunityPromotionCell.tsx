@@ -75,7 +75,7 @@ export function CommunityPromotionCell({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 gap-1.5 text-xs"
+          className="gap-1.5 text-xs"
           disabled={promotion.isPending}
           onClick={publish}
         >
@@ -99,7 +99,7 @@ export function CommunityPromotionCell({
         type="button"
         variant="outline"
         size="sm"
-        className="h-8 gap-1.5 text-xs"
+        className="gap-1.5 text-xs"
         disabled={promotion.isPending}
         onClick={publish}
       >

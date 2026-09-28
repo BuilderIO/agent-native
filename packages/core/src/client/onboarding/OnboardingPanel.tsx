@@ -8,13 +8,6 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-/**
- * <OnboardingPanel /> — the setup checklist that sits above the agent chat.
- *
- * The active step is expanded; completed steps collapse with a green check;
- * remaining steps sit dimmed below. Each method renders differently based on
- * its `kind` (link / form / builder-cli-auth / agent-task).
- */
 import React, { useState, useEffect } from "react";
 
 import type {
@@ -32,6 +25,7 @@ import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../settings/index.js";
+import { StorageSettingsForm } from "../settings/StorageSettingsForm.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { trackOnboardingEvent, useOnboarding } from "./use-onboarding.js";
 import { useOnboardingPreviewMode } from "./use-preview-mode.js";
@@ -39,9 +33,7 @@ import { useOnboardingPreviewMode } from "./use-preview-mode.js";
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 interface OnboardingPanelProps {
-  /** Optional extra styles / classes for the wrapper. */
   className?: string;
-  /** Override the built-in title. */
   title?: string;
 }
 
@@ -61,9 +53,6 @@ export function OnboardingPanel({
     complete,
     dismiss,
   } = onboarding;
-  // `database` and `auth` steps only apply to local dev (PGlite default,
-  // local-mode auth bypass). In production those are configured via env
-  // vars / deployment config, so don't nag the user about them.
   const DEV_ONLY_STEP_IDS = new Set(["database", "auth"]);
   const steps = isDevMode
     ? rawSteps
@@ -78,10 +67,6 @@ export function OnboardingPanel({
       null);
   const checklistVisible =
     !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
-  // Default expanded. (Older code used `useState(!allComplete)`, but the first
-  // render fires with `steps === []` — `[].every()` is vacuously true, so
-  // `allComplete` was true and `expanded` got locked to false even after the
-  // real incomplete steps loaded.)
   const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
@@ -100,12 +85,8 @@ export function OnboardingPanel({
   }, [checklistVisible, currentStepId, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
-  // Preview mode (dev overlay) bypasses the auto-hide so template authors
-  // can render the new-user flow even when their own setup is done.
   if (!previewMode) {
     if (dismissed) return null;
-    // Auto-hide once every required step is done — no need to take up sidebar
-    // space when there's nothing left to do.
     if (allComplete) return null;
   }
 
@@ -195,8 +176,6 @@ export function OnboardingPanel({
     </div>
   );
 }
-
-// ─── StepCard ──────────────────────────────────────────────────────────────
 
 function StepCard({
   step,
@@ -464,8 +443,6 @@ function FormMethodPicker({
   );
 }
 
-// ─── MethodBlock ───────────────────────────────────────────────────────────
-
 function MethodBlock({
   method,
   stepId,
@@ -560,10 +537,12 @@ function MethodBody({
           onClick={trackMethodClick}
         />
       );
+    case "file-storage":
+      return (
+        <StorageSettingsForm columns={1} onSaved={() => void onCompleted()} />
+      );
   }
 }
-
-// ─── link ──────────────────────────────────────────────────────────────────
 
 function LinkMethod({
   method,
@@ -577,7 +556,6 @@ function LinkMethod({
   const { url, external } = method.payload;
   const isNoop = !url || url === "#";
   if (isNoop) {
-    // Sentinel URL — treat as "mark this method as the chosen one".
     return (
       <button
         type="button"
@@ -606,8 +584,6 @@ function LinkMethod({
     </a>
   );
 }
-
-// ─── form ──────────────────────────────────────────────────────────────────
 
 function FormMethod({
   method,
@@ -715,8 +691,6 @@ function FormMethod({
   );
 }
 
-// ─── builder-cli-auth ──────────────────────────────────────────────────────
-
 function BuilderCliAuthMethod({
   onCompleted,
   primary,
@@ -767,8 +741,6 @@ function BuilderCliAuthMethod({
   );
 }
 
-// ─── agent-task ────────────────────────────────────────────────────────────
-
 function AgentTaskMethod({
   method,
   stepId: _stepId,
@@ -792,8 +764,6 @@ function AgentTaskMethod({
     </button>
   );
 }
-
-// ─── styles ────────────────────────────────────────────────────────────────
 
 function buttonPrimary(primary: boolean | undefined): React.CSSProperties {
   return {

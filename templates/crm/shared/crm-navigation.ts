@@ -1,22 +1,18 @@
-/**
- * The CRM navigation vocabulary: which surfaces exist, the path each one lives
- * at, and how to read the current selection back out of a path.
- *
- * The agent (`navigate`, `view-screen`) and the browser route hook have to mean
- * the same thing by "the board for this list", so the view union, the path
- * builder, and the selection parser live here rather than once per surface.
- * Two copies of this map is how the agent ends up navigating somewhere the UI
- * does not report back.
- */
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 
-export const CRM_SETTINGS_SECTIONS = [
+/** CRM's own areas: tabs on CRM › General, at `/settings/app/<id>`. */
+export const CRM_SETTINGS_AREA_IDS = [
   "connection",
   "fields",
   "lists",
   "intelligence",
-  "mcp",
   "advanced",
 ] as const;
+
+export type CrmSettingsAreaId = (typeof CRM_SETTINGS_AREA_IDS)[number];
+
+/** What the navigate action's `settingsSection` can name. */
+export const CRM_SETTINGS_SECTIONS = [...CRM_SETTINGS_AREA_IDS, "mcp"] as const;
 
 export type CrmSettingsSection = (typeof CRM_SETTINGS_SECTIONS)[number];
 
@@ -44,11 +40,6 @@ export const CRM_VIEWS = [
 
 export type CrmView = (typeof CRM_VIEWS)[number];
 
-/**
- * `board` shares the `/views` route: a board is a presentation mode of one
- * saved view or list, not a route of its own. `viewFromPath` therefore never
- * returns it — only `navigate` accepts it as a destination.
- */
 export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
   work: "/home",
   account: "/accounts",
@@ -94,13 +85,6 @@ export function viewFromPath(pathname: string): CrmView {
   return "work";
 }
 
-/**
- * The complete path — including search — for a navigation target.
- *
- * A destination the UI cannot actually open is thrown, not silently degraded to
- * an index page: "navigated to the board" while the board never opened is the
- * failure mode the root CLAUDE.md forbids.
- */
 export function crmNavigationPath(target: CrmNavigationTarget): string {
   if (target.view === "record") {
     if (!target.recordId) {
@@ -109,7 +93,9 @@ export function crmNavigationPath(target: CrmNavigationTarget): string {
     return `/records/${encodeURIComponent(target.recordId)}`;
   }
   if (target.view === "settings" && target.settingsSection) {
-    return `/settings/${target.settingsSection}`;
+    return target.settingsSection === "mcp"
+      ? buildSettingsRoute("mcp")
+      : buildSettingsRoute("app", target.settingsSection);
   }
   if (target.view === "board" && !target.viewId && !target.listId) {
     throw new Error(
@@ -120,8 +106,6 @@ export function crmNavigationPath(target: CrmNavigationTarget): string {
   const params = new URLSearchParams();
   let base =
     CRM_VIEW_PATHS[target.view as Exclude<CrmView, "record">] ?? "/home";
-  // A saved view or a list always opens on the /views surface; /lists is only
-  // the index of lists.
   if (
     (target.view === "views" ||
       target.view === "board" ||
@@ -151,11 +135,6 @@ export interface CrmNavigationSelection {
   settingsSection?: CrmSettingsSection;
 }
 
-/**
- * The selection carried by a visited path. `null` means no path was published
- * — which is not the same as a path with nothing selected, and callers must be
- * able to tell those apart.
- */
 export function parseCrmNavigationSelection(
   pathAndSearch: string | null | undefined,
 ): CrmNavigationSelection | null {
@@ -169,7 +148,7 @@ export function parseCrmNavigationSelection(
   const params = url.searchParams;
   const kind = params.get("kind");
   const mode = params.get("mode");
-  const section = url.pathname.split("/settings/")[1]?.split("/")[0];
+  const section = settingsSectionFromPath(url.pathname);
   return {
     ...(params.get("view") ? { viewId: params.get("view")! } : {}),
     ...(params.get("list") ? { listId: params.get("list")! } : {}),
@@ -179,6 +158,15 @@ export function parseCrmNavigationSelection(
     ...(params.get("q") ? { query: params.get("q")! } : {}),
     ...(isSettingsSection(section) ? { settingsSection: section } : {}),
   };
+}
+
+/**
+ * `/settings/app/<area>` in either Settings, plus today's `/settings/<section>`
+ * links, which the redesigned shell rewrites to the area.
+ */
+function settingsSectionFromPath(pathname: string): string | undefined {
+  const segments = pathname.split("/settings/")[1]?.split("/") ?? [];
+  return segments[0] === "app" ? segments[1] : segments[0];
 }
 
 function isRecordKind(value: string | null): value is CrmRecordKind {

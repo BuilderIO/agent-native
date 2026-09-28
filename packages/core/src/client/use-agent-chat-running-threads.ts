@@ -9,13 +9,9 @@ export type AgentChatPresentationPhase = "working" | "responding" | "idle";
 
 export interface AgentChatRunningEventDetail {
   isRunning: boolean;
-  /** User-facing phase; execution can remain active while a response streams. */
   phase?: AgentChatPresentationPhase;
-  /** Canonical durable conversation identity. */
   threadId?: string;
-  /** Legacy alias used by AssistantChat and embedded chat frames. */
   tabId?: string;
-  /** Logical chat turn that may continue across multiple server runs. */
   turnId?: string;
   runId?: string;
   reason?: string;
@@ -24,15 +20,12 @@ export interface AgentChatRunningEventDetail {
 export interface UseAgentChatRunningThreadsOptions {
   apiUrl?: string;
   pollIntervalMs?: number;
-  /** Protects an accepted submit from an active-run read that races persistence. */
   startGraceMs?: number;
 }
 
 export interface AgentChatRunningThreadsState {
   runningThreadIds: ReadonlySet<string>;
-  /** Threads still doing work before their first visible assistant response. */
   workingThreadIds: ReadonlySet<string>;
-  /** First observation time for threads that started during this shell mount. */
   observedThreadStarts: ReadonlyMap<string, number>;
 }
 
@@ -43,7 +36,6 @@ export function resolveAgentChatRunningThreadId(
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-/** Broadcast run state to host chrome without coupling it to a chat renderer. */
 export function dispatchAgentChatRunning(
   detail: AgentChatRunningEventDetail,
 ): void {
@@ -51,11 +43,6 @@ export function dispatchAgentChatRunning(
   window.dispatchEvent(new CustomEvent(AGENT_CHAT_RUNNING_EVENT, { detail }));
 }
 
-/**
- * Tracks runs across route changes for rails, tabs, and other host chrome.
- * Terminal events settle immediately. A bounded active-run check owns the
- * route-switch case where the visible AgentKit client releases its stream.
- */
 export function useAgentChatRunningThreads(
   options: UseAgentChatRunningThreadsOptions = {},
 ): AgentChatRunningThreadsState {

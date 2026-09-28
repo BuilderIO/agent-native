@@ -483,6 +483,7 @@
         "@tiptap/pm",
         "@tiptap/react",
         "@tiptap/starter-kit",
+        "@tiptap/y-tiptap",
         "clsx",
         "highlight.js",
         "lowlight",
@@ -528,26 +529,6 @@
       "verification": ["pnpm typecheck"]
     },
     {
-      "id": "toolkit/marketing",
-      "label": "Marketing home shell",
-      "catalog": "toolkit-ui",
-      "catalogItems": ["marketing"],
-      "entrypoints": ["./marketing", "./marketing/*"],
-      "strategy": "source-copy",
-      "sourceEntries": ["src/marketing"],
-      "targetRoot": "app/components/agent-native/toolkit",
-      "dependencies": [
-        "@radix-ui/react-slot",
-        "class-variance-authority",
-        "culori",
-        "clsx",
-        "react",
-        "tailwind-merge"
-      ],
-      "protectedImports": ["@agent-native/toolkit/utils"],
-      "verification": ["pnpm typecheck"]
-    },
-    {
       "id": "toolkit/provider",
       "label": "Toolkit provider",
       "catalog": "toolkit-ui",
@@ -583,6 +564,7 @@
         "@radix-ui/react-dropdown-menu",
         "@radix-ui/react-popover",
         "@radix-ui/react-select",
+        "@radix-ui/react-separator",
         "@radix-ui/react-slot",
         "@radix-ui/react-switch",
         "@radix-ui/react-tabs",

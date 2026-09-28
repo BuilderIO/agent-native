@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type {
   ResourceSuggestion,
+  ResourceSuggestionProposal,
   SuggestionDecision,
   SuggestionOperation,
   SuggestionStatus,
@@ -61,7 +62,6 @@ export interface CreateReviewCommentInput {
   resolutionTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   metadata?: Record<string, unknown>;
-  /** Reuse when retrying one logical submission so create is idempotent. */
   clientOperationId?: string;
 }
 
@@ -74,7 +74,6 @@ export interface ReplyReviewCommentInput {
   resolutionTarget?: ReviewResolutionTarget | null;
   mentions?: ReviewMention[];
   metadata?: Record<string, unknown>;
-  /** Reuse when retrying one logical submission so reply is idempotent. */
   clientOperationId?: string;
 }
 
@@ -247,6 +246,30 @@ export interface DecideResourceSuggestionInput {
   observedBase: string;
   observedRevision?: number;
 }
+export interface CreateResourceSuggestionProposalInput {
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  baseRevision: string;
+  summary: string;
+  proposalId?: string;
+  idempotencyKey: string;
+  suggestions: {
+    summary: string;
+    operations: SuggestionOperation[];
+    metadata?: Record<string, unknown>;
+  }[];
+}
+export interface DecideResourceSuggestionProposalInput {
+  proposalId: string;
+  decision: SuggestionDecision;
+  idempotencyKey: string;
+  members: { id: string; observedRevision: number; observedBase: string }[];
+}
+export interface ResourceSuggestionProposalResult {
+  proposal: ResourceSuggestionProposal;
+  suggestions: ResourceSuggestion[];
+}
 
 export interface UpdateResourceSuggestionInput {
   id: string;
@@ -296,10 +319,6 @@ export interface ReviewOptimisticMutationContext {
   queryHashes: string[];
 }
 
-/**
- * Review writes can settle out of order. Keep each pending intent as an
- * overlay rather than restoring a whole cache snapshot when one fails.
- */
 export class ReviewOptimisticCache {
   private readonly queries = new Map<string, OptimisticQueryState>();
   private readonly resourceOperations = new Map<string, Set<string>>();
@@ -1035,6 +1054,20 @@ export function useCreateResourceSuggestion() {
         ),
     };
   });
+}
+
+export function useCreateResourceSuggestionProposal() {
+  return useActionMutation<
+    ResourceSuggestionProposalResult,
+    CreateResourceSuggestionProposalInput
+  >("create-resource-suggestion-proposal");
+}
+
+export function useDecideResourceSuggestionProposal() {
+  return useActionMutation<
+    ResourceSuggestionProposalResult,
+    DecideResourceSuggestionProposalInput
+  >("decide-resource-suggestion-proposal");
 }
 
 export function useDecideResourceSuggestion() {

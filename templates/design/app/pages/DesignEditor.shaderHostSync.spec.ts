@@ -1,29 +1,3 @@
-/**
- * Regression spec for the shader-apply white flash (r4 sweep2 step 11):
- * applying a shader fill (`apply-shader-fill` → onShaderFillApplied) or a
- * GLSL shader source edit (GlslShaderPanel persist → onApplied →
- * handleComponentPropApplied) on the ACTIVE screen used to pass
- * `refreshPreview: true` into applyFileContentUpdate. In
- * applyLocalContentUpdate, `refreshPreview: true` means "skip the in-place
- * replace and bump contentRenderRevision" — the active screen's contentKey is
- * `${fileId}:${contentRenderRevision}`, so the bump remounts the iframe
- * srcdoc: a real reload (second `load` event, white flash) of the screen the
- * user is looking at right as the "applied" toast fires, plus an onload
- * refire of screen measurement in the same gesture.
- *
- * The fix routes both host-sync paths through
- * getPersistedContentHostSyncOptions, which requests the bridge's in-place
- * full-document replace (`forcePreviewFullDocument`) and never sets
- * `refreshPreview`. applyLocalContentUpdate itself still falls back to the
- * srcdoc rebuild when the live bridge isn't registered — that fallback is the
- * gate's job, not the caller's.
- *
- * The a11y review-fix apply (`apply-a11y-fix` → onFixApplied →
- * handleReviewFixApplied) is the third persisted-content host sync routed
- * through the helper: the action persists the patched content server-side
- * before returning it, and its result carries no updatedAt stamp — the
- * "without updatedAt" cases below cover that shape.
- */
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -54,7 +28,6 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
         updatedAt: "2026-07-07T00:00:00.000Z",
       });
       expect("refreshPreview" in options).toBe(false);
-      // No sibling flag may re-open the forced-rebuild route either.
       expect(Object.keys(options).sort()).toStrictEqual([
         "forcePreviewFullDocument",
         "persist",
@@ -104,9 +77,6 @@ describe("getPersistedContentHostSyncOptions — shader apply host-sync routing"
     });
     expect(shaderCompletion.shaderWriteCompletion).toBe(true);
 
-    // apply-shader-fill returns no updatedAt when the deterministic editor
-    // reported no change — the options must not invent one (an invented stamp
-    // would corrupt the acked-hash base for guarded update-file saves).
     const withoutStamp = getPersistedContentHostSyncOptions({
       fileId: "screen-1",
       activeFileId: "screen-1",

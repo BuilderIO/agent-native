@@ -51,10 +51,6 @@ export default defineAction({
       level: "manage",
     });
 
-    // App origin for OAuth-signed tokens (resource/issuer binding). The MCP
-    // path provides requestOrigin via runWithRequestContext; the HTTP action
-    // route falls back to the configured production URL. Deployments with
-    // A2A_SECRET don't depend on it (the A2A signer ignores appUrl).
     const appUrl = (
       getRequestContext()?.requestOrigin || getAppProductionUrl()
     ).replace(/\/+$/, "");

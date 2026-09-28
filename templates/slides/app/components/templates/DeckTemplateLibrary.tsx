@@ -25,7 +25,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 
 import { DeckTemplatePreview } from "./DeckTemplatePreview";
@@ -34,11 +33,11 @@ import { DeckTemplateStage } from "./DeckTemplateStage";
 const LazySlideRenderer = lazy(() => import("@/components/deck/SlideRenderer"));
 
 export function DeckTemplateLibrary({
-  home = false,
   search = "",
+  enabled = true,
 }: {
-  home?: boolean;
   search?: string;
+  enabled?: boolean;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -47,12 +46,16 @@ export function DeckTemplateLibrary({
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("templateId");
   const previewTriggerRef = useRef<HTMLElement | null>(null);
-  const query = useActionQuery("list-deck-templates", {
-    page: 1,
-    pageSize: home ? 4 : 6,
-    includePreview: "true",
-    search: search.trim() || undefined,
-  });
+  const query = useActionQuery(
+    "list-deck-templates",
+    {
+      page: 1,
+      pageSize: 24,
+      includePreview: "true",
+      search: search.trim() || undefined,
+    },
+    { enabled },
+  );
   const create = useActionMutation("create-deck-from-template");
   const retryIds = useRef(new Map<string, string>());
   const pending = useRef(false);
@@ -102,18 +105,13 @@ export function DeckTemplateLibrary({
 
   return (
     <>
-      {pendingId ? (
-        <div role="status" className="flex items-center gap-2">
-          <Spinner />
-          {t("templatesPage.opening")}
-        </div>
-      ) : null}
       <TemplateLibraryGrid
         items={query.data?.templates ?? []}
         selectedId={selectedId}
         pendingId={pendingId}
         disabled={pendingId !== null}
-        loading={query.isLoading || pendingId !== null}
+        loading={query.isLoading}
+        pendingLabel={t("templatesPage.opening")}
         error={
           copyError?.message ??
           (query.isError
@@ -137,6 +135,12 @@ export function DeckTemplateLibrary({
               title={template.title}
             />
           ) : null
+        }
+        renderMetadata={(template) =>
+          search.trim() &&
+          template.category.toLowerCase().includes(search.trim().toLowerCase())
+            ? template.category
+            : null
         }
         renderActions={(template) => (
           <TemplateActions

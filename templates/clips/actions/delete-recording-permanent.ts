@@ -1,10 +1,3 @@
-/**
- * Permanently delete a recording and all related rows.
- *
- * Usage:
- *   pnpm action delete-recording-permanent --id=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   writeAppState,
@@ -241,7 +234,6 @@ export default defineAction({
       protectedUrls: new Set([...protectedUrls, ...alreadyDeleted]),
     });
 
-    // Clean up any lingering application state for this recording.
     await deleteAppStateByPrefix(`recording-chunks-${args.id}-`);
     await deleteAppState(`recording-upload-${args.id}`);
     await deleteAppState(`recording-compression-${args.id}`);

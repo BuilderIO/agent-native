@@ -1,13 +1,3 @@
-/**
- * Custom onboarding plugin for Clips.
- *
- * Overrides the framework's default onboarding plugin to add the required
- * "Video storage" step and register the S3 file upload provider. Must live
- * in server/plugins/ so the framework skips its default onboarding plugin,
- * and all registrations share the same module context as the onboarding
- * route handlers (which read from the same in-memory Map).
- */
-
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,
@@ -24,14 +14,11 @@ import { hasRequestVideoStorage } from "../lib/video-storage.js";
 const basePlugin = createOnboardingPlugin();
 
 export default async (nitroApp: any): Promise<void> => {
-  // Mount the framework's default onboarding plugin (routes + default steps).
   await basePlugin(nitroApp);
 
-  // Register S3-compatible file upload provider.
   registerFileUploadProvider(s3FileUploadProvider);
   registerPrivateBlobProvider(clipsOrganizationLogoPrivateBlobProvider);
 
-  // Add the required "Video storage" onboarding step.
   registerOnboardingStep({
     id: "file-storage",
     order: 15,
@@ -52,47 +39,10 @@ export default async (nitroApp: any): Promise<void> => {
       },
       {
         id: "s3",
-        kind: "form",
+        kind: "file-storage",
         label: "Use S3-compatible storage",
         description:
-          "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, or any S3-compatible service.",
-        payload: {
-          writeScope: "workspace",
-          saveTo: "scoped-secrets",
-          secretDescription: "Clips S3-compatible storage",
-          fields: [
-            {
-              key: "S3_ENDPOINT",
-              label: "Endpoint URL",
-              placeholder: "https://s3.us-east-1.amazonaws.com",
-            },
-            {
-              key: "S3_BUCKET",
-              label: "Bucket name",
-              placeholder: "my-clips-bucket",
-            },
-            {
-              key: "S3_ACCESS_KEY_ID",
-              label: "Access key ID",
-              placeholder: "AKIA...",
-            },
-            {
-              key: "S3_SECRET_ACCESS_KEY",
-              label: "Secret access key",
-              secret: true,
-            },
-            {
-              key: "S3_REGION",
-              label: "Region (optional)",
-              placeholder: "us-east-1",
-            },
-            {
-              key: "S3_PUBLIC_BASE_URL",
-              label: "Public base URL (optional)",
-              placeholder: "https://cdn.example.com",
-            },
-          ],
-        },
+          "AWS S3, Cloudflare R2, Supabase Storage, MinIO, or any S3-compatible service.",
       },
     ],
     isComplete: hasRequestVideoStorage,

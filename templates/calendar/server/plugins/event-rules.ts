@@ -8,6 +8,7 @@ import {
   requestJevThroughBuilder,
   runWithRequestContext,
   scheduledTriggerAvailability,
+  type RecurringSweepContext,
   type JevResponse,
 } from "@agent-native/core/server";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
@@ -103,12 +104,16 @@ async function evaluate(
   rules: NonNullable<
     ReturnType<typeof normalizeCalendarSettings>["eventRules"]
   >,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const active = Object.entries(rules).filter(([, prompt]) => prompt?.trim());
   if (!active.length || !events.length) return new Map<string, Set<string>>();
   const credentials = await getJevContextCredentials(owner);
+  signal?.throwIfAborted();
   if (!(await isJevEnabled(credentials)))
     throw new Error("Jev invitation rules require Jev access.");
+  signal?.throwIfAborted();
   const decisions = new Map<string, Set<string>>();
   for (let offset = 0; offset < events.length; offset += EVENT_BATCH_SIZE) {
     const batch = events.slice(offset, offset + EVENT_BATCH_SIZE);
@@ -147,7 +152,7 @@ async function evaluate(
       response = await requestJevThroughBuilder(
         credentials.builderAuth,
         request,
-        { timeoutMs: 12_000 },
+        { signal, timeoutMs: 12_000 },
       );
     } else if (credentials.personalApiKey || credentials.apiKey) {
       const apiKey = credentials.personalApiKey ?? credentials.apiKey!;
@@ -158,7 +163,9 @@ async function evaluate(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(request),
-        signal: AbortSignal.timeout(12_000),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(12_000)])
+          : AbortSignal.timeout(12_000),
       });
       if (!result.ok)
         throw new Error(`TypeSafe Jev request failed (${result.status}).`);
@@ -166,6 +173,7 @@ async function evaluate(
     } else {
       throw new Error("Jev invitation rules require Jev access.");
     }
+    signal?.throwIfAborted();
     if (!response.answers || typeof response.answers !== "object")
       throw new Error("Jev returned no invitation rule answers.");
     for (const id of entries.keys()) {
@@ -197,9 +205,11 @@ async function persistEventRuleActivity(
   owner: string,
   activity: CalendarEventRuleActivity[],
   addedHiddenKeys: ReadonlySet<string> = new Set(),
+  signal?: AbortSignal,
 ) {
   if (!activity.length && !addedHiddenKeys.size) return;
   await mutateUserSetting(owner, "calendar-settings", (current) => {
+    signal?.throwIfAborted();
     const record = (current ?? {}) as Record<string, unknown>;
     const latest = normalizeCalendarSettings(record);
     const nextActivity = new Map(
@@ -217,13 +227,15 @@ async function persistEventRuleActivity(
 }
 
 async function syncOwner(owner: string, signal?: AbortSignal) {
-  const settings = normalizeCalendarSettings(
-    await getUserSetting(owner, "calendar-settings"),
-  );
+  const savedSettings = await getUserSetting(owner, "calendar-settings");
+  signal?.throwIfAborted();
+  const settings = normalizeCalendarSettings(savedSettings);
   const rules = settings.eventRules ?? {};
   const hasActiveRules = Object.values(rules).some((rule) => rule?.trim());
   // coercion-ok: null means this owner has not recorded a sweep cursor yet.
-  const runtime = ((await getUserSetting(owner, RUNTIME_KEY)) ?? {}) as Runtime;
+  const savedRuntime = await getUserSetting(owner, RUNTIME_KEY);
+  signal?.throwIfAborted();
+  const runtime = (savedRuntime ?? {}) as Runtime;
   const cursors = { ...(runtime.cursors ?? {}) };
   const processed = { ...(runtime.processed ?? {}) };
   const initialSyncAt = { ...(runtime.initialSyncAt ?? {}) };
@@ -241,8 +253,10 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     throw error;
   };
   let conflictCount = 0;
-  const persistProgress = (lastSweepAt?: number) =>
-    mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+  const persistProgress = (lastSweepAt?: number) => {
+    signal?.throwIfAborted();
+    return mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+      signal?.throwIfAborted();
       const latest = (current ?? {}) as Runtime;
       const latestPendingRsvps = {
         ...(latest.pendingRsvps ?? {}),
@@ -266,6 +280,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         ...(lastSweepAt ? { lastSweepAt } : {}),
       };
     });
+  };
   const claimPendingRsvp = async (
     pending: PendingRsvp,
     version: string,
@@ -274,6 +289,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     const now = Date.now();
     const identity = eventKey(pending.accountEmail, "primary", pending.eventId);
     const result = (await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+      signal?.throwIfAborted();
       const latest = (current ?? {}) as Runtime;
       const suppression = latest.undoRsvpSuppressions?.[identity];
       if (suppression) return latest;
@@ -309,6 +325,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     const now = Date.now();
     const identity = eventKey(pending.accountEmail, "primary", pending.eventId);
     const result = (await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+      signal?.throwIfAborted();
       const latest = (current ?? {}) as Runtime;
       if (latest.undoRsvpSuppressions?.[identity]) return latest;
       if ((latest.rsvpClaims?.[identity]?.expiresAt ?? 0) > now) return latest;
@@ -335,18 +352,35 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     });
     releasedRsvpClaims.delete(id);
   };
+  const throwIfAbortedAfterClaim = async (id: string, token?: string) => {
+    if (!signal?.aborted) return;
+    if (token) await releaseRsvpClaim(id, token);
+    signal.throwIfAborted();
+  };
 
   for (const [id, pending] of Object.entries(pendingRsvps)) {
     signal?.throwIfAborted();
     const claimToken = await claimPendingReconciliation(pending);
+    await throwIfAbortedAfterClaim(
+      eventKey(pending.accountEmail, "primary", pending.eventId),
+      claimToken,
+    );
     if (!claimToken) continue;
     try {
-      const event = await googleCalendar.getEvent(pending.eventId, {
-        ownerEmail: owner,
-        accountEmail: pending.accountEmail,
-      });
-      if (eventResponseStatus(event, pending.accountEmail) === pending.action)
-        await persistEventRuleActivity(owner, [pending]);
+      const event = await googleCalendar.getEvent(
+        pending.eventId,
+        {
+          ownerEmail: owner,
+          accountEmail: pending.accountEmail,
+        },
+        { signal },
+      );
+      signal?.throwIfAborted();
+      if (eventResponseStatus(event, pending.accountEmail) === pending.action) {
+        signal?.throwIfAborted();
+        await persistEventRuleActivity(owner, [pending], new Set(), signal);
+        signal?.throwIfAborted();
+      }
       delete pendingRsvps[id];
       resolvedPendingRsvps.add(id);
     } catch (error) {
@@ -354,6 +388,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         eventKey(pending.accountEmail, "primary", pending.eventId),
         claimToken,
       );
+      signal?.throwIfAborted();
       pendingReconciliationErrors.push(
         error instanceof Error
           ? error
@@ -372,6 +407,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
   }
 
   const accounts = await googleCalendar.getClientsForAccountsWithErrors(owner);
+  signal?.throwIfAborted();
   const accountRefreshErrors = accounts.errors
     .slice(0, 10)
     .map(({ email, error }) => ({
@@ -379,12 +415,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       error: error.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 300),
     }));
   await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+    signal?.throwIfAborted();
     const next = { ...((current ?? {}) as Runtime) };
     if (accountRefreshErrors.length)
       next.accountRefreshErrors = accountRefreshErrors;
     else delete next.accountRefreshErrors;
     return next;
   });
+  signal?.throwIfAborted();
 
   for (const account of accounts.clients) {
     signal?.throwIfAborted();
@@ -410,15 +448,17 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
             maxResults: 250,
             pageToken,
           },
+          signal,
         );
+        signal?.throwIfAborted();
         events.push(...(result.items ?? []));
         pageToken = result.nextPageToken;
         if (result.nextSyncToken) cursor = result.nextSyncToken;
       } while (pageToken);
     } catch (error) {
+      signal?.throwIfAborted();
       if (!(error instanceof GoogleApiError) || error.status !== 410 || !cursor)
         throw error;
-      // Google invalidates sync tokens periodically; reset from now and resume incremental reads.
       delete cursors[accountCalendarKey];
       cursor = undefined;
       initial = new Date().toISOString();
@@ -430,7 +470,9 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           account.accessToken,
           "primary",
           { timeMin: initial, showDeleted: true, maxResults: 250, pageToken },
+          signal,
         );
+        signal?.throwIfAborted();
         events.push(...(result.items ?? []));
         pageToken = result.nextPageToken;
         if (result.nextSyncToken) cursor = result.nextSyncToken;
@@ -452,11 +494,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         processed[identity] !== version
       );
     });
-    const decisions = await evaluate(owner, pending, rules);
+    const decisions = await evaluate(owner, pending, rules, signal);
+    signal?.throwIfAborted();
     const currentRules = (await getFreshCalendarSettings(owner)).eventRules;
+    signal?.throwIfAborted();
     const addedHiddenKeys = new Set<string>();
     const activity: CalendarEventRuleActivity[] = [];
     for (const event of pending) {
+      signal?.throwIfAborted();
       const identity = eventKey(account.email, calendarId, event.id);
       const version = `${event.updated ?? ""}:${event.status ?? ""}`;
       const actions = new Set(
@@ -489,19 +534,40 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           occurredAt: new Date().toISOString(),
         };
         const claim = await claimPendingRsvp(entry, version);
+        await throwIfAbortedAfterClaim(
+          identity,
+          releasedRsvpClaims.get(identity),
+        );
         if (claim === "claimed") {
           let currentEvent;
           try {
-            currentEvent = await googleCalendar.getEvent(event.id, {
-              ownerEmail: owner,
-              accountEmail: account.email,
-            });
+            currentEvent = await googleCalendar.getEvent(
+              event.id,
+              {
+                ownerEmail: owner,
+                accountEmail: account.email,
+              },
+              { signal },
+            );
+            signal?.throwIfAborted();
           } catch (error) {
             await releaseRsvpClaim(identity, releasedRsvpClaims.get(identity)!);
+            signal?.throwIfAborted();
             throw error;
           }
-          const latestRules = (await getFreshCalendarSettings(owner))
-            .eventRules;
+          let latestRules: ReturnType<
+            typeof normalizeCalendarSettings
+          >["eventRules"];
+          try {
+            latestRules = (await getFreshCalendarSettings(owner)).eventRules;
+            signal?.throwIfAborted();
+          } catch (error) {
+            if (!signal?.aborted) throw error;
+            const token = releasedRsvpClaims.get(identity);
+            if (token) await releaseRsvpClaim(identity, token);
+            signal.throwIfAborted();
+            throw error;
+          }
           for (const action of actions) {
             const prompt = rules[action as keyof typeof rules]?.trim();
             if (
@@ -518,10 +584,27 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
               "needsAction" &&
             actions.has(responseAction === "accepted" ? "accept" : "decline")
           ) {
-            await googleCalendar.rsvpEvent(event.id, responseAction, {
-              ownerEmail: owner,
-              accountEmail: account.email,
-            });
+            signal?.throwIfAborted();
+            try {
+              await googleCalendar.rsvpEvent(
+                event.id,
+                responseAction,
+                {
+                  ownerEmail: owner,
+                  accountEmail: account.email,
+                },
+                "single",
+                undefined,
+                undefined,
+                signal,
+              );
+              signal?.throwIfAborted();
+            } catch (error) {
+              if (!signal?.aborted) throw error;
+              const token = releasedRsvpClaims.get(identity);
+              if (token) await releaseRsvpClaim(identity, token);
+              signal.throwIfAborted();
+            }
             activity.push(entry);
           } else {
             delete pendingRsvps[entry.id];
@@ -555,7 +638,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     }
     if (activity.length || addedHiddenKeys.size) {
       try {
-        await persistEventRuleActivity(owner, activity, addedHiddenKeys);
+        signal?.throwIfAborted();
+        await persistEventRuleActivity(
+          owner,
+          activity,
+          addedHiddenKeys,
+          signal,
+        );
+        signal?.throwIfAborted();
       } catch (error) {
         for (const entry of activity) {
           if (entry.action === "hidden") continue;
@@ -563,6 +653,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           const token = releasedRsvpClaims.get(key);
           if (token) await releaseRsvpClaim(key, token);
         }
+        signal?.throwIfAborted();
         throw error;
       }
       for (const entry of activity) {
@@ -588,6 +679,7 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
       .map((account) => account.owner)
       .filter((owner): owner is string => Boolean(owner)),
   );
+  signal?.throwIfAborted();
   const failures: Error[] = [];
   for (const owner of owners) {
     signal?.throwIfAborted();
@@ -595,25 +687,29 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
       await runWithRequestContext({ userEmail: owner }, async () => {
         try {
           await syncOwner(owner, signal);
+          signal?.throwIfAborted();
           await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+            signal?.throwIfAborted();
             const next = { ...((current ?? {}) as Runtime) };
             delete next.lastError;
             return next;
           });
         } catch (error) {
+          signal?.throwIfAborted();
           const message = (
             error instanceof Error ? error.message : "Invitation rules failed"
           )
             .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
             .slice(0, 300);
-          await mutateUserSetting(owner, RUNTIME_KEY, (current) => ({
-            ...((current ?? {}) as Runtime),
-            lastError: message,
-          }));
+          await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+            signal?.throwIfAborted();
+            return { ...((current ?? {}) as Runtime), lastError: message };
+          });
           throw new Error(`${owner}: ${message}`);
         }
       });
     } catch (error) {
+      signal?.throwIfAborted();
       failures.push(
         error instanceof Error ? error : new Error("Invitation rules failed"),
       );
@@ -629,7 +725,8 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
   }
 }
 
-const runRegisteredCalendarEventRules = () => runCalendarEventRulesOnce();
+const runRegisteredCalendarEventRules = (context: RecurringSweepContext) =>
+  runCalendarEventRulesOnce(context.signal);
 let unregisterRecurringSweepHandler: (() => void) | undefined;
 
 export default function registerCalendarEventRules() {

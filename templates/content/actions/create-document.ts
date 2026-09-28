@@ -201,7 +201,6 @@ export default defineAction({
 
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
-    // Strip leading H1 that duplicates the title
     if (title && content && !args.preserveLeadingTitleHeading) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
       if (
@@ -348,7 +347,6 @@ export default defineAction({
     await withPositionLock(
       documentsPositionScope(ownerEmail, parentId),
       async () => {
-        // Get max position among siblings
         const maxPos = await db
           .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
           .from(schema.documents)

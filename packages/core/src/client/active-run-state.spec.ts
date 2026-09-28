@@ -63,9 +63,6 @@ describe("resolveReconnectAfterSeq", () => {
   });
 
   it("keeps a run's cursor after it stops being the focused run", () => {
-    // Losing focus is not evidence the run ended. Dropping the cursor here made
-    // the next reconnect resume from seq 0 and replay the whole run on top of
-    // history that already had it — the duplicate-turn report.
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 10 });
     clearActiveRun();
     expect(getActiveRun()).toBeNull();
@@ -73,9 +70,6 @@ describe("resolveReconnectAfterSeq", () => {
   });
 
   it("keeps concurrent runs' cursors independent", () => {
-    // Agent-teams tabs stream in parallel. A shared single-slot cursor let the
-    // second run's seq overwrite the first run's, so the first run reconnected
-    // at the wrong offset (or from 0) and rendered its turn twice.
     setActiveRun({ threadId: "thread-1", runId: "run-1", lastSeq: 5 });
     setActiveRun({ threadId: "thread-2", runId: "run-2", lastSeq: 100 });
 

@@ -174,6 +174,8 @@ export default {
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labTweaks: "Ajustes de design",
     labTweaksDescription: "Experimente ajustes de design com IA.",
+    mcpAbout:
+      "Conecte o Design ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Design por você: criar designs e editá-los. Ele só vê o que você pode ver.",
   },
   pages: {
     presentEmpty: "Nenhum conteúdo para apresentar",
@@ -182,8 +184,19 @@ export default {
     notFoundDescription: "A página que você procura não existe.",
     notFoundSignIn: "Entrar",
     notFoundBackToDesigns: "Voltar aos designs",
-    teamCreateOrgDescription:
-      "Configure uma equipe para compartilhar designs com seus colegas.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Conecte o armazenamento para enviar arquivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Verificando a conexão com a IA…",
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+    common: { retry: "Tentar novamente" },
   },
   chat: {
     emptyState: "Descreva um design para criar",
@@ -1474,6 +1487,18 @@ export default {
         "Mesmo após várias tentativas, a ponte do editor em tempo real não confirmou a conexão.",
       connectionNotConfirmed:
         "A ponte do editor em tempo real não confirmou a conexão. O servidor de desenvolvimento local ainda está em execução?",
+      permissionPromptTitle: "Conecte suas telas locais",
+      permissionPromptDescription:
+        "Para ativar a edição ao vivo, escolha Permitir no aviso do Chrome.",
+      permissionPromptNoPrompt: "O aviso do Chrome não apareceu?",
+      permissionPromptSettingsInstructions:
+        "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e permita o acesso aos apps do seu dispositivo.",
+      permissionCloseTitle: "Fechar a configuração?",
+      permissionCloseDescription:
+        "A edição ao vivo não funcionará até você permitir o acesso no Chrome.",
+      permissionCloseStay: "Manter a configuração aberta",
+      permissionCloseAnyway: "Fechar mesmo assim",
+      permissionPromptRetry: "Tentar conexão novamente",
     },
   },
   multiScreenCanvas: {

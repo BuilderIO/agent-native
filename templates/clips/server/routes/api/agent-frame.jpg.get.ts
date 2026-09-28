@@ -222,12 +222,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const recording = accessResult.access.recording;
 
-  // Held while redactions are drawn but not burned in. This route reads the
-  // stored file directly rather than going through /api/video, so that hold
-  // does not cover it: without this, anyone who can reach a public recording
-  // can ask for the exact frame a box is sitting on and get it unredacted.
-  // Only the owner is exempt — this access object knows owner-or-not, not the
-  // full role, and the safe side of that is to hold.
   if (
     isHeldForRedaction(
       recording.editsJson,

@@ -27,10 +27,6 @@ const SQL_DASHBOARD_KEY = `sql-dashboard-${GA_DASHBOARD_ID}`;
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
 
-/**
- * Validate a credential value before saving. Returns an error message, or null if valid.
- * Catches common mistakes like uploading an OAuth client credential instead of a service account key.
- */
 function validateCredential(key: string, value: string): string | null {
   if (key === "GOOGLE_APPLICATION_CREDENTIALS_JSON") {
     let parsed: Record<string, unknown>;
@@ -111,10 +107,6 @@ export default defineEventHandler(async (event) => {
     await deleteCredential(key, ctx);
   }
 
-  // Auto-seed the Google Analytics SQL dashboard the first time a user
-  // wires up either GA4 credential. Idempotent: if the dashboard already
-  // exists (even empty) we leave it alone so a user who deleted panels
-  // doesn't get them resurrected on the next reconnect.
   const savedKeys = new Set(toSave.map((v) => v.key));
   const savedGaCred = [...GA4_CREDENTIAL_KEYS].some((k) => savedKeys.has(k));
   if (savedGaCred) {
@@ -128,7 +120,6 @@ export default defineEventHandler(async (event) => {
         }
       }
     } catch (err: any) {
-      // Don't fail the credential save if seeding hiccups — log and move on.
       console.warn(
         "[credentials] failed to seed google-analytics dashboard:",
         err?.message ?? err,

@@ -14,23 +14,6 @@ import type {
   Point,
 } from "./types";
 
-/**
- * Whether a cross-screen drag's pointer is still inside the SOURCE screen's
- * own visible frame. `iframeX`/`iframeY`/`viewportW`/`viewportH` are all
- * reported by the bridge from the iframe's own `window.innerWidth`/
- * `innerHeight` — the iframe's internal layout viewport, which stays at the
- * screen's natural content size no matter how small the host paints it.
- * `frameWidth`/`frameHeight` are the rendered board-space card dimensions
- * (`renderedFrameGeometryRef`), which shrink independently of that viewport
- * whenever the card is scaled to fit its content (an overview card narrower
- * than its device width is the common case — see `getScreenPreviewViewport`).
- * Comparing the raw pointer to the card size directly treats two different
- * units as one: a pointer still well inside a 1280-wide screen reads as past
- * a 320-wide rendered card. Convert the pointer through the same
- * content-to-card ratio `screenLocalPointToBoardPoint` already uses for this
- * exact pair of inputs before comparing; fall back to the bridge-reported
- * viewport only when no rendered geometry is known yet (ratio of 1).
- */
 export function isPointerInsideSourceIframe(args: {
   iframeX: number;
   iframeY: number;
@@ -189,8 +172,6 @@ export function getCrossScreenDropGuideStyle(args: {
       borderRadius: 999,
       boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
       transform: rotation ? `rotate(${rotation}deg)` : undefined,
-      // Rotate the insertion line around the anchor rect's center, not its
-      // own center, so before/after edges stay attached to a rotated target.
       transformOrigin: rotation
         ? `${left + width / 2 - lineLeft}px ${height / 2}px`
         : undefined,
@@ -214,11 +195,6 @@ export function getCrossScreenDropGuideStyle(args: {
   };
 }
 
-/**
- * Fixed on-screen size for the cursor ghost shown when the source iframe did
- * not report the dragged layer's size. Screen-space on purpose: scaling it by
- * zoom rendered a 1.6px dot on a 10% board.
- */
 export const COMPACT_CROSS_SCREEN_GHOST_PX = 16;
 
 export function getCrossScreenGhostStyle(args: {
@@ -227,9 +203,6 @@ export function getCrossScreenGhostStyle(args: {
   scale: number;
 }): CSSProperties {
   const { boardX, boardY, width: boardWidth, height: boardHeight } = args.ghost;
-  // A reported size is board-space and tracks zoom; the compact fallback is
-  // already screen-space, so it is centred on the point rather than offset by
-  // a constant that only lined up at 100% zoom.
   const width = boardWidth
     ? Math.max(1, boardWidth * args.scale)
     : COMPACT_CROSS_SCREEN_GHOST_PX;

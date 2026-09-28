@@ -1,83 +1,43 @@
 name: PR Visual Recap (reusable)
 
-# Reusable version of pr-visual-recap.yml.  Consumer repos reference this
-# workflow via `uses:` instead of copying the full ~360-line YAML.  Fixes and
-# improvements land here first and reach every caller automatically.
-#
-# Usage in a caller workflow (see docs/pr-visual-recap.md for the full snippet):
-#
-#   jobs:
-#     visual-recap:
-#       uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
-#       secrets:
-#         PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
-#         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-#         CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-#
-# IMPORTANT: callers must trigger on the same pull_request event types as this
-# file declares in its on.workflow_call section (opened, synchronize, reopened,
-# ready_for_review, labeled, closed).  The workflow_call trigger inherits the CALLER's event
-# context, so `github.event.pull_request.*` expressions here work correctly only
-# when the caller fires on pull_request.
-
 on:
   workflow_call:
     inputs:
-      # Version of @agent-native/recap-cli to use when the consumer repo does NOT
-      # have a local packages/core/src/cli/index.ts (the normal case for
-      # consumer repos).  Defaults to "latest".  Pin to a specific version or
-      # tag for reproducibility: e.g. "1.2.3" or "latest".
       cli-version:
         description: "Version of @agent-native/recap-cli (npx @agent-native/recap-cli@<version>)"
         required: false
         type: string
         default: "latest"
-      # Version of @agent-native/core to use for the optional OpenAI-compatible
-      # code-exec runtime. Defaults to "latest"; pin independently because the
-      # core and recap-cli packages are released on separate version tracks.
       core-cli-version:
         description: "Version of @agent-native/core for the openai-compatible runtime"
         required: false
         type: string
         default: "latest"
-      # Coding-agent backend.  Validated in the gate; mis-cased values are
-      # normalized to lowercase.
       agent:
         description: "Coding-agent backend: 'claude' (default), 'codex', or 'openai-compatible'"
         required: false
         type: string
         default: "claude"
-      # Model override passed to the agent CLI via --model. Must match
-      # [a-zA-Z0-9._-]{1,80}; required when agent=openai-compatible.
       model:
         description: "Model name passed to the agent CLI (required for openai-compatible)"
         required: false
         type: string
         default: ""
-      # Base URL for an OpenAI-compatible backend such as DeepSeek, Kimi, or a
-      # self-hosted gateway. Required when agent=openai-compatible.
       base-url:
         description: "OpenAI-compatible API base URL"
         required: false
         type: string
         default: ""
-      # Reasoning depth for the Codex backend (none|minimal|low|medium|high|xhigh).
-      # Ignored for Claude — Claude's reasoning is model-driven.
       reasoning:
         description: "Reasoning depth for Codex: none|minimal|low|medium|high|xhigh"
         required: false
         type: string
         default: ""
-      # URL of the Agent-Native Plan app that receives the recap.  Override
-      # only when self-hosting.
       plan-url:
         description: "Base URL of the Plan app (default: https://plan.agent-native.com)"
         required: false
         type: string
         default: "https://plan.agent-native.com"
-      # Controls which visual-recap guidance the agent prompt is built from.
-      # 'auto' / 'latest' uses the bundled guidance in @agent-native/recap-cli.
-      # 'repo' pins to the committed visual-recap skill in the caller's repo.
       skill-source:
         description: "Skill-source mode: auto (default), latest, or repo"
         required: false
@@ -104,30 +64,19 @@ on:
         type: string
         default: ""
     secrets:
-      # Required: bearer token minted by `agent-native connect`.  Authorizes
-      # publishing the recap plan and the screenshot upload.
       PLAN_RECAP_TOKEN:
         required: true
-      # Provide this or CLAUDE_CODE_OAUTH_TOKEN for the default claude backend.
       ANTHROPIC_API_KEY:
         required: false
-      # Optional Claude Code subscription auth. Provide this or ANTHROPIC_API_KEY.
       CLAUDE_CODE_OAUTH_TOKEN:
         required: false
-      # Required when agent=codex; ignored otherwise.
       OPENAI_API_KEY:
         required: false
-      # Required when agent=openai-compatible; ignored otherwise.
       VISUAL_RECAP_API_KEY:
         required: false
-      # Override only when self-hosting the Plan app at a non-default origin.
-      # Must match the plan-url input origin.
       PLAN_RECAP_APP_URL:
         required: false
 
-# Concurrency key uses the caller's PR number so parallel pushes to the same
-# PR cancel the older run.  workflow_call inherits the caller's event context,
-# so github.event.pull_request.number resolves correctly here.
 concurrency:
   group: pr-visual-recap-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -136,9 +85,6 @@ jobs:
   gate:
     name: Gate
     if: github.event.action != 'labeled' || inputs.required-labels != ''
-    # A custom plain-label runner is allowed only for trusted same-repo authors.
-    # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
-    # any step starts. The only fromJSON input is this static association list.
     runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && inputs['gate-runs-on'] || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
@@ -321,8 +267,6 @@ jobs:
       issues: write
       pull-requests: write
     env:
-      # Use the PLAN_RECAP_APP_URL secret when set (self-hosted); otherwise
-      # fall back to the plan-url input.
       PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL || inputs.plan-url }}
       PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
       GH_TOKEN: ${{ github.token }}
@@ -344,8 +288,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Consumer repos always use the published CLI (no local packages/core).
-      # The cli-version input controls which published version is used.
       - name: Resolve recap CLI
         id: cli
         run: |
@@ -1042,12 +984,6 @@ jobs:
         if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # recap-source.json + the agent transcript (claude-result.json /
-          # codex-events.jsonl + stderr) are the only window into WHAT the agent
-          # did when a publish fails (no plan URL) — INCLUDING the case where it
-          # finished without writing recap-source.json at all. The sticky comment
-          # only shows the screenshot, so without these a failed recap is
-          # undebuggable. Uploaded on success + failure; tolerant when absent.
           name: pr-visual-recap-source-${{ github.event.pull_request.number }}
           path: |
             recap-source.json
@@ -1091,9 +1027,6 @@ jobs:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
           RECAP_AUTH_FAILED: ${{ steps.auth_probe.outputs.auth_failed }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          # Prefer the route-health diagnostic when the plan app routes are not
-          # yet deployed so the comment explains the 404 instead of a generic
-          # "recap-url.txt was not created" message.
           RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail

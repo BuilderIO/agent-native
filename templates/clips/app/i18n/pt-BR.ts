@@ -1,4 +1,15 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Verificando a conexão com a IA…",
+      providerStatusUnavailable:
+        "Não foi possível verificar a conexão com a IA.",
+    },
+    common: { retry: "Tentar novamente" },
+  },
   timelineTrack: {
     helpOtherSide:
       "Clique primeiro naquela seção e arraste a linha vermelha para a direita.",
@@ -429,12 +440,10 @@ const messages = {
     agentEmptyTitle: "Participe da conversa",
     agentEmptyDescription:
       "Crie uma conta Clips grátis para comentar, reagir e fazer perguntas sobre este clipe.",
-    commentSignupTitle: "Dê ao seu agente de IA o contexto completo",
-    commentSignupContext:
-      "Compartilhe a transcrição e quadros com marcação de tempo em um só link",
-    commentSignupFeedback:
-      "Transforme feedback gravado em próximos passos claros",
-    commentSignupDebug: "Capture erros do console e solicitações com falha",
+    commentSignupTitle:
+      "Gravações de tela que seu agente de IA pode ver e ouvir",
+    commentSignupDescription:
+      "Clips é um gravador de tela gratuito e de código aberto para compartilhar bugs, feedback e tutoriais passo a passo com agentes de IA.",
     agentEmptySignInPrompt: "Já tem uma conta?",
     signUp: "Cadastre-se",
     ownerInsights: "Insights do proprietário",
@@ -575,6 +584,9 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
+    redactionsPendingBody:
+      "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
     publicDescription:
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",
@@ -630,9 +642,6 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
-    redactionsPendingBody:
-      "{{count}} ocultação(ões) foram desenhadas nesta gravação, mas ainda não foram aplicadas, então o arquivo continua mostrando tudo o que está por baixo. Abra o editor, aplique-as e o compartilhamento volta a ficar disponível.",
-    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
@@ -838,6 +847,8 @@ const messages = {
     changelogEmpty: "Ainda não há atualizações.",
     changelogCommentSignup:
       "A barra lateral de comentários vazia explica rapidamente por que experimentar o Clips e oferece um caminho claro para se cadastrar.",
+    changelogCommentsEmptyState:
+      "O estado vazio de comentários agora explica como as gravações de tela ajudam os agentes de IA.",
     changelogShareLink:
       "Agora, ao escolher “Ir para o início” em um link compartilhado indisponível, expirado ou privado, quem estiver conectado será levado à biblioteca em vez da página pública de marketing.",
     viewAllUpdates: "Ver todas as atualizações",
@@ -952,6 +963,52 @@ const messages = {
       "O Clips excluirá o token de bot armazenado para {{team}} e deixará de enviar prévias reproduzíveis do Slack.",
     thisWorkspace: "este espaço",
     slackConnected: "Slack conectado",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "O navegador bloqueou o pop-up. Permita pop-ups para este site e tente novamente.",
+    recordingsTab: "Gravações",
+    meetingsTab: "Reuniões",
+    yourDefaults: "Seus padrões",
+    orgDefault: "Padrão de {{org}}",
+    playbackSpeed: "Velocidade de reprodução",
+    playbackSpeedDescription: "Aplicada quando você abre uma gravação.",
+    visibility: "Visibilidade",
+    visibilityDescription:
+      "Aplicada às gravações que você cria. Você pode alterá-la em qualquer gravação.",
+    useOrgDefault: "Usar o padrão de {{org}} ({{visibility}})",
+    useDefault: "Usar o padrão ({{visibility}})",
+    transcriptExport: "Exportação de transcrições",
+    logoDescription:
+      "Exibido nos e-mails de compartilhamento e nas páginas públicas dos clipes.",
+    change: "Alterar",
+    adminsOnly: "Somente proprietários e administradores podem alterar isso.",
+    brandColorInvalid: "Digite um código de cor hexadecimal.",
+    loadFailed: "Não foi possível carregar estas configurações.",
+    emailGroup: "E-mail",
+    calendarGroup: "Agenda",
+    googleCalendar: "Google Calendar",
+    connect: "Conectar",
+    reconnect: "Reconectar",
+    connectedAs: "Conectado como {{account}}",
+    needsReconnect: "É preciso reconectar {{account}}.",
+    disconnectFailed: "Não foi possível desconectar a agenda.",
+    disconnectCalendarDescription:
+      "O Clips deixa de sincronizar as próximas reuniões de {{account}}.",
+    calendarApp: "App do Google Calendar",
+    desktopGroup: "Área de trabalho",
+    meetingCapture: "Captura de reuniões",
+    meetingCaptureDescription:
+      "Notas, início automático e notificações são definidos em cada dispositivo no Clips Desktop.",
+    openClipsDesktop: "Abrir o Clips Desktop",
+    keySaved: "Salva",
+    keyNotSaved: "Não salva",
+    manage: "Gerenciar",
+    add: "Adicionar",
+    linkPreviews: "Prévias de links",
+    addWorkspace: "Adicionar espaço de trabalho",
+    storageAskAdmin:
+      "Peça a um proprietário ou administrador para configurar o armazenamento.",
   },
   insightsHub: {
     title: "Insights",
@@ -1708,6 +1765,8 @@ const messages = {
     backgroundNone: "Nenhum",
     notYetBurned:
       "{{count}} ocultação(ões) posicionadas, mas não aplicadas. Nada está oculto ainda, e ninguém mais pode ver esta captura até você aplicá-las.",
+    editsUnreadable:
+      "O Clips não conseguiu ler as edições salvas da captura de tela.",
     burnInHint:
       "Destruir de vez o que as ocultações cobrem e excluir o original",
     burnInTitle: "Aplicar {{count}} ocultação(ões) nesta captura?",

@@ -59,8 +59,6 @@ beforeEach(() => {
 });
 
 describe("queueAutomationRunNow", () => {
-  // Per-factory automations live at jobs/factories/<factoryId>/<name>.md, so
-  // their name contains a slash and cannot round-trip through `name`.
   it("queues a nested automation by path", async () => {
     const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
     resourceGetByPathMock.mockResolvedValue(resourceAt(path));

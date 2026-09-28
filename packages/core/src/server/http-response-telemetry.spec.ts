@@ -20,9 +20,6 @@ import {
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 
-// The module keeps its cold-start bookkeeping on globalThis under this symbol.
-// Reaching for it lets a test pin whether a request is process request #1
-// instead of depending on which spec ran first.
 const processState = (globalThis as any)[
   Symbol.for("@agent-native/core/http-response-telemetry.process-state")
 ] as { requestSequence: number; moduleEvalUptimeMs: number };
@@ -60,8 +57,6 @@ function eventFor(path: string) {
     url,
     context: {},
     req: new Request(url, { method: "GET" }),
-    // `errHeaders` mirrors real h3 H3Event.res: a bucket separate from
-    // `headers` that a thrown createError()'s response is built from.
     res: { status: 200, headers: new Headers(), errHeaders: new Headers() },
   };
 }
@@ -499,11 +494,8 @@ describe("http response telemetry", () => {
 
     const timing = response.headers.get("server-timing") ?? "";
     expect(timing).toContain("origin;dur=");
-    // A replayed header must not name a phase a later visitor would read as
-    // the cost of their own request.
     expect(timing).not.toContain("app;dur=");
     expect(timing).not.toContain("db;dur=");
-    // The render's wall-clock time is what makes the replay visible.
     const desc = /desc="([^"]+)"/.exec(timing)?.[1] ?? "";
     expect(Date.parse(desc.split(" ")[0] ?? "")).not.toBeNaN();
   });
@@ -552,10 +544,6 @@ describe("http response telemetry", () => {
   });
 
   it("attributes http.response app/template from the deploy URL instead of the unset display name", async () => {
-    // getAppConfig().app.name is an optional display name (APP_NAME or
-    // npm_package_name) that Lambda never sets, so it silently dropped `app`
-    // and `template` from every deployed row. trackingIdentityProperties
-    // falls back to the platform's deploy URL env var instead.
     vi.stubEnv("APP_URL", "https://slides.agent-native.com");
     const { requestHooks, responseHooks } = createHooks();
     const tracked: TrackingEvent[] = [];
@@ -596,12 +584,6 @@ describe("http response telemetry", () => {
   });
 
   it("writes the request-id header to both h3 response header buckets before the handler runs, so a guard's thrown error still carries it", async () => {
-    // h3 builds a thrown createError()'s response from `res.errHeaders`, a
-    // bucket separate from `res.headers` (its own CORS helpers write the
-    // same header to both, for the same reason). Only ever writing
-    // `res.headers` — as the "response" hook below still also does, for the
-    // ordinary success path — left every guard-rejected 401/403 action with
-    // no x-agent-native-request-id on the wire.
     const { requestHooks } = createHooks();
     const event = eventFor("/_agent-native/actions/get-labs");
 

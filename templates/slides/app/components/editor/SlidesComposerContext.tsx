@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import {
+  composerSourceErrorMessage,
   composerSourceKey,
   formatSlidesComposerContext,
   readSlidesComposerContext,
@@ -44,6 +45,7 @@ function figmaPickerId(reference: ComposerSource) {
 }
 
 export function useSlidesComposerContext({
+  active = true,
   defaultDesignSystemId,
   defaultReferenceDeck,
   systems,
@@ -52,6 +54,7 @@ export function useSlidesComposerContext({
   retrySystems,
   onCreateDesignSystem,
 }: {
+  active?: boolean;
   defaultDesignSystemId: string | null;
   defaultReferenceDeck?: { id: string; title: string };
   systems: Array<{ id: string; title: string }>;
@@ -100,9 +103,12 @@ export function useSlidesComposerContext({
     version.current++;
   }, [identity]);
   useEffect(() => {
+    if (!active) setInspectedKey(undefined);
+  }, [active]);
+  useEffect(() => {
     if (edited.current) return;
     try {
-      const stored = localStorage.getItem(storageKey);
+      const stored = window.localStorage.getItem(storageKey);
       setSelection(
         stored
           ? slidesComposerContextSchema.parse(JSON.parse(stored))
@@ -134,8 +140,9 @@ export function useSlidesComposerContext({
   ]);
 
   useEffect(() => {
+    if (!active) return;
     const currentVersion = ++version.current;
-    let active = true;
+    let isActive = true;
     setItems([
       ...(selection.designSystemId
         ? [
@@ -157,13 +164,15 @@ export function useSlidesComposerContext({
     void readSlidesComposerContext(
       selection,
       t("home.context.emptySource"),
+      t("home.context.figmaReadFailed"),
+      t("home.context.websiteReadFailed"),
     ).then((resolved) => {
-      if (active && currentVersion === version.current) setItems(resolved);
+      if (isActive && currentVersion === version.current) setItems(resolved);
     });
     return () => {
-      active = false;
+      isActive = false;
     };
-  }, [selection, identity, t]);
+  }, [active, selection, identity, t]);
 
   const save = (next: SlidesComposerContext) => {
     if (!slidesComposerContextSchema.safeParse(next).success) {
@@ -178,7 +187,7 @@ export function useSlidesComposerContext({
     setSelection(persisted);
     setError(undefined);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(persisted));
+      window.localStorage.setItem(storageKey, JSON.stringify(persisted));
     } catch {
       setError(t("home.context.saveFailed"));
       return false;
@@ -323,7 +332,11 @@ export function useSlidesComposerContext({
           };
         } catch (error) {
           throw new Error(
-            actionErrorMessage(error) ?? t("home.context.loadFailed"),
+            composerSourceErrorMessage(
+              error,
+              t("home.context.loadFailed"),
+              t("home.context.figmaReadFailed"),
+            ),
           );
         }
       },
@@ -426,7 +439,7 @@ export function useSlidesComposerContext({
   return {
     props: {
       contextItems,
-      contextMenuItems,
+      contextMenuItems: active ? contextMenuItems : [],
       onRemoveContextItem: remove,
       onRetryContextItem: () => setSelection((current) => ({ ...current })),
       onInspectContextItem: setInspectedKey,
@@ -442,6 +455,8 @@ export function useSlidesComposerContext({
       const resolved = await readSlidesComposerContext(
         snapshot,
         t("home.context.emptySource"),
+        t("home.context.figmaReadFailed"),
+        t("home.context.websiteReadFailed"),
       );
       if (capturedIdentity !== activeIdentity.current)
         throw new Error(t("home.context.loadFailed"));
@@ -465,7 +480,7 @@ export function useSlidesComposerContext({
     },
     dialogs: (
       <Dialog
-        open={Boolean(inspectedKey)}
+        open={active && Boolean(inspectedKey)}
         onOpenChange={(open) => !open && setInspectedKey(undefined)}
       >
         <DialogContent>

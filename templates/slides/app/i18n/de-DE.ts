@@ -41,7 +41,6 @@ const messages = {
     brand: "Folien",
     decks: "Decks",
     designSystems: "Designsysteme",
-    team: "Team",
   },
   settings: {
     agentObservability: "Agentenbeobachtbarkeit",
@@ -55,6 +54,13 @@ const messages = {
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
+    notificationsEmail: "E-Mail",
+    commentsAndReplies: "Kommentare und Antworten",
+    commentsAndRepliesDescription:
+      "Wenn jemand dein Deck kommentiert oder darin antwortet.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -128,7 +134,7 @@ const messages = {
       "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
     imageUploadNeedsBuilder:
-      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
+      "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
     sentToAgent: "An Agent gesendet",
     imageUploadGenericError:
       "Beim Hochladen dieses Bildes ist etwas schiefgelaufen.",
@@ -189,8 +195,6 @@ const messages = {
     slideUnavailable: "Folie nicht verfügbar",
     couldNotLoadSlide: "Folie konnte nicht geladen werden.",
     openInApp: "In App öffnen",
-    teamDescription:
-      "Richte ein Team ein, um Präsentationen mit Kolleginnen und Kollegen zu teilen.",
   },
 
   designSystems: {
@@ -590,6 +594,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Gespeichert" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -657,10 +662,33 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Fehler 403",
+    noAccessTitle: "Du hast keinen Zugriff",
+    noAccessDescription:
+      "Bitte die Person, der das Deck gehört, um Zugriff, oder wechsle zum richtigen Konto.",
+    noteLabel: "Notiz für die Eigentümerin oder den Eigentümer (optional)",
+    notePlaceholder: "Ich prüfe dieses Deck",
+    requesting: "Wird angefragt",
+    requestFailed:
+      "Deine Anfrage wurde nicht gesendet. Bitte versuche es erneut.",
+    requestSentDescription:
+      "Wir schicken dir eine E-Mail, sobald die Person, der das Deck gehört, deine Anfrage genehmigt.",
+    goHome: "Zur Startseite",
+    signedInAs: "Angemeldet als",
+    switchAccount: "Konto wechseln",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled:
+      "Die Generierung wurde nach 5 Minuten ohne Fortschritt pausiert",
+    generationStalledDescription:
+      "Deine gespeicherten Folien sind weiterhin vorhanden. Setze die Arbeit für dieses Deck im Chat fort.",
+    continueInChat: "Im Chat fortfahren",
+    continueGenerationPrompt:
+      "Setze die Foliengenerierung für dieses Deck fort. Prüfe zuerst die vorhandenen Folien und den gespeicherten Generierungskontext. Behalte fertige Folien bei und ergänze nur die fehlenden.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -698,6 +726,10 @@ const messages = {
     accessApprovalTitle: "Zugriff gewährt",
     accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
     accessApprovalMessage: "{{email}} kann dieses Deck jetzt öffnen.",
+    accessApprovalRequesterEmailed:
+      "Wir haben die Person per E-Mail benachrichtigt.",
+    accessApprovalRequesterEmailFailed:
+      "Wir konnten {{email}} keine E-Mail senden. Gib Bescheid, dass das Deck jetzt geöffnet werden kann.",
     accessApprovalAlreadyMessage:
       "{{email}} hat bereits Zugriff auf dieses Deck.",
     accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
@@ -713,7 +745,7 @@ const messages = {
     tryAgain: "Erneut versuchen",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "Verbinde Builder.io im Modellmenü des Agent-Composers, um Bilder auf Folien hochzuladen. Wenn du ein Bild auf die leere Arbeitsfläche ziehst, kann es auch ohne Anbieter an den Agenten gesendet werden.",
+      "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
@@ -826,6 +858,11 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Einen Produktpitch erstellen",
+      roadmap: "Eine Produkt-Roadmap erstellen",
+      explainer: "Ein Thema in einer Präsentation erklären",
+    },
     suggestedPrompts: "Vorgeschlagene Prompts",
     importMenu: {
       import: "Importieren",
@@ -833,7 +870,13 @@ const messages = {
       invalidPdf: "Wähle eine PDF-Datei.",
       invalidPptx: "Wähle eine PPTX-Datei.",
       invalidFile: "Wähle eine PDF- oder PPTX-Datei.",
+      networkFailed:
+        "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      unsupportedFileType:
+        "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
+      uploadLimitExceeded:
+        "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {
@@ -873,6 +916,10 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      websiteReadFailed:
+        "Diese Website konnte nicht automatisch gelesen werden. Kopieren Sie stattdessen den relevanten Text und fügen Sie ihn ein.",
+      figmaReadFailed:
+        "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
       designCategory: "Gestaltung",
@@ -882,7 +929,7 @@ const messages = {
       starting: "Wird gestartet…",
       generate: "Generieren",
       connectionRequired:
-        "Verbinde Builder.io über dem Startseiten-Prompt und versuche es erneut.",
+        "Verbinde oben über dem Startseiten-Prompt einen KI-Anbieter oder füge deinen eigenen KI-Schlüssel hinzu und versuche es erneut.",
       invalidPdf: "Wähle eine PDF-Datei.",
       notReady:
         "Prüfe ausstehenden oder fehlerhaften Kontext und die Verbindung und versuche es erneut.",
@@ -934,8 +981,11 @@ const messages = {
     loadFailedDescription:
       "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     retry: "Erneut versuchen",
+    fileStorageStatusUnavailable:
+      "Der Objektspeicherstatus konnte nicht geprüft werden. Versuche es erneut, bevor du Dateien hochlädst.",
+    fileStorageSetupRequired:
+      "Es ist kein Objektspeicher verbunden. Verbinde Builder.io kostenlos oder füge unter Einstellungen → Datei-Uploads eigene S3-kompatible Speicherschlüssel hinzu.",
     decksTitle: "Decks",
-    newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",
     deckLengthHeader: "Decklänge",
     deckLengthShort: "Kurz (3–5 Folien)",
@@ -966,6 +1016,8 @@ const messages = {
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    referenceFileStorageUnavailable:
+      "Der Dateispeicher ist nicht eingerichtet. Verbinde Builder.io oder einen anderen Dateianbieter, um Referenzdateien zu importieren.",
     attachedFiles: "Angehängt",
     imported: "Importiert",
     importedReferenceDeck: "Importiertes Referenz-Deck",
@@ -1024,6 +1076,11 @@ const messages = {
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
   },
 };
 

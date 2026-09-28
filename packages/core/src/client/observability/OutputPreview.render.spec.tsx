@@ -216,6 +216,50 @@ describe("OutputPreview saved MCP Apps", () => {
   });
 });
 
+describe("OutputPreview saved Analytics dashboards", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("keeps the expanded dashboard content at full height instead of clipping it to a thumbnail frame", () => {
+    mockUseActionQuery.mockReturnValue({
+      data: {},
+      isLoading: false,
+      isError: false,
+      isSuccess: false,
+    });
+    act(() => {
+      root.render(
+        <OutputPreview
+          answer="Saved dashboard"
+          artifactPreviewContent={<div data-dashboard-panels>all panels</div>}
+          artifactPreviewId="dashboard-42"
+          artifactOnly
+          previewLabel="Dashboard preview"
+        />,
+      );
+    });
+
+    const frame = container.querySelector(
+      '[data-preview-kind="analytics-dashboard"]',
+    );
+    expect(frame?.className).not.toContain("aspect-[16/10]");
+    expect(frame?.className).not.toContain("overflow-hidden");
+    expect(container.querySelector("[data-dashboard-panels]")).not.toBeNull();
+  });
+});
+
 describe("OutputPreview artifact reads", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -275,7 +319,7 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-design",
-      { id: "design-1", includeFileContent: false },
+      { id: "design-1", includeFileContent: false, reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
@@ -284,6 +328,7 @@ describe("OutputPreview artifact reads", () => {
         id: "design-1",
         fileId: "file-1",
         includeFileContent: true,
+        reviewPreview: true,
       },
       expect.objectContaining({ enabled: true }),
     );
@@ -344,17 +389,27 @@ describe("OutputPreview artifact reads", () => {
 
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", compact: "true" },
+      { id: "deck-1", compact: "true", reviewPreview: true },
       expect.objectContaining({ enabled: true }),
     );
     expect(mockUseActionQuery).toHaveBeenCalledWith(
       "get-deck",
-      { id: "deck-1", slideId: "slide-1", compact: "false" },
+      {
+        id: "deck-1",
+        slideId: "slide-1",
+        compact: "false",
+        reviewPreview: true,
+      },
       expect.objectContaining({ enabled: true }),
     );
     expect(
       container.querySelectorAll("[data-review-slide-strip] button"),
     ).toHaveLength(2);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        "[data-review-slide-strip] button",
+      )?.title,
+    ).toBe("Intro");
     await vi.waitFor(() =>
       expect(container.querySelector("iframe")?.srcdoc).toContain("Slide"),
     );

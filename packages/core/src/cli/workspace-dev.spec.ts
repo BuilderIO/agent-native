@@ -285,8 +285,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Only the default app is started synchronously; prewarm catches up in
-    // the background.
     expect(fake.startedApps().includes("dispatch")).toBe(true);
 
     await waitUntil(() => {
@@ -314,7 +312,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Give any (hypothetically) scheduled prewarm a chance to fire.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fake.startedApps()).toEqual(["dispatch"]);
   });
@@ -511,11 +508,8 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // Container detected (would normally auto-enable polling) ...
         BUILDER_PROJECT_ID: "builder-project",
-        // ... but operator explicitly disabled it.
         AGENT_NATIVE_DEV_USE_POLLING: "0",
-        // Inherited from a stale parent shell — must NOT leak through.
         CHOKIDAR_USEPOLLING: "1",
         CHOKIDAR_INTERVAL: "500",
         TSC_WATCHFILE: "DynamicPriorityPolling",
@@ -540,8 +534,6 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // No container, no explicit toggle — auto-detection says no polling.
-        // The user's custom TSC_WATCHFILE override must still pass through.
         TSC_WATCHFILE: "UseFsEventsWithFallbackDynamicPolling",
       },
       spawnProcess: fake.spawnProcess,
@@ -961,7 +953,6 @@ describe("workspace dev helpers", () => {
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
       false,
     );
-    // Eager mode already starts every app, so prewarm has nothing to do.
     expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       false,
@@ -976,7 +967,6 @@ describe("workspace dev helpers", () => {
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "3" }),
     ).toBe(3);
-    // Bogus values clamp back to the default.
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "0" }),
     ).toBe(2);
@@ -985,7 +975,6 @@ describe("workspace dev helpers", () => {
         WORKSPACE_PREWARM_CONCURRENCY: "nope",
       }),
     ).toBe(2);
-    // CLI flag wins over env.
     expect(
       workspacePrewarmConcurrency(["--prewarm-concurrency=5"], {
         WORKSPACE_PREWARM_CONCURRENCY: "9",

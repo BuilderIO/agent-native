@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.fn();
+const mockCurrentRequestUserIsOrgAdmin = vi.fn();
 const mockNotifyClients = vi.fn();
+let currentOrgId = "org-a";
+let currentSuperOrgId: string | undefined;
+let currentFilter: unknown;
 let updatedFields: { data?: string; updatedAt?: string } | undefined;
 let currentResource:
-  | { data: string; updatedAt: string; [key: string]: unknown }
+  | {
+      data: string;
+      updatedAt: string;
+      orgId?: string;
+      [key: string]: unknown;
+    }
   | undefined;
 const mockWhereUpdate = vi.fn(async () => {
   if (updatedFields && currentResource) {
@@ -18,7 +27,43 @@ const mockSet = vi.fn((fields: { data?: string; updatedAt?: string }) => {
   return { where: mockWhereUpdate };
 });
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
-const mockDb = { update: mockUpdate };
+const mockSelectChain = {
+  from: vi.fn(),
+  where: vi.fn((filter: unknown) => {
+    currentFilter = filter;
+    return mockSelectChain;
+  }),
+  limit: vi.fn(async () => {
+    const filter =
+      currentFilter && typeof currentFilter === "object"
+        ? (currentFilter as {
+            conditions?: Array<{ left: string; right: string }>;
+            left?: string;
+            right?: unknown;
+          })
+        : undefined;
+    const conditions = filter?.conditions ?? (filter ? [filter] : []);
+    const scopedOrg = conditions?.find(
+      (condition) => condition.left === "org_id_col",
+    )?.right;
+    const sameDeck = conditions?.some(
+      (condition) =>
+        condition.left === "id_col" && condition.right === currentResource?.id,
+    );
+    return sameDeck && scopedOrg === currentResource?.orgId
+      ? [currentResource]
+      : [];
+  }),
+};
+mockSelectChain.from.mockReturnValue(mockSelectChain);
+const mockDb = { select: vi.fn(() => mockSelectChain), update: mockUpdate };
+
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
+  and: (...conditions: unknown[]) => ({ conditions }),
+  eq: (left: string, right: unknown) => ({ left, right }),
+  isNull: (column: string) => ({ isNull: column }),
+}));
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: (...args: unknown[]) => mockResolveAccess(...args),
@@ -26,11 +71,34 @@ vi.mock("@agent-native/core/sharing", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "alice@example.com",
+  getRequestOrgId: () => currentOrgId,
 }));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    buildDeepLink: () => "/slides/deck-1",
+    getAppConfig: () => ({
+      observability: { superOrgId: currentSuperOrgId },
+    }),
+    currentRequestUserIsOrgAdmin: (...args: unknown[]) =>
+      mockCurrentRequestUserIsOrgAdmin(...args),
+  };
+});
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
-  schema: { decks: { id: "id_col", data: "data_col", updatedAt: "ua_col" } },
+  schema: {
+    decks: {
+      id: "id_col",
+      ownerEmail: "owner_email_col",
+      orgId: "org_id_col",
+      data: "data_col",
+      updatedAt: "ua_col",
+    },
+  },
 }));
 
 vi.mock("../server/handlers/decks.js", () => ({
@@ -56,11 +124,19 @@ import action from "./get-deck";
 beforeEach(() => {
   vi.clearAllMocks();
   updatedFields = undefined;
+  currentOrgId = "org-a";
+  currentSuperOrgId = undefined;
+  currentFilter = undefined;
+  mockSelectChain.where.mockClear();
+  mockSelectChain.limit.mockClear();
+  mockCurrentRequestUserIsOrgAdmin.mockReset();
+  mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(false);
   currentResource = {
     id: "deck-1",
     title: "Quarterly Review",
     visibility: "private",
     ownerEmail: "Alice@Example.com",
+    orgId: "org-a",
     designSystemId: null,
     createdAt: "2026-05-01T00:00:00.000Z",
     updatedAt: "2026-05-02T00:00:00.000Z",
@@ -93,8 +169,6 @@ beforeEach(() => {
 describe("get-deck", () => {
   it("accepts the deck id under either `id` or `deckId`", () => {
     expect(action.schema.safeParse({ id: "deck-1" }).success).toBe(true);
-    // Every sibling tool (create-deck, add-slide, update-slide, patch-deck)
-    // names this parameter `deckId`; rejecting it here cost agents a retry.
     expect(action.schema.safeParse({ deckId: "deck-1" }).success).toBe(true);
     expect(JSON.stringify(action.tool.parameters).includes("deckId")).toBe(
       true,
@@ -115,6 +189,97 @@ describe("get-deck", () => {
 
     expect(result.id).toBe("deck-1");
     expect(result.slides[0]).toMatchObject({ id: "slide-a" });
+  });
+
+  it("allows org admins to preview only decks in their current org", async () => {
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    currentResource!.data = JSON.stringify({
+      title: "Quarterly Review",
+      slides: [
+        { id: "duplicate", content: "<h1>First</h1>" },
+        { id: "duplicate", content: "<h1>Second</h1>" },
+      ],
+    });
+
+    const result = (await action.run(
+      { id: "deck-1", reviewPreview: true, compact: "false" },
+      { caller: "http" },
+    )) as any;
+
+    expect(mockCurrentRequestUserIsOrgAdmin).toHaveBeenCalledWith("org-a");
+    expect(mockSelectChain.where).toHaveBeenCalledWith({
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { left: "org_id_col", right: "org-a" },
+      ],
+    });
+    expect(result.id).toBe("deck-1");
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockResolveAccess).toHaveBeenCalledWith("deck", "deck-1", {
+      userEmail: "Alice@Example.com",
+      orgId: "org-a",
+    });
+  });
+
+  it("rejects non-admin Human Review previews before reading a deck", async () => {
+    await expect(
+      action.run({ id: "deck-1", reviewPreview: true }, { caller: "http" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mockSelectChain.limit).not.toHaveBeenCalled();
+  });
+
+  it("hides decks from a different org in Human Review previews", async () => {
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    currentResource!.orgId = "org-b";
+
+    await expect(
+      action.run({ id: "deck-1", reviewPreview: true }, { caller: "http" }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it("allows a configured super-org admin to read a customer deck read-only", async () => {
+    currentOrgId = "org-super";
+    currentSuperOrgId = "org-super";
+    currentResource!.orgId = "org-customer";
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+    const result = (await action.run(
+      {
+        id: "deck-1",
+        reviewPreview: true,
+        reviewOrgId: "org-customer",
+        compact: "false",
+      },
+      { caller: "http" },
+    )) as any;
+
+    expect(mockSelectChain.where).toHaveBeenCalledWith({
+      conditions: [
+        { left: "id_col", right: "deck-1" },
+        { left: "org_id_col", right: "org-customer" },
+      ],
+    });
+    expect(result.id).toBe("deck-1");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("hides another customer's deck from a super-org preview scope", async () => {
+    currentOrgId = "org-super";
+    currentSuperOrgId = "org-super";
+    currentResource!.orgId = "org-other";
+    mockCurrentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+    await expect(
+      action.run(
+        {
+          id: "deck-1",
+          reviewPreview: true,
+          reviewOrgId: "org-customer",
+        },
+        { caller: "http" },
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it("includes readable linked design-system context", async () => {

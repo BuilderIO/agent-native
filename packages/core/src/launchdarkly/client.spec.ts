@@ -47,10 +47,6 @@ describe("getLaunchDarklyClient", () => {
   });
 
   it("returns the client immediately without waiting for initialization to settle", async () => {
-    // A request-path flag read must never pay for LaunchDarkly's connection
-    // handshake — variation() already answers with the caller's default
-    // before the client is ready, so this resolves without waiting on
-    // waitForInitialization() at all.
     getAppConfigMock.mockReturnValue({ launchDarkly: { sdkKey: "sdk-key" } });
     const client = {
       waitForInitialization: vi.fn(() => new Promise(() => {})),

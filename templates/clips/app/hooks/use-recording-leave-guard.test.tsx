@@ -8,8 +8,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { useRecordingLeaveGuard } from "./use-recording-leave-guard";
 
 function RecordProbe({ atRisk }: { atRisk: boolean }) {
-  // Mirrors record.tsx: hasRecordingAtRisk() reads live engine state, not a
-  // prop the hook re-subscribes to, so the guard consults it through a ref.
   const atRiskRef = useRef(atRisk);
   atRiskRef.current = atRisk;
   const {
@@ -37,8 +35,6 @@ function RecordProbe({ atRisk }: { atRisk: boolean }) {
         id="confirm-leave"
         onClick={() => {
           confirmLeave();
-          // Radix defers this to `onCloseAutoFocus` once its own close
-          // transition finishes; the probe stands in for Radix here.
           onCloseAutoFocus({ preventDefault() {} });
         }}
       >
@@ -99,10 +95,6 @@ describe("useRecordingLeaveGuard", () => {
     ).not.toBeNull();
   });
 
-  // Regression: before the fix, RecordRoute had no route-change protection at
-  // all, so clicking into Library (an ordinary in-app navigation) unmounted
-  // the recorder and its cleanup effect cancelled the in-progress recording
-  // with no warning — the exact bug reported by Elaine Mao.
   it("blocks in-app navigation away from an at-risk recording instead of silently discarding it", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);

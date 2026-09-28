@@ -25,8 +25,6 @@ vi.mock("@agent-native/core/client/labs", () => ({
     isSuccess: true,
   }),
 }));
-// A new `t` each render would re-run the editor's unmount cleanup and end
-// every edit; the app's `t` is stable.
 const t = (key: string) => key;
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -54,6 +52,88 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("saves a text edit when the page hides before the draft debounce fires", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onUpdateSlide = vi.fn(
+      (_updates: Partial<Slide>, _slideId?: string, _options?: object) =>
+        undefined,
+    );
+    const noop = () => {};
+    const slide = {
+      id: "slide-pagehide",
+      content: '<div class="fmd-slide"><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={onUpdateSlide}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    const edited = document.querySelector<HTMLElement>(".slide-content p")!;
+    fireEvent.doubleClick(edited, { detail: 2 });
+    (edited.firstChild as Text).data = "Caption typed";
+    fireEvent.input(edited);
+    fireEvent(window, new Event("pagehide"));
+
+    expect(onUpdateSlide).toHaveBeenCalledWith(
+      { content: expect.stringContaining("Caption typed") },
+      slide.id,
+      { preserveLocalState: true },
+    );
+  });
+
+  it("cancels a plain link drop without treating it as an image", () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    const onDropImageUrl = vi.fn();
+    const noop = () => {};
+    const slide = {
+      id: "slide-link-drop",
+      content: '<div class="fmd-slide"><p>Caption</p></div>',
+      layout: "blank",
+    } as Slide;
+    render(
+      <SlideEditor
+        slide={slide}
+        onUpdateSlide={() => undefined}
+        onGenerateImage={noop}
+        onOpenAssetLibrary={noop}
+        onUploadImage={noop}
+        onDropImageUrl={onDropImageUrl}
+        onToggleObjectFit={noop}
+        onChangeObjectPosition={noop}
+      />,
+      { wrapper: Providers },
+    );
+
+    const canvas = document.querySelector<HTMLElement>(
+      ".slide-image-clickable",
+    )!;
+    for (const types of [["text/html", "text/uri-list"], ["text/uri-list"]]) {
+      const dataTransfer = {
+        files: [],
+        items: [],
+        types,
+        dropEffect: "none",
+        getData: (type: string) =>
+          type === "text/html" && types.includes("text/html")
+            ? '<a href="https://example.test">Link</a>'
+            : "",
+      } as unknown as DataTransfer;
+
+      expect(fireEvent.dragOver(canvas, { dataTransfer })).toBe(false);
+      expect(fireEvent.drop(canvas, { dataTransfer })).toBe(false);
+    }
+    expect(onDropImageUrl).not.toHaveBeenCalled();
+  });
+
   it("saves an open edit on top of it after the editor first showed an Excalidraw slide", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -105,7 +185,6 @@ describe("SlideEditor with a newer version of the edited slide", () => {
     );
   });
 
-  /** Opens an edit on the caption and waits for its first draft. */
   async function editWithDraft() {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     vi.spyOn(console, "error").mockImplementation(() => {});

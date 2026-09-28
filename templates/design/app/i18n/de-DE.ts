@@ -174,6 +174,8 @@ export default {
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    mcpAbout:
+      "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },
   pages: {
     presentEmpty: "Keine Inhalte zum Präsentieren",
@@ -182,8 +184,18 @@ export default {
     notFoundDescription: "Die gesuchte Seite existiert nicht.",
     notFoundSignIn: "Anmelden",
     notFoundBackToDesigns: "Zurück zu Designs",
-    teamCreateOrgDescription:
-      "Richte ein Team ein, um Designs mit deinen Kollegen zu teilen.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Speicher verbinden, um Dateien hochzuladen",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "KI-Verbindung wird geprüft…",
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+    common: { retry: "Erneut versuchen" },
   },
   chat: {
     emptyState: "Beschreibe ein Design, das erstellt werden soll",
@@ -1491,6 +1503,18 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
+      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptDescription:
+        "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
+      permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
+      permissionPromptSettingsInstructions:
+        "Klicke links neben der Adressleiste auf das Symbol für Website-Einstellungen, öffne die Website-Einstellungen und erlaube den Zugriff auf Apps auf deinem Gerät.",
+      permissionCloseTitle: "Einrichtung schließen?",
+      permissionCloseDescription:
+        "Live-Bearbeitung funktioniert erst, wenn du den Zugriff in Chrome erlaubst.",
+      permissionCloseStay: "Einrichtung geöffnet lassen",
+      permissionCloseAnyway: "Trotzdem schließen",
+      permissionPromptRetry: "Verbindung wiederholen",
     },
   },
   multiScreenCanvas: {

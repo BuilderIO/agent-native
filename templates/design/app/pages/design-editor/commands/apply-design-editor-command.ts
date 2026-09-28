@@ -63,17 +63,8 @@ export interface ApplyDesignEditorCommandArgs {
     targetView: "single" | "overview",
     update: SetStateAction<number>,
   ) => void;
-  /** The design payload is loaded, so overview zoom conversion has a real
-   * screen list and persisted frame scale rather than the pre-load fallback. */
   overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
-  /**
-   * Reveals a screen on the overview canvas the same way a freshly-created
-   * screen is revealed (`focusCreatedScreen`/`getCreatedScreenNavigationPlan`).
-   * Optional so a command-only caller (tests, or a future non-canvas surface)
-   * can omit it; when present it's called whenever this command names a
-   * screen and lands in overview mode with real geometry to fit.
-   */
   requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
 }
 
@@ -133,11 +124,6 @@ export function runApplyDesignEditorCommand(
           ? commandRecord.layerId
           : null;
   const targetFile = findDesignFileByScreenTarget(files, target);
-  // A navigate command can name a screen the agent just created that the
-  // get-design query hasn't refetched yet. Treat any unresolved named target
-  // as not-yet-applied (return false) so the app-state key is preserved and
-  // re-applied on the next tick once the file loads — not just when there are
-  // zero files. Otherwise the navigate is silently consumed and dropped.
   if (target && !targetFile) return false;
 
   const targetView = editorView ?? viewModeRef.current;
@@ -196,14 +182,6 @@ export function runApplyDesignEditorCommand(
     typeof command.zoom === "number" && Number.isFinite(command.zoom)
       ? clampZoom(command.zoom)
       : null;
-  // Zoom-compounding fix — see shouldDeferOverviewZoomCommand's doc
-  // comment: converting a persisted overview zoom back to canvas units
-  // needs the REAL overviewZoomScale (known only once `files` loads), so
-  // defer (return "not yet applicable", same contract as the
-  // `target && !targetFile` bailout above) instead of committing the
-  // conversion against the transient pre-load fallback scale. The mount
-  // effect retries automatically once `files` populates and this
-  // callback's identity changes.
   if (
     shouldDeferOverviewZoomCommand({
       hasZoomCommand: commandZoom !== null,
@@ -225,12 +203,6 @@ export function runApplyDesignEditorCommand(
     if (!selectionId) setSelectedElement(null);
     applyCommandTool("move");
     setViewMode("overview");
-    // A command that names a screen (only ever a URL `screen=`/`fileId=`
-    // query param or an equivalent `navigate` app-state write, never an
-    // ordinary in-canvas interaction — see screen-command-utils.ts) means
-    // "land here, focused on this screen", the same reveal a freshly created
-    // screen gets from focusCreatedScreen. Use the canvas's initial layout
-    // when the screen has no persisted geometry yet.
     const targetScreen = targetFile
       ? overviewScreens.find((screen) => screen.id === targetFile.id)
       : undefined;
@@ -245,8 +217,6 @@ export function runApplyDesignEditorCommand(
           breakpointWidths: screen.breakpointWidths,
           layoutGroupId: screen.layoutGroupId,
         })),
-        // The command has no access to the canvas's private live ref; an empty
-        // current map makes this resolve the same responsive initial layout.
         currentGeometryById: {},
         persistedGeometryById: canvasFrameGeometryById,
       }).next[targetScreen.id];

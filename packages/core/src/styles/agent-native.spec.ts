@@ -88,12 +88,12 @@ describe("agent-native shell surface tokens", () => {
     expect(source).toContain("agent-kit-activity-object-boundary");
     expect(source).toContain("agent-kit-tone-positive");
 
-    const messages = readFileSync(
-      new URL("../client/chat/message-components.tsx", import.meta.url),
+    const tools = readFileSync(
+      new URL("../client/chat/tool-call-display.tsx", import.meta.url),
       { encoding: "utf8" },
     );
-    expect(messages).not.toContain("max-w-[95%]");
-    expect(messages).toContain("agent-kit-tool-content-boundary");
+    expect(tools).not.toContain("max-w-[95%]");
+    expect(tools).toContain("agent-kit-tool-content-boundary");
   });
 
   it("restores standard markdown list markers", () => {
@@ -140,6 +140,19 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("matches the shell backing to chat and keeps the open right seam square", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-shell,\s*\.agent-layout-shell\s*\{[^}]*background:\s*var\(--agent-kit-recessed-surface\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-sidebar-main-surface\[data-agent-sidebar-main-state="open"\]\[data-agent-sidebar-main-position="right"\]\s*\{[^}]*border-start-end-radius:\s*0;[^}]*border-end-end-radius:\s*0;/s,
+    );
+  });
+
   it("keeps app and agent main surfaces borderless", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -159,13 +172,6 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
-  /**
-   * A search field that draws its own clear button must drop WebKit's cancel
-   * widget or it shows two "x" controls. The selector must stay scoped to the
-   * opt-in class: a bare `input[type="search"]` rule would also strip the only
-   * pointer-accessible clear from the fields that render no button of their
-   * own. `guard:single-search-clear` keeps the class and the button paired.
-   */
   it("suppresses the native search widgets only for fields that own their clear button", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
@@ -351,26 +357,12 @@ describe("agent-native shell surface tokens", () => {
   });
 });
 
-/**
- * These three properties each promote or re-promote a compositing layer on the
- * chat sidebar — the surface every template mounts and the one users reported
- * as "glitching out when you open chat": flow content painting as flat
- * rectangles while only separately-composited overlays survived. They read as
- * harmless performance hints, which is why they kept coming back. Each
- * assertion below names the element that must NOT carry the property.
- */
 describe("agent chat sidebar compositing invariants", () => {
   const readCss = () =>
     readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
 
-  /**
-   * Bodies of every rule whose selector list matches `matches`. Comments are
-   * stripped first: the declarations these tests forbid are also *named* in the
-   * comments explaining why they are forbidden, and a guard that a comment can
-   * satisfy is not a guard.
-   */
   const ruleBodies = (
     css: string,
     matches: (selector: string) => boolean,
@@ -399,12 +391,10 @@ describe("agent chat sidebar compositing invariants", () => {
   it("declares the chat fade mask unconditionally so it is never added or removed", () => {
     const css = readCss();
 
-    // The mask itself belongs to the base class...
     const base = ruleBodies(css, (s) => s === ".message-scroller-viewport");
     expect(base.length).toBeGreaterThan(0);
     expect(base.some((body) => body.includes("mask-image"))).toBe(true);
 
-    // ...and the scroll-dependent modifier may only retune its length.
     const modifier = ruleBodies(
       css,
       (s) => s === ".message-scroller-viewport--top-fade",
@@ -422,9 +412,6 @@ describe("agent chat sidebar compositing invariants", () => {
       { encoding: "utf8" },
     );
 
-    // A bare `viewTransitionName: NAME,` line is the unconditional form: it
-    // makes the panel a containing block for fixed descendants for the life of
-    // the page and enlists it in unrelated route view transitions.
     expect(source).not.toMatch(
       /^\s*viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,/m,
     );

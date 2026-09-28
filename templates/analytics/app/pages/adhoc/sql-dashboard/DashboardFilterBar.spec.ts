@@ -14,10 +14,6 @@ const noParams = () => "";
 
 describe("resolveFilterVars", () => {
   it("keeps a select default literal even when it looks like the Nd date shorthand", () => {
-    // Regression: a `timeRange` select with default "90d" must resolve to the
-    // literal option value "90d" — not a date. Expanding it to a date left the
-    // dropdown blank and made every panel's `'{{timeRange}}' = '90d'` branch
-    // false, so the whole dashboard showed "No data".
     const filters: DashboardFilter[] = [
       {
         id: "timeRange",

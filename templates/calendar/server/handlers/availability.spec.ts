@@ -88,6 +88,26 @@ describe("public booking availability", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
+  it("does not return another link owner's schedule for a mismatched username", async () => {
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: (table: unknown) => ({
+          where: async () =>
+            table === schema.bookingUsernames
+              ? [{ ownerEmail: "owner@example.com" }]
+              : [{ ownerEmail: "other@example.com" }],
+        }),
+      }),
+    });
+
+    await expect(
+      (getPublicAvailability as any)({
+        query: { slug: "other-owner-link", username: "owner" },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(mocks.getUserSetting).not.toHaveBeenCalled();
+  });
+
   it("returns not found for an unknown username", async () => {
     mocks.getDb.mockReturnValue({
       select: () => ({ from: () => ({ where: async () => [] }) }),

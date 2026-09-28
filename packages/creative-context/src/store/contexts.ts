@@ -181,7 +181,6 @@ function normalizedFromDetail(
     colors: detail.item.colors,
     provenance: detail.item.provenance,
     thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
-    // Keep compiler/reassembly manifests while stripping capability-like metadata.
     metadata: (sanitizePublicMetadata(detail.version.metadata) ?? {}) as Record<
       string,
       unknown
@@ -559,7 +558,6 @@ export async function createCreativeContext(input: {
   return getCreativeContextById(id);
 }
 
-/** Idempotently establishes the actor's governed Default with the currently usable corpus. */
 export async function ensureDefaultCreativeContext(): Promise<CreativeContextSummary | null> {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
@@ -1018,12 +1016,6 @@ export async function listContextMemberships(input: {
   };
 }
 
-/**
- * Resolves private media for a pending submission without making the staged
- * item generally readable. This is intentionally server-only: callers must
- * already have an authenticated request context and can only read the exact
- * staged version they submitted or are allowed to review.
- */
 export async function readPendingCreativeContextMedia(input: {
   mediaId?: string;
   itemId?: string;

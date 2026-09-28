@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 연결을 확인하는 중…",
+      providerStatusUnavailable: "AI 연결을 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+  },
   timelineTrack: {
     helpOtherSide:
       "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",
@@ -424,11 +432,9 @@ const messages = {
     agentEmptyTitle: "대화에 참여하세요",
     agentEmptyDescription:
       "무료 Clips 계정을 만들어 이 클립에 댓글을 달고, 반응하고, 질문해 보세요.",
-    commentSignupTitle: "AI 에이전트에 전체 맥락을 전달하세요",
-    commentSignupContext:
-      "전사본과 타임스탬프가 표시된 프레임을 하나의 링크로 공유하세요",
-    commentSignupFeedback: "녹화된 피드백을 명확한 다음 단계로 바꿔 보세요",
-    commentSignupDebug: "콘솔 오류와 실패한 요청을 캡처하세요",
+    commentSignupTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+    commentSignupDescription:
+      "Clips는 AI 에이전트와 버그, 피드백, 단계별 안내를 공유할 수 있는 무료 오픈 소스 화면 녹화 도구입니다.",
     agentEmptySignInPrompt: "이미 계정이 있나요?",
     signUp: "가입",
     ownerInsights: "소유자 인사이트",
@@ -565,6 +571,9 @@ const messages = {
     saveThumbnail: "썸네일 저장",
   },
   shareDialog: {
+    redactionsPendingTitle: "공유하기 전에 가림 처리 완료",
+    redactionsPendingBody:
+      "적용되지 않은 가림 처리: {{count}}개. 공유하기 전에 편집기에서 적용하세요. 동영상에는 아직 원본 내용이 남아 있습니다.",
     publicDescription:
       "링크가 있는 사람은 누구나 볼 수 있습니다. 댓글을 달거나 반응하려면 로그인하세요.",
     shareRecording: "녹음 공유",
@@ -620,9 +629,6 @@ const messages = {
     customizeEmbed: "임베드 맞춤 설정",
     more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
-    redactionsPendingBody:
-      "이 녹화에 가림 영역 {{count}}개가 그려져 있지만 아직 적용되지 않아, 파일에는 그 아래 내용이 모두 남아 있습니다. 편집기를 열어 적용하면 다시 공유할 수 있습니다.",
-    redactionsPendingTitle: "가림 처리를 먼저 끝내세요",
   },
   shareUi: {
     owner: "소유자: {{email}}",
@@ -823,6 +829,8 @@ const messages = {
     changelogEmpty: "아직 업데이트가 없습니다.",
     changelogCommentSignup:
       "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
+    changelogCommentsEmptyState:
+      "댓글이 없을 때 화면 녹화가 AI 에이전트에 어떻게 도움이 되는지 설명합니다.",
     changelogShareLink:
       "로그인한 사용자가 사용할 수 없거나 만료되었거나 비공개인 공유 링크에서 '홈으로 이동'을 선택하면 공개 마케팅 페이지 대신 라이브러리로 이동합니다.",
     viewAllUpdates: "모든 업데이트 보기",
@@ -932,6 +940,50 @@ const messages = {
       "Clips가 {{team}}의 저장된 봇 토큰을 삭제하고 재생 가능한 Slack 미리보기 전송을 중지합니다.",
     thisWorkspace: "이 워크스페이스",
     slackConnected: "Slack 연결됨",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "브라우저가 팝업을 차단했습니다. 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+    recordingsTab: "녹화",
+    meetingsTab: "회의",
+    yourDefaults: "내 기본값",
+    orgDefault: "{{org}} 기본값",
+    playbackSpeed: "재생 속도",
+    playbackSpeedDescription: "녹화를 열 때 적용됩니다.",
+    visibility: "공개 범위",
+    visibilityDescription:
+      "내가 만드는 녹화에 적용됩니다. 녹화마다 변경할 수 있습니다.",
+    useOrgDefault: "{{org}} 기본값 사용 ({{visibility}})",
+    useDefault: "기본값 사용 ({{visibility}})",
+    transcriptExport: "스크립트 내보내기",
+    logoDescription: "공유 이메일과 공개 클립 페이지에 표시됩니다.",
+    change: "변경",
+    adminsOnly: "소유자와 관리자만 변경할 수 있습니다.",
+    brandColorInvalid: "16진수 색상 코드를 입력하세요.",
+    loadFailed: "이 설정을 불러오지 못했습니다.",
+    emailGroup: "이메일",
+    calendarGroup: "캘린더",
+    googleCalendar: "Google Calendar",
+    connect: "연결",
+    reconnect: "다시 연결",
+    connectedAs: "{{account}}(으)로 연결됨",
+    needsReconnect: "{{account}}을(를) 다시 연결해야 합니다.",
+    disconnectFailed: "캘린더 연결을 해제하지 못했습니다.",
+    disconnectCalendarDescription:
+      "Clips가 {{account}}의 예정된 회의 동기화를 중단합니다.",
+    calendarApp: "Google Calendar 앱",
+    desktopGroup: "데스크톱",
+    meetingCapture: "회의 캡처",
+    meetingCaptureDescription:
+      "메모, 자동 시작, 알림은 각 기기의 Clips Desktop에서 설정합니다.",
+    openClipsDesktop: "Clips Desktop 열기",
+    keySaved: "저장됨",
+    keyNotSaved: "저장 안 됨",
+    manage: "관리",
+    add: "추가",
+    linkPreviews: "링크 미리보기",
+    addWorkspace: "워크스페이스 추가",
+    storageAskAdmin: "소유자나 관리자에게 스토리지 설정을 요청하세요.",
   },
   insightsHub: {
     title: "인사이트",
@@ -1679,6 +1731,7 @@ const messages = {
     backgroundNone: "없음",
     notYetBurned:
       "가림 영역 {{count}}개가 배치되었지만 아직 적용되지 않았습니다. 아직 아무것도 가려지지 않았으며, 적용하기 전까지 다른 사람은 이 스크린샷을 볼 수 없습니다.",
+    editsUnreadable: "Clips에서 저장된 스크린샷 편집 내용을 읽을 수 없습니다.",
     burnInHint: "가림 영역이 덮은 내용을 영구히 없애고 원본을 삭제합니다",
     burnInTitle: "이 스크린샷에 가림 영역 {{count}}개를 적용할까요?",
     burnInWarning:

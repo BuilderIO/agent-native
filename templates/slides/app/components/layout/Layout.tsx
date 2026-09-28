@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { useDecks } from "@/context/DeckContext";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   buildSlidesAgentContext,
@@ -39,6 +40,8 @@ import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesFullWidthSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -50,6 +53,46 @@ interface LayoutProps {
 interface EditorSidebarOverride {
   locationKey: string;
   collapsed: boolean;
+}
+
+interface MobileDeckSaveFlushRequest {
+  requestId: string;
+  deckId: string;
+}
+
+function readMobileDeckSaveFlushRequest(
+  value: unknown,
+): MobileDeckSaveFlushRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (
+    typeof request.requestId !== "string" ||
+    !request.requestId ||
+    typeof request.deckId !== "string" ||
+    !request.deckId
+  ) {
+    return null;
+  }
+  return { requestId: request.requestId, deckId: request.deckId };
+}
+
+function postMobileDeckSaveFlushAck(message: {
+  requestId: string;
+  requestedDeckId: string;
+  activeDeckId: string | null;
+  status: "flushed" | "not-target" | "failed";
+}) {
+  const nativeBridge = (
+    window as Window & {
+      ReactNativeWebView?: { postMessage: (value: string) => void };
+    }
+  ).ReactNativeWebView;
+  nativeBridge?.postMessage(
+    JSON.stringify({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      ...message,
+    }),
+  );
 }
 
 /** Routes whose pages render their own toolbar — Layout still renders chrome
@@ -70,6 +113,7 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
+  const settingsRedesign = useSettingsRedesign();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -116,6 +160,50 @@ export function Layout({ children }: LayoutProps) {
     return () =>
       window.removeEventListener("agentNative.chatRunning", onChatRunning);
   }, []);
+  useEffect(() => {
+    const onMobileDeckSaveFlush = (event: Event) => {
+      const request = readMobileDeckSaveFlushRequest(
+        (event as CustomEvent<unknown>).detail,
+      );
+      if (!request) return;
+      const activeDeckId =
+        location.pathname.match(/^\/deck\/([^/]+)/)?.[1] ?? null;
+      if (activeDeckId !== request.deckId) {
+        postMobileDeckSaveFlushAck({
+          requestId: request.requestId,
+          requestedDeckId: request.deckId,
+          activeDeckId,
+          status: "not-target",
+        });
+        return;
+      }
+      void flushDeckSave(request.deckId).then(
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "flushed",
+          }),
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "failed",
+          }),
+      );
+    };
+    window.addEventListener(
+      "agentNative.mobileDeckSaveFlush",
+      onMobileDeckSaveFlush,
+    );
+    return () =>
+      window.removeEventListener(
+        "agentNative.mobileDeckSaveFlush",
+        onMobileDeckSaveFlush,
+      );
+  }, [flushDeckSave, location.pathname]);
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -205,8 +293,13 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const ownToolbar = pageHasOwnToolbar(location.pathname);
-  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
+  const fullWidthSettings = isSlidesFullWidthSettingsRoute(
+    location.pathname,
+    settingsRedesign,
+  );
+  const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
+  const showAppSidebar =
+    shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -319,6 +412,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

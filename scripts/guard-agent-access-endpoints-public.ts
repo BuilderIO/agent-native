@@ -82,8 +82,6 @@ export function collectRequiredEndpoints(
     }
   }
 
-  // The framework mints the share-dialog link from this registration, so an
-  // endpoint named outside the constant convention above still has to be public.
   const registrations = files.get(SHAREABLE_REGISTRATIONS);
   if (registrations) {
     const pattern =
@@ -113,7 +111,6 @@ export function collectRequiredEndpoints(
   };
 }
 
-/** Comments carry commas, so they have to go before the array is split. */
 export function stripComments(source: string): string {
   let output = "";
   let cursor = 0;
@@ -202,7 +199,6 @@ export function resolvePublicPaths(
   return { paths, unresolvedMembers };
 }
 
-/** Mirrors the auth guard's own prefix matching (`matchesPathList`). */
 export function isCoveredByPublicPaths(
   endpoint: string,
   publicPaths: string[],

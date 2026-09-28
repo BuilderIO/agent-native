@@ -1,4 +1,14 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+  },
   timelineTrack: {
     helpOtherSide:
       "先にそのセクションをクリックしてから、赤い線を右へドラッグします。",
@@ -430,12 +440,9 @@ const messages = {
     agentEmptyTitle: "会話に参加する",
     agentEmptyDescription:
       "無料の Clips アカウントを作成して、このクリップにコメント、リアクション、質問を追加できます。",
-    commentSignupTitle: "AIエージェントに全体像を伝える",
-    commentSignupContext:
-      "文字起こしとタイムスタンプ付きフレームを1つのリンクで共有",
-    commentSignupFeedback:
-      "録画したフィードバックを明確な次のアクションに変える",
-    commentSignupDebug: "コンソールエラーと失敗したリクエストを記録",
+    commentSignupTitle: "AIエージェントが見て聞ける画面録画",
+    commentSignupDescription:
+      "Clipsは、バグ、フィードバック、操作手順をAIエージェントと共有できる無料のオープンソース画面録画ツールです。",
     agentEmptySignInPrompt: "アカウントをお持ちですか？",
     signUp: "登録",
     ownerInsights: "所有者インサイト",
@@ -575,6 +582,9 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    redactionsPendingTitle: "共有前にマスキングを適用",
+    redactionsPendingBody:
+      "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
     publicDescription:
       "リンクを知っている人は誰でも閲覧できます。コメントしたり反応するにはサインインしてください",
     shareRecording: "録画を共有する",
@@ -630,9 +640,6 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
-    redactionsPendingBody:
-      "この録画には {{count}} 件のマスクが描かれていますが、まだ焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
-    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",
@@ -836,6 +843,8 @@ const messages = {
     changelogEmpty: "まだ更新はありません。",
     changelogCommentSignup:
       "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
+    changelogCommentsEmptyState:
+      "コメントがないときの表示で、画面録画がAIエージェントにどう役立つかを説明するようになりました。",
     changelogShareLink:
       "ログイン中のユーザーが利用不可・期限切れ・非公開の共有リンクで「ホームに戻る」を選ぶと、公開マーケティングページではなくライブラリに移動するようになりました。",
     viewAllUpdates: "すべての更新を見る",
@@ -948,6 +957,51 @@ const messages = {
       "Clips は {{team}} の保存済みボットトークンを削除し、再生可能な Slack プレビューの送信を停止します。",
     thisWorkspace: "このワークスペース",
     slackConnected: "Slack 接続済み",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して再試行してください。",
+    recordingsTab: "録画",
+    meetingsTab: "ミーティング",
+    yourDefaults: "あなたのデフォルト",
+    orgDefault: "{{org}} のデフォルト",
+    playbackSpeed: "再生速度",
+    playbackSpeedDescription: "録画を開いたときに適用されます。",
+    visibility: "公開範囲",
+    visibilityDescription:
+      "あなたが作成する録画に適用されます。録画ごとに変更できます。",
+    useOrgDefault: "{{org}} のデフォルトを使用 ({{visibility}})",
+    useDefault: "デフォルトを使用 ({{visibility}})",
+    transcriptExport: "文字起こしのエクスポート",
+    logoDescription: "共有メールと公開クリップページに表示されます。",
+    change: "変更",
+    adminsOnly: "オーナーと管理者のみが変更できます。",
+    brandColorInvalid: "16進カラーコードを入力してください。",
+    loadFailed: "これらの設定を読み込めませんでした。",
+    emailGroup: "メール",
+    calendarGroup: "カレンダー",
+    googleCalendar: "Google Calendar",
+    connect: "接続",
+    reconnect: "再接続",
+    connectedAs: "{{account}} として接続中",
+    needsReconnect: "{{account}} の再接続が必要です。",
+    disconnectFailed: "カレンダーの接続を解除できませんでした。",
+    disconnectCalendarDescription:
+      "Clips は {{account}} の今後のミーティングの同期を停止します。",
+    calendarApp: "Google Calendar アプリ",
+    desktopGroup: "デスクトップ",
+    meetingCapture: "ミーティングのキャプチャ",
+    meetingCaptureDescription:
+      "メモ、自動開始、通知は各デバイスの Clips Desktop で設定します。",
+    openClipsDesktop: "Clips Desktop を開く",
+    keySaved: "保存済み",
+    keyNotSaved: "未保存",
+    manage: "管理",
+    add: "追加",
+    linkPreviews: "リンクプレビュー",
+    addWorkspace: "ワークスペースを追加",
+    storageAskAdmin:
+      "ストレージの設定をオーナーまたは管理者に依頼してください。",
   },
   insightsHub: {
     title: "インサイト",
@@ -1697,6 +1751,8 @@ const messages = {
     backgroundNone: "なし",
     notYetBurned:
       "{{count}} 件のマスクが配置されていますが、まだ焼き込まれていません。まだ何も隠されておらず、焼き込むまで他の人はこのスクリーンショットを見られません。",
+    editsUnreadable:
+      "Clips は保存済みのスクリーンショット編集を読み込めませんでした。",
     burnInHint: "マスクで覆った部分を完全に消去し、元の画像を削除します",
     burnInTitle:
       "このスクリーンショットに {{count}} 件のマスクを焼き込みますか？",

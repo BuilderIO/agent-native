@@ -107,6 +107,11 @@ vi.mock("../../lib/seekable-media-state.js", () => ({
 }));
 
 vi.mock("../../lib/share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (
+    id: string,
+    password: string | null,
+    _sharePasswordVersion?: string | null,
+  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
   verifySharePassword: (...args: unknown[]) => mockVerifySharePassword(...args),
 }));
 
@@ -230,7 +235,7 @@ describe("/api/public-recording route", () => {
       },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: 21_600,
     });
     expect(mockSetCookie).toHaveBeenCalledWith(
@@ -250,6 +255,20 @@ describe("/api/public-recording route", () => {
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
     );
+  });
+
+  it("scopes context tokens to the recording access version", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    await handler(event as any);
+
+    expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
+      resourceKind: "clip-agent-context",
+      resourceId: "rec-1:password-scoped",
+    });
   });
 
   it("keeps static and animated thumbnails behind the same-origin proxy", async () => {
@@ -400,13 +419,40 @@ describe("/api/public-recording route", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
     );
     expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
     expect(mockBuildAgentApiUrls).toHaveBeenCalledWith(
       "rec-1",
       expect.objectContaining({ token: "agent-token" }),
+    );
+  });
+
+  it("rejects a token minted before a recording gained a password", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({
+      id: "rec-1",
+      agent_access: "old-agent-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockImplementation(
+      (_token: string, scope: { resourceId: string }) => ({
+        ok: scope.resourceId === "rec-1",
+      }),
+    );
+    mockGetDb.mockReturnValue(createDbWithSelectResults([[makeRecording()]]));
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
     );
   });
 

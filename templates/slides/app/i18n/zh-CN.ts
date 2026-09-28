@@ -40,7 +40,6 @@ const messages = {
     brand: "幻灯片",
     decks: "幻灯片",
     designSystems: "设计系统",
-    team: "团队",
   },
   settings: {
     agentObservability: "代理可观测性",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "当有人评论你的演示文稿或在讨论串中回复时，收到邮件通知。",
     saveFailed: "保存失败",
+    notificationsEmail: "电子邮件",
+    commentsAndReplies: "评论和回复",
+    commentsAndRepliesDescription: "有人在你的演示文稿中发表评论或回复时。",
+    retry: "重试",
+    mcpAbout:
+      "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
     languageTitle: "语言",
     languageDescription: "选择界面语言。此偏好会保存到你的账户。",
     languageLabel: "界面语言",
@@ -122,7 +127,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "请从代理编写器的模型菜单连接 Builder.io，以便将图片上传到幻灯片。即使没有提供方，把图片拖到空白画布上仍可发送给代理。",
+      "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -181,8 +186,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "在应用中打开",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -570,6 +573,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "已保存" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -634,10 +638,29 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "错误 403",
+    noAccessTitle: "你没有访问权限",
+    noAccessDescription: "请向幻灯片所有者申请访问权限，或切换到正确的账号。",
+    noteLabel: "给所有者添加备注（可选）",
+    notePlaceholder: "我正在审阅这份幻灯片",
+    requesting: "正在申请",
+    requestFailed: "你的申请未发送，请重试。",
+    requestSentDescription: "所有者批准你的申请后，我们会立即发邮件通知你。",
+    goHome: "返回首页",
+    signedInAs: "当前登录账号",
+    switchAccount: "切换账号",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5 分钟没有进展，已暂停生成",
+    generationStalledDescription:
+      "已保存的幻灯片仍然保留。你可以在聊天中继续此演示文稿。",
+    continueInChat: "在聊天中继续",
+    continueGenerationPrompt:
+      "继续为此演示文稿生成幻灯片。请先检查现有幻灯片和已保存的生成上下文。保留已完成的幻灯片，只添加缺少的内容。",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -670,6 +693,9 @@ const messages = {
     accessApprovalTitle: "已授予访问权限",
     accessApprovalAlreadyTitle: "已授予访问权限",
     accessApprovalMessage: "{{email}} 现在可以打开此幻灯片。",
+    accessApprovalRequesterEmailed: "我们已发送邮件通知对方。",
+    accessApprovalRequesterEmailFailed:
+      "无法向 {{email}} 发送邮件。请告知对方现在可以打开幻灯片了。",
     accessApprovalAlreadyMessage: "{{email}} 已经可以访问此幻灯片。",
     accessApprovalErrorTitle: "无法授予访问权限",
     accessApprovalInvalid: "此访问请求无效或已过期。",
@@ -683,7 +709,7 @@ const messages = {
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "请从代理编写器的模型菜单连接 Builder.io，以便将图片上传到幻灯片。即使没有提供方，把图片拖到空白画布上仍可发送给代理。",
+      "连接对象存储以上传图片：连接 Builder.io（免费），或在“设置 → 文件上传”中添加你自己的 S3 兼容存储密钥。",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
@@ -785,6 +811,11 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "制作产品推介演示文稿",
+      roadmap: "制作产品路线图",
+      explainer: "在演示文稿中讲解一个主题",
+    },
     suggestedPrompts: "推荐提示",
     importMenu: {
       import: "导入",
@@ -792,7 +823,11 @@ const messages = {
       invalidPdf: "请选择 PDF 文件。",
       invalidPptx: "请选择 PPTX 文件。",
       invalidFile: "请选择 PDF 或 PPTX 文件。",
+      networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
+      unsupportedFileType: "不支持此文件类型。请选择受支持的文件。",
+      uploadLimitExceeded:
+        "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
     },
     importDeck: "导入演示文稿",
     context: {
@@ -829,6 +864,9 @@ const messages = {
       figma: "Figma 画框",
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
+      websiteReadFailed: "无法自动读取此网站。请改为复制并粘贴相关文本。",
+      figmaReadFailed:
+        "Design 无法读取此 Figma 参考内容。请检查 Design 中保存的 Figma 访问令牌，以及关联账号是否有权打开该文件，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
       search: "搜索参考资料",
       designCategory: "设计",
@@ -837,7 +875,8 @@ const messages = {
       invalidUrl: "请输入有效的 HTTP 或 HTTPS URL。",
       starting: "正在启动…",
       generate: "生成",
-      connectionRequired: "请先在主页输入框上方连接 Builder.io，然后重试。",
+      connectionRequired:
+        "请在主页提示框上方连接 AI 提供商，或添加自己的 AI 密钥，然后重试。",
       invalidPdf: "请选择 PDF 文件。",
       notReady: "请检查待加载或失败的上下文以及连接状态，然后重试。",
       tooLong: "来源文本请控制在 20,000 字符以内。",
@@ -886,8 +925,10 @@ const messages = {
     loadFailed: "无法加载内容",
     loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
     retry: "重试",
+    fileStorageStatusUnavailable: "无法检查对象存储状态。请在上传文件前重试。",
+    fileStorageSetupRequired:
+      "尚未连接对象存储。请免费连接 Builder.io，或前往设置 → 文件上传添加自己的 S3 兼容存储密钥。",
     decksTitle: "幻灯片",
-    newDeck: "新建幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",
     deckLengthHeader: "幻灯片长度",
     deckLengthShort: "短（3–5 张）",
@@ -916,6 +957,8 @@ const messages = {
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
     importFrom: "导入自",
+    referenceFileStorageUnavailable:
+      "尚未配置文件存储。请连接 Builder.io 或其他文件提供商，以导入参考文件。",
     attachedFiles: "已附加文件",
     imported: "已导入",
     importedReferenceDeck: "已导入的参考幻灯片",
@@ -971,6 +1014,11 @@ const messages = {
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
   },
 };
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -355,6 +354,36 @@ describe("sendToAgentChat", () => {
       },
     ]);
   });
+
+  it("preserves display-only markers serialized under attachment metadata", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "make a deck from this reference",
+          attachments: [
+            {
+              type: "file",
+              name: "reference.pdf",
+              contentType: "application/pdf",
+              content: [],
+              metadata: { displayOnly: true },
+            },
+          ],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.attachments).toEqual([
+      {
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        displayOnly: true,
+      },
+    ]);
+  });
+
   it("snapshots stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
 
@@ -500,8 +529,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // builder.submitChat has no field for the keys and Builder holds none of
-    // this app's grants; the paused run belongs to the embedded AgentSidebar.
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
 
@@ -752,9 +779,6 @@ describe("sendToAgentChat", () => {
         approvedToolCalls: ["publish-release:{}"],
       });
 
-      // Neither host transport can carry the keys: the direct follow-up API
-      // takes text only, and the wrapper's sendHostChat forwards only the
-      // message. The paused run lives in this app's own chat.
       expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
       expect(parentPostMessageSpy).not.toHaveBeenCalled();
       expect(sendToBuilderChatMock).not.toHaveBeenCalled();
@@ -884,8 +908,6 @@ describe("sendToAgentChat", () => {
       approvedToolCalls: ["publish-release:{}"],
     });
 
-    // A direct embed's chat is this app's own chat, which owns the paused
-    // run; the parent is the MCP host, which has no field for the keys.
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
     expect(sendToBuilderChatMock).not.toHaveBeenCalled();

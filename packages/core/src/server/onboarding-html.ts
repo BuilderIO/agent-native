@@ -1,11 +1,3 @@
-/**
- * First-run onboarding page for agent-native apps.
- *
- * Shown when Better Auth is active and the user isn't signed in.
- * Provides a path to create or sign into an account from day one.
- *
- * After first account exists, this page acts as a normal login page.
- */
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 
@@ -58,11 +50,11 @@ import {
   type AuthMarketingLocaleCopy,
 } from "./auth-marketing-locales.js";
 import {
-  BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingByName,
   resolveBuiltInAuthMarketingPresentation,
   resolveBuiltInAuthMarketingSlug,
+  resolveBuiltInAuthMarketingSlugFromName,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import {
@@ -198,6 +190,7 @@ const EN_AUTH_COPY = {
   localDevSigningIn: "Signing in locally…",
   localDevFailed: "Local development sign-in is unavailable.",
   localDevFullOptions: "Show full sign in options",
+  localDevHideFullOptions: "Hide full sign in options",
   continueWithAgentNative: "Continue with Agent-Native",
   identitySsoHint:
     "Use the same verified email you use in your other Agent-Native apps.",
@@ -286,6 +279,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本地登录…",
     localDevFailed: "本地开发登录不可用。",
     localDevFullOptions: "显示完整登录选项",
+    localDevHideFullOptions: "隐藏完整登录选项",
     continueWithAgentNative: "使用 Agent-Native 继续",
     identitySsoHint: "使用你在其他 Agent-Native 应用中验证过的相同邮箱。",
     openSource: "100% 免费且开源",
@@ -361,6 +355,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "正在本機登入…",
     localDevFailed: "本機開發登入無法使用。",
     localDevFullOptions: "顯示完整登入選項",
+    localDevHideFullOptions: "隱藏完整登入選項",
     continueWithAgentNative: "使用 Agent-Native 繼續",
     identitySsoHint: "請使用你在其他 Agent-Native 應用中驗證過的相同電子郵件。",
     openSource: "100% 免費且開源",
@@ -439,6 +434,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevFailed:
       "El inicio de sesión de desarrollo local no está disponible.",
     localDevFullOptions: "Mostrar todas las opciones de inicio de sesión",
+    localDevHideFullOptions: "Ocultar todas las opciones de inicio de sesión",
     continueWithAgentNative: "Continuar con Agent-Native",
     identitySsoHint:
       "Usa el mismo correo verificado que en tus otras apps de Agent-Native.",
@@ -524,6 +520,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Connexion locale…",
     localDevFailed: "La connexion de développement local est indisponible.",
     localDevFullOptions: "Afficher toutes les options de connexion",
+    localDevHideFullOptions: "Masquer toutes les options de connexion",
     continueWithAgentNative: "Continuer avec Agent-Native",
     identitySsoHint:
       "Utilisez la même adresse e-mail vérifiée que dans vos autres applications Agent-Native.",
@@ -610,6 +607,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Lokale Anmeldung…",
     localDevFailed: "Die lokale Entwicklungsanmeldung ist nicht verfügbar.",
     localDevFullOptions: "Alle Anmeldeoptionen anzeigen",
+    localDevHideFullOptions: "Alle Anmeldeoptionen ausblenden",
     continueWithAgentNative: "Mit Agent-Native fortfahren",
     identitySsoHint:
       "Verwende dieselbe bestätigte E-Mail-Adresse wie in deinen anderen Agent-Native-Apps.",
@@ -695,6 +693,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "ローカルでサインイン中…",
     localDevFailed: "ローカル開発のサインインは利用できません。",
     localDevFullOptions: "完全なサインイン オプションを表示",
+    localDevHideFullOptions: "サインイン オプションを非表示",
     continueWithAgentNative: "Agent-Native で続行",
     identitySsoHint:
       "他の Agent-Native アプリで確認済みの同じメールアドレスを使用してください。",
@@ -779,6 +778,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "로컬로 로그인하는 중…",
     localDevFailed: "로컬 개발 로그인을 사용할 수 없습니다.",
     localDevFullOptions: "전체 로그인 옵션 보기",
+    localDevHideFullOptions: "전체 로그인 옵션 숨기기",
     continueWithAgentNative: "Agent-Native로 계속",
     identitySsoHint:
       "다른 Agent-Native 앱에서 인증한 것과 같은 이메일 주소를 사용하세요.",
@@ -860,6 +860,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "Entrando localmente…",
     localDevFailed: "O login de desenvolvimento local não está disponível.",
     localDevFullOptions: "Mostrar todas as opções de login",
+    localDevHideFullOptions: "Ocultar todas as opções de login",
     continueWithAgentNative: "Continuar com Agent-Native",
     identitySsoHint:
       "Use o mesmo email verificado nos outros apps Agent-Native.",
@@ -943,6 +944,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "स्थानीय रूप से साइन इन हो रहा है…",
     localDevFailed: "स्थानीय विकास साइन-इन उपलब्ध नहीं है।",
     localDevFullOptions: "साइन-इन के सभी विकल्प दिखाएं",
+    localDevHideFullOptions: "साइन-इन के सभी विकल्प छिपाएं",
     continueWithAgentNative: "Agent-Native के साथ जारी रखें",
     identitySsoHint:
       "दूसरे Agent-Native ऐप्स में सत्यापित किया गया वही ईमेल इस्तेमाल करें।",
@@ -1023,6 +1025,7 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     localDevSigningIn: "جارٍ تسجيل الدخول محليًا…",
     localDevFailed: "تسجيل دخول التطوير المحلي غير متاح.",
     localDevFullOptions: "عرض خيارات تسجيل الدخول الكاملة",
+    localDevHideFullOptions: "إخفاء خيارات تسجيل الدخول الكاملة",
     continueWithAgentNative: "المتابعة باستخدام Agent-Native",
     identitySsoHint:
       "استخدم عنوان البريد الإلكتروني نفسه الذي تم التحقق منه في تطبيقات Agent-Native الأخرى.",
@@ -1063,38 +1066,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
   },
 };
 
-function resolveBuiltInMarketingSlug(
-  marketing: AuthMarketingContent | undefined,
-  opts: { requestHost?: string; requestPath?: string } = {},
-): string | undefined {
-  if (!marketing) return undefined;
-
-  const matchesBuiltInMarketing = (builtIn: AuthMarketingContent) =>
-    marketing.appName === builtIn.appName &&
-    marketing.tagline === builtIn.tagline &&
-    marketing.description === builtIn.description &&
-    JSON.stringify(marketing.features ?? []) ===
-      JSON.stringify(builtIn.features ?? []) &&
-    JSON.stringify(marketing.signupLocalModeNote ?? null) ===
-      JSON.stringify(builtIn.signupLocalModeNote ?? null);
-
-  const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
-  if (requestSlug) {
-    const builtIn = BUILT_IN_AUTH_MARKETING[requestSlug];
-    if (builtIn && matchesBuiltInMarketing(builtIn)) return requestSlug;
-  }
-
-  for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    // Caller-supplied marketing can reuse a built-in app name. Only an exact
-    // content match may claim a slug, or localized copy would overwrite the
-    // custom description/features.
-    if (matchesBuiltInMarketing(builtIn)) {
-      return slug;
-    }
-  }
-  return undefined;
-}
-
 export interface SignupLegalNoticeOptions {
   termsUrl: string;
   privacyUrl: string;
@@ -1123,41 +1094,17 @@ function isAgentNativeHostedHost(host: string | undefined): boolean {
 }
 
 export interface OnboardingHtmlOptions {
-  /**
-   * Hide email/password forms and show ONLY the Google sign-in button.
-   * Useful for templates (mail, calendar) where Google is required anyway.
-   * If Google OAuth env vars are not configured, an error message is shown.
-   */
   googleOnly?: boolean;
-  /** Additional provider scopes require the direct OAuth flow to persist tokens. */
   googleScopes?: string[];
-  /** Authentication surface to render. Defaults to the existing password flow. */
   authMode?: "magic-link" | "password";
-  /** Render the quiet, centered auth surface used when the app has an initial prompt. */
   initialPrompt?: boolean;
-  /**
-   * Product marketing content shown alongside the sign-in form.
-   * When provided, the page uses a split layout: marketing on the left,
-   * sign-in form on the right (stacked on mobile).
-   */
   marketing?: {
     appName: string;
     tagline: string;
     description?: string;
     features?: string[];
-    authHeadline?: string;
-    authDescription?: string;
-    screenshotPath?: string;
-    screenshotWidth?: number;
-    screenshotHeight?: number;
     learnMoreUrl?: string;
-    /** @deprecated Local execution is no longer offered from auth pages. */
-    runLocalCommand?: string;
   };
-  /**
-   * Request context used only to recover branded first-party marketing when a
-   * default auth guard serves before a template-specific auth plugin.
-   */
   requestHost?: string;
   /** @deprecated Browser SSO was removed. The fields are retained for patch compatibility. */
   identitySsoRequestHost?: string;
@@ -1165,17 +1112,7 @@ export interface OnboardingHtmlOptions {
   identitySsoRequestProtocol?: string;
   requestPath?: string;
   requestOrigin?: string;
-  /**
-   * Optional email signup legal copy. Builder-hosted `*.agent-native.com`
-   * deployments get the Agent-Native links automatically; self-hosted and
-   * custom-domain apps must opt in with their own URLs.
-   */
   signupLegalNotice?: SignupLegalNoticeOptions | false;
-  /**
-   * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
-   * Falls back to `GOOGLE_AUTH_MODE` env var, then `'auto'`. Builder web
-   * iframes use popup; Builder desktop preview/editor surfaces use redirect.
-   */
   googleAuthMode?: GoogleAuthMode;
 }
 
@@ -1276,15 +1213,24 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
   const marketingWasResolvedFromCatalog = !opts.marketing;
+  const configuredMarketingSlug = resolveBuiltInAuthMarketingSlugFromName(
+    marketing?.appName,
+  );
+  const learnMoreSlug = marketing?.learnMoreUrl?.match(
+    /^https:\/\/agent-native\.com\/apps\/([^/?#]+)/,
+  )?.[1];
   const isFirstPartyMarketing =
-    marketing?.learnMoreUrl?.startsWith("https://agent-native.com/apps/") ??
-    false;
+    !!configuredMarketingSlug &&
+    configuredMarketingSlug ===
+      resolveBuiltInAuthMarketingSlugFromName(learnMoreSlug);
   const marketingSlug = marketingWasResolvedFromCatalog
-    ? resolveBuiltInMarketingSlug(marketing, {
+    ? resolveBuiltInAuthMarketingSlug({
         requestHost: opts.requestHost,
         requestPath: opts.requestPath,
       })
-    : undefined;
+    : isFirstPartyMarketing
+      ? configuredMarketingSlug
+      : undefined;
   const marketingPresentation =
     marketingWasResolvedFromCatalog || isFirstPartyMarketing
       ? resolveBuiltInAuthMarketingPresentation(marketing, {
@@ -1322,10 +1268,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       ? `${opts.requestOrigin}${withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath)}`
       : withAppBasePath(AGENT_NATIVE_SOCIAL_IMAGE_PATH, appBasePath),
   );
-  // Templates pass their short sign-in name ("Mail"); share cards label the
-  // link with og:title, so first-party apps use the full product name there.
-  // Catalog copy can also resolve from env app names on a custom host; only
-  // claim Agent-Native provenance when the host or the app's own config does.
   const isFirstPartySocial =
     isFirstPartyMarketing ||
     (marketingWasResolvedFromCatalog &&
@@ -1374,354 +1316,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       identitySsoRequestProtocol,
     ) ||
       (!identitySsoRequestHost && isCanonicalIdentitySsoClientConfigured()));
-  const marketingStyles = hasMarketing
-    ? `
-  body.has-marketing {
-    --b-hero-ocean-opacity: 0.32;
-    --b-hero-shader-opacity: 0.15;
-    padding: 0;
-    position: relative;
-    overflow-x: clip;
-    color-scheme: dark;
-  }
-  [data-agent-native-starfield] {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: var(--b-hero-shader-opacity, 0.15);
-    pointer-events: none;
-    z-index: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    [data-agent-native-starfield] {
-      opacity: var(--b-hero-shader-opacity, 0.15);
-    }
-  }
-  .split {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    min-height: 100vh;
-    width: 100%;
-    max-width: 1100px;
-    margin: 0 auto;
-  }
-  .auth-marketing-learn-more {
-    display: block;
-    color: hsl(var(--foreground, 0 0% 90%));
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 1.5rem;
-    font-weight: 500;
-    line-height: 1;
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .auth-marketing-learn-more:hover { color: hsl(var(--foreground, 0 0% 90%)); }
-  .auth-marketing-learn-more-link { color: inherit; }
-  .auth-marketing-screenshot-wrap {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    width: 100%;
-    max-width: 100%;
-    max-height: calc(100vh - 3rem);
-    aspect-ratio: 914 / 818;
-    border-radius: 0.75rem;
-    overflow: hidden;
-    box-shadow: 0 12px 36px rgba(0,0,0,0.38); /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
-  }
-  .auth-marketing-screenshot {
-    display: block;
-    width: 100%;
-    height: 100%;
-    max-height: calc(100vh - 3rem);
-    object-fit: cover;
-  }
-  .marketing-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 3rem 3.5rem;
-  }
-  .marketing-content { max-width: 480px; }
-  .app-name {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 0.625rem;
-    letter-spacing: -0.02em;
-  }
-  .app-name img.brand-mark {
-    height: 2.21375rem;
-    width: auto;
-    display: block;
-    flex-shrink: 0;
-  }
-  .app-tagline {
-    font-size: 1.25rem;
-    color: #a1a1aa;
-    line-height: 1.6;
-    margin-bottom: 2rem;
-  }
-  .app-desc {
-    font-size: 1rem;
-    color: #71717a;
-    line-height: 1.6;
-    margin-bottom: 2rem;
-  }
-  .feature-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.875rem;
-  }
-  .feature-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.625rem;
-    font-size: 1rem;
-    color: #a1a1aa;
-    line-height: 1.5;
-  }
-  .feature-list li::before {
-    content: '';
-    flex-shrink: 0;
-    width: 8px;
-    height: 8px;
-    margin-top: 6px;
-    border-radius: 50%;
-    background: #3f3f46;
-    border: 1px solid #52525b;
-  }
-  .oss-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #00B5FF;
-    text-decoration: none;
-    transition: color 0.15s ease;
-  }
-  .oss-link:hover { color: #33C4FF; }
-  .oss-link svg { width: 15px; height: 15px; flex-shrink: 0; }
-  .marketing-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.75rem;
-    margin-top: 2rem;
-  }
-  .copy-run-local {
-    margin-top: 0.625rem;
-    padding: 0.375rem 0.625rem;
-    background: transparent;
-    color: #a1a1aa;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
-    font-size: 0.75rem;
-    cursor: pointer;
-  }
-  .copy-run-local:hover { color: #fff; border-color: rgba(255,255,255,0.22); }
-  .form-panel {
-    flex: 0 0 440px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-  }
-  .form-panel .card { max-width: 400px; }
-  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
-  .auth-marketing-home .card { box-shadow: 0 18px 50px rgba(0,0,0,0.62); }
-  @media (max-width: 900px) {
-    .auth-marketing-shell-with-top-right {
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      min-height: auto;
-    }
-    .auth-marketing-top-right {
-      display: flex;
-      justify-content: flex-start;
-      flex: none;
-      padding: 1rem 1rem 0;
-    }
-    .auth-marketing-learn-more {
-      font-size: 0.75rem;
-    }
-    .split { flex-direction: column; min-height: auto; }
-    .marketing-panel { padding: 4.25rem 1.5rem 1.5rem; }
-    .app-name { font-size: 1.375rem; }
-    .app-name img.brand-mark { height: 1.58125rem; }
-    .app-tagline { font-size: 1rem; margin-bottom: 1rem; }
-    .app-desc { margin-bottom: 1rem; }
-    .feature-list { gap: 0.5rem; }
-    .form-panel { flex: none; padding: 1.5rem 1rem; }
-  }
-  @media (prefers-color-scheme: light) {
-    body.has-marketing {
-      --b-hero-ocean-opacity: 0.3;
-      --b-hero-shader-opacity: 0.22;
-      background: color-mix(in srgb, CanvasText 4%, Canvas);
-      color: CanvasText;
-      color-scheme: light;
-    }
-    .auth-marketing-home {
-      background: color-mix(in srgb, CanvasText 4%, Canvas);
-      color: CanvasText;
-    }
-    .auth-marketing-home .auth-marketing-learn-more,
-    .auth-marketing-home .auth-marketing-learn-more:hover,
-    body.has-marketing .locale-trigger {
-      color: CanvasText;
-    }
-    .auth-marketing-home .auth-marketing-learn-more-link { color: inherit; }
-    /* The marketing panel's base colors are picked for the near-black body.
-       Without these the app name renders white-on-white and the whole panel
-       reads as empty rather than as low contrast. */
-    .auth-marketing-home .app-name { color: CanvasText; }
-    .auth-marketing-home .app-tagline,
-    .auth-marketing-home .feature-list li {
-      color: color-mix(in srgb, CanvasText 72%, Canvas);
-    }
-    .auth-marketing-home .app-desc {
-      color: color-mix(in srgb, CanvasText 62%, Canvas);
-    }
-    .auth-marketing-home .feature-list li::before {
-      background: color-mix(in srgb, CanvasText 22%, transparent);
-      border-color: color-mix(in srgb, CanvasText 38%, transparent);
-    }
-    .auth-marketing-home .oss-link { color: LinkText; }
-    .auth-marketing-home .oss-link:hover {
-      color: color-mix(in srgb, LinkText 75%, CanvasText);
-    }
-    .auth-marketing-home .copy-run-local {
-      color: color-mix(in srgb, CanvasText 62%, Canvas);
-      border-color: color-mix(in srgb, CanvasText 18%, transparent);
-    }
-    .auth-marketing-home .copy-run-local:hover {
-      color: CanvasText;
-      border-color: color-mix(in srgb, CanvasText 32%, transparent);
-    }
-    .auth-marketing-home .card {
-      background: Canvas;
-      border-color: color-mix(in srgb, CanvasText 14%, transparent);
-      color: CanvasText;
-      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
-    }
-    .auth-marketing-home .card h1 { color: CanvasText; }
-    .auth-marketing-home .card .subtitle,
-    .auth-marketing-home .card label { color: GrayText; }
-    .auth-marketing-home .card input {
-      color: CanvasText;
-      border-color: color-mix(in srgb, CanvasText 18%, transparent);
-    }
-    .auth-marketing-home .card input::placeholder { color: GrayText; }
-    .auth-marketing-home .card .tabs {
-      background: color-mix(in srgb, CanvasText 7%, transparent);
-    }
-    .auth-marketing-home .card .tab { color: GrayText; }
-    .auth-marketing-home .card .tab.active {
-      background: color-mix(in srgb, CanvasText 12%, transparent);
-      color: CanvasText;
-      box-shadow: 0 1px 2px color-mix(in srgb, CanvasText 18%, transparent);
-    }
-    .auth-marketing-home .card button[type="submit"],
-    .auth-marketing-home .card .btn-primary {
-      background: CanvasText;
-      color: Canvas;
-    }
-    .auth-marketing-home .card button[type="submit"]:hover,
-    .auth-marketing-home .card .btn-primary:hover {
-      background: color-mix(in srgb, CanvasText 82%, Canvas);
-    }
-    .auth-marketing-home .card .btn-google {
-      background: Canvas;
-      color: CanvasText;
-      border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
-    }
-    .auth-marketing-home .card .btn-google:hover {
-      background: color-mix(in srgb, CanvasText 6%, Canvas);
-    }
-    .auth-marketing-home .card .btn-secondary {
-      color: GrayText;
-      border-color: color-mix(in srgb, CanvasText 14%, transparent);
-    }
-    .auth-marketing-home .card .btn-secondary:hover,
-    .auth-marketing-home .card .link-button:hover {
-      color: CanvasText;
-      border-color: color-mix(in srgb, CanvasText 24%, transparent);
-    }
-    .auth-marketing-home .card .divider { color: GrayText; }
-    .auth-marketing-home .card .divider::before,
-    .auth-marketing-home .card .divider::after {
-      background: color-mix(in srgb, CanvasText 12%, transparent);
-    }
-    .auth-marketing-home .card .legal-note,
-    .auth-marketing-home .card .legal-note a,
-    .auth-marketing-home .card .local-dev-full-options {
-      color: GrayText;
-    }
-    .auth-marketing-home .card .signup-local-mode-note {
-      color: GrayText;
-      background: color-mix(in srgb, CanvasText 4%, transparent);
-      border-color: color-mix(in srgb, CanvasText 14%, transparent);
-    }
-    .auth-marketing-home .card .signup-local-mode-note code { color: CanvasText; }
-    .auth-marketing-home .card .progress-step { color: GrayText; }
-    .auth-marketing-home .card .progress-step::before {
-      background: color-mix(in srgb, CanvasText 12%, transparent);
-    }
-    .auth-marketing-home .card .progress-step span {
-      background: color-mix(in srgb, CanvasText 4%, Canvas);
-      border-color: color-mix(in srgb, CanvasText 18%, transparent);
-      color: GrayText;
-    }
-    .auth-marketing-home .card .progress-step.complete,
-    .auth-marketing-home .card .progress-step.current { color: CanvasText; }
-    .auth-marketing-home .card .progress-step.complete span {
-      background: color-mix(in srgb, LinkText 16%, transparent);
-      border-color: color-mix(in srgb, LinkText 55%, transparent);
-      color: LinkText;
-    }
-    .auth-marketing-home .card .progress-step.current span {
-      background: CanvasText;
-      border-color: CanvasText;
-      color: Canvas;
-      box-shadow: 0 0 0 4px color-mix(in srgb, CanvasText 8%, transparent);
-    }
-    .auth-marketing-home .card .verification-panel {
-      background: color-mix(in srgb, CanvasText 4%, transparent);
-      border-color: color-mix(in srgb, CanvasText 14%, transparent);
-    }
-    .auth-marketing-home .card .verification-kicker { color: LinkText; }
-    .auth-marketing-home .card .verification-copy,
-    .auth-marketing-home .card .verification-copy strong { color: CanvasText; }
-    .auth-marketing-home .card .verification-note,
-    .auth-marketing-home .card .link-button { color: GrayText; }
-    body.has-marketing .locale-menu {
-      background: Canvas;
-      color: CanvasText;
-      border-color: color-mix(in srgb, CanvasText 14%, transparent);
-      box-shadow: 0 18px 50px color-mix(in srgb, CanvasText 18%, transparent);
-    }
-    body.has-marketing .locale-menu-item { color: GrayText; }
-    body.has-marketing .locale-menu-item:hover,
-    body.has-marketing .locale-menu-item:focus,
-    body.has-marketing .locale-menu-item[aria-checked="true"] {
-      background: color-mix(in srgb, CanvasText 7%, transparent);
-      color: CanvasText;
-    }
-  }
-`
-    : "";
-
   const authMarketingLocales: AuthPageProps["marketingLocales"] =
     Object.fromEntries(
       Object.entries(localizedMarketingCopy).map(([locale, copy]) => [
@@ -1729,14 +1323,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         {
           appName: marketing?.appName ?? "",
           tagline: copy.tagline ?? marketing?.tagline ?? "",
-          description: copy.description ?? marketing?.description,
+          description: copy.description,
           features: copy.features ?? marketing?.features,
           authHeadline: copy.authHeadline ?? copy.tagline,
-          authDescription:
-            copy.authDescription ??
-            copy.description ??
-            marketingPresentation?.description ??
-            marketing?.description,
+          authDescription: copy.authDescription ?? copy.description,
         },
       ]),
     );
@@ -1769,11 +1359,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
               marketing.authHeadline ?? marketingPresentation?.headline,
             authDescription:
               marketing.authDescription ?? marketingPresentation?.description,
-            screenshotSrc: marketing.screenshotPath
-              ? withAppBasePath(marketing.screenshotPath, appBasePath)
-              : undefined,
-            screenshotWidth: marketing.screenshotWidth,
-            screenshotHeight: marketing.screenshotHeight,
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
@@ -1785,6 +1370,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     brandMarkSrc,
     brandMarkLightSrc,
     githubUrl: "https://github.com/BuilderIO/agent-native",
+    appName: hasMarketing ? marketing?.appName : undefined,
     showGoogle,
     organizationSsoEnabled: getAppConfig().access.sso.enabled,
     signupLegalNotice,
@@ -1810,6 +1396,39 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     passwordMaxCopy: `Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.`,
   };
   const authPageData = serializeAuthPageData(authPageProps);
+
+  const marketingStyles = hasMarketing
+    ? `
+  body.has-marketing {
+    --b-hero-ocean-opacity: 0.32;
+    padding: 0;
+    position: relative;
+    overflow-x: clip;
+    color-scheme: dark;
+  }
+  .split { position: relative; z-index: 1; }
+  .marketing-content { max-width: 480px; }
+  .app-name { display: flex; align-items: center; }
+  .app-name img.brand-mark {
+    height: 2.21375rem;
+    width: auto;
+    display: block;
+    flex-shrink: 0;
+  }
+  .marketing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .form-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+`
+    : "";
 
   const authDocumentStyles = `\n
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2016,6 +1635,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; color: #fff; }
   .subtitle { font-size: 0.8125rem; color: #888; margin-bottom: 1.5rem; }
+  .local-dev-available .subtitle { margin-bottom: 0.75rem; }
   .tabs {
     display: inline-flex;
     width: 100%;
@@ -2093,11 +1713,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   }
   .btn-secondary:hover { color: #bbb; border-color: rgba(255,255,255,0.2); }
   .local-dev-signin {
-    margin: 1.25rem 0 0.25rem;
-    padding-top: 1rem;
+    margin: 0.75rem 0 0.25rem;
   }
   .btn-local-dev {
-    margin-top: 0.25rem;
+    margin-top: 0;
   }
   .btn-local-dev:disabled { opacity: 0.5; cursor: wait; }
   .local-dev-description {
@@ -2160,8 +1779,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 2.75rem;
-    padding: 0.75rem;
     text-align: center;
     text-decoration: none;
   }
@@ -2416,8 +2033,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     word-break: break-word;
   }
   .google-debug.show { display: block; }
-${marketingStyles}
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  ${marketingStyles}
   body.simplified-auth { background: #141414; }
   body.simplified-auth .card { border-color: transparent; box-shadow: none; }
 `;
@@ -2495,7 +2112,7 @@ ${marketingStyles}
     border-inline-start: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
   }
   .auth-marketing-home .form-panel > .card { margin-block: auto; }
-  @media (max-width: 900px) {
+  @media not all and (min-width: 901px) {
     body.has-marketing {
       align-items: flex-start;
       justify-content: flex-start;
@@ -2641,7 +2258,7 @@ ${marketingStyles}
     font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
   }
   .auth-marketing-home .auth-marketing-description-link {
-    color: inherit;
+    color: var(--auth-marketing-muted);
     text-decoration: underline;
     text-underline-offset: 0.15em;
     white-space: nowrap;
@@ -2733,6 +2350,7 @@ ${marketingStyles}
   }
   @media (prefers-color-scheme: light) {
     body.has-marketing {
+      --b-hero-ocean-opacity: 0.3;
       --auth-marketing-left-bg: Canvas;
       --auth-marketing-right-bg: Canvas;
       --auth-marketing-foreground: CanvasText;
@@ -2740,17 +2358,35 @@ ${marketingStyles}
       --auth-marketing-subtle: GrayText;
       --auth-marketing-border: color-mix(in srgb, CanvasText 18%, transparent);
       --auth-marketing-badge-bg: color-mix(in srgb, CanvasText 7%, Canvas);
+      color-scheme: light;
     }
     .auth-marketing-home .auth-marketing-visual,
     .auth-marketing-home .marketing-panel,
     .auth-marketing-home .form-panel {
       background: Canvas;
     }
+    .auth-marketing-home .card input {
+      color: var(--auth-marketing-foreground);
+      border-color: var(--auth-marketing-border);
+    }
+    .auth-marketing-home .card input:focus {
+      border-color: color-mix(in srgb, var(--auth-marketing-foreground) 45%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--auth-marketing-foreground) 15%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder {
+      color: var(--auth-marketing-muted);
+      opacity: 1;
+    }
+    .auth-marketing-home .card .btn-google,
+    .auth-marketing-home .card .btn-primary,
+    .auth-marketing-home .card button[type="submit"] {
+      border: 1px solid var(--auth-marketing-border);
+    }
     .auth-marketing-home .app-name img.brand-mark {
       filter: grayscale(1) brightness(0);
     }
   }
-  @media (max-width: 900px) {
+  @media not all and (min-width: 901px) {
     .auth-marketing-home {
       min-height: 100vh;
       min-height: 100svh;
@@ -2998,7 +2634,6 @@ const RESET_PASSWORD_STYLES = `
   .back:hover { color: #bbb; }
 `;
 
-/** React document for the password reset page linked from auth email. */
 export function getResetPasswordHtml(requestPath?: string): string {
   const configuredAppBasePath = getAppBasePathFromViteEnv();
   const appBasePath =

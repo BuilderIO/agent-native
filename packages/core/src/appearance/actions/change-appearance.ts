@@ -1,7 +1,14 @@
 import { z } from "zod";
 
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "../../action-ui.js";
 import { defineAction } from "../../action.js";
-import { writeAppState } from "../../application-state/script-helpers.js";
+import {
+  readAppState,
+  writeAppState,
+} from "../../application-state/script-helpers.js";
 
 const PRESET_IDS = [
   "default",
@@ -22,14 +29,32 @@ export default defineAction({
         "Appearance preset id. One of: default (template's base palette), warm (cream/orange), ocean (light blue), forest (light green), rose (light pink), slate (cool grey).",
       ),
   }),
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   run: async ({ preset }) => {
-    await writeAppState("appearance", { preset });
-    return {
+    const result = {
       preset,
       message:
         preset === "default"
           ? "Cleared appearance preset — back to the template's base palette."
           : `Applied appearance preset: ${preset}.`,
+    };
+    const current = await readAppState("appearance");
+    if ((current?.preset ?? "default") === preset) {
+      return result;
+    }
+
+    await writeAppState("appearance", { preset });
+    return {
+      ...result,
+      change: {
+        verb: "updated",
+        kind: "appearance",
+        title: preset,
+      },
     };
   },
 });

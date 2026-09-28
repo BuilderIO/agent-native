@@ -71,31 +71,24 @@ export function listNotificationChannels(): string[] {
   return Array.from(getRegistry().keys());
 }
 
-/**
- * Deliver a notification.
- *
- * The `inbox` channel always persists a row that drives the in-app UI
- * (bell + toast). Additional channels (webhook, custom) run in parallel,
- * best-effort. Returns the stored Notification when `inbox` ran, otherwise
- * `undefined`.
- *
- * Also emits `notification.sent` on the event bus so automations can react
- * to notifications (e.g. "when a critical notification fires, also page me").
- */
 const MAX_TITLE_LEN = 100;
 const MAX_BODY_LEN = 2000;
 
 export async function notify(
   input: NotificationInput,
   meta: NotificationMeta,
+  options?: { signal?: AbortSignal },
 ): Promise<Notification | undefined> {
-  return (await notifyWithDelivery(input, meta)).notification;
+  return (await notifyWithDelivery(input, meta, options)).notification;
 }
 
 export async function notifyWithDelivery(
   input: NotificationInput,
   meta: NotificationMeta,
+  options?: { signal?: AbortSignal },
 ): Promise<NotificationDeliveryResult> {
+  const signal = options?.signal;
+  signal?.throwIfAborted();
   if (!meta?.owner) {
     throw new Error("notify: meta.owner is required");
   }
@@ -107,15 +100,13 @@ export async function notifyWithDelivery(
   const channels = selectChannels(input.channels);
   const storedMetadata = scrubStoredMetadata(input.metadata);
 
-  // The inbox channel is always included unless explicitly excluded.
   const runInbox = !input.channels || input.channels.includes("inbox");
   const delivered: string[] = [];
   let stored: Notification | undefined;
 
   if (runInbox) {
     try {
-      // Stored with just "inbox" first; the real delivered list is written
-      // after fan-out so a failing webhook doesn't claim it was delivered.
+      signal?.throwIfAborted();
       stored = await insertNotification({
         owner: meta.owner,
         severity: input.severity,
@@ -123,22 +114,28 @@ export async function notifyWithDelivery(
         body: input.body,
         metadata: storedMetadata,
         deliveredChannels: ["inbox"],
+        idempotencyKey: input.idempotencyKey,
       });
       delivered.push("inbox");
     } catch (err) {
+      if (signal?.aborted) signal.throwIfAborted();
       console.error("[notifications] inbox persist failed:", err);
     }
   }
 
-  // Await every channel so a 500-ing webhook doesn't end up in `delivered`.
+  // DbExec cannot cancel an in-flight INSERT, so stop before fan-out and event emission.
+  signal?.throwIfAborted();
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      const delivered = await channel.deliver(input, meta);
-      // Explicit `false` means the channel skipped (no URL / recipients).
+      signal?.throwIfAborted();
+      const delivered = signal
+        ? await channel.deliver(input, meta, { signal })
+        : await channel.deliver(input, meta);
       if (delivered === false) return null;
       return channel.name;
     }),
   );
+  signal?.throwIfAborted();
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
       if (r.value) delivered.push(r.value);
@@ -153,6 +150,7 @@ export async function notifyWithDelivery(
   const hasExtraChannel = delivered.some((c) => c !== "inbox");
   if (stored && hasExtraChannel) {
     try {
+      signal?.throwIfAborted();
       await updateDeliveredChannels(stored.id, delivered);
       stored = { ...stored, deliveredChannels: delivered };
     } catch (err) {
@@ -160,10 +158,8 @@ export async function notifyWithDelivery(
     }
   }
 
-  // Only emit when at least one channel delivered — an emission with an
-  // empty delivery list (and likely a null notificationId) would mislead
-  // any automation chaining off this event.
   if (delivered.length > 0) {
+    signal?.throwIfAborted();
     try {
       emitBusEvent(
         "notification.sent",
@@ -202,7 +198,6 @@ function selectChannels(allowlist?: string[]): NotificationChannel[] {
   return all.filter((c) => allowlist.includes(c.name));
 }
 
-/** Test helper — drops all registered channels. */
 export function __resetNotificationChannels(): void {
   getRegistry().clear();
 }

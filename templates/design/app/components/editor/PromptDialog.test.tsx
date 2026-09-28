@@ -41,6 +41,7 @@ interface ComposerStubProps {
     references: unknown[],
     options: Record<string, unknown>,
   ) => void | Promise<void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   submitting?: boolean;
 }
 const mockComposer = vi.hoisted(() => ({
@@ -268,6 +269,33 @@ async function renderPopover(props: Record<string, unknown>) {
 }
 
 describe("PromptPopover inline home", () => {
+  it("renders the composer immediately and shows preflight as submitting", async () => {
+    let resolvePreflight!: (result: boolean) => void;
+    const preflight = new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    });
+    const onBeforeSubmit = vi.fn(() => preflight);
+    const onSubmit = vi.fn();
+    await renderPopover({ inline: true, onBeforeSubmit, onSubmit });
+
+    expect(container?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(mockComposer.current).toBeDefined();
+    let check!: Promise<boolean>;
+    await act(async () => {
+      check = Promise.resolve(mockComposer.current!.onBeforeSubmit!());
+      await Promise.resolve();
+    });
+    expect(mockComposer.current?.submitting).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePreflight(false);
+      expect(await check).toBe(false);
+    });
+    expect(mockComposer.current?.submitting).toBe(false);
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+  });
+
   it.each([false, true])(
     "uses one shared Upload menu and retains an eager batch (inline: %s)",
     async (inline) => {
@@ -781,9 +809,6 @@ describe("PromptPopover draft isolation", () => {
       "New design:org-a",
     );
 
-    // Switching accounts (org.orgId changes) happens client-side with no
-    // reload, so this must re-derive to a different key rather than keep
-    // reading/writing the previous account's localStorage entry.
     mockActiveOrg.current = { orgId: "org-b" };
     await act(async () => {
       root!.render(
@@ -805,10 +830,6 @@ describe("PromptPopover draft isolation", () => {
   });
 
   it("never falls back to the unscoped title key while the org query is still pending", async () => {
-    // Before `useOrg` resolves we don't know which account this popover
-    // belongs to. Falling back to the bare title key here would let this
-    // popover read (or later leak) a different signed-in account's
-    // abandoned draft, since that unscoped key predates org-scoping.
     mockOrgPending.current = true;
     mockActiveOrg.current = undefined;
     await renderPopover({ title: "New design" });
@@ -842,7 +863,6 @@ describe("PromptPopover submit failure recovery", () => {
         .querySelector<HTMLButtonElement>('[data-testid="composer-submit"]')
         ?.click();
     });
-    // Let the async handleSubmit's rejection settle and re-render.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -854,9 +874,6 @@ describe("PromptPopover submit failure recovery", () => {
     const composer = container!.querySelector(
       '[data-testid="prompt-composer"]',
     );
-    // The composer optimistically clears its own text as soon as onSubmit is
-    // invoked, so the popover must feed the failed prompt back in via
-    // `initialText`/`initialTextKey` rather than let it vanish.
     expect(composer?.getAttribute("data-initial-text")).toBe(
       "  hello world  \n",
     );

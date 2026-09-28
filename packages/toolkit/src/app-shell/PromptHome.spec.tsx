@@ -10,6 +10,7 @@ import {
   TemplateLibraryCard,
   TemplateLibraryGrid,
 } from "./TemplateLibraryGrid.js";
+import { useHomeSearchShortcut } from "./use-home-search-shortcut.js";
 
 const labels = {
   loading: "Loading templates",
@@ -43,6 +44,7 @@ describe("prompt home and library", () => {
         title="Create"
         composer={<textarea defaultValue="Draft" />}
         connection={<button>Connect</button>}
+        connectionAttached
         mobileToolbar={<button>Import</button>}
         quickActions={<button>Start</button>}
       >
@@ -61,6 +63,13 @@ describe("prompt home and library", () => {
         .querySelector("textarea")
         ?.closest(".agent-prompt-home-composer"),
     ).not.toBeNull();
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(true);
     expect(container.textContent).not.toContain("Getting Started");
   });
 
@@ -71,6 +80,13 @@ describe("prompt home and library", () => {
       </main>,
     );
     expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(false);
   });
 
   it("keeps the existing composer mounted when connection or library changes", () => {
@@ -85,32 +101,135 @@ describe("prompt home and library", () => {
     );
     render(home(false));
     const textarea = container.querySelector("textarea")!;
+    expect(
+      container
+        .querySelector(".agent-prompt-home-connection")
+        ?.parentElement?.classList.contains(
+          "agent-composer-area--attached-above",
+        ),
+    ).toBe(false);
     textarea.value = "Unsaved user draft";
     render(home(true));
     expect(container.querySelector("textarea")).toBe(textarea);
     expect(textarea.value).toBe("Unsaved user draft");
   });
 
-  it("shows templates without fake tabs when recents are unavailable", () => {
+  it("keeps Templates and Recent tabs available with no history", () => {
     const onValueChange = vi.fn();
     render(
       <PromptHomeLibrary
         value="recent"
         onValueChange={onValueChange}
         labels={{ templates: "Templates", recent: "Recent" }}
-        showRecent={false}
         browseAll={<a href="/templates">Browse all</a>}
         templates={<div>Real catalog</div>}
         recent={<div>Private history</div>}
       />,
     );
-    expect(container.querySelector('[role="tablist"]')).toBeNull();
-    expect(container.textContent).toContain("Real catalog");
-    expect(container.textContent).not.toContain("Private history");
-    expect(container.querySelector("a")?.getAttribute("href")).toBe(
-      "/templates",
-    );
+    expect(container.querySelectorAll('[role="tab"]')).toHaveLength(2);
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
+    ).toBe("Recent");
+    expect(container.textContent).toContain("Private history");
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it("reports activation of the already-selected library tab", () => {
+    const onValueChange = vi.fn();
+    render(
+      <PromptHomeLibrary
+        value="templates"
+        onValueChange={onValueChange}
+        labels={{ templates: "Templates", recent: "Recent" }}
+        templates={<div>Real catalog</div>}
+        recent={<div>Private history</div>}
+      />,
+    );
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onValueChange).toHaveBeenCalledExactlyOnceWith("templates");
+  });
+
+  it("focuses home search on slash only when the user is not typing", () => {
+    function Home() {
+      useHomeSearchShortcut(true);
+      return (
+        <>
+          <button>Outside</button>
+          <input data-home-search />
+        </>
+      );
+    }
+    render(<Home />);
+    const input =
+      container.querySelector<HTMLInputElement>("[data-home-search]")!;
+    Object.defineProperty(input, "getClientRects", {
+      value: () => ({ length: 1 }) as DOMRectList,
+    });
+    const outside = container.querySelector("button")!;
+    const slash = new KeyboardEvent("keydown", {
+      key: "/",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    outside.dispatchEvent(slash);
+    expect(slash.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+
+    const typedSlash = new KeyboardEvent("keydown", {
+      key: "/",
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(typedSlash);
+    expect(typedSlash.defaultPrevented).toBe(false);
+
+    const modifiedSlash = new KeyboardEvent("keydown", {
+      key: "/",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    outside.dispatchEvent(modifiedSlash);
+    expect(modifiedSlash.defaultPrevented).toBe(false);
+  });
+
+  it("leaves slash available to an open menu or dialog", () => {
+    function Home() {
+      useHomeSearchShortcut(true);
+      return <input data-home-search />;
+    }
+    render(<Home />);
+    const input =
+      container.querySelector<HTMLInputElement>("[data-home-search]")!;
+    Object.defineProperty(input, "getClientRects", {
+      value: () => ({ length: 1 }) as DOMRectList,
+    });
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "open");
+    const item = document.createElement("button");
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+
+    const slash = new KeyboardEvent("keydown", {
+      key: "/",
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    item.dispatchEvent(slash);
+
+    expect(slash.defaultPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(input);
+    menu.remove();
   });
 
   it("uses controlled semantic tabs with keyboard selection and active actions", async () => {
@@ -121,7 +240,6 @@ describe("prompt home and library", () => {
           value={value}
           onValueChange={setValue}
           labels={{ templates: "Templates", recent: "Recent" }}
-          showRecent
           browseAll={<a href="/templates">Browse all</a>}
           recentActions={<button>Filter</button>}
           templates={<div>Catalog</div>}
@@ -378,7 +496,6 @@ describe("prompt home and library", () => {
           value="templates"
           onValueChange={vi.fn()}
           labels={{ templates: "Templates", recent: "Recent" }}
-          showRecent
           templates={
             <TemplateLibraryGrid
               items={items}
