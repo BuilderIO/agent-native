@@ -82,6 +82,7 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import type { AgentThreadState } from "../client/state.js";
 import {
   inferAgentActivityKind,
   type AgentActivity,
@@ -2792,6 +2793,21 @@ export interface AgentKitComposerProps extends Omit<
   toolbarSlot?: ReactNode;
 }
 
+function hasActiveRuns(thread: AgentThreadState): boolean {
+  return thread.activeRunIds.some((runId) => {
+    const status = thread.runs[runId]?.status;
+    if (
+      status === "awaiting_approval" &&
+      !Object.values(thread.approvalRunIds).includes(runId)
+    ) {
+      return false;
+    }
+    return (
+      status !== "completed" && status !== "failed" && status !== "cancelled"
+    );
+  });
+}
+
 export function AgentKitComposer({
   threadId: requestedThreadId,
   className,
@@ -2885,7 +2901,7 @@ export function AgentKitComposer({
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const executionMode = mode ?? uncontrolledMode;
-  const active = thread.activeRunIds.length > 0;
+  const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
     ? messageText(editingMessage)
     : initialText;
@@ -3066,7 +3082,8 @@ export function AgentKitComposer({
       threadId,
       intent:
         canQueue &&
-        (options.intent === "queued" || (active && queueWhileRunning))
+        (options.intent === "queued" ||
+          (hasActiveRuns(controller.getThread(threadId)) && queueWhileRunning))
           ? "queued"
           : "immediate",
       text,
@@ -3147,7 +3164,11 @@ export function AgentKitComposer({
         if (!(await prepareHostSubmit())) return;
         await submitMessage(agentSuggestionPrompt(suggestion), [], [], {
           intent:
-            active && queueWhileRunning && canQueue ? "queued" : "immediate",
+            hasActiveRuns(controller.getThread(threadId)) &&
+            queueWhileRunning &&
+            canQueue
+              ? "queued"
+              : "immediate",
           contextItems,
         });
       })

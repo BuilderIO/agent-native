@@ -259,6 +259,7 @@ describe("AgentKit composer context submission", () => {
       threads: { "thread-1": thread },
     };
     vi.spyOn(client, "getSnapshot").mockReturnValue(snapshot);
+    vi.spyOn(client, "getThread").mockReturnValue(thread);
     const beforeSend = vi.fn();
     await act(async () =>
       root.render(
@@ -282,6 +283,97 @@ describe("AgentKit composer context submission", () => {
     expect(runtime.queueMessage.mock.calls[0][0].metadata).not.toHaveProperty(
       "references",
     );
+  });
+
+  it("uses terminal run state when an old composer render submits", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const activeThread = {
+      ...createAgentThreadState("thread-1"),
+      activeRunIds: ["finished-run"],
+    };
+    const snapshot = {
+      ...client.getSnapshot(),
+      threads: { "thread-1": activeThread },
+    };
+    const completedThread = {
+      ...createAgentThreadState("thread-1"),
+      activeRunIds: ["finished-run"],
+      runs: {
+        "finished-run": {
+          id: "finished-run",
+          status: "completed" as const,
+          lastSequence: 3,
+        },
+      },
+    };
+    vi.spyOn(client, "getSnapshot").mockReturnValue(snapshot);
+    const currentThread = vi
+      .spyOn(client, "getThread")
+      .mockReturnValue(activeThread);
+
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer autoFocus={false} />
+        </AgentKitProvider>,
+      ),
+    );
+    const submitFromActiveRender = capture.props!.onSubmit;
+    currentThread.mockReturnValue(completedThread);
+
+    await act(async () => {
+      await submitFromActiveRender("Send after completion", [], [], {});
+    });
+
+    expect(runtime.startRun).toHaveBeenCalledOnce();
+    expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends directly after approval resolves from a stale awaiting run", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const awaitingApprovalThread = {
+      ...createAgentThreadState("thread-1"),
+      activeRunIds: ["approval-run"],
+      runs: {
+        "approval-run": {
+          id: "approval-run",
+          status: "awaiting_approval" as const,
+          lastSequence: 2,
+        },
+      },
+      approvalRunIds: { approval: "approval-run" },
+    };
+    const resolvedApprovalThread = {
+      ...awaitingApprovalThread,
+      approvalRunIds: {},
+    };
+    const snapshot = {
+      ...client.getSnapshot(),
+      threads: { "thread-1": awaitingApprovalThread },
+    };
+    vi.spyOn(client, "getSnapshot").mockReturnValue(snapshot);
+    const currentThread = vi
+      .spyOn(client, "getThread")
+      .mockReturnValue(awaitingApprovalThread);
+
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer autoFocus={false} />
+        </AgentKitProvider>,
+      ),
+    );
+    const submitFromAwaitingApprovalRender = capture.props!.onSubmit;
+    currentThread.mockReturnValue(resolvedApprovalThread);
+
+    await act(async () => {
+      await submitFromAwaitingApprovalRender("Send after approval", [], [], {});
+    });
+
+    expect(runtime.startRun).toHaveBeenCalledOnce();
+    expect(runtime.queueMessage).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "error"] as const)(

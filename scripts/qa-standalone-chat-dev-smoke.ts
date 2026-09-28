@@ -2377,7 +2377,7 @@ async function screenshotActionContext(
   await target.waitFor({ state: "visible" });
   await target.scrollIntoViewIfNeeded();
   const message = target.locator(
-    "xpath=ancestor::*[contains(@class, 'agentkit-message')][1]",
+    "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' agentkit-message ')][1]",
   );
   assert.equal(
     await message.getAttribute("data-role"),
@@ -2469,6 +2469,7 @@ async function assertAgentKitChatAcceptance(
   await waitForStableChatSurface(page);
   const threadUrl = page.url();
   const threadPath = new URL(threadUrl).pathname;
+  const threadId = threadPath.slice("/chat/".length);
   try {
     await waitForChatText(page, "Loopback complete");
     await waitForChatText(page, helloPrompt);
@@ -2693,6 +2694,37 @@ async function assertAgentKitChatAcceptance(
     "automatic queue promotion",
     () => provider.queuedPromptSeen,
   );
+  await page
+    .locator('[data-agent-composer-slot="stop-button"]')
+    .waitFor({ state: "hidden" });
+  await page.waitForFunction(
+    async (threadId) => {
+      const response = await fetch(
+        `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(threadId)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(`Active-run status returned HTTP ${response.status}`);
+      }
+      const run = (await response.json()) as {
+        active?: boolean;
+        status?: string;
+      };
+      return (
+        run.active !== true ||
+        [
+          "completed",
+          "complete",
+          "failed",
+          "cancelled",
+          "errored",
+          "aborted",
+        ].includes(run.status ?? "")
+      );
+    },
+    threadId,
+    { timeout: 30_000 },
+  );
   assert.equal(
     new URL(page.url()).pathname,
     threadPath,
@@ -2701,6 +2733,10 @@ async function assertAgentKitChatAcceptance(
 
   network.allowExpectedIncompleteStreamFailure = true;
   await fillAndSubmitComposer(page, incompleteRetryPrompt);
+  await waitForLoopbackState(
+    "the direct submit after queue completion",
+    () => provider.incompleteAttempts === 1,
+  );
   await page
     .getByText("This partial response must not survive retry", { exact: false })
     .waitFor({ state: "visible" });
@@ -3160,6 +3196,19 @@ async function main(): Promise<void> {
 
     page.on("request", (request) => {
       const requestUrl = new URL(request.url());
+      const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
+        (prompt) => request.postData()?.includes(prompt),
+      );
+      if (
+        trackedSubmitPrompt &&
+        request.method() === "POST" &&
+        requestUrl.origin === runningOrigin &&
+        requestUrl.pathname.startsWith("/_agent-native/agent-chat/")
+      ) {
+        browserDiagnostics.push(
+          `AgentKit submit request: ${request.method()} ${requestUrl.pathname} prompt=${JSON.stringify(trackedSubmitPrompt)}`,
+        );
+      }
       if (
         requestUrl.origin === runningOrigin &&
         request.method() === "GET" &&
@@ -3259,6 +3308,21 @@ async function main(): Promise<void> {
     });
     page.on("response", (response) => {
       const status = response.status();
+      const request = response.request();
+      const responseUrl = new URL(response.url());
+      const trackedSubmitPrompt = [queuedPrompt, incompleteRetryPrompt].find(
+        (prompt) => request.postData()?.includes(prompt),
+      );
+      if (
+        trackedSubmitPrompt &&
+        request.method() === "POST" &&
+        responseUrl.origin === runningOrigin &&
+        responseUrl.pathname.startsWith("/_agent-native/agent-chat/")
+      ) {
+        browserDiagnostics.push(
+          `AgentKit submit response: HTTP ${status} ${responseUrl.pathname} prompt=${JSON.stringify(trackedSubmitPrompt)}`,
+        );
+      }
       if (status < 400) return;
       const url = response.url();
       if (new URL(url).origin !== runningOrigin) return;
@@ -3267,7 +3331,6 @@ async function main(): Promise<void> {
         return;
       }
       const error = `${status} ${url}`;
-      const request = response.request();
       if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response

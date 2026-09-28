@@ -1618,6 +1618,65 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
+  it("keeps a queued message visible while the server waits for the active run", async () => {
+    const runCompletion = Promise.withResolvers<void>();
+    const promotionStarted = Promise.withResolvers<void>();
+    const finishPromotion = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-during-run",
+      threadId: "thread-1",
+      text: "Run after the current response",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      async steerQueuedMessage() {
+        promotionStarted.resolve();
+        await finishPromotion.promise;
+        return { runId: "run-2" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") await runCompletion.promise;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const firstRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Finish this response first",
+    });
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    await promotionStarted.promise;
+
+    expect(client.getThread("thread-1")).toMatchObject({
+      queuedMessages: [queued],
+      messages: [{ role: "user" }],
+    });
+
+    runCompletion.resolve();
+    await firstRun.completed;
+    finishPromotion.resolve();
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-2"]?.status).toBe(
+        "completed",
+      ),
+    );
+
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: [],
+      queuedMessages: [],
+      messages: [{ role: "user" }, { id: queued.id, role: "user" }],
+    });
+  });
+
   it("promotes a queued write that settles after the previous run completes", async () => {
     const runCompletion = Promise.withResolvers<void>();
     const queueWriteStarted = Promise.withResolvers<void>();

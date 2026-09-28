@@ -1298,7 +1298,14 @@ export class AgentKitClient implements AgentKitController {
         messages: [...thread.queuedMessages, result.message],
         removedIds,
       });
-      if (runWasActive) this.scheduleQueuePromotion(input.threadId);
+      const updatedThread = this.getThread(input.threadId);
+      const waitingForInput = updatedThread.activeRunIds.some((runId) => {
+        const status = updatedThread.runs[runId]?.status;
+        return status === "awaiting_approval" || status === "awaiting_input";
+      });
+      if (runWasActive && !waitingForInput) {
+        this.scheduleQueuePromotion(input.threadId);
+      }
       return result.message;
     });
   }
@@ -1473,7 +1480,6 @@ export class AgentKitClient implements AgentKitController {
         (message) => message.id === messageId,
       );
       if (!queued) throw new Error(`Unknown queued message: ${messageId}`);
-      const previousOverride = this.queuedMessageOverrides.get(threadId);
       const message: AgentMessage = {
         id: queued.id,
         role: "user",
@@ -1487,28 +1493,33 @@ export class AgentKitClient implements AgentKitController {
       };
       const previousConnection = this.snapshot.connection;
       const previousError = this.snapshot.error;
-      this.setThread(threadId, {
-        ...previous,
-        messages: [...previous.messages, message],
-        queuedMessages: previous.queuedMessages.filter(
-          (candidate) => candidate.id !== messageId,
-        ),
-        suggestions: [],
-      });
-      const removedIds = new Set(previousOverride?.removedIds);
-      removedIds.add(messageId);
-      this.queuedMessageOverrides.set(threadId, {
-        messages: previous.queuedMessages.filter(
-          (candidate) => candidate.id !== messageId,
-        ),
-        removedIds,
-      });
       this.setConnection("connecting");
       try {
         const result = await this.invokeRequest(requestContext, (context) =>
           steerQueuedMessage({ threadId, messageId }, context),
         );
         this.assertActive();
+        const current = this.getThread(threadId);
+        const queuedMessages = current.queuedMessages.filter(
+          (candidate) => candidate.id !== messageId,
+        );
+        this.setThread(threadId, {
+          ...current,
+          messages: current.messages.some(
+            (candidate) => candidate.id === messageId,
+          )
+            ? current.messages
+            : [...current.messages, message],
+          queuedMessages,
+          suggestions: [],
+        });
+        const override = this.queuedMessageOverrides.get(threadId);
+        const removedIds = new Set(override?.removedIds);
+        removedIds.add(messageId);
+        this.queuedMessageOverrides.set(threadId, {
+          messages: queuedMessages,
+          removedIds,
+        });
         if (!result) {
           this.setConnection("connected");
           return;
@@ -1529,41 +1540,6 @@ export class AgentKitClient implements AgentKitController {
         };
       } catch (error) {
         if (this.disposed) throw error;
-        const current = this.getThread(threadId);
-        const queuedMessages = current.queuedMessages.some(
-          (candidate) => candidate.id === queued.id,
-        )
-          ? current.queuedMessages
-          : (() => {
-              const restored = [...current.queuedMessages];
-              restored.splice(
-                Math.min(
-                  previous.queuedMessages.indexOf(queued),
-                  restored.length,
-                ),
-                0,
-                queued,
-              );
-              return restored;
-            })();
-        this.setThread(threadId, {
-          ...current,
-          messages: current.messages.filter(
-            (candidate) => candidate.id !== message.id,
-          ),
-          queuedMessages,
-        });
-        const currentOverride = this.queuedMessageOverrides.get(threadId);
-        const restoredRemovedIds = new Set(currentOverride?.removedIds);
-        restoredRemovedIds.delete(messageId);
-        if (currentOverride || restoredRemovedIds.size > 0) {
-          this.queuedMessageOverrides.set(threadId, {
-            messages: queuedMessages,
-            removedIds: restoredRemovedIds,
-          });
-        } else {
-          this.queuedMessageOverrides.delete(threadId);
-        }
         this.patch({ connection: previousConnection, error: previousError });
         this.report(error, "queue_steer_failed");
         throw error;

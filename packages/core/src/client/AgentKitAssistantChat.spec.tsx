@@ -145,7 +145,7 @@ vi.mock("@agent-native/agentkit/react", async () => {
     useAgentKit: () => ({
       threadId: chatMocks.threadId,
       requestComposerFocus: chatMocks.requestComposerFocus,
-      controller: {},
+      controller: { getThread: () => chatMocks.readThread() },
     }),
     useAgentKitControl: () => chatMocks.control,
     useAgentThread: () => chatMocks.readThread(),
@@ -1429,6 +1429,32 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ text: "Next guided turn" }),
     );
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends directly when a stale composer render outlives the queued run", async () => {
+    chatMocks.thread.activeRunIds = ["run-queued-follow-up"];
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+
+    await act(async () => {
+      await ref.current?.sendMessage("Queue while the follow-up is active");
+    });
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+
+    chatMocks.thread.activeRunIds = [];
+    await act(async () => {
+      await ref.current?.sendMessage("Send directly after completion");
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Send directly after completion" }),
+    );
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
   });
 
   it("forwards slash commands and localized labels to AgentKit", async () => {
