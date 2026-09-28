@@ -519,6 +519,7 @@ describe("action discovery", () => {
 
     for (const name of [
       "get-labs",
+      "get-lab-states",
       "set-lab",
       "get-experiments",
       "set-experiment",

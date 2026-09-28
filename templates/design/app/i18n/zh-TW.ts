@@ -163,6 +163,11 @@ export default {
     labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labTweaks: "設計微調",
     labTweaksDescription: "試用 AI 設計微調功能。",
+    labFullAppBuilding: "建構完整應用程式",
+    labFullAppBuildingDescription:
+      "試用 Builder，根據你的設計建構可運作的應用程式。",
+    labDesignReviewTools: "設計審查工具",
+    labDesignReviewToolsDescription: "檢查設計中的無障礙問題並比較視覺變更。",
     mcpAbout:
       "將 Design 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Design 中工作：建立和編輯設計。它只能看到你有權看到的內容。",
   },

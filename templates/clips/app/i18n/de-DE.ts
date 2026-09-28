@@ -825,6 +825,11 @@ const messages = {
     title: "Einstellungen",
     pageTitle: "Einstellungen · Clips",
     labs: "Labs",
+    labResilientRecording: "Zuverlässige Aufnahme",
+    labResilientRecordingDescription:
+      "Schnellere Uploads von Aufnahmen und bessere Wiederherstellung nach Unterbrechungen ausprobieren.",
+    labResilientRecordingMixedDescription:
+      "Bisherige Aufnahmeeinstellungen sind noch aktiv. Wähle Ein oder Aus, um eine Einstellung zu verwenden.",
     labsIntro:
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labVideoEditing: "Videobearbeitung",
@@ -1936,6 +1941,8 @@ const messages = {
     retry: "Wiederholen",
     retrying: "Wird wiederholt…",
     retryFailed: "Dieser Upload konnte nicht wiederholt werden.",
+    retryCheckFailed:
+      "Es konnte nicht geprüft werden, ob dieser Upload erneut versucht werden kann. Lade die Seite neu.",
     retryUnavailableHere:
       "Ein erneuter Versuch ist nur auf dem Gerät oder Browser möglich, auf dem diese Aufnahme erstellt wurde.",
     viewsCount: "{{count}} Aufrufe",

@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getFusionDeploys } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
 import "../server/db/index.js";
-import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
+import { readFusionApp } from "../shared/full-app.js";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -23,7 +23,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

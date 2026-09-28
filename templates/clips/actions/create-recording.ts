@@ -12,6 +12,7 @@ import {
   trackRecordingFailure,
   type RecordingFailureCode,
 } from "../server/lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -140,6 +141,8 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState(`recording-upload-${id}`, {

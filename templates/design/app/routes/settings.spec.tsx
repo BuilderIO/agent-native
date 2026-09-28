@@ -17,7 +17,7 @@ type CapturedProps = {
   extraTabs?: CapturedTab[];
   general?: ReactNode;
   team?: ReactNode;
-  labs?: Array<{ key: string }>;
+  labs?: Array<{ key: string; displayName?: string; description?: string }>;
   labsIntro?: string;
   mcpAbout?: string;
   generalSearchEntries?: unknown[];
@@ -114,7 +114,11 @@ vi.mock("@agent-native/creative-context/client", () => ({
   useCreativeContextLab: () => mocks.creativeContext,
 }));
 
-vi.mock("@shared/labs", () => ({ DESIGN_LABS: [{ key: "design-tweaks" }] }));
+vi.mock("@shared/labs", () => ({
+  DESIGN_TWEAKS: { key: "design-tweaks" },
+  FULL_APP_BUILDING_LAB: { key: "full-app-building" },
+  DESIGN_REVIEW_TOOLS_LAB: { key: "design-review-panel" },
+}));
 
 import SettingsRoute from "./settings";
 
@@ -279,8 +283,22 @@ describe("Design settings", () => {
 
       expect(mocks.props?.labs?.map((lab) => lab.key)).toEqual([
         "design-tweaks",
+        "full-app-building",
+        "design-review-panel",
         "creative-context",
       ]);
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "full-app-building"),
+      ).toMatchObject({
+        displayName: "settings.labFullAppBuilding",
+        description: "settings.labFullAppBuildingDescription",
+      });
+      expect(
+        mocks.props?.labs?.find((lab) => lab.key === "design-review-panel"),
+      ).toMatchObject({
+        displayName: "settings.labDesignReviewTools",
+        description: "settings.labDesignReviewToolsDescription",
+      });
       expect(mocks.props?.labsIntro).toBeUndefined();
       expect(mocks.props?.mcpAbout).toBe("settings.mcpAbout");
     });

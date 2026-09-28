@@ -600,6 +600,7 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
     ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-chatgpt-subscription-status",

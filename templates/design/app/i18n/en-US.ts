@@ -173,6 +173,12 @@ export default {
       "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    labFullAppBuilding: "Full app building",
+    labFullAppBuildingDescription:
+      "Try building working apps from your designs with Builder.",
+    labDesignReviewTools: "Design review tools",
+    labDesignReviewToolsDescription:
+      "Check your designs for accessibility issues and compare visual changes.",
     mcpAbout:
       "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },

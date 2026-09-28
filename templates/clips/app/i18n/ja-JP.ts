@@ -811,6 +811,11 @@ const messages = {
     title: "設定",
     pageTitle: "設定 · Clips",
     labs: "Labs",
+    labResilientRecording: "復元に強い録画",
+    labResilientRecordingDescription:
+      "録画のアップロードを高速化し、中断後の復元機能を改善します。",
+    labResilientRecordingMixedDescription:
+      "以前の録画設定が引き続き有効です。オンまたはオフを選んで設定を統一してください。",
     labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labVideoEditing: "動画編集",
@@ -1912,6 +1917,8 @@ const messages = {
     retry: "再試行",
     retrying: "再試行中…",
     retryFailed: "このアップロードを再試行できませんでした。",
+    retryCheckFailed:
+      "このアップロードを再試行できるか確認できませんでした。ページを更新して再試行してください。",
     retryUnavailableHere:
       "再試行は、この録画を行ったデバイスまたはブラウザでのみ利用できます。",
     viewsCount: "{{count}} 回表示",

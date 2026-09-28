@@ -174,6 +174,12 @@ export default {
       "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
+    labFullAppBuilding: "Creación de aplicaciones completas",
+    labFullAppBuildingDescription:
+      "Prueba a crear aplicaciones funcionales a partir de tus diseños con Builder.",
+    labDesignReviewTools: "Herramientas de revisión de diseños",
+    labDesignReviewToolsDescription:
+      "Comprueba si tus diseños tienen problemas de accesibilidad y compara los cambios visuales.",
     mcpAbout:
       "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },

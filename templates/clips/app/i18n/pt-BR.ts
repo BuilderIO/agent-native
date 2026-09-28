@@ -816,6 +816,11 @@ const messages = {
     title: "Configurações",
     pageTitle: "Configurações · Clips",
     labs: "Labs",
+    labResilientRecording: "Gravação resiliente",
+    labResilientRecordingDescription:
+      "Experimente uploads de gravações mais rápidos e uma recuperação melhor após interrupções.",
+    labResilientRecordingMixedDescription:
+      "As configurações anteriores de gravação ainda estão ativas. Escolha Ativar ou Desativar para usar uma configuração.",
     labsIntro:
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labVideoEditing: "Edição de vídeo",
@@ -1916,6 +1921,8 @@ const messages = {
     retry: "Tentar novamente",
     retrying: "Tentando novamente…",
     retryFailed: "Não foi possível repetir este envio.",
+    retryCheckFailed:
+      "Não foi possível verificar se este upload pode ser repetido. Atualize a página para tentar novamente.",
     retryUnavailableHere:
       "Tentar novamente só está disponível no dispositivo ou navegador em que isso foi gravado.",
     viewsCount: "{{count}} visualizações",

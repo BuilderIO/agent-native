@@ -820,6 +820,11 @@ const messages = {
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
     labs: "Labs",
+    labResilientRecording: "Enregistrement fiable",
+    labResilientRecordingDescription:
+      "Essayez des transferts d’enregistrements plus rapides et une meilleure récupération après une interruption.",
+    labResilientRecordingMixedDescription:
+      "Les anciens réglages d’enregistrement sont toujours actifs. Choisissez Activé ou Désactivé pour utiliser un seul réglage.",
     labsIntro:
       "Ces fonctionnalités sont nouvelles et instables, et peuvent contenir des bugs. Vos retours comptent pour nous.",
     labVideoEditing: "Montage vidéo",
@@ -1935,6 +1940,8 @@ const messages = {
     retry: "Réessayer",
     retrying: "Nouvelle tentative…",
     retryFailed: "Impossible de réessayer cet envoi.",
+    retryCheckFailed:
+      "Impossible de vérifier si ce transfert peut être relancé. Actualisez la page pour réessayer.",
     retryUnavailableHere:
       "Réessayer n'est possible que sur l'appareil ou le navigateur ayant servi à l'enregistrement.",
     viewsCount: "{{count}} vues",

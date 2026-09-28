@@ -214,6 +214,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-launchdarkly-flags": "launchDarkly",
 
   "get-labs": "labs",
+  "get-lab-states": "labs",
   "set-lab": "labs",
   "get-chatgpt-subscription-status": "chat",
   "disconnect-chatgpt-subscription": "chat",

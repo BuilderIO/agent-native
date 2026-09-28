@@ -8,13 +8,13 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/core/client/composer";
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -36,7 +36,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
-import { FULL_APP_BUILDING } from "@shared/full-app";
+import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
@@ -171,7 +171,7 @@ export default function Index() {
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
-  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  const fullAppBuildingEnabled = useLab(FULL_APP_BUILDING_LAB);
   const systemsEnabled = useDesignSystemWorkflows();
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [chosenDesignSystemId, setNewDesignSystemId] = useState<

@@ -57,10 +57,12 @@ vi.mock("../../server/capture-error.js", () => ({
 }));
 
 const registry = await import("../registry.js");
+const labsRegistry = await import("../../labs/registry.js");
 const action = (await import("./get-feature-flags.js")).default;
 
 beforeEach(() => {
   registry._resetFeatureFlagRegistryForTests();
+  labsRegistry._resetLabRegistryForTests();
   globalSettings.clear();
   orgSettings.clear();
   failingGlobalKeys.clear();
@@ -123,5 +125,43 @@ describe("get-feature-flags action", () => {
       action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
     ).resolves.toEqual({});
     expect(getSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("projects a saved Labs choice into every legacy alias", async () => {
+    registry.registerFeatureFlags([{ key: "capture" }, { key: "retry" }]);
+    labsRegistry.registerLabs([
+      { key: "clips.resilient", legacyFlagKeys: ["capture", "retry"] },
+    ]);
+    globalSettings.set("feature-flag:capture", { mode: "on" });
+    globalSettings.set("feature-flag:retry", { mode: "on" });
+    globalSettings.set("u:a@b.com:labs", { "clips.resilient": false });
+
+    await expect(
+      action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
+    ).resolves.toEqual({
+      capture: false,
+      retry: false,
+    });
+  });
+
+  it("preserves mixed inherited aliases in the caller organization", async () => {
+    registry.registerFeatureFlags([{ key: "capture" }, { key: "retry" }]);
+    labsRegistry.registerLabs([
+      { key: "clips.resilient", legacyFlagKeys: ["capture", "retry"] },
+    ]);
+    orgSettings.set("org-1:feature-flag:capture", { mode: "on" });
+
+    await expect(
+      action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
+    ).resolves.toEqual({
+      capture: true,
+      retry: false,
+    });
+    await expect(
+      action.run({}, { userEmail: "a@b.com", orgId: "org-2" }),
+    ).resolves.toEqual({
+      capture: false,
+      retry: false,
+    });
   });
 });

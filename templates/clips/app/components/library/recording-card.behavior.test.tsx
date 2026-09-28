@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import { useLabState } from "@agent-native/core/client/labs";
 import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "@shared/upload-interruption";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RecordingSummary } from "@/hooks/use-library";
 import { hasRecordingBackup } from "@/lib/recording-backup";
+import { getRecordingUploadRecoveryEnabled } from "@/lib/recording-recovery-policy";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
 
 import { RecordingCard } from "./recording-card";
@@ -16,8 +17,12 @@ const recordingBackupMock = vi.hoisted(() => ({
   changeListener: undefined as (() => void) | undefined,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: vi.fn(() => true),
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLabState: vi.fn(() => ({
+    isSuccess: true,
+    source: "choice",
+    enabled: true,
+  })),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -98,6 +103,10 @@ vi.mock("@/lib/recording-backup", () => ({
   ),
 }));
 
+vi.mock("@/lib/recording-recovery-policy", () => ({
+  getRecordingUploadRecoveryEnabled: vi.fn(async () => true),
+}));
+
 vi.mock("@/lib/storage-failures", () => ({
   isStorageSetupFailureReason: () => false,
 }));
@@ -137,9 +146,14 @@ describe("RecordingCard behavior", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     recordingBackupMock.changeListener = undefined;
-    vi.mocked(useFeatureFlag).mockReturnValue(true);
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "choice",
+      enabled: true,
+    } as ReturnType<typeof useLabState>);
     vi.mocked(isStaleRecordingUpload).mockReturnValue(false);
     vi.mocked(hasRecordingBackup).mockResolvedValue(false);
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockResolvedValue(true);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -193,6 +207,36 @@ describe("RecordingCard behavior", () => {
 
     expect(container.textContent).toContain("clipsFinalRaw.retry");
     expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
+    expect(getRecordingUploadRecoveryEnabled).not.toHaveBeenCalled();
+  });
+
+  it("does not offer Retry for a new Off recording with a backup", async () => {
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "choice",
+      enabled: false,
+    } as ReturnType<typeof useLabState>);
+    vi.mocked(hasRecordingBackup).mockResolvedValue(true);
+    vi.mocked(getRecordingUploadRecoveryEnabled).mockResolvedValue(false);
+
+    await act(async () => {
+      root.render(
+        <RecordingCard
+          recording={{
+            ...recording,
+            status: "failed",
+            failureReason: RETRYABLE_UPLOAD_INTERRUPTION_REASON,
+          }}
+          onRetry={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledWith(
+      recording.id,
+    );
+    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
   });
 
   it("offers retry when a local backup finishes after the card mounts", async () => {
@@ -232,8 +276,12 @@ describe("RecordingCard behavior", () => {
     );
   });
 
-  it("does not offer retry when the resumable retry rollout is disabled", async () => {
-    vi.mocked(useFeatureFlag).mockReturnValue(false);
+  it("keeps an interrupted recording with a saved backup retryable after Labs is Off", async () => {
+    vi.mocked(useLabState).mockReturnValue({
+      isSuccess: true,
+      source: "choice",
+      enabled: false,
+    } as ReturnType<typeof useLabState>);
     vi.mocked(hasRecordingBackup).mockResolvedValue(true);
     const onRetry = vi.fn();
 
@@ -251,9 +299,12 @@ describe("RecordingCard behavior", () => {
       await Promise.resolve();
     });
 
-    expect(useFeatureFlag).toHaveBeenCalledWith("uploadRetryResume");
-    expect(container.textContent).not.toContain("clipsFinalRaw.retry");
-    expect(hasRecordingBackup).not.toHaveBeenCalled();
+    expect(useLabState).toHaveBeenCalledWith("clips.resilient-recording");
+    expect(container.textContent).toContain("clipsFinalRaw.retry");
+    expect(hasRecordingBackup).toHaveBeenCalledWith(recording.id);
+    expect(getRecordingUploadRecoveryEnabled).toHaveBeenCalledWith(
+      recording.id,
+    );
   });
 
   it("does not offer retry for a stale processing upload", async () => {

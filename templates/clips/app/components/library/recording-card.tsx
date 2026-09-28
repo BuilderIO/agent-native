@@ -1,6 +1,7 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { useLabState } from "@agent-native/core/client/labs";
+import { CLIPS_RESILIENT_RECORDING } from "@shared/labs";
+import { recordingPolicyFromLab } from "@shared/recording-policy";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
@@ -54,6 +55,7 @@ import {
   hasRecordingBackup,
   subscribeToRecordingBackupChanges,
 } from "@/lib/recording-backup";
+import { getRecordingUploadRecoveryEnabled } from "@/lib/recording-recovery-policy";
 import {
   isAtRiskRecordingUpload,
   isStaleRecordingUpload,
@@ -117,7 +119,15 @@ export function RecordingCard({
 }: RecordingCardProps) {
   const t = useT();
   const formatters = useFormatters();
-  const uploadRetryEnabled = useFeatureFlag(UPLOAD_RETRY_RESUME_FLAG.key);
+  const recordingLab = useLabState(CLIPS_RESILIENT_RECORDING.key);
+  const uploadRetryEnabled =
+    recordingLab.isSuccess &&
+    recordingLab.source !== null &&
+    recordingPolicyFromLab({
+      enabled: recordingLab.enabled,
+      source: recordingLab.source,
+      legacyValues: recordingLab.legacyValues,
+    }).recovery;
   const formatDate = (date: Date) => formatters.formatDate(date);
   const formatRelativeTime = (
     value: number,
@@ -127,6 +137,10 @@ export function RecordingCard({
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
+  const [savedRecoveryEnabled, setSavedRecoveryEnabled] = useState<
+    boolean | null
+  >(null);
+  const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
 
@@ -166,13 +180,13 @@ export function RecordingCard({
       isRetryableUploadInterruption(recording.failureReason)) ||
     (recording.status === "uploading" && staleUpload);
   const canRetry =
-    uploadRetryEnabled &&
     Boolean(onRetry) &&
     retryableStatus &&
-    !nativeUploadPaused;
+    !nativeUploadPaused &&
+    (uploadRetryEnabled || savedRecoveryEnabled === true);
 
   useEffect(() => {
-    if (!canRetry) {
+    if (!onRetry || !retryableStatus || nativeUploadPaused) {
       setHasBackup(false);
       return;
     }
@@ -191,7 +205,30 @@ export function RecordingCard({
       cancelled = true;
       unsubscribe();
     };
-  }, [canRetry, recording.id]);
+  }, [onRetry, retryableStatus, nativeUploadPaused, recording.id]);
+
+  useEffect(() => {
+    if (uploadRetryEnabled || !hasBackup || !retryableStatus) {
+      setSavedRecoveryEnabled(null);
+      setRecoveryCheckFailed(false);
+      return;
+    }
+    let cancelled = false;
+    void getRecordingUploadRecoveryEnabled(recording.id)
+      .then((enabled) => {
+        if (cancelled) return;
+        setSavedRecoveryEnabled(enabled);
+        setRecoveryCheckFailed(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSavedRecoveryEnabled(null);
+        setRecoveryCheckFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uploadRetryEnabled, hasBackup, retryableStatus, recording.id]);
 
   const handleRetry = useCallback(
     async (e: React.MouseEvent) => {
@@ -446,6 +483,13 @@ export function RecordingCard({
                           ? t("clipsFinalRaw.retrying")
                           : t("clipsFinalRaw.retry")}
                       </Button>
+                    ) : recoveryCheckFailed && hasBackup ? (
+                      <div
+                        role="alert"
+                        className="mt-1.5 text-[10px] leading-snug text-muted-foreground"
+                      >
+                        {t("clipsFinalRaw.retryCheckFailed")}
+                      </div>
                     ) : canRetry ? (
                       <div className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
                         {t("clipsFinalRaw.retryUnavailableHere")}

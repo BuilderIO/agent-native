@@ -174,6 +174,12 @@ export default {
       "Diese neuen, instabilen Funktionen können Fehler enthalten. Wir freuen uns über dein Feedback.",
     labTweaks: "Design-Anpassungen",
     labTweaksDescription: "Teste KI-gestützte Design-Anpassungen.",
+    labFullAppBuilding: "Vollständige Apps erstellen",
+    labFullAppBuildingDescription:
+      "Probiere aus, mit Builder aus deinen Designs funktionsfähige Apps zu erstellen.",
+    labDesignReviewTools: "Tools zur Designprüfung",
+    labDesignReviewToolsDescription:
+      "Prüfe deine Designs auf Barrierefreiheit und vergleiche visuelle Änderungen.",
     mcpAbout:
       "Verbinde Design mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Design für dich arbeiten: Designs erstellen und bearbeiten. Sie sieht nur, was du sehen kannst.",
   },

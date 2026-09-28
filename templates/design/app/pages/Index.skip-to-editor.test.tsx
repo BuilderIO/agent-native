@@ -72,8 +72,8 @@ vi.mock("@/components/QueryErrorState", () => ({
   ),
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => mocks.fullAppBuilding,
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLab: () => mocks.fullAppBuilding,
 }));
 
 vi.mock("@agent-native/core/client/collab", () => ({
