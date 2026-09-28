@@ -323,6 +323,8 @@ export default {
       bottomLeft: "II",
       bottomRight: "ID",
       blend: "Mezcla",
+      blendMode: "Modo de fusión",
+      removeBlendMode: "Quitar modo de fusión",
       border: "Borde",
       outline: "Contorno",
       inside: "Interior",

@@ -3,16 +3,19 @@ import {
   IconBorderCorners,
   IconBorderRadius,
   IconCheck,
+  IconChevronDown,
   IconDroplet,
+  IconDropletFilled,
   IconEye,
   IconEyeOff,
   IconGridDots,
+  IconMinus,
   IconRadiusBottomLeft,
   IconRadiusBottomRight,
   IconRadiusTopLeft,
   IconRadiusTopRight,
 } from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +36,7 @@ import { ScrubInput, type ScrubInputChangeMeta } from "../inspector";
 import type { ElementInfo } from "../types";
 import { elementIdentityKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
-import { SectionIconToggle } from "./inspector-controls";
+import { SectionIconButton, SectionIconToggle } from "./inspector-controls";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
@@ -53,11 +56,7 @@ import type {
   StyleChangeHandler,
   StylesChangeHandler,
 } from "./style-change-types";
-import {
-  BLEND_MODE_OPTIONS,
-  optionValue,
-  parseNumericValue,
-} from "./style-options";
+import { BLEND_MODE_OPTIONS, parseNumericValue } from "./style-options";
 
 export function CornerRadiusControl({
   styles,
@@ -397,69 +396,68 @@ export function AppearanceScrubField({
   );
 }
 
-export function BlendModeMenu({
-  styles,
-  onStyleChange,
+const BLEND_MENU_OPTIONS = [
+  {
+    value: "pass-through",
+    label: "Pass through", // i18n-ignore design blend mode label
+  },
+  ...BLEND_MODE_OPTIONS,
+] as const;
+
+type BlendMenuValue = (typeof BLEND_MENU_OPTIONS)[number]["value"];
+type BlendMenuSelection = BlendMenuValue | typeof MIXED_VALUE;
+
+export function resolveBlendMenuSelection(
+  styles: Record<string, string>,
+): BlendMenuSelection {
+  const blendMode =
+    BLEND_MODE_OPTIONS.find((option) => option.value === styles.mixBlendMode)
+      ?.value ?? "normal";
+  if (
+    isMixedValue(styles.mixBlendMode) ||
+    (blendMode === "normal" && isMixedValue(styles.isolation))
+  ) {
+    return MIXED_VALUE;
+  }
+  return blendMode === "normal" && styles.isolation !== "isolate"
+    ? "pass-through"
+    : blendMode;
+}
+
+function applyBlendMode(
+  onStyleChange: StyleChangeHandler,
+  value: BlendMenuValue,
+) {
+  if (value === "pass-through") {
+    onStyleChange("mixBlendMode", "normal");
+    onStyleChange("isolation", "auto");
+    return;
+  }
+  onStyleChange("mixBlendMode", value);
+  if (value === "normal") onStyleChange("isolation", "isolate");
+}
+
+function BlendModeMenu({
+  selected,
+  onSelect,
+  children,
 }: {
-  styles: Record<string, string>;
-  onStyleChange: StyleChangeHandler;
+  selected: BlendMenuSelection;
+  onSelect: (value: BlendMenuValue) => void;
+  children: (open: boolean) => ReactElement;
 }) {
   const [open, setOpen] = useState(false);
-  const blendMode = optionValue(
-    BLEND_MODE_OPTIONS,
-    styles.mixBlendMode || "normal",
-    "normal",
-  );
-  const blendModeMixed =
-    isMixedValue(styles.mixBlendMode) ||
-    (blendMode === "normal" && isMixedValue(styles.isolation));
-  const selectedBlendMode = blendModeMixed
-    ? MIXED_VALUE
-    : blendMode === "normal" && styles.isolation !== "isolate"
-      ? "pass-through"
-      : blendMode;
-  const options = [
-    {
-      value: "pass-through",
-      label: "Pass through", // i18n-ignore design blend mode label
-    },
-    ...BLEND_MODE_OPTIONS,
-  ] as const;
-  const selectBlendMode = (value: (typeof options)[number]["value"]) => {
-    if (value === "pass-through") {
-      onStyleChange("mixBlendMode", "normal");
-      onStyleChange("isolation", "auto");
-      return;
-    }
-    onStyleChange("mixBlendMode", value);
-    if (value === "normal") onStyleChange("isolation", "isolate");
-  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={"Blend mode" /* i18n-ignore design inspector action */}
-          aria-pressed={open}
-          className={cn(
-            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
-            open &&
-              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-          )}
-        >
-          <IconDroplet className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild>{children(open)}</DropdownMenuTrigger>
       <DropdownMenuContent
         side="left"
         align="start"
         sideOffset={8}
         className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
       >
-        {blendModeMixed ? (
+        {selected === MIXED_VALUE ? (
           <>
             {/* Placeholder state for a mixed selection: the check sits next to
                 "Mixed" instead of a wrong concrete mode. Picking any option
@@ -473,14 +471,14 @@ export function BlendModeMenu({
             <DropdownMenuSeparator />
           </>
         ) : null}
-        {options.map((option) => (
+        {BLEND_MENU_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
             className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
-            onSelect={() => selectBlendMode(option.value)}
+            onSelect={() => onSelect(option.value)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">
-              {selectedBlendMode === option.value ? (
+              {selected === option.value ? (
                 <IconCheck className="size-4" />
               ) : null}
             </span>
@@ -489,6 +487,67 @@ export function BlendModeMenu({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function BlendModeRow({
+  selected,
+  onSelect,
+}: {
+  selected: Exclude<BlendMenuSelection, "pass-through">;
+  onSelect: (value: BlendMenuValue) => void;
+}) {
+  const t = useT();
+  const blendModeLabel = t("editPanel.labels.blendMode");
+  const selectedLabel =
+    BLEND_MENU_OPTIONS.find((option) => option.value === selected)?.label ??
+    MIXED_VALUE;
+
+  return (
+    <InspectorGrid
+      className="design-inspector-pair-fields items-center"
+      layout="label-field-action"
+    >
+      <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
+        <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
+          {blendModeLabel}
+        </p>
+      </InspectorGridCell>
+      <InspectorGridCell
+        span={INSPECTOR_GRID_COLUMNS - INSPECTOR_GRID_ACTION_SPAN}
+      >
+        <BlendModeMenu selected={selected} onSelect={onSelect}>
+          {(open) => (
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={`${blendModeLabel}: ${selectedLabel}`}
+              className={cn(
+                "h-6 w-full min-w-0 cursor-pointer justify-start gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] font-normal text-foreground shadow-none hover:bg-[var(--design-editor-control-bg)]",
+                open && "ring-1 ring-[var(--design-editor-accent-color)]",
+              )}
+            >
+              <IconDroplet className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-left">
+                {selectedLabel}
+              </span>
+              <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
+            </Button>
+          )}
+        </BlendModeMenu>
+      </InspectorGridCell>
+      <InspectorGridCell
+        span={INSPECTOR_GRID_ACTION_SPAN}
+        className="flex justify-center"
+      >
+        <SectionIconButton
+          label={t("editPanel.labels.removeBlendMode")}
+          onClick={() => onSelect("pass-through")}
+        >
+          <IconMinus className="size-3.5" />
+        </SectionIconButton>
+      </InspectorGridCell>
+    </InspectorGrid>
   );
 }
 
@@ -520,6 +579,9 @@ export function AppearanceProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  const blendMenuSelection = resolveBlendMenuSelection(styles);
+  const selectBlendMode = (value: BlendMenuValue) =>
+    applyBlendMode(onStyleChange, value);
   return (
     <PanelSection
       title={t("root.commandAppearance")}
@@ -541,7 +603,31 @@ export function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          <BlendModeMenu styles={styles} onStyleChange={onStyleChange} />
+          <BlendModeMenu
+            selected={blendMenuSelection}
+            onSelect={selectBlendMode}
+          >
+            {(open) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("editPanel.labels.blendMode")}
+                aria-pressed={open}
+                className={cn(
+                  "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+                  open &&
+                    "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                )}
+              >
+                {blendMenuSelection === "pass-through" ? (
+                  <IconDroplet className="size-3.5" />
+                ) : (
+                  <IconDropletFilled className="size-3.5" />
+                )}
+              </Button>
+            )}
+          </BlendModeMenu>
         </>
       }
     >
@@ -624,6 +710,12 @@ export function AppearanceProperties({
           hideForVectorPoint={vectorPointSelected}
         />
       </InspectorGrid>
+      {blendMenuSelection !== "pass-through" ? (
+        <BlendModeRow
+          selected={blendMenuSelection}
+          onSelect={selectBlendMode}
+        />
+      ) : null}
     </PanelSection>
   );
 }

@@ -2,16 +2,29 @@ import { describe, expect, it } from "vitest";
 
 import { composeIndividualTransforms } from "./export-individual-transforms";
 
-const none = { transform: "none", translate: "none", rotate: "none", scale: "none" };
+const none = {
+  transform: "none",
+  translate: "none",
+  rotate: "none",
+  scale: "none",
+};
 
 describe("composeIndividualTransforms", () => {
   it("leaves layers without individual transforms to html2canvas", () => {
     expect(composeIndividualTransforms(none)).toBeNull();
     expect(
-      composeIndividualTransforms({ ...none, transform: "matrix(1, 0, 0, 1, 4, 0)" }),
+      composeIndividualTransforms({
+        ...none,
+        transform: "matrix(1, 0, 0, 1, 4, 0)",
+      }),
     ).toBeNull();
     expect(
-      composeIndividualTransforms({ transform: "", translate: "", rotate: "", scale: "" }),
+      composeIndividualTransforms({
+        transform: "",
+        translate: "",
+        rotate: "",
+        scale: "",
+      }),
     ).toBeNull();
   });
 
@@ -19,7 +32,11 @@ describe("composeIndividualTransforms", () => {
     const rotation =
       "matrix3d(0.906923, -0.201485, -0.369993, 0, 0.192772, 0.979358, -0.0608022, 0, 0.374607, -0.0161816, 0.927043, 0, 0, 0, 0, 1)";
     expect(
-      composeIndividualTransforms({ ...none, transform: rotation, scale: "1 -1" }),
+      composeIndividualTransforms({
+        ...none,
+        transform: rotation,
+        scale: "1 -1",
+      }),
     ).toBe(`scale(1, -1) ${rotation}`);
   });
 
@@ -43,17 +60,17 @@ describe("composeIndividualTransforms", () => {
         scale: "1 -1 2",
       }),
     ).toBe("translate3d(1px, 2px, 3px) rotateX(30deg) scale3d(1, -1, 2)");
-    expect(composeIndividualTransforms({ ...none, rotate: "0 0 1 90deg" })).toBe(
-      "rotate3d(0, 0, 1, 90deg)",
-    );
+    expect(
+      composeIndividualTransforms({ ...none, rotate: "0 0 1 90deg" }),
+    ).toBe("rotate3d(0, 0, 1, 90deg)");
     expect(composeIndividualTransforms({ ...none, scale: "50% 200%" })).toBe(
       "scale(0.5, 2)",
     );
   });
 
   it("fails loudly on a computed value it cannot express", () => {
-    expect(() => composeIndividualTransforms({ ...none, rotate: "w 30deg" })).toThrow(
-      /Unsupported computed rotate/,
-    );
+    expect(() =>
+      composeIndividualTransforms({ ...none, rotate: "w 30deg" }),
+    ).toThrow(/Unsupported computed rotate/);
   });
 });

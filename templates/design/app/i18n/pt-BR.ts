@@ -324,6 +324,8 @@ export default {
       bottomLeft: "IE",
       bottomRight: "ID",
       blend: "Mistura",
+      blendMode: "Modo de mesclagem",
+      removeBlendMode: "Remover modo de mesclagem",
       border: "Borda",
       outline: "Contorno",
       inside: "Dentro",
