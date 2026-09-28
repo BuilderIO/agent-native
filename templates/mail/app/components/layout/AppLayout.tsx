@@ -10,7 +10,11 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { NotificationsBell } from "@agent-native/core/client/notifications";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  BuilderCreditNotice,
+  InvitationBanner,
+  OrgSwitcher,
+} from "@agent-native/core/client/org";
 import {
   AgentNativeIcon,
   AppSidebarFooter,
@@ -1506,6 +1510,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
                 </div>
 
+                <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
                 <AppSidebarFooter
                   collapsed={false}
                   collapsible={false}
@@ -1513,6 +1518,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   orgSwitcher={
                     <OrgSwitcher
                       compact={false}
+                      hideBuilderCreditNotice
                       className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
                     />
                   }
@@ -2347,6 +2353,7 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
           </div>
 
+          <BuilderCreditNotice className="mx-2 mb-2 shrink-0" />
           <div className="shrink-0 border-t border-border p-2 space-y-1.5">
             <SidebarFooterActions
               feedback={feedbackButton}
@@ -2357,7 +2364,10 @@ function StandardLayout({ children }: AppLayoutProps) {
               data-sidebar-footer-utilities
               className="flex items-center gap-0.5"
             >
-              <OrgSwitcher className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+              <OrgSwitcher
+                hideBuilderCreditNotice
+                className="min-w-0 flex-1 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
               <DevDatabaseLink />
               <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
             </div>

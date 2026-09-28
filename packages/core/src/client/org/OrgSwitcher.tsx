@@ -90,6 +90,8 @@ export interface OrgSwitcherProps {
   className?: string;
   hideWhenSingle?: boolean;
   reserveSpace?: boolean;
+  /** Render its Builder credit notice elsewhere in the sidebar. */
+  hideBuilderCreditNotice?: boolean;
   /**
    * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the
    * org list, pending invitations and "Join your team", is identical; dropping
@@ -121,6 +123,88 @@ export interface OrgSwitcherProps {
 
 export type AccountMenuProps = OrgSwitcherProps;
 export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
+
+export function BuilderCreditNotice({
+  compact = false,
+  className,
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
+  const { data: org } = useOrg();
+  const builderCreditStatus = useActionQuery<{ exhausted: boolean } | null>(
+    "get-builder-credit-status",
+    { orgId: org?.orgId ?? null },
+    {
+      enabled: Boolean(org?.email),
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    },
+  );
+  const t = useT();
+
+  if (
+    builderCreditStatus.isError ||
+    builderCreditStatus.data?.exhausted !== true
+  ) {
+    return null;
+  }
+
+  const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
+    "builder_credit_limit_sidebar",
+  );
+
+  return compact ? (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`${t("agentChat.billing.builderCreditLimitTitle")} · ${t("agentChat.billing.builderCreditUpgrade")}`}
+            className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <IconAlertCircle className="size-4" aria-hidden="true" />
+          </a>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {t("agentChat.billing.builderCreditLimitTitle")} ·{" "}
+          {t("agentChat.billing.builderCreditUpgrade")}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  ) : (
+    <div
+      role="status"
+      className={cn(
+        "rounded-md border border-border bg-muted px-2.5 py-2 text-xs",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <IconAlertCircle
+          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="leading-snug text-foreground">
+            {t("agentChat.billing.builderCreditLimitTitle")}
+          </p>
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            {t("agentChat.billing.builderCreditUpgrade")}
+            <IconArrowUpRight className="size-3" aria-hidden="true" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function nameFromEmail(email: string | null | undefined): string {
   if (!email) return "";
@@ -216,6 +300,7 @@ export function OrgSwitcher({
   hideWhenSingle,
   reserveSpace,
   compact,
+  hideBuilderCreditNotice,
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
@@ -232,15 +317,6 @@ export function OrgSwitcher({
     "get-user-profile",
     undefined,
     { enabled: !!email },
-  );
-  const builderCreditStatus = useActionQuery<{ exhausted: boolean } | null>(
-    "get-builder-credit-status",
-    { orgId: org?.orgId ?? null },
-    {
-      enabled: Boolean(org?.email),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    },
   );
   const avatarUrl = useAvatarUrl(email);
   const [open, setOpen] = useState(false);
@@ -353,13 +429,6 @@ export function OrgSwitcher({
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
     joinByDomain.error) as Error | null;
-  const showBuilderCreditNotice =
-    !builderCreditStatus.isError &&
-    builderCreditStatus.data?.exhausted === true;
-  const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
-    "builder_credit_limit_sidebar",
-  );
-
   const avatar = (
     <Avatar
       name={displayName}
@@ -740,54 +809,7 @@ export function OrgSwitcher({
           compact && "items-center",
         )}
       >
-        {showBuilderCreditNotice &&
-          (compact ? (
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <a
-                    href={builderUpgradeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`${t("agentChat.billing.builderCreditLimitTitle")} · ${t("agentChat.billing.builderCreditUpgrade")}`}
-                    className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <IconAlertCircle className="size-4" aria-hidden="true" />
-                  </a>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("agentChat.billing.builderCreditLimitTitle")} ·{" "}
-                  {t("agentChat.billing.builderCreditUpgrade")}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-            <div
-              role="status"
-              className="rounded-md border border-border bg-muted px-2.5 py-2 text-xs"
-            >
-              <div className="flex items-start gap-2">
-                <IconAlertCircle
-                  className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="leading-snug text-foreground">
-                    {t("agentChat.billing.builderCreditLimitTitle")}
-                  </p>
-                  <a
-                    href={builderUpgradeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
-                  >
-                    {t("agentChat.billing.builderCreditUpgrade")}
-                    <IconArrowUpRight className="size-3" aria-hidden="true" />
-                  </a>
-                </div>
-              </div>
-            </div>
-          ))}
+        {!hideBuilderCreditNotice && <BuilderCreditNotice compact={compact} />}
         <DropdownMenu open={open} onOpenChange={handleOpenChange}>
           {compact ? (
             // The menu trigger has to sit directly on the button: both Radix
