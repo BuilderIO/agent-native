@@ -693,119 +693,133 @@ async function runImeEscapeRegression(
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, slideId);
-  const [target] = await listTargets(page, slideId);
-  if (!target) throw new Error("synthetic slide has no editable text target");
-  const entryProblems: string[] = [];
-  if (!(await enterEdit(page, slideId, target.point, entryProblems))) {
-    throw new Error("could not open the synthetic slide text edit session");
-  }
-  const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
-  const editor = page.locator(selector);
-  await editor.focus();
-  await page.keyboard.press("End");
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Input.imeSetComposition", {
-    text: "に",
-    selectionStart: 1,
-    selectionEnd: 1,
-  });
-  const composingText = await editor.innerText();
-  await page.screenshot({
-    path: path.join(outRoot, "ime-composition-active.png"),
-  });
-  await page.keyboard.press("Escape");
-  const editingAfterComposingEscape = await editorState(page, slideId);
-  if (!editingAfterComposingEscape.editing) {
-    throw new Error("Escape during IME composition exited inline text editing");
-  }
-  // Headless Chromium has no platform IME to consume Escape. Cancel through
-  // the same CDP input domain after checking that Escape left editing active.
-  await cdp.send("Input.imeSetComposition", {
-    text: "",
-    selectionStart: 0,
-    selectionEnd: 0,
-  });
-  await waitFor(
-    () =>
-      page.evaluate(() =>
-        (window as any).__imeEscapeEvents.some(
-          (event: any) =>
-            event.type === "compositionend" && event.targetIsEditingBlock,
-        ),
-      ),
-    2000,
-  );
-  await sleep(100);
-  const editState = await editorState(page, slideId);
-  const afterEscapeText = await page
-    .locator(`${canvasSelector(slideId)} [data-slide-text-block="true"]`)
-    .first()
-    .innerText();
-  const events = await page.evaluate(() => (window as any).__imeEscapeEvents);
-  const editorEvents = events.filter(
-    (event: any) => event.targetIsEditingBlock,
-  );
-  const escape = editorEvents.find(
-    (event: any) => event.type === "keydown" && event.key === "Escape",
-  );
-  const problems = [...entryProblems];
-  if (
-    !editorEvents.some(
-      (event: any) => event.type === "compositionstart" && event.trusted,
-    )
-  ) {
-    problems.push("Chromium did not deliver a trusted compositionstart event");
-  }
-  if (
-    !editorEvents.some(
-      (event: any) =>
-        event.type === "beforeinput" &&
-        event.inputType === "insertCompositionText" &&
-        event.isComposing &&
-        event.trusted,
-    )
-  ) {
-    problems.push("Chromium did not deliver trusted composing beforeinput");
-  }
-  if (!escape?.isComposing && escape?.keyCode !== 229) {
-    problems.push(
-      "Escape was not delivered while Chromium reported composition active",
-    );
-  }
-  if (!events.some((event: any) => event.type === "compositionend")) {
-    problems.push("composition Escape did not end the active composition");
-  }
-  if (!composingText.endsWith("に")) {
-    problems.push(
-      `IME candidate was not visible in the editor: ${JSON.stringify(composingText)}`,
-    );
-  }
-  if (!editState.editing || !editingAfterComposingEscape.editing) {
-    problems.push("Escape during IME composition exited inline text editing");
-  }
-  if (afterEscapeText !== "Composition target") {
-    problems.push(
-      `composing Escape did not cancel the candidate: ${JSON.stringify(afterEscapeText)}`,
-    );
-  }
-  await page.screenshot({
-    path: path.join(outRoot, "ime-composition-after-escape.png"),
-  });
-  if (editState.editing) {
+  let detach: (() => Promise<void>) | undefined;
+  try {
+    await openSlide(page, base, deckId, 0, slideId);
+    const [target] = await listTargets(page, slideId);
+    if (!target) throw new Error("synthetic slide has no editable text target");
+    const entryProblems: string[] = [];
+    if (!(await enterEdit(page, slideId, target.point, entryProblems))) {
+      throw new Error("could not open the synthetic slide text edit session");
+    }
+    const selector = `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
+    const editor = page.locator(selector);
+    await editor.focus();
+    await page.keyboard.press("End");
+    const cdp = await page.context().newCDPSession(page);
+    detach = () => cdp.detach();
+    await cdp.send("Input.imeSetComposition", {
+      text: "に",
+      selectionStart: 1,
+      selectionEnd: 1,
+    });
+    const composingText = await editor.innerText();
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-active.png"),
+    });
     await page.keyboard.press("Escape");
+    const editingAfterComposingEscape = await editorState(page, slideId);
+    if (!editingAfterComposingEscape.editing) {
+      throw new Error(
+        "Escape during IME composition exited inline text editing",
+      );
+    }
+    // Headless Chromium has no platform IME to consume Escape. Cancel through
+    // the same CDP input domain after checking that Escape left editing active.
+    await cdp.send("Input.imeSetComposition", {
+      text: "",
+      selectionStart: 0,
+      selectionEnd: 0,
+    });
+    await waitFor(
+      () =>
+        page.evaluate(() =>
+          (window as any).__imeEscapeEvents.some(
+            (event: any) =>
+              event.type === "compositionend" && event.targetIsEditingBlock,
+          ),
+        ),
+      2000,
+    );
+    await sleep(100);
+    const editState = await editorState(page, slideId);
+    const afterEscapeText = await page
+      .locator(`${canvasSelector(slideId)} [data-slide-text-block="true"]`)
+      .first()
+      .innerText();
+    const events = await page.evaluate(() => (window as any).__imeEscapeEvents);
+    const editorEvents = events.filter(
+      (event: any) => event.targetIsEditingBlock,
+    );
+    const escape = editorEvents.find(
+      (event: any) => event.type === "keydown" && event.key === "Escape",
+    );
+    const problems = [...entryProblems];
     if (
-      !(await waitFor(
-        async () => !(await editorState(page, slideId)).editing,
-        5000,
-      ))
+      !editorEvents.some(
+        (event: any) => event.type === "compositionstart" && event.trusted,
+      )
     ) {
-      problems.push("a non-composing Escape did not exit inline text editing");
+      problems.push(
+        "Chromium did not deliver a trusted compositionstart event",
+      );
+    }
+    if (
+      !editorEvents.some(
+        (event: any) =>
+          event.type === "beforeinput" &&
+          event.inputType === "insertCompositionText" &&
+          event.isComposing &&
+          event.trusted,
+      )
+    ) {
+      problems.push("Chromium did not deliver trusted composing beforeinput");
+    }
+    if (!escape?.isComposing && escape?.keyCode !== 229) {
+      problems.push(
+        "Escape was not delivered while Chromium reported composition active",
+      );
+    }
+    if (!events.some((event: any) => event.type === "compositionend")) {
+      problems.push("composition Escape did not end the active composition");
+    }
+    if (!composingText.endsWith("に")) {
+      problems.push(
+        `IME candidate was not visible in the editor: ${JSON.stringify(composingText)}`,
+      );
+    }
+    if (!editState.editing || !editingAfterComposingEscape.editing) {
+      problems.push("Escape during IME composition exited inline text editing");
+    }
+    if (afterEscapeText !== "Composition target") {
+      problems.push(
+        `composing Escape did not cancel the candidate: ${JSON.stringify(afterEscapeText)}`,
+      );
+    }
+    await page.screenshot({
+      path: path.join(outRoot, "ime-composition-after-escape.png"),
+    });
+    if (editState.editing) {
+      await page.keyboard.press("Escape");
+      if (
+        !(await waitFor(
+          async () => !(await editorState(page, slideId)).editing,
+          5000,
+        ))
+      ) {
+        problems.push(
+          "a non-composing Escape did not exit inline text editing",
+        );
+      }
+    }
+    return problems;
+  } finally {
+    try {
+      await detach?.();
+    } finally {
+      await action(page, "delete-deck", { id: deckId }, "DELETE");
     }
   }
-  await cdp.detach();
-  await action(page, "delete-deck", { id: deckId }, "DELETE");
-  return problems;
 }
 
 async function runTextSurfaceQa(page: Page, base: string) {
