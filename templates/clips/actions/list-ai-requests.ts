@@ -56,11 +56,11 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    // Sequential on purpose: fanning out opens extra pooled connections, and
-    // production Server-Timing showed connect cost exceeding the queries.
-    const requests = await listQueuedRequests();
     const email = getRequestUserEmail();
-    const titleCandidates = email ? await listAutoTitleCandidates(email) : [];
+    const [requests, titleCandidates] = await Promise.all([
+      listQueuedRequests(),
+      email ? listAutoTitleCandidates(email) : [],
+    ]);
     return { requests, titleCandidates };
   },
 });
