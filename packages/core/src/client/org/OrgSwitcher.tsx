@@ -165,8 +165,19 @@ const COMPACT_TRIGGER_CLASS =
 const AVATAR_CLASS =
   "shrink-0 rounded-full border border-border bg-accent text-[11px] font-semibold text-muted-foreground";
 
-function ReservedOrgSwitcherSpace({ className }: { className?: string }) {
-  return <div aria-hidden="true" className={`h-8 ${className ?? ""}`} />;
+function ReservedOrgSwitcherSpace({
+  className,
+  compact,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("h-8", !compact && "flex-1", className)}
+    />
+  );
 }
 
 function OrgSwitcherLoadingPlaceholder({
@@ -185,6 +196,7 @@ function OrgSwitcherLoadingPlaceholder({
       aria-label={label}
       className={cn(
         compact ? COMPACT_TRIGGER_CLASS : TRIGGER_CLASS,
+        !compact && "flex-1",
         "animate-pulse",
         className,
       )}
@@ -316,7 +328,7 @@ export function OrgSwitcher({
     orgCount > 0 || pendingInvitations.length > 0 || domainMatches.length > 0;
   if (!hasAny && !org.email) {
     return reserveSpace ? (
-      <ReservedOrgSwitcherSpace className={className} />
+      <ReservedOrgSwitcherSpace className={className} compact={compact} />
     ) : null;
   }
   if (
@@ -326,7 +338,7 @@ export function OrgSwitcher({
     domainMatches.length === 0
   ) {
     return reserveSpace ? (
-      <ReservedOrgSwitcherSpace className={className} />
+      <ReservedOrgSwitcherSpace className={className} compact={compact} />
     ) : null;
   }
 
@@ -756,6 +768,7 @@ export function OrgSwitcher({
       <div
         className={cn(
           "flex min-w-0 flex-col gap-1.5",
+          !compact && "flex-1",
           compact && "items-center",
         )}
       >
