@@ -12,6 +12,7 @@ import {
   AgentPanelSettingsNavigation,
   consumeAgentPanelOverlayFocusRestore,
   deferAgentPanelOverlayOpen,
+  getActiveTabScrollContainer,
   getAgentPanelShortcutHints,
   getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
@@ -64,6 +65,18 @@ describe("AgentPanel compatibility exports", () => {
   });
 });
 
+describe("AgentPanel suggestion placement", () => {
+  it("forwards explicit placement and defaults to context chips", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /suggestionPlacement=\{\s*assistantChatProps\.suggestionPlacement \?\? "context-chips"\s*\}/,
+    );
+  });
+});
+
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
     expect(resolveAgentPanelChatSurface(undefined, true)).toBe("desktop");
@@ -86,6 +99,18 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("finds the overflow viewport for a tab nested in its group", () => {
+    const viewport = document.createElement("div");
+    viewport.className = "agent-tabs-scroll";
+    const group = document.createElement("div");
+    group.className = "agent-tab-group";
+    const tab = document.createElement("div");
+    group.append(tab);
+    viewport.append(group);
+
+    expect(getActiveTabScrollContainer(tab)).toBe(viewport);
+  });
+
   it("keeps the active tab clear of the overflow edges", () => {
     expect(
       getActiveTabScrollDelta(

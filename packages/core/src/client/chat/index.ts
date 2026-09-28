@@ -158,6 +158,7 @@ export {
   type ToolRendererRegistration,
 } from "./tool-render-registry.js";
 export {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
@@ -165,13 +166,17 @@ export {
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  normalizeAgentTeamProgressResult,
   type ActionChange,
   type ActionChangeResult,
   type ActionChangeUndo,
   type ActionChangeVerb,
   type ActionChatUIConfig,
+  type AgentTeamProgressResult,
+  type AgentTeamProgressTask,
 } from "../../action-ui.js";
 export { ActionCard } from "./widgets/ActionCard.js";
+export { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

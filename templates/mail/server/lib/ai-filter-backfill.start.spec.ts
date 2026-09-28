@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
@@ -37,6 +37,19 @@ const database = vi.hoisted(() => {
     if (condition?.op === "inArray")
       return condition.values.includes(row[condition.column.name]);
     if (condition?.op === "isNull") return row[condition.column.name] == null;
+    if (
+      condition?.strings?.join("").includes("retryAfterAt") &&
+      condition.values.some((value: unknown) => typeof value === "number")
+    ) {
+      const retryAfterAt = JSON.parse(row.stateJson).retryAfterAt;
+      const now = condition.values.find(
+        (value: unknown) => typeof value === "number",
+      );
+      return (
+        typeof now === "number" &&
+        (typeof retryAfterAt !== "number" || retryAfterAt <= now)
+      );
+    }
     return false;
   }
 
@@ -177,10 +190,16 @@ const mocks = vi.hoisted(() => ({
   evaluateAiFilterBackfillRules: vi.fn(),
 }));
 
+const dispatch = vi.hoisted(() => ({ fireInternalDispatch: vi.fn() }));
+
 vi.mock("@agent-native/core/action", () => ({
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
+}));
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  fireInternalDispatch: dispatch.fireInternalDispatch,
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
@@ -221,7 +240,8 @@ vi.mock("./automation-actions.js", () => ({
   buildLabelCache: mocks.buildLabelCache,
   ensureGmailLabel: mocks.ensureGmailLabel,
 }));
-vi.mock("./google-api.js", () => ({
+vi.mock("./google-api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./google-api.js")>()),
   gmailBatchGetThreads: vi.fn(),
   gmailGetThread: mocks.gmailGetThread,
   gmailListThreads: vi.fn(),
@@ -243,6 +263,7 @@ vi.mock("./local-email-store.js", () => ({
 import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  aiFilterBackfillRetryDelay,
   checkpointAppliedBackfillMutation,
   processMailAiFilterBackfills,
   requestMailAiFilterBackfillUndo,
@@ -403,7 +424,10 @@ describe("startMailAiFilterBackfill", () => {
     mocks.mutateUserSetting.mockResolvedValue(undefined);
     mocks.buildLabelCache.mockResolvedValue(new Map());
     mocks.ensureGmailLabel.mockResolvedValue("label-id");
+    dispatch.fireInternalDispatch.mockResolvedValue(undefined);
   });
+
+  afterEach(() => vi.unstubAllEnvs());
 
   it("queues without synchronously resolving model availability", async () => {
     mocks.rules = [rule("rule-a")];
@@ -412,6 +436,240 @@ describe("startMailAiFilterBackfill", () => {
 
     expect(result).toMatchObject({ status: "queued" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("keeps a queued run recoverable after an ambiguous handoff failure", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret");
+    mocks.rules = [rule("rule-a")];
+    dispatch.fireInternalDispatch.mockRejectedValueOnce(
+      new Error("background response timed out"),
+    );
+
+    const result = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+
+    expect(result).toMatchObject({ status: "queued" });
+    expect(database.rows).toHaveLength(1);
+    expect(database.rows[0].status).toBe("queued");
+    expect(JSON.parse(database.rows[0].stateJson).error).toBeUndefined();
+  });
+
+  it("requires the deployment signing secret before creating a Netlify run", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("A2A_SECRET", "");
+    mocks.rules = [rule("rule-a")];
+
+    await expect(
+      startMailAiFilterBackfill(ownerEmail, ["rule-a"]),
+    ).rejects.toMatchObject({
+      errorCode: "ai_filter_backfill_signing_secret_missing",
+      statusCode: 503,
+    });
+
+    expect(database.rows).toHaveLength(0);
+    expect(dispatch.fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("treats bounded model timeouts as retryable", () => {
+    const timeout = Object.assign(new Error("model timed out"), {
+      name: "TimeoutError",
+    });
+    expect(aiFilterBackfillRetryDelay(timeout)).toBe(30_000);
+  });
+
+  it("skips delayed retries before bounding worker queue candidates", async () => {
+    const delayedRules = Array.from({ length: 8 }, (_, index) =>
+      rule(`delayed-${index}`),
+    );
+    const readyRule = rule("ready-rule");
+    mocks.rules = [...delayedRules, readyRule];
+    const retryAfterAt = Date.now() + 60_000;
+    for (const [index, delayedRule] of delayedRules.entries()) {
+      const state = backfillState([delayedRule]) as Record<string, any>;
+      state.retryAfterAt = retryAfterAt;
+      state.candidates = [];
+      database.rows.push({
+        ...runningRow([delayedRule]),
+        id: `delayed-${index}`,
+        status: "queued",
+        stateJson: JSON.stringify(state),
+        createdAt: Date.now() + index,
+      });
+    }
+    const readyState = backfillState([readyRule]);
+    readyState.candidates = [];
+    const readyRun = {
+      ...runningRow([readyRule]),
+      id: "ready-run",
+      status: "queued",
+      stateJson: JSON.stringify(readyState),
+      createdAt: Date.now() + 100,
+    };
+    database.rows.push(readyRun);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(readyRun.status).toBe("completed");
+    expect(
+      database.rows
+        .slice(0, delayedRules.length)
+        .every((row) => row.status === "queued"),
+    ).toBe(true);
+  });
+
+  it("does not let an older delayed overlap block a ready run", async () => {
+    const olderRule = {
+      ...rule("rule-a"),
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const currentRule = rule("rule-a");
+    mocks.rules = [currentRule];
+    const delayedState = backfillState([olderRule]) as Record<string, any>;
+    delayedState.retryAfterAt = Date.now() + 60_000;
+    delayedState.candidates = [];
+    const delayedRun = {
+      ...runningRow([olderRule]),
+      id: "delayed-run",
+      status: "queued",
+      stateJson: JSON.stringify(delayedState),
+      createdAt: Date.now() - 1_000,
+    };
+    const readyState = backfillState([currentRule]);
+    readyState.candidates = [];
+    const readyRun = {
+      ...runningRow([currentRule]),
+      id: "ready-run",
+      status: "queued",
+      stateJson: JSON.stringify(readyState),
+      createdAt: Date.now(),
+    };
+    database.rows.push(delayedRun, readyRun);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(readyRun.status).toBe("completed");
+    expect(delayedRun.status).toBe("queued");
+  });
+
+  it("retries wrapped credential refresh failures in the worker", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [
+        {
+          email: "account@example.test",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+    const row = runningRow([activeRule]);
+    database.rows.push(row);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("queued");
+    const state = JSON.parse(row.stateJson);
+    expect(state.retryCount).toBe(1);
+    expect(state.retryAfterAt).toBeGreaterThan(Date.now());
+  });
+
+  it("retries wrapped credential refresh failures while undoing Gmail changes", async () => {
+    const activeRule = rule("rule-a");
+    const state = backfillState([activeRule]);
+    Object.assign(state.snapshots, {
+      "account@example.test:thread-a": {
+        key: "account@example.test:thread-a",
+        accountEmail: "account@example.test",
+        threadId: "thread-a",
+        local: false,
+        messages: [
+          {
+            id: "gmail-message",
+            labels: { INBOX: false },
+            afterLabels: { INBOX: true },
+          },
+        ],
+      },
+    });
+    const row = runningRow([activeRule]);
+    row.status = "undoing";
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [
+        {
+          email: "account@example.test",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("undoing");
+    const saved = JSON.parse(row.stateJson);
+    expect(saved.retryCount).toBe(1);
+    expect(saved.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(mocks.gmailGetThread).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit undo retry reset when an in-flight run fails", async () => {
+    const archiveRule = rule("rule-archive");
+    archiveRule.actions = [{ type: "archive" }];
+    mocks.rules = [archiveRule];
+    mocks.emails = [localEmail()];
+    const row = runningRow([archiveRule]);
+    const state = JSON.parse(row.stateJson);
+    state.retryCount = 5;
+    state.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.writeLocalEmails.mockImplementation(
+      async (_email: string, emails: Array<Record<string, any>>) => {
+        mocks.emails = structuredClone(emails);
+        await requestMailAiFilterBackfillUndo(
+          ownerEmail,
+          row.id,
+          row.undoToken,
+        );
+        throw new TypeError("fetch failed");
+      },
+    );
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("undoing");
+    expect(row.claimId).toBeNull();
+    expect(saved.retryCount).toBe(0);
+    expect(saved).not.toHaveProperty("retryAfterAt");
+    expect(saved).not.toHaveProperty("error");
+  });
+
+  it("resets exhausted retries when an explicit undo is requested", async () => {
+    mocks.rules = [rule("rule-a")];
+    const started = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+    const row = database.rows[0];
+    const state = JSON.parse(row.stateJson);
+    state.retryCount = 6;
+    state.retryAfterAt = Date.now() + 60_000;
+    row.status = "failed";
+    row.stateJson = JSON.stringify(state);
+
+    await requestMailAiFilterBackfillUndo(
+      ownerEmail,
+      started.runId,
+      row.undoToken,
+    );
+
+    const undoState = JSON.parse(row.stateJson);
+    expect(row.status).toBe("undoing");
+    expect(undoState.retryCount).toBe(0);
+    expect(undoState).not.toHaveProperty("retryAfterAt");
   });
 
   it("rejects an omitted selection above the enabled-rule limit before inserting a run", async () => {
@@ -426,7 +684,7 @@ describe("startMailAiFilterBackfill", () => {
     expect(database.rows).toHaveLength(0);
   });
 
-  it("rejects a concurrent start for the same canonical rule set", async () => {
+  it("reuses a concurrent start for the same canonical rule set", async () => {
     mocks.rules = [rule("rule-a"), rule("rule-b")];
 
     const results = await Promise.allSettled([
@@ -434,12 +692,11 @@ describe("startMailAiFilterBackfill", () => {
       startMailAiFilterBackfill(ownerEmail, ["rule-a", "rule-b"]),
     ]);
 
-    expect(
-      results.filter((result) => result.status === "fulfilled"),
-    ).toHaveLength(1);
-    expect(
-      results.filter((result) => result.status === "rejected"),
-    ).toHaveLength(1);
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect(results.map((result: any) => result.value.runId)).toEqual([
+      database.rows[0].id,
+      database.rows[0].id,
+    ]);
     expect(database.rows).toHaveLength(1);
     expect(database.rows[0].ruleSetKey).toBe(
       JSON.stringify([
@@ -696,7 +953,12 @@ describe("startMailAiFilterBackfill", () => {
     archiveRule.actions = [{ type: "archive" }];
     mocks.rules = [archiveRule];
     mocks.emails = [localEmail()];
-    database.rows.push(runningRow(mocks.rules));
+    const run = runningRow(mocks.rules);
+    const initialState = JSON.parse(run.stateJson);
+    initialState.retryCount = 5;
+    initialState.retryAfterAt = Date.now() - 1;
+    initialState.error = "stale worker error";
+    database.rows.push({ ...run, stateJson: JSON.stringify(initialState) });
 
     let requestedUndo = false;
     let writeCount = 0;
@@ -725,6 +987,10 @@ describe("startMailAiFilterBackfill", () => {
       JSON.parse(database.rows[0].stateJson).snapshots["local:thread-a"]
         .messages[0].afterArchived,
     ).toBe(true);
+    const checkpointed = JSON.parse(database.rows[0].stateJson);
+    expect(checkpointed.retryCount).toBe(0);
+    expect(checkpointed).not.toHaveProperty("retryAfterAt");
+    expect(checkpointed).not.toHaveProperty("error");
 
     const reply = {
       ...localEmail("new-reply"),
@@ -835,22 +1101,35 @@ describe("startMailAiFilterBackfill", () => {
   });
 
   it("checkpoints an applied mutation while an undo request owns the run", async () => {
+    const undoState = { ...backfillState([]), retryCount: 0 };
     database.rows.push({
       ...runningRow([]),
       status: "undoing",
       claimId: "claimed-worker",
-      stateJson: "{}",
+      stateJson: JSON.stringify(undoState),
     });
+    const workerState: any = backfillState([]);
+    workerState.retryCount = 5;
+    workerState.retryAfterAt = Date.now() + 60_000;
+    workerState.error = "stale worker error";
+    workerState.snapshots["local:thread-a"] = {
+      key: "local:thread-a",
+      threadId: "thread-a",
+      local: true,
+      messages: [],
+    };
 
     await expect(
-      checkpointAppliedBackfillMutation("run-a", "claimed-worker", {
-        snapshot: "post-apply",
-      }),
+      checkpointAppliedBackfillMutation("run-a", "claimed-worker", workerState),
     ).resolves.toBe(false);
 
     expect(database.rows[0].status).toBe("undoing");
-    expect(JSON.parse(database.rows[0].stateJson)).toEqual({
-      snapshot: "post-apply",
-    });
+    const saved = JSON.parse(database.rows[0].stateJson);
+    expect(saved.snapshots["local:thread-a"]).toEqual(
+      workerState.snapshots["local:thread-a"],
+    );
+    expect(saved.retryCount).toBe(0);
+    expect(saved).not.toHaveProperty("retryAfterAt");
+    expect(saved).not.toHaveProperty("error");
   });
 });

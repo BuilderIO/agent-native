@@ -1,6 +1,9 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
-import { startIntervalJob } from "@agent-native/core/server/interval-job";
+import {
+  registerRecurringSweepHandler,
+  startIntervalJob,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -81,12 +84,17 @@ async function processJobs(): Promise<void> {
 }
 
 export default () => {
+  registerRecurringSweepHandler("mail-ai-filter-backfills", () =>
+    processMailAiFilterBackfills(),
+  );
+
   registerEvent({
     name: "mail.message.received",
     description:
-      "A new email was received in the user's inbox. Fires once per message during the polling sync cycle.",
+      "A new email was received in the user's inbox. Fires once per message and includes the accountEmail and messageId for exact message lookup.",
     payloadSchema: z.object({
       messageId: z.string(),
+      accountEmail: z.string(),
       from: z.string(),
       to: z.string(),
       subject: z.string(),
@@ -94,6 +102,16 @@ export default () => {
       labels: z.array(z.string()).optional(),
       threadId: z.string().optional(),
     }) as any,
+    example: {
+      messageId: "message_123",
+      accountEmail: "person@example.com",
+      from: "sender@example.com",
+      to: "person@example.com",
+      subject: "A new message",
+      snippet: "Message preview",
+      labels: ["INBOX"],
+      threadId: "thread_123",
+    },
   });
 
   registerEvent({

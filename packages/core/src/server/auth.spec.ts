@@ -9547,7 +9547,7 @@ describe("server/auth", () => {
       expect(html).not.toContain("/dispatch/auth-marketing/");
     });
 
-    it("does not render legacy auth marketing CTAs", async () => {
+    it("renders app marketing beside Google sign-in", async () => {
       const { getOnboardingHtml } = await import("./onboarding-html.js");
       const html = getOnboardingHtml({
         marketing: {
@@ -9556,8 +9556,9 @@ describe("server/auth", () => {
         },
       });
 
-      expect(html).not.toContain('class="marketing-panel"');
-      expect(html).not.toContain("auth-marketing-visual");
+      expect(html).toContain('class="marketing-panel"');
+      expect(html).toContain("Manage email with an agent.");
+      expect(html).toContain("auth-marketing-visual");
     });
 
     it("defaults the active tab from the login or signup path", async () => {

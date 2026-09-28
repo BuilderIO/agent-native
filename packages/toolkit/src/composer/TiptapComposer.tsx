@@ -4106,7 +4106,10 @@ export function TiptapComposer({
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) return true;
+        if (!isCurrentDraftScope()) {
+          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+          return true;
+        }
         // Clear any pending attachments now that the host has them.
         void composerRuntime.clearAttachments().catch(() => {});
         if (!clearOnSubmit) {

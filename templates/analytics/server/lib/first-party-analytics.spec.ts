@@ -842,6 +842,24 @@ describe("queryFirstPartyAnalytics", () => {
     );
   });
 
+  it("marks capped Postgres reads as truncated", async () => {
+    execute.mockResolvedValue({
+      rows: Array.from({ length: 5_001 }, (_, index) => ({ events: index })),
+      rowsAffected: 0,
+    });
+
+    const result = await queryFirstPartyAnalytics(
+      "SELECT events FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+    );
+
+    expect(result.rows).toHaveLength(5_000);
+    expect(result.truncated).toBe(true);
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: expect.stringContaining("LIMIT 5001") }),
+    );
+  });
+
   it("caches dashboard-panel reads only when explicitly requested", async () => {
     const random = vi.spyOn(Math, "random").mockReturnValue(1);
     execute.mockImplementation(async ({ sql }: { sql: string }) =>

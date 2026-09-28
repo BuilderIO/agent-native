@@ -81,7 +81,6 @@ import {
   executeAgentToolCall,
   filterActionsByAllowedNames,
   normalizeAgentActionSurfaceResolution,
-  readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
@@ -7424,21 +7423,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 persistedClientPlatform;
             }
 
-            // Durable owner context: this self-dispatch is cookieless (HMAC-only).
-            // Resolve the owner from the persisted run row, never the request
-            // body, then invoke the normal handler. The shared agent-run context
-            // helper expands that owner into the same user/org AsyncLocalStorage
-            // context the foreground request uses, so credential and data scoping
-            // stay aligned.
-            const persistedSurface = readPersistedActionSurface(
-              workerBody,
-              "__resolvedActionSurface",
-            );
-            await seedBackgroundAgentRunOwnerContext(
-              event,
-              prepared.runId,
-              persistedSurface?.orgId,
-            );
+            // This self-dispatch is cookieless (HMAC-only). Restore the verified
+            // per-turn initiator captured before dispatch; the shared thread
+            // owner is not necessarily the member who submitted this turn.
+            await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
@@ -7559,6 +7547,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           appId: options?.appId,
         };
         runNowSchedulerDeps = schedulerDeps;
+        const processFailureAlertRetries = async () => {
+          const { processPendingAutomationFailureAlerts } =
+            await import("../jobs/run-history.js");
+          return processPendingAutomationFailureAlerts();
+        };
 
         // Platform schedulers use the existing durable background function as
         // the long-lived worker. Keeping the sweep behind a signed, fixed
@@ -7631,6 +7624,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const automationFailureAlerts =
+              await processFailureAlertRetries().catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] durable automation-failure alert retry failed:",
+                  error,
+                );
+                return null;
+              });
             const { sweepUnclaimedBackgroundRuns } =
               await import("./unclaimed-background-runs.js");
             const unclaimedBackgroundRuns = await sweepUnclaimedBackgroundRuns({
@@ -7652,6 +7653,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: false,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
                 appSweepHandlers,
                 jobsSkipped: true,
@@ -7659,13 +7661,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               };
             }
             if (!triggerAvailability.available) {
-              if (appSweepHandlers.failed.length > 0) {
+              if (
+                appSweepHandlers.failed.length > 0 ||
+                automationFailureAlerts === null
+              ) {
                 setResponseStatus(event, 500);
               }
               return {
-                ok: appSweepHandlers.failed.length === 0,
+                ok:
+                  appSweepHandlers.failed.length === 0 &&
+                  automationFailureAlerts !== null,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
                 appSweepHandlers,
                 jobsSkipped: true,
@@ -7678,12 +7686,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              if (appSweepHandlers.failed.length > 0) {
+              if (
+                appSweepHandlers.failed.length > 0 ||
+                automationFailureAlerts === null
+              ) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
                   staleRunsReaped,
                   chatHealth,
+                  automationFailureAlerts,
                   unclaimedBackgroundRuns,
                   appSweepHandlers,
                 };
@@ -7692,6 +7704,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: true,
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
                 appSweepHandlers,
               };
@@ -7702,6 +7715,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 chatHealth,
+                automationFailureAlerts,
                 unclaimedBackgroundRuns,
                 appSweepHandlers,
               };
@@ -7725,6 +7739,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // Start after a 10-second delay to let the server fully initialize
           lifecycle.startTimeout(() => {
             lifecycle.startInterval(() => {
+              processFailureAlertRetries().catch((error: unknown) => {
+                console.error(
+                  "[recurring-jobs] automation-failure alert retry failed:",
+                  error,
+                );
+              });
               processRecurringJobs(schedulerDeps).catch((err) => {
                 console.error(
                   "[recurring-jobs] Scheduler error:",

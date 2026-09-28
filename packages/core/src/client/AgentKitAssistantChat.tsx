@@ -414,6 +414,7 @@ function isRetryableDeferredProviderSubmissionError(error: unknown): boolean {
 interface AgentKitSurfaceContextValue {
   props: AgentKitAssistantChatProps;
   handoffSnapshot: AgentThreadSnapshot | null;
+  hasRenderedMessages: boolean;
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
@@ -1107,10 +1108,34 @@ const AgentKitAssistantChatBody = forwardRef<
     useState<PendingSelectionContext | null>(null);
   const selectionRevisionRef = useRef(0);
   const selectionLength = pendingSelection?.text.length ?? null;
-  const [voiceTranscriptMessages, setVoiceTranscriptMessages] = useState<
-    AgentMessage[]
-  >([]);
-  const voiceTranscriptsRef = useRef<RealtimeVoiceTranscriptMessage[]>([]);
+  const [voiceTranscriptState, setVoiceTranscriptState] = useState({
+    threadId,
+    messages: [] as AgentMessage[],
+  });
+  const voiceTranscriptMessages =
+    voiceTranscriptState.threadId === threadId
+      ? voiceTranscriptState.messages
+      : [];
+  const voiceTranscriptsRef = useRef({
+    threadId,
+    messages: [] as RealtimeVoiceTranscriptMessage[],
+  });
+  if (voiceTranscriptsRef.current.threadId !== threadId) {
+    voiceTranscriptsRef.current = { threadId, messages: [] };
+  }
+  const threadMessageIds = new Set(
+    thread.messages.map((message) => message.id),
+  );
+  const hasRenderedMessages =
+    thread.messages.length > 0 ||
+    props.threadContentSlot != null ||
+    getAgentKitThreadHandoffMessages(
+      thread,
+      props.threadRestore.status === "error" ? null : props.handoffSnapshot,
+    ).length > 0 ||
+    voiceTranscriptMessages.some(
+      (message) => !threadMessageIds.has(message.id),
+    );
   const seenEventsRef = useRef({
     threadId,
     initialized: false,
@@ -1512,7 +1537,7 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
   saveSnapshotRef.current = () => {
-    const transcripts = voiceTranscriptsRef.current;
+    const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
     }
@@ -1552,19 +1577,25 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const appendRealtimeVoiceTranscript = useCallback(
     (transcript: RealtimeVoiceTranscriptMessage) => {
-      if (isRestoring || isRunning) return false;
+      if (
+        isRestoring ||
+        isRunning ||
+        transcript.threadId !== threadId ||
+        voiceTranscriptsRef.current.threadId !== threadId
+      ) {
+        return false;
+      }
+      const currentTranscripts = voiceTranscriptsRef.current.messages;
       if (
         thread.messages.some((message) => message.id === transcript.id) ||
-        voiceTranscriptsRef.current.some(
-          (message) => message.id === transcript.id,
-        )
+        currentTranscripts.some((message) => message.id === transcript.id)
       ) {
         return true;
       }
-      const transcripts = [...voiceTranscriptsRef.current, transcript];
+      const transcripts = [...currentTranscripts, transcript];
       const messages = transcripts.map(realtimeVoiceTranscriptAgentMessage);
-      voiceTranscriptsRef.current = transcripts;
-      setVoiceTranscriptMessages(messages);
+      voiceTranscriptsRef.current = { threadId, messages: transcripts };
+      setVoiceTranscriptState({ threadId, messages });
       const baseSnapshot = createAgentKitThreadSnapshot(thread);
       const snapshot = appendVoiceTranscriptsToThreadSnapshot(
         baseSnapshot,
@@ -2395,14 +2426,14 @@ const AgentKitAssistantChatBody = forwardRef<
       exportThreadSnapshot: () => {
         if (
           thread.messages.length === 0 &&
-          voiceTranscriptsRef.current.length === 0
+          voiceTranscriptsRef.current.messages.length === 0
         ) {
           return null;
         }
         const snapshot = appendVoiceTranscriptsToThreadSnapshot(
           createAgentKitThreadSnapshot(thread),
           thread,
-          voiceTranscriptsRef.current,
+          voiceTranscriptsRef.current.messages,
         );
         if (!props.createTransport && !props.runtime) {
           storeAgentKitThreadHandoffSnapshot(
@@ -2438,6 +2469,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const surfaceContext: AgentKitSurfaceContextValue = {
     props,
     handoffSnapshot: props.handoffSnapshot,
+    hasRenderedMessages,
     canChat,
     setupMissing,
     providerStatus,
@@ -2516,6 +2548,7 @@ const AgentKitAssistantChatBody = forwardRef<
       <AgentKitChat
         className={props.className}
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
+        hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={
           props.centerComposerWhenEmpty ? "center" : "bottom"
         }
@@ -2543,8 +2576,16 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
     return null;
   }
   const showDefault = surface.props.emptyStateDisplay !== "hidden";
+  if (
+    !showDefault &&
+    !surface.props.emptyStateAddon &&
+    !surface.props.emptyStateFooter
+  ) {
+    return null;
+  }
   const promptSuggestions =
     surface.props.suggestionPlacement !== "context-chips" &&
+    surface.props.suggestionPlacement !== "after-composer" &&
     surface.props.suggestionPlacement !== "hidden" &&
     surface.showSuggestions
       ? surface.suggestions
@@ -2662,29 +2703,23 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
+  const showHomeSuggestions =
+    surface.props.centerComposerWhenEmpty &&
+    !surface.hasRenderedMessages &&
+    surface.threadRestore.status === "ready";
   const suggestionBar =
     surface.props.suggestionPlacement === "context-chips" &&
+    !showHomeSuggestions &&
     surface.showSuggestions &&
     surface.suggestions.length > 0 ? (
-      <AgentSuggestionBar
-        ariaLabel={t("agentChat.composer.suggestedPrompts")}
-        suggestions={surface.suggestions.map((suggestion, index) => ({
-          ...(typeof suggestion === "string"
-            ? {
-                id: `host-suggestion-${index}-${suggestion}`,
-                label: suggestion,
-                prompt: suggestion,
-              }
-            : suggestion),
-          disabled: Boolean(
-            !surface.canChat ||
-            surface.props.composerDisabled ||
-            surface.isSubmissionInFlight,
-          ),
-        }))}
-        onSelect={(suggestion) =>
-          surface.submitSuggestion(agentSuggestionPrompt(suggestion))
+      <AgentKitSuggestedPrompts
+        suggestions={surface.suggestions}
+        disabled={
+          !surface.canChat ||
+          surface.props.composerDisabled ||
+          surface.isSubmissionInFlight
         }
+        onSelect={surface.submitSuggestion}
         className="agentkit-host-suggestions"
       />
     ) : null;
@@ -2961,6 +2996,10 @@ function AgentKitComposerSurface({
   isRunning,
   isRestoring,
   isSubmissionInFlight,
+  hasRenderedMessages,
+  threadRestore,
+  suggestions,
+  showSuggestions,
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
@@ -2972,6 +3011,7 @@ function AgentKitComposerSurface({
   onClearSelection,
   onBeforeSubmit,
   onSubmit,
+  submitSuggestion,
   onImplementPlan,
 }: {
   threadId: string;
@@ -2989,6 +3029,7 @@ function AgentKitComposerSurface({
   isRunning: boolean;
   isRestoring: boolean;
   isSubmissionInFlight: boolean;
+  hasRenderedMessages: boolean;
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
@@ -3000,6 +3041,12 @@ function AgentKitComposerSurface({
   onClearSelection: () => void;
   onBeforeSubmit: () => Promise<boolean>;
   onSubmit: PromptComposerProps["onSubmit"];
+  threadRestore:
+    | { status: "ready" | "loading" }
+    | { status: "error"; notFound: boolean };
+  suggestions: AgentSuggestionInput[];
+  showSuggestions: boolean;
+  submitSuggestion: (prompt: string) => void;
   onImplementPlan: () => boolean;
 }) {
   const t = useT();
@@ -3031,6 +3078,27 @@ function AgentKitComposerSurface({
     variant: "composer",
     requestedByUser: true,
   });
+  const showHomeIntro =
+    props.homeIntroSlot &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready";
+  const showHomeSuggestions =
+    props.centerComposerWhenEmpty &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready" &&
+    props.suggestionPlacement === "context-chips" &&
+    showSuggestions &&
+    suggestions.length > 0;
+  const showAfterComposerSuggestions =
+    props.suggestionPlacement === "after-composer" &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready" &&
+    showSuggestions &&
+    suggestions.length > 0;
+  const showAfterComposerSlot =
+    props.afterComposerSlot &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready";
   return (
     <div
       ref={fileStorageAnchorRef}
@@ -3053,6 +3121,17 @@ function AgentKitComposerSurface({
             })}
       />
       {props.composerSlot}
+      {showHomeIntro ? (
+        <div className="agentkit-home-intro">{props.homeIntroSlot}</div>
+      ) : null}
+      {showHomeSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
       {showPlanCallout ? (
         <PlanModeCallout
           canImplementPlan={latestAssistantWasPlan}
@@ -3066,7 +3145,6 @@ function AgentKitComposerSurface({
           attached
           bouncePulse={setupBouncePulse}
           layout={props.missingApiKeySetupLayout ?? "default"}
-          onRetry={retryProviderStatus}
           onConnected={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }
@@ -3245,7 +3323,53 @@ function AgentKitComposerSurface({
         ) : null}
         <ExternalAgentNudge variant="prompt" />
       </div>
+      {showAfterComposerSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
+      {showAfterComposerSlot ? (
+        <div className="agentkit-after-composer-slot">
+          {props.afterComposerSlot}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function AgentKitSuggestedPrompts({
+  suggestions,
+  disabled,
+  onSelect,
+  className,
+}: {
+  suggestions: AgentSuggestionInput[];
+  disabled: boolean;
+  onSelect: (prompt: string) => void;
+  className: string;
+}) {
+  const t = useT();
+  return (
+    <AgentSuggestionBar
+      ariaLabel={t("agentChat.composer.suggestedPrompts")}
+      suggestions={suggestions.map((suggestion, index) => ({
+        ...(typeof suggestion === "string"
+          ? {
+              id: `host-suggestion-${index}-${suggestion}`,
+              label: suggestion,
+              prompt: suggestion,
+            }
+          : suggestion),
+        disabled: Boolean(
+          disabled || (typeof suggestion !== "string" && suggestion.disabled),
+        ),
+      }))}
+      onSelect={(suggestion) => onSelect(agentSuggestionPrompt(suggestion))}
+      className={className}
+    />
   );
 }
 

@@ -997,6 +997,10 @@ describe("createAgentNativeChatRuntime", () => {
             isError: true,
           },
           {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+          {
             type: "tool_start",
             id: "call-1",
             tool: "publish-release",
@@ -1089,6 +1093,62 @@ describe("createAgentNativeChatRuntime", () => {
         },
       ]),
     });
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.structuredHistory.slice(-6)).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Waiting for approval. " }],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-0", name: "read-release", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-0",
+            content: "Release lookup failed.",
+            isError: true,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "publish-release",
+            input: approvedInput,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+        ],
+      },
+    ]);
     expect(events.at(-1)).toMatchObject({
       type: "done",
       reason: "complete",
@@ -1110,6 +1170,10 @@ describe("createAgentNativeChatRuntime", () => {
               : undefined,
           content: [
             { type: "text", text: "Waiting for approval. " },
+            {
+              type: "text",
+              text: "Release lookup failed; requesting approval. ",
+            },
             { type: "text", text: "Release published." },
           ],
         },

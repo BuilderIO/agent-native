@@ -223,6 +223,9 @@ function Harness({
   emails = messages,
   onCompose,
   accountErrors,
+  emailsError,
+  isFetching,
+  refetchEmails,
   hasNextPage,
   isFetchingNextPage,
   showPrioritySort,
@@ -234,6 +237,9 @@ function Harness({
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
+  isFetching?: boolean;
+  refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
@@ -251,11 +257,14 @@ function Harness({
       <EmailList
         emails={emails}
         isLoading={false}
+        isFetching={isFetching}
+        emailsError={emailsError}
         focusedId={focusedId}
         setFocusedId={setFocusedId}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCompose={onCompose}
+        refetchEmails={refetchEmails}
         accountErrors={accountErrors}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
@@ -352,7 +361,35 @@ describe("EmailList keyboard navigation interactions", () => {
       .mockResolvedValue({ totalVotes: 1, recentVotes: [] });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("waits for an explicit retry after a quota cooldown", async () => {
+    vi.useFakeTimers();
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const error = Object.assign(new Error("Gmail quota"), {
+      status: 429,
+      retryAfterMs: 15_000,
+    });
+
+    render(<Harness emailsError={error} refetchEmails={refetchEmails} />);
+    const retryButton = screen.getByRole("button", {
+      name: "mail.error.tryAgainIn",
+    }) as HTMLButtonElement;
+    expect(retryButton.disabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(refetchEmails).not.toHaveBeenCalled();
+    expect(retryButton.disabled).toBe(false);
+    fireEvent.click(retryButton);
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
 
   it("keeps Priority visible with a Jev connect action when unavailable", () => {
     mocks.view = "inbox";

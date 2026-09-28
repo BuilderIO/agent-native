@@ -18,6 +18,7 @@ import {
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
 import {
+  type AgentTurnInitiator,
   insertRun,
   insertRunEvent,
   updateRunStatusIfRunning,
@@ -298,6 +299,7 @@ export interface StartRunOptions {
   noProgressTimeoutMs?: number;
   backgroundNoProgressTimeoutMs?: number;
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
+  turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
   model?: string;
   engineName?: string;
@@ -783,9 +785,17 @@ export function startRun(
   // Persist run to SQL without blocking the response. Keep the promise so
   // final status cannot race ahead of a slow initial INSERT and then get
   // overwritten by a late row stuck at status='running'.
-  const insertOptions = options?.dispatchMode
-    ? { dispatchMode: options.dispatchMode }
-    : undefined;
+  const insertOptions =
+    options?.dispatchMode || options?.turnInitiator
+      ? {
+          ...(options?.dispatchMode
+            ? { dispatchMode: options.dispatchMode }
+            : {}),
+          ...(options?.turnInitiator
+            ? { turnInitiator: options.turnInitiator }
+            : {}),
+        }
+      : undefined;
   const insertRunPromise = (
     options?.runRowAlreadyInserted
       ? Promise.resolve()
@@ -854,6 +864,12 @@ export function startRun(
     }
     if (updated === false) {
       if (run.status !== "running") return;
+      const persistedStatus = await getRunStatus(runId);
+      if (run.status !== "running") return;
+      if (persistedStatus !== null && persistedStatus !== "running") {
+        abortInMemoryRun(run, "displaced");
+        return;
+      }
       recordProgressWriteFailure(
         new Error("Durable progress update affected no running run row"),
         "no-row",

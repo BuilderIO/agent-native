@@ -105,9 +105,18 @@ describe("manage-email-rules chat action", () => {
         kind: "mail-rule",
         title: "Newsletters",
         detail: "from newsletters",
+        url: "/settings?section=ai-filter",
       },
     });
-    expect(result.change).not.toHaveProperty("url");
+    expect(action.chatUI?.when?.({ action: "create" }, result)).toBe(true);
+    expect(
+      action.chatUI?.projectResult?.({ action: "create" }, result),
+    ).toEqual({ change: result.change });
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "mail",
+      view: "settings",
+      to: "/settings?section=ai-filter",
+    });
   });
 
   it("routes a non-agent AI rule through shared rule creation", async () => {
@@ -145,7 +154,8 @@ describe("manage-email-rules chat action", () => {
       },
     ]);
 
-    const result = await createManageEmailRulesAction(true).run({
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
       action: "list",
     });
 
@@ -168,6 +178,7 @@ describe("manage-email-rules chat action", () => {
       ],
     });
     expect(result).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "list" }, result)).toBe(false);
   });
 
   it("returns the queued start result without reading status again", async () => {
@@ -188,6 +199,28 @@ describe("manage-email-rules chat action", () => {
       backfillRunId: "run-1",
       backfillStatus: "queued",
     });
+  });
+
+  it("keeps a failed AI-rule backfill as an ordinary tool result", async () => {
+    mocks.startMailAiFilterBackfill.mockRejectedValueOnce(
+      new Error("backfill unavailable"),
+    );
+
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      name: "Newsletters",
+      condition: "from newsletters",
+      actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
+    });
+
+    expect(result).toMatchObject({
+      operation: "create",
+      backfillStatus: "failed",
+      backfillError:
+        "The rule was saved, but its recent-mail backfill could not start.",
+    });
+    expect(action.chatUI?.when?.({ action: "create" }, result)).toBe(false);
   });
 
   it("updates label/archive rules through shared CRUD and starts a new backfill", async () => {
@@ -233,7 +266,9 @@ describe("manage-email-rules chat action", () => {
       kind: "mail-rule",
       title: "Archive team mail",
       detail: "from the team",
+      url: "/settings?section=ai-filter",
     });
+    expect(action.chatUI?.when?.({ action: "update" }, result)).toBe(true);
   });
 
   it("reports a queued backfill for an updated AI rule", async () => {
@@ -323,6 +358,7 @@ describe("manage-email-rules chat action", () => {
       deleted: true,
     });
     expect(result).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "delete" }, result)).toBe(false);
   });
 
   it("creates an Important rule from a mode and one sentence", async () => {
@@ -349,6 +385,33 @@ describe("manage-email-rules chat action", () => {
       appliedCounts: null,
       backfillRunId: "run-1",
       settingsHref: "/settings?section=ai-filter",
+    });
+  });
+
+  it("creates a Notify rule that highlights matches and queues backfill", async () => {
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      mode: "notify",
+      sentence: "Messages from my child's school",
+    });
+
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({
+        name: "AI notify: Messages from my child's school",
+        condition: "Messages from my child's school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+      }),
+    );
+    expect(result).toMatchObject({
+      mode: "notify",
+      sentence: "Messages from my child's school",
+      backfillStatus: "queued",
     });
   });
 
@@ -473,13 +536,17 @@ describe("manage-email-rules chat action", () => {
       kind: "mail-rule",
       title: "Star my manager",
       detail: "from my manager",
+      url: "/settings?section=automations",
     });
     expect(disabled.change).toEqual({
       verb: "disabled",
       kind: "mail-rule",
       title: "Star my manager",
       detail: "from my manager",
+      url: "/settings?section=automations",
     });
+    expect(action.chatUI?.when?.({ action: "enable" }, enabled)).toBe(true);
+    expect(action.chatUI?.when?.({ action: "disable" }, disabled)).toBe(true);
   });
 
   it("leaves no-op updates and enables as ordinary tool rows", async () => {
@@ -505,6 +572,8 @@ describe("manage-email-rules chat action", () => {
 
     expect(update).not.toHaveProperty("change");
     expect(enable).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "update" }, update)).toBe(false);
+    expect(action.chatUI?.when?.({ action: "enable" }, enable)).toBe(false);
   });
 
   it("does not add a change when a rule mutation fails", async () => {
@@ -521,7 +590,8 @@ describe("manage-email-rules chat action", () => {
   });
 
   it("keeps the legacy recurring-automation action on plain results", async () => {
-    const result = await createManageEmailRulesAction(false).run({
+    const action = createManageEmailRulesAction(false);
+    const result = await action.run({
       action: "create",
       name: "Star my manager",
       condition: "from my manager",
@@ -529,5 +599,6 @@ describe("manage-email-rules chat action", () => {
     });
 
     expect(result).not.toHaveProperty("change");
+    expect(action.chatUI).toBeUndefined();
   });
 });

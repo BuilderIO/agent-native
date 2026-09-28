@@ -610,6 +610,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} संदेश बहाल हुए",
       ruleBackfillReview: "मेल देखें",
       importantMode: "महत्वपूर्ण",
+      notifyMode: "सूचित करें",
+      notifyModeHelp:
+        "मेल मिलते ही महत्वपूर्ण चिह्नित करें। Mail खुला हो और घंटी से सूचना चालू हो, तभी ब्राउज़र पॉपअप दिखेगा। मोबाइल ऐप जल्द आ रहा है।",
+      manageAutomationsLink: "अन्य ऑटोमेशन कार्रवाइयाँ",
       notImportantMode: "महत्वपूर्ण नहीं",
       importantLabel: "AI महत्वपूर्ण",
       reviewImportant: "महत्वपूर्ण देखें",
@@ -737,6 +741,7 @@ const messages = {
     markRead: "पढ़ा हुआ चिह्नित करें",
     star: "स्टार करें",
     trash: "ट्रैश",
+    notify: "सूचित करें",
     labelName: "लेबल नाम",
     addAction: "+ कार्रवाई जोड़ें",
     ruleName: "नियम का नाम",

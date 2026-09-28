@@ -134,6 +134,32 @@ describe("ChatFirstAppsRail", () => {
     ).toBe("false");
   });
 
+  it("can keep inactive app icons in color for the Dispatch launcher", () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[{ id: "content", name: "Content" }]}
+          activeTab="search"
+          grayscaleInactiveIcons={false}
+          onOpenApp={vi.fn()}
+          renderIcon={(app, options) => (
+            <span data-icon-inactive={options.isInactive}>{app.name}</span>
+          )}
+        />,
+      );
+    });
+
+    const icon = container.querySelector<HTMLElement>(
+      "[data-chat-first-app-icon]",
+    );
+    expect(icon?.className).not.toContain("grayscale");
+    expect(
+      icon
+        ?.querySelector("[data-icon-inactive]")
+        ?.getAttribute("data-icon-inactive"),
+    ).toBe("true");
+  });
+
   it("grays every app icon while a nav surface owns the rail", () => {
     act(() => {
       root.render(

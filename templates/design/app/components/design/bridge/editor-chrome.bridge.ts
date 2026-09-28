@@ -232,8 +232,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       trustedFocusIntent = null;
     }
-    if (activeTextEditEl) return false;
     var active = document.activeElement;
+    if (activeTextEditEl?.isConnected && activeTextEditEl.contains(active)) {
+      return false;
+    }
     var visited = new Set();
     while (active && !visited.has(active)) {
       visited.add(active);
@@ -15940,8 +15942,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
 
     var receivingContainer = currentParent.parentElement;
-    var target = null;
+    var target =
+      pointerOutsideCurrentParent &&
+      isAutoLayoutElement(document.body) &&
+      (!pointHit ||
+        pointHit === document.body ||
+        pointHit === document.documentElement)
+        ? screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged)
+        : null;
     if (
+      !target &&
       pointerOutsideCurrentParent &&
       receivingContainer &&
       isAutoLayoutElement(receivingContainer) &&
@@ -15958,7 +15968,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         axis: parentFlowAxis(receivingContainer),
         dropMode: "flow-insert",
       };
-    } else {
+    } else if (!target) {
       target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
     }
     if (
@@ -16010,7 +16020,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       (!pointHit ||
         pointHit === document.body ||
         pointHit === document.documentElement) &&
-      dropContainerForTarget(target) === currentParent
+      !isAutoLayoutElement(document.body)
     ) {
       target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
     }
@@ -16034,12 +16044,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       target?.dropMode === "absolute-container" &&
       target.placement !== "inside" &&
       target.anchor?.parentElement === document.body;
+    var screenRootFlowTarget =
+      container === document.body &&
+      target?.dropMode === "flow-insert" &&
+      isAutoLayoutElement(document.body);
     if (
       currentParent !== document.body &&
       (container === document.body ||
         container === document.documentElement ||
         target?.anchor === document.body) &&
-      !unnestPromotedBoardRootTarget
+      !unnestPromotedBoardRootTarget &&
+      !screenRootFlowTarget
     ) {
       target = {
         anchor: currentParent,

@@ -377,6 +377,8 @@ export function AgentJobsTab({
       entry.kind === "automation"
         ? entry.resource.body
         : entry.resource.instructions;
+    const failed =
+      resource.lastStatus === "error" || resource.lastStatus === "interrupted";
 
     return (
       <article
@@ -416,7 +418,9 @@ export function AgentJobsTab({
               </Badge>
             )}
             {resource.lastStatus ? (
-              <Badge variant="outline">{resource.lastStatus}</Badge>
+              <Badge variant={failed ? "destructive" : "outline"}>
+                {resource.lastStatus}
+              </Badge>
             ) : null}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -444,13 +448,17 @@ export function AgentJobsTab({
               ) : null}
             </div>
           ) : null}
-          {resource.lastError ? (
+          {resource.lastError || failed ? (
             <div className="mt-2 flex flex-wrap items-center gap-x-1 text-xs text-destructive">
               <IconAlertTriangle
                 className="size-3 shrink-0"
                 aria-hidden="true"
               />
-              <span className="min-w-0 break-words">{resource.lastError}</span>
+              {resource.lastError ? (
+                <span className="min-w-0 break-words">
+                  {resource.lastError}
+                </span>
+              ) : null}
               <Button
                 type="button"
                 variant="link"

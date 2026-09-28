@@ -273,8 +273,9 @@ function assertRequestedMcpToolsAvailable(
   const requested = automation.meta.mcpTools ?? [];
   const missing = requested.filter((toolName) => !actions[toolName]);
   if (missing.length > 0) {
-    throw new Error(
+    throw new BackgroundAutomationRunError(
       `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the automation's capability list.`,
+      "background_automation_mcp_tools_unavailable",
     );
   }
 }
@@ -306,6 +307,7 @@ export async function runBackgroundAutomation(
         scope: options.orgId ? "organization" : "personal",
         orgId: options.orgId ?? null,
         appId: deps.appId,
+        notificationEmail: options.ownerEmail,
       });
     } catch (err) {
       console.error(

@@ -89,11 +89,11 @@ export function LocalNetworkAccessPrompt({
       <summary className="cursor-pointer">{noPromptLabel}</summary>
       <p className="mt-2 leading-relaxed">{permissionSettingsInstructions}</p>
       <img
-        src="/local-network-access-settings.jpg"
+        src="/local-network-access-settings.png"
         alt={permissionSettingsInstructions}
         className="mt-3 block w-full rounded-md border border-border"
-        width={200}
-        height={140}
+        width={1000}
+        height={620}
         loading="lazy"
       />
     </details>
@@ -108,10 +108,7 @@ export function LocalNetworkAccessPrompt({
             if (!open) setConfirmClose(true);
           }}
         >
-          <DialogContent
-            className="sm:max-w-md"
-            overlayClassName="bg-[color-mix(in_srgb,var(--design-editor-accent-color)_22%,transparent)] backdrop-blur-[2px]"
-          >
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <IconPlugConnected className="size-4" />
@@ -120,11 +117,11 @@ export function LocalNetworkAccessPrompt({
               <DialogDescription>{description}</DialogDescription>
             </DialogHeader>
             <img
-              src="/local-network-access-permission.jpg"
+              src="/local-network-access-permission.png"
               alt={description}
               className="block w-full rounded-md border border-border"
-              width={240}
-              height={150}
+              width={1050}
+              height={664}
             />
             {permissionHelp}
           </DialogContent>

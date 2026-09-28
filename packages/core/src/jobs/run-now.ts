@@ -129,7 +129,7 @@ export async function queueAutomationRunNow(
       { statusCode: 403 },
     );
   }
-  const { body } = parseJobResource(resource.content);
+  const { body, meta } = parseJobResource(resource.content);
   if (!body.trim()) {
     throw Object.assign(
       new Error(`Automation "${name}" has no instructions.`),
@@ -156,6 +156,7 @@ export async function queueAutomationRunNow(
     scope: input.scope,
     orgId: input.scope === "organization" ? input.orgId : null,
     appId: input.appId,
+    notificationEmail: meta.createdBy ?? input.userEmail,
     dispatchPending: true,
   });
   try {

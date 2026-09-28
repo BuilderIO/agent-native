@@ -92,6 +92,7 @@ vi.mock("./variant-slots.js", () => ({
 }));
 
 import { detectArtifactReceipts } from "../../../packages/core/src/artifacts/detect.js";
+import { ASSETS_VARIATION_GRID_RENDERER } from "../shared/action-ui.js";
 import { imageArtifactLinks, serializeAssetSummary } from "./_helpers.js";
 import action from "./generate-image-batch.js";
 
@@ -158,6 +159,40 @@ describe("generate-image-batch", () => {
     expect(agentShape).not.toHaveProperty("variantScopeId");
     expect(agentShape).not.toHaveProperty("creativeContextRequestId");
     expect(agentShape).not.toHaveProperty("callerAppId");
+  });
+
+  it("renders only successful image results through the variation card", () => {
+    const args = {
+      slots: [{ slotId: "slot-1", prompt: "A hero image" }],
+    };
+    const result = {
+      images: [
+        {
+          ok: true,
+          slotId: "slot-1",
+          id: "asset-1",
+          libraryId: "lib-1",
+          previewUrl: "/api/assets/asset-1/content",
+        },
+      ],
+    };
+
+    expect(action.chatUI?.renderer).toBe(ASSETS_VARIATION_GRID_RENDERER);
+    expect(action.chatUI?.when?.(args, result)).toBe(true);
+    expect(action.chatUI?.when?.(args, { images: [{ ok: false }] })).toBe(
+      false,
+    );
+    expect(action.chatUI?.projectResult?.(args, result)).toEqual({
+      images: [
+        {
+          id: "asset-1",
+          libraryId: "lib-1",
+          title: null,
+          previewUrl: "/api/assets/asset-1/content",
+          prompt: "A hero image",
+        },
+      ],
+    });
   });
 
   it("only requires draft access, so a kit viewer can generate candidates", async () => {

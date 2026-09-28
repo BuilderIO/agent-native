@@ -3,7 +3,12 @@ import { AI_IMPORTANT_LABEL } from "./ai-priority.js";
 import { normalizeMailLabel } from "./gmail-labels.js";
 import type { AutomationAction, AutomationRule } from "./types.js";
 
-export type AiFilterRuleMode = "important" | "tag" | "filtered" | "archive";
+export type AiFilterRuleMode =
+  | "important"
+  | "notify"
+  | "tag"
+  | "filtered"
+  | "archive";
 
 export function isReservedAiFilterLabelName(labelName: string): boolean {
   const normalized = normalizeMailLabel(labelName);
@@ -21,6 +26,16 @@ export function aiFilterRuleMode(
       action.type === "label",
   );
   const archives = rule.actions.filter((action) => action.type === "archive");
+  const notifies = rule.actions.filter((action) => action.type === "notify");
+
+  if (
+    rule.actions.length === 2 &&
+    labels.length === 1 &&
+    notifies.length === 1 &&
+    labels[0].labelName === AI_IMPORTANT_LABEL
+  ) {
+    return "notify";
+  }
 
   if (
     rule.actions.length === 2 &&
@@ -60,6 +75,12 @@ export function aiFilterRuleActionsForMode(
 ): AutomationAction[] {
   if (mode === "important") {
     return [{ type: "label", labelName: AI_IMPORTANT_LABEL }];
+  }
+  if (mode === "notify") {
+    return [
+      { type: "label", labelName: AI_IMPORTANT_LABEL },
+      { type: "notify" },
+    ];
   }
   if (mode === "filtered") {
     return [{ type: "label", labelName: AI_FILTER_LABEL }, { type: "archive" }];

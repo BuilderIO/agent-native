@@ -1916,7 +1916,7 @@ function AgentPanelInner({
 
   const activeTabResizeObserverRef = useRef<ResizeObserver | null>(null);
   const scrollActiveTabIntoView = useCallback((el: HTMLDivElement) => {
-    const container = el.parentElement;
+    const container = getActiveTabScrollContainer(el);
     if (!container) return;
     requestAnimationFrame(() => {
       const delta = getActiveTabScrollDelta(
@@ -1932,7 +1932,7 @@ function AgentPanelInner({
       activeTabResizeObserverRef.current?.disconnect();
       activeTabResizeObserverRef.current = null;
       if (!el) return;
-      const container = el.parentElement;
+      const container = getActiveTabScrollContainer(el);
       if (!container) return;
 
       const observer =
@@ -1940,6 +1940,7 @@ function AgentPanelInner({
           ? null
           : new ResizeObserver(() => scrollActiveTabIntoView(el));
       observer?.observe(container);
+      observer?.observe(el);
       activeTabResizeObserverRef.current = observer;
       scrollActiveTabIntoView(el);
     },
@@ -2552,7 +2553,9 @@ function AgentPanelInner({
                 onMessageCountChange={onMessageCountChange}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
+                suggestionPlacement={
+                  assistantChatProps.suggestionPlacement ?? "context-chips"
+                }
                 onSwitchToCli={() => switchMode("cli")}
                 execMode={execMode}
                 onExecModeChange={switchExecMode}
@@ -2660,6 +2663,12 @@ export function getActiveTabScrollDelta(
     return tabRect.right - containerRect.right + margin;
   }
   return 0;
+}
+
+export function getActiveTabScrollContainer(
+  el: HTMLElement,
+): HTMLElement | null {
+  return el.closest<HTMLElement>(".agent-tabs-scroll");
 }
 
 class AgentPanelErrorBoundary extends React.Component<

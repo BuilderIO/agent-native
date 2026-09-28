@@ -69,6 +69,14 @@ describe("manage-gmail-filters action", () => {
       title: "from bots@example.test",
       detail: "Archive",
       url: "https://mail.google.com/mail/?authuser=owner%40example.test#settings/filters",
+      undo: {
+        action: "manage-gmail-filters",
+        args: {
+          operation: "delete",
+          id: "filter-new",
+          account: "owner@example.test",
+        },
+      },
     });
     expect(result.filter.criteriaSummary).toBe(result.change.title);
     expect(result.filter.actionSummary).toBe(result.change.detail);
@@ -95,6 +103,18 @@ describe("manage-gmail-filters action", () => {
       title: "from bots@example.test",
       detail: "Archive",
       url: "https://mail.google.com/mail/?authuser=owner%40example.test#settings/filters",
+      undo: {
+        action: "manage-gmail-filters",
+        args: {
+          operation: "replace",
+          id: "filter-new",
+          account: "owner@example.test",
+          criteriaJson: JSON.stringify({ from: "old@example.test" }),
+          filterActionJson: JSON.stringify({ removeLabelIds: ["INBOX"] }),
+          replaceCriteria: true,
+          replaceAction: true,
+        },
+      },
     });
   });
 

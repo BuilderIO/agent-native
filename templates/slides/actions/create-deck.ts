@@ -24,6 +24,10 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
+import {
+  projectSlidesDeckResult,
+  SLIDES_DECK_RESULT_RENDERER,
+} from "../shared/action-ui.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
@@ -236,6 +240,11 @@ export default defineAction({
       .default([])
       .describe("Deck-wide exact context item versions used"),
   }),
+  chatUI: {
+    renderer: SLIDES_DECK_RESULT_RENDERER,
+    when: (_args, result) => projectSlidesDeckResult(result) !== null,
+    projectResult: (_args, result) => projectSlidesDeckResult(result),
+  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({

@@ -128,6 +128,7 @@ import {
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import { resolveGoogleSlidesImportPayload } from "@/lib/google-slides-reference-source";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -540,7 +541,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
-  const { generating, submit: agentSubmit } = useAgentGenerating();
+  const { generating, submitAndConfirm: agentSubmit } = useAgentGenerating();
   const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
     designSystems,
     defaultSystem?.id,
@@ -1256,17 +1257,28 @@ export default function Index({ active = true }: { active?: boolean }) {
     deleteClientAppState("guided-questions").catch(() => {});
 
     try {
-      agentSubmit(createDeckAgentMessage(prompt), context, {
-        newTab: true,
-        reuseEmptyTab: true,
-        openSidebar: true,
-        submitMessageId: generationSubmitMessageId,
-        generationAttemptId,
-        generationOutputId: deckId,
-        ...getUploadedImageAgentOptions(filesForGeneration),
-        attachments: attachmentsForGeneration,
-        ...modelSelection,
-      });
+      const submission = await agentSubmit(
+        createDeckAgentMessage(prompt),
+        context,
+        {
+          newTab: true,
+          reuseEmptyTab: true,
+          openSidebar: true,
+          submitMessageId: generationSubmitMessageId,
+          generationAttemptId,
+          generationOutputId: deckId,
+          ...getUploadedImageAgentOptions(filesForGeneration),
+          attachments: attachmentsForGeneration,
+          ...modelSelection,
+        },
+      );
+      if (!submission.delivered) {
+        recoverFromGenerationSetupFailure(
+          submission.reason ?? t("home.generationStartFailedDescription"),
+          "agent_submit_failed",
+        );
+        return;
+      }
       trackEvent("generation_request_accepted", {
         app_name: "slides",
         template_name: "slides",
@@ -1805,9 +1817,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       if (source.kind !== "google-docs") return null;
       setReferenceImporting(true);
       try {
-        const imported = (await callAction("import-google-slides-reference", {
-          presentationUrl: source.value,
-        })) as {
+        const payload = resolveGoogleSlidesImportPayload(source.value);
+        const raw = await callAction("import-google-slides-reference", payload);
+        const imported = raw as {
           id?: unknown;
           imported?: unknown;
           slideCount?: unknown;

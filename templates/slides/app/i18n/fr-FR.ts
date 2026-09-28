@@ -601,6 +601,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Enregistré" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -669,6 +670,21 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "Erreur 403",
+    noAccessTitle: "Vous n'avez pas accès",
+    noAccessDescription:
+      "Demandez l'accès au propriétaire du deck ou passez au bon compte.",
+    noteLabel: "Ajoutez une note pour le propriétaire (facultatif)",
+    notePlaceholder: "Je relis ce deck",
+    requesting: "Demande en cours",
+    requestFailed: "Votre demande n'a pas été envoyée. Veuillez réessayer.",
+    requestSentDescription:
+      "Nous vous enverrons un e-mail dès que le propriétaire aura approuvé votre demande.",
+    goHome: "Accueil",
+    signedInAs: "Connecté en tant que",
+    switchAccount: "Changer de compte",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -716,6 +732,9 @@ const messages = {
     accessApprovalTitle: "Accès accordé",
     accessApprovalAlreadyTitle: "Accès déjà accordé",
     accessApprovalMessage: "{{email}} peut maintenant ouvrir ce deck.",
+    accessApprovalRequesterEmailed: "Nous l'avons prévenu par e-mail.",
+    accessApprovalRequesterEmailFailed:
+      "Impossible d'envoyer un e-mail à {{email}}. Prévenez-le qu'il peut maintenant ouvrir le deck.",
     accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce deck.",
     accessApprovalErrorTitle: "Impossible d’accorder l’accès",
     accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",

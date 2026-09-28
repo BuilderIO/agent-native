@@ -591,6 +591,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "تم الحفظ" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -661,6 +662,20 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "خطأ 403",
+    noAccessTitle: "ليس لديك صلاحية الوصول",
+    noAccessDescription: "اطلب الوصول من مالك العرض، أو بدّل إلى الحساب الصحيح.",
+    noteLabel: "أضف ملاحظة للمالك (اختياري)",
+    notePlaceholder: "أراجع هذا العرض",
+    requesting: "جارٍ الطلب",
+    requestFailed: "لم يُرسَل طلبك. يُرجى المحاولة مرة أخرى.",
+    requestSentDescription:
+      "سنرسل إليك بريدًا إلكترونيًا فور موافقة المالك على طلبك.",
+    goHome: "الانتقال إلى الرئيسية",
+    signedInAs: "تم تسجيل الدخول باسم",
+    switchAccount: "تبديل الحساب",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
@@ -707,6 +722,9 @@ const messages = {
     accessApprovalTitle: "تم منح الوصول",
     accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
     accessApprovalMessage: "يمكن لـ {{email}} فتح هذا العرض الآن.",
+    accessApprovalRequesterEmailed: "أرسلنا إليه بريدًا إلكترونيًا لإعلامه.",
+    accessApprovalRequesterEmailFailed:
+      "تعذّر إرسال بريد إلكتروني إلى {{email}}. أخبره أنه يمكنه فتح العرض الآن.",
     accessApprovalAlreadyMessage:
       "لدى {{email}} صلاحية الوصول إلى هذا العرض بالفعل.",
     accessApprovalErrorTitle: "تعذّر منح الوصول",

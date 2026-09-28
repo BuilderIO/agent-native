@@ -108,6 +108,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "user_id",
     mode: "email-user-id",
   },
+  { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },
@@ -202,6 +203,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "chat_threads", column: "scope_id", mode: "typed-scope" },
   { table: "tool_data", column: "scope_key", mode: "scope-key" },
   { table: "automation_runs", column: "owner", mode: "owner" },
+  { table: "automation_runs", column: "notification_email" },
   { table: "sandbox_executions", column: "owner", mode: "owner" },
 ];
 

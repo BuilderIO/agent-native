@@ -166,14 +166,14 @@ describe("allowPublic: false", () => {
           resourceId: "doc-2",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
       await expect(
         setResourceVisibility.run({
           resourceType,
           resourceId: "doc-2",
           visibility: "private",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "private" });
+      ).resolves.toMatchObject({ ok: true, visibility: "private" });
     });
   });
 

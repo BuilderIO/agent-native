@@ -249,6 +249,9 @@ import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
+  type AgentTurnInitiator,
+  AgentTurnInitiatorMismatchError,
+  AgentTurnInitiatorUnavailableError,
   insertRun,
   insertRunEvent,
   isTurnAborted,
@@ -7655,6 +7658,7 @@ export async function chainServerDrivenContinuation(opts: {
   noProgressRepeat?: BackgroundNoProgressRepeat;
   turnInputTokens?: number;
   chainViaDurableBackground: boolean;
+  turnInitiator?: AgentTurnInitiator;
   workerProvenInBackgroundFunction?: boolean;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
@@ -7810,9 +7814,16 @@ export async function chainServerDrivenContinuation(opts: {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
         dispatchPayload: JSON.stringify(continuationBody),
+        ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
     } catch (insertErr) {
+      if (
+        insertErr instanceof AgentTurnInitiatorMismatchError ||
+        insertErr instanceof AgentTurnInitiatorUnavailableError
+      ) {
+        throw insertErr;
+      }
       await d
         .recordRunDiagnostic(
           runId,
@@ -8284,6 +8295,20 @@ export function createProductionAgentHandler(
     });
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
+    const runRequestContext = getRequestContext();
+    const turnInitiator: AgentTurnInitiator | undefined = ownerEmail
+      ? {
+          email: ownerEmail,
+          authUserId: runRequestContext?.authUserId ?? null,
+          orgId: getRequestOrgId() ?? null,
+          orgScope: runRequestContext?.orgScope ?? null,
+          anonymous: runRequestContext?.agentRunAnonymous === true,
+        }
+      : undefined;
+    if (dispatchToBackground && !turnInitiator) {
+      setResponseStatus(event, 401);
+      return { error: "Background agent runs require a persisted initiator" };
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -9187,21 +9212,34 @@ export function createProductionAgentHandler(
       ) {
         return { ok: true, stopped: true };
       }
-      const slot = await tryClaimRunSlot(threadId, runId, undefined, {
-        turnId: effectiveTurnId,
-        replayCompletedTurn:
-          typeof requestTurnId === "string" &&
-          Boolean(requestTurnId.trim()) &&
-          !requestedApprovedToolCalls,
-        dispatchMode: dispatchToBackground
-          ? "background"
-          : foregroundSelfChainEligible
-            ? "foreground-self-chain"
-            : "foreground",
-        ...(dispatchToBackground
-          ? { dispatchPayload: JSON.stringify(body) }
-          : {}),
-      });
+      let slot;
+      try {
+        slot = await tryClaimRunSlot(threadId, runId, undefined, {
+          turnId: effectiveTurnId,
+          ...(turnInitiator ? { turnInitiator } : {}),
+          replayCompletedTurn:
+            typeof requestTurnId === "string" &&
+            Boolean(requestTurnId.trim()) &&
+            !requestedApprovedToolCalls,
+          dispatchMode: dispatchToBackground
+            ? "background"
+            : foregroundSelfChainEligible
+              ? "foreground-self-chain"
+              : "foreground",
+          ...(dispatchToBackground
+            ? { dispatchPayload: JSON.stringify(body) }
+            : {}),
+        });
+      } catch (error) {
+        if (
+          error instanceof AgentTurnInitiatorMismatchError ||
+          error instanceof AgentTurnInitiatorUnavailableError
+        ) {
+          setResponseStatus(event, 409);
+          return { error: "This agent turn cannot resume for this initiator" };
+        }
+        throw error;
+      }
       if (slot.turnAborted) {
         return { ok: true, stopped: true };
       }
@@ -9369,6 +9407,7 @@ export function createProductionAgentHandler(
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
             dispatchPayload: JSON.stringify(body),
+            ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
         } catch (err) {
@@ -9680,6 +9719,7 @@ export function createProductionAgentHandler(
                   isAgentChatDurableBackgroundEnabled({
                     appOptIn: options.durableBackgroundRuns,
                   }) && !runsInBackgroundFunction,
+                turnInitiator,
                 workerProvenInBackgroundFunction: runsInBackgroundFunction,
               });
             }
@@ -9702,6 +9742,7 @@ export function createProductionAgentHandler(
         if (isChainedBackgroundContinuation) {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
+            ...(turnInitiator ? { turnInitiator } : {}),
           }).catch(() => {});
         }
         const won = await claimBackgroundRun(runId);
@@ -10189,6 +10230,7 @@ export function createProductionAgentHandler(
         backgroundFunction: runsInBackgroundFunction,
         noProgressTimeoutMs: options.runNoProgressTimeoutMs,
         turnId: effectiveTurnId,
+        turnInitiator,
         parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,
         dispatchMode: isBackgroundWorker

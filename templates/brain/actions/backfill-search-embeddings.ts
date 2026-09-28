@@ -22,7 +22,7 @@ import {
 export const backfillSearchEmbeddingsSchema = z
   .object({
     sourceId: idSchema,
-    dryRun: booleanishSchema.default(true),
+    mode: z.enum(["preview", "queue"]),
     force: booleanishSchema.default(false),
     captureIds: stringArrayCliSchema({ min: 1, max: 50 }).optional(),
     afterUpdatedAt: z.string().datetime().optional(),
@@ -234,21 +234,21 @@ async function readSourceEmbeddingReadiness(sourceId: string) {
 }
 
 export function backfillSearchEmbeddingsNeedsApproval(args: {
-  dryRun?: unknown;
+  mode?: unknown;
 }) {
-  return !booleanishSchema.default(true).parse(args.dryRun);
+  return args.mode === "queue";
 }
 
 export default defineAction({
   description:
-    "Dry-run or durably queue semantic embedding backfills for a bounded page of allowed captures from one accessible Brain source.",
+    "Preview or durably queue semantic embedding backfills for a bounded page of allowed captures from one accessible Brain source. Set mode to preview for a read-only check or queue to request approval before queueing.",
   schema: backfillSearchEmbeddingsSchema,
   needsApproval: backfillSearchEmbeddingsNeedsApproval,
   toolCallable: false,
   run: async (args) => {
     await assertAccess("brain-source", args.sourceId, "admin");
     const readiness = await readSourceEmbeddingReadiness(args.sourceId);
-    if (!args.dryRun && !readiness.ready) {
+    if (args.mode === "queue" && !readiness.ready) {
       throw new Error(
         readiness.warning ??
           "Set up an embeddings provider before backfilling.",
@@ -289,9 +289,9 @@ export default defineAction({
           }
         : null;
 
-    if (args.dryRun) {
+    if (args.mode === "preview") {
       return {
-        dryRun: true,
+        mode: "preview" as const,
         sourceId: args.sourceId,
         readiness,
         scanned: page.rows.length,
@@ -315,7 +315,7 @@ export default defineAction({
       ),
     );
     return {
-      dryRun: false,
+      mode: "queue" as const,
       sourceId: args.sourceId,
       readiness,
       scanned: page.rows.length,
