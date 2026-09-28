@@ -3817,6 +3817,50 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("finds a newer continuation when the previous run still looks running in SQL", async () => {
+    const run = startRun(
+      "run-stale-sql-with-successor",
+      "thread-stale-sql-with-successor",
+      async () => {},
+      undefined,
+      { turnId: "turn-stale-sql-with-successor" },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread)
+      .mockResolvedValueOnce({
+        id: "run-stale-sql-with-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt,
+        heartbeatAt: run.startedAt,
+        completedAt: null,
+        lastProgressAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: "run-continuation-successor",
+        threadId: "thread-stale-sql-with-successor",
+        turnId: "turn-stale-sql-with-successor",
+        status: "running",
+        startedAt: run.startedAt + 1,
+        heartbeatAt: run.startedAt + 1,
+        completedAt: null,
+        lastProgressAt: run.startedAt + 1,
+      });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-stale-sql-with-successor",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-continuation-successor",
+      status: "running",
+      turnId: "turn-stale-sql-with-successor",
+    });
+  });
+
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {
     const run = startRun(
       "run-fix1-chunk0",

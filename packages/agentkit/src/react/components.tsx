@@ -83,6 +83,7 @@ import {
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import type { AgentThreadState } from "../client/state.js";
+import { hasActiveAgentRuns } from "../client/state.js";
 import {
   inferAgentActivityKind,
   type AgentActivity,
@@ -2398,7 +2399,7 @@ export function AgentMessageActions({
                 pending={regenerateAction.pending}
                 disabled={
                   regenerateAction.pending ||
-                  thread.activeRunIds.length > 0 ||
+                  hasActiveAgentRuns(thread) ||
                   !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
@@ -2560,7 +2561,7 @@ export function AgentMessageActions({
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
                 disabled={
-                  thread.activeRunIds.length > 0 || !forkingCapability.enabled
+                  hasActiveAgentRuns(thread) || !forkingCapability.enabled
                 }
                 title={forkingCapability.reason}
                 aria-pressed={editContext.message?.id === message.id}
@@ -2794,18 +2795,7 @@ export interface AgentKitComposerProps extends Omit<
 }
 
 function hasActiveRuns(thread: AgentThreadState): boolean {
-  return thread.activeRunIds.some((runId) => {
-    const status = thread.runs[runId]?.status;
-    if (
-      status === "awaiting_approval" &&
-      !Object.values(thread.approvalRunIds).includes(runId)
-    ) {
-      return false;
-    }
-    return (
-      status !== "completed" && status !== "failed" && status !== "cancelled"
-    );
-  });
+  return hasActiveAgentRuns(thread);
 }
 
 export function AgentKitComposer({
@@ -3078,12 +3068,13 @@ export function AgentKitComposer({
       return;
     }
 
+    const submissionThread = controller.getThread(threadId);
+    const activeAtSubmit = hasActiveRuns(submissionThread);
     const draft = createAgentKitComposerSubmission({
       threadId,
       intent:
         canQueue &&
-        (options.intent === "queued" ||
-          (hasActiveRuns(controller.getThread(threadId)) && queueWhileRunning))
+        (options.intent === "queued" || (activeAtSubmit && queueWhileRunning))
           ? "queued"
           : "immediate",
       text,

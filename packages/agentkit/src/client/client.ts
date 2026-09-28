@@ -1271,9 +1271,11 @@ export class AgentKitClient implements AgentKitController {
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
-    const runWasActive = this.getThread(input.threadId).activeRunIds.length > 0;
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
+      const threadBeforeWrite = this.getThread(input.threadId);
+      const runWasActive = threadBeforeWrite.activeRunIds.length > 0;
+      const runIdsBeforeWrite = new Set(Object.keys(threadBeforeWrite.runs));
       const result = await this.invokeRequest(requestContext, (context) =>
         queueMessage(
           {
@@ -1303,7 +1305,10 @@ export class AgentKitClient implements AgentKitController {
         const status = updatedThread.runs[runId]?.status;
         return status === "awaiting_approval" || status === "awaiting_input";
       });
-      if (runWasActive && !waitingForInput) {
+      const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
+        (runId) => !runIdsBeforeWrite.has(runId),
+      );
+      if (!waitingForInput && (runWasActive || runStartedDuringWrite)) {
         this.scheduleQueuePromotion(input.threadId);
       }
       return result.message;
@@ -2834,8 +2839,6 @@ export class AgentKitClient implements AgentKitController {
     if (this.queuePromotions.has(threadId)) return;
     const queued = thread.queuedMessages[0];
     if (!queued) return;
-    // Reached only after a terminal event, so a queued follow-up that cannot
-    // be promoted here is stranded rather than merely waiting.
     if (!this.transport.steerQueuedMessage) {
       this.reportIntegrity({
         code: "queue_promotion_dropped",

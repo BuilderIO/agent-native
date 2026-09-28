@@ -2339,7 +2339,10 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   if (memRun && (memRun.status === "running" || memRun.events.length > 0)) {
     const sqlSnapshot = await fetchRunThreadSnapshot(memRun.runId, threadId);
 
-    if (!sqlSnapshot && memRun.status !== "running") {
+    if (
+      memRun.status !== "running" &&
+      (!sqlSnapshot || sqlSnapshot.status === "running")
+    ) {
       const successor = await fetchNewerNonTerminalRunForSameTurn(
         threadId,
         memRun,

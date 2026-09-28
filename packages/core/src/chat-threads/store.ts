@@ -321,6 +321,7 @@ export interface ForkThreadSourceSnapshot {
   title?: string;
   preview?: string;
   messageCount?: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 }
 
@@ -370,6 +371,7 @@ function normalizeForkSourceSnapshot(
   title: string;
   preview: string;
   messageCount: number;
+  fromMessageId?: string;
   scope?: ChatThreadScope | null;
 } | null {
   if (!source || typeof source.threadData !== "string") return null;
@@ -386,38 +388,249 @@ function normalizeForkSourceSnapshot(
   const repoMessageCount = Array.isArray(parsed.messages)
     ? parsed.messages.length
     : 0;
-  if (repoMessageCount <= 0) return null;
+  const agentKitMessageCount = Array.isArray(parsed.agentKit?.messages)
+    ? parsed.agentKit.messages.length
+    : 0;
+  const messageCount = Math.max(repoMessageCount, agentKitMessageCount);
+  if (messageCount <= 0) return null;
 
   return {
     threadData: JSON.stringify(parsed),
     title: typeof source.title === "string" ? source.title : "",
     preview: typeof source.preview === "string" ? source.preview : "",
-    messageCount: repoMessageCount,
+    messageCount,
+    ...(typeof source.fromMessageId === "string"
+      ? { fromMessageId: source.fromMessageId }
+      : {}),
     ...(Object.prototype.hasOwnProperty.call(source, "scope")
       ? { scope: source.scope ?? null }
       : {}),
   };
 }
 
-function forkThreadData(threadData: string, forkId: string): string {
-  const repository = JSON.parse(threadData);
+function forkThreadData(
+  threadData: string,
+  forkId: string,
+  fromMessageId?: string,
+): string {
+  const parsed = normalizeThreadRepository(JSON.parse(threadData));
+  const repository =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
   const agentKit = repository?.agentKit;
   if (!agentKit || typeof agentKit !== "object" || Array.isArray(agentKit)) {
     return threadData;
   }
+  const agentKitRecord = agentKit as Record<string, unknown>;
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  const repositoryMessages = Array.isArray(repository.messages)
+    ? repository.messages
+    : [];
+  const protocolMessages = Array.isArray(agentKitRecord.messages)
+    ? agentKitRecord.messages
+    : [];
+  const messageId = (value: unknown) => {
+    const outer = asRecord(value);
+    const message = asRecord(outer?.message) ?? outer;
+    return typeof message?.id === "string" ? message.id : undefined;
+  };
+  const messageIds = new Set<string>();
+  if (fromMessageId) {
+    for (const messages of [repositoryMessages, protocolMessages]) {
+      const throughIndex = messages.findIndex(
+        (message) => messageId(message) === fromMessageId,
+      );
+      if (throughIndex >= 0) {
+        for (const message of messages.slice(0, throughIndex + 1)) {
+          const id = messageId(message);
+          if (id) messageIds.add(id);
+        }
+      }
+    }
+    if (!messageIds.has(fromMessageId)) {
+      throw new Error(`Unknown message for fork: ${fromMessageId}`);
+    }
+  } else {
+    for (const message of [...repositoryMessages, ...protocolMessages]) {
+      const id = messageId(message);
+      if (id) messageIds.add(id);
+    }
+  }
+  const events = Array.isArray(agentKitRecord.events)
+    ? agentKitRecord.events
+    : [];
+  const runs = Array.isArray(agentKitRecord.runs) ? agentKitRecord.runs : [];
+  const eventBoundaries = new Map<string, number>();
+  for (const rawEvent of events) {
+    const event = asRecord(rawEvent);
+    const message = asRecord(event?.message);
+    const messageId =
+      typeof event?.messageId === "string"
+        ? event.messageId
+        : typeof message?.id === "string"
+          ? message.id
+          : undefined;
+    if (
+      event?.type === "message.completed" &&
+      typeof event?.runId === "string" &&
+      typeof event.sequence === "number" &&
+      messageId &&
+      messageIds.has(messageId)
+    ) {
+      eventBoundaries.set(
+        event.runId,
+        Math.max(eventBoundaries.get(event.runId) ?? 0, event.sequence),
+      );
+    }
+  }
+  for (const rawRun of runs) {
+    const run = asRecord(rawRun);
+    if (
+      typeof run?.id === "string" &&
+      typeof run.activeMessageId === "string" &&
+      messageIds.has(run.activeMessageId) &&
+      typeof run.lastSequence === "number"
+    ) {
+      eventBoundaries.set(
+        run.id,
+        Math.max(eventBoundaries.get(run.id) ?? 0, run.lastSequence),
+      );
+    }
+  }
+  const retainedRunIds = new Set(eventBoundaries.keys());
+  const nonterminalRunIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        (run.status === "queued" ||
+          run.status === "running" ||
+          run.status === "awaiting_approval" ||
+          run.status === "awaiting_input")
+        ? [run.id]
+        : [];
+    }),
+  );
+  const activeMessageIds = new Set(
+    runs.flatMap((rawRun) => {
+      const run = asRecord(rawRun);
+      return typeof run?.id === "string" &&
+        nonterminalRunIds.has(run.id) &&
+        typeof run.activeMessageId === "string"
+        ? [run.activeMessageId]
+        : [];
+    }),
+  );
+  const retainedMessageId = (value: unknown) => {
+    const id = messageId(value);
+    return Boolean(id && messageIds.has(id));
+  };
   const remapThreadId = (value: unknown) =>
     value && typeof value === "object" && !Array.isArray(value)
       ? { ...value, threadId: forkId }
       : value;
   return JSON.stringify({
     ...repository,
+    ...(Array.isArray(repository.messages)
+      ? { messages: repositoryMessages.filter(retainedMessageId) }
+      : {}),
     agentKit: {
-      ...agentKit,
-      ...(Array.isArray(agentKit.events)
-        ? { events: agentKit.events.map(remapThreadId) }
+      ...agentKitRecord,
+      ...(Array.isArray(agentKitRecord.messages)
+        ? {
+            messages: agentKitRecord.messages
+              .filter(retainedMessageId)
+              .map((message) => {
+                const record = asRecord(message)!;
+                return typeof record.id === "string" &&
+                  activeMessageIds.has(record.id) &&
+                  record.status === "streaming"
+                  ? { ...record, status: "complete" }
+                  : record;
+              }),
+          }
         : {}),
-      ...(Array.isArray(agentKit.runs)
-        ? { runs: agentKit.runs.map(remapThreadId) }
+      ...(Array.isArray(agentKitRecord.events)
+        ? {
+            events: events.flatMap((rawEvent) => {
+              const event = asRecord(rawEvent);
+              const runId = event?.runId;
+              const boundary =
+                typeof runId === "string"
+                  ? eventBoundaries.get(runId)
+                  : undefined;
+              if (
+                typeof runId !== "string" ||
+                boundary === undefined ||
+                typeof event?.sequence !== "number" ||
+                event.sequence > boundary
+              ) {
+                return [];
+              }
+              if (
+                nonterminalRunIds.has(runId) &&
+                (event.type === "activity.started" ||
+                  event.type === "activity.updated")
+              ) {
+                const activity = asRecord(event.activity);
+                if (activity?.status === "running") {
+                  return [
+                    {
+                      ...event,
+                      type: "activity.completed",
+                      activity: { ...activity, status: "cancelled" },
+                      threadId: forkId,
+                    },
+                  ];
+                }
+              }
+              return [remapThreadId(rawEvent)];
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.runs)
+        ? {
+            runs: runs.flatMap((rawRun) => {
+              const run = asRecord(rawRun);
+              if (typeof run?.id !== "string" || !retainedRunIds.has(run.id)) {
+                return [];
+              }
+              const copied: Record<string, unknown> = {
+                ...run,
+                threadId: forkId,
+              };
+              if (nonterminalRunIds.has(run.id)) {
+                copied.status = "cancelled";
+                delete copied.activeMessageId;
+              }
+              return [copied];
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.widgets)
+        ? {
+            widgets: agentKitRecord.widgets.filter((widget) => {
+              const record = asRecord(widget);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
+        : {}),
+      ...(Array.isArray(agentKitRecord.annotations)
+        ? {
+            annotations: agentKitRecord.annotations.filter((annotation) => {
+              const record = asRecord(annotation);
+              return (
+                typeof record?.messageId === "string" &&
+                messageIds.has(record.messageId)
+              );
+            }),
+          }
         : {}),
       activeRunIds: [],
     },
@@ -685,14 +898,11 @@ export async function forkThread(
   } else if (
     snapshot &&
     source.ownerEmail === ownerEmail &&
-    snapshot.messageCount > source.messageCount
+    (snapshot.fromMessageId || snapshot.messageCount > source.messageCount)
   ) {
-    // The source row exists but the in-memory snapshot is fresher — the agent
-    // run flushed an older state to SQL, but the tab has additional unflushed
-    // messages. Overlay the snapshot before cloning so the fork captures the
-    // latest user-visible content. Guard with messageCount > stored to avoid
-    // clobbering a fresher persisted row with a stale snapshot from another
-    // tab.
+    // Message-scoped forks intentionally carry a truncated snapshot even when
+    // the persisted source has later messages; full forks only overlay fresher
+    // client snapshots.
     source = {
       ...source,
       threadData: snapshot.threadData,
@@ -708,7 +918,11 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(source.threadData, id);
+  const threadData = forkThreadData(
+    source.threadData,
+    id,
+    snapshot?.fromMessageId,
+  );
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();

@@ -10,7 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentKitClient, createAgentThreadState } from "../client/index.js";
-import type { AgentTransport } from "../protocol/index.js";
+import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import {
   AgentKitComposer,
   type AgentKitComposerSubmission,
@@ -343,11 +343,35 @@ describe("AgentKit composer context submission", () => {
           lastSequence: 2,
         },
       },
+      events: [
+        {
+          id: "approval-requested",
+          threadId: "thread-1",
+          runId: "approval-run",
+          sequence: 1,
+          occurredAt: "2026-08-29T00:00:00.000Z",
+          type: "approval.requested",
+          request: { id: "approval", title: "Continue?" },
+        } satisfies AgentEvent,
+      ],
       approvalRunIds: { approval: "approval-run" },
     };
     const resolvedApprovalThread = {
       ...awaitingApprovalThread,
       approvalRunIds: {},
+      events: [
+        ...awaitingApprovalThread.events,
+        {
+          id: "approval-resolved",
+          threadId: "thread-1",
+          runId: "continuation-run",
+          sequence: 1,
+          occurredAt: "2026-08-29T00:00:01.000Z",
+          type: "approval.resolved",
+          approvalId: "approval",
+          response: { decision: "approve" },
+        } satisfies AgentEvent,
+      ],
     };
     const snapshot = {
       ...client.getSnapshot(),
@@ -374,6 +398,56 @@ describe("AgentKit composer context submission", () => {
 
     expect(runtime.startRun).toHaveBeenCalledOnce();
     expect(runtime.queueMessage).not.toHaveBeenCalled();
+  });
+
+  it("queues while an approval is pending without its approval projection", async () => {
+    const runtime = transport();
+    client = new AgentKitClient({ transport: runtime });
+    const pendingApprovalThread = {
+      ...createAgentThreadState("thread-1"),
+      activeRunIds: ["approval-run"],
+      runs: {
+        "approval-run": {
+          id: "approval-run",
+          status: "awaiting_approval" as const,
+          lastSequence: 2,
+        },
+      },
+      events: [
+        {
+          id: "approval-requested",
+          threadId: "thread-1",
+          runId: "approval-run",
+          sequence: 1,
+          occurredAt: "2026-08-29T00:00:00.000Z",
+          type: "approval.requested",
+          request: { id: "approval", title: "Continue?" },
+        } satisfies AgentEvent,
+      ],
+      approvalRunIds: {},
+    };
+    const snapshot = {
+      ...client.getSnapshot(),
+      threads: { "thread-1": pendingApprovalThread },
+    };
+    vi.spyOn(client, "getSnapshot").mockReturnValue(snapshot);
+    vi.spyOn(client, "getThread").mockReturnValue(pendingApprovalThread);
+
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer autoFocus={false} />
+        </AgentKitProvider>,
+      ),
+    );
+    await act(async () => {
+      await capture.props!.onSubmit("Next after approval", [], [], {});
+    });
+
+    expect(runtime.queueMessage.mock.calls[0][0]).toMatchObject({
+      text: "Next after approval",
+    });
+    expect(runtime.startRun).not.toHaveBeenCalled();
   });
 
   it.each(["pending", "error"] as const)(

@@ -1,5 +1,8 @@
-import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import type { AgentThreadState } from "@agent-native/agentkit";
+import {
+  hasActiveAgentRuns,
+  type AgentKitUploadDriver,
+  type AgentThreadState,
+} from "@agent-native/agentkit";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
@@ -1160,9 +1163,9 @@ const AgentKitAssistantChatBody = forwardRef<
         .find((message) => message.role === "assistant"),
     [thread.messages],
   );
-  const isRunning = thread.activeRunIds.length > 0;
+  const isRunning = hasActiveAgentRuns(thread);
   const isThreadRunning = useCallback(
-    () => controller.getThread(threadId).activeRunIds.length > 0,
+    () => hasActiveAgentRuns(controller.getThread(threadId)),
     [controller, threadId],
   );
 
@@ -2688,10 +2691,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         [],
         [],
         {
-          intent:
-            controller.getThread(threadId).activeRunIds.length > 0
-              ? "queued"
-              : "immediate",
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
         },
       );
       return { delivered: true };
@@ -2702,10 +2704,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         [],
         [],
         {
-          intent:
-            controller.getThread(threadId).activeRunIds.length > 0
-              ? "queued"
-              : "immediate",
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
         },
       );
       return { delivered: true };
@@ -3419,7 +3420,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const integration =
     value.role === "assistant" &&
     value.status === "complete" &&
-    thread.activeRunIds.length === 0
+    !hasActiveAgentRuns(thread)
       ? findMcpConnectionSuggestionIntegration({
           text,
           contextText,

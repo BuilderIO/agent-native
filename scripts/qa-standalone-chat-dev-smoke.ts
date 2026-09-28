@@ -2617,6 +2617,26 @@ async function assertAgentKitChatAcceptance(
   await approval.getByRole("button", { name: "Approve" }).waitFor({
     state: "visible",
   });
+  const approvalCardBounds = await approval
+    .locator("[data-action-card]")
+    .boundingBox();
+  const approvalButtonBounds = await approval
+    .getByRole("button")
+    .evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right };
+      }),
+    );
+  assert.equal(approvalButtonBounds.length, 3);
+  assert.ok(approvalCardBounds);
+  for (const bounds of approvalButtonBounds) {
+    assert.ok(
+      bounds.left >= approvalCardBounds.x - 1 &&
+        bounds.right <= approvalCardBounds.x + approvalCardBounds.width + 1,
+      "approval actions must stay inside the card at narrow widths",
+    );
+  }
   await assertViewportContract(page, "narrow dark approval", { dark: true });
   await assertComposerFocused(page);
 
@@ -2652,8 +2672,36 @@ async function assertAgentKitChatAcceptance(
     .last()
     .waitFor({ state: "visible" });
   await approval.waitFor({ state: "detached" });
-  const releaseCard = page.getByText("Release accepted", { exact: true });
-  await releaseCard.waitFor({ state: "visible" });
+  const releaseCardMatches = page.getByText("Release accepted", {
+    exact: true,
+  });
+  await releaseCardMatches.first().waitFor({ state: "visible" });
+  const releaseCardCount = await releaseCardMatches.count();
+  if (releaseCardCount > 1) {
+    const matches = await releaseCardMatches.evaluateAll((elements) =>
+      elements.map((element) => {
+        const message = element.closest(".agentkit-message");
+        const card = element.closest("[data-action-card]");
+        const activities = element.closest(".agentkit-activities");
+        return {
+          messageId: message?.getAttribute("data-message-id"),
+          role: message?.getAttribute("data-role"),
+          visible: element.getClientRects().length > 0,
+          inActivities: Boolean(activities),
+          activitiesOpen: activities
+            ? (activities as HTMLDetailsElement).open
+            : undefined,
+          messageText: message?.innerText,
+          messageHtml: message?.innerHTML.slice(0, 1200),
+          card: card?.outerHTML.slice(0, 800),
+        };
+      }),
+    );
+    throw new Error(
+      `Found ${releaseCardCount} Release accepted titles: ${JSON.stringify(matches)}`,
+    );
+  }
+  const releaseCard = releaseCardMatches.first();
   assert.equal(
     await releaseCard.evaluate((element) =>
       element.closest(".agentkit-message")?.getAttribute("data-role"),
@@ -2752,10 +2800,31 @@ async function assertAgentKitChatAcceptance(
     .waitFor({ state: "visible" });
   const steer = queue.getByRole("button", { name: /Steer/u });
   await steer.click();
-  await page
-    .getByRole("alert")
-    .filter({ hasText: "Deterministic queue steering rejection" })
-    .waitFor({ state: "visible" });
+  try {
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "Deterministic queue steering rejection" })
+      .waitFor({ state: "visible", timeout: 30_000 });
+  } catch (error) {
+    console.error(
+      "Queue steering rejection diagnostics:",
+      JSON.stringify(
+        {
+          alerts: await page.getByRole("alert").allTextContents(),
+          queue: await queue.innerText(),
+          composerErrors: await page
+            .locator(".agentkit-composer-error")
+            .allTextContents(),
+          runFailures: await page
+            .locator(".agentkit-run-failure")
+            .allTextContents(),
+        },
+        null,
+        2,
+      ),
+    );
+    throw error;
+  }
   await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
     state: "visible",
   });
@@ -2894,10 +2963,28 @@ async function assertAgentKitChatAcceptance(
       exact: true,
     })
     .waitFor({ state: "visible" });
-  const historyReleaseCard = page.getByText("Release accepted", {
+  const historyReleaseCardMatches = page.getByText("Release accepted", {
     exact: true,
   });
-  await historyReleaseCard.waitFor({ state: "visible" });
+  await historyReleaseCardMatches.first().waitFor({ state: "visible" });
+  const historyReleaseCardCount = await historyReleaseCardMatches.count();
+  if (historyReleaseCardCount > 1) {
+    const matches = await historyReleaseCardMatches.evaluateAll((elements) =>
+      elements.map((element) => {
+        const message = element.closest(".agentkit-message");
+        return {
+          messageId: message?.getAttribute("data-message-id"),
+          role: message?.getAttribute("data-role"),
+          messageText: message?.innerText,
+          messageHtml: message?.innerHTML.slice(0, 1200),
+        };
+      }),
+    );
+    throw new Error(
+      `Found ${historyReleaseCardCount} Release accepted titles after reload: ${JSON.stringify(matches)}`,
+    );
+  }
+  const historyReleaseCard = historyReleaseCardMatches.first();
   await screenshotActionContext(
     page,
     "Release accepted",

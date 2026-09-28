@@ -391,6 +391,125 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   });
 }
 
+function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
+  return messages.map((message) => ({
+    id: message.id,
+    role: message.role,
+    parts: message.parts.flatMap((part): AgentMessagePart[] => {
+      if (part.type === "text") {
+        return [
+          {
+            type: "text",
+            text: part.text,
+            ...(part.format ? { format: part.format } : {}),
+          },
+        ];
+      }
+      if (part.type === "citation") {
+        return [
+          {
+            type: "citation",
+            title: part.title,
+            ...(part.url ? { url: part.url } : {}),
+            ...(part.sourceId ? { sourceId: part.sourceId } : {}),
+          },
+        ];
+      }
+      if (part.type === "annotation") {
+        return [
+          {
+            type: "annotation",
+            annotation: {
+              id: part.annotation.id,
+              kind: part.annotation.kind,
+              label: part.annotation.label,
+              ...(part.annotation.url ? { url: part.annotation.url } : {}),
+              ...(part.annotation.start !== undefined
+                ? { start: part.annotation.start }
+                : {}),
+              ...(part.annotation.end !== undefined
+                ? { end: part.annotation.end }
+                : {}),
+            },
+          },
+        ];
+      }
+      if (part.type === "file") {
+        return [
+          {
+            type: "file",
+            name: part.name,
+            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+            ...(part.url ? { url: part.url } : {}),
+            ...(part.fileId ? { fileId: part.fileId } : {}),
+          },
+        ];
+      }
+      return [];
+    }),
+    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+    ...(message.status ? { status: message.status } : {}),
+  }));
+}
+
+function persistedActionWidgets(
+  widgets: AgentWidgetSnapshot[] = [],
+  messageIds: ReadonlySet<string>,
+): AgentWidgetSnapshot[] {
+  return widgets.flatMap(({ messageId, widget }) => {
+    if (!messageIds.has(messageId)) return [];
+    const data = asRecord(widget.data);
+    if (
+      typeof data?.toolCallId !== "string" ||
+      typeof data.toolName !== "string"
+    ) {
+      return [];
+    }
+    const description = asRecord(widget.metadata)?.description;
+    return [
+      {
+        messageId,
+        widget: {
+          id: widget.id,
+          kind: widget.kind,
+          data: { toolCallId: data.toolCallId, toolName: data.toolName },
+          ...(widget.title ? { title: widget.title } : {}),
+          ...(typeof description === "string"
+            ? { metadata: { description } }
+            : {}),
+        },
+      },
+    ];
+  });
+}
+
+function persistedToolCalls(toolCalls: AgentToolCall[] = []): AgentToolCall[] {
+  return toolCalls.flatMap((toolCall) => {
+    const serialized = JSON.stringify(toolCall);
+    if (
+      serialized &&
+      new TextEncoder().encode(serialized).byteLength <= 64 * 1024
+    ) {
+      return [JSON.parse(serialized) as AgentToolCall];
+    }
+    return [
+      {
+        id: toolCall.id,
+        name: toolCall.name,
+        status: toolCall.status,
+        ...(toolCall.runId ? { runId: toolCall.runId } : {}),
+        ...(toolCall.messageId ? { messageId: toolCall.messageId } : {}),
+        metadata: {
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: serialized ? "size_limit" : "not_json",
+          },
+        },
+      },
+    ];
+  });
+}
+
 function storedMessageId(value: unknown): string | undefined {
   const outer = asRecord(value);
   const message = asRecord(outer?.message ?? outer);
@@ -622,8 +741,65 @@ export function createAgentNativeAgentKitTransport(
           widgets: agentKit.widgets,
         })
       : undefined;
-    const messages = protocolSnapshot?.messages ?? storedMessageProjection;
+    const messages = [
+      ...(protocolSnapshot?.messages ?? storedMessageProjection),
+    ];
     const actionWidgets = storedActionWidgets(repository.messages);
+    const canonicalToolCallMessageIds = new Map(
+      (protocolSnapshot?.toolCalls ?? []).flatMap((toolCall) =>
+        toolCall.messageId ? [[toolCall.id, toolCall.messageId] as const] : [],
+      ),
+    );
+    const embeddedWidgetIds = new Set(
+      messages.flatMap((message) =>
+        message.parts.flatMap((part) =>
+          part.type === "widget" ? [part.widget.id] : [],
+        ),
+      ),
+    );
+    const persistedWidgetIds = new Set([
+      ...(protocolSnapshot?.widgets ?? []).map(({ widget }) => widget.id),
+      ...embeddedWidgetIds,
+    ]);
+    const messageIds = new Set(messages.map((message) => message.id));
+    const reconciledActionWidgets = actionWidgets.widgets.map(
+      ({ messageId, widget }) => {
+        const toolCallId = asRecord(widget.data)?.toolCallId;
+        const canonicalMessageId =
+          typeof toolCallId === "string"
+            ? canonicalToolCallMessageIds.get(toolCallId)
+            : undefined;
+        return {
+          messageId:
+            canonicalMessageId && messageIds.has(canonicalMessageId)
+              ? canonicalMessageId
+              : messageId,
+          widget,
+        };
+      },
+    );
+    const widgetMessageIds = new Set(
+      reconciledActionWidgets
+        .filter(({ widget }) => !persistedWidgetIds.has(widget.id))
+        .map(({ messageId }) => messageId),
+    );
+    for (const message of storedMessageProjection) {
+      if (!widgetMessageIds.has(message.id) || messageIds.has(message.id)) {
+        continue;
+      }
+      messages.push({
+        ...message,
+        parts: message.parts.filter((part) => part.type !== "data"),
+      });
+      messageIds.add(message.id);
+    }
+    for (const { messageId, widget } of reconciledActionWidgets) {
+      if (!persistedWidgetIds.has(widget.id) && !messageIds.has(messageId)) {
+        throw new TypeError(
+          `Action widget ${widget.id} references missing message ${messageId}.`,
+        );
+      }
+    }
     const toolCalls = new Map<string, AgentToolCall>(
       (protocolSnapshot?.toolCalls ?? []).map(
         (toolCall): [string, AgentToolCall] => [toolCall.id, toolCall],
@@ -637,8 +813,11 @@ export function createAgentNativeAgentKitTransport(
         (widget): [string, AgentWidgetSnapshot] => [widget.widget.id, widget],
       ),
     );
-    for (const widget of actionWidgets.widgets) {
-      if (!widgets.has(widget.widget.id)) {
+    for (const widget of reconciledActionWidgets) {
+      if (
+        !widgets.has(widget.widget.id) &&
+        !embeddedWidgetIds.has(widget.widget.id)
+      ) {
         widgets.set(widget.widget.id, widget);
       }
     }
@@ -773,6 +952,12 @@ export function createAgentNativeAgentKitTransport(
     }
     const agentKit = {
       ...previousAgentKit,
+      messages: persistedMessages(input.snapshot.messages),
+      widgets: persistedActionWidgets(
+        input.snapshot.widgets,
+        new Set(input.snapshot.messages.map((message) => message.id)),
+      ),
+      toolCalls: persistedToolCalls(input.snapshot.toolCalls),
       events: [...eventsById.values()],
       runs: [...runsById.values()],
       activeRunIds: input.snapshot.activeRunIds ?? [],
@@ -780,6 +965,8 @@ export function createAgentNativeAgentKitTransport(
     };
     const requestHeaders = await headers({ sessionId: input.threadId });
     requestHeaders.set("content-type", "application/json");
+    const snapshotRepository = { ...repository };
+    delete snapshotRepository.queuedMessages;
     const response = await fetcher(
       scopedThreadEndpoint(
         `${apiUrl}/threads/${encodeURIComponent(input.threadId)}`,
@@ -789,7 +976,7 @@ export function createAgentNativeAgentKitTransport(
         method: "PUT",
         headers: requestHeaders,
         body: JSON.stringify({
-          threadData: JSON.stringify({ ...repository, agentKit }),
+          threadData: JSON.stringify({ ...snapshotRepository, agentKit }),
           title:
             input.snapshot.title ??
             (typeof stored.title === "string" ? stored.title : ""),
@@ -1027,28 +1214,73 @@ export function createAgentNativeAgentKitTransport(
         let forkSource: Record<string, unknown> | undefined;
         if (fromMessageId) {
           const repository = storedRepository(source);
-          if (!Array.isArray(repository.messages)) {
+          const agentKit = asRecord(repository.agentKit);
+          const sourceMessages = Array.isArray(agentKit?.messages)
+            ? agentKit.messages
+            : repository.messages;
+          if (!Array.isArray(sourceMessages)) {
             throw new Error(
               "The Agent-Native thread cannot be forked from a message without durable history.",
             );
           }
-          const throughIndex = repository.messages.findIndex(
+          const throughIndex = sourceMessages.findIndex(
             (message) => storedMessageId(message) === fromMessageId,
           );
           if (throughIndex < 0) {
             throw new Error("Unknown message for fork: " + fromMessageId);
           }
-          const messages = repository.messages.slice(0, throughIndex + 1);
+          const messages = sourceMessages.slice(0, throughIndex + 1);
+          const retainedMessageIds = new Set(
+            messages
+              .map(storedMessageId)
+              .filter((id): id is string => Boolean(id)),
+          );
+          const legacyMessages = Array.isArray(repository.messages)
+            ? repository.messages.filter((message) =>
+                retainedMessageIds.has(storedMessageId(message) ?? ""),
+              )
+            : undefined;
+          const retainedAgentKit =
+            agentKit && Array.isArray(agentKit.messages)
+              ? {
+                  ...agentKit,
+                  messages,
+                  ...(Array.isArray(agentKit.widgets)
+                    ? {
+                        widgets: agentKit.widgets.filter((entry) => {
+                          const widget = asRecord(entry);
+                          return (
+                            typeof widget?.messageId === "string" &&
+                            retainedMessageIds.has(widget.messageId)
+                          );
+                        }),
+                      }
+                    : {}),
+                  ...(Array.isArray(agentKit.toolCalls)
+                    ? {
+                        toolCalls: agentKit.toolCalls.filter((entry) => {
+                          const toolCall = asRecord(entry);
+                          return (
+                            typeof toolCall?.messageId !== "string" ||
+                            retainedMessageIds.has(toolCall.messageId)
+                          );
+                        }),
+                      }
+                    : {}),
+                }
+              : undefined;
           forkSource = {
             threadData: JSON.stringify({
               ...repository,
-              messages,
+              ...(legacyMessages ? { messages: legacyMessages } : {}),
+              ...(retainedAgentKit ? { agentKit: retainedAgentKit } : {}),
               queuedMessages: [],
             }),
             title:
               title ?? (typeof source.title === "string" ? source.title : ""),
             preview: "",
             messageCount: messages.length,
+            fromMessageId,
           };
         }
         const requestHeaders = await headers({ sessionId: threadId });

@@ -1741,6 +1741,75 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("promotes a queued write when a run starts and completes during the write", async () => {
+    const queueWriteStarted = Promise.withResolvers<void>();
+    const finishQueueWrite = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const runCompletion = Promise.withResolvers<void>();
+    const promoted = vi.fn(async () => ({ runId: "run-2" }));
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async queueMessage(input) {
+        queueWriteStarted.resolve();
+        await finishQueueWrite.promise;
+        return {
+          message: {
+            id: "queued-during-run-write",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:00.000Z",
+          },
+        };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") {
+          runStarted.resolve();
+          await runCompletion.promise;
+        }
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    const queuedMessage = client.queueMessage({
+      threadId: "thread-1",
+      text: "Run after the slot clears",
+    });
+    await queueWriteStarted.promise;
+
+    const activeRun = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Finish before the queue write",
+    });
+    await runStarted.promise;
+    runCompletion.resolve();
+    await activeRun.completed;
+    expect(promoted).not.toHaveBeenCalled();
+
+    finishQueueWrite.resolve();
+    await queuedMessage;
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-2"]?.status).toBe(
+        "completed",
+      ),
+    );
+
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: [],
+      queuedMessages: [],
+      messages: [
+        { id: expect.any(String), role: "user" },
+        { id: "queued-during-run-write", role: "user" },
+      ],
+    });
+  });
+
   it("delegates promotion when the reloaded snapshot still reports an active run", async () => {
     const queued = {
       id: "queued-1",

@@ -243,14 +243,33 @@ describe("createAgentNativeAgentKitTransport", () => {
 
   it("persists compact completed activity history without replacing messages", async () => {
     const repository = {
+      queuedMessages: [{ id: "queued-after-snapshot-read", text: "Later" }],
       messages: [
         {
-          id: "assistant-history",
+          id: "assistant-legacy",
           role: "assistant",
-          content: "Release created.",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "tool-history",
+              toolName: "create-release",
+              args: {},
+              result: { ok: true },
+              chatUI: { renderer: "test.action", title: "Release created" },
+            },
+          ],
         },
       ],
       retained: true,
+      agentKit: {
+        messages: [
+          {
+            id: "assistant-stale",
+            role: "assistant",
+            parts: [{ type: "text", text: "Old response." }],
+          },
+        ],
+      },
     };
     let threadData = JSON.stringify(repository);
     const fetcher = vi.fn(
@@ -289,7 +308,59 @@ describe("createAgentNativeAgentKitTransport", () => {
           {
             id: "assistant-history",
             role: "assistant",
-            parts: [{ type: "text", text: "Release created." }],
+            parts: [
+              { type: "text", text: "Release created." },
+              { type: "data", data: { private: "do not persist raw data" } },
+            ],
+          },
+        ],
+        toolCalls: [
+          {
+            id: "tool-history",
+            name: "create-release",
+            input: { release: "agentkit-acceptance" },
+            output: { display: { title: "Release created" } },
+            status: "completed",
+            messageId: "assistant-history",
+          },
+          {
+            id: "tool-string-history",
+            name: "string-result",
+            input: {},
+            output: '{"value":1}',
+            status: "completed",
+          },
+          {
+            id: "tool-large-history",
+            name: "large-result",
+            output: "x".repeat(65_536),
+            status: "completed",
+            messageId: "assistant-history",
+          },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-history",
+            widget: {
+              id: "tool-history:chat-ui",
+              kind: "test.action",
+              data: {
+                toolCallId: "tool-history",
+                toolName: "create-release",
+                raw: "do not persist widget payloads",
+              },
+              title: "Release created",
+              metadata: { description: "Created one release." },
+              actions: [{ id: "raw-action", label: "Discard" }],
+            },
+          },
+          {
+            messageId: "assistant-pending",
+            widget: {
+              id: "pending:chat-ui",
+              kind: "test.action",
+              data: { toolCallId: "pending", toolName: "create-release" },
+            },
           },
         ],
         events: [
@@ -391,6 +462,61 @@ describe("createAgentNativeAgentKitTransport", () => {
 
     expect(saved.messages).toEqual(repository.messages);
     expect(saved.retained).toBe(true);
+    expect(saved.queuedMessages).toBeUndefined();
+    expect(saved.agentKit.messages).toEqual([
+      {
+        id: "assistant-history",
+        role: "assistant",
+        parts: [{ type: "text", text: "Release created." }],
+      },
+    ]);
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
+      "do not persist raw data",
+    );
+    expect(saved.agentKit.widgets).toEqual([
+      {
+        messageId: "assistant-history",
+        widget: {
+          id: "tool-history:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-history", toolName: "create-release" },
+          title: "Release created",
+          metadata: { description: "Created one release." },
+        },
+      },
+    ]);
+    expect(JSON.stringify(saved.agentKit.widgets)).not.toContain(
+      "do not persist widget payloads",
+    );
+    expect(saved.agentKit.toolCalls).toEqual([
+      {
+        id: "tool-history",
+        name: "create-release",
+        status: "completed",
+        input: { release: "agentkit-acceptance" },
+        output: { display: { title: "Release created" } },
+        messageId: "assistant-history",
+      },
+      {
+        id: "tool-string-history",
+        name: "string-result",
+        status: "completed",
+        input: {},
+        output: '{"value":1}',
+      },
+      {
+        id: "tool-large-history",
+        name: "large-result",
+        status: "completed",
+        messageId: "assistant-history",
+        metadata: {
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+          },
+        },
+      },
+    ]);
     expect(
       saved.agentKit.events.map((event: AgentEvent) => event.type),
     ).toEqual([
@@ -411,12 +537,97 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(restored?.runs).toEqual([
       expect.objectContaining({ id: "run-history", status: "completed" }),
     ]);
+    expect(restored?.messages).toEqual([
+      {
+        id: "assistant-history",
+        role: "assistant",
+        parts: [{ type: "text", text: "Release created." }],
+      },
+    ]);
+    expect(restored?.widgets).toEqual([
+      {
+        messageId: "assistant-history",
+        widget: {
+          id: "tool-history:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-history", toolName: "create-release" },
+          title: "Release created",
+          metadata: { description: "Created one release." },
+        },
+      },
+    ]);
+    expect(restored?.toolCalls).toEqual([
+      {
+        id: "tool-history",
+        name: "create-release",
+        status: "completed",
+        input: { release: "agentkit-acceptance" },
+        output: { display: { title: "Release created" } },
+        messageId: "assistant-history",
+      },
+      {
+        id: "tool-string-history",
+        name: "string-result",
+        status: "completed",
+        input: {},
+        output: '{"value":1}',
+      },
+      {
+        id: "tool-large-history",
+        name: "large-result",
+        status: "completed",
+        messageId: "assistant-history",
+        metadata: {
+          agentKitSnapshot: {
+            toolCallResult: "omitted",
+            reason: "size_limit",
+          },
+        },
+      },
+    ]);
     expect(restored?.suggestions).toEqual([
       { id: "release-summary", label: "Summarize this release" },
     ]);
     expect(saved.agentKit.suggestions).toEqual([
       { id: "release-summary", label: "Summarize this release" },
     ]);
+  });
+
+  it("rejects non-JSON tool results instead of hiding snapshot data loss", async () => {
+    const fetcher = vi.fn(async () =>
+      json({
+        id: "thread-non-json",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        threadData: JSON.stringify({}),
+      }),
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+    });
+    const output: { self?: unknown } = {};
+    output.self = output;
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId: "thread-non-json",
+        snapshot: {
+          id: "thread-non-json",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          messages: [],
+          toolCalls: [
+            {
+              id: "tool-circular",
+              name: "circular-result",
+              output,
+              status: "completed",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/circular|cyclic/i);
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("restores failed action calls without success widgets", async () => {
@@ -457,6 +668,198 @@ describe("createAgentNativeAgentKitTransport", () => {
       { id: "tool-failed", status: "failed", messageId: "assistant-1" },
     ]);
     expect(snapshot?.widgets).toEqual([]);
+  });
+
+  it("keeps legacy chatUI widgets paired with parents missing from AgentKit history", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-divergent-history",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-later",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-later",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-earlier",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "Earlier response." }],
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-divergent-history",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-earlier",
+      "assistant-later",
+    ]);
+    expect(snapshot?.messages[1]).toMatchObject({
+      id: "assistant-later",
+      role: "assistant",
+      parts: [],
+    });
+    expect(snapshot?.widgets).toEqual([
+      {
+        messageId: "assistant-later",
+        widget: {
+          id: "tool-later:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-later", toolName: "create-release" },
+        },
+      },
+    ]);
+  });
+
+  it("does not duplicate a legacy widget already embedded in AgentKit history", async () => {
+    const widget = {
+      id: "tool-shared:chat-ui",
+      kind: "test.action",
+      data: { toolCallId: "tool-shared", toolName: "create-release" },
+    };
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-embedded-widget",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-legacy",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-shared",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-canonical",
+                  role: "assistant",
+                  parts: [
+                    { type: "text", text: "Release created." },
+                    { type: "widget", widget },
+                  ],
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-embedded-widget",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-canonical",
+    ]);
+    expect(snapshot?.messages[0]?.parts).toContainEqual({
+      type: "widget",
+      widget,
+    });
+    expect(snapshot?.widgets).toEqual([]);
+    expect(snapshot?.toolCalls).toMatchObject([
+      { id: "tool-shared", output: { created: true } },
+    ]);
+  });
+
+  it("attaches a legacy widget to its canonical tool message after reload", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-canonical-tool-message",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "assistant-legacy",
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-shared",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-canonical",
+                  role: "assistant",
+                  parts: [{ type: "text", text: "Release created." }],
+                },
+              ],
+              toolCalls: [
+                {
+                  id: "tool-shared",
+                  name: "create-release",
+                  status: "completed",
+                  messageId: "assistant-canonical",
+                  output: { created: true },
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-canonical-tool-message",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-canonical",
+    ]);
+    expect(snapshot?.widgets).toEqual([
+      {
+        messageId: "assistant-canonical",
+        widget: {
+          id: "tool-shared:chat-ui",
+          kind: "test.action",
+          data: { toolCallId: "tool-shared", toolName: "create-release" },
+        },
+      },
+    ]);
   });
 
   it("loads durable history and promotes queued work into a real stream", async () => {
@@ -1363,24 +1766,68 @@ describe("createAgentNativeAgentKitTransport", () => {
                   role: "user",
                   content: [{ type: "text", text: "Review it" }],
                 },
-                {
-                  id: "assistant-1",
-                  role: "assistant",
-                  content: [{ type: "text", text: "Ready." }],
-                },
-                {
-                  id: "user-2",
-                  role: "user",
-                  content: [{ type: "text", text: "Publish it" }],
-                },
               ],
+              agentKit: {
+                messages: [
+                  {
+                    id: "user-1",
+                    role: "user",
+                    parts: [{ type: "text", text: "Review it" }],
+                  },
+                  {
+                    id: "assistant-1",
+                    role: "assistant",
+                    parts: [{ type: "text", text: "Ready." }],
+                  },
+                  {
+                    id: "user-2",
+                    role: "user",
+                    parts: [{ type: "text", text: "Publish it" }],
+                  },
+                ],
+                widgets: [
+                  {
+                    messageId: "assistant-1",
+                    widget: {
+                      id: "widget-retained",
+                      kind: "test.action",
+                      data: {
+                        toolCallId: "tool-retained",
+                        toolName: "publish",
+                      },
+                    },
+                  },
+                  {
+                    messageId: "user-2",
+                    widget: {
+                      id: "widget-later",
+                      kind: "test.action",
+                      data: { toolCallId: "tool-later", toolName: "publish" },
+                    },
+                  },
+                ],
+                toolCalls: [
+                  {
+                    id: "tool-retained",
+                    name: "publish",
+                    status: "completed",
+                    messageId: "assistant-1",
+                  },
+                  {
+                    id: "tool-later",
+                    name: "publish",
+                    status: "completed",
+                    messageId: "user-2",
+                  },
+                ],
+              },
             }),
           });
         }
         if (url.endsWith("/threads/thread-1/fork")) {
           const body = JSON.parse(String(init?.body)) as {
             id: string;
-            source: { threadData: string };
+            source: { threadData: string; fromMessageId?: string };
           };
           requests.push({ url, body });
           return json({
@@ -1430,15 +1877,41 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     });
     const forkBody = requests[1]?.body as {
-      source?: { threadData?: string; messageCount?: number };
+      source?: {
+        threadData?: string;
+        messageCount?: number;
+        fromMessageId?: string;
+      };
     };
     expect(forkBody.source?.messageCount).toBe(2);
+    expect(forkBody.source?.fromMessageId).toBe("assistant-1");
     expect(
       JSON.parse(forkBody.source?.threadData ?? "{}").messages,
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.messages.map(
+        (message: { id: string }) => message.id,
+      ),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.widgets.map(
+        (widget: { widget: { id: string } }) => widget.widget.id,
+      ),
+    ).toEqual(["widget-retained"]);
+    expect(
+      JSON.parse(forkBody.source?.threadData ?? "{}").agentKit.toolCalls.map(
+        (toolCall: { id: string }) => toolCall.id,
+      ),
+    ).toEqual(["tool-retained"]);
     expect(fork).toMatchObject({
       id: "thread-fork",
       messages: [{ id: "user-1" }, { id: "assistant-1" }],
+      widgets: [
+        {
+          messageId: "assistant-1",
+          widget: { id: "widget-retained" },
+        },
+      ],
     });
   });
 

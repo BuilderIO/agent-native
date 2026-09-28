@@ -799,7 +799,7 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
-  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+  it("limits forked AgentKit history to retained messages and clears active runs", async () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -892,32 +892,131 @@ describe("chat thread store", () => {
     });
 
     const sourceRepo = {
-      messages: [
-        { message: userMessage, parentId: null },
-        { message: assistantMessage, parentId: "user-1" },
-      ],
+      messages: [],
       agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          { id: "assistant-1", role: "assistant", parts: [] },
+          { id: "user-2", role: "user", parts: [] },
+          { id: "assistant-2", role: "assistant", parts: [] },
+        ],
         events: [
           {
-            id: "event-source",
+            id: "event-source-started",
             threadId: "thread-unflushed",
             runId: "run-source",
             sequence: 1,
             occurredAt: "2026-09-26T00:00:01.000Z",
             type: "run.started",
           },
+          {
+            id: "event-source-activity",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-source",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+              runId: "run-source",
+            },
+          },
+          {
+            id: "event-source-message",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "message.completed",
+            message: { id: "assistant-1", role: "assistant", parts: [] },
+          },
+          {
+            id: "event-later-started",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-later-message",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "message.completed",
+            message: { id: "assistant-2", role: "assistant", parts: [] },
+          },
         ],
         runs: [
           {
             id: "run-source",
             threadId: "thread-unflushed",
+            status: "running",
+            activeMessageId: "assistant-1",
+            lastSequence: 3,
+          },
+          {
+            id: "run-later",
+            threadId: "thread-unflushed",
             status: "completed",
-            lastSequence: 1,
+            activeMessageId: "assistant-2",
+            lastSequence: 2,
           },
         ],
-        activeRunIds: ["run-source"],
+        activeRunIds: ["run-source", "run-later"],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: { id: "kept", kind: "test", data: {} },
+          },
+          {
+            messageId: "assistant-2",
+            widget: { id: "dropped", kind: "test", data: {} },
+          },
+        ],
       },
     };
+    const fullSourceRepo = {
+      ...sourceRepo,
+      messages: [
+        { message: userMessage, parentId: null },
+        { message: assistantMessage, parentId: "user-1" },
+        {
+          message: {
+            id: "user-2",
+            role: "user",
+            content: [{ type: "text", text: "Later question" }],
+          },
+          parentId: "assistant-1",
+        },
+        {
+          message: {
+            id: "assistant-2",
+            role: "assistant",
+            content: [{ type: "text", text: "Later answer" }],
+            metadata: { runId: "run-later" },
+          },
+          parentId: "user-2",
+        },
+      ],
+    };
+    rows.set("thread-unflushed", {
+      id: "thread-unflushed",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Later answer",
+      thread_data: JSON.stringify(fullSourceRepo),
+      message_count: 4,
+      created_at: 0,
+      updated_at: 0,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+    });
 
     const forked = await forkThread("thread-unflushed", "user@example.com", {
       id: "thread-forked",
@@ -926,23 +1025,49 @@ describe("chat thread store", () => {
         title: "Thread",
         preview: "make this slide better",
         messageCount: 2,
+        fromMessageId: "assistant-1",
         scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
       },
     });
 
     expect(forked?.id).toBe("thread-forked");
-    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
-    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(4);
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+    ).toHaveLength(0);
+    const forkedAgentKit = JSON.parse(
+      rows.get("thread-forked")!.thread_data,
+    ).agentKit;
     expect(
-      JSON.parse(rows.get("thread-forked")!.thread_data).agentKit,
-    ).toMatchObject({
-      events: [{ threadId: "thread-forked" }],
-      runs: [{ threadId: "thread-forked" }],
-      activeRunIds: [],
-    });
+      forkedAgentKit.messages.map((message: { id: string }) => message.id),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      forkedAgentKit.events.map((event: { id: string }) => event.id),
+    ).toEqual([
+      "event-source-started",
+      "event-source-activity",
+      "event-source-message",
+    ]);
+    expect(forkedAgentKit.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: "thread-forked" }),
+        expect.objectContaining({
+          type: "activity.completed",
+          activity: expect.objectContaining({ status: "cancelled" }),
+        }),
+      ]),
+    );
+    expect(forkedAgentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-source",
+        threadId: "thread-forked",
+        status: "cancelled",
+      }),
+    ]);
+    expect(forkedAgentKit.widgets).toEqual([
+      expect.objectContaining({ messageId: "assistant-1" }),
+    ]);
+    expect(forkedAgentKit.activeRunIds).toEqual([]);
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {

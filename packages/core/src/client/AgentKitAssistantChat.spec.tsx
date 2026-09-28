@@ -1433,6 +1433,13 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   it("sends directly when a stale composer render outlives the queued run", async () => {
     chatMocks.thread.activeRunIds = ["run-queued-follow-up"];
+    chatMocks.thread.runs = {
+      "run-queued-follow-up": {
+        id: "run-queued-follow-up",
+        status: "running",
+        lastSequence: 1,
+      },
+    };
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -1446,13 +1453,82 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
 
-    chatMocks.thread.activeRunIds = [];
+    chatMocks.thread.runs["run-queued-follow-up"].status = "completed";
     await act(async () => {
       await ref.current?.sendMessage("Send directly after completion");
     });
 
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Send directly after completion" }),
+    );
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+  });
+
+  it("queues an unresolved approval and sends directly after its resolution event", async () => {
+    chatMocks.thread.activeRunIds = ["approval-run"];
+    chatMocks.thread.runs = {
+      "approval-run": {
+        id: "approval-run",
+        status: "awaiting_approval",
+        lastSequence: 2,
+      },
+    };
+    chatMocks.thread.events = [
+      {
+        id: "approval-requested",
+        threadId: "thread-1",
+        runId: "approval-run",
+        sequence: 1,
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        type: "approval.requested",
+        request: { id: "approval-1", title: "Continue?" },
+      },
+    ];
+    chatMocks.thread.approvalRunIds = {};
+    const ref = createRef<AssistantChatHandle>();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<AgentKitAssistantChat ref={ref} {...baseProps()} />);
+    });
+
+    await act(async () => {
+      await ref.current?.sendMessage("Queue during approval");
+    });
+    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Queue during approval" }),
+    );
+
+    chatMocks.thread.events.push({
+      id: "approval-resolved",
+      threadId: "thread-1",
+      runId: "continuation-run",
+      sequence: 1,
+      occurredAt: "2026-08-29T00:00:01.000Z",
+      type: "approval.resolved",
+      approvalId: "approval-1",
+      response: { decision: "approve" },
+    });
+    await act(async () => {
+      await ref.current?.sendMessage("Send after approval");
+      const guided = chatMocks.guidedOptions as {
+        onSubmitMessage: (input: {
+          message: string;
+          context: string;
+        }) => Promise<unknown>;
+      };
+      await guided.onSubmitMessage({
+        message: "Guided send after approval",
+        context: "",
+      });
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Send after approval" }),
+    );
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Guided send after approval" }),
     );
     expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
   });
