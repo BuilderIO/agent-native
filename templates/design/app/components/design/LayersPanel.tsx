@@ -1419,9 +1419,7 @@ function LayersPanelImpl(
             onPointerDown={handleScreenResizePointerDown}
             onPointerMove={handleScreenResizePointerMove}
             onPointerUp={stopScreenResize}
-          >
-            <span className="absolute inset-x-2 top-1/2 h-px -translate-y-1/2 bg-[var(--design-editor-panel-divider-color)] transition-colors group-hover:bg-[var(--design-editor-selection-color)]" />
-          </div>
+          ></div>
         ) : null}
 
         <div
