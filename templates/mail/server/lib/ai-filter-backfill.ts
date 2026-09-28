@@ -168,16 +168,20 @@ export function planConditionalUndo(
   const changes: Record<string, boolean> = {};
   const conflicts: string[] = [];
   for (const [field, value] of Object.entries(before)) {
+    if (!Object.prototype.hasOwnProperty.call(current, field)) {
+      conflicts.push(field);
+      continue;
+    }
+    if (current[field] === value) continue;
     if (
       !after ||
       !Object.prototype.hasOwnProperty.call(after, field) ||
-      !Object.prototype.hasOwnProperty.call(current, field) ||
       current[field] !== after[field]
     ) {
       conflicts.push(field);
-    } else {
-      changes[field] = value;
+      continue;
     }
+    changes[field] = value;
   }
   return { changes, conflicts };
 }
