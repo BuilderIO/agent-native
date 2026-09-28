@@ -13,6 +13,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Ask the agent to turn comment, reply, and mention emails on or off.
 - Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
 
 ### Improved
