@@ -440,6 +440,12 @@ export function navigateToWorkspaceApp(href: string): boolean {
 
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
+  grantedApps: readonly {
+    id: string;
+    name: string;
+    description?: string | null;
+    url?: string | null;
+  }[] = [],
 ): WorkspaceAppSummary[] {
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
@@ -465,6 +471,24 @@ export function mergeChatFirstWorkspaceApps(
         app.description === fallback?.description
           ? fallback?.defaultDescriptionKey
           : undefined,
+    });
+  }
+
+  const existingIds = new Set(
+    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
+  );
+  for (const app of grantedApps) {
+    const id = app.id.trim();
+    const normalizedId = id.toLowerCase();
+    if (!id || existingIds.has(normalizedId)) continue;
+    existingIds.add(normalizedId);
+    merged.set(id, {
+      id,
+      name: app.name.trim() || id,
+      description: app.description ?? undefined,
+      path: "",
+      url: app.url?.trim() || null,
+      status: "ready",
     });
   }
 

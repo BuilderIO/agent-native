@@ -266,6 +266,7 @@ interface DispatchChatFirstPane {
 interface ChatFirstGrantedAppSummary {
   id: string;
   name: string;
+  description?: string | null;
   url?: string | null;
 }
 
@@ -1456,13 +1457,16 @@ export function Layout({
   );
   const chatHomeWorkspaceApps = useMemo(
     () =>
-      chatFirstWorkspaceApps.filter(
+      mergeChatFirstWorkspaceApps(
+        chatFirstWorkspaceApps,
+        chatFirstGrantedAppsQuery.data?.apps,
+      ).filter(
         (app) =>
           app.status !== "pending" &&
           app.archived !== true &&
           isWorkspaceAppVisibleInDefaultLaunchers(app),
       ),
-    [chatFirstWorkspaceApps],
+    [chatFirstGrantedAppsQuery.data?.apps, chatFirstWorkspaceApps],
   );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
     const registrations = new Map<string, ChatFirstAppRegistration>();

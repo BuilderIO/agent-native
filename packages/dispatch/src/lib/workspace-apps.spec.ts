@@ -77,6 +77,37 @@ describe("workspace app routes", () => {
     });
   });
 
+  it("includes granted-only apps without replacing registered app summaries", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      [{ id: "calendar", name: "Workspace Calendar", path: "/calendar" }],
+      [
+        {
+          id: "calendar",
+          name: "Granted Calendar",
+          url: "https://calendar.example.test",
+        },
+        {
+          id: "sales-tools",
+          name: "Sales Tools",
+          description: "Sales workspace tools",
+          url: "https://sales.example.test",
+        },
+      ],
+    );
+
+    expect(apps.find((app) => app.id === "calendar")).toMatchObject({
+      name: "Workspace Calendar",
+      path: "/calendar",
+    });
+    expect(apps.find((app) => app.id === "sales-tools")).toMatchObject({
+      name: "Sales Tools",
+      description: "Sales workspace tools",
+      path: "",
+      url: "https://sales.example.test",
+      status: "ready",
+    });
+  });
+
   it("does not mark app paths or the apps index as an active app route", () => {
     expect(workspaceAppIdFromRoute("/sales-ops")).toBeNull();
     expect(workspaceAppIdFromRoute("/apps")).toBeNull();
