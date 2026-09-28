@@ -6611,17 +6611,31 @@ it(
       });
       const handleBox = await handle.boundingBox();
       if (!handleBox) throw new Error("nw radius handle not visible");
-
       await page.mouse.move(
         handleBox.x + handleBox.width / 2,
         handleBox.y + handleBox.height / 2,
       );
       await page.mouse.down();
-      await page.mouse.move(
-        handleBox.x + handleBox.width / 2 + 12,
-        handleBox.y + handleBox.height / 2,
-        { steps: 4 },
-      );
+      const handleCenterX = handleBox.x + handleBox.width / 2;
+      const handleCenterY = handleBox.y + handleBox.height / 2;
+      for (const distance of [3, 6, 9, 12]) {
+        await page.mouse.move(handleCenterX + distance, handleCenterY);
+        const movedHandleBox = await handle.boundingBox();
+        if (!movedHandleBox) throw new Error("nw radius handle disappeared");
+        expect(
+          Math.abs(
+            movedHandleBox.x +
+              movedHandleBox.width / 2 -
+              handleCenterX -
+              distance,
+          ),
+        ).toBeLessThan(1.5);
+        expect(
+          Math.abs(
+            movedHandleBox.y + movedHandleBox.height / 2 - handleCenterY,
+          ),
+        ).toBeLessThan(1.5);
+      }
       const preview = await page.evaluate(() => {
         const target = document.querySelector<HTMLElement>("#target")!;
         return {
@@ -6636,15 +6650,15 @@ it(
         };
       });
       expect(preview.background).toBe("rgba(0, 0, 0, 0)");
-      expect(preview.radius).toBe("20px 14px");
-      expect(preview.corners).toEqual(["20px", "14px", "20px", "14px"]);
+      expect(preview.radius).toBe("20px / 14px");
+      expect(preview.corners).toEqual(Array(4).fill("20px 14px"));
       await page.mouse.up();
       const messages = await readBridgeMessages(page);
       const styleChange = messages.find(
         (message) => message.type === "visual-style-change",
       );
       expect(styleChange).toMatchObject({
-        styles: { borderRadius: "20px 14px" },
+        styles: { borderRadius: "20px / 14px" },
       });
       expect(pageErrors).toEqual([]);
     } finally {

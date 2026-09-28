@@ -7777,22 +7777,40 @@ export const editorChromeBridgeScript: string = `"use strict";
           x: 0,
           y: 0
         };
-        var overlayWidth = readPx(selectionOverlay.style.width) || elWidth;
-        var overlayHeight = readPx(selectionOverlay.style.height) || elHeight;
-        var scaleX = box.width > 0 ? overlayWidth / box.width : 1;
-        var scaleY = box.height > 0 ? overlayHeight / box.height : 1;
-        var centerX = 4 * line + radii.x * scaleX;
-        var centerY = 4 * line + radii.y * scaleY;
-        var offsetX = centerX - size / 2 + "px";
-        var offsetY = centerY - size / 2 + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = offsetY;
-        if (pos.indexOf("s") !== -1) {
-          handle.style.bottom = centerY - size / 2 + "px";
-        }
-        if (pos.indexOf("w") !== -1) handle.style.left = offsetX;
-        if (pos.indexOf("e") !== -1) {
-          handle.style.right = centerX - size / 2 + "px";
-        }
+        var west = pos.indexOf("w") !== -1;
+        var north = pos.indexOf("n") !== -1;
+        var targetGeometry = radiusViewportBoxGeometry(
+          el,
+          box.width,
+          box.height
+        );
+        var targetPoint = radiusLocalBoxPointToViewport(
+          targetGeometry,
+          west ? radii.x : box.width - radii.x,
+          north ? radii.y : box.height - radii.y
+        );
+        var matrix = targetGeometry.matrix;
+        var xLength = Math.hypot(matrix.a, matrix.b) || 1;
+        var yLength = Math.hypot(matrix.c, matrix.d) || 1;
+        var signX = west ? 1 : -1;
+        var signY = north ? 1 : -1;
+        targetPoint.x += 4 * line * (signX * matrix.a / xLength + signY * matrix.c / yLength);
+        targetPoint.y += 4 * line * (signX * matrix.b / xLength + signY * matrix.d / yLength);
+        var overlayBox = borderBoxDimensions(
+          window.getComputedStyle(selectionOverlay)
+        );
+        var overlayGeometry = radiusViewportBoxGeometry(
+          selectionOverlay,
+          overlayBox.width,
+          overlayBox.height
+        );
+        var overlayPoint = radiusViewportPointToLocalBox(
+          overlayGeometry,
+          targetPoint.x,
+          targetPoint.y
+        );
+        handle.style.left = overlayPoint.x - size / 2 + "px";
+        handle.style.top = overlayPoint.y - size / 2 + "px";
       });
       if (isNewSelectionTarget) {
         void selectionOverlay.offsetHeight;
@@ -10191,6 +10209,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function resolveCornerRadiusXY(value, width, height) {
       var trimmed = typeof value === "string" ? value.trim() : "";
+      var axes = trimmed.split("/");
+      if (axes.length === 2) {
+        return {
+          x: resolveCornerRadiusComponent(axes[0].trim().split(/\\s+/)[0], width),
+          y: resolveCornerRadiusComponent(axes[1].trim().split(/\\s+/)[0], height)
+        };
+      }
       var parts = trimmed.split(/\\s+/);
       return {
         x: resolveCornerRadiusComponent(parts[0], width),
@@ -10281,6 +10306,39 @@ export const editorChromeBridgeScript: string = `"use strict";
         total = multiplyRadiusLinear(radiusLinearTransform(current), total);
       }
       return total;
+    }
+    function radiusViewportBoxGeometry(el, width, height) {
+      var matrix = radiusViewportLinearTransform(el);
+      var x = matrix.a * width;
+      var y = matrix.b * width;
+      var z = matrix.c * height;
+      var w = matrix.d * height;
+      var bounds = el.getBoundingClientRect();
+      return {
+        matrix,
+        originX: bounds.left - Math.min(0, x, z, x + z),
+        originY: bounds.top - Math.min(0, y, w, y + w)
+      };
+    }
+    function radiusLocalBoxPointToViewport(geometry, x, y) {
+      var matrix = geometry.matrix;
+      return {
+        x: geometry.originX + matrix.a * x + matrix.c * y,
+        y: geometry.originY + matrix.b * x + matrix.d * y
+      };
+    }
+    function radiusViewportPointToLocalBox(geometry, x, y) {
+      var matrix = geometry.matrix;
+      var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+      var dx = x - geometry.originX;
+      var dy = y - geometry.originY;
+      if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-4) {
+        return { x: dx, y: dy };
+      }
+      return {
+        x: (matrix.d * dx - matrix.c * dy) / determinant,
+        y: (-matrix.b * dx + matrix.a * dy) / determinant
+      };
     }
     function radiusLocalDelta(el, screenDx, screenDy) {
       var matrix = radiusViewportLinearTransform(el);
@@ -17834,7 +17892,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY)));
         var value = x === y ? x + "px" : x + "px " + y + "px";
         if (wholeShape) {
-          radiusEl.style.borderRadius = value;
+          radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
         } else {
           radiusEl.style[cornerProperty] = value;
         }
