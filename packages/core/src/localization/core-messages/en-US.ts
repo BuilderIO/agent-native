@@ -92,6 +92,11 @@ const messages = {
   "observability.summaryFailed": "Could not send the request. Try again.",
   "observability.summaryExpired":
     "No summary has appeared yet. You can retry, but the agent may still be working.",
+  "observability.promoteMustContain": "Reply must contain…",
+  "observability.promoteMustContainLabel":
+    "Text the promoted eval reply must contain",
+  "observability.promoteNeedsContains":
+    "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "onboarding.back": "Back",
   "onboarding.chooseRole": "Choose your role",
   "onboarding.customizeRole": "Let’s customize this for you.",
