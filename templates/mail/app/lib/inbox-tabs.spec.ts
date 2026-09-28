@@ -6,13 +6,82 @@ import { describe, expect, it } from "vitest";
 import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
+  isInboxScopedLabel,
   labelTabHref,
+  resolveInboxEmailQueryScope,
   resolveDefaultMailHref,
   resolvePinnedLabels,
 } from "./inbox-tabs";
 
 const self = { name: "Steve", email: "steve@builder.io" };
 const other = { name: "Mike", email: "mike@example.com" };
+
+describe("resolveInboxEmailQueryScope", () => {
+  const base = {
+    view: "inbox",
+    activeLabel: null,
+    activeInboxTab: null,
+    activeLabelIsInboxScoped: false,
+    activeSavedFilter: false,
+    combineInbox: false,
+    triageLabels: [] as string[],
+  };
+
+  it("uses client-side slicing for pinned inbox tabs", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        triageLabels: ["important"],
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      clientSliceTab: true,
+      mailboxWideLabelTab: false,
+    });
+  });
+
+  it("uses all mail for mailbox-wide label routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "customer-label",
+      }),
+    ).toMatchObject({ emailView: "all", effectiveLabel: "customer-label" });
+  });
+
+  it("uses the inbox source for saved filters and combined inbox routes", () => {
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        view: "all",
+        activeSavedFilter: true,
+      }).emailView,
+    ).toBe("inbox");
+    expect(
+      resolveInboxEmailQueryScope({
+        ...base,
+        activeLabel: "important",
+        activeLabelIsInboxScoped: true,
+        combineInbox: true,
+      }),
+    ).toMatchObject({
+      emailView: "inbox",
+      effectiveLabel: undefined,
+      shouldNormalizeCombinedInboxRoute: true,
+    });
+  });
+
+  it("keeps user labels out of inbox-scoped system tabs", () => {
+    expect(
+      isInboxScopedLabel("important", [
+        { id: "important", name: "Important", type: "user" },
+      ]),
+    ).toBe(false);
+  });
+});
 
 function message(overrides: Partial<EmailMessage>): EmailMessage {
   return {

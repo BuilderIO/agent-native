@@ -48,6 +48,21 @@
   }
 }
 
+@container (max-width: 52rem) {
+  .slides-home-toolbar .slides-home-import-label {
+    display: none;
+  }
+
+  .slides-home-toolbar .slides-home-import-button {
+    width: 2rem;
+    padding-inline: 0;
+  }
+
+  .slides-home-toolbar .slides-home-import-chevron {
+    display: none;
+  }
+}
+
 @container (max-width: 25rem) {
   .slides-home-toolbar {
     height: 7rem;

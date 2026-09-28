@@ -24244,6 +24244,7 @@ function DesignEditor() {
           motionTracks={screenIsActive ? motionTracksWire : NO_MOTION_TRACKS}
           motionDefaultEase={motionDefaultEase}
           motionDurationMs={motionDurationMs}
+          shaderFillPreview={screenIsActive ? shaderFillPreview : null}
           gradientEditTarget={
             inScreenGradientEditTarget?.screenId === screen.id
               ? inScreenGradientEditTarget
@@ -24448,6 +24449,7 @@ function DesignEditor() {
       motionTracksWire,
       motionDefaultEase,
       motionDurationMs,
+      shaderFillPreview,
       inScreenGradientEditTarget,
       handleInScreenGradientEditChange,
       statePreviewTarget,
