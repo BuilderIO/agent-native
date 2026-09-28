@@ -1,9 +1,3 @@
-/**
- * Terminal — server-side exports
- *
- * PTY WebSocket server and Nitro plugin for the embedded agent terminal.
- */
-
 export {
   createPtyWebSocketServer,
   type PtyServerOptions,

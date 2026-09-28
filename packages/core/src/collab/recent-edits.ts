@@ -1,21 +1,3 @@
-/**
- * Recent-edit attribution for collaborative documents.
- *
- * Every participant (human or agent) may publish a short ring of recent edits
- * in its awareness state under the `recentEdits` key. Clients render these as
- * lingering, fading highlights ("Google Docs / Figma collaborator just edited
- * this") for a few seconds after the edit lands, with the editor's name and
- * color next to the highlighted region.
- *
- * The descriptor is intentionally open-ended — each app publishes whatever its
- * surfaces can resolve back to a DOM rect:
- *   - `{ kind: "text", quote }`         rich-text apps resolve by text search
- *   - `{ kind: "selector", selector }`  canvas/DOM apps resolve by querySelector
- *   - `{ kind: "paths", paths }`        structured apps resolve JSON paths
- *     (e.g. `slides.3.content`) to their rendered element
- *   - `{ kind: "doc" }`                 whole-document change (no region)
- */
-
 import {
   RECENT_EDITS_MAX,
   RECENT_EDIT_TTL_MS,
@@ -35,15 +17,6 @@ export {
   type RecentEditDescriptor,
 } from "@agent-native/toolkit/collab-ui";
 
-/**
- * Hard cap on any single string carried in a recentEdits entry (quote,
- * selector, path segment, label). Callers are expected to pass short
- * excerpts already (existing call sites trim to 80–120 chars for a "what
- * changed" snippet), but this is the ring's own size ceiling — a caller that
- * forgets to trim (e.g. passing a whole paragraph/document as `quote`) must
- * not blow up the awareness payload every connected client receives on the
- * fast-push path, nor the `_collab_awareness` SQL row it gets mirrored into.
- */
 const RECENT_EDIT_STRING_MAX = 500;
 
 function truncateString(value: string): string {
@@ -55,12 +28,6 @@ function truncateString(value: string): string {
 function truncateDescriptor(
   descriptor: RecentEditDescriptor,
 ): RecentEditDescriptor {
-  // The union's last member (`{ kind: string; [key: string]: unknown }`) is an
-  // open-ended catch-all whose `kind` is a plain `string`, so a `switch` on
-  // `descriptor.kind` can't discriminate it away from the literal-kind
-  // members for the compiler — every property still type-checks as
-  // `unknown`. Read/write through an untyped view instead and lean on
-  // runtime checks; the return value is cast back to the real type below.
   const d = descriptor as Record<string, unknown> & { kind: string };
   if (d.kind === "text" && typeof d.quote === "string") {
     return { ...d, quote: truncateString(d.quote) } as RecentEditDescriptor;
@@ -82,8 +49,6 @@ function truncateDescriptor(
   if (d.kind === "doc") {
     return descriptor;
   }
-  // Open-ended shape — trim any string-valued fields defensively without
-  // knowing their names.
   const trimmed: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(d)) {
     trimmed[key] = typeof value === "string" ? truncateString(value) : value;
@@ -91,12 +56,6 @@ function truncateDescriptor(
   return trimmed as RecentEditDescriptor;
 }
 
-/**
- * Append an edit to a recentEdits ring, keeping the newest
- * {@link RECENT_EDITS_MAX} entries. Pure — returns a new array. Descriptor
- * strings and the label are truncated to {@link RECENT_EDIT_STRING_MAX}
- * characters as a defensive cap on the awareness payload size.
- */
 export function appendRecentEdit(
   existing: RecentEdit[] | undefined,
   edit: RecentEdit,
@@ -113,10 +72,6 @@ export function appendRecentEdit(
   return ring;
 }
 
-/**
- * Flatten non-expired recent edits from remote participants, newest last.
- * Pure — exported for tests and non-React consumers.
- */
 export function collectRecentEdits(
   others: OtherPresence[],
   ttlMs: number,
@@ -143,15 +98,9 @@ export function collectRecentEdits(
 }
 
 export interface UseRecentEditsOptions {
-  /** How long a highlight lingers after the edit. Default 6000ms. */
   ttlMs?: number;
 }
 
-/**
- * Reactive list of remote participants' recent edits that haven't expired.
- * Ticks internally (~500ms) while any highlight is visible so consumers can
- * render a smooth fade-out without wiring their own timers.
- */
 export function useRecentEdits(
   others: OtherPresence[],
   options?: UseRecentEditsOptions,
@@ -183,11 +132,6 @@ export function useRecentEdits(
   return edits;
 }
 
-/**
- * Publish a local edit into this client's awareness ring so peers render a
- * lingering highlight for it. Call from app mutation paths (throttled by the
- * ring size + TTL; safe to call per committed edit, not per keystroke).
- */
 export function publishRecentEdit(
   awareness: {
     getLocalState: () => Record<string, unknown> | null;

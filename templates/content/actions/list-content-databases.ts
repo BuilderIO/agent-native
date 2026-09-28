@@ -176,9 +176,6 @@ export default defineAction({
       }
     }
 
-    // The same access + discovery filter the sidebar uses, so the picker shows
-    // owned AND shared/org databases and never a trashed/hidden one. Resolve
-    // source-chain exclusions before limiting so every page is truthfully full.
     const where = and(
       accessFilter(schema.documents, schema.documentShares),
       isNull(schema.documents.trashedAt),
@@ -257,8 +254,6 @@ export default defineAction({
           asc(schema.contentDatabases.id),
         );
 
-    // Two visible matches are sufficient to reject an exact selector without
-    // materializing every duplicate-title row.
     const rows = resolvesExactly
       ? await baseQuery().limit(2)
       : await baseQuery().limit(args.limit).offset(args.offset);
@@ -280,8 +275,6 @@ export default defineAction({
       databaseId: row.id,
       documentId: row.documentId,
       spaceId: row.spaceId,
-      // The document's live title (matches the sidebar) rather than the
-      // possibly-stale content_databases.title.
       title: row.title ?? "Untitled collection",
       description: row.description,
     }));

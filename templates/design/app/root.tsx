@@ -41,6 +41,7 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import {
   requestDesignHistoryOpen,
@@ -54,9 +55,6 @@ import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
 
-// Builder frames this canvas with no session of its own, so every
-// `/_agent-native/*` call it makes is an unauthorized one that buries real
-// failures in 401 noise.
 if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
 configureTracking({
@@ -160,6 +158,7 @@ function DesignCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="design"
+      chatStorageKey={DESIGN_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
         {isDesignEditor ||
@@ -204,12 +203,6 @@ function DesignCommandMenu({
   );
 }
 
-/**
- * The one toaster: AppProviders renders its own by default, and a second copy
- * here made every toast appear twice once the two positions stopped coinciding.
- * Builder's chat covers the left column when it hosts the editor, which would
- * hide any toast underneath it.
- */
 function DesignToaster() {
   return (
     <Toaster
@@ -221,21 +214,6 @@ function DesignToaster() {
   );
 }
 
-function RootContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <MarketingRootContent />;
-  return <PrivateRootContent />;
-}
-
-function MarketingRootContent() {
-  return (
-    <>
-      <OpenVisualEditWebMcp />
-      <Outlet />
-    </>
-  );
-}
-
 function PrivateRootContent() {
   const location = useLocation();
   const { session } = useSession();
@@ -244,7 +222,8 @@ function PrivateRootContent() {
   const isPublicVisualEdit = location.pathname === "/visual-edit";
   useCommandMenuShortcut(
     useCallback(() => {
-      if (hasSession && !isPublicVisualEdit) setCmdkOpen(true);
+      if (!hasSession || isPublicVisualEdit) return;
+      setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
   );
 
@@ -281,22 +260,18 @@ export function computeSessionBypass(pathname: string): boolean {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
-  const isPublicPath = isMarketingHome;
-  // Public design routes still resolve their editor layout client-side; SSR
-  // would render route-state hooks before the document router is available.
   const sessionBypass = computeSessionBypass(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isPublicPath}
+        skeletonLayout="prompt-library"
         sessionBypass={sessionBypass}
         webMcpExcludeActionNames={DESIGN_WEBMCP_EXCLUDED_ACTIONS}
-        i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        i18n={{ catalog: i18nCatalog }}
         toaster={<DesignToaster />}
       >
-        <RootContent />
+        <PrivateRootContent />
       </AppProviders>
     </AppToolkitProvider>
   );

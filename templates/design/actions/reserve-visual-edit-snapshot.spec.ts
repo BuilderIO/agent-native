@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
     designs: {
       id: "designs.id",
       data: "designs.data",
+      liveCollaborationEnabled: "designs.liveCollaborationEnabled",
       visibility: "designs.visibility",
       ownerEmail: "designs.ownerEmail",
       orgId: "designs.orgId",
@@ -33,6 +34,11 @@ const mocks = vi.hoisted(() => {
       publishedRevision: "designVisualEditSnapshots.publishedRevision",
     },
     assertAccess: vi.fn(),
+    currentAccess: vi.fn(() => ({
+      userEmail: "owner@example.test",
+      authCapability: "capability:visual-edit:design:design_localhost",
+    })),
+    getRequestUserEmail: vi.fn((): string | undefined => "owner@example.test"),
     sql: vi.fn((chunks: TemplateStringsArray, ...values: unknown[]) => ({
       chunks: [...chunks],
       values,
@@ -60,6 +66,10 @@ vi.mock("@agent-native/core/action", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  currentAccess: mocks.currentAccess,
+}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -91,6 +101,7 @@ const design = {
   ownerEmail: "owner@example.test",
   orgId: null,
   visibility: "public",
+  liveCollaborationEnabled: true,
   data: JSON.stringify({
     sourceType: "localhost",
     screenMetadata: {
@@ -100,6 +111,7 @@ const design = {
 };
 const designRow = {
   data: design.data,
+  liveCollaborationEnabled: true,
   visibility: design.visibility,
   ownerEmail: design.ownerEmail,
   orgId: design.orgId,
@@ -110,6 +122,12 @@ describe("reserve visual-edit fallback snapshot", () => {
   beforeEach(() => {
     mocks.assertAccess.mockReset();
     mocks.assertAccess.mockResolvedValue({ role: "owner", resource: design });
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "owner@example.test",
+      authCapability: "capability:visual-edit:design:design_localhost",
+    });
+    mocks.getRequestUserEmail.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
     mocks.getDb.mockClear();
     mocks.selectChain.limit.mockReset();
     mocks.selectChain.limit
@@ -135,8 +153,8 @@ describe("reserve visual-edit fallback snapshot", () => {
       requiresAuth: true,
       agentTool: false,
       mcpTool: false,
-      capabilityScopes: ["visual-edit"],
     });
+    expect(reserveSnapshotAction).not.toHaveProperty("capabilityScopes");
 
     await expect(
       reserveSnapshotAction.run(
@@ -149,6 +167,10 @@ describe("reserve visual-edit fallback snapshot", () => {
       "design",
       designId,
       "editor",
+      {
+        userEmail: "owner@example.test",
+        authCapability: undefined,
+      },
     );
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -175,6 +197,27 @@ describe("reserve visual-edit fallback snapshot", () => {
       ["", " + 1"],
       "designVisualEditSnapshots.captureRevision",
     );
+  });
+
+  it("denies capability-only callers and signed-in editors while collaboration is off", async () => {
+    mocks.getRequestUserEmail.mockReturnValueOnce(undefined);
+    await expect(
+      reserveSnapshotAction.run({ designId, fileId }, { caller: "frontend" }),
+    ).rejects.toMatchObject({ errorCode: "visual_edit_account_required" });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.withDesignSourceMutationTransaction).not.toHaveBeenCalled();
+
+    mocks.selectChain.limit
+      .mockReset()
+      .mockResolvedValueOnce([
+        { ...designRow, liveCollaborationEnabled: false },
+      ]);
+    await expect(
+      reserveSnapshotAction.run({ designId, fileId }, { caller: "frontend" }),
+    ).rejects.toMatchObject({
+      errorCode: "visual_edit_collaboration_disabled",
+    });
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
   });
 
   it("rejects viewers, foreign files, and non-Localhost screens", async () => {
@@ -215,5 +258,27 @@ describe("reserve visual-edit fallback snapshot", () => {
     ).rejects.toThrow(/Only Localhost screens/);
     design.data = originalData;
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("does not let a signed-in viewer capability reserve a shared snapshot", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("viewer@example.test");
+    mocks.currentAccess.mockReturnValue({
+      userEmail: "viewer@example.test",
+      authCapability: `capability:visual-edit:design:${designId}`,
+    });
+    mocks.assertAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+    );
+
+    await expect(
+      reserveSnapshotAction.run({ designId, fileId }, { caller: "frontend" }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      designId,
+      "editor",
+      { userEmail: "viewer@example.test", authCapability: undefined },
+    );
+    expect(mocks.withDesignSourceMutationTransaction).not.toHaveBeenCalled();
   });
 });

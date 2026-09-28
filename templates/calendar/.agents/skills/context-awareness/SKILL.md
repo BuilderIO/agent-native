@@ -81,6 +81,10 @@ The editor writes the user's current selection to tab-scoped app state under `se
 
 Use this for URL-reachable filters and search state. The agent can update it with the built-in `set-search-params` and `set-url-path` tools; do not duplicate the whole query string into `navigation`.
 
+### Settings page (`settings-view` key)
+
+The redesigned Settings shell writes tab-scoped `settings-view` = `{ page, sub, label }` (for example `{ page: "integrations", sub: "builder", label: "Connections › Integrations › Builder.io" }`) and deletes it when Settings closes. `<current-url>` shows it as a `settingsPage:` line, because a legacy or mounted pathname doesn't name the page the shell resolved. To send the user to a page, call the built-in `open-settings-page` tool with a page id (plus `sub` or `anchor`); it resolves old tab and section ids through the same redirect table as links. A template's own `navigate` action only needs a Settings branch for its app areas (`/settings/app/<area>`), built with `buildSettingsRoute`.
+
 ### 3. The `view-screen` Script
 
 Every template should have a `view-screen` script. It reads navigation state,

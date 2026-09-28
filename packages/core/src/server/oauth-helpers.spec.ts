@@ -82,9 +82,6 @@ describe("getOAuthAccounts", () => {
   });
 
   it("passes through the owner's accounts, including unusable ones", async () => {
-    // Deliberately unfiltered: per-account consumers (e.g. calendar's
-    // getAuthStatus) surface per-account reconnect errors themselves and
-    // need to see the broken record to do so.
     const accounts = [
       { accountId: "steve@example.com", displayName: null, tokens: {} },
     ];

@@ -56,8 +56,6 @@ export default defineConfig({
     __CLIPS_SENTRY_DSN__: JSON.stringify(resolveSentryDsn()),
     __CLIPS_SENTRY_ENVIRONMENT__: JSON.stringify(resolveSentryEnvironment()),
   },
-  // Share recording primitives with the web app recorder (templates/clips/shared)
-  // — matches the "@shared/*" tsconfig path so imports resolve in both builds.
   resolve: {
     alias: { "@shared": resolve(root, "../shared") },
   },

@@ -5,7 +5,6 @@ import { getDbExec } from "../../db/client.js";
 import { offboardMember } from "../../identity/offboard.js";
 import { requireOrgMember } from "../actions.js";
 
-/** Remove an active member after transferring ownership to another member. */
 export default defineAction({
   description:
     "Remove a member from the active organization, transfer their owned rows to an active successor, revoke sessions and app access, and record the offboarding event.",

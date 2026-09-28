@@ -1,6 +1,7 @@
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
@@ -47,7 +48,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
@@ -124,10 +124,6 @@ export function RecordingCard({
     unit: Parameters<typeof formatters.formatRelativeTime>[1],
   ) => formatters.formatRelativeTime(value, unit);
   const [hovered, setHovered] = useState(false);
-  // A thumbnail URL that is present but does not load — the row still carries
-  // one while a redaction burn is pending, and that request is held back — put
-  // the card back on the placeholder it uses when there is no thumbnail at
-  // all, rather than leaving a broken image box in the grid.
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);

@@ -198,15 +198,7 @@ export async function recordFinishedAutomationPrompt(
   ) {
     return;
   }
-  // list-factory-audit joins audit events by the agent run id (event.runId),
-  // not the core history-row id (event.automationRunId) — every other writer
-  // of factoryAuditEvents.automationRunId already stores the agent run id.
-  // Without one, this row can never be joined to a displayed run.
   if (!event.runId) return;
-  // Reads the live resource: known gap (Cause 1 in
-  // .tmp/notes/factory-prompt-audit-gap.md) — an edit mid-run can make this
-  // describe a newer prompt than the one that actually executed. Parked
-  // pending the factory_automation_versions rework.
   const resource = await resourceGetByPath(event.owner, event.path);
   if (!resource) return;
   const { body } = splitAutomationFrontmatter(resource.content);
@@ -254,10 +246,6 @@ type AutomationSeed = {
 };
 
 const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
-// Not yet honored end to end for GPT + tools on the Builder gateway — see
-// packages/core/docs/design/gpt-reasoning-effort-gateway-contract.md. Seeded
-// here so it takes effect immediately for non-GPT models, and for GPT once
-// that gateway lane ships, without a follow-up migration of every seed.
 const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
@@ -656,8 +644,6 @@ export async function ensureFactoryAutomations(
       }
       const contentBeforeMetadata = repaired;
 
-      // Earlier Factory versions created these rows without identity and run
-      // budget metadata. Repair YAML only unless gated body repair above ran.
       repaired = setFrontmatterField(repaired, "triggerType", "schedule");
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
@@ -689,8 +675,6 @@ export async function ensureFactoryAutomations(
       ) {
         repaired = setFrontmatterField(repaired, "schedule", seed.schedule);
       }
-      // Every row here matched a seed, so the leaf resolves a definite source.
-      // Nothing in this loop may fall back to a guess.
       const existingConfig = readFactoryAutomationConfig(repaired, leafName);
       repaired = applyAutomationConfigFrontmatter(repaired, {
         ...existingConfig,
@@ -706,17 +690,9 @@ export async function ensureFactoryAutomations(
       );
       if (repaired === originalContent) return;
 
-      // Insert the predecessor snapshot before the live write commits, same
-      // as save/restore: if the write below fails, this is just an unused
-      // extra row, but the reverse order would let the repair commit with no
-      // recoverable pre-repair version when the history insert fails.
       let insertedRepairVersion: FactoryAutomationVersionRow | null = null;
       if (bodyRepairNeeded) {
         const automationName = factoryAutomationRunHistoryKey(path);
-        // Unconditional, not the no-op-skipping insert: repair's whole
-        // purpose is recording a change (deduped injected blocks) that the
-        // user-facing-identity no-op check would otherwise treat as
-        // unchanged, since normalizing strips those blocks either way.
         insertedRepairVersion = await insertFactoryAutomationVersionRow({
           automationId: existing.id,
           factoryId,
@@ -727,19 +703,12 @@ export async function ensureFactoryAutomations(
           summary: "Before deduped injected prompt blocks",
           source: "repair",
         });
-        // The row above claims the current live version number as its own.
-        // Leaving the live promptVersion unchanged would let the next normal
-        // save try to insert that same number again and collide with the
-        // unique (orgId, automationId, version) index, so the repaired
-        // content must advance past it.
         repaired = setFrontmatterField(
           repaired,
           "promptVersion",
           String(insertedRepairVersion.version + 1),
         );
       }
-      // A thrown write failure must compensate exactly like a falsy return —
-      // resourcePutIfCurrent has no try/catch of its own.
       let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
       let writeError: unknown;
       try {

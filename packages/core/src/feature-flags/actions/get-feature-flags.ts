@@ -19,10 +19,6 @@ export default defineAction({
   run: async (_args, ctx) => {
     const scope = { userEmail: ctx?.userEmail, orgId: ctx?.orgId };
     const definitions = listFeatureFlags();
-    // One batched rules read for the whole registry instead of up to 2
-    // settings queries per flag. If the batch itself fails, fall back to the
-    // pre-batching per-flag reads instead of collapsing every flag to off —
-    // a failure reading one flag's rules must not black out the rest.
     const rules = await getFeatureFlagRulesForKeys(
       definitions.map(({ key }) => key),
       scope,
@@ -56,7 +52,6 @@ export default defineAction({
             ),
           ];
         } catch {
-          // A feature flag must never become an availability dependency.
           return [key, false];
         }
       }),

@@ -86,8 +86,6 @@ beforeAll(async () => {
         updatedAt: "2026-05-04T00:00:00.000Z",
       },
       {
-        // Legacy pre-org row. The owner keeps it across org switches, but it
-        // must never widen to a different owner.
         id: "deck-b-solo",
         title: "Org B unscoped legacy",
         data: JSON.stringify({ slides: [{ id: "s1" }] }),
@@ -114,9 +112,6 @@ async function idsFor(
   });
 }
 
-// Every projection branch in list-decks builds its own query. A filter dropped
-// from any one of them is a cross-tenant leak, so each is asserted separately
-// rather than trusting the default branch to stand in for the rest.
 const BRANCHES: Array<[string, Record<string, unknown>]> = [
   ["default metadata", {}],
   ["light", { light: "true" }],
@@ -128,6 +123,27 @@ const BRANCHES: Array<[string, Record<string, unknown>]> = [
 ];
 
 describe("list-decks cross-organization isolation", () => {
+  it("searches visible titles before applying the page limit", async () => {
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "PRIVATE" },
+      ),
+    ).toEqual(["deck-b-private"]);
+    expect(
+      await idsFor(
+        { userEmail: ALICE, orgId: ORG_A },
+        { limit: 1, search: "Org B" },
+      ),
+    ).toEqual([]);
+    expect(
+      await idsFor(
+        { userEmail: BOB, orgId: ORG_B },
+        { limit: 1, search: "%_" },
+      ),
+    ).toEqual([]);
+  });
+
   it.each(BRANCHES)(
     "never shows another org's decks to a brand-new account (%s)",
     async (_label, args) => {
@@ -188,10 +204,6 @@ describe("list-decks cross-organization isolation", () => {
   });
 
   it("does not fail the light+preview listing when one deck's data isn't valid JSON", async () => {
-    // The preview projection casts `data::jsonb` inside the query itself, so
-    // this row's non-JSON `data` (a legacy/corrupted write) fails that cast
-    // against the real Postgres-compatible engine — proving the bug, not
-    // just the mocked recovery path in list-decks.test.ts.
     await getDb().insert(schema.decks).values({
       id: "deck-a-corrupted",
       title: "Org A corrupted",

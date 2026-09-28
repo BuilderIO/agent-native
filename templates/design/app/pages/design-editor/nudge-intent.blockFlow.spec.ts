@@ -8,21 +8,6 @@ import {
 } from "../../../shared/code-layer";
 import { resolveElementNudgeIntent } from "./nudge-intent";
 
-/**
- * Normal block flow.
- *
- * The reported bug: on a fusion screen whose parent is a plain BLOCK container,
- * arrow keys wrote px offsets instead of reordering. `describeFlowContainer`
- * infers layout only from the parent's inline styles and Tailwind utilities, so
- * a stylesheet-driven (or simply default) block parent read as `kind: "none"`
- * and `resolveNudgeIntent` took its first branch straight to translate.
- *
- * That is the exact operation this module's own doc comment warns against:
- * under `position: static`, writing left/top does nothing at all. The browser's
- * rendered `display`, forwarded by the canvas bridge as `parentDisplay`, is the
- * only source that knows the real layout.
- */
-
 function elementInfoFor(
   nodeId: string,
   tagName = "div",
@@ -40,7 +25,6 @@ function elementInfoFor(
   } as unknown as ElementInfo;
 }
 
-/** Resolve, apply, and report resulting DOM order: the visible outcome. */
 function orderAfterNudge(
   content: string,
   nodeId: string,
@@ -125,10 +109,6 @@ describe("resolveElementNudgeIntent in normal block flow", () => {
   });
 
   it("swallows the cross axis, matching flex-column behavior", () => {
-    // Left/right carries no DOM-order meaning in a vertical stack, and the
-    // container does not wrap, so there is no sensible reorder. Consistent
-    // with a flex column, which returns `none` for the same reason rather than
-    // writing an offset onto a flow child.
     expect(orderAfterNudge(STACK, "beta", "right", "block")).toEqual({
       kind: "none",
     });
@@ -163,11 +143,6 @@ describe("resolveElementNudgeIntent in normal block flow", () => {
   });
 
   it("treats an unknown parent display as block flow", () => {
-    // A layers-tree selection reaches the nudge handler before the bridge
-    // round-trip fills parentDisplay, so `undefined` is the common case, not an
-    // edge case. Block is the CSS initial value, and it is what the browser is
-    // actually doing — assuming otherwise is what made the tree-selected nudge
-    // write a dead offset.
     expect(orderAfterNudge(STACK, "alpha", "down")).toEqual([
       "beta",
       "alpha",

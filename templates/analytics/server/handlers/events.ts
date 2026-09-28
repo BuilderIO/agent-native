@@ -10,12 +10,6 @@ import { resolveCredential } from "../lib/credentials";
 import { withRequestContextFromEvent } from "../lib/credentials";
 import { getAccessToken } from "../lib/gcloud";
 
-/**
- * POST /api/events/track
- *
- * Logs custom events to the configured BigQuery events table.
- * Used for tracking metric views, user actions, etc.
- */
 export const handleTrackEvent = defineEventHandler(async (event) => {
   if (isSyntheticTrafficValue(getHeader(event, SYNTHETIC_TRAFFIC_HEADER))) {
     setResponseStatus(event, 202);
@@ -30,11 +24,9 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       return { error: "Missing or invalid 'event' field" };
     }
 
-    // Auth has been removed — user info comes from request body only
     let authenticatedUserId: string | null = null;
     let userEmail: string | null = null;
 
-    // Prepare event row for BigQuery
     const eventRow = {
       event: eventName,
       data: typeof data === "string" ? data : JSON.stringify(data || {}),
@@ -54,10 +46,6 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       modelId: null,
     };
 
-    // Insert into BigQuery via REST API. We need the request context to
-    // resolve the per-user BIGQUERY_PROJECT_ID + service-account credential,
-    // so wrap inside withRequestContextFromEvent. The fetch itself still
-    // doesn't block the response (resolved upfront, fired async after).
     const ctxResult = await withRequestContextFromEvent(event, async (ctx) => {
       const [credentials, projectId] = await Promise.all([
         resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
@@ -73,7 +61,6 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
 
     if (ctxResult) {
       const { token, table } = ctxResult;
-      // Fire and forget — don't block the response on the BigQuery insert.
       fetch(
         `https://bigquery.googleapis.com/bigquery/v2/projects/${table.projectId}/datasets/${table.datasetId}/tables/${table.tableId}/insertAll`,
         {
@@ -100,7 +87,6 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
         });
     }
 
-    // Respond immediately - don't wait for BigQuery
     setResponseStatus(event, 202);
     return { success: true };
   } catch (err: any) {

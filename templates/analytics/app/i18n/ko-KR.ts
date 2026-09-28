@@ -150,6 +150,8 @@ export default {
     untitledAnalysis: "제목 없는 분석",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
+    reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -170,6 +172,9 @@ export default {
     bellSoundDescription:
       "에이전트가 실행을 완료하면 소리를 재생합니다. 기본값은 꺼짐입니다.",
     bellSoundSaveFailed: "소리 설정을 저장하지 못했습니다.",
+    notificationsTitle: "알림",
+    notificationsEmailGroup: "이메일",
+    notificationsSoundGroup: "소리",
     replayStorage: "세션 재생 저장소",
     replayStorageDescription:
       "세션 재생 녹화에는 파일 업로드 제공자 구성이 필요합니다. 무료 등급 객체 저장소를 사용하려면 Builder.io를 연결하거나, 직접 S3 호환 버킷을 사용하세요.",
@@ -941,6 +946,10 @@ export default {
     revenueOverTime: "시간 경과에 따른 수익",
     recentSales: "최근 판매",
     recentSalesDescription: "이번 달에 265건의 판매가 발생했습니다.",
+  },
+  analysisResult: {
+    title: "분석 결과",
+    comparisonContext: "{{period}}: {{previous}} 대비 {{current}}",
   },
   routeTitles: {
     notFound: "찾을 수 없음 - Analytics",

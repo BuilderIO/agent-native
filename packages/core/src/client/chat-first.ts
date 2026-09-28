@@ -73,7 +73,6 @@ export interface ChatFirstSurfaceTab {
   kind: ChatFirstSurfaceKind;
   title: string;
   appId?: string;
-  /** App tabs can either replace the main chat or sit beside it. */
   placement?: ChatFirstAppSurfacePlacement;
   path?: string;
   view?: string;
@@ -92,7 +91,6 @@ export type ChatFirstAgentActivityStatus =
   | "recent"
   | "unknown";
 
-/** The renderer-neutral subset used by the shared agent activity surface. */
 export interface ChatFirstAgentActivity {
   sessionId: string;
   title: string;
@@ -203,11 +201,6 @@ export function chatFirstSurfaceTabId(
 export const CHAT_FIRST_SURFACE_WIDTH_DEFAULT = 380;
 export const CHAT_FIRST_SURFACE_WIDTH_MIN = 320;
 
-/**
- * The first-run rail is intentionally opinionated. These are the five
- * everyday workspace apps shown before the user expands the rest of the
- * catalog; an explicit ordered layout still wins after the first change.
- */
 export const CHAT_FIRST_DEFAULT_APP_IDS = [
   "content",
   "design",
@@ -419,13 +412,9 @@ export interface ChatFirstAppRegistration {
   id: string;
   name?: string;
   enabled?: boolean;
-  /** The app's current production or mounted URL. */
   url?: string | null;
-  /** Optional local development URL used by the desktop shell. */
   devUrl?: string | null;
-  /** Mounted path used when an app has no absolute URL. */
   path?: string | null;
-  /** Authenticated landing path relative to the app mount. */
   homePath?: string | null;
 }
 
@@ -577,9 +566,6 @@ export function orderChatFirstAppIds(
   ];
   const pinnedIds = layout.pinnedIds.filter((id) => available.has(id));
   const pinned = new Set(pinnedIds);
-  // A live `orderedIds` value is the single source of positional truth. Pinning
-  // changes presentation only; it must not rewrite the user's drag order or
-  // make an unpinned app jump to the fallback order.
   if (!hasManualOrder) {
     return [...pinnedIds, ...fallbackOrder.filter((id) => !pinned.has(id))];
   }
@@ -623,7 +609,6 @@ function normalizeSessionId(value: unknown): string | null {
   return id || null;
 }
 
-/** Resolve ids from run/thread payloads without treating an absent id as a session. */
 export function resolveChatFirstSessionId(value: unknown): string | null {
   if (typeof value === "string") return normalizeSessionId(value);
   if (!value || typeof value !== "object") return null;
@@ -1064,11 +1049,6 @@ function parseAbsoluteHttpUrl(value: string): URL | null {
   }
 }
 
-/**
- * Builder's web app sends frame-blocking headers. Its branch/editor URLs are
- * open-browser targets, not the iframe-backed Fusion preview URLs served from
- * builder.cloud, so keep them out of the chat-first browser iframe.
- */
 export function shouldOpenChatFirstBrowserExternally(value: string): boolean {
   const url = parseAbsoluteHttpUrl(value);
   return Boolean(

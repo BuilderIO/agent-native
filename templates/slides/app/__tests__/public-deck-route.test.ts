@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -15,10 +16,6 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 vi.mock("@/pages/SharedPresentation", () => ({ default: () => null }));
 vi.mock("@/components/ui/spinner", () => ({ Spinner: () => null }));
 
-// The presentation page renders impersonally on the server (SSR reads no
-// session so the public page stays CDN-cacheable), so the loader no longer
-// reads the request user — it only needs the app base path to build the
-// client-side redirect to the auth-guarded editor for restricted decks.
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => configuredBasePath.current,
@@ -97,8 +94,6 @@ describe("public deck route", () => {
         ],
       },
     ]);
-    // SSR is impersonal: the deck is looked up by id alone, and visibility is
-    // checked in JS — no per-user access filter is applied server-side.
     expect(where).toHaveBeenCalledWith({ column: "id_col", value: "deck-1" });
   });
 
@@ -140,7 +135,7 @@ describe("public deck route", () => {
     },
   );
 
-  it("marks tokenized deck pages private and no-store", async () => {
+  it("uses a query-specific cache key for token-authorized deck pages", async () => {
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     resultQueue.current = [deckRows("private")];
 
@@ -154,6 +149,7 @@ describe("public deck route", () => {
     expect(result.init.headers).toEqual({
       "Cache-Control": "private, max-age=0, no-store",
       "Referrer-Policy": "no-referrer",
+      [SSR_QUERY_CACHE_KEY_HEADER]: "query",
     });
     expect(result.data.agentAccessToken).toBe("tok+1");
     if (result.data.deck === null) throw new Error("expected tokenized deck");

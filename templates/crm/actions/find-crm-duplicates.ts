@@ -167,9 +167,6 @@ export default defineAction({
       }
     }
 
-    // Requested ids that produced no seed were not readable by this caller.
-    // Reporting them as "no duplicates" would be the same failure this action
-    // exists to prevent, so they come back named.
     const found = new Set(seeds.map((seed) => seed.recordId));
     const unreadableRecordIds = recordIds.filter((id) => !found.has(id));
 

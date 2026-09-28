@@ -68,9 +68,7 @@ export interface GenericChartPanelProps<TData, TConfig> {
   loading?: boolean;
   error?: ReactNode;
   isEmpty?: (data: TData) => boolean;
-  /** App-specific rendering takes priority over the portable Recharts renderer. */
   render?: (context: GenericChartRenderContext<TData, TConfig>) => ReactNode;
-  /** Opt into Toolkit's source-agnostic Recharts renderer for row data. */
   chart?: GenericChartConfig;
   renderLoading?: (config: TConfig) => ReactNode;
   renderError?: (error: ReactNode, config: TConfig) => ReactNode;
@@ -79,10 +77,6 @@ export interface GenericChartPanelProps<TData, TConfig> {
   className?: string;
 }
 
-/**
- * A render-only chart state boundary. Data acquisition, query serialization,
- * demos, pivots, and app-specific chart renderers stay with the consuming app.
- */
 export function GenericChartPanel<TData, TConfig>({
   data,
   config,
@@ -141,7 +135,6 @@ export function GenericChartPanel<TData, TConfig>({
   return null;
 }
 
-/** Derives chart axes from provider-neutral row data when keys are not configured. */
 export function resolveGenericChartKeys(
   rows: GenericChartDatum[],
   config: Pick<GenericChartConfig, "xKey" | "yKey" | "yKeys">,

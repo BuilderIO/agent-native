@@ -13,8 +13,12 @@ import {
 import { useCallback } from "react";
 import { useLocation } from "react-router";
 
+import { HomeImportButton } from "@/components/editor/HomeImportButton";
+import { cn } from "@/lib/utils";
+
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.designs",
+  "/home": "navigation.designs",
   "/design-systems": "navigation.designSystems",
   "/design-systems/setup": "navigation.setupDesignSystem",
   "/settings": "navigation.settings",
@@ -53,6 +57,7 @@ function ResolvedTitle() {
 }
 
 export function Header() {
+  const isHome = useLocation().pathname === "/home";
   const title = useHeaderTitle();
   const actions = useHeaderActions();
   const openRunThread = useCallback(
@@ -82,30 +87,52 @@ export function Header() {
   );
 
   return (
-    <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        {title ?? <ResolvedTitle />}
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {actions}
-        <RunsTray pollMs={0} onOpenThread={openRunThread} />
-        <AgentToggleButton />
-      </div>
-    </header>
+    <div
+      className={cn(
+        isHome ? "design-home-toolbar hidden shrink-0 md:block" : "contents",
+      )}
+    >
+      <header
+        className={cn(
+          "hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6",
+          isHome && "h-14 border-b-0 design-home-header",
+        )}
+      >
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {title ?? <ResolvedTitle />}
+        </div>
+        {isHome ? (
+          <div className="design-home-header-search w-full">{actions}</div>
+        ) : null}
+        <div className="flex items-center justify-end gap-2 shrink-0">
+          {isHome ? <HomeImportButton /> : null}
+          {!isHome && actions}
+          <RunsTray pollMs={0} onOpenThread={openRunThread} />
+          <AgentToggleButton />
+        </div>
+      </header>
+    </div>
   );
 }
 
-/**
- * Mobile counterpart of the header actions slot: <Header> is `md:flex`, so
- * without this every control a page publishes through `useSetHeaderActions`
- * is unmounted below the `md` breakpoint.
- */
 export function MobileHeaderActions() {
+  const isHome = useLocation().pathname === "/home";
   const actions = useHeaderActions();
   if (!actions) return null;
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden">
-      {actions}
+    <div
+      className={cn(
+        "flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden",
+        isHome &&
+          "design-home-mobile-header-actions justify-start overflow-visible border-b-0",
+      )}
+    >
+      {isHome ? <div className="min-w-0 flex-1">{actions}</div> : actions}
+      {isHome ? (
+        <div className="shrink-0">
+          <HomeImportButton />
+        </div>
+      ) : null}
     </div>
   );
 }

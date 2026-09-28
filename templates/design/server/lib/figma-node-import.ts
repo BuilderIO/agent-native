@@ -1,17 +1,3 @@
-/**
- * Shared Figma REST fetch -> map -> screen-file core.
- *
- * Extracted from `import-figma-frame.ts` so a second import path (paste-driven
- * node resolution, see `figma-clipboard-match.ts` / `import-figma-clipboard.ts`)
- * can reuse the exact same fetch/map logic instead of re-implementing it.
- * `import-figma-frame.ts` still owns the action interface and result shape; this
- * module only owns the parts that talk to the Figma REST API and turn node JSON
- * into `ImportedDesignFile` records.
- *
- * Pure/network-boundary split mirrors `figma-node-to-html.ts`'s own doc comment:
- * this module fetches, `figma-node-to-html.ts` maps (pure, synchronous).
- */
-
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -43,8 +29,6 @@ const MAX_FIGMA_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_TOTAL_FIGMA_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_FIGMA_IMAGE_REFERENCES = 256;
 const MAX_FIGMA_IMAGE_IDS_PER_REQUEST = 50;
-// Figma's `/images` endpoint takes ids in the query string; cap the batch by
-// both count and URL length so a complex frame's ids are fetched in full.
 const MAX_FIGMA_IMAGE_IDS_QUERY_CHARS = 1_800;
 const MAX_CONCURRENT_FIGMA_IMAGE_UPLOADS = 4;
 const FIGMA_IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -237,13 +221,6 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-/**
- * Intrinsic pixel size from a PNG or JPEG header. Figma upscales an image fill
- * with nearest-neighbour sampling while a browser smooths, and the converter
- * can only match that when it knows the image's own size — which is free here,
- * since these bytes are already in hand to be mirrored. A format we cannot read
- * returns null and the fill simply stays on the smooth path.
- */
 function intrinsicImageSize(
   bytes: Buffer,
 ): { width: number; height: number } | null {
@@ -262,7 +239,6 @@ function intrinsicImageSize(
         continue;
       }
       const marker = bytes[offset + 1]!;
-      // SOF0..SOF15, minus the markers in that range that are not frame headers.
       if (
         marker >= 0xc0 &&
         marker <= 0xcf &&
@@ -287,7 +263,6 @@ async function mirrorFigmaImageUrls(
     ownerEmail?: string;
     fetcher?: FigmaImageFetcher;
     uploader?: FigmaImageUploader;
-    /** Filled with each source URL's intrinsic pixel size when it is readable. */
     sizes?: Map<string, { width: number; height: number }>;
   } = {},
 ): Promise<Map<string, string>> {
@@ -325,9 +300,6 @@ async function mirrorFigmaImageUrls(
           { maxRedirects: 3, httpsOnly: true },
         );
       } catch (error) {
-        // ssrfSafeFetch names the blocked host and the private address it
-        // resolved to. That is the right thing in a server log and an
-        // internal-network disclosure in a toast, so the cause stays here.
         console.error("[figma-import] Figma image fetch was blocked:", error);
         failFigmaImport(
           "Could not fetch an image from Figma. Try importing again; Figma render URLs expire.",
@@ -359,9 +331,6 @@ async function mirrorFigmaImageUrls(
       try {
         data = await readCappedImageBytes(response, aggregateBudget);
       } catch (error) {
-        // readCappedImageBytes already names its own budget refusals. Anything
-        // else here is the download itself dying mid-stream, which is not the
-        // same answer and must not be reported as an oversize frame.
         if (isFigmaImportFailure(error)) throw error;
         console.error("[figma-import] Figma image download failed:", error);
         failFigmaImport(
@@ -390,8 +359,6 @@ async function mirrorFigmaImageUrls(
           stableUrl: true,
         });
       } catch (error) {
-        // Upload drivers report endpoint, bucket/key, and provider response
-        // text. Keep the setup guidance, leave the driver detail in the log.
         console.error("[figma-import] Figma image upload failed:", error);
         failFigmaImport(
           "Could not store a Figma image durably. Check Settings > File uploads and try again.",
@@ -425,26 +392,12 @@ async function mirrorFigmaImageUrls(
  * is also used by non-Figma import paths that must not be affected.
  */
 export function withFigmaBoxModelReset(html: string): string {
-  // `text-rendering: geometricPrecision` because Figma lays glyphs out on
-  // exact outlines, while the browser's default hints them — snapping stems
-  // to the pixel grid and nudging advances to match. That is the right call
-  // for body text on a web page and the wrong one for reproducing a design
-  // tool: it shifts glyph edges away from where Figma drew them on every
-  // label. It measurably improves every case that has text (typography
-  // 13.27% -> 12.67%, pricing 2.89% -> 2.74%, settings 1.24% -> 1.22%).
   return (
     `<style>*,*::before,*::after{box-sizing:border-box;}body{margin:0;}` +
     `*{text-rendering:geometricPrecision;}</style>\n${html}`
   );
 }
 
-/**
- * Build a Google Fonts CSS2 URL from the font usage collected for one
- * imported node (mirrors the equivalent helper in `fig-file-to-html.ts` for
- * `.fig` imports, kept separate here to avoid coupling the REST-node and
- * `.fig`-binary import pipelines). Returns null when no custom fonts were
- * used (nothing to request).
- */
 export function buildGoogleFontsUrl(
   fontUsage: FigmaFontUsage[],
 ): string | null {
@@ -498,17 +451,6 @@ export function buildGoogleFontsUrl(
   return `https://fonts.googleapis.com/css2?${families.join("&")}&display=swap`;
 }
 
-/**
- * Prepend `<link>` tags requesting the imported node's real fonts from Google
- * Fonts. `normalizeImportedHtmlDocument` wraps content with no `<html>` tag
- * into a fresh document whose `<body>` is exactly this string -- so, like
- * `withFigmaBoxModelReset` above, these tags land in `<body>`, which browsers
- * still apply `rel="stylesheet"` links from. This is the same fallback-font
- * substitution problem `code-layer-state.ts` and `fig-file-to-html.ts`
- * already solve for other design-generation/import paths; the REST-node
- * Figma importer had no equivalent, so every imported font silently
- * substituted the browser default sans-serif.
- */
 export function withFigmaFontLoading(
   html: string,
   fontUsage: FigmaFontUsage[],
@@ -519,11 +461,6 @@ export function withFigmaFontLoading(
   return `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${escapedUrl}">\n${html}`;
 }
 
-/**
- * Kept as a named re-export: `import-figma-clipboard.ts`,
- * `get-figma-design-context.ts` and the fidelity harness all read node
- * payloads through this name.
- */
 export const providerJson = readFigmaProviderJson;
 
 export async function figmaGet(path: string, query?: Record<string, unknown>) {
@@ -544,14 +481,6 @@ export interface FigmaFileDepthNode {
   characters?: string;
 }
 
-/**
- * Fetches the file's page/frame structure at a given `depth` (cheap: no
- * geometry, just ids/names/types/children/characters). `depth=2` returns
- * pages + their direct children (top-level frames) — used to find a default
- * frame when no node-id is given. `depth=3` additionally returns each top
- * frame's direct children — used by the clipboard matcher to read visible
- * text for heuristic matching.
- */
 export async function fetchFileStructure(
   fileKey: string,
   depth: number,
@@ -569,9 +498,6 @@ export async function resolveTargetNodeId(
 ): Promise<string> {
   if (nodeId) return nodeId;
 
-  // No node-id given: find the file's first top-level frame under its first
-  // page. depth=2 keeps this cheap (pages + their direct children only, no
-  // deep geometry) instead of pulling the entire document tree.
   const document = await fetchFileStructure(fileKey, 2);
   const firstPage = document.children?.[0];
   const firstFrame = firstPage?.children?.find((child) => Boolean(child?.id));
@@ -585,17 +511,6 @@ export async function resolveTargetNodeId(
   return firstFrame.id;
 }
 
-/**
- * Fetches one or more nodes' full document JSON, including vector
- * `geometry=paths` so `figma-node-to-html` can reconstruct real `<path>`
- * geometry for vectors and boolean operations instead of rasterizing them.
- *
- * Raw path data is what pushes a node payload past the provider's 4 MB
- * response limit, so oversize is handled in two steps before giving up: split
- * a multi-selection into smaller batches (each still with geometry), then
- * retry the same ids WITHOUT geometry, which degrades exactly to the
- * rendered-PNG fallback rather than failing the import.
- */
 export async function fetchFigmaNodes(
   fileKey: string,
   nodeIds: string[],
@@ -686,8 +601,6 @@ async function fetchFallbackImageUrls(
       if (typeof url === "string" && url) result[id] = url;
     }
   };
-  // Batch over the full ID list by count and query length so complex frames
-  // don't silently drop layers beyond the first request.
   let batch: string[] = [];
   let queryChars = 0;
   for (const nodeId of nodeIds) {
@@ -717,14 +630,6 @@ async function fetchImageFillUrls(
     meta?: { images?: Record<string, string | null | undefined> };
     images?: Record<string, string | null | undefined>;
   };
-  // `/files/:key/images` nests its map under `meta`, unlike the sibling
-  // `/images/:key` RENDER endpoint that `fetchFallbackImageUrls` calls, which
-  // returns `images` at the top level. Reading the flat shape here meant
-  // `json.images` was always undefined, so EVERY image fill failed to resolve
-  // and was reported as "could not be fetched from Figma ... deleted images or
-  // very large assets" — a message that named a cause the code had never
-  // checked. The fidelity harness reads `meta.images`, which is why no corpus
-  // number ever moved while the real importer dropped all of them.
   const images = json.meta?.images ?? json.images;
   const result: Record<string, string> = {};
   for (const ref of imageRefs) {
@@ -793,13 +698,6 @@ export function summarizeFidelity(entries: FidelityEntry[]) {
   };
 }
 
-/**
- * Fetches whatever PNG fallback / image-fill URLs the given nodes need (union
- * across all of them, one request each instead of one per node) and maps
- * every node to an `ImportedDesignFile`. Cascading x-offset placement mirrors
- * `saveImportedDesignFiles`' own frame layout so multiple imported nodes don't
- * land stacked on top of each other before the canvas placement pass runs.
- */
 export async function buildScreenFilesFromFigmaNodes(
   fileKey: string,
   nodesById: Record<string, FigmaNode>,
@@ -811,11 +709,6 @@ export async function buildScreenFilesFromFigmaNodes(
   files: ImportedDesignFile[];
   fidelityEntries: FidelityEntry[];
   missingImageFillCount: number;
-  /**
-   * What Figma would not give us, in the caller's own words. Built here rather
-   * than at each call site: an omitted layer is invisible in the result, so a
-   * caller that forgets to describe it reports a partial import as a whole one.
-   */
   omissionWarnings: string[];
 }> {
   const entries = Object.entries(nodesById);
@@ -863,7 +756,6 @@ export async function buildScreenFilesFromFigmaNodes(
     [...Object.values(fallbackImageUrls), ...Object.values(imageFillUrls)],
     { sizes: sourceImageSizes },
   );
-  // Keyed by imageRef for the converter, before the URLs are rewritten below.
   const imageFillSizes: Record<string, { width: number; height: number }> = {};
   for (const [imageRef, url] of Object.entries(imageFillUrls)) {
     const size = sourceImageSizes.get(url);

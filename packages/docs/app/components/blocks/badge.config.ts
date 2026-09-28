@@ -1,16 +1,6 @@
 import type { BlockMdxConfig } from "@agent-native/core/blocks";
 import { z } from "zod";
 
-/**
- * Badge: a small status/label chip for the top of a page or section — "Beta",
- * "Deprecated", "v9.1+", "Server-only". Block-level only (its own line, not
- * embeddable mid-sentence): the docs MDX pipeline is a line-anchored block
- * scanner (`splitDocSegments`), not a real MDX compiler, so a custom component
- * can only be recognized when its opening tag starts its own line — true
- * inline-in-prose usage isn't supported without a separate `marked` inline
- * extension (the same trick `[[Ctrl+K]]` uses). Out of scope here by request.
- */
-
 export const BADGE_COLORS = [
   "gray",
   "blue",
@@ -29,7 +19,6 @@ export const BADGE_SIZES = ["xs", "sm", "md", "lg"] as const;
 
 export const BADGE_SHAPES = ["rounded", "pill"] as const;
 
-/** Small curated allow-list, not an arbitrary icon-name passthrough. */
 export const BADGE_ICONS = [
   "circle-check",
   "circle-info",
@@ -69,7 +58,6 @@ export const badgeSchema = z.object({
   disabled: z.boolean().optional(),
 }) as unknown as z.ZodType<BadgeData>;
 
-/** MDX config: self-closing `<Badge label="Beta" color="orange" ... />`. */
 export const badgeMdx: BlockMdxConfig<BadgeData> = {
   tag: "Badge",
   toAttrs: (data) => ({

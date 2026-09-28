@@ -3,10 +3,6 @@ import { IconLoader2 } from "@tabler/icons-react";
 
 import type { DropUploadItem } from "@/hooks/use-drop-video-upload";
 
-/** Placeholder shown in the grid for a file dropped onto the library while
- * its recording row hasn't landed in `list-recordings` yet — the real
- * `RecordingCard` (with its own "uploading" status pill) takes over as soon
- * as the row exists. */
 export function DroppedUploadCard({ item }: { item: DropUploadItem }) {
   const t = useT();
   const percent = Math.round(item.progress * 100);

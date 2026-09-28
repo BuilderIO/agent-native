@@ -3,11 +3,14 @@ import {
   putPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  assertVisualEditAccountEditor,
+  requireVisualEditCollaboration,
+} from "../server/lib/visual-edit-collaboration.js";
 import {
   deleteVisualEditSnapshotBlobs,
   queueVisualEditSnapshotBlobCleanupInTransaction,
@@ -100,11 +103,10 @@ export function assertLocalhostScreenMetadata(
 
 export default defineAction({
   description:
-    "Publish a bounded HTML fallback snapshot for one Localhost screen. Requires editor access to the Design; the live route and editable source remain unchanged.",
+    "Publish a bounded HTML fallback snapshot for one Localhost screen. Requires a signed-in editor and enabled live collaboration; the live route and editable source remain unchanged.",
   requiresAuth: true,
   agentTool: false,
   mcpTool: false,
-  capabilityScopes: ["visual-edit"],
   maxBodyBytes: MAX_SNAPSHOT_BYTES * 3 + 8_192,
   schema: z
     .object({
@@ -122,8 +124,9 @@ export default defineAction({
     })
     .strict(),
   run: async ({ designId, fileId, reservationToken, html }) => {
-    const editorAccess = await assertAccess("design", designId, "editor");
+    const editorAccess = await assertVisualEditAccountEditor(designId);
     const design = editorAccess.resource as typeof schema.designs.$inferSelect;
+    requireVisualEditCollaboration(design.liveCollaborationEnabled);
 
     if (
       html.length > MAX_SNAPSHOT_BYTES ||
@@ -223,6 +226,7 @@ export default defineAction({
           const [currentDesign] = await tx
             .select({
               data: schema.designs.data,
+              liveCollaborationEnabled: schema.designs.liveCollaborationEnabled,
               visibility: schema.designs.visibility,
               ownerEmail: schema.designs.ownerEmail,
               orgId: schema.designs.orgId,
@@ -250,6 +254,9 @@ export default defineAction({
           ) {
             return null;
           }
+          requireVisualEditCollaboration(
+            currentDesign.liveCollaborationEnabled,
+          );
           try {
             assertLocalhostScreenMetadata(
               currentDesign.data,

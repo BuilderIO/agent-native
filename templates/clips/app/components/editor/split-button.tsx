@@ -16,7 +16,6 @@ export interface SplitButtonProps {
   disabled?: boolean;
 }
 
-/** Adds a split marker at the current playhead. Part of the editor toolbar. */
 export function SplitButton({
   recordingId,
   playheadMs,

@@ -1,55 +1,19 @@
-/**
- * Single source of truth for first-party template metadata.
- *
- * Consumed by:
- *   - `agent-native create` CLI picker
- *   - `agent-native add-app` CLI picker
- *   - Desktop app "Add app" picker
- *   - Workspace scaffolding (for dev port assignment, default paths, etc.)
- *
- * Adding a new first-party template? Add its entry here and it will appear
- * in every picker automatically.
- */
-
 export interface TemplateMeta {
-  /** Directory name under templates/ and package name */
   name: string;
-  /** Display name in pickers */
   label: string;
-  /** One-line description shown in the picker */
   hint: string;
-  /** Longer description (optional) */
   description?: string;
-  /**
-   * Internal icon-alias key (NOT a raw @tabler/icons-react export name).
-   * Resolved to a Tabler icon by the ICON_MAP in
-   * packages/desktop-app/src/renderer/components/CodeAgentsAppIcon.tsx (and the parallel
-   * maps in packages/core/src/client/org/OrgSwitcher.tsx and the mobile
-   * AppCard). Unmapped keys fall back to a generic icon (IconStack2), so when
-   * adding a template you must add a mapping in those ICON_MAP(s) too.
-   */
   icon: string;
-  /** Hex accent color */
   color: string;
-  /** CSS-safe RGB triplet (e.g. "59 130 246") */
   colorRgb: string;
-  /** Dev server port for desktop `pnpm dev` */
   devPort: number;
-  /** Production URL when running as a first-party app on agent-native.com */
   prodUrl?: string;
-  /** Default URL path when deployed in a workspace (defaults to "/<name>") */
   prodPath?: string;
-  /** Default mode when added to desktop app */
   defaultMode?: "dev" | "prod";
-  /** Hide from pickers but still scaffoldable via explicit --template */
   hidden?: boolean;
-  /** Include as a built-in connected A2A agent even when hidden from pickers */
   defaultAgent?: boolean;
-  /** Always scaffold without prompting (e.g. chat as fallback) */
   alwaysAvailable?: boolean;
-  /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
-  /** Core app — included in eager repo dev, desktop, and mobile by default */
   core?: boolean;
 }
 
@@ -260,19 +224,15 @@ export const TEMPLATES: TemplateMeta[] = [
   },
 ];
 
-/** Return templates visible in user-facing pickers (excludes hidden). */
 export function visibleTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => !t.hidden);
 }
 
-/** Return core templates — the default set for eager repo dev, desktop, and mobile. */
 export function coreTemplates(): TemplateMeta[] {
   return TEMPLATES.filter((t) => t.core);
 }
 
-/** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
-  // Tolerate legacy / renamed aliases.
   if (name === "starter") name = "chat";
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
@@ -281,7 +241,6 @@ export function getTemplate(name: string): TemplateMeta | undefined {
   return TEMPLATES.find((t) => t.name === name);
 }
 
-/** Names of all templates (including hidden) for validation. */
 export function allTemplateNames(): string[] {
   return TEMPLATES.map((t) => t.name);
 }

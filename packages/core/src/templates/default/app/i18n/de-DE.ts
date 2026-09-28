@@ -230,6 +230,9 @@ const messages = {
       noErrorMessage: "(keine Fehlermeldung)",
     },
   },
+  settingsShortcut: {
+    command: "Einstellungen",
+  },
   agentPanel: {
     useBuilder: "Verwenden Sie Builder",
     openDesktopToEditCode: "Öffnen Sie den Desktop, um den Code zu bearbeiten",
@@ -245,6 +248,7 @@ const messages = {
     newChat: "Neuer Chat",
     newTerminal: "Neues Terminal",
     panelOptions: "Optionen im Agentenpanel",
+    integrations: "Integrationen",
     collapseSidebar: "Seitenleiste einklappen",
     widenChat: "Chat verbreitern",
     returnChatToLayout: "Chat zurück ins Layout",
@@ -270,6 +274,8 @@ const messages = {
     sharedKeyInEffect: "Ein gemeinsamer Schlüssel wird verwendet.",
     useOrganizationKey: "Organisationsschlüssel verwenden",
     keyStatusUnavailable: "Der Schlüsselstatus ist nicht verfügbar.",
+    saveScopeRoleUnavailable:
+      "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -277,6 +283,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Schließen",
     shareOptions: "Aktienoptionen",
+    people: "Personen",
+    agents: "Agenten",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -692,6 +700,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Antwort prüfen",
     reviewPreview: "Antwortvorschau",
+    reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     closePreview: "Vorschau ausblenden",
     addFeedback: "Feedback hinzufügen",
     draftInstruction: "Anweisung entwerfen",
@@ -713,6 +722,7 @@ const messages = {
     saveUpdate: "Entwurf speichern",
     draftSaved: "Entwurf gespeichert",
     noReviews: "Noch keine Agentenantworten zur Prüfung",
+    summarizeWithAgent: "Mit dem Agenten zusammenfassen",
   },
   error: {
     genericTitle: "Etwas ist schiefgelaufen",

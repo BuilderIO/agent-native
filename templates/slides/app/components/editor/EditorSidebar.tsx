@@ -53,58 +53,32 @@ interface EditorSidebarProps {
   deckTitle: string;
   selectedSlideIds?: string[];
   onSelectSlide: (id: string, options?: SlideSelectionOptions) => void;
-  /** Viewer-role decks get thumbnails only: no add, duplicate, or delete. */
   readOnly?: boolean;
-  /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
-  /** Lingering recent edits used to show the compact AI marker. */
   recentEdits?: AttributedRecentEdit[];
-  /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
-  /** Active deck design system used by slide content tokens. */
   designSystem?: DesignSystemData;
-  /** The next slide while the agent is preparing its HTML. Omitted when the
-   *  agent is filling a placeholder that already has a row in this rail. */
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
-  /** The slide just inserted via the toolbar's New Slide button — the rail
-   *  anchors the "describe this slide" popover to that slide's thumbnail
-   *  once it mounts. Owned by the parent since the button that sets it now
-   *  lives in the toolbar, outside this component. */
   describeSlideId: string | null;
-  /** Clears `describeSlideId` in the parent when the popover closes. */
   onCloseDescribe: () => void;
-  /** Reports add-slide generation state up so the toolbar's New Slide button
-   *  can disable itself while a request is in flight. `targetSlideId` is the
-   *  placeholder the agent was asked to fill, so the parent can mark that row
-   *  as the AI-active one instead of appending a second generating row. */
   onAddSlideGeneratingChange?: (
     generating: boolean,
     targetSlideId: string | null,
   ) => void;
-  /** Slide the agent is filling in place, marked as AI-active in the rail. */
   aiGeneratingSlideId?: string | null;
   /** Resolves once a just-inserted blank slide has actually reached the
    *  server, so the agent's update-slide request can't race the add-slide
    *  persistence. */
   onAwaitAddSlidePersisted?: () => Promise<void>;
-  /** Removes a blank placeholder slide whose persistence ultimately failed,
-   *  so a flaky save doesn't leave a stray empty slide in the deck. */
   onRemoveFailedSlide?: (slideId: string) => void;
-  /** Submits the add-slide agent request. Owned by the parent (rather than
-   *  this component's own useAgentGenerating() call) so the run stays
-   *  correctly scoped and trackable across a sidebar remount. */
   addSlideAgentSubmit: (message: string, context: string) => void;
-  /** Whether a slide is currently on the cut/copy clipboard, so the rail's
-   *  right-click menu can disable Paste when there's nothing to paste. */
   hasSlideClipboard?: boolean;
   onCutSlide?: (slideIds: string[]) => void;
   onCopySlide?: (slideIds: string[]) => void;
-  /** Pastes the clipboard slide directly after this slide. */
   onPasteSlide?: (slideId: string) => void;
   onDeleteSlide?: (slideIds: string[]) => void;
-  /** Inserts a new blank slide directly after this slide. */
   onNewSlideAfter?: (slideId: string) => void;
   onDuplicateSlide?: (slideIds: string[]) => void;
   onReorderSlides?: (
@@ -112,9 +86,7 @@ interface EditorSidebarProps {
     overSlideId: string,
     selectedSlideIds?: string[],
   ) => void;
-  /** Keeps the source thumbnail in place while an Alt/Option drag preview moves. */
   altDragSlideId?: string | null;
-  /** Toggles whether this slide is excluded from Present/Presenter mode. */
   onToggleSkipSlide?: (slideIds: string[], skipped: boolean) => void;
 }
 
@@ -188,7 +160,6 @@ const DECK_FIT_STATE_KEYS = [
   "deck-fit-checks",
 ];
 
-/** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
 function slideIdFromEdit(edit: AttributedRecentEdit): string | null {
   const d = edit.descriptor;
   if (d.kind === "paths" && Array.isArray(d.paths)) {
@@ -246,7 +217,6 @@ function getNextSlideId(
   return nextIndex === currentIndex ? null : (slides[nextIndex]?.id ?? null);
 }
 
-/** Small presence avatar circle with hover card showing name + email */
 function PresenceAvatarTip({
   user,
   size = 16,
@@ -351,12 +321,8 @@ function SortableSlideThumb({
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onOverflowChange: (info: SlideOverflowInfo) => void;
-  /** A recent edit attributed to the agent — a lingering highlight, not a live signal. */
   aiEditing?: boolean;
-  /** This exact slide is the placeholder the agent is filling right now — the
-   *  one case where the shimmer belongs even without live presence. */
   isFillingPlaceholder?: boolean;
-  /** False when this is the deck's last remaining slide — Cut/Delete stay enabled elsewhere but must not remove it. */
   canDelete?: boolean;
   hasSlideClipboard?: boolean;
   onCutSlide?: (slideIds: string[]) => void;
@@ -397,9 +363,6 @@ function SortableSlideThumb({
     (user) => !isAgentPresenceUser(user),
   );
   const showAiMarker = aiEditing || agentPresent || isFillingPlaceholder;
-  // Narrower than the badge above: `aiEditing` also covers a slide's lingering
-  // post-edit highlight, which is "recently done," not "in progress." The
-  // shimmer should only run while the agent is actually live on this slide.
   const showGeneratingShimmer = agentPresent || isFillingPlaceholder;
   const actionSlideIds = selectedSlideIds.includes(slide.id)
     ? selectedSlideIds
@@ -441,8 +404,6 @@ function SortableSlideThumb({
               onFilmstripNavigate(event.key, event.shiftKey);
             }}
             onClick={(event) => {
-              // Safari does not focus a button on click, and the slide copy/paste
-              // and delete shortcuts are scoped to a focused thumbnail.
               event.currentTarget.focus();
               onSelect({
                 shiftKey: event.shiftKey,
@@ -534,11 +495,6 @@ function SortableSlideThumb({
         <ContextMenuContent
           style={{ animation: "none", transition: "none" }}
           onCloseAutoFocus={(event) => {
-            // Radix restores focus to the trigger (this slide's thumbnail
-            // button) when the menu closes. That button's onFocus reselects
-            // its own slide, which clobbers New/Duplicate/Paste's deliberate
-            // selection of the newly created slide. Our handlers already set
-            // the right active slide explicitly, so skip the auto-focus.
             event.preventDefault();
           }}
         >
@@ -788,10 +744,6 @@ export default function EditorSidebar({
       } else {
         slideButtonRefs.current.delete(slideId);
       }
-      // The new-slide prompt anchors to the just-created slide's thumbnail,
-      // which doesn't exist yet at click time — pick it up as soon as it mounts.
-      // Center it in the scroll area first so the prompt has room on-screen
-      // instead of opening off the bottom edge when the new slide lands there.
       if (node && slideId === describeSlideId) {
         node.scrollIntoView({ block: "center" });
         setDescribeAnchorEl(node);
@@ -916,12 +868,9 @@ export default function EditorSidebar({
     ? slides.findIndex((s) => s.id === describeSlideId)
     : -1;
 
-  // Arrow key navigation for slides
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      // Text editing and selected canvas objects own arrow keys. The marker
-      // query also covers a transient focus loss after a native selection.
       const tag = (e.target as HTMLElement)?.tagName;
       if (
         tag === "INPUT" ||
@@ -1064,10 +1013,6 @@ export default function EditorSidebar({
                 } catch (error) {
                   console.error("Failed to persist new slide:", error);
                   onAddSlideGeneratingChange?.(false, null);
-                  // Only remove the placeholder if it's still untouched —
-                  // the save retries take long enough that the user could have
-                  // started editing it directly on the canvas in the meantime,
-                  // and deleting it would destroy that work.
                   const current = slides.find((s) => s.id === describeSlideId);
                   if (
                     current?.content === defaultSlideContent.blank &&

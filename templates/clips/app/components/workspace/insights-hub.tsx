@@ -84,7 +84,7 @@ export function InsightsHub() {
         </h1>
         <div className="ms-auto flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
-            <SelectTrigger className="h-8 w-36">
+            <SelectTrigger size="sm" className="w-36">
               <SelectValue placeholder={t("insightsHub.period")} />
             </SelectTrigger>
             <SelectContent>
@@ -94,7 +94,7 @@ export function InsightsHub() {
               <SelectItem value="90">{t("insightsHub.last90Days")}</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" className="h-8" asChild>
+          <Button variant="outline" size="sm" asChild>
             <a href={csvUrl} download>
               <IconDownload className="size-4 me-1.5" />
               {t("insightsHub.exportCsv")}

@@ -1,8 +1,3 @@
-/**
- * Tests for the full-app shared helpers: designs.data parsing and the
- * fusionApp linkage read/write round-trip.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {

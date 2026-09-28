@@ -80,8 +80,7 @@ export function ProductionDesignSystemShowcase({
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
-                    className="size-8"
+                    size="icon-sm"
                     asChild
                   >
                     <a

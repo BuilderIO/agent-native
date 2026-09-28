@@ -73,14 +73,6 @@ describe("LayoutContextProperties interactions", () => {
     );
     expect(gridButton?.getAttribute("aria-pressed")).toBe("true");
     await act(async () => gridButton?.click());
-    // The element is already a grid (isGridContainer) — re-committing Grid
-    // is a pure no-op at the UI level: an EMPTY patch is not itself a safe
-    // no-op to hand to a command (apply-layout-flow forwards it to
-    // applyVisualEdit, and the code-layer patcher treats an empty style
-    // declaration as unresolvable, surfacing an error toast), so the
-    // handler must return before invoking onApplyLayoutFlow, onStylesChange,
-    // or onStyleChange at all — leaving the authored custom tracks
-    // completely untouched.
     expect(onApplyLayoutFlow).not.toHaveBeenCalled();
     expect(onStylesChange).not.toHaveBeenCalled();
     expect(onStyleChange).not.toHaveBeenCalled();
@@ -135,9 +127,7 @@ describe("LayoutContextProperties interactions", () => {
       return disabled;
     };
 
-    // No inline columns template: sizing is unknown off a computed "grid".
     expect(await renderGrid({})).toBe(true);
-    // Inline-authored columns: sizing is known, field re-enables.
     expect(
       await renderGrid({ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }),
     ).toBe(false);
@@ -181,14 +171,10 @@ describe("LayoutContextProperties interactions", () => {
     );
     await act(async () => settingsButton?.click());
 
-    // Known (inline-authored) but non-uniform — there is no count-preserving
-    // write to make (see gridTemplatePatchForChange's "custom" skip), so the
-    // count field stays disabled even though sizing is known, not unknown.
     const columnsInput = document.querySelector<HTMLInputElement>(
       'input[aria-label="Columns"]',
     );
     expect(columnsInput?.disabled).toBe(true);
-    // The sizing picker is the recovery path and stays enabled.
     const columnSizingButton = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Column sizing"]',
     );
@@ -202,9 +188,6 @@ describe("LayoutContextProperties interactions", () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    // Shaped like mixedElementFromSelection's output for a multi-selection
-    // whose elements have differing gridTemplateColumns: the MIXED_VALUE
-    // sentinel lands in inlineStyles, not a real template.
     const element = {
       tagName: "div",
       classes: [],
@@ -235,8 +218,6 @@ describe("LayoutContextProperties interactions", () => {
       );
     });
 
-    // The track matrix is visible without opening the popover — every cell
-    // must be unreachable by keyboard/click while the axis is unknown.
     const cellButtons = Array.from(
       container.querySelectorAll<HTMLButtonElement>('button[aria-label*="×"]'),
     );
@@ -264,16 +245,6 @@ describe("LayoutContextProperties interactions", () => {
   });
 
   it("resolves flow to grid, not mixed, when every element is a grid even if unrelated computed properties differ", async () => {
-    // Regression: a multi-selection where every element is a grid
-    // (isGridContainer aggregated true) with byte-identical INLINE
-    // templates still hid the entire Grid settings section, because
-    // flowMixed independently re-checked display/flexDirection/flexWrap for
-    // the MIXED_VALUE sentinel without isGrid's isGridContainer fallback —
-    // so a differing COMPUTED template (same authored template at
-    // different widths) or a stale, layout-irrelevant flexDirection/
-    // flexWrap disagreement (from before one element was converted to
-    // grid) alone hid the Grid controls even though isGrid already
-    // correctly resolved "every element is a grid".
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -329,10 +300,6 @@ describe("LayoutContextProperties interactions", () => {
   });
 
   it("still reports flow as mixed for a genuine flex/grid multi-selection", async () => {
-    // Not every Mixed display is a grid selection in disguise: when
-    // isGridContainer itself is not uniformly true (mixedElementFromSelection's
-    // .every() only returns true when EVERY element is a grid container),
-    // a differing display must still read as a mixed flow.
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -416,8 +383,6 @@ describe("LayoutContextProperties interactions", () => {
     });
     expect(onStylesChange).not.toHaveBeenCalled();
 
-    // A rewrite that was attempted and failed must NOT fall through to the
-    // container-only write: that renders a grid whose children stay pinned.
     onApplyLayoutFlow.mockReturnValue("failed");
     await act(async () => gridButton?.click());
     expect(onStylesChange).not.toHaveBeenCalled();

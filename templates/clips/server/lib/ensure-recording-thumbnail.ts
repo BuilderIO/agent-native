@@ -357,14 +357,6 @@ async function cleanupUnreferencedThumbnail(
   return current;
 }
 
-/**
- * Best-effort terminal-status write, independent of the compare-and-set
- * thumbnail update above: a recording with no video (or a Loom-embed-backed
- * recording, which has no local media) will never get a generated thumbnail,
- * so mark it 'none' rather than leaving thumbnail_status stuck at 'pending'
- * forever for the sweeper to keep retrying. Logged and swallowed — this is
- * observability, not the operation the caller asked for.
- */
 async function setThumbnailStatus(
   recordingId: string,
   status: "none" | "failed",
@@ -387,7 +379,6 @@ async function setThumbnailStatus(
   }
 }
 
-/** Called by the post-finalize worker once thumbnail retries are exhausted. */
 export function markThumbnailFailed(
   recordingId: string,
   reason: string,
@@ -395,12 +386,6 @@ export function markThumbnailFailed(
   return setThumbnailStatus(recordingId, "failed", reason);
 }
 
-/**
- * Persist one still thumbnail when the upload path did not already provide
- * one. Supplied frames can arrive before the recording is ready; generated
- * frames wait for playable media. The update is compare-and-set so a user or
- * another upload cannot be overwritten while frame extraction runs.
- */
 async function ensureRecordingThumbnailOnce(
   params: EnsureRecordingThumbnailParams,
 ): Promise<EnsureRecordingThumbnailResult> {

@@ -2,12 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { isKnownMailView, loader } from "./$view";
 
-// $view.tsx and $view.$threadId.tsx are dynamic-segment siblings of the
-// $.tsx splat 404 route. react-router's route scorer always prefers a
-// `:view` dynamic segment over a `*` splat at the same depth, so an
-// unmatched single-segment URL (e.g. /this-route-should-not-exist-xyz)
-// matches $view.tsx instead of falling through to NotFound. The route can
-// only recover 404 behavior by rejecting view values itself.
 describe("isKnownMailView", () => {
   it("accepts every system view the app links to", () => {
     for (const view of [
@@ -31,9 +25,6 @@ describe("isKnownMailView", () => {
   });
 });
 
-// The splat route only auto-404s when literally no route matched at all;
-// since $view.tsx matches every single-segment path, React Router serves a
-// bare 200 unless the loader sets the status itself.
 describe("$view loader", () => {
   it("responds 404 for an unmatched view", () => {
     const result = loader({

@@ -225,6 +225,9 @@ const messages = {
       noErrorMessage: "(no error message)",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     useBuilder: "Use Builder",
     openDesktopToEditCode: "Open Desktop to edit code",
@@ -240,6 +243,7 @@ const messages = {
     newChat: "New chat",
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -265,6 +269,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -272,6 +278,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -678,6 +686,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
     reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
     closePreview: "Hide preview",
     addFeedback: "Add feedback",
     draftInstruction: "Draft instruction",
@@ -700,6 +709,7 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
   },
   error: {
     genericTitle: "Something went wrong",

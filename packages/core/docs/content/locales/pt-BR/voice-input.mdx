@@ -75,15 +75,15 @@ A rota é **somente da mesma origem** — POSTs entre sites são rejeitados para
 
 ## Habilitando provedores {#enabling-providers}
 
-Builder é o caminho mais fácil: conecte Builder.io (nível gratuito disponível) em Configurações e o provedor padrão se tornará Builder Gemini Flash-Lite. Para provedores BYOK, adicione a chave correspondente em Configurações → Chaves API.
+Builder é o caminho mais fácil: conecte Builder.io (nível gratuito disponível) em **Settings → Connections → Integrations** e o provedor padrão se tornará Builder Gemini Flash-Lite. Para provedores BYOK, adicione a chave correspondente do Gemini, Groq ou OpenAI.
 
 ### Por usuário (recomendado para SaaS)
 
-O usuário define sua própria chave por meio das configurações da barra lateral do agente UI. Ele é armazenado como um segredo criptografado no escopo do usuário (via `readAppSecret`). Cada usuário paga pela sua própria transcrição; custo zero para o anfitrião.
+O usuário adiciona a própria chave em **Personal providers** na página **Settings → Agent → Model**. Ela é armazenada como um segredo criptografado no escopo do usuário (via `readAppSecret`). Cada usuário paga pela própria transcrição; custo zero para o anfitrião.
 
 ### Compartilhado (para ferramentas internas)
 
-Defina `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` como uma variável de ambiente ou na tabela `settings`. A transcrição de cada usuário atinge a chave compartilhada.
+Defina `GEMINI_API_KEY`, `GROQ_API_KEY` ou `OPENAI_API_KEY` como variável de ambiente, ou peça a um proprietário ou administrador para adicioná-la para a organização em **Organization providers** na página **Settings → Agent → Model**. A linha **Voice input** em **Settings → Organization → Infrastructure** escolhe qual provedor responde primeiro. A transcrição de cada usuário usa a chave compartilhada.
 
 <Callout id="doc-block-2jaii3" tone="info">
 

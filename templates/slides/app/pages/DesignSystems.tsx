@@ -27,18 +27,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { mergeDesignSystemData } from "@/hooks/use-deck-design-system";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useWorkspaceDefaults } from "@/hooks/use-workspace-defaults";
 
 import type { DesignSystemData } from "../../shared/api";
 
-// DesignSystemCard reads colors.* / typography.* unconditionally, down to
-// nested fields like typography.headingFont. Rows written before
-// create/update validation existed can have `colors: {}`, which used to make
-// this page hide the row entirely — the card, its Delete menu item, and the
-// only UI path to remove it all disappeared with no error. Filling gaps with
-// the same defaults `useDeckDesignSystem` applies keeps the card (and its
-// delete affordance) visible instead.
 export function parseDesignSystemListData(dataStr: string): DesignSystemData {
   try {
     return mergeDesignSystemData(JSON.parse(dataStr));
@@ -49,6 +43,7 @@ export function parseDesignSystemListData(dataStr: string): DesignSystemData {
 
 export default function DesignSystems() {
   const t = useT();
+  const systemsEnabled = useDesignSystemWorkflows();
   const { designSystems, isLoading, error, refetch } = useDesignSystems();
   const {
     designSystem: workspaceDesignSystem,
@@ -79,8 +74,6 @@ export default function DesignSystems() {
 
   const applyWorkspaceDefault = async (ds: (typeof designSystems)[number]) => {
     try {
-      // Private means unreadable to teammates, which would make the workspace
-      // default silently do nothing for them. Share through the audited action.
       if (ds.visibility === "private") {
         await callAction("set-resource-visibility", {
           resourceType: "design-system",
@@ -103,8 +96,6 @@ export default function DesignSystems() {
     if (isDefault) {
       const ds = designSystems.find((d) => d.id === id);
       if (!ds) return;
-      // Only publishing a private design system to the whole workspace is
-      // worth a confirmation; the default itself is one click to undo.
       if (ds.visibility === "private") {
         setWorkspaceDefaultCandidate(ds);
         return;
@@ -124,9 +115,6 @@ export default function DesignSystems() {
   };
 
   const confirmWorkspaceDefault = () => {
-    // Read but do not clear: AlertDialogAction closes the dialog, and clearing
-    // here too would pre-empt Radix's cleanup and leave <body> at
-    // `pointer-events: none`. `onOpenChange` clears the candidate.
     const ds = workspaceDefaultCandidate;
     if (!ds) return;
     void applyWorkspaceDefault(ds);
@@ -162,20 +150,21 @@ export default function DesignSystems() {
 
   useSetHeaderActions(
     useMemo(
-      () => (
-        <Button
-          size="sm"
-          onClick={() => {
-            setEditingId(null);
-            setShowSetup(true);
-          }}
-          className="cursor-pointer"
-        >
-          <IconPlus className="w-3.5 h-3.5" />
-          {t("designSystems.new")}
-        </Button>
-      ),
-      [t],
+      () =>
+        systemsEnabled ? (
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingId(null);
+              setShowSetup(true);
+            }}
+            className="cursor-pointer"
+          >
+            <IconPlus className="w-3.5 h-3.5" />
+            {t("designSystems.new")}
+          </Button>
+        ) : null,
+      [t, systemsEnabled],
     ),
   );
 
@@ -230,27 +219,29 @@ export default function DesignSystems() {
           <>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,320px))] gap-4">
               {/* New design system card */}
-              <button
-                onClick={() => {
-                  setEditingId(null);
-                  setShowSetup(true);
-                }}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
-              >
-                <div className="aspect-video flex items-center justify-center bg-muted/30">
-                  <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+              {systemsEnabled && (
+                <button
+                  onClick={() => {
+                    setEditingId(null);
+                    setShowSetup(true);
+                  }}
+                  className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                >
+                  <div className="aspect-video flex items-center justify-center bg-muted/30">
+                    <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
+                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    </div>
                   </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    {t("designSystems.new")}
-                  </h3>
-                  <div className="text-xs text-muted-foreground/70 mt-1">
-                    {t("designSystems.setupBrand")}
+                  <div className="p-4">
+                    <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
+                      {t("designSystems.new")}
+                    </h3>
+                    <div className="text-xs text-muted-foreground/70 mt-1">
+                      {t("designSystems.setupBrand")}
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              )}
 
               {/* Design system cards */}
               {designSystems.map((ds) => {
@@ -345,6 +336,7 @@ export default function DesignSystems() {
 
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
   const t = useT();
+  const systemsEnabled = useDesignSystemWorkflows();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
@@ -353,13 +345,17 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
       <h2 className="text-xl font-semibold text-foreground mb-2">
         {t("designSystems.emptyTitle")}
       </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        {t("designSystems.emptyDescription")}
-      </p>
-      <Button onClick={onCreateNew} className="cursor-pointer">
-        <IconPlus className="w-4 h-4" />
-        {t("designSystems.new")}
-      </Button>
+      {systemsEnabled && (
+        <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
+          {t("designSystems.emptyDescription")}
+        </p>
+      )}
+      {systemsEnabled && (
+        <Button onClick={onCreateNew} className="cursor-pointer">
+          <IconPlus className="w-4 h-4" />
+          {t("designSystems.new")}
+        </Button>
+      )}
     </div>
   );
 }

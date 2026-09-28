@@ -21,7 +21,6 @@ function getSnapshot(): number {
 
 const MAX_UNDO_STACK = 20;
 
-/** Push an undo action onto the stack. */
 export function setUndoAction(action: UndoEntry) {
   undoStack.push(action);
   if (undoStack.length > MAX_UNDO_STACK) {
@@ -30,13 +29,11 @@ export function setUndoAction(action: UndoEntry) {
   notify();
 }
 
-/** Clear the entire undo stack. */
 export function clearUndoAction() {
   undoStack.length = 0;
   notify();
 }
 
-/** Pop and run the most recent undo action. */
 export function runUndo() {
   const action = undoStack.pop();
   if (action) {
@@ -46,7 +43,6 @@ export function runUndo() {
   }
 }
 
-/** React hook — returns true if any undo actions are available. */
 export function useHasUndo(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot) > 0;
 }

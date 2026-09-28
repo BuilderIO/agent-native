@@ -8,14 +8,6 @@ import {
   nfmToDoc,
 } from "./nfm";
 
-/**
- * Every fixture below is a byte-exact sample of what Notion's
- * `/pages/{id}/markdown` API actually emits (captured from a live round-trip
- * probe). The whole contract of the converter is that these are FIXPOINTS:
- * canonicalizeNfm(x) === x and docToNfm(nfmToDoc(x)) === x. If a fixture is not
- * a fixpoint, a pull/edit/push cycle would mutate the document — the exact drift
- * bug this module exists to prevent.
- */
 const L = (...lines: string[]) => lines.join("\n");
 
 describe("collapseExactRepeatedNfm", () => {
@@ -601,8 +593,6 @@ describe("nfm converter — inline round-trips", () => {
 });
 
 describe("bug fixes — reliability sweep", () => {
-  // n1: raw containers (e.g. <meeting-notes>) must survive canonicalization
-  // verbatim instead of being replaced by their tag name.
   describe("n1: raw container verbatim preservation", () => {
     const meetingNotes = L(
       "<meeting-notes>",
@@ -631,8 +621,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n5: inline mention labels must unescape on parse to mirror the escape on
-  // serialize, or every cycle grows an extra "amp;" layer.
   describe("n5: mention label escaping symmetry", () => {
     it("does not double-escape an entity already in the label", () => {
       const nfm =
@@ -660,8 +648,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n6: backslash-escaped literal braces at the end of a line must not be
-  // read as a block-attribute list.
   describe("n6: escape-aware splitBlockAttrs", () => {
     it("keeps a literal escaped brace in a paragraph as text, not a color attr", () => {
       const nfm = 'Set \\{color="red"\\}';
@@ -696,8 +682,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n7: a code block whose body contains a bare ``` line must not be split
-  // apart; fences must use CommonMark-style variable length.
   describe("n7: variable-length code fences", () => {
     it("keeps a ``` line inside the code body intact", () => {
       const nfm = L("````markdown", "example:", "```", "inner", "````");
@@ -737,8 +721,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n8: table cells must preserve every child block, not just the first
-  // paragraph.
   describe("n8: multi-block table cells", () => {
     it("serializes both paragraphs in a cell joined by <br>", () => {
       const doc = {
@@ -845,8 +827,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n9: a plain "underline" mark (StarterKit Cmd+U) must serialize to the
-  // same <span underline="true"> form notionSpan already round-trips.
   describe("n9: plain underline mark serialization", () => {
     it('serializes a bare underline mark to <span underline="true">', () => {
       const doc = {
@@ -973,8 +953,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n17: link/image parsing must balance parens and respect escapes so URLs
-  // with literal parens and alts with escaped brackets survive.
   describe("n17: paren- and escape-aware link/image parsing", () => {
     it("keeps the full href for a link URL containing parens", () => {
       const nfm = "[wiki](https://en.wikipedia.org/wiki/Foo_(bar))";
@@ -1018,8 +996,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n18: toggle/details summaries must round-trip verbatim (as raw NFM
-  // source), not be escaped on write after being stored unescaped.
   describe("n18: toggle summary verbatim round-trip", () => {
     it("preserves an open details toggle", () => {
       const nfm = L(
@@ -1074,14 +1050,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n26: a toggle heading's summary shares one serialized line with the real
-  // trailing `{toggle="true" ...}` attrs. Notion-emitted summaries (raw NFM,
-  // round-tripped verbatim) never end in an odd backslash run — but the
-  // editor's plain summary <input> writes untouched plain text into the same
-  // `summary` attr, and a plain-text summary ending in an odd number of
-  // backslashes (e.g. a Windows path) made the parser treat the whole
-  // `{toggle="true"}` suffix as escaped literal text, degrading the toggle
-  // into a heading containing that literal attrs string.
   describe("n26: toggle-heading summary corruption resistance", () => {
     const headingToggleDoc = (summary: string, headingLevel = 2): any => ({
       type: "doc",
@@ -1101,7 +1069,6 @@ describe("bug fixes — reliability sweep", () => {
       expect(doc2.content[0].type).toBe("notionToggle");
       expect(doc2.content[0].attrs?.summary).toBe("b\\");
       expect(doc2.content[0].attrs?.headingLevel).toBe(2);
-      // The real toggle attrs must not have degraded into literal text.
       expect(docToNfm(doc2)).toBe(nfm);
     });
 
@@ -1158,8 +1125,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n19: an unclosed container tag must not silently swallow every
-  // following same-indent line to EOF.
   describe("n19: unterminated container fallback", () => {
     it("preserves content after an unclosed <callout>", () => {
       const nfm = L('<callout icon="x">', "Hello after", "World after");
@@ -1470,9 +1435,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n20: canonicalization must never apply the editor-only
-  // terminal-filler-paragraph trim, or intentional Notion empty blocks are
-  // deleted (and nesting must not apply the trim at all).
   describe("n20: canonicalization never trims intentional empty blocks", () => {
     it("keeps a trailing <empty-block/> after a heading", () => {
       const nfm = L("# H", "<empty-block/>");
@@ -1495,9 +1457,6 @@ describe("bug fixes — reliability sweep", () => {
     });
 
     it("docToNfm (direct editor call) still drops its own terminal filler paragraph", () => {
-      // This is the editor-only heuristic docToNfm's direct callers rely on;
-      // canonicalizeNfm must not apply it (see tests above), but docToNfm on
-      // its own must keep doing so.
       expect(
         docToNfm({
           type: "doc",
@@ -1514,11 +1473,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n21: a paragraph whose TEXT (not raw NFM source) starts with a
-  // block-marker pattern must round-trip as a paragraph, not be reparsed as
-  // that block type. This is what the editor produces from a plain-text
-  // paste — a real `paragraph` PM node whose text happens to start with
-  // "- ", "# ", "1. ", or "---".
   describe("n21: leading block-marker escaping in paragraphs", () => {
     const cases = [
       "- not a list",
@@ -1534,15 +1488,12 @@ describe("bug fixes — reliability sweep", () => {
           content: [{ type: "paragraph", content: [{ type: "text", text }] }],
         };
         const nfm = docToNfm(doc);
-        // Re-parsing the serialized NFM must come back as a paragraph with
-        // the exact original text, not as list/heading/divider structure.
         const doc2 = nfmToDoc(nfm);
         expect(doc2.content[0].type).toBe("paragraph");
         const rendered = doc2.content[0].content
           ?.map((n: any) => n.text)
           .join("");
         expect(rendered).toBe(text);
-        // And the round trip is itself stable.
         expect(docToNfm(doc2)).toBe(nfm);
       });
 
@@ -1557,8 +1508,6 @@ describe("bug fixes — reliability sweep", () => {
     }
   });
 
-  // n22: inline code spans containing backticks must use a CommonMark-style
-  // variable-length delimiter instead of corrupting/splitting on write.
   describe("n22: backtick-safe inline code spans", () => {
     it("serializes code text containing a single backtick without truncation", () => {
       const doc = {
@@ -1616,11 +1565,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n23: the divider parser trims the line before testing
-  // (`dedent.trim()` against `/^(---+|\*\*\*+|___+)$/`), so a paragraph whose
-  // text is only a divider-lookalike PLUS leading/trailing whitespace must be
-  // escape-checked against that same trimmed form, or it silently reparses as
-  // a horizontalRule and the whitespace-padded text is lost.
   describe("n23: divider-lookalike paragraphs with padding whitespace", () => {
     const paragraphOnly = (text: string) => {
       const doc: any = {
@@ -1659,11 +1603,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n24: link/image URLs with UNBALANCED parens must be escaped on write so
-  // findMatchingParenClose (paren-balance-aware) doesn't truncate the
-  // destination on the next parse; URLs with BALANCED parens stay verbatim
-  // to preserve Notion's byte-exact fixpoint (e.g. Wikipedia disambiguation
-  // links, which Notion never escapes).
   describe("n24: unbalanced-paren URL escaping in links and images", () => {
     it("round-trips a link href containing an unbalanced closing paren", () => {
       const doc: any = {
@@ -1687,7 +1626,6 @@ describe("bug fixes — reliability sweep", () => {
       expect(linkNode?.marks?.[0]?.type).toBe("link");
       expect(linkNode?.marks?.[0]?.attrs?.href).toBe("https://x.com/a)b");
       expect(linkNode?.text).toBe("t");
-      // No trailing/extra text node absorbing the truncated remainder.
       expect(doc2.content[0].content?.length).toBe(1);
       expect(docToNfm(doc2)).toBe(nfm);
     });
@@ -1761,13 +1699,6 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
-  // n25: inline-code space padding must be symmetric between serialize and
-  // parse. The serializer must pad with a space on each side whenever the
-  // content starts OR ends with a backtick OR a space (not just backtick),
-  // and the parser must strip exactly one pad space per side only when both
-  // ends are padded and the content isn't entirely spaces — otherwise a
-  // leading/trailing space in the actual content is indistinguishable from
-  // serializer-added padding and gets silently deleted on round trip.
   describe("n25: inline-code space padding symmetry", () => {
     const codeDoc = (text: string): any => ({
       type: "doc",

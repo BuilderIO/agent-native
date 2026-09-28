@@ -1,9 +1,3 @@
-/**
- * A2A auth policy helpers shared by discovery, the JSON-RPC gate, and task
- * handlers. Serverless providers do not always expose `NODE_ENV=production`
- * consistently at runtime, so production-like A2A checks also look at the
- * provider flags those platforms set in deployed functions.
- */
 import { getAppConfig } from "../app-config/index.js";
 
 export function isA2AProductionRuntime(): boolean {
@@ -54,7 +48,6 @@ export function isTrustedLocalRuntime(opts: { loopback: boolean }): boolean {
   return opts.loopback === true;
 }
 
-/** True if a socket peer address is a loopback/local address. */
 export function isLoopbackAddress(addr: string | undefined | null): boolean {
   if (!addr) return false;
   const a = addr.trim();

@@ -1,7 +1,6 @@
 import { useErrorsT } from "./i18n";
 import type { ExceptionLevel, IssueStatus } from "./types";
 
-/** Compact "x ago" relative time; falls back to a short date for old items. */
 export function formatRelativeTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -41,7 +40,6 @@ export function formatNumber(value: number): string {
   );
 }
 
-/** Tailwind classes for the small level pill (dark analytics aesthetic). */
 export function levelBadgeClass(level: ExceptionLevel): string {
   switch (level) {
     case "fatal":
@@ -58,7 +56,6 @@ export function levelBadgeClass(level: ExceptionLevel): string {
   }
 }
 
-/** A vertical accent color that echoes the severity on each list row. */
 export function levelAccentClass(level: ExceptionLevel): string {
   switch (level) {
     case "fatal":
@@ -120,7 +117,6 @@ export function useStatusLabel() {
   };
 }
 
-/** Shorten a stack-frame filename to a readable "…/dir/file.ts" tail. */
 export function shortFrameFile(file: string | null): string {
   if (!file) return "<anonymous>";
   let out = file.replace(/[?#].*$/, "");

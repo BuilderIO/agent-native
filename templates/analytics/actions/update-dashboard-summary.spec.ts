@@ -10,14 +10,6 @@ const mocks = vi.hoisted(() => ({
   seedFromText: vi.fn(async () => undefined),
 }));
 
-/**
- * Default passthrough: fetch via the mocked `getDashboard`, run the action's
- * mutate callback once against it, then forward to the mocked
- * `upsertDashboard` (preserving every existing `.mock.calls` assertion below)
- * and return a DashboardRecord-shaped result carrying the mutated config.
- * Individual tests override this with `mockImplementationOnce` to simulate a
- * lost race and prove the action recomputes from fresh state on retry.
- */
 function defaultUpsertDashboardWithRetry(
   id: string,
   ctx: unknown,
@@ -199,7 +191,6 @@ describe("update-dashboard proof-of-done summary", () => {
     expect(result.panelCount).toBe(3);
     expect(result.summary).toMatch(/Applied 2 op\(s\)/);
     expect(result.summary).toMatch(/3 panel/);
-    // Saved once, atomically, with all three panels.
     expect(mocks.upsertDashboard).toHaveBeenCalledTimes(1);
     const saved = mocks.upsertDashboard.mock.calls[0][2] as {
       panels: Array<{ id: string }>;
@@ -260,11 +251,6 @@ describe("update-dashboard proof-of-done summary", () => {
   });
 
   it("recomputes ops against fresh state on retry so a concurrent writer's insert is never dropped", async () => {
-    // Simulates two interleaved writers: this call inserts panel "b" at the
-    // end via a JSON-pointer op, but its first fenced write is lost because a
-    // concurrent writer already saved a different insert ("writer-a") in
-    // between. A correct retry re-reads that winning save and reapplies the
-    // same op on top of it, so both inserts land.
     const beforeConcurrentWrite = {
       kind: "sql",
       config: { name: "Weekly", panels: [panel("a")] },
@@ -278,9 +264,9 @@ describe("update-dashboard proof-of-done summary", () => {
     mocks.upsertDashboardWithRetry.mockImplementationOnce(
       async (id: string, ctx: unknown, mutate: (existing: any) => any) => {
         mutateCallCount += 1;
-        await mutate(beforeConcurrentWrite); // attempt 1: lost to the race
+        await mutate(beforeConcurrentWrite);
         mutateCallCount += 1;
-        const { kind, body } = await mutate(afterConcurrentWrite); // retry
+        const { kind, body } = await mutate(afterConcurrentWrite);
         await mocks.upsertDashboard(id, kind, body, ctx);
         return { ...afterConcurrentWrite, kind, config: body };
       },

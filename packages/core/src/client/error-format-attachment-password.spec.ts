@@ -35,9 +35,6 @@ describe("normalizeChatError for password-protected PDF attachments", () => {
     const raw = "model is required";
     const normalized = normalizeChatError(raw, "invalid_request_error");
 
-    // Falls through to the generic malformed-request classification instead
-    // (a separate, already-landed fix for the same invalid_request_error
-    // lane), not the password-protected-PDF copy this file is testing.
     expect(normalized.message).not.toBe(CLEAN_MESSAGE);
     expect(normalized.details).toBe(raw);
   });

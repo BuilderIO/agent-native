@@ -76,11 +76,6 @@ describe("Builder design-system helpers", () => {
       "https://builder.example.test/design-systems/v1";
   }
 
-  /**
-   * Hydration now reads the detail endpoint for `docCount` before paging
-   * docs, so a stub has to answer both routes. Responses are single-use, so
-   * every entry is a factory.
-   */
   function stubBuilderDesignSystemFetch({
     count,
     docs,
@@ -370,12 +365,6 @@ describe("Builder design-system helpers", () => {
   });
 
   it("base64-decodes a binary .fig file instead of UTF-8-mangling it (regression: .fig upload silently corrupted binary bytes)", () => {
-    // A real .fig is a zip container -- PK\x03\x04 magic, per the fig-writer
-    // spike's own README -- and its bytes are NOT valid UTF-8 (many bytes
-    // are >= 0x80 with no valid continuation sequence). Round-tripping
-    // arbitrary binary through TextEncoder().encode() (the old
-    // default-and-only path) corrupts it; through base64 + Buffer.from it
-    // must come back byte-identical.
     const binaryBytes = new Uint8Array([
       0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x80, 0x81, 0xfe, 0x7f, 0x10, 0x20,
     ]);
