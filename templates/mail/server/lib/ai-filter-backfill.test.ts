@@ -65,7 +65,7 @@ describe("backfill undo state", () => {
     ).toEqual({ labels: ["agent-native-important"], archive: false });
   });
 
-  it("only restores fields that still equal the post-apply value", () => {
+  it("retries already-restored fields after an interrupted undo", () => {
     expect(
       planConditionalUndo(
         { important: false, inbox: true },
@@ -74,7 +74,7 @@ describe("backfill undo state", () => {
       ),
     ).toEqual({
       changes: { important: false },
-      conflicts: ["inbox"],
+      conflicts: [],
     });
   });
 
