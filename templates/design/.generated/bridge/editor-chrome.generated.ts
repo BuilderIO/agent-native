@@ -984,7 +984,39 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!current) return false;
       var selector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
       var currentGroup = current.closest(selector);
-      return currentGroup !== null && currentGroup === next.closest(selector);
+      if (!currentGroup || currentGroup !== next.closest(selector)) return false;
+      var itemSelector = null;
+      var requireMatchingItemRole = false;
+      switch (currentGroup.getAttribute("role")) {
+        case "grid":
+        case "treegrid":
+          itemSelector = '[role="row"], [role="gridcell"]';
+          requireMatchingItemRole = true;
+          break;
+        case "listbox":
+          itemSelector = '[role="option"]';
+          break;
+        case "menu":
+        case "menubar":
+          itemSelector = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+          break;
+        case "radiogroup":
+          itemSelector = '[role="radio"], input[type="radio"]';
+          break;
+        case "tablist":
+          itemSelector = '[role="tab"]';
+          break;
+        case "toolbar":
+          itemSelector = 'button, a[href], [role="button"], [role="link"]';
+          break;
+        case "tree":
+          itemSelector = '[role="treeitem"]';
+          break;
+      }
+      if (!itemSelector) return false;
+      var currentItem = current.closest(itemSelector);
+      var nextItem = next.closest(itemSelector);
+      return currentItem === current && nextItem === next && currentItem !== nextItem && (!requireMatchingItemRole || current.getAttribute("role") === next.getAttribute("role"));
     }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;

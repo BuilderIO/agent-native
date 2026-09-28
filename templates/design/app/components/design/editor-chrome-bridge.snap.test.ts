@@ -299,14 +299,27 @@ describe("editor-chrome bridge — focus ownership", () => {
   it("keeps arrow-key focus moves between treegrid cells", () => {
     const group = {
       matches: (selector: string) => selector.includes('[role="treegrid"]'),
+      getAttribute: (name: string) => (name === "role" ? "treegrid" : null),
     } as unknown as Element;
     const current = {
       contains: () => false,
-      closest: (selector: string) => (group.matches(selector) ? group : null),
+      getAttribute: (name: string) => (name === "role" ? "gridcell" : null),
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="gridcell"]')
+            ? current
+            : null,
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      closest: (selector: string) => (group.matches(selector) ? group : null),
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="gridcell"]')
+            ? sibling
+            : null,
+      getAttribute: (name: string) => (name === "role" ? "gridcell" : null),
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
@@ -320,17 +333,113 @@ describe("editor-chrome bridge — focus ownership", () => {
     expect(focusTracker.focused()).toBe(sibling);
   });
 
-  it("keeps navigation intent until app-scheduled roving focus runs", () => {
+  it("does not treat an unrelated control in the same toolbar as a roving item", () => {
     const group = {
-      matches: (selector: string) => selector.includes('[role="tree"]'),
+      matches: (selector: string) => selector.includes('[role="toolbar"]'),
+      getAttribute: (name: string) => (name === "role" ? "toolbar" : null),
     } as unknown as Element;
     const current = {
       contains: () => false,
-      closest: (selector: string) => (group.matches(selector) ? group : null),
+      tagName: "BUTTON",
+      getAttribute: () => null,
+      closest: (selector: string) =>
+        selector.includes('[role="toolbar"]')
+          ? group
+          : selector.includes("button")
+            ? current
+            : null,
+    } as unknown as Element;
+    const unrelated = {
+      contains: () => false,
+      tagName: "INPUT",
+      getAttribute: () => null,
+      closest: (selector: string) =>
+        selector.includes('[role="toolbar"]') ? group : null,
+    } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: current,
+      kind: "navigation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: unrelated,
+      composedPath: () => [unrelated],
+    });
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("does not treat a control inside a treegrid cell as a roving cell", () => {
+    const group = {
+      matches: (selector: string) => selector.includes('[role="treegrid"]'),
+      getAttribute: (name: string) => (name === "role" ? "treegrid" : null),
+    } as unknown as Element;
+    const cell = {
+      getAttribute: (name: string) => (name === "role" ? "gridcell" : null),
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="gridcell"]')
+            ? cell
+            : null,
+    } as unknown as Element;
+    const destinationCell = {
+      getAttribute: (name: string) => (name === "role" ? "gridcell" : null),
+    } as unknown as Element;
+    const unrelated = {
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="gridcell"]')
+            ? destinationCell
+            : null,
+    } as unknown as Element;
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: cell,
+      kind: "navigation",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.clearAfterNavigation();
+    focusTracker.queueTimer(() =>
+      focusTracker.remember({
+        target: unrelated,
+        composedPath: () => [unrelated],
+      }),
+    );
+    focusTracker.runTimer();
+    focusTracker.runTimer();
+
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("keeps navigation intent until app-scheduled roving focus runs", () => {
+    const group = {
+      matches: (selector: string) => selector.includes('[role="tree"]'),
+      getAttribute: (name: string) => (name === "role" ? "tree" : null),
+    } as unknown as Element;
+    const current = {
+      contains: () => false,
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="treeitem"]')
+            ? current
+            : null,
+      getAttribute: (name: string) => (name === "role" ? "treeitem" : null),
     } as unknown as Element;
     const sibling = {
       contains: () => false,
-      closest: (selector: string) => (group.matches(selector) ? group : null),
+      closest: (selector: string) =>
+        group.matches(selector)
+          ? group
+          : selector.includes('[role="treeitem"]')
+            ? sibling
+            : null,
+      getAttribute: (name: string) => (name === "role" ? "treeitem" : null),
     } as unknown as Element;
     const focusTracker = loadRememberUserFocusedElement();
     focusTracker.setIntent({
