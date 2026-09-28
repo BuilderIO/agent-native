@@ -241,6 +241,184 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("persists compact completed activity history without replacing messages", async () => {
+    const repository = {
+      messages: [
+        {
+          id: "assistant-history",
+          role: "assistant",
+          content: "Release created.",
+        },
+      ],
+      retained: true,
+    };
+    let threadData = JSON.stringify(repository);
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/runs/active?threadId=thread-history")) {
+          return json({ active: false });
+        }
+        if (url.endsWith("/threads/thread-history") && init?.method === "PUT") {
+          threadData = JSON.parse(String(init.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-history")) {
+          return json({
+            id: "thread-history",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-history",
+      snapshot: {
+        id: "thread-history",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [
+          {
+            id: "assistant-history",
+            role: "assistant",
+            parts: [{ type: "text", text: "Release created." }],
+          },
+        ],
+        events: [
+          {
+            id: "history-1",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+          {
+            id: "history-2",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-history",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+            },
+          },
+          {
+            id: "history-3",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "activity.completed",
+            activity: {
+              id: "activity-history",
+              kind: "tool",
+              label: "Create release",
+              detail: "A long action result",
+              status: "completed",
+            },
+          },
+          {
+            id: "history-4",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 4,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "message.completed",
+            message: {
+              id: "assistant-history",
+              role: "assistant",
+              parts: [{ type: "text", text: "Release created." }],
+              status: "complete",
+            },
+          },
+          {
+            id: "history-5",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 5,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "tool.updated",
+            toolCall: {
+              id: "tool-history",
+              name: "create-release",
+              output: "Do not persist this duplicate result",
+              status: "completed",
+            },
+          },
+          {
+            id: "history-6",
+            threadId: "thread-history",
+            runId: "run-history",
+            sequence: 6,
+            occurredAt: "2026-09-26T00:00:06.000Z",
+            type: "run.completed",
+          },
+        ],
+        runs: [
+          {
+            id: "run-history",
+            threadId: "thread-history",
+            status: "completed",
+            lastSequence: 6,
+            startedAt: "2026-09-26T00:00:01.000Z",
+            completedAt: "2026-09-26T00:00:06.000Z",
+          },
+        ],
+        activeRunIds: [],
+        suggestions: [
+          { id: "release-summary", label: "Summarize this release" },
+        ],
+      },
+    });
+
+    const restored = await transport.getThreadSnapshot?.({
+      threadId: "thread-history",
+    });
+    const saved = JSON.parse(threadData);
+
+    expect(saved.messages).toEqual(repository.messages);
+    expect(saved.retained).toBe(true);
+    expect(
+      saved.agentKit.events.map((event: AgentEvent) => event.type),
+    ).toEqual([
+      "run.started",
+      "activity.started",
+      "activity.completed",
+      "message.completed",
+      "run.completed",
+    ]);
+    expect(saved.agentKit.events[2].activity.detail).toBeUndefined();
+    expect(restored?.events?.map((event) => event.type)).toEqual([
+      "run.started",
+      "activity.started",
+      "activity.completed",
+      "message.completed",
+      "run.completed",
+    ]);
+    expect(restored?.runs).toEqual([
+      expect.objectContaining({ id: "run-history", status: "completed" }),
+    ]);
+    expect(restored?.suggestions).toEqual([
+      { id: "release-summary", label: "Summarize this release" },
+    ]);
+    expect(saved.agentKit.suggestions).toEqual([
+      { id: "release-summary", label: "Summarize this release" },
+    ]);
+  });
+
   it("restores failed action calls without success widgets", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async () =>

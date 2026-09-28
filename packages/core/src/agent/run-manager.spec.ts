@@ -3785,6 +3785,38 @@ describe("run manager soft timeout", () => {
     abortRun(run.runId, "test");
   });
 
+  it("prefers a terminal in-memory run while its SQL status write is pending", async () => {
+    const run = startRun(
+      "run-sql-status-pending",
+      "thread-sql-status-pending",
+      async () => {},
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(run.status).toBe("completed");
+
+    vi.mocked(getRunByThread).mockResolvedValueOnce({
+      id: "run-sql-status-pending",
+      threadId: "thread-sql-status-pending",
+      status: "running",
+      startedAt: run.startedAt,
+      heartbeatAt: run.startedAt,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: null,
+      terminalReason: null,
+      diagStage: null,
+    });
+
+    const result = await getActiveRunForThreadAsync(
+      "thread-sql-status-pending",
+    );
+
+    expect(result).toMatchObject({
+      runId: "run-sql-status-pending",
+      status: "completed",
+    });
+  });
+
   it("FIX 1: prefers a newer running successor over a stale in-memory chunk-terminal run for the same turn", async () => {
     const run = startRun(
       "run-fix1-chunk0",

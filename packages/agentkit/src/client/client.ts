@@ -1733,6 +1733,45 @@ export class AgentKitClient implements AgentKitController {
     void completed.catch(() => undefined);
   }
 
+  private async persistThreadSnapshot(threadId: ThreadId): Promise<void> {
+    const persist = this.transport.persistThreadSnapshot;
+    if (!persist) return;
+    const thread = this.getThread(threadId);
+    const updatedAt = this.now();
+    const snapshot: AgentThreadSnapshot = {
+      ...(thread.thread ?? {
+        id: threadId,
+        createdAt: updatedAt,
+        updatedAt,
+      }),
+      id: threadId,
+      updatedAt,
+      messages: thread.messages,
+      queuedMessages: thread.queuedMessages,
+      events: thread.events,
+      runs: Object.values(thread.runs).map((run) => ({
+        ...run,
+        threadId,
+      })),
+      activeRunIds: thread.activeRunIds,
+      suggestions: thread.suggestions,
+      activities: Object.values(thread.activities),
+      toolCalls: Object.values(thread.tools),
+      widgets: Object.entries(thread.widgets).flatMap(([id, widget]) => {
+        const messageId = thread.widgetMessageIds[id];
+        return messageId ? [{ messageId, widget }] : [];
+      }),
+    };
+    try {
+      const context = this.createRequestContext();
+      await this.invokeRequest(context, (requestContext) =>
+        persist({ threadId, snapshot }, requestContext),
+      );
+    } catch (error) {
+      this.report(error, "thread_snapshot_persist_failed");
+    }
+  }
+
   private async consume(threadId: ThreadId, runId: RunId): Promise<void> {
     const key = this.runKey(threadId, runId);
     const abortController = new AbortController();
@@ -1809,6 +1848,7 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
+          await this.persistThreadSnapshot(threadId);
           if (
             terminalEvent.type === "run.completed" ||
             (terminalEvent.type === "run.status" &&
@@ -2823,14 +2863,6 @@ export class AgentKitClient implements AgentKitController {
         code: "queue_promotion_dropped",
         threadId,
         reason: "transport-cannot-steer",
-      });
-      return;
-    }
-    if (thread.activeRunIds.length > 0) {
-      this.reportIntegrity({
-        code: "queue_promotion_dropped",
-        threadId,
-        reason: "run-still-active",
       });
       return;
     }

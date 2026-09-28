@@ -1305,7 +1305,7 @@ async function waitForAuthenticatedShell(
 const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
-  "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
+  "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1647,7 +1647,10 @@ async function handleLoopbackCompletion(
       await streamToolCallResponse(response, requestNumber, {
         id: approvalToolCallId,
         name: "accept-agentkit-release",
-        arguments: { release: "agentkit-acceptance" },
+        arguments: {
+          release: "agentkit-acceptance",
+          environment: "production",
+        },
       });
       return;
     }
@@ -2364,6 +2367,49 @@ async function screenshotActionWidget(
   await rootHandle.dispose();
 }
 
+async function screenshotActionContext(
+  page: Page,
+  text: string,
+  outputPath: string,
+  expectedSummary: RegExp,
+): Promise<void> {
+  const target = page.getByText(text, { exact: true }).first();
+  await target.waitFor({ state: "visible" });
+  await target.scrollIntoViewIfNeeded();
+  const message = target.locator(
+    "xpath=ancestor::*[contains(@class, 'agentkit-message')][1]",
+  );
+  assert.equal(
+    await message.getAttribute("data-role"),
+    "assistant",
+    `${text} must remain attached to an assistant reply`,
+  );
+  const activity = await message.evaluate((element) => {
+    const transcript = element.closest(".agentkit-transcript");
+    if (!transcript) return null;
+    const preceding = Array.from(
+      transcript.querySelectorAll<HTMLElement>(".agentkit-activities"),
+    ).filter(
+      (candidate) =>
+        candidate.compareDocumentPosition(element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const last = preceding.at(-1);
+    const summary = last?.querySelector("summary");
+    return summary
+      ? {
+          text: summary.textContent ?? "",
+          open: (last as HTMLDetailsElement).open,
+        }
+      : null;
+  });
+  assert.ok(activity, `${text} must have a preceding activity row`);
+  assert.match(activity.text, expectedSummary);
+  assert.equal(activity.open, false, `${text} activity row must be collapsed`);
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  await page.screenshot({ path: outputPath });
+}
+
 async function assertAgentKitChatAcceptance(
   page: Page,
   provider: LoopbackProviderState,
@@ -2564,11 +2610,30 @@ async function assertAgentKitChatAcceptance(
   await fillAndSubmitComposer(page, approvalPrompt);
   const approval = page.locator(".agentkit-approval");
   await approval.waitFor({ state: "visible" });
+  await approval
+    .getByText("Release agentkit-acceptance to production", { exact: true })
+    .waitFor({ state: "visible" });
   await approval.getByRole("button", { name: "Approve" }).waitFor({
     state: "visible",
   });
   await assertViewportContract(page, "narrow dark approval", { dark: true });
   await assertComposerFocused(page);
+
+  const pendingActivity = page.locator(".agentkit-activities").last();
+  if (
+    await pendingActivity.evaluate(
+      (element) => (element as HTMLDetailsElement).open,
+    )
+  ) {
+    await pendingActivity.locator("summary").click();
+  }
+  await approval.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(
+      repoRoot,
+      ".tmp/action-cards-gallery/mock-approval-release-target-dark-mobile-after.png",
+    ),
+  });
 
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
@@ -2797,6 +2862,33 @@ async function assertAgentKitChatAcceptance(
     exact: true,
   });
   await historyReleaseCard.waitFor({ state: "visible" });
+  await screenshotActionContext(
+    page,
+    "Release accepted",
+    path.join(
+      repoRoot,
+      ".tmp/action-cards-gallery/mock-approval-release-result-after-reload.png",
+    ),
+    /Worked/u,
+  );
+  await screenshotActionContext(
+    page,
+    "AgentKit acceptance draft",
+    path.join(
+      repoRoot,
+      ".tmp/action-cards-gallery/mock-mail-draft-with-activity-after-reload.png",
+    ),
+    /Worked/u,
+  );
+  await screenshotActionContext(
+    page,
+    "AgentKit acceptance event",
+    path.join(
+      repoRoot,
+      ".tmp/action-cards-gallery/mock-calendar-event-with-activity-after-reload.png",
+    ),
+    /Worked/u,
+  );
   await page
     .getByText("Accepted", { exact: true })
     .waitFor({ state: "visible" });

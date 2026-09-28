@@ -907,7 +907,10 @@ export default {
     recentSales: "最近銷售",
     recentSalesDescription: "你本月完成了 265 筆銷售。",
   },
-  analysisResult: { title: "分析結果" },
+  analysisResult: {
+    title: "分析結果",
+    comparisonContext: "{{period}}：{{current}}，先前為 {{previous}}",
+  },
   routeTitles: {
     notFound: "未找到 - Analytics",
     analysis: "分析 - Analytics",

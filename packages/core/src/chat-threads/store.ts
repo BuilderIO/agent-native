@@ -399,6 +399,31 @@ function normalizeForkSourceSnapshot(
   };
 }
 
+function forkThreadData(threadData: string, forkId: string): string {
+  const repository = JSON.parse(threadData);
+  const agentKit = repository?.agentKit;
+  if (!agentKit || typeof agentKit !== "object" || Array.isArray(agentKit)) {
+    return threadData;
+  }
+  const remapThreadId = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? { ...value, threadId: forkId }
+      : value;
+  return JSON.stringify({
+    ...repository,
+    agentKit: {
+      ...agentKit,
+      ...(Array.isArray(agentKit.events)
+        ? { events: agentKit.events.map(remapThreadId) }
+        : {}),
+      ...(Array.isArray(agentKit.runs)
+        ? { runs: agentKit.runs.map(remapThreadId) }
+        : {}),
+      activeRunIds: [],
+    },
+  });
+}
+
 function deriveMessageCount(threadData: unknown, fallback: number): number {
   if (typeof threadData !== "string" || !threadData.trim()) return fallback;
   try {
@@ -683,6 +708,7 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
+  const threadData = forkThreadData(source.threadData, id);
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -694,7 +720,7 @@ export async function forkThread(
       ownerEmail,
       title,
       source.preview,
-      source.threadData,
+      threadData,
       source.messageCount,
       now,
       now,
@@ -712,7 +738,7 @@ export async function forkThread(
     ownerEmail,
     title,
     preview: source.preview,
-    threadData: source.threadData,
+    threadData,
     messageCount: source.messageCount,
     createdAt: now,
     updatedAt: now,

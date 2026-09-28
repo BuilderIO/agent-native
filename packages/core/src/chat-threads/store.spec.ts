@@ -896,6 +896,27 @@ describe("chat thread store", () => {
         { message: userMessage, parentId: null },
         { message: assistantMessage, parentId: "user-1" },
       ],
+      agentKit: {
+        events: [
+          {
+            id: "event-source",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+        ],
+        runs: [
+          {
+            id: "run-source",
+            threadId: "thread-unflushed",
+            status: "completed",
+            lastSequence: 1,
+          },
+        ],
+        activeRunIds: ["run-source"],
+      },
     };
 
     const forked = await forkThread("thread-unflushed", "user@example.com", {
@@ -915,6 +936,13 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
     ).toHaveLength(2);
+    expect(
+      JSON.parse(rows.get("thread-forked")!.thread_data).agentKit,
+    ).toMatchObject({
+      events: [{ threadId: "thread-forked" }],
+      runs: [{ threadId: "thread-forked" }],
+      activeRunIds: [],
+    });
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {

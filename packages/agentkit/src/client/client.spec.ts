@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   AgentMessage,
   AgentQueuedMessage,
+  AgentThreadSnapshot,
   AgentTransport,
 } from "../protocol/index.js";
 import type { AgentStreamIntegrityReport } from "../protocol/index.js";
@@ -49,6 +50,107 @@ function createTransport(events: AgentEvent[]): AgentTransport {
 }
 
 describe("AgentKitClient", () => {
+  it("persists completed run activity and assistant boundaries", async () => {
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, {
+        type: "activity.started",
+        activity: {
+          id: "activity-1",
+          kind: "tool",
+          label: "Create release",
+          status: "running",
+          runId: "run-1",
+        },
+      }),
+      protocolEvent(3, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [],
+          status: "streaming",
+        },
+      }),
+      protocolEvent(4, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Release created.",
+      }),
+      protocolEvent(5, {
+        type: "activity.completed",
+        activity: {
+          id: "activity-1",
+          kind: "tool",
+          label: "Create release",
+          status: "completed",
+          runId: "run-1",
+        },
+      }),
+      protocolEvent(6, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Release created." }],
+          status: "complete",
+        },
+      }),
+      protocolEvent(7, {
+        type: "suggestions.updated",
+        suggestions: [
+          { id: "release-summary", label: "Summarize this release" },
+        ],
+      }),
+      protocolEvent(8, { type: "run.completed" }),
+    ]);
+    let persistedSnapshot: AgentThreadSnapshot | undefined;
+    const persistThreadSnapshot = vi.fn(
+      async ({ snapshot }: { snapshot: AgentThreadSnapshot }) => {
+        persistedSnapshot = {
+          ...snapshot,
+          events: snapshot.events
+            ?.filter((event) => event.type !== "suggestions.updated")
+            .map((event, index) => ({ ...event, sequence: index + 1 })),
+        };
+      },
+    );
+    transport.persistThreadSnapshot = persistThreadSnapshot;
+    transport.getThreadSnapshot = async () =>
+      persistedSnapshot ?? {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:00.000Z",
+        messages: [],
+      };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+
+    expect(persistThreadSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        snapshot: expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({ type: "activity.completed" }),
+            expect.objectContaining({ type: "message.completed" }),
+            expect.objectContaining({ type: "run.completed" }),
+          ]),
+          runs: [expect.objectContaining({ id: "run-1", status: "completed" })],
+          suggestions: [
+            { id: "release-summary", label: "Summarize this release" },
+          ],
+        }),
+      }),
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1").suggestions).toEqual([
+      { id: "release-summary", label: "Summarize this release" },
+    ]);
+  });
+
   it("keeps a missing durable thread as an empty new-chat projection", async () => {
     const getThreadSnapshot = vi.fn(async () => null);
     const getThread = vi.fn(async () => {
@@ -1514,6 +1616,69 @@ describe("AgentKitClient", () => {
       }),
     );
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+  });
+
+  it("delegates promotion when the reloaded snapshot still reports an active run", async () => {
+    const queued = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Run after approval",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const promoted = vi.fn(async () => ({ runId: "run-2" }));
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async queueMessage() {
+        return { message: queued };
+      },
+      steerQueuedMessage: promoted,
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:01.000Z",
+          messages: [],
+          queuedMessages: [queued],
+          runs: [
+            {
+              id: "server-continuation",
+              threadId: "thread-1",
+              status: "running",
+              lastSequence: 0,
+            },
+          ],
+          activeRunIds: ["server-continuation"],
+        };
+      },
+      async cancelRun() {},
+    };
+    const reports: AgentStreamIntegrityReport[] = [];
+    const client = new AgentKitClient({
+      transport,
+      onIntegrityReport: (report) => reports.push(report),
+    });
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Start release review",
+    });
+    await run.completed;
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+
+    expect(reports).not.toContainEqual(
+      expect.objectContaining({
+        code: "queue_promotion_dropped",
+        reason: "run-still-active",
+      }),
+    );
   });
 
   it("discovers capabilities before the first run starts", async () => {

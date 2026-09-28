@@ -42,6 +42,8 @@ const messages = {
   "approval.action": "the requested action",
   "approval.moreOptions": "More approval options",
   "approval.question": "Approve to run {{tool}}?",
+  "approval.releaseSummary": "Release {{release}} to {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "Release {{release}}",
   "approval.edit": "Edit",
   "approval.editPrompt":
     "Ask me how I want to revise this action before trying again.",

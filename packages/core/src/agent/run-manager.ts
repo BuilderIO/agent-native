@@ -2361,7 +2361,11 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       }
     }
 
-    const status = legacyWireRunStatus(sqlSnapshot?.status ?? memRun.status);
+    const sqlStatus =
+      sqlSnapshot?.status === "running" && memRun.status !== "running"
+        ? memRun.status
+        : (sqlSnapshot?.status ?? memRun.status);
+    const status = legacyWireRunStatus(sqlStatus);
     const heartbeatAt =
       status === "running"
         ? Date.now()
