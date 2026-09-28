@@ -820,9 +820,9 @@ export async function runCreateWizard(
     <CreateWizard options={options} onFinish={finish} />,
     { exitOnCtrlC: false },
   );
+  const exited = instance.waitUntilExit();
   try {
-    const result = await answer;
-    await instance.waitUntilExit();
+    const [result] = await Promise.all([answer, exited]);
     return result;
   } finally {
     instance.unmount();
@@ -886,9 +886,9 @@ export async function promptInkChoice(
     <InkChoicePrompt message={message} choices={choices} onFinish={finish} />,
     { exitOnCtrlC: false },
   );
+  const exited = instance.waitUntilExit();
   try {
-    const value = await selected;
-    await instance.waitUntilExit();
+    const [value] = await Promise.all([selected, exited]);
     return value;
   } finally {
     instance.unmount();
