@@ -63,7 +63,9 @@ describe("recording share popover", () => {
     const viewerPeople = peopleTab.slice(viewerOnlyStart, viewerOnlyEnd);
 
     expect(source).toContain("{ enabled: !viewerReshareOnly }");
-    expect(mainView).toContain("viewerReshareOnly && passwordProtected");
+    expect(mainView).toMatch(
+      /viewerReshareOnly && passwordProtected \?\s*\(\s*peopleTab\s*\)\s*:\s*\(\s*<ShareModeTabs/,
+    );
     expect(mainView).toContain("<ShareModeTabs");
     expect(mainView).toContain("<AgentTab");
     expect(viewerPeople).toContain('label={t("shareDialog.social")}');
