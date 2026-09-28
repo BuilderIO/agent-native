@@ -138,8 +138,10 @@ function appendRemovedNamespaceFindings(
   const namespacePattern = `\\b${escapeRegExp(namespace)}`;
   for (const symbol of removedExport.symbols) {
     const symbolPattern = escapeRegExp(symbol);
+    const property = `${symbolPattern}\\b`;
+    const quotedProperty = `\\[\\s*["']${symbolPattern}["']\\s*\\]`;
     const memberAccess = new RegExp(
-      `${namespacePattern}\\s*(?:\\.\\s*${symbolPattern}\\b|\\[\\s*["']${symbolPattern}["']\\s*\\])`,
+      `${namespacePattern}\\s*(?:\\?\\.\\s*(?:${property}|${quotedProperty})|\\.\\s*${property}|${quotedProperty})`,
       "g",
     );
     for (const match of text.matchAll(memberAccess)) {
@@ -230,8 +232,12 @@ export function scanDeprecatedImports(
   const sideEffectImport = /\bimport\s+["']([^"']+)["']\s*;?/g;
   const commonJsDestructure =
     /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:await\s+)?require\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicImportDestructure =
+    /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*await\s+import\(\s*["']([^"']+)["']\s*\)/g;
   const commonJsNamespace =
     /\b(?:const|let|var)\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicImportNamespace =
+    /\b(?:const|let|var)\s+([\w$]+)\s*=\s*await\s+import\(\s*["']([^"']+)["']\s*\)/g;
   const importEquals =
     /\bimport\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
   const commonJsMember =
@@ -304,7 +310,29 @@ export function scanDeprecatedImports(
         match.index ?? 0,
       );
     }
+    for (const match of text.matchAll(dynamicImportDestructure)) {
+      const from = match[2];
+      appendRemovedImportFinding(
+        findings,
+        file,
+        text,
+        from,
+        removedExports[from],
+        destructuredNames(match[1]),
+        match.index ?? 0,
+      );
+    }
     for (const match of text.matchAll(commonJsNamespace)) {
+      appendRemovedNamespaceFindings(
+        findings,
+        file,
+        text,
+        match[2],
+        match[1],
+        removedExports[match[2]],
+      );
+    }
+    for (const match of text.matchAll(dynamicImportNamespace)) {
       appendRemovedNamespaceFindings(
         findings,
         file,

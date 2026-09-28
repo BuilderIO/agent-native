@@ -217,8 +217,17 @@ describe("scanDeprecatedImports", () => {
       path.join(root, "consumer.mjs"),
       [
         `import * as chat from "${moduleName}";`,
-        "chat.createAgentChatAdapter();",
+        "chat?.createAgentChatAdapter?.();",
         "chat.AssistantChat;",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "consumer-dynamic.mjs"),
+      [
+        `const { createAgentChatRuntimeAdapter: createRuntimeAdapter } = await import("${moduleName}");`,
+        "createRuntimeAdapter();",
+        `const chat = await import("${moduleName}");`,
+        "chat?.createCodeAgentChatAdapter?.();",
       ].join("\n"),
     );
     fs.writeFileSync(
@@ -261,13 +270,25 @@ describe("scanDeprecatedImports", () => {
       ],
     });
 
-    expect(findings).toHaveLength(5);
+    expect(findings).toHaveLength(7);
     expect(findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           file: path.join(root, "consumer.mjs"),
           line: 2,
           symbols: ["createAgentChatAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer-dynamic.mjs"),
+          line: 1,
+          symbols: ["createAgentChatRuntimeAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer-dynamic.mjs"),
+          line: 4,
+          symbols: ["createCodeAgentChatAdapter"],
           status: "removed",
         }),
         expect.objectContaining({
