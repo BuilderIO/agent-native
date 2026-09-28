@@ -526,6 +526,46 @@ describe("startMailAiFilterBackfill", () => {
     expect(state.retryAfterAt).toBeGreaterThan(Date.now());
   });
 
+  it("retries wrapped credential refresh failures while undoing Gmail changes", async () => {
+    const activeRule = rule("rule-a");
+    const state = backfillState([activeRule]);
+    state.snapshots["account@example.test:thread-a"] = {
+      key: "account@example.test:thread-a",
+      accountEmail: "account@example.test",
+      threadId: "thread-a",
+      local: false,
+      messages: [
+        {
+          id: "gmail-message",
+          labels: { INBOX: false },
+          afterLabels: { INBOX: true },
+        },
+      ],
+    };
+    const row = runningRow([activeRule]);
+    row.status = "undoing";
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [],
+      errors: [
+        {
+          email: "account@example.test",
+          error: "temporary refresh failure",
+          retryable: true,
+        },
+      ],
+    });
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    expect(row.status).toBe("undoing");
+    const saved = JSON.parse(row.stateJson);
+    expect(saved.retryCount).toBe(1);
+    expect(saved.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(mocks.gmailGetThread).not.toHaveBeenCalled();
+  });
+
   it("preserves an explicit undo retry reset when an in-flight run fails", async () => {
     const archiveRule = rule("rule-archive");
     archiveRule.actions = [{ type: "archive" }];
