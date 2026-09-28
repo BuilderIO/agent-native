@@ -26,6 +26,16 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 Output is fixes; reply only when informative. Two fixes and three messages
 beats thirty replies.
 
+## Slack channels
+
+By default, run the same full Slack workflow in both
+`#product-agent-native-feedback` (`C0ATH3CCZT4`) and `#qa-agent-native`
+(`C0C4U4XRT6X`). Treat messages from either channel identically for evidence,
+eligibility, claims, reactions, dispositions, and replies. Apply each
+`<#CHANNEL>` search/read below to both channels independently, keeping each
+channel's pagination cursor, reply-scan cursor, and enumerated-message count.
+An invocation may explicitly narrow this scope.
+
 ## Phase 0: claim what you are taking
 
 `👀` is permanent claim history; add it before investigation and never remove
@@ -148,13 +158,13 @@ replies ending in `?`. Open only threads with a human reply.
 reply's timestamp; acting on it targets the wrong message.
 
 Find new replies even when their parent is older than the five-day scan. Before
-searching, read the `Reply scan cursor` from the previous recap; if absent,
-scan all available history. Search all channel messages over an overlapping
-date window, sorted oldest-first, and filter hits to timestamps after that
+searching, read that channel's reply-scan cursor from the previous recap; if
+absent, scan all available history. Search that channel over an overlapping
+date window, sorted oldest-first, and filter hits to timestamps after its
 cursor. Resolve each hit to its parent's `thread_ts` and read the full thread.
 Slack's `after:` takes a date, not a message timestamp; start at least one day
-before the cursor date. Follow `next_cursor` until exhausted. Record the last
-processed timestamp only after every page is handled.
+before the cursor date. Follow `next_cursor` until exhausted. Record that
+channel's last processed timestamp only after every page is handled.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
@@ -204,9 +214,8 @@ disclosure string, not a display name, and never omit it from a reply.
 Phase 0 applies these from parent-level evidence to decide what to claim.
 Phase 2 reapplies these rules after full-thread review.
 
-Use the workspace's product feedback channel; here that is
-`#product-agent-native-feedback` (`C0ATH3CCZT4`) unless the invocation names
-another.
+Use the default channels in `## Slack channels`, unless the invocation names a
+narrower source.
 
 **Defects and design feedback.** A clear bug has observable broken behavior: a
 click or submit does nothing, an action errors, data is lost or reverted, the
@@ -525,9 +534,10 @@ branches. Behind/pending never justify syncing.
 With shipping authority — an explicit request, or a caller that already
 granted it — continue straight into `ship` in the same worktree without asking
 again. Without it, prepare the ready-to-ship handoff and say shipping is
-pending authorization. Carry the start cursor, grouped reports, evidence
-links, owning seam, sibling-sweep results, and every disposition into the PR
-body. Keep source-tested, built, deployed, and observed-live claims separate.
+pending authorization. Carry the per-channel start cursors, grouped reports,
+evidence links, owning seam, sibling-sweep results, and every disposition into
+the PR body. Keep source-tested, built, deployed, and observed-live claims
+separate.
 
 If a tracker was supplied, carry its exact row ids and the reproduction ledger
 into the PR or release recap. Never turn a tracker status into a shipping claim.
@@ -550,9 +560,14 @@ on - that is how silence stays auditable.
 
 ```md
 ## Feedback sweep
-Start cursor: [Slack message](...)
-Reply scan cursor (read from prior recap; use next run): <last timestamp fully processed>
-Messages enumerated: N · Claimed: N · Answered since last run: N
+Start cursor by channel:
+- `#product-agent-native-feedback`: [Slack message](...)
+- `#qa-agent-native`: [Slack message](...)
+Reply scan cursor by channel (read from prior recap; use next run):
+- `#product-agent-native-feedback`: <last timestamp fully processed>
+- `#qa-agent-native`: <last timestamp fully processed>
+Messages enumerated: `#product-agent-native-feedback` N · `#qa-agent-native` N
+(total N) · Claimed: N · Answered since last run: N
 Questions asked: N/3 · Dropped at 4 days: N
 Repeats of a prior Fixed claim: N (each with its earlier thread and failed fix)
 Upvoted items in scope: N (built: N)
