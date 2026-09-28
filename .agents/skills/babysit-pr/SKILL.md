@@ -159,14 +159,16 @@ cleanup. Never treat PR merge alone as completion of the parent ship goal.
 For an open PR, resolve `head_remote` by matching a configured remote URL to
 `headRepository.nameWithOwner`; `origin` is valid only when it matches. If no
 remote exists, add a uniquely named one for the exact head repository. Fetch
-`headRefName` from it and verify the fetched OID matches live PR metadata before
-using it as the task branch base, comparison ref, or push target. If no
-writable head repository is available, preserve state and report that blocker.
+the live head with an explicit refspec into
+`refs/remotes/$head_remote/$headRefName`, then verify that ref's OID matches
+live PR metadata before using it as the task branch base, comparison ref, or
+push target. If no writable head repository is available, preserve state and
+report that blocker.
 
 For an open PR, inspect the branch snapshot:
 
 ```bash
-git fetch "$head_remote" "$headRefName"
+git fetch "$head_remote" "refs/heads/$headRefName:refs/remotes/$head_remote/$headRefName"
 git status --short
 git diff --name-only
 if git show-ref --verify --quiet "refs/remotes/$head_remote/$headRefName"; then

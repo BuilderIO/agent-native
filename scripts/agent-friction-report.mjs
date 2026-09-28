@@ -276,7 +276,7 @@ const BRANCH_WORKTREE_ASK_REGEX_CASES = [
   [false, "Please create a task branch for this feature."],
 ];
 const BRANCH_MOVEMENT_CANDIDATE_RE =
-  /\b(?:did you (?:make|create)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?|why did you (?:make|create)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?|you (?:made|created)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?)\b/i;
+  /\b(?:why did you (?:make|create|switch|check(?:\s+out)?|checkout|change|move)\b[^.!?\n]{0,100}\bbranch(?:es)?|you (?:made|created|switched|checked\s+out|checked-out|checkedout|changed|moved)\b[^.!?\n]{0,100}\bbranch(?:es)?)\b/i;
 // A prompt correction does not prove that a branch moved.
 const BRANCH_MOVES_RE = {
   test(text) {
@@ -300,6 +300,11 @@ const BRANCH_CLASSIFICATION_REGEX_CASES = [
   [true, false, "Why did you create a new branch without asking?"],
   [false, true, "Why did creating a task worktree require my confirmation?"],
   [true, false, "You created a new branch in the shared checkout."],
+  [true, false, "Why did you switch to a new branch?"],
+  [true, false, "You switched to a different branch."],
+  [true, false, "Why did you check out a task branch?"],
+  [true, false, "You checked out a new branch after I asked you not to."],
+  [false, false, "Did you switch to a new branch?"],
   [false, false, "Don't create a new branch in the shared checkout."],
   [false, false, "Never create a new branch in the shared checkout."],
 ];
