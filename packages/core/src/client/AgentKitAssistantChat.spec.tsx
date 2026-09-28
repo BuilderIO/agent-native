@@ -763,10 +763,15 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     const retryButton = container.querySelector("button");
     expect(retryButton).not.toBeNull();
-    await act(async () => retryButton!.click());
-    expect(chatMocks.rootProps.load).toBe("manual");
-    await flush();
-    expect(chatMocks.rootProps.load).toBe("auto");
+    vi.useFakeTimers();
+    try {
+      await act(async () => retryButton!.click());
+      expect(chatMocks.rootProps.load).toBe("manual");
+      await act(async () => vi.runOnlyPendingTimersAsync());
+      expect(chatMocks.rootProps.load).toBe("auto");
+    } finally {
+      vi.useRealTimers();
+    }
     expect(chatMocks.rootProps.transport).toBe(transport);
 
     await act(async () => {
