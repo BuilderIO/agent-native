@@ -198,6 +198,16 @@ describe("backfill-search-embeddings", () => {
     mocks.getDb.mockReturnValue(createDb());
   });
 
+  it("requires an explicit dryRun in the advertised agent tool schema", () => {
+    const jsonSchema = action.tool.parameters;
+
+    expect(jsonSchema?.required).toContain("dryRun");
+    expect(jsonSchema?.properties?.dryRun).toMatchObject({ type: "boolean" });
+    expect(
+      backfillSearchEmbeddingsSchema.parse({ sourceId: "source-1" }).dryRun,
+    ).toBe(true);
+  });
+
   it("defaults to a bounded metadata-only dry run", async () => {
     const args = backfillSearchEmbeddingsSchema.parse({
       sourceId: "source-1",
