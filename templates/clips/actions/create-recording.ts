@@ -28,7 +28,7 @@ import {
 } from "../server/lib/video-storage.js";
 import { createRecordingSchema } from "./lib/create-recording-schema.js";
 import { validateRecordingScope } from "./lib/recording-scope.js";
-import { DEFAULT_RECORDING_TITLE } from "./lib/title-source.js";
+import { DEFAULT_RECORDING_TITLE } from "../shared/title-source.js";
 
 export function classifyInitialUploadFailure(error: unknown): {
   failureCode: RecordingFailureCode;

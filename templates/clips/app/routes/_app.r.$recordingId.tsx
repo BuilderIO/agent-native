@@ -43,6 +43,7 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
+import { isDefaultTitle } from "@shared/title-source";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -141,7 +142,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle, notifyAiRequestQueued } from "@/hooks/use-auto-title";
+import { notifyAiRequestQueued } from "@/hooks/use-auto-title";
 import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";

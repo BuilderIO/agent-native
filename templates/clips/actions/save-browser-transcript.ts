@@ -11,7 +11,7 @@ import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
-import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import { isAutoTitleReplaceable } from "../shared/title-source.js";
 
 function nativeSegmentsJson(
   fullText: string,

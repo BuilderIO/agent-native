@@ -20,7 +20,7 @@ import {
   cleanGeneratedTitle,
   fallbackTitleFromTranscript,
 } from "./lib/title-fallback.js";
-import { isAutoTitleReplaceable, isDefaultTitle } from "./lib/title-source.js";
+import { isAutoTitleReplaceable, isDefaultTitle } from "../shared/title-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {
