@@ -197,8 +197,10 @@
   cursor: pointer;
 }
 
-.agentkit-composer button:has(> svg:only-child),
-.agentkit-composer [data-agent-composer-slot="send-button"] {
+.agentkit-composer
+  button:has(> svg:only-child):not([data-agent-composer-slot="send-button"]),
+.agentkit-composer:not(.agent-composer-root--hero)
+  [data-agent-composer-slot="send-button"] {
   inline-size: var(--agentkit-composer-toolbar-control-size);
   padding-inline: 0;
 }

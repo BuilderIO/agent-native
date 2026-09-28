@@ -1291,7 +1291,7 @@
     var(--agent-kit-composer-toolbar-padding-block-end);
 }
 
-.agent-composer-root--hero.agentkit-composer .agent-composer-send-button {
+.agent-composer-root--hero .agent-composer-send-button {
   height: var(--agent-kit-composer-control-size);
   width: var(--agent-kit-composer-control-size);
   border-radius: 999px;
