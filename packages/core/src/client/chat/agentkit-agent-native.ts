@@ -253,6 +253,71 @@ function storedMessages(
   });
 }
 
+function reconcileDurableAssistantText(
+  messages: AgentMessage[],
+  durable: AgentMessage[],
+  events: AgentThreadSnapshot["events"],
+): AgentMessage[] {
+  const durableById = new Map(durable.map((message) => [message.id, message]));
+  const assistantIdsByRun = new Map<string, Set<string>>();
+  for (const event of events ?? []) {
+    if (
+      (event.type !== "message.created" &&
+        event.type !== "message.completed") ||
+      event.message.role !== "assistant"
+    ) {
+      continue;
+    }
+    const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
+    ids.add(event.message.id);
+    assistantIdsByRun.set(event.runId, ids);
+  }
+  const runByAssistantId = new Map<string, string>();
+  for (const [runId, ids] of assistantIdsByRun) {
+    if (ids.size === 1) runByAssistantId.set([...ids][0]!, runId);
+  }
+  const durableByRun = new Map<string, AgentMessage | null>();
+  for (const message of durable) {
+    if (message.role !== "assistant") continue;
+    const runId = asRecord(message.metadata)?.runId;
+    if (typeof runId !== "string") continue;
+    durableByRun.set(runId, durableByRun.has(runId) ? null : message);
+  }
+
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    const runId = runByAssistantId.get(message.id);
+    const stored =
+      durableById.get(message.id) ??
+      (runId ? durableByRun.get(runId) : undefined);
+    if (stored?.role !== "assistant") return message;
+    const lastPart = message.parts.at(-1);
+    if (lastPart && lastPart.type !== "text") return message;
+    const currentText = message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    const storedText = stored.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    if (
+      !storedText.startsWith(currentText) ||
+      storedText.length <= currentText.length
+    ) {
+      return message;
+    }
+    const suffix = storedText.slice(currentText.length);
+    const parts = [...message.parts];
+    if (!lastPart) {
+      parts.push({ type: "text", text: suffix });
+    } else {
+      parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
+    }
+    return { ...message, parts };
+  });
+}
+
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   return value === "streaming" || value === "complete" || value === "error"
     ? value
@@ -536,9 +601,18 @@ export function createAgentNativeAgentKitTransport(
           widgets: agentKit.widgets,
         })
       : undefined;
-    const messages =
-      protocolSnapshot?.messages ??
-      storedMessages(repository.messages, now, options.adapter?.textFormat);
+    const durableMessages = storedMessages(
+      repository.messages,
+      now,
+      options.adapter?.textFormat,
+    );
+    const messages = protocolSnapshot?.messages
+      ? reconcileDurableAssistantText(
+          protocolSnapshot.messages,
+          durableMessages,
+          protocolSnapshot.events,
+        )
+      : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
     const toolCalls = new Map<string, AgentToolCall>(
       (protocolSnapshot?.toolCalls ?? []).map(
