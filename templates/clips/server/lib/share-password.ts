@@ -61,7 +61,12 @@ export function getRecordingAccessTokenResourceId(
   storedPassword: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
 ): string {
-  // Encrypted passwords keep their existing token scope; legacy and passwordless rows use the dedicated version.
+  if (!storedPassword && sharePasswordVersion?.startsWith("legacy:")) {
+    // Keep pre-version grants valid until a password mutation rotates this migration baseline.
+    return recordingId;
+  }
+
+  // Encrypted passwords scope grants to the ciphertext; other rows use the dedicated version.
   const versionSource =
     storedPassword && isEncryptedSecretValue(storedPassword)
       ? storedPassword

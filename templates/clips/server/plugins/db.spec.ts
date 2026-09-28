@@ -134,7 +134,7 @@ describe("recording share password version migration", () => {
       /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
     );
     expect(dbTsSource).toMatch(
-      /SET share_password_version = updated_at\s+WHERE share_password_version IS NULL/,
+      /SET share_password_version = 'legacy:' \|\| updated_at\s+WHERE share_password_version IS NULL/,
     );
     expect(dbTsSource).toMatch(
       /ALTER COLUMN share_password_version SET DEFAULT 'initial'/,

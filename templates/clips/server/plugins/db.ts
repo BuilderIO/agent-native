@@ -1124,7 +1124,7 @@ export const migrations = runMigrations(
       sql: `
         ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT;
         UPDATE recordings
-        SET share_password_version = updated_at
+        SET share_password_version = 'legacy:' || updated_at
         WHERE share_password_version IS NULL;
         ALTER TABLE recordings ALTER COLUMN share_password_version SET DEFAULT 'initial';
         ALTER TABLE recordings ALTER COLUMN share_password_version SET NOT NULL;

@@ -95,6 +95,20 @@ describe("share-password storage", () => {
     expect(afterMetadataEdit).toBe(beforeMetadataEdit);
   });
 
+  it("preserves old passwordless agent-link scopes until a password changes", () => {
+    expect(
+      getRecordingAccessTokenResourceId(
+        "rec-1",
+        null,
+        "legacy:2026-01-01T00:00:00.000Z",
+      ),
+    ).toBe("rec-1");
+
+    expect(
+      getRecordingAccessTokenResourceId("rec-1", null, "rotated-version"),
+    ).not.toBe("rec-1");
+  });
+
   it("rotates passwordless scopes after a password is removed", () => {
     const beforePassword = getRecordingAccessTokenResourceId(
       "rec-1",
