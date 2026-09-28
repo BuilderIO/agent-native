@@ -236,7 +236,10 @@ foreground ship owner publishes; delegates return their changes to that owner.
 A slow or contaminated local check is not permission to publish an incomplete
 snapshot; record the exact result and let the current PR checks finish.
 
-After the ownership check, run:
+After the ownership check, use `ship:push` for a new PR or when an existing
+PR's head repository is `origin` and its `headRefName` matches the local branch.
+For any other existing PR target, follow `babysit-pr`'s verified head remote/ref
+procedure.
 
 ```bash
 corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"

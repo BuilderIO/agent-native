@@ -57,7 +57,10 @@ trigger it.
 `/ship-now` publishes one complete, coherent nonignored current-branch
 snapshot. Do not publish every checkpoint or split known review/CI fixes into
 separate pushes: each new head reruns checks. Use `corepack pnpm ship:push -m`
-with a subject naming the actual behavior changed (for example,
+for a new PR. For an existing PR, use it only when `origin` matches the PR head
+repository and the local branch matches `headRefName`; otherwise follow
+`babysit-pr` to push to the verified head remote/ref. Use a subject naming the
+actual behavior changed (for example,
 `fix: deduplicate chat start checkpoints`); the helper refuses an omitted or
 generic subject. It excludes `learnings.md`, `bridge/**`, and `data/**`.
 
@@ -134,7 +137,8 @@ isolated safely, preserve all state and report the exact paths or commits.
    calling them green.
 
 4. Publish the complete current-branch snapshot immediately after the local
-   gate passes:
+   gate passes. For an existing PR, honor the verified head remote/ref rule
+   above:
 
    ```bash
    corepack pnpm ship:push -m "fix: deduplicate chat start checkpoints"
@@ -199,8 +203,9 @@ isolated safely, preserve all state and report the exact paths or commits.
 
 - Never expose environment values, tokens, cookies, or private payloads in
   commits, PR text, logs, prompts, or status reports.
-- Publish all nonignored local paths through `corepack pnpm ship:push -m
-  "<specific change>"`.
+- Publish with `ship:push` only when it targets the exact PR head repository and
+  branch; for fork or differently named PR heads, follow `babysit-pr`'s verified
+  head remote/ref procedure.
 - Never silently skip a review comment, CI failure, package release failure,
   or production deploy failure.
 - Never treat a Netlify lock as the production promotion mechanism or remove it

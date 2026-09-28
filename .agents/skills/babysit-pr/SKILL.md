@@ -34,14 +34,17 @@ repository. Never infer the push target from the base repository or a matching
 branch name. If no writable head repository is available, preserve state and
 report the blocker.
 
-If the local task branch has a different name, push it to the existing PR head
-with a normal fast-forward refspec. Before each push, recheck the live head OID
-and inspect any worktree using that head branch for unpublished PR commits. If
-the head moved, follow Setup's non-fast-forward recovery: fetch the refreshed
-head and merge it into the clean task branch, resolve and test, then recheck
-before pushing. Preserve state and report only when peer or unpublished work,
-or conflicts that cannot be safely resolved, block recovery. Never replace an
-existing PR's history, rebase, or force-push.
+`ship:push` always commits publishable paths and pushes `origin/<local branch>`.
+Use it for an existing PR only when `origin` matches the recorded head
+repository and the local branch name equals `headRefName`. Otherwise, stage
+only this task's paths, commit with a specific subject, and push
+`HEAD:refs/heads/$headRefName` to `head_remote` after rechecking the live OID.
+Before each push, inspect any worktree using that head branch for unpublished
+PR commits. If the head moved, follow Setup's non-fast-forward recovery: fetch
+the refreshed head and merge it into the clean task branch, resolve and test,
+then recheck before pushing. Preserve state and report only when peer or
+unpublished work, or conflicts that cannot be safely resolved, block recovery.
+Never replace an existing PR's history, rebase, or force-push.
 
 ## Branch-wide Snapshot Rule
 
@@ -57,12 +60,11 @@ push. Publish only a complete, coherent set of currently known fixes for
 failing CI, PR feedback, a real merge conflict, or an explicit user request.
 Batch multiple feedback items and delegate changes into one update; do not
 create a commit for each finding, checkpoint, or timer tick. Every new head
-reruns affected checks and resets the soak. Use
-`corepack pnpm ship:push -m` with a subject naming the actual fix (for example,
-`fix: deduplicate chat start checkpoints`); the helper rejects an omitted or
-generic subject. A clean tree, `origin/main` drift, queued checks, or a timer
-tick is not a reason to commit or push. Never publish unrelated concurrent
-work, and never revert, stash, or overwrite it.
+reruns affected checks and resets the soak. Publish to the verified PR target
+as described above; `ship:push` rejects an omitted or generic subject. A clean
+tree, `origin/main` drift, queued checks, or a timer tick is not a reason to
+commit or push. Never publish unrelated concurrent work, and never revert,
+stash, or overwrite it.
 
 When an actionable fix is changing, collect all known related CI and review
 findings, validate the combined fix, then publish one coherent snapshot to the
@@ -174,12 +176,12 @@ else
 fi
 ```
 
-After the status check, run `corepack pnpm ship:push -m` with a subject naming the actual fix, and only when the dirty or
-unpushed work is the intentional fix for a concrete CI failure, PR feedback,
-merge conflict, or explicit user request. If the tree is clean and already
-pushed, do nothing. If it is clean with unpushed commits, push them directly
-only when those commits are already an intentional actionable fix; never create
-a new maintenance commit merely to make the branch look current.
+After the status check, publish only an intentional fix for a concrete CI
+failure, PR feedback, merge conflict, or explicit user request, using the
+verified target path above. If the tree is clean and already pushed, do nothing.
+If it is clean with unpushed commits, push them directly only when those
+commits are already an intentional actionable fix; never create a maintenance
+commit merely to make the branch look current.
 
 Every tick starts here, no exceptions: on an active shared branch local files
 can change within minutes, so re-check before every actionable push.
@@ -290,7 +292,7 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
-   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
+   - Publish the complete fix snapshot to the verified PR head using the target path above
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the applicable clock described above
 
@@ -298,7 +300,7 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
-   - Run `corepack pnpm ship:push -m` with a subject naming the actual fix to publish the complete fix snapshot
+   - Publish the complete fix snapshot to the verified PR head using the target path above
    - Reset the applicable clock described above
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:

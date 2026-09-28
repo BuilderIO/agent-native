@@ -276,7 +276,7 @@ const BRANCH_WORKTREE_ASK_REGEX_CASES = [
   [false, "Please create a task branch for this feature."],
 ];
 const BRANCH_MOVEMENT_CANDIDATE_RE =
-  /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i;
+  /\b(?:did you (?:make|create)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?|why did you (?:make|create)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?|you (?:made|created)\b[^.!?\n]{0,100}\b(?:(?:a|the)\s+)?(?:new\s+)?branch(?:es)?)\b/i;
 // A prompt correction does not prove that a branch moved.
 const BRANCH_MOVES_RE = {
   test(text) {
@@ -299,7 +299,9 @@ const BRANCH_CLASSIFICATION_REGEX_CASES = [
   ],
   [true, false, "Why did you create a new branch without asking?"],
   [false, true, "Why did creating a task worktree require my confirmation?"],
-  [true, false, "Don't create a new branch in the shared checkout."],
+  [true, false, "You created a new branch in the shared checkout."],
+  [false, false, "Don't create a new branch in the shared checkout."],
+  [false, false, "Never create a new branch in the shared checkout."],
 ];
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(

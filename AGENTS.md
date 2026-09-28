@@ -157,10 +157,9 @@ could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
 for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
-Shared edits are visible in Git; read `concurrent-agents`. Batch fixes; publish
-snapshots with `corepack pnpm ship:push -m "<change>"` to
-avoid CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs;
-merge shared branches.
+Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
+CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge
+shared branches.
 
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
