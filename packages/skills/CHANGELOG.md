@@ -1,5 +1,99 @@
 # @agent-native/skills
 
+## 0.3.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [80a16c4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [490b16a]
+- Updated dependencies [c636eb2]
+- Updated dependencies [65fd4ed]
+- Updated dependencies [80a16c4]
+- Updated dependencies [d898975]
+- Updated dependencies [e4c71b1]
+- Updated dependencies [e1ef371]
+- Updated dependencies [7af9d3f]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [8a9a428]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [6175ad8]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [65fd4ed]
+- Updated dependencies [7c22552]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [80a16c4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies
+- Updated dependencies [e7685e8]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [e783ff4]
+- Updated dependencies [c26c809]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [c786d97]
+- Updated dependencies [80a16c4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [ddcd0b0]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [c9a1253]
+- Updated dependencies [bb56060]
+- Updated dependencies [9199a7f]
+- Updated dependencies [f10632d]
+- Updated dependencies [108074a]
+- Updated dependencies [56a0c5b]
+- Updated dependencies [3ac7f50]
+- Updated dependencies [355870c]
+- Updated dependencies [a20f0b4]
+- Updated dependencies [4b62043]
+- Updated dependencies [a20f0b4]
+  - @agent-native/core@0.196.0
+
 ## 0.3.9
 
 ### Patch Changes
@@ -1635,12 +1729,5 @@
 - Updated dependencies [667a1c1]
 - Updated dependencies [667a1c1]
   - @agent-native/core@0.164.14
-
-## 0.2.643
-
-### Patch Changes
-
-- Updated dependencies [62373a8]
-  - @agent-native/core@0.164.13
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

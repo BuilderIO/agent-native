@@ -7,6 +7,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Calendar time suggestions now format dates and times in your language.
+- Invitation rules now link to Automations for actions beyond accept, decline, and hide.
 - Events created by the agent now show their date and time with a direct link to Calendar.
 - Calendar shows cards for event changes and lets you start an event draft from a suggested time.
 
@@ -50,6 +52,8 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Calendar settings are reorganized into General, Calendars, Booking, and Notifications in the new Settings.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - The bookings list shows the latest bookings first and keeps dates and times together.
 - Colleague events use the saved accent color shown in the calendar sidebar.
 - If Zoom cannot confirm a meeting, Calendar keeps the booking and follows up with meeting details

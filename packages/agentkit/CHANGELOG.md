@@ -1,5 +1,20 @@
 # @agent-native/agentkit
 
+## 0.5.0
+
+### Minor Changes
+
+- 108074a: Standardize full-page AgentKit chat homes and restore the Dispatch workspace app launcher.
+
+### Patch Changes
+
+- 7af9d3f: Refine AgentKit activity labels, approval details, and shared action cards.
+- Release all public npm packages with a patch version bump.
+- 230c5f0: Use the shared dropdown menu for message actions, matching chat menu styling and keyboard behavior.
+- Updated dependencies
+- Updated dependencies [a20f0b4]
+  - @agent-native/toolkit@0.23.0
+
 ## 0.4.1
 
 ### Patch Changes
