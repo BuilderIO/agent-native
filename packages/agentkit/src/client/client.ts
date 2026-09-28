@@ -891,13 +891,21 @@ export class AgentKitClient implements AgentKitController {
         );
       }
       for (const [runId, run] of refreshedRuns) {
-        if ((thread.runs[runId]?.lastSequence ?? -1) <= run.lastSequence) {
-          thread = {
-            ...thread,
-            runs: { ...thread.runs, [runId]: this.runState(runId, run) },
-            activeRunIds: Array.from(new Set([...thread.activeRunIds, runId])),
-          };
-        }
+        const currentRun = thread.runs[runId];
+        if (currentRun && this.isTerminalStatus(currentRun.status)) continue;
+        const refreshedRun = this.mergeRunState(
+          currentRun,
+          this.runState(runId, run),
+        );
+        if (refreshedRun === currentRun) continue;
+        const activeRunIds = this.isTerminalStatus(refreshedRun.status)
+          ? thread.activeRunIds.filter((id) => id !== runId)
+          : Array.from(new Set([...thread.activeRunIds, runId]));
+        thread = {
+          ...thread,
+          runs: { ...thread.runs, [runId]: refreshedRun },
+          activeRunIds,
+        };
       }
       thread = this.settleTerminalThread(thread, snapshot);
       if (threadMissing) this.missingThreadStates.add(thread);
@@ -2533,12 +2541,30 @@ export class AgentKitClient implements AgentKitController {
   ): AgentThreadState["runs"] {
     const merged = { ...first };
     for (const [runId, run] of Object.entries(second)) {
-      const existing = merged[runId];
-      if (!existing || run.lastSequence >= existing.lastSequence) {
-        merged[runId] = run;
-      }
+      merged[runId] = this.mergeRunState(merged[runId], run);
     }
     return merged;
+  }
+
+  private mergeRunState(
+    current: AgentRunState | undefined,
+    incoming: AgentRunState,
+  ): AgentRunState {
+    if (!current) return incoming;
+    const currentIsTerminal = this.isTerminalStatus(current.status);
+    const incomingIsTerminal = this.isTerminalStatus(incoming.status);
+    const preferred =
+      currentIsTerminal !== incomingIsTerminal
+        ? incomingIsTerminal
+          ? incoming
+          : current
+        : incoming.lastSequence >= current.lastSequence
+          ? incoming
+          : current;
+    const lastSequence = Math.max(current.lastSequence, incoming.lastSequence);
+    return preferred.lastSequence === lastSequence
+      ? preferred
+      : { ...preferred, lastSequence };
   }
 
   private mergeQueuedMessages(

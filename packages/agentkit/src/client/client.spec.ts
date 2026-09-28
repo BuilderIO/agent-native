@@ -572,6 +572,126 @@ describe("AgentKitClient", () => {
     expect(thread.activeRunIds).toEqual([]);
   });
 
+  it("prefers refreshed terminal status over a live run at the same cursor", async () => {
+    let getRunCalls = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 2,
+        },
+      ],
+      activeRunIds: ["run-1"],
+    });
+    transport.getRun = async () => {
+      getRunCalls += 1;
+      return getRunCalls === 1
+        ? {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "running",
+            lastSequence: 2,
+          }
+        : {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 2,
+            completedAt: "2026-08-29T00:00:02.000Z",
+          };
+    };
+    transport.subscribeToRun = async function* ({ signal }) {
+      await new Promise<void>((resolve) =>
+        signal?.addEventListener("abort", () => resolve(), { once: true }),
+      );
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    const thread = await client.loadThread("thread-1");
+
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.activeRunIds).toEqual([]);
+    await client.dispose();
+  });
+
+  it("does not restore a refreshed run after its stream completes during load", async () => {
+    const subscriptionStarted = Promise.withResolvers<void>();
+    const allowCompletion = Promise.withResolvers<void>();
+    const refreshRequested = Promise.withResolvers<void>();
+    const refreshResponse = Promise.withResolvers<{
+      id: string;
+      threadId: string;
+      status: "running";
+      lastSequence: number;
+    }>();
+    let getRunCalls = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:01.000Z",
+      messages: [],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+        },
+      ],
+      activeRunIds: ["run-1"],
+    });
+    transport.getRun = async () => {
+      getRunCalls += 1;
+      if (getRunCalls === 1) {
+        return {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 1,
+        };
+      }
+      refreshRequested.resolve();
+      return refreshResponse.promise;
+    };
+    transport.subscribeToRun = async function* () {
+      subscriptionStarted.resolve();
+      await allowCompletion.promise;
+      yield protocolEvent(2, { type: "run.completed" });
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    await subscriptionStarted.promise;
+    const loading = client.loadThread("thread-1");
+    await refreshRequested.promise;
+    allowCompletion.resolve();
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+        "completed",
+      ),
+    );
+    refreshResponse.resolve({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "running",
+      lastSequence: 2,
+    });
+    const thread = await loading;
+
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.activeRunIds).toEqual([]);
+    await client.dispose();
+  });
+
   it("preserves refreshed nonterminal runs omitted from the snapshot", async () => {
     const cursors: number[] = [];
     const events = [
