@@ -46,6 +46,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "依頼された操作",
   "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
+  "approval.releaseSummary": "{{release}} を {{environment}} にリリース",
+  "approval.releaseSummaryWithoutEnvironment": "{{release}} をリリース",
   "approval.edit": "編集",
   "approval.editPrompt":
     "再試行する前に、この操作をどう変更したいか確認してください。",

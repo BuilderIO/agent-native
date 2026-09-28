@@ -44,6 +44,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "請求的操作",
   "approval.moreOptions": "更多核准選項",
   "approval.question": "要核准執行 {{tool}} 嗎？",
+  "approval.releaseSummary": "將 {{release}} 發布到 {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "發布 {{release}}",
   "approval.edit": "編輯",
   "approval.editPrompt": "請先詢問我想如何修改此操作，再重新嘗試。",
   "approval.pending": "需要核准",

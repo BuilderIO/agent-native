@@ -352,7 +352,7 @@ const brandKitDetailEnUS = {
   reference: "Reference",
   saved: "Saved",
   save: "Save",
-  addToReferences: "Add to References",
+  addToReferences: "Use as reference",
   removeFromReferences: "Remove from References",
   close: "Close",
   generated: "Generated",
@@ -864,7 +864,7 @@ const enUS = {
     addAssets: "Add assets",
     addAssetsDescription:
       "Upload source material or generate candidates, then mark only the assets that should guide future generations as references.",
-    addToReferences: "Add to References",
+    addToReferences: "Use as reference",
     addGenerationKey: "Add a generation key in Settings.",
     allAssets: "All assets",
     allAssetsDescription: "Every accessible kit",
@@ -1173,7 +1173,7 @@ const brandKitDetailArSA = {
   addAssetsDescription:
     "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
   addAssets: "أضف الأصول",
-  addToReferences: "أضف إلى المراجع",
+  addToReferences: "استخدم كمرجع",
   addedToReferences: "تمت إضافتها إلى المراجع.",
   agentUsageDescription:
     "يمكن للوكلاء الآخرين الاتصال بـ Assets عبر A2A باستخدام معرف مجموعة العلامة التجارية هذا.",
@@ -1430,7 +1430,7 @@ const brandKitDetailDeDE = {
   addAssetsDescription:
     "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
   addAssets: "Assets hinzufügen",
-  addToReferences: "Zu Referenzen hinzufügen",
+  addToReferences: "Als Referenz verwenden",
   addedToReferences: "Zu den Referenzen hinzugefügt.",
   agentUsageDescription:
     "Andere Agenten können mit dieser Marken-Kit-ID Assets über A2A anrufen.",
@@ -1696,7 +1696,7 @@ const brandKitDetailEsES = {
   addAssetsDescription:
     "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
   addAssets: "Agregar activos",
-  addToReferences: "Agregar a referencias",
+  addToReferences: "Usar como referencia",
   addedToReferences: "Agregado a Referencias.",
   agentUsageDescription:
     "Otros agentes pueden llamar a Assets a través de A2A con este ID de kit de marca.",
@@ -1963,7 +1963,7 @@ const brandKitDetailFrFR = {
   addAssetsDescription:
     "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
   addAssets: "Ajouter des éléments",
-  addToReferences: "Ajouter aux références",
+  addToReferences: "Utiliser comme référence",
   addedToReferences: "Ajouté aux références.",
   agentUsageDescription:
     "D'autres agents peuvent appeler Assets via A2A avec cet ID de kit de marque.",
@@ -2229,7 +2229,7 @@ const brandKitDetailHiIN = {
   addAssetsDescription:
     "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
   addAssets: "संपत्तियां जोड़ें",
-  addToReferences: "सन्दर्भों में जोड़ें",
+  addToReferences: "संदर्भ के रूप में उपयोग करें",
   addedToReferences: "सन्दर्भों में जोड़ा गया.",
   agentUsageDescription:
     "अन्य एजेंट इस ब्रांड किट आईडी के साथ A2A पर Assets पर कॉल कर सकते हैं।",
@@ -2483,7 +2483,7 @@ const brandKitDetailJaJP = {
   addAssetsDescription:
     "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
   addAssets: "アセットの追加",
-  addToReferences: "参考文献に追加",
+  addToReferences: "参考として使用",
   addedToReferences: "参考文献に追加されました。",
   agentUsageDescription:
     "他のエージェントは、このブランド キット ID を使用して A2A 経由で Assets を呼び出すことができます。",
@@ -2745,7 +2745,7 @@ const brandKitDetailKoKR = {
   addAssetsDescription:
     "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
   addAssets: "자산 추가",
-  addToReferences: "참고자료에 추가",
+  addToReferences: "참고 자료로 사용",
   addedToReferences: "참고자료에 추가되었습니다.",
   agentUsageDescription:
     "다른 상담원은 이 브랜드 키트 ID를 사용하여 A2A를 통해 Assets에 전화할 수 있습니다.",
@@ -3001,7 +3001,7 @@ const brandKitDetailPtBR = {
   addAssetsDescription:
     "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
   addAssets: "Adicionar recursos",
-  addToReferences: "Adicionar às referências",
+  addToReferences: "Usar como referência",
   addedToReferences: "Adicionado às referências.",
   agentUsageDescription:
     "Outros agentes podem ligar para Assets através de A2A com este ID de kit de marca.",
@@ -3754,7 +3754,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "上传源素材或生成候选项，然后只将应指导未来生成的资产标记为参考。",
       addGenerationKey: "在设置中添加生成密钥。",
-      addToReferences: "添加到参考",
+      addToReferences: "用作参考",
       addedAssetsToReferences: "已将 {{count}} 个资产添加到参考。",
       addedToReferences: "已添加到参考。",
       allAssets: "所有资产",
@@ -4486,7 +4486,7 @@ export const messagesByLocale = {
       reference: "参考",
       saved: "已保存",
       save: "保存",
-      addToReferences: "添加到参考",
+      addToReferences: "用作参考",
       close: "关闭",
       generated: "已生成",
       slot: "槽位",
@@ -4645,7 +4645,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Cargue material fuente o genere candidatos, luego marque solo los activos que deberían guiar a las generaciones futuras como referencias.",
       addGenerationKey: "Añade una clave de generación en Ajustes.",
-      addToReferences: "Agregar a referencias",
+      addToReferences: "Usar como referencia",
       addedToReferences: "Agregado a Referencias.",
       allAssets: "Todos los activos",
       allAssetsDescription: "Todos los kits accesibles",
@@ -5177,7 +5177,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Téléchargez le matériel source ou générez des candidats, puis marquez uniquement les atouts qui devraient guider les générations futures comme références.",
       addGenerationKey: "Ajoutez une clé de génération dans Paramètres.",
-      addToReferences: "Ajouter aux références",
+      addToReferences: "Utiliser comme référence",
       addedToReferences: "Ajouté aux références.",
       allAssets: "Tous les actifs",
       allAssetsDescription: "Tous les kits accessibles",
@@ -5689,7 +5689,7 @@ export const messagesByLocale = {
         "Laden Sie Quellmaterial hoch oder generieren Sie Kandidaten und markieren Sie dann nur die Assets, die künftigen Generationen als Referenz dienen sollen.",
       addGenerationKey:
         "Füge in den Einstellungen einen Generierungsschlüssel hinzu.",
-      addToReferences: "Zu Referenzen hinzufügen",
+      addToReferences: "Als Referenz verwenden",
       addedToReferences: "Zu den Referenzen hinzugefügt.",
       allAssets: "Alle Vermögenswerte",
       allAssetsDescription: "Alle zugänglichen Kits",
@@ -6105,7 +6105,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "ソース素材をアップロードするか候補を生成し、将来の世代を導く必要がある資産のみを参照としてマークします。",
       addGenerationKey: "設定で生成キーを追加してください。",
-      addToReferences: "参考文献に追加",
+      addToReferences: "参考として使用",
       addedToReferences: "参考文献に追加されました。",
       allAssets: "すべての資産",
       allAssetsDescription: "アクセス可能なすべてのキット",
@@ -6511,7 +6511,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "원본 자료를 업로드하거나 후보를 생성한 후, 미래 세대를 이끌어야 할 자산만 참고 자료로 표시하세요.",
       addGenerationKey: "설정에서 생성 키를 추가하세요.",
-      addToReferences: "참고자료에 추가",
+      addToReferences: "참고 자료로 사용",
       addedToReferences: "참고자료에 추가되었습니다.",
       allAssets: "모든 자산",
       allAssetsDescription: "액세스 가능한 모든 키트",
@@ -6915,7 +6915,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "Carregue o material de origem ou gere candidatos e marque apenas os ativos que devem orientar as gerações futuras como referências.",
       addGenerationKey: "Adicione uma chave de geração em Configurações.",
-      addToReferences: "Adicionar às referências",
+      addToReferences: "Usar como referência",
       addedToReferences: "Adicionado às referências.",
       allAssets: "Todos os ativos",
       allAssetsDescription: "Todos os kits acessíveis",
@@ -7424,7 +7424,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "स्रोत सामग्री अपलोड करें या उम्मीदवार तैयार करें, फिर केवल उन संपत्तियों को चिह्नित करें जो भविष्य की पीढ़ियों को संदर्भ के रूप में मार्गदर्शन करें।",
       addGenerationKey: "Settings में generation key जोड़ें।",
-      addToReferences: "सन्दर्भों में जोड़ें",
+      addToReferences: "संदर्भ के रूप में उपयोग करें",
       addedToReferences: "सन्दर्भों में जोड़ा गया.",
       allAssets: "सारी संपत्ति",
       allAssetsDescription: "सभी सुलभ किट",
@@ -7825,7 +7825,7 @@ export const messagesByLocale = {
       addAssetsDescription:
         "قم بتحميل المواد المصدرية أو قم بإنشاء مرشحين، ثم حدد فقط الأصول التي يجب أن توجه الأجيال القادمة كمراجع.",
       addGenerationKey: "أضف مفتاح إنشاء في الإعدادات.",
-      addToReferences: "أضف إلى المراجع",
+      addToReferences: "استخدم كمرجع",
       addedToReferences: "تمت إضافتها إلى المراجع.",
       allAssets: "جميع الأصول",
       allAssetsDescription: "جميع المجموعات التي يمكن الوصول إليها",

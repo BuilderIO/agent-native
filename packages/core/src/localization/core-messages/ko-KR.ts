@@ -45,6 +45,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "요청한 작업",
   "approval.moreOptions": "추가 승인 옵션",
   "approval.question": "{{tool}} 실행을 승인하시겠습니까?",
+  "approval.releaseSummary": "{{release}}을(를) {{environment}}에 배포",
+  "approval.releaseSummaryWithoutEnvironment": "{{release}}을(를) 배포",
   "approval.edit": "수정",
   "approval.editPrompt":
     "다시 시도하기 전에 이 작업을 어떻게 바꾸고 싶은지 물어봐 주세요.",

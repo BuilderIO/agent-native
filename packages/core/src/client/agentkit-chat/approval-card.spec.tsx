@@ -20,19 +20,23 @@ vi.mock("../i18n.js", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
     key === "agentChat.approval.question"
       ? `Approve to run ${String(options?.tool)}?`
-      : key === "agentChat.approval.editPrompt"
-        ? "Ask me how I want to revise this action before trying again."
-        : key === "agentChat.approval.action"
-          ? "the requested action"
-          : key === "agentChat.approval.approve"
-            ? "Approve"
-            : key === "agentChat.approval.deny"
-              ? "Deny"
-              : key === "agentChat.approval.edit"
-                ? "Edit"
-                : key === "agentChat.approval.pending"
-                  ? "Approval needed"
-                  : key,
+      : key === "agentChat.approval.releaseSummary"
+        ? `Release ${String(options?.release)} to ${String(options?.environment)}`
+        : key === "agentChat.approval.releaseSummaryWithoutEnvironment"
+          ? `Release ${String(options?.release)}`
+          : key === "agentChat.approval.editPrompt"
+            ? "Ask me how I want to revise this action before trying again."
+            : key === "agentChat.approval.action"
+              ? "the requested action"
+              : key === "agentChat.approval.approve"
+                ? "Approve"
+                : key === "agentChat.approval.deny"
+                  ? "Deny"
+                  : key === "agentChat.approval.edit"
+                    ? "Edit"
+                    : key === "agentChat.approval.pending"
+                      ? "Approval needed"
+                      : key,
 }));
 
 const request: AgentApprovalRequest = {
@@ -139,6 +143,64 @@ describe("CoreAgentKitApproval", () => {
     expect(container.textContent).not.toContain("SECRET_MESSAGE_BODY");
     expect(container.textContent).not.toContain("SECRET_RAW_ARGS");
     expect(container.textContent).not.toContain("PRIVATE MESSAGE BODY");
+  });
+
+  it("summarizes an allowlisted release target without exposing other inputs", () => {
+    const client = new AgentKitClient({ transport: createTransport() });
+    renderApproval(client, {
+      ...request,
+      metadata: {
+        toolName: "accept-agentkit-release",
+        input: {
+          release: "agentkit-acceptance",
+          environment: "production",
+          body: "SECRET_RAW_ARGS",
+        },
+      },
+    });
+
+    expect(container.textContent).toContain(
+      "Release agentkit-acceptance to production",
+    );
+    expect(container.textContent).not.toContain("SECRET_RAW_ARGS");
+  });
+
+  it("omits an invalid release target from the approval summary", () => {
+    const client = new AgentKitClient({ transport: createTransport() });
+    renderApproval(client, {
+      ...request,
+      metadata: {
+        toolName: "accept-agentkit-release",
+        input: {
+          release: "agentkit-acceptance\nprivate data",
+          environment: "production",
+        },
+      },
+    });
+
+    expect(container.textContent).toContain(
+      "Approve to run accept agentkit release?",
+    );
+    expect(container.textContent).not.toContain("private data");
+  });
+
+  it("omits a release summary when its environment is unsafe", () => {
+    const client = new AgentKitClient({ transport: createTransport() });
+    renderApproval(client, {
+      ...request,
+      metadata: {
+        toolName: "accept-agentkit-release",
+        input: {
+          release: "agentkit-acceptance",
+          environment: "production\nSECRET_ENV_VALUE",
+        },
+      },
+    });
+
+    expect(container.textContent).toContain(
+      "Approve to run accept agentkit release?",
+    );
+    expect(container.textContent).not.toContain("SECRET_ENV_VALUE");
   });
 
   it("queues an Edit prompt before denying approval", async () => {

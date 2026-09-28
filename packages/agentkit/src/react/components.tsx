@@ -977,6 +977,14 @@ export function AgentActivityGroup({
       : undefined;
   const completedRunSummary =
     throughSequence !== undefined ||
+    (items.length > 0 && !running) ||
+    runEvents.some(
+      (event) =>
+        event.runId === runId &&
+        (event.type === "run.completed" ||
+          event.type === "run.failed" ||
+          event.type === "run.cancelled"),
+    ) ||
     (afterSequence === undefined &&
       run !== undefined &&
       ["completed", "failed", "cancelled"].includes(run.status));
@@ -1012,11 +1020,6 @@ export function AgentActivityGroup({
       displayGroups.push([activity]);
     }
   }
-  const labelsSummary = Array.from(
-    new Set(activityItems.map((item) => item.label.trim()).filter(Boolean)),
-  );
-  const remaining = Math.max(0, labelsSummary.length - 2);
-  const summary = `${labelsSummary.slice(0, 2).join(", ")}${remaining ? ` +${remaining}` : ""}`;
   const formatDuration = (ms: number) =>
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
@@ -1034,7 +1037,7 @@ export function AgentActivityGroup({
       ? durationMs !== undefined && durationMs >= 1_000
         ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
         : labels.worked
-      : summary || labels.activities;
+      : labels.activities;
   return (
     <>
       {durableToolResults.length ? (

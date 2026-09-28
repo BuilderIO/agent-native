@@ -3229,6 +3229,44 @@ describe("mountActionRoutes", () => {
 });
 
 describe("mountWebMcpActionRoutes", () => {
+  it("mounts MCP-only actions without exposing them to the in-app agent", async () => {
+    const { mountWebMcpActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ acknowledged: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountWebMcpActionRoutes(
+      nitroApp,
+      {
+        acknowledge: {
+          tool: {
+            description: "Acknowledge an applied handoff",
+            parameters: { type: "object" },
+          },
+          run,
+          agentTool: false,
+          mcpTool: true,
+        } as any,
+      },
+      { getOwnerFromEvent: vi.fn(async () => "owner@example.com") },
+    );
+
+    const route = mounted.find(({ path }) => path === "/mcp/tool/acknowledge");
+    expect(route).toBeDefined();
+    await expect(
+      route?.handler({
+        _method: "POST",
+        _headers: {},
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ acknowledged: true });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("projects eligible actions, including http:false, through the shared dispatcher", async () => {
     const { mountWebMcpActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

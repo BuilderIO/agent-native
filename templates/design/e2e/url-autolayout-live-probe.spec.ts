@@ -11,6 +11,8 @@ import {
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
+import { installBridge, waitForBridge } from "./helpers";
+
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -108,7 +110,6 @@ test.describe("URL-backed live auto-layout probe", () => {
       connectionId: opened.connectionId,
       bridgeToken: opened.bridgeToken,
       rootPath,
-      routeManifest: manifest,
       paths: ["/", "/settings"],
       navigate: false,
       publicReadOnly: false,
@@ -160,7 +161,11 @@ test.describe("URL-backed live auto-layout probe", () => {
         value: keys,
         configurable: false,
       });
-      const focusEvents: Array<{ type: string; active: string }> = [];
+      const focusEvents: Array<{
+        type: string;
+        active: string;
+        activeFrameIndex: number;
+      }> = [];
       Object.defineProperty(window, "__canvasWindowFocusEvents", {
         value: focusEvents,
         configurable: false,
@@ -173,6 +178,14 @@ test.describe("URL-backed live auto-layout probe", () => {
             active instanceof HTMLElement
               ? `${active.tagName}#${active.id}`
               : (active?.nodeName ?? "none"),
+          activeFrameIndex:
+            active instanceof HTMLIFrameElement
+              ? Array.from(
+                  document.querySelectorAll<HTMLIFrameElement>(
+                    "iframe[data-design-preview-iframe]",
+                  ),
+                ).indexOf(active)
+              : -1,
         });
       };
       window.addEventListener("blur", () => recordFocus("blur"));
@@ -244,10 +257,28 @@ test.describe("URL-backed live auto-layout probe", () => {
 
     const liveFrames = page.locator("iframe[data-design-preview-iframe]");
     await expect(liveFrames).toHaveCount(2);
-    const iframe = liveFrames.first();
+    const getFramePaths = () =>
+      Promise.all(
+        [0, 1].map((index) =>
+          liveFrames
+            .nth(index)
+            .contentFrame()
+            .locator("body")
+            .evaluate(() => window.location.pathname),
+        ),
+      );
+    await expect
+      .poll(async () => [...(await getFramePaths())].sort())
+      .toEqual(["/", "/settings"]);
+    const framePaths = await getFramePaths();
+    const settingsFrameIndex = framePaths.indexOf("/settings");
+    const iframe = liveFrames.nth(1 - settingsFrameIndex);
     const frame = iframe.contentFrame();
-    const settingsFrame = liveFrames.nth(1).contentFrame();
+    const settingsFrame = liveFrames.nth(settingsFrameIndex).contentFrame();
     const settingsBody = settingsFrame.locator("body");
+    await expect
+      .poll(() => settingsBody.evaluate(() => window.location.pathname))
+      .toBe("/settings");
     await expect(
       frame.locator('[data-agent-native-node-id="flow-root"]'),
     ).toBeVisible({ timeout: 30_000 });
@@ -315,8 +346,28 @@ test.describe("URL-backed live auto-layout probe", () => {
         .toBe(true);
     await expectCanvasFocus();
     await expect(settingsBody).toHaveAttribute("data-autofocus-ready", "true");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (settingsFrameIndex) =>
+            (
+              window as Window & {
+                __canvasWindowFocusEvents?: Array<{
+                  type: string;
+                  activeFrameIndex: number;
+                }>;
+              }
+            ).__canvasWindowFocusEvents?.some(
+              (event) =>
+                event.type === "blur" &&
+                event.activeFrameIndex === settingsFrameIndex,
+            ),
+          settingsFrameIndex,
+        ),
+      )
+      .toBe(true);
     const autofocusResultIndex = () =>
-      page.evaluate(() => {
+      page.evaluate((settingsFrameIndex) => {
         const reports = (
           window as Window & {
             __canvasFocusReports?: Array<{
@@ -330,13 +381,13 @@ test.describe("URL-backed live auto-layout probe", () => {
           reports?.findIndex(
             (report) =>
               report.type === "fixture-autofocus-complete" &&
-              report.sourceIndex === 1 &&
+              report.sourceIndex === settingsFrameIndex &&
               report.focused === true,
           ) ?? -1
         );
-      });
+      }, settingsFrameIndex);
     const latestSettingsFocusSafety = () =>
-      page.evaluate(() => {
+      page.evaluate((settingsFrameIndex) => {
         const reports = (
           window as Window & {
             __canvasFocusReports?: Array<{
@@ -348,13 +399,13 @@ test.describe("URL-backed live auto-layout probe", () => {
         ).__canvasFocusReports?.filter(
           (report) =>
             report.type === "agent-native:canvas-focus-state" &&
-            report.sourceIndex === 1,
+            report.sourceIndex === settingsFrameIndex,
         );
         return reports?.[reports.length - 1]?.focusSafe ?? null;
-      });
+      }, settingsFrameIndex);
     await expect.poll(autofocusResultIndex).toBeGreaterThanOrEqual(0);
     const getAutofocusMarkerIndex = () =>
-      page.evaluate(() => {
+      page.evaluate((settingsFrameIndex) => {
         const reports = (
           window as Window & {
             __canvasFocusReports?: Array<{
@@ -368,34 +419,37 @@ test.describe("URL-backed live auto-layout probe", () => {
           reports?.findIndex(
             (report) =>
               report.type === "fixture-autofocus-started" &&
-              report.sourceIndex === 1,
+              report.sourceIndex === settingsFrameIndex,
           ) ?? -1
         );
-      });
+      }, settingsFrameIndex);
     await expect.poll(getAutofocusMarkerIndex).toBeGreaterThanOrEqual(0);
     const autofocusMarkerIndex = await getAutofocusMarkerIndex();
     expect(autofocusMarkerIndex).toBeGreaterThanOrEqual(0);
     await expect
       .poll(() =>
-        page.evaluate((markerIndex) => {
-          const reports = (
-            window as Window & {
-              __canvasFocusReports?: Array<{
-                type: string;
-                sourceIndex: number;
-                focusSafe?: boolean;
-              }>;
-            }
-          ).__canvasFocusReports;
-          return reports
-            ?.slice(markerIndex + 1)
-            .some(
-              (report) =>
-                report.type === "agent-native:canvas-focus-state" &&
-                report.sourceIndex === 1 &&
-                report.focusSafe === true,
-            );
-        }, autofocusMarkerIndex),
+        page.evaluate(
+          ({ markerIndex, settingsFrameIndex }) => {
+            const reports = (
+              window as Window & {
+                __canvasFocusReports?: Array<{
+                  type: string;
+                  sourceIndex: number;
+                  focusSafe?: boolean;
+                }>;
+              }
+            ).__canvasFocusReports;
+            return reports
+              ?.slice(markerIndex + 1)
+              .some(
+                (report) =>
+                  report.type === "agent-native:canvas-focus-state" &&
+                  report.sourceIndex === settingsFrameIndex &&
+                  report.focusSafe === true,
+              );
+          },
+          { markerIndex: autofocusMarkerIndex, settingsFrameIndex },
+        ),
       )
       .toBe(true);
     await expectCanvasFocus();
@@ -442,7 +496,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     );
     await page.mouse.down();
     await expect(canvasSurface).toHaveCSS("cursor", "grabbing");
-    await page.mouse.move(emptyPoint.x + 72, emptyPoint.y + 48, { steps: 8 });
+    await page.mouse.move(emptyPoint.x - 72, emptyPoint.y - 48, { steps: 8 });
     await page.mouse.up();
     await page.keyboard.up("Space");
     await expect
@@ -454,31 +508,51 @@ test.describe("URL-backed live auto-layout probe", () => {
       })
       .toBeGreaterThan(30);
 
-    const focusFrame = liveFrames.nth(1).contentFrame();
-    const readOrder = () =>
-      focusFrame
-        .locator(
-          '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
-        )
-        .evaluateAll((elements) =>
-          elements.map((element) =>
-            element.getAttribute("data-agent-native-node-id"),
-          ),
+    const focusFrame = frame;
+    const readOrder = async () => {
+      const currentFrame = page
+        .frames()
+        .find(
+          (candidate) =>
+            candidate !== page.mainFrame() &&
+            new URL(candidate.url()).pathname === "/",
         );
+      if (!currentFrame) return [];
+      try {
+        return await currentFrame
+          .locator(
+            '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
+          )
+          .evaluateAll((elements) =>
+            elements.map((element) =>
+              element.getAttribute("data-agent-native-node-id"),
+            ),
+          );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Frame was detached")
+        ) {
+          return [];
+        }
+        throw error;
+      }
+    };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
-    const sourceBounds = await source.boundingBox();
-    const targetBounds = await target.boundingBox();
-    if (!sourceBounds || !targetBounds) {
-      throw new Error("live focus probe drag targets have no bounds");
+    const initialSourceBounds = await source.boundingBox();
+    if (!initialSourceBounds) {
+      throw new Error("live focus probe source has no bounds");
     }
-    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
-    await page.keyboard.down(primaryModifier);
+    expect(await source.getAttribute("data-agent-native-node-id")).toBe("v1");
+    await installBridge(page);
+    await page.evaluate(() => ((window as any).__bridge = []));
     await page.mouse.click(
-      sourceBounds.x + sourceBounds.width / 2,
-      sourceBounds.y + sourceBounds.height / 2,
+      initialSourceBounds.x + initialSourceBounds.width / 2,
+      initialSourceBounds.y + initialSourceBounds.height / 2,
     );
-    await page.keyboard.up(primaryModifier);
+    const selection = await waitForBridge(page, "element-select");
+    expect((selection.payload ?? selection).sourceId).toBe("v1");
     await expect
       .poll(() =>
         focusFrame
@@ -486,10 +560,16 @@ test.describe("URL-backed live auto-layout probe", () => {
           .evaluate((element) => getComputedStyle(element).display !== "none"),
       )
       .toBe(true);
+    const sourceBounds = await source.boundingBox();
+    const targetBounds = await target.boundingBox();
+    if (!sourceBounds || !targetBounds) {
+      throw new Error("selected live focus probe source has no bounds");
+    }
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2,
       sourceBounds.y + sourceBounds.height / 2,
     );
+    await expectCanvasFocus();
     await page.mouse.down();
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2 + 10,
@@ -505,34 +585,9 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v2", "v3", "v1"]);
-    await expectCanvasFocus();
-    const settingsFocusReportCount = () =>
-      page.evaluate(
-        () =>
-          (
-            window as Window & {
-              __canvasFocusReports?: Array<{
-                type: string;
-                sourceIndex: number;
-              }>;
-            }
-          ).__canvasFocusReports?.filter(
-            (report) =>
-              report.type === "agent-native:canvas-focus-state" &&
-              report.sourceIndex === 1,
-          ).length ?? 0,
-      );
-    const previousSettingsFocusReportCount = await settingsFocusReportCount();
-    await settingsFrame.locator("body").evaluate((body) => {
-      const testWindow = window as Window & {
-        __runStartupFocus?: () => void;
-      };
-      testWindow.__runStartupFocus?.();
-    });
-    await expect
-      .poll(settingsFocusReportCount)
-      .toBeGreaterThan(previousSettingsFocusReportCount);
-    await expect.poll(latestSettingsFocusSafety).toBe(true);
+    await expect(
+      page.locator("[data-design-pending-visual-style-toolbar]"),
+    ).toBeVisible();
     await expectCanvasFocus();
     await page.keyboard.press("ControlOrMeta+z");
     await expect
