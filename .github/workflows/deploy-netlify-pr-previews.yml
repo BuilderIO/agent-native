@@ -116,14 +116,16 @@ jobs:
 
   deploy:
     name: ${{ needs.authorize.outputs.site }} PR preview
-    needs: [authorize, build]
-    if: needs.authorize.result == 'success' && needs.build.result == 'success'
+    needs: [authorize, build, revalidate]
+    if: >-
+      needs.authorize.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.revalidate.result == 'success'
     concurrency:
       group: netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}
       cancel-in-progress: false
     permissions:
       contents: read
-      pull-requests: read
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: preview
@@ -140,6 +142,45 @@ jobs:
       pull_request_number: ${{ fromJSON(needs.authorize.outputs.pull_request_number) }}
       preview_alias: pr-${{ needs.authorize.outputs.pull_request_number }}
     secrets: inherit
+
+  revalidate:
+    name: Revalidate selected PR before preview upload
+    needs: [authorize, build]
+    if: needs.authorize.result == 'success' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Confirm the authorized PR head is still current
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
+          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
+              throw new Error('Pull request number must be a positive integer.');
+            }
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequestNumber,
+            });
+            const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            if (
+              pullRequest.state !== 'open' ||
+              pullRequest.base.ref !== 'main' ||
+              pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
+              pullRequest.head.repo?.full_name?.toLowerCase() !== fullName ||
+              pullRequest.user?.type !== 'User' ||
+              !['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
+              pullRequest.head.sha !== process.env.SOURCE_REF
+            ) {
+              throw new Error('PR preview requires the current head of an open, internal PR targeting main.');
+            }
 
   deployment:
     name: ${{ needs.authorize.outputs.site }} PR preview deployment

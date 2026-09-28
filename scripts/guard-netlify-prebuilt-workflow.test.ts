@@ -188,6 +188,7 @@ describe("Netlify PR preview workflow guard", () => {
     );
     const previewJobs = preview.jobs as Record<string, Workflow>;
     const previewDeploy = previewJobs.deploy;
+    const previewRevalidate = previewJobs.revalidate;
     assert.equal(
       (previewDeploy.with as Workflow).checkout_ref,
       "${{ needs.authorize.outputs.checkout_ref }}",
@@ -219,10 +220,12 @@ describe("Netlify PR preview workflow guard", () => {
         "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
       "cancel-in-progress": false,
     });
-    assert.equal(
-      (previewDeploy.permissions as Workflow)["pull-requests"],
-      "read",
-    );
+    assert.deepEqual(previewDeploy.permissions, { contents: "read" });
+    assert.deepEqual(previewRevalidate.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.deepEqual(previewRevalidate.needs, ["authorize", "build"]);
     assert.deepEqual(
       ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
       previewEligibleSiteNames(),
@@ -336,6 +339,10 @@ describe("Netlify PR preview workflow guard", () => {
       ["cancel-in-progress: true", "cancel-in-progress: false"],
       ["          - fw", "          - unknown"],
       ["types: [closed]", "types: [opened]"],
+      [
+        "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",
+        "      pull-requests: write\n    steps:\n      - name: Confirm the authorized PR head is still current",
+      ],
     ]) {
       assert.notDeepEqual(mutate(needle, replacement), [], needle);
     }
@@ -353,26 +360,26 @@ describe("Reusable workflow permission guard", () => {
       validateReusablePreviewRecordPlacement(
         parse(
           reusableSource.replace(
-            "Revalidate the internal PR before preview upload",
-            "Skip the internal PR recheck",
+            "const requested = process.env.SOURCE_REF.trim();",
+            "await github.rest.pulls.get({});\n            const requested = process.env.SOURCE_REF.trim();",
           ),
         ) as Workflow,
       ).join("\n"),
-      /revalidate the current internal PR/,
+      /keep PR API reads in the caller/,
     );
     assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
         permissions: { contents: "read", issues: "write" },
       }).join("\n"),
-      /must declare only contents: read and pull-requests: read/,
+      /must declare only contents: read/,
     );
-    assert.match(
+    assert.deepEqual(
       validateReusableWorkflowPermissions({
         ...reusable,
         permissions: { contents: "read" },
-      }).join("\n"),
-      /pull-requests: read/,
+      }),
+      [],
     );
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",
