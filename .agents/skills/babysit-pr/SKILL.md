@@ -19,6 +19,13 @@ A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
 to the shared checkout or require that an agent publish from the root checkout.
 
+In a shared checkout, keep its branch unchanged. When the user explicitly asks
+to update this PR and the checkout cannot safely serve as its source, follow
+`new-branch` to isolate the PR work in a managed task-owned worktree without
+asking. Carry only changes belonging to this PR. If they cannot be isolated
+safely, preserve state and report the exact paths or commits without asking
+for branch or worktree permission.
+
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout

@@ -233,8 +233,19 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
   ],
   [false, "The worktree has a branch checked out."],
 ];
-const BRANCH_WORKTREE_ASK_RE =
-  /\b(?:stop|don['’]?t|do not|never|why (?:did|do|are|were)|again)\b[^.!?\n]{0,120}\bask(?:ing)?\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b/i;
+const BRANCH_SETUP_PROMPT_RE =
+  /\b(?:stop|don['’]?t|do not|no need to|never|why (?:did|do|are|were|was))\b[^.!?\n]{0,120}\b(?:ask\w*|prompt\w*|request\w*|confirmation|approval|permission)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b/i;
+const BRANCH_WORKTREE_ASK_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          BRANCH_SETUP_PROMPT_RE.test(sentence) &&
+          !WORKTREE_BRANCH_PERMISSION_RE.test(sentence),
+      );
+  },
+};
 const BRANCH_WORKTREE_ASK_REGEX_CASES = [
   [true, "Never ask me to create a new branch inside the worktree."],
   [
@@ -246,9 +257,42 @@ const BRANCH_WORKTREE_ASK_REGEX_CASES = [
     "Why did you ask for a task worktree before shipping from my checkout again?",
   ],
   [true, "Stop asking whether you can create a new branch."],
+  [true, "Stop prompting me before creating a task worktree."],
+  [true, "Don't request confirmation before creating the shipping branch."],
+  [
+    true,
+    "Why did you ask for permission to create a branch in the shared checkout?",
+  ],
+  [false, "Stop asking permission to create a branch in a task worktree."],
+  [false, "Again, ask me before moving to a task branch."],
   [false, "Ask before changing branches in the shared checkout."],
   [false, "Never create a new branch in the shared checkout."],
   [false, "Please create a task branch for this feature."],
+];
+const BRANCH_MOVEMENT_CANDIDATE_RE =
+  /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i;
+// A prompt correction does not prove that a branch moved.
+const BRANCH_MOVES_RE = {
+  test(text) {
+    return text
+      .split(/[.!?;\n]/)
+      .some(
+        (sentence) =>
+          !BRANCH_SETUP_PROMPT_RE.test(sentence) &&
+          BRANCH_MOVEMENT_CANDIDATE_RE.test(sentence),
+      );
+  },
+};
+const BRANCH_CLASSIFICATION_REGEX_CASES = [
+  [false, true, "Never ask me to create a new branch inside the worktree."],
+  [false, false, "Again, ask me before moving to a task branch."],
+  [
+    false,
+    false,
+    "Stop asking permission to create a branch in a task worktree.",
+  ],
+  [true, false, "Why did you create a new branch without asking?"],
+  [true, false, "Don't create a new branch in the shared checkout."],
 ];
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.
 const BABYSIT_LEASE_BLOCKS_WORK_RE = new RegExp(
@@ -1262,12 +1306,19 @@ if (process.argv.includes("--self-test")) {
         BRANCH_WORKTREE_ASK_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...BRANCH_CLASSIFICATION_REGEX_CASES.filter(
+      ([expectedMoves, expectedPrompt, message]) =>
+        BRANCH_MOVES_RE.test(message) !== expectedMoves ||
+        BRANCH_WORKTREE_ASK_RE.test(message) !== expectedPrompt,
+    ),
+  );
   if (failures.length > 0) {
     console.error("Feedback regex self-test failed:", failures);
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1304,7 +1355,7 @@ const PATTERNS = [
     key: "branch-moves",
     label: "Unrequested branch creation / movement",
     fixedBy: ".agents/skills/new-branch (activation guard, 2026-07-28)",
-    re: /\b(did you (make|create).*(new )?branch|don'?t (make|create).*branch|never.*(make|create).*branch|why.*new branch)\b/i,
+    re: BRANCH_MOVES_RE,
   },
   {
     // Added 2026-09-25 because `branch-moves` measures unwanted branch moves,
@@ -1318,10 +1369,9 @@ const PATTERNS = [
   },
   {
     key: "branch-worktree-ask",
-    label:
-      "Had to repeat that branch and worktree setup should not need a prompt",
+    label: "Had to correct branch or worktree setup prompts",
     fixedBy:
-      ".codex/AGENTS.md + .agents/skills/new-branch + ship (task isolation, 2026-09-28)",
+      "global AGENTS.md + AGENTS.md + new-branch + ship (shared-checkout isolation, 2026-09-28)",
     re: BRANCH_WORKTREE_ASK_RE,
   },
   {
