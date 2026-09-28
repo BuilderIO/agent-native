@@ -96,6 +96,7 @@ export interface AutomationRun {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  errorCode: string | null;
 }
 
 function recurringParams(scope: JobsScope) {

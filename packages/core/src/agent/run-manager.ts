@@ -854,6 +854,12 @@ export function startRun(
     }
     if (updated === false) {
       if (run.status !== "running") return;
+      const persistedStatus = await getRunStatus(runId);
+      if (run.status !== "running") return;
+      if (persistedStatus !== null && persistedStatus !== "running") {
+        abortInMemoryRun(run, "displaced");
+        return;
+      }
       recordProgressWriteFailure(
         new Error("Durable progress update affected no running run row"),
         "no-row",

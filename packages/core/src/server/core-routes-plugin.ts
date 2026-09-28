@@ -156,6 +156,7 @@ import {
 } from "./agent-run-context.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getSession, type AuthSession } from "./auth.js";
+import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -2555,6 +2556,10 @@ export function createCoreRoutesPlugin(
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
       mountUiActionCapabilityRoute(nitroApp, P);
+      getH3App(nitroApp).use(
+        `${P}/automations/email-unsubscribe`,
+        createAutomationFailureUnsubscribeHandler(),
+      );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
