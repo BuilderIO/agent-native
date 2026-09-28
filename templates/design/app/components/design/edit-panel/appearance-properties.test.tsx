@@ -109,3 +109,55 @@ describe("Appearance blend mode row", () => {
     expect(onStyleChange).toHaveBeenCalledWith("isolation", "auto");
   });
 });
+
+describe("Appearance corner radius on boxless text", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  async function render(cornerRadiusDisabled: boolean) {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AppearanceProperties
+            element={element({ borderRadius: "500px" })}
+            onStyleChange={vi.fn()}
+            hidden={false}
+            cornerRadiusDisabled={cornerRadiusDisabled}
+          />
+        </TooltipProvider>,
+      );
+    });
+  }
+
+  const radiusInput = () =>
+    container.querySelector<HTMLInputElement>(
+      'input[aria-label="Corner radius"]',
+    );
+  const cornersToggle = () =>
+    [...container.querySelectorAll("button")].find(
+      (button) => button.getAttribute("aria-label") === "Independent corners",
+    );
+
+  it("disables the radius field and corner toggle like Figma does for text", async () => {
+    await render(true);
+    expect(radiusInput()?.disabled).toBe(true);
+    expect(cornersToggle()?.disabled).toBe(true);
+  });
+
+  it("keeps the radius editable for layers with a box", async () => {
+    await render(false);
+    expect(radiusInput()?.disabled).toBe(false);
+    expect(cornersToggle()?.disabled).toBe(false);
+  });
+});
