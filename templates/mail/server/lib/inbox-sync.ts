@@ -72,6 +72,7 @@ type SyncStepResult = {
   status: InboxSyncAccountStatus;
   changed: boolean;
   retryAfterSeconds?: number;
+  restartedFullSync?: boolean;
 };
 
 export type SyncInboxAccountProgress = InboxSyncAccountStatus & {
@@ -666,7 +667,7 @@ async function runIncrementalSyncStep(
         fullSyncReconcilePendingIds: null,
         fullSyncReconcilePasses: 0,
       };
-      return runFullSyncStep(
+      const restarted = await runFullSyncStep(
         ownerEmail,
         accountEmail,
         accessToken,
@@ -675,6 +676,7 @@ async function runIncrementalSyncStep(
         connectedAccountEmails,
         onChanged,
       );
+      return { ...restarted, restartedFullSync: true };
     }
     throw err;
   }
@@ -924,12 +926,12 @@ export async function syncInboxAccount(
         },
       );
       if (
-        syncResult.status.state === "ready" &&
-        !syncResult.changed &&
-        !changed &&
-        row.fullSyncPageToken
+        !syncResult.restartedFullSync &&
+        row.fullSyncPageToken != null &&
+        Date.now() < deadline
       ) {
-        syncResult = await runFullSyncStep(
+        const incrementalResult = syncResult;
+        const backfillResult = await runFullSyncStep(
           ownerEmail,
           accountEmail,
           accessToken,
@@ -940,6 +942,17 @@ export async function syncInboxAccount(
             changed = true;
           },
         );
+        syncResult = {
+          ...backfillResult,
+          status: {
+            ...backfillResult.status,
+            state:
+              incrementalResult.status.state === "initial"
+                ? "initial"
+                : backfillResult.status.state,
+          },
+          changed: incrementalResult.changed || backfillResult.changed,
+        };
       }
     }
 

@@ -2219,6 +2219,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
     accessToken: string,
     accountEmail: string,
   ) => Promise<string[]>,
+  useThreadModifyForSmallTargets = false,
 ): Promise<GmailBatchModifyThreadsByAccountResult> {
   const byAccount = new Map<string, BatchModifyTarget[]>();
   for (const target of targets) {
@@ -2238,6 +2239,15 @@ async function gmailBatchModifyThreadsByAccountInternal(
   let threadLookupsUsed = 0;
   let threadModifiesUsed = 0;
   let retryAfterSeconds: number | undefined;
+  const targetThreadCount = new Set(
+    targets.map(
+      (target) =>
+        `${target.accountEmail?.toLowerCase() ?? ""}:${target.threadId ?? target.id}`,
+    ),
+  ).size;
+  const useThreadModifyForSmallSelection =
+    useThreadModifyForSmallTargets &&
+    targetThreadCount <= GMAIL_ARCHIVE_MAX_THREAD_MODIFIES;
 
   for (const [
     accountIndex,
@@ -2308,7 +2318,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
       target: BatchModifyTarget;
       messageIds: string[];
     }> = [];
-    const unknownTargets: Array<{
+    const threadModifyTargets: Array<{
       target: BatchModifyTarget;
       threadId: string;
     }> = [];
@@ -2361,6 +2371,11 @@ async function gmailBatchModifyThreadsByAccountInternal(
       }
       threadIdsByTarget[target.id] = threadId;
 
+      if (useThreadModifyForSmallSelection) {
+        threadModifyTargets.push({ target, threadId });
+        continue;
+      }
+
       const cachedMessageIds = cachedByThreadId.get(threadId);
       const messageIds = cachedMessageIds
         ?.filter((id): id is string => typeof id === "string" && id.length > 0)
@@ -2368,7 +2383,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
       if (messageIds?.length && messageIds.includes(target.id)) {
         knownTargets.push({ target, messageIds });
       } else {
-        unknownTargets.push({ target, threadId });
+        threadModifyTargets.push({ target, threadId });
       }
     }
 
@@ -2411,7 +2426,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
       }
 
       if (result.remaining.length > 0) {
-        remaining.push(...unknownTargets.map(({ target }) => target.id));
+        remaining.push(...threadModifyTargets.map(({ target }) => target.id));
         remaining.push(
           ...accountEntries
             .slice(accountIndex + 1)
@@ -2424,22 +2439,22 @@ async function gmailBatchModifyThreadsByAccountInternal(
       }
     }
 
-    const unknownTargetsByThread = new Map<string, BatchModifyTarget[]>();
-    for (const { target, threadId } of unknownTargets) {
-      const threadTargets = unknownTargetsByThread.get(threadId) ?? [];
+    const targetsByThread = new Map<string, BatchModifyTarget[]>();
+    for (const { target, threadId } of threadModifyTargets) {
+      const threadTargets = targetsByThread.get(threadId) ?? [];
       threadTargets.push(target);
-      unknownTargetsByThread.set(threadId, threadTargets);
+      targetsByThread.set(threadId, threadTargets);
     }
-    const unknownThreadEntries = [...unknownTargetsByThread.entries()];
+    const threadEntries = [...targetsByThread.entries()];
     let unknownWorkDeferred = false;
     for (const [
-      unknownIndex,
+      threadIndex,
       [threadId, targetsForThread],
-    ] of unknownThreadEntries.entries()) {
+    ] of threadEntries.entries()) {
       if (threadModifiesUsed >= GMAIL_ARCHIVE_MAX_THREAD_MODIFIES) {
         remaining.push(
-          ...unknownThreadEntries
-            .slice(unknownIndex)
+          ...threadEntries
+            .slice(threadIndex)
             .flatMap(([, threadTargets]) =>
               threadTargets.map((target) => target.id),
             ),
@@ -2466,8 +2481,8 @@ async function gmailBatchModifyThreadsByAccountInternal(
       } catch (error: any) {
         if (error instanceof GmailQuotaCooldownError) {
           remaining.push(
-            ...unknownThreadEntries
-              .slice(unknownIndex)
+            ...threadEntries
+              .slice(threadIndex)
               .flatMap(([, threadTargets]) =>
                 threadTargets.map((target) => target.id),
               ),
@@ -2533,6 +2548,7 @@ export function gmailBatchArchiveByAccount(
         : { labels: [] };
       return getArchiveLabelIds(labels, removeLabel);
     },
+    true,
   );
 }
 

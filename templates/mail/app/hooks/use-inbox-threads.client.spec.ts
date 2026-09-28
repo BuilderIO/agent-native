@@ -5,14 +5,17 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { act, createElement, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { callAction, callActionWithRetry } = vi.hoisted(() => ({
-  callAction: vi.fn(),
-  callActionWithRetry: vi.fn(),
-}));
+const { callActionWithRetry, mutateSyncAction, useActionMutation } = vi.hoisted(
+  () => ({
+    callActionWithRetry: vi.fn(),
+    mutateSyncAction: vi.fn(),
+    useActionMutation: vi.fn(() => ({ mutateAsync: mutateSyncAction })),
+  }),
+);
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  callAction,
   callActionWithRetry,
+  useActionMutation,
 }));
 
 import type {
@@ -25,8 +28,9 @@ import { useInboxSyncPoller, useInboxThreads } from "./use-inbox-threads";
 
 afterEach(() => {
   cleanup();
-  callAction.mockReset();
   callActionWithRetry.mockReset();
+  mutateSyncAction.mockReset();
+  useActionMutation.mockClear();
 });
 
 function thread(id: string, threadId: string): InboxThreadItem {
@@ -191,7 +195,7 @@ describe("useInboxThreads tab previews", () => {
       requestOrder.push("list");
       return response();
     });
-    callAction.mockImplementationOnce(async () => {
+    mutateSyncAction.mockImplementationOnce(async () => {
       requestOrder.push("sync");
       return {
         accounts: [
@@ -207,7 +211,7 @@ describe("useInboxThreads tab previews", () => {
         ],
       };
     });
-    callAction.mockImplementationOnce(async () => {
+    mutateSyncAction.mockImplementationOnce(async () => {
       requestOrder.push("sync");
       return {
         accounts: [
@@ -241,13 +245,64 @@ describe("useInboxThreads tab previews", () => {
       wrapper,
     });
 
-    await waitFor(() => expect(callAction).toHaveBeenCalledTimes(2));
-    expect(callAction).toHaveBeenCalledWith(
-      "sync-inbox",
-      { accountEmails: ["first@example.com"] },
-      expect.objectContaining({ method: "POST" }),
-    );
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(2));
+    expect(useActionMutation).toHaveBeenCalledWith("sync-inbox", {
+      method: "POST",
+      skipActionQueryInvalidation: true,
+    });
+    expect(mutateSyncAction).toHaveBeenCalledWith({
+      accountEmails: ["first@example.com"],
+    });
     expect(requestOrder).toEqual(["list", "sync", "list", "sync"]);
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+
+  it("keeps an unchanged sync result idle until its next interval", async () => {
+    callActionWithRetry.mockResolvedValue(response());
+    mutateSyncAction.mockResolvedValue({
+      accounts: [
+        {
+          accountEmail: "first@example.com",
+          state: "ready",
+          lastSyncedAt: Date.now(),
+          changed: false,
+          pushGeneration: 4,
+          lastPushGeneration: 4,
+          pushPending: false,
+        },
+      ],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+    await waitFor(() => expect(mutateSyncAction).toHaveBeenCalledTimes(1));
+    const listCalls = callActionWithRetry.mock.calls.length;
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(mutateSyncAction).toHaveBeenCalledTimes(1);
+    expect(callActionWithRetry).toHaveBeenCalledTimes(listCalls);
+    expect(useActionMutation).toHaveBeenCalledWith("sync-inbox", {
+      method: "POST",
+      skipActionQueryInvalidation: true,
+    });
 
     syncHook.unmount();
     listHook.unmount();

@@ -1970,12 +1970,21 @@ describe("gmailBatchArchiveByAccount", () => {
     ] as any);
   });
 
-  it("removes INBOX from every cached message in a selected thread", async () => {
+  it("batches cached message IDs for larger selections", async () => {
+    const otherTargets = Array.from({ length: 25 }, (_, index) => ({
+      id: `other-message-${index}`,
+      threadId: `other-thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
     setCachedThreads([
       {
         threadId: "thread-1",
         messageIds: ["message-1", "message-2", "message-3"],
       },
+      ...otherTargets.map(({ id, threadId }) => ({
+        threadId,
+        messageIds: [id],
+      })),
     ]);
 
     const result = await gmailBatchArchiveByAccount(OWNER, [
@@ -1984,19 +1993,25 @@ describe("gmailBatchArchiveByAccount", () => {
         threadId: "thread-1",
         accountEmail: ACCOUNT,
       },
+      ...otherTargets,
     ]);
 
     expect(result).toMatchObject({
-      succeeded: ["message-3"],
       failed: [],
       remaining: [],
       threadIdsByTarget: { "message-3": "thread-1" },
       removeLabelIdsByAccount: { [ACCOUNT]: ["INBOX"] },
     });
+    expect(result.succeeded).toHaveLength(26);
     expect(googleFetch).toHaveBeenCalledTimes(1);
     const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
     expect(JSON.parse(body)).toEqual({
-      ids: ["message-1", "message-2", "message-3"],
+      ids: [
+        "message-1",
+        "message-2",
+        "message-3",
+        ...otherTargets.map(({ id }) => id),
+      ],
       removeLabelIds: ["INBOX"],
     });
     expect(gmailModifyThread).not.toHaveBeenCalled();
@@ -2008,6 +2023,53 @@ describe("gmailBatchArchiveByAccount", () => {
       schema.mailInboxThreads,
     );
     expect(archiveCacheMocks.where).toHaveBeenCalledTimes(1);
+  });
+
+  it("archives Gmail-only newer messages through threads.modify for small selections", async () => {
+    setCachedThreads([
+      {
+        threadId: "thread-1",
+        messageIds: ["message-1", "message-2", "message-3"],
+      },
+    ]);
+    const liveThreadMessages = new Map(
+      ["message-1", "message-2", "message-3", "message-4"].map((id) => [
+        id,
+        new Set(["INBOX"]),
+      ]),
+    );
+    vi.mocked(gmailModifyThread).mockImplementation(
+      async (_accessToken, threadId, _addLabelIds, removeLabelIds) => {
+        expect(threadId).toBe("thread-1");
+        for (const labels of liveThreadMessages.values()) {
+          for (const labelId of removeLabelIds ?? []) labels.delete(labelId);
+        }
+        return {} as any;
+      },
+    );
+
+    const result = await gmailBatchArchiveByAccount(OWNER, [
+      {
+        id: "message-3",
+        threadId: "thread-1",
+        accountEmail: ACCOUNT,
+      },
+    ]);
+
+    expect(result.succeeded).toEqual(["message-3"]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual([]);
+    expect(
+      [...liveThreadMessages.values()].every((labels) => !labels.has("INBOX")),
+    ).toBe(true);
+    expect(gmailModifyThread).toHaveBeenCalledOnce();
+    expect(gmailModifyThread).toHaveBeenCalledWith(
+      "archive-token",
+      "thread-1",
+      undefined,
+      ["INBOX"],
+    );
+    expect(googleFetch).not.toHaveBeenCalled();
   });
 
   it("uses threads.modify when a selected thread has no cached message IDs", async () => {
@@ -2031,8 +2093,17 @@ describe("gmailBatchArchiveByAccount", () => {
   });
 
   it("batches INBOX and a resolved removeLabel ID together", async () => {
+    const otherTargets = Array.from({ length: 25 }, (_, index) => ({
+      id: `other-message-${index}`,
+      threadId: `other-thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
     setCachedThreads([
       { threadId: "thread-1", messageIds: ["message-1", "message-2"] },
+      ...otherTargets.map(({ id, threadId }) => ({
+        threadId,
+        messageIds: [id],
+      })),
     ]);
     vi.mocked(gmailListLabels).mockResolvedValue({
       labels: [{ id: "Label_projects", name: "Projects" }],
@@ -2046,6 +2117,7 @@ describe("gmailBatchArchiveByAccount", () => {
           threadId: "thread-1",
           accountEmail: ACCOUNT,
         },
+        ...otherTargets,
       ],
       "Projects",
     );
@@ -2056,7 +2128,7 @@ describe("gmailBatchArchiveByAccount", () => {
     ]);
     const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
     expect(JSON.parse(body)).toEqual({
-      ids: ["message-1", "message-2"],
+      ids: ["message-1", "message-2", ...otherTargets.map(({ id }) => id)],
       removeLabelIds: ["INBOX", "Label_projects"],
     });
     expect(gmailModifyThread).not.toHaveBeenCalled();

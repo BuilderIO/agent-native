@@ -419,6 +419,7 @@ function DbSyncSetup() {
     queryClient: qc,
     queryKeys: [],
     actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
+    suppressActionInvalidationFor: ["sync-inbox"],
     ignoreSource: TAB_ID,
     onEvent,
   });

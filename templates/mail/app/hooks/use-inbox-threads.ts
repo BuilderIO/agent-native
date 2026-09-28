@@ -1,6 +1,6 @@
 import {
-  callAction,
   callActionWithRetry,
+  useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { agentNativeApiDisabledReason } from "@agent-native/core/client/host";
 import type {
@@ -20,7 +20,7 @@ import {
 } from "@tanstack/react-query";
 
 export const INBOX_THREADS_QUERY_KEY = ["action", "list-inbox-threads"];
-export const INBOX_SYNC_QUERY_KEY = ["action", "sync-inbox"];
+export const INBOX_SYNC_QUERY_KEY = ["mail-inbox-sync"];
 
 export type InboxSyncAccountProgress = InboxSyncAccountStatus & {
   backfillPending?: boolean;
@@ -97,8 +97,7 @@ export function inboxOverviewQueryKey(accountEmails?: readonly string[]) {
 
 export function inboxSyncQueryKey(accountEmails?: readonly string[]) {
   return [
-    "action",
-    "sync-inbox",
+    ...INBOX_SYNC_QUERY_KEY,
     accountEmails ? { accountEmails } : {},
   ] as const;
 }
@@ -367,10 +366,18 @@ export function useInboxSyncPoller(
   opts?: { enabled?: boolean },
 ) {
   const qc = useQueryClient();
+  const syncMutation = useActionMutation<
+    InboxSyncResult,
+    { accountEmails?: string[] },
+    "sync-inbox"
+  >("sync-inbox", {
+    method: "POST",
+    skipActionQueryInvalidation: true,
+  });
 
   return useQuery<InboxSyncResult>({
     queryKey: inboxSyncQueryKey(accountEmails),
-    queryFn: async ({ signal, queryKey }) => {
+    queryFn: async ({ queryKey }) => {
       const previous = qc.getQueryData<InboxSyncResult>(queryKey);
       const now = Date.now();
       const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
@@ -407,10 +414,7 @@ export function useInboxSyncPoller(
           ? [...accountEmails]
           : undefined;
       const request = requestedEmails ? { accountEmails: requestedEmails } : {};
-      const result = await callAction<InboxSyncResult>("sync-inbox", request, {
-        method: "POST",
-        signal,
-      });
+      const result = await syncMutation.mutateAsync(request);
       const receivedAt = Date.now();
       const returnedByEmail = new Set(
         result.accounts.map((account) => account.accountEmail.toLowerCase()),

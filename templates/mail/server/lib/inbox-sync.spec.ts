@@ -64,6 +64,10 @@ vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
 }));
 
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnectionsForApp: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("./mail-settings.js", () => ({
   readSettings: mocks.readSettings,
 }));
@@ -700,16 +704,8 @@ describe("syncInboxAccount — full sync", () => {
         afterEager.tabs.find((tab) => tab.id === "__inbox_all__"),
       ).toMatchObject({ total: 74, totalIsLowerBound: true });
 
-      const labelRefresh = await syncInbox(OWNER, { budgetMs: 1_800 });
-      expect(labelRefresh.accounts[0]).toMatchObject({
-        state: "ready",
-        changed: true,
-        backfillPending: true,
-      });
-      expect(mocks.gmailListThreads).toHaveBeenCalledTimes(2);
-
-      const backfillStep = await syncInbox(OWNER, { budgetMs: 1_800 });
-      expect(backfillStep.accounts[0]).toMatchObject({
+      const firstBackfillStep = await syncInbox(OWNER, { budgetMs: 1_800 });
+      expect(firstBackfillStep.accounts[0]).toMatchObject({
         state: "ready",
         changed: true,
         backfillPending: true,
@@ -718,6 +714,19 @@ describe("syncInboxAccount — full sync", () => {
         3,
         "tok",
         expect.objectContaining({ maxResults: 45, pageToken: "74" }),
+        "backfill",
+      );
+
+      const backfillStep = await syncInbox(OWNER, { budgetMs: 1_800 });
+      expect(backfillStep.accounts[0]).toMatchObject({
+        state: "ready",
+        changed: true,
+        backfillPending: true,
+      });
+      expect(mocks.gmailListThreads).toHaveBeenNthCalledWith(
+        4,
+        "tok",
+        expect.objectContaining({ maxResults: 45, pageToken: "119" }),
         "backfill",
       );
       const afterBackfill = await listInboxAction.run(
@@ -737,6 +746,75 @@ describe("syncInboxAccount — full sync", () => {
 });
 
 describe("syncInboxAccount — incremental sync", () => {
+  it("advances one backfill page when every incremental step has new mail", async () => {
+    currentRow = baseRow({
+      historyId: "1000",
+      fullSyncPageToken: "page-1",
+      fullSyncHistoryId: "9000",
+      fullSyncStartedAt: 123,
+    });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1001",
+            messagesAdded: [{ message: { id: "new-1-m1", threadId: "new-1" } }],
+          },
+        ],
+        nextPageToken: "history-page-2",
+        historyId: "1002",
+      })
+      .mockResolvedValueOnce({
+        history: [
+          {
+            id: "1003",
+            messagesAdded: [{ message: { id: "new-2-m1", threadId: "new-2" } }],
+          },
+        ],
+        nextPageToken: "history-page-3",
+        historyId: "1004",
+      });
+    mocks.gmailListThreads
+      .mockResolvedValueOnce({
+        threads: [{ id: "old-1" }],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        threads: [{ id: "old-2" }],
+        nextPageToken: "page-3",
+      });
+    for (const id of ["new-1", "old-1", "new-2", "old-2"]) {
+      mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+        {
+          id,
+          data: thread(id, { from: "a@ex.com", labelIds: ["INBOX"] }),
+        },
+      ]);
+    }
+
+    const first = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(first).toMatchObject({
+      state: "initial",
+      changed: true,
+      backfillPending: true,
+    });
+    expect(second).toMatchObject({
+      state: "initial",
+      changed: true,
+      backfillPending: true,
+    });
+    expect(mocks.gmailListThreads.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ pageToken: "page-1", maxResults: 45 }),
+      expect.objectContaining({ pageToken: "page-2", maxResults: 45 }),
+    ]);
+    expect(
+      mocks.gmailBatchGetThreads.mock.calls.map((call) => call[4]),
+    ).toEqual(["incremental", "backfill", "incremental", "backfill"]);
+    expect(currentRow.fullSyncPageToken).toBe("page-3");
+  });
+
   it("flips in_inbox to 0 when history reports a removed INBOX label", async () => {
     currentRow = baseRow({ historyId: "1000" });
     mocks.gmailListHistory.mockResolvedValue({
@@ -927,7 +1005,12 @@ describe("syncInboxAccount — incremental sync", () => {
   });
 
   it("recovers from a 404 on history.list with a fresh full sync", async () => {
-    currentRow = baseRow({ historyId: "stale-1" });
+    currentRow = baseRow({
+      historyId: "stale-1",
+      fullSyncPageToken: "old-page",
+      fullSyncHistoryId: "old-history",
+      fullSyncStartedAt: 123,
+    });
     mocks.gmailListHistory.mockRejectedValue(
       new Error("Google API error (404): Requested entity was not found."),
     );
@@ -947,6 +1030,12 @@ describe("syncInboxAccount — incremental sync", () => {
       },
     );
     expect(result.state).toBe("ready");
+    expect(mocks.gmailListThreads).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailListThreads).toHaveBeenCalledWith(
+      "tok",
+      expect.objectContaining({ maxResults: 50, pageToken: undefined }),
+      "incremental",
+    );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,

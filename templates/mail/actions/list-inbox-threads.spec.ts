@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   listOAuthAccountsByOwner: vi.fn(),
+  listWorkspaceConnectionsForApp: vi.fn(),
   readSettings: vi.fn(),
   readInboxThreads: vi.fn(),
   readCachedLabels: vi.fn(),
@@ -23,6 +24,10 @@ vi.mock("@agent-native/core/settings", () => ({
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   listOAuthAccountsByOwner: mocks.listOAuthAccountsByOwner,
+}));
+
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  listWorkspaceConnectionsForApp: mocks.listWorkspaceConnectionsForApp,
 }));
 
 vi.mock("../server/lib/google-auth.js", () => {
@@ -104,6 +109,7 @@ beforeEach(() => {
       tokens: { scope: "https://www.googleapis.com/auth/gmail.modify" },
     },
   ]);
+  mocks.listWorkspaceConnectionsForApp.mockResolvedValue([]);
   mocks.readSyncAccounts.mockResolvedValue([
     {
       accountEmail: OWNER,
@@ -466,6 +472,32 @@ describe("list-inbox-threads action — local mode (no connected Google account)
     expect(mocks.readInboxThreads).not.toHaveBeenCalled();
   });
 
+  it("ignores a stale sync row when no current OAuth or managed grant exists", async () => {
+    mocks.readSyncAccounts.mockResolvedValue([
+      {
+        accountEmail: "disconnected@example.com",
+        status: "idle",
+        historyId: "100",
+        fullSyncPageToken: null,
+        lastPushGeneration: 0,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        labels: null,
+      },
+    ]);
+    mocks.readLocalEmails.mockResolvedValue([localEmail()]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(mocks.readInboxThreads).not.toHaveBeenCalled();
+    expect(mocks.readLocalEmails).toHaveBeenCalledWith(OWNER);
+    expect(result.accounts).toEqual([]);
+    expect(result.items).toHaveLength(1);
+  });
+
   it("groups local messages into one thread item with unified counts and reports no accounts/syncing", async () => {
     mocks.readLocalEmails.mockResolvedValue([
       localEmail({
@@ -582,35 +614,32 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 });
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
-  it("uses the synced-store path for a previously synchronized managed account", async () => {
+  it("discovers a connected managed account before its first sync row exists", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.readSyncAccounts.mockResolvedValue([
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValue([
       {
-        accountEmail: "managed@example.com",
-        status: "idle",
-        historyId: "100",
-        fullSyncPageToken: null,
-        lastPushGeneration: 0,
-        lastSyncedAt: Date.now(),
-        lastError: null,
-        labels: null,
+        accountId: "managed@example.com",
+        status: "connected",
       },
     ]);
-    mocks.readInboxThreads.mockResolvedValue([
-      row({
-        threadId: "t1",
-        latestMessageId: "m1",
-        accountEmail: "managed@example.com",
-      }),
-    ]);
+    mocks.readSyncAccounts.mockResolvedValue([]);
 
     const result = await action.run(
       { limit: 50, offset: 0 } as any,
       undefined as any,
     );
 
-    expect(mocks.readInboxThreads).toHaveBeenCalled();
+    expect(mocks.listWorkspaceConnectionsForApp).toHaveBeenCalledWith({
+      appId: "mail",
+      provider: "gmail",
+    });
+    expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
+      accountEmails: ["managed@example.com"],
+    });
     expect(mocks.readLocalEmails).not.toHaveBeenCalled();
-    expect(result.items).toHaveLength(1);
+    expect(result.accounts).toMatchObject([
+      { accountEmail: "managed@example.com", state: "initial" },
+    ]);
+    expect(result.syncing).toBe(true);
   });
 });

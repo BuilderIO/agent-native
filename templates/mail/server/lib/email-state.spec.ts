@@ -49,6 +49,7 @@ vi.mock("./google-api.js", () => ({
   gmailGetMessage: vi.fn(),
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
+  registerGmailAccountToken: vi.fn(),
   gmailTrashThread: vi.fn(),
   gmailUntrashThread: vi.fn(),
 }));
