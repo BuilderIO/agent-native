@@ -252,6 +252,7 @@ function AgentSidebarPanelSkeleton() {
 export interface AgentSidebarProps {
   children: React.ReactNode;
   enabled?: boolean;
+  disableScreenRefresh?: boolean;
   emptyStateText?: string;
   suggestions?: AssistantChatProps["suggestions"];
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
@@ -325,6 +326,7 @@ interface HostedHarnessStatus {
 export function AgentSidebar({
   children,
   enabled = true,
+  disableScreenRefresh = false,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -1295,7 +1297,11 @@ export function AgentSidebar({
           {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          {disableScreenRefresh ? (
+            children
+          ) : (
+            <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          )}
         </div>
         {!isLeft && !presentationMode ? drawerPlaceholder : null}
         {!isLeft && !presentationMode ? sidebar : null}

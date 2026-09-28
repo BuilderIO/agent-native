@@ -18,7 +18,7 @@ vi.mock("./agent-chat.js", () => ({}));
 vi.mock("./mcp-app-host.js", () => ({}));
 vi.mock("./agent-sidebar-url-sync.js", () => ({
   ScreenRefreshBoundary: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+    <div data-testid="screen-refresh-boundary">{children}</div>
   ),
   SettingsReturnPathRecorder: () => null,
   URLSync: () => <div data-testid="agent-sidebar-url-sync" />,
@@ -85,6 +85,7 @@ function renderSidebar(
   defaultOpen: boolean,
   position?: "left" | "right",
   disableChatShortcut = false,
+  disableScreenRefresh = false,
 ) {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -95,6 +96,7 @@ function renderSidebar(
         <AgentSidebar
           defaultOpen={defaultOpen}
           disableChatShortcut={disableChatShortcut}
+          disableScreenRefresh={disableScreenRefresh}
           position={position}
         >
           <div data-testid="app-content">App content</div>
@@ -124,6 +126,17 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
+  it("skips screen refresh subscription when disabled", () => {
+    renderSidebar(false, undefined, false, true);
+
+    expect(
+      container?.querySelector("[data-testid='app-content']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-testid='screen-refresh-boundary']"),
+    ).toBeNull();
+  });
+
   it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
