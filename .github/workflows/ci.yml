@@ -46,7 +46,7 @@ jobs:
           node-version: "22"
 
       - name: Test change scope classifier
-        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
+        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
 
       - name: Test fast-test lane planner
         run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
@@ -576,18 +576,13 @@ jobs:
 
       - name: Build all packages
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm build
+        run: node --experimental-strip-types scripts/ci-build-workspaces.ts --full
 
       - name: Build affected workspaces
         if: needs.change-scope.outputs.build == 'true' && needs.change-scope.outputs.full != 'true'
         env:
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
-        run: |
-          filters=()
-          while IFS= read -r filter; do
-            filters+=(--filter "$filter")
-          done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
-          pnpm -r --no-bail --if-present "${filters[@]}" run build
+        run: node --experimental-strip-types scripts/ci-build-workspaces.ts
 
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
