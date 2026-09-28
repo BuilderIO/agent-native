@@ -222,6 +222,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-label")).toBe("Loading account");
     expect(button.className).toContain("animate-pulse");
+    expect(button.className).toContain("flex-1");
     expect(button.querySelector(".rounded-full")).not.toBeNull();
   });
 
@@ -232,6 +233,7 @@ describe("OrgSwitcher (account menu)", () => {
 
     const button = trigger();
     expect(button.className).toContain("justify-center");
+    expect(button.className).not.toContain("flex-1");
     expect(button.querySelector("span")?.className).toContain("rounded-full");
   });
 
@@ -242,6 +244,7 @@ describe("OrgSwitcher (account menu)", () => {
 
     const button = trigger();
     expect(button.getAttribute("aria-label")).toBe("Olivia Owner, Acme");
+    expect(button.parentElement?.className).toContain("flex-1");
     expect(button.textContent).toContain("OO");
     expect(button.textContent).toContain("Olivia Owner");
     expect(button.textContent).toContain("Acme");
@@ -303,6 +306,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.getAttribute("aria-label")).toBe(
       "Brent Locks, Brent's workspace",
     );
+    expect(button.parentElement?.className).not.toContain("flex-1");
     expect(button.textContent).toBe("BL");
     expect(button.getAttribute("title")).toBeNull();
     // The tooltip and the menu both target this one button. Anything
@@ -322,6 +326,25 @@ describe("OrgSwitcher (account menu)", () => {
     expect(menuItemLabels().some((label) => label.includes("Builder.io"))).toBe(
       true,
     );
+  });
+
+  it("lets expanded reserved space fill the sidebar row", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        email: null,
+        orgs: [],
+        domainMatches: [],
+        pendingInvitations: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher reserveSpace />);
+    expect(container.firstElementChild?.className).toContain("flex-1");
+
+    render(<OrgSwitcher reserveSpace compact />);
+    expect(container.firstElementChild?.className).not.toContain("flex-1");
   });
 
   it.each(["owner", "member"])(
