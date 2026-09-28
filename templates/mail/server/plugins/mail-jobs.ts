@@ -7,7 +7,7 @@ import {
   startIntervalJob,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
