@@ -50,6 +50,7 @@ vi.mock("../mcp-client/index.js", async (importOriginal) => {
     await importOriginal<typeof import("../mcp-client/index.js")>();
   return {
     ...actual,
+    buildMergedConfig: vi.fn(async () => null),
     startMcpConfigRefresh: () => {
       const markDirty = () => {};
       const emitter = lifecycle.settingsEmitter!;
