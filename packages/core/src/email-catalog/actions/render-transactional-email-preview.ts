@@ -17,7 +17,7 @@ export default defineAction({
   authorize: ({ id }) => authorizeTransactionalEmailRead([id]),
   run: async ({ id }) => {
     registerCoreSystemEmails();
-    const rendered = renderTransactionalEmailPreview(id);
+    const rendered = await renderTransactionalEmailPreview(id);
     return {
       id,
       subject: rendered.subject,

@@ -33,6 +33,11 @@ export interface RenderEmailArgs {
   brandColor?: string;
 }
 
+export interface EmailTemplateApp {
+  name: string;
+  logoUrl?: string;
+}
+
 export interface RenderedEmail {
   html: string;
   text: string;
@@ -46,6 +51,8 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+export const escapeEmailHtml = escapeHtml;
 
 function escapeAttr(s: string): string {
   return escapeHtml(s);
@@ -243,6 +250,19 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   }
 
   return { html, text: textLines.join("\n").trim() };
+}
+
+export function emailHtmlToText(html: string): string {
+  return stripTags(
+    html
+      .replace(/<(head|style|script|title)\b[^>]*>[\s\S]*?<\/\1>/gi, "")
+      .replace(/<\/(p|div|h[1-6]|tr|li|table)>/gi, "\n\n")
+      .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)"),
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function stripTags(s: string): string {

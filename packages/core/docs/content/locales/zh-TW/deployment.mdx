@@ -38,6 +38,45 @@ Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑�
 
 如果需要魔術連結、電子郵件驗證、密碼重設、邀請或分享通知，請在部署前連接 Resend 或 SendGrid。在部署環境設定 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 也需要 `EMAIL_FROM`。如需了解驗證模式，請參閱[驗證](/docs/authentication)。
 
+### 自訂框架郵件 {#email-templates}
+
+框架寄出的每封郵件都有預設範本。若要使用自己的設計，請在伺服器外掛中註冊 override。收件人、寄件人與投遞仍由框架負責；郵件內容與外觀由你的 override 決定。
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| 郵件 ID | Props |
+| --- | --- |
+| `core.verify-signup` | `email`, `verifyUrl` |
+| `core.reset-password` | `email`, `resetUrl` |
+| `core.magic-link` | `email`, `magicLinkUrl` |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
+| `core.change-email-verification` | `email`, `verifyUrl` |
+| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
+| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
+| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+每個 override 也會收到 `app`（`name`、`logoUrl`）。第二個參數是預設的渲染結果，方便重用其主旨或文字。
+
+- Props 是未跳脫的原始值。放入 HTML 字串前，請用 `escapeEmailHtml` 跳脫。
+- 回傳帶有 React 元素的 `react`（而非 `html`）即可渲染元件。React 會自動跳脫 props。
+- 省略 `subject` 會保留預設主旨。省略 `text` 會從你的 HTML 產生純文字內容。
+- 如果 override 擲出錯誤，寄送就會失敗。框架不會退回預設設計。交易郵件預覽會渲染你的 override，請在那裡檢查。
+
 ## 支援的部署目標
 
 Agent-Native 支援 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。

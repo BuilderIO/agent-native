@@ -10,7 +10,7 @@ export interface TransactionalEmailDefinition {
   recipientLabel: string;
   sender: string;
   senderLabel: string;
-  preview: () => RenderedEmailMessage;
+  preview: () => RenderedEmailMessage | Promise<RenderedEmailMessage>;
 }
 
 export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
@@ -162,15 +162,27 @@ export function getTransactionalEmail(
   return registry.get(id);
 }
 
-export function renderTransactionalEmailPreview(
+export async function renderTransactionalEmailPreview(
   id: string,
-): RenderedEmailMessage {
+): Promise<RenderedEmailMessage> {
   const definition = registry.get(id);
   if (!definition) {
     throw new Error(`Unknown transactional email "${id}".`);
   }
   return definition.preview();
 }
+
+export {
+  CORE_RESOURCE_SHARED_EMAIL_ID,
+  overrideTransactionalEmail,
+  removeTransactionalEmailOverride,
+  type CoreTransactionalEmailArgs,
+  type CoreTransactionalEmailId,
+  type CoreTransactionalEmailProps,
+  type TransactionalEmailOverride,
+  type TransactionalEmailOverrideResult,
+} from "./templates.js";
+export { escapeEmailHtml } from "../server/email-template.js";
 
 export function resetTransactionalEmailRegistry(): void {
   registry.clear();

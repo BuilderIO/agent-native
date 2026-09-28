@@ -38,6 +38,45 @@ Un proveedor de correo no es necesario para la autenticación con correo y contr
 
 Conecta Resend o SendGrid antes del despliegue si quieres enlaces mágicos, verificación del correo, restablecimiento de contraseñas, invitaciones o notificaciones de uso compartido. Configura `RESEND_API_KEY` o `SENDGRID_API_KEY`; SendGrid también necesita `EMAIL_FROM`. Consulta [Autenticación](/docs/authentication) para conocer los modos de autenticación disponibles.
 
+### Personalizar los correos del framework {#email-templates}
+
+Cada correo que envía el framework tiene una plantilla predeterminada. Para usar tu propio diseño, registra un override desde un plugin de servidor. El framework sigue eligiendo el destinatario y el remitente y entrega el mensaje; tu override decide qué dice el mensaje y cómo se ve.
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| ID del correo | Props |
+| --- | --- |
+| `core.verify-signup` | `email`, `verifyUrl` |
+| `core.reset-password` | `email`, `resetUrl` |
+| `core.magic-link` | `email`, `magicLinkUrl` |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
+| `core.change-email-verification` | `email`, `verifyUrl` |
+| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
+| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
+| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+Cada override también recibe `app` (`name`, `logoUrl`). El segundo argumento contiene el renderizado predeterminado, para que puedas reutilizar su asunto o texto.
+
+- Las props son valores sin escapar. Escápalas con `escapeEmailHtml` antes de insertarlas en una cadena HTML.
+- Devuelve `react` con un elemento de React en lugar de `html` para renderizar un componente. React escapa las props por ti.
+- Omite `subject` para conservar el asunto predeterminado. Omite `text` para derivar el cuerpo de texto plano de tu HTML.
+- Si un override lanza un error, el envío falla. El framework no vuelve al diseño predeterminado. La vista previa de correos transaccionales renderiza tu override, así que revísalo ahí.
+
 ## Destinos compatibles
 
 Agent-Native admite [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) o [Render](/docs/render).

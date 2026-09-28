@@ -29,6 +29,12 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
+Auth emails (verify signup, reset password, magic link, email change) and org
+invites render through `renderTransactionalEmail`. An app changes their copy or
+design with `overrideTransactionalEmail(id, render)` from a server plugin, never
+by editing `better-auth-instance.ts` call sites. See
+`/docs/deployment#email-templates`.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated

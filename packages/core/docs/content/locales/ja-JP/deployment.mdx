@@ -38,6 +38,45 @@ Agent-Native アプリは Nitro で動作します。デプロイするものに
 
 マジックリンク、メール確認、パスワードリセット、招待、共有通知が必要な場合は、デプロイ前に Resend または SendGrid を接続してください。デプロイ環境に `RESEND_API_KEY` または `SENDGRID_API_KEY` を設定し、SendGrid では `EMAIL_FROM` も設定します。認証モードは[認証](/docs/authentication)を参照してください。
 
+### フレームワークのメールをカスタマイズする {#email-templates}
+
+フレームワークが送信するすべてのメールにはデフォルトのテンプレートがあります。独自のデザインを使うには、サーバープラグインから override を登録します。宛先・送信者・配信は引き続きフレームワークが担当し、メッセージの内容と見た目は override が決めます。
+
+```ts
+// server/plugins/email-templates.ts
+import {
+  escapeEmailHtml,
+  overrideTransactionalEmail,
+} from "@agent-native/core/server";
+
+export default function registerEmailTemplates(): void {
+  overrideTransactionalEmail("core.resource-shared", (props) => ({
+    subject: `${props.sender.name} shared "${props.resource.title}"`,
+    html: `<p>${escapeEmailHtml(props.sender.name)} invited you to
+      <a href="${escapeEmailHtml(props.resource.url)}">${escapeEmailHtml(props.resource.title)}</a>
+      in ${escapeEmailHtml(props.app.name)}.</p>`,
+  }));
+}
+```
+
+| メール ID | Props |
+| --- | --- |
+| `core.verify-signup` | `email`, `verifyUrl` |
+| `core.reset-password` | `email`, `resetUrl` |
+| `core.magic-link` | `email`, `magicLinkUrl` |
+| `core.change-email-confirmation` | `email`, `newEmail`, `confirmationUrl` |
+| `core.change-email-verification` | `email`, `verifyUrl` |
+| `core.organization-invite` | `invitee`, `orgName`, `inviter`, `acceptUrl` |
+| `core.builder-credit-limit` | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl` |
+| `core.resource-shared` | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
+
+すべての override は `app`（`name`、`logoUrl`）も受け取ります。第 2 引数にはデフォルトのレンダリング結果が入っているので、件名や本文を再利用できます。
+
+- Props はエスケープされていない値です。HTML 文字列に入れる前に `escapeEmailHtml` でエスケープしてください。
+- コンポーネントをレンダリングするには、`html` の代わりに React 要素を `react` で返します。React が props をエスケープします。
+- `subject` を省略するとデフォルトの件名が使われます。`text` を省略すると HTML からプレーンテキスト本文を生成します。
+- override が例外を投げると送信は失敗します。デフォルトのデザインにはフォールバックしません。トランザクションメールのプレビューで override が表示されるので、そこで確認してください。
+
 ## サポートされるターゲット
 
 Agent-Native は [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb)、[Render](/docs/render) をサポートします。

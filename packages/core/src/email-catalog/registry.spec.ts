@@ -193,16 +193,25 @@ describe("transactional email registry", () => {
     expect(getTransactionalEmail("test-app.stale")).toBeDefined();
   });
 
-  it("renders a preview by id", () => {
+  it("renders a preview by id", async () => {
     define("test.preview");
-    expect(renderTransactionalEmailPreview("test.preview").subject).toBe(
-      "subject:test.preview",
-    );
+    expect(
+      (await renderTransactionalEmailPreview("test.preview")).subject,
+    ).toBe("subject:test.preview");
   });
 
-  it("throws for an unknown preview id instead of returning an empty body", () => {
-    expect(() => renderTransactionalEmailPreview("test.missing")).toThrow(
-      /Unknown transactional email/,
-    );
+  it("awaits an async preview", async () => {
+    define("test.async-preview", {
+      preview: async () => ({ subject: "async", html: "<p>a</p>", text: "a" }),
+    });
+    expect(
+      (await renderTransactionalEmailPreview("test.async-preview")).subject,
+    ).toBe("async");
+  });
+
+  it("rejects an unknown preview id instead of returning an empty body", async () => {
+    await expect(
+      renderTransactionalEmailPreview("test.missing"),
+    ).rejects.toThrow(/Unknown transactional email/);
   });
 });
