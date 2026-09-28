@@ -38,6 +38,7 @@ import {
   type PlanSummary,
 } from "../shared/types.js";
 import { getDb, schema } from "./db/index.js";
+import { assertEditionsLabEnabled } from "./lib/editions-lab.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 import {
   buildPlanContentHtml,
@@ -816,6 +817,11 @@ async function loadPlanBundleForAuthorizedPlan(
   plan: typeof schema.plans.$inferSelect,
   role: PlanBundle["access"]["role"],
 ): Promise<PlanBundle> {
+  // Editions are ordinary `plans` rows, so every generic action that reads or
+  // writes one arrives here. Gating only the edition actions would leave the
+  // whole surface — export, source patches, versions, comments, mutations —
+  // open to a caller who has the lab turned off.
+  if (plan.kind === "edition") await assertEditionsLabEnabled();
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
     db

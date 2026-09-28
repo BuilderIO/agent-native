@@ -88,6 +88,11 @@ vi.mock("./db/index.js", () => ({
 }));
 
 // Keep email + filesystem effects inert.
+// The plans list reads the caller's labs to decide whether editions are
+// visible; this fixture has no settings table behind that read.
+vi.mock("@agent-native/core/labs/server", () => ({
+  getUserLabs: async () => ({ "plan.editions": true }),
+}));
 vi.mock("./lib/comment-notifications.js", () => ({
   notifyPlanCommentRecipients: vi.fn(async () => undefined),
 }));

@@ -79,6 +79,7 @@ let createEdition: AnyAction;
 let getEdition: AnyAction;
 let listEditions: AnyAction;
 let listPlans: AnyAction;
+let getPlan: AnyAction;
 
 const OWNER = "owner@example.com";
 const ORG = "org-1";
@@ -217,6 +218,7 @@ beforeAll(async () => {
   getEdition = (await import("./get-edition.js")).default as AnyAction;
   listEditions = (await import("./list-editions.js")).default as AnyAction;
   listPlans = (await import("./list-visual-plans.js")).default as AnyAction;
+  getPlan = (await import("./get-visual-plan.js")).default as AnyAction;
 });
 
 afterAll(async () => {
@@ -985,6 +987,26 @@ describe("editions lab", () => {
         kind: string;
       }[];
       expect(gated.some((plan) => plan.kind === "edition")).toBe(false);
+    } finally {
+      labs.editionsEnabled = true;
+    }
+  });
+
+  it("refuses an edition read through the generic plan action", async () => {
+    const created = (await asOwner(() =>
+      createEdition.run({
+        title: "generic read",
+        brief: "b",
+        ...WINDOW,
+        stories: [storyFixture()],
+      }),
+    )) as { editionId: string };
+
+    labs.editionsEnabled = false;
+    try {
+      await expect(
+        asOwner(() => getPlan.run({ id: created.editionId })),
+      ).rejects.toThrow(/turned off in Labs/);
     } finally {
       labs.editionsEnabled = true;
     }
