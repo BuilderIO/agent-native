@@ -6,6 +6,7 @@ import {
   dispatchPathTargetsNetlifyBackgroundFunction,
   fireInternalDispatch,
   getConfiguredAppBasePath,
+  readDeployCredentialEnv,
   resolveDurableBackgroundDispatchPath,
 } from "@agent-native/core/server";
 import {
@@ -349,13 +350,26 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
   return null;
 }
 
+function mailAiFilterBackfillDispatchPath(): string | null {
+  const path = resolveDurableBackgroundDispatchPath(
+    MAIL_AI_FILTER_BACKFILL_WORKER_PATH,
+  );
+  if (!dispatchPathTargetsNetlifyBackgroundFunction(path)) return null;
+  if (!readDeployCredentialEnv("A2A_SECRET")) {
+    fail("Could not start the Mail AI backfill. Try again.", {
+      errorCode: "ai_filter_backfill_signing_secret_missing",
+      statusCode: 503,
+      details: { key: "A2A_SECRET" },
+    });
+  }
+  return path;
+}
+
 export async function dispatchMailAiFilterBackfill(
   runId: string,
 ): Promise<boolean> {
-  const dispatchPath = resolveDurableBackgroundDispatchPath(
-    MAIL_AI_FILTER_BACKFILL_WORKER_PATH,
-  );
-  if (!dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath)) return false;
+  const dispatchPath = mailAiFilterBackfillDispatchPath();
+  if (!dispatchPath) return false;
 
   await fireInternalDispatch({
     path: dispatchPath,
@@ -523,6 +537,7 @@ export async function startMailAiFilterBackfill(
       feedback: aiFilterState.feedback.slice(-20),
     },
   );
+  mailAiFilterBackfillDispatchPath();
   const inserted = await db.transaction(async (tx: any) => {
     await backfillOwnerLock(tx, ownerEmail);
     const activeRows = await tx
@@ -589,42 +604,10 @@ export async function startMailAiFilterBackfill(
   try {
     await dispatchMailAiFilterBackfill(inserted.id);
   } catch (error) {
-    if (!inserted.reused) {
-      const message = "Could not start the Mail AI backfill. Try again.";
-      state.error = message;
-      const [failed] = await db
-        .update(schema.aiFilterBackfills)
-        .set({
-          status: "failed",
-          stateJson: JSON.stringify(state),
-          updatedAt: Date.now(),
-        })
-        .where(
-          and(
-            eq(schema.aiFilterBackfills.id, inserted.id),
-            eq(schema.aiFilterBackfills.status, "queued"),
-          ),
-        )
-        .returning({ id: schema.aiFilterBackfills.id });
-      if (failed) {
-        fail(message, {
-          errorCode: "ai_filter_backfill_dispatch_failed",
-          statusCode: 503,
-          details: { runId: inserted.id },
-        });
-      }
-    }
-    const [current] = await db
-      .select({ status: schema.aiFilterBackfills.status })
-      .from(schema.aiFilterBackfills)
-      .where(
-        and(
-          eq(schema.aiFilterBackfills.id, inserted.id),
-          eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
-        ),
-      )
-      .limit(1);
-    if (!current || current.status === "queued") throw error;
+    console.warn(
+      "[mail-ai-backfill] handoff failed; queued run remains recoverable",
+      sanitizeBackfillError(error),
+    );
   }
   return { runId: inserted.id, status: "queued" };
 }
@@ -703,6 +686,7 @@ export async function requestMailAiFilterBackfillUndo(
     }
     if (row.status === "undoing") return;
 
+    mailAiFilterBackfillDispatchPath();
     const state = parseState(row.stateJson);
     state.undoFailedKeys = [];
     state.retryCount = 0;
