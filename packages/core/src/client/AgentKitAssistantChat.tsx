@@ -174,6 +174,7 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
+let pendingSelectionClear: Promise<void> | null = null;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
 const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
@@ -187,6 +188,32 @@ const deferredProviderSubmissionOperations = new Map<
   string,
   Promise<unknown>
 >();
+
+function clearPendingSelectionState(): Promise<void> {
+  const previous = pendingSelectionClear;
+  const clear = previous
+    ? previous
+        .catch(() => undefined)
+        .then(() =>
+          deleteClientAppState("pending-selection-context", {
+            keepalive: true,
+          }),
+        )
+    : deleteClientAppState("pending-selection-context", { keepalive: true });
+  pendingSelectionClear = clear;
+  void clear.then(
+    () => {
+      if (pendingSelectionClear === clear) pendingSelectionClear = null;
+    },
+    () => {},
+  );
+  return clear;
+}
+
+async function readPendingSelectionState(): Promise<unknown> {
+  while (pendingSelectionClear) await pendingSelectionClear;
+  return readClientAppState<unknown>("pending-selection-context");
+}
 // i18n-ignore: Internal recovery instruction sent to the agent, never shown as product copy.
 const RECOVERY_CONTINUE_PROMPT =
   "Continue from where you left off and finish my last request. Do not repeat completed work.";
@@ -1336,15 +1363,14 @@ const AgentKitAssistantChatBody = forwardRef<
     props.suggestionVisibility !== "after-agent-response" ||
     thread.messages.some((message) => message.role === "assistant");
 
-  const clearPendingSelection = useCallback(async () => {
+  const clearPendingSelection = useCallback(() => {
     selectionRevisionRef.current += 1;
     setPendingSelection(null);
-    await deleteClientAppState("pending-selection-context", {
-      keepalive: true,
-    });
+    const clear = clearPendingSelectionState();
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-panel:selection-cleared"));
     }
+    return clear;
   }, []);
   const requestPendingSelectionClear = useCallback(() => {
     void clearPendingSelection().catch((error: unknown) => {
@@ -1355,7 +1381,7 @@ const AgentKitAssistantChatBody = forwardRef<
   useEffect(() => {
     let cancelled = false;
     const selectionRevision = selectionRevisionRef.current;
-    void readClientAppState<unknown>("pending-selection-context")
+    void readPendingSelectionState()
       .then((value) => {
         if (cancelled || selectionRevision !== selectionRevisionRef.current) {
           return;
@@ -1700,7 +1726,7 @@ const AgentKitAssistantChatBody = forwardRef<
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
       if (!options.recoveryAction) {
-        await clearPendingSelection();
+        requestPendingSelectionClear();
       }
       const requestMode =
         options.requestMode ??
@@ -1821,7 +1847,7 @@ const AgentKitAssistantChatBody = forwardRef<
       fileStorageConfigured,
       t,
       pendingSelection,
-      clearPendingSelection,
+      requestPendingSelectionClear,
     ],
   );
 

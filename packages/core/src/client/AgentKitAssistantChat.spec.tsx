@@ -944,15 +944,22 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
-  it("waits for pending-selection cleanup before sending", async () => {
+  it("sends during selection cleanup and delays new chat hydration", async () => {
+    chatMocks.appState.set("pending-selection-context", {
+      text: "stale selection",
+      capturedAt: Date.now(),
+    });
     let resolveDelete!: () => void;
-    vi.mocked(deleteClientAppState).mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveDelete = resolve;
-        }),
-    );
+    vi.mocked(deleteClientAppState).mockImplementationOnce((key) => {
+      return new Promise<void>((resolve) => {
+        resolveDelete = () => {
+          chatMocks.appState.delete(key);
+          resolve();
+        };
+      });
+    });
     await mount(baseProps());
+    await flush();
 
     let submitPromise!: Promise<void>;
     await act(async () => {
@@ -966,14 +973,27 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(resolveDelete).toBeDefined();
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+
+    await unmount();
+    chatMocks.threadId = "thread-2";
+    await mount(baseProps({ threadId: "thread-2" }));
+    await flush();
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit("New chat request", [], [], {});
+    });
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(
+      chatMocks.control.sendMessage.mock.calls[1]?.[0]?.text,
+    ).not.toContain("stale selection");
 
     await act(async () => {
       resolveDelete();
       await submitPromise;
     });
+    await flush();
 
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.appState.has("pending-selection-context")).toBe(false);
   });
 
   it("durably queues unresolved sends with files and references across remounts", async () => {
