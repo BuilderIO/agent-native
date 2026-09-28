@@ -72,7 +72,10 @@ import {
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
-import { verifySharePassword } from "../../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../../lib/share-password.js";
 
 interface RecordingRow {
   editsJson?: string | null;
@@ -80,6 +83,8 @@ interface RecordingRow {
   organizationId?: string | null;
   ownerEmail?: string | null;
   password?: string | null;
+  sharePasswordVersion?: string | null;
+  updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -130,9 +135,15 @@ function isHttpsRequest(event: H3Event): boolean {
 function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
+  password: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): void {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      sharePasswordVersion,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -389,12 +400,17 @@ export default defineEventHandler(async (event: H3Event) => {
         const supplied = typeof q.password === "string" ? q.password : "";
 
         let allowed = false;
+        const scopedRecordingId = getRecordingAccessTokenResourceId(
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        );
         if (token) {
-          const result = verifyShortLivedToken(token, recordingId);
+          const result = verifyShortLivedToken(token, scopedRecordingId);
           if (result.ok) allowed = true;
         }
         if (!allowed && cookieToken) {
-          const result = verifyShortLivedToken(cookieToken, recordingId);
+          const result = verifyShortLivedToken(cookieToken, scopedRecordingId);
           if (result.ok) allowed = true;
         }
         if (
@@ -408,7 +424,12 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
-        setProtectedMediaAccessCookie(event, recordingId);
+        setProtectedMediaAccessCookie(
+          event,
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        );
       }
 
       if (isLoomEmbedBackedRecording(rec)) {

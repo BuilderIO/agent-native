@@ -96,6 +96,38 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("submission.reason ??");
   });
 
+  it("closes before references and restores prompt state when returning", () => {
+    const recovery = flow.slice(
+      flow.indexOf("const recoverFromGenerationSetupFailure"),
+      flow.indexOf("const persisted = await ensureDeckPersisted"),
+    );
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceStep = source.slice(
+      source.indexOf("<NewDeckReferenceStep"),
+      source.indexOf(
+        "onDesignSystemsChanged",
+        source.indexOf("<NewDeckReferenceStep"),
+      ),
+    );
+
+    expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
+      promptSubmit.indexOf("if (options?.slidesContext)"),
+    );
+    expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
+    expect(referenceStep).toContain("text: pending.prompt");
+    expect(referenceStep).toContain("pending.files");
+    expect(referenceStep).toContain("pending.referenceFilePaths");
+    expect(referenceStep).toContain("pending.importedReference");
+    expect(referenceStep).toContain("pending.context");
+    expect(referenceStep).toContain("pending.attachments");
+    expect(referenceStep).toContain("pending.modelSelection");
+    expect(referenceStep).toContain("setShowNewDeckPrompt(true)");
+  });
+
   it("carries hidden prompt context through generation retries", () => {
     expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
     expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");
@@ -243,6 +275,15 @@ describe("new deck generation flow", () => {
     expect(source).toContain("onSubmit={handlePromptSubmit}");
     expect(source).toContain("onSkip={handlePromptSkip}");
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
+  });
+
+  it("clears uploaded files when a retry prompt is skipped", () => {
+    const skip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(skip).toContain("setNewDeckRetryFiles([]);");
   });
 
   it("imports directly from the new-deck prompt and opens the imported deck", () => {

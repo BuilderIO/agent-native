@@ -373,6 +373,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active
   ON mail_ai_filter_backfills(owner_email, rule_set_key)
   WHERE rule_set_key IS NOT NULL AND status IN ('queued', 'running', 'undoing');`,
     },
+    {
+      version: 31,
+      name: "mail-gmail-watch-renewal-claims",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_renewed_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_automation_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claim_id TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claimed_at BIGINT;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
+  ON scheduled_jobs(status, run_at, id);`,
+    },
+    {
+      version: 32,
+      name: "mail-background-account-sweep-order",
+      sql: `CREATE INDEX IF NOT EXISTS mail_sync_accounts_automation_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_automation_attempted_at, 0), id);
+CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
+    },
   ],
   { table: "mail_migrations" },
 );

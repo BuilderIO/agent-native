@@ -104,12 +104,15 @@ export function HomeImportButton() {
                 <Button
                   ref={menuTrigger}
                   size="sm"
+                  className="design-home-import-button"
                   disabled={busy}
                   aria-label={t("home.import")}
                 >
                   <IconUpload />
-                  {t("home.import")}
-                  <IconChevronDown />
+                  <span className="design-home-import-label">
+                    {t("home.import")}
+                  </span>
+                  <IconChevronDown className="design-home-import-chevron" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

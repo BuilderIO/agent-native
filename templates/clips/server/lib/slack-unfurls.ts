@@ -40,6 +40,7 @@ type SlackUnfurlRecording = {
   expiresAt: string | null;
   videoUrl: string | null;
   sourceAppName: string | null;
+  updatedAt: string | null;
 };
 
 export type SlackVideoBlock = {
@@ -289,6 +290,7 @@ export async function loadSlackVideoBlockForUrl(
       expiresAt: schema.recordings.expiresAt,
       videoUrl: schema.recordings.videoUrl,
       sourceAppName: schema.recordings.sourceAppName,
+      updatedAt: schema.recordings.updatedAt,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, share.id))

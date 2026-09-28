@@ -1326,8 +1326,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "招待リンクをコピー",
   "usage.inviteLinkCopied": "招待リンクをコピーしました",
   "usage.creditBalance": "ワークスペース残高",
-  "usage.monthlyPlan": "月間プラン",
-  "usage.dailyFreeLimit": "無料の日次上限",
+  "usage.monthlyLimit": "月間上限",
+  "usage.dailyDefaultLimit": "デフォルトの日次上限",
   "usage.creditUsedOfLimit": "{{limit}} 中 {{used}} を使用",
   "usage.creditRemaining": "残り {{amount}}",
   "usage.creditUsageUnavailable":

@@ -246,4 +246,16 @@ describe("onboarding app profiles", () => {
       ),
     ).toMatchObject({ required: false, suggested: false });
   });
+
+  it("keeps Gmail declared for Mail connection checks", () => {
+    expect(
+      getOnboardingAppProfile("mail").capabilities.find(
+        (capability) => capability.id === "gmail",
+      ),
+    ).toMatchObject({
+      required: true,
+      satisfiedBySignIn: true,
+      keySummary: "Connect Gmail with OAuth",
+    });
+  });
 });

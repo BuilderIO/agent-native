@@ -4,6 +4,7 @@ import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
   isSlidesFullWidthSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 
@@ -49,6 +50,13 @@ describe("Slides settings route policy", () => {
 });
 
 describe("Slides layout sidebar route policy", () => {
+  it("recognizes equivalent home paths", () => {
+    expect(isSlidesHomeRoute("/home")).toBe(true);
+    expect(isSlidesHomeRoute("/home/")).toBe(true);
+    expect(isSlidesHomeRoute("/HOME/")).toBe(true);
+    expect(isSlidesHomeRoute("/home/settings")).toBe(false);
+  });
+
   it("recognizes only deck editor routes", () => {
     expect(isSlidesEditorRoute("/deck/deck-1")).toBe(true);
     expect(isSlidesEditorRoute("/deck/deck-1/")).toBe(true);

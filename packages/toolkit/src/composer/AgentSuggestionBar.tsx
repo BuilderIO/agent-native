@@ -70,7 +70,7 @@ export function AgentSuggestionBar({
               size="sm"
               disabled={suggestion.disabled}
               onClick={() => onSelect(suggestion)}
-              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-muted-foreground shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
+              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
             >
               <span>
                 {renderSuggestion

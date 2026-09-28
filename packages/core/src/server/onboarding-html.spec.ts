@@ -341,6 +341,10 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain(
       ".auth-marketing-home .card input {\n      color: var(--auth-marketing-foreground);\n      border-color: var(--auth-marketing-border);",
     );
+    expect(html).toContain(
+      ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-muted);",
+    );
+    expect(html).toContain("--auth-marketing-muted: GrayText;");
     expect(html).toContain(".auth-marketing-home .card input:focus {");
     expect(html).toContain(".auth-marketing-home .card input::placeholder {");
     expect(html).toContain(
