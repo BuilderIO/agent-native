@@ -13,7 +13,10 @@ vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
   putUserSetting: vi.fn(),
 }));
-vi.mock("../settings/store.js", () => ({ getSetting: vi.fn() }));
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: vi.fn(),
+}));
 
 import { runWithRequestContext } from "../server/request-context.js";
 import { createOrganization, resolveOrgIdForEmail } from "./context.js";

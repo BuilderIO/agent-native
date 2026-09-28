@@ -140,6 +140,19 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("matches the shell backing to chat and keeps the open right seam square", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-shell,\s*\.agent-layout-shell\s*\{[^}]*background:\s*var\(--agent-kit-recessed-surface\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-sidebar-main-surface\[data-agent-sidebar-main-state="open"\]\[data-agent-sidebar-main-position="right"\]\s*\{[^}]*border-start-end-radius:\s*0;[^}]*border-end-end-radius:\s*0;/s,
+    );
+  });
+
   it("keeps app and agent main surfaces borderless", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",

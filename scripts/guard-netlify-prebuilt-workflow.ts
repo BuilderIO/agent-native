@@ -1062,10 +1062,14 @@ const parsedPreviewSmokeIndex = parsedStepIndex(
 const parsedPauseIndex = parsedStepIndex(
   "Pause automatic Netlify builds for production cutover",
 );
+const parsedNetlifyMigrationIndex = parsedStepIndex(
+  "Run the release migration from the Netlify environment",
+);
 const parsedClipsMigrationIndex = parsedStepIndex(
   "Run Clips release migrations",
 );
 const parsedCrmMigrationIndex = parsedStepIndex("Run CRM release migrations");
+const parsedMailMigrationIndex = parsedStepIndex("Run Mail release migrations");
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -1181,6 +1185,37 @@ if (
 ) {
   issues.push(
     `${reusablePath} must pause automatic Netlify builds before running CRM release migrations`,
+  );
+}
+const mailMigrationStep = reusableSteps[parsedMailMigrationIndex];
+const mailMigrationIf = String(mailMigrationStep?.if ?? "");
+const mailMigrationRun = String(mailMigrationStep?.run ?? "");
+const netlifyMigrationIf = String(
+  reusableSteps[parsedNetlifyMigrationIndex]?.if ?? "",
+);
+const buildWithNetlifyIndex = parsedStepIndex(
+  "Build with the Netlify project configuration",
+);
+const buildWithNetlifyEnv = asRecord(reusableSteps[buildWithNetlifyIndex]?.env);
+if (
+  parsedMailMigrationIndex < 0 ||
+  parsedMailMigrationIndex <= parsedPauseIndex ||
+  parsedMailMigrationIndex >= parsedUnlockIndex ||
+  !mailMigrationIf.includes("inputs.target == 'production'") ||
+  !mailMigrationIf.includes("inputs.migration_only") ||
+  !mailMigrationIf.includes("inputs.deploy_mode == 'production'") ||
+  !mailMigrationIf.includes("source_template == 'mail'") ||
+  !netlifyMigrationIf.includes("inputs.migration_only") ||
+  !netlifyMigrationIf.includes("source_template == 'mail'") ||
+  !mailMigrationRun.includes("netlify api getSiteDatabase") ||
+  !mailMigrationRun.includes("netlifydb_owner") ||
+  !mailMigrationRun.includes("pnpm --filter mail migrate:production") ||
+  !String(buildWithNetlifyEnv?.SKIP_BUILD_MIGRATIONS ?? "").includes(
+    "steps.target.outputs.source_template == 'mail'",
+  )
+) {
+  issues.push(
+    `${reusablePath} must skip Mail build-time migrations and run production Mail migrations with Netlify's writable owner connection before unlocking the deploy`,
   );
 }
 if (
