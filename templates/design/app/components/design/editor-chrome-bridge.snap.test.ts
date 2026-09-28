@@ -286,7 +286,7 @@ function createFocusTestElement(
       visit(node as FocusTestElement);
       return matches;
     },
-    contains(other: Node) {
+    contains(other: FocusTestElement) {
       let current: FocusTestElement | null = other;
       while (current) {
         if (current === node) return true;
