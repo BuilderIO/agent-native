@@ -220,6 +220,7 @@ function isStandardLayoutPath(pathname: string): boolean {
   return (
     isSettingsPath(pathname) ||
     pathname === "/agent" ||
+    pathname === "/chat" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -324,6 +325,8 @@ const filteredView = {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const isAgentChatRoute = location.pathname === "/chat";
 
   const t = useT();
   const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
@@ -349,12 +352,14 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      enabled={!isAgentChatRoute}
       browserTabId={getBrowserTabId()}
       position="right"
       disableChatShortcut
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
+      onFullscreenRequest={() => void navigate("/chat")}
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       dynamicSuggestions={false}
@@ -2145,6 +2150,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
+  const isAgentChatRoute = location.pathname === "/chat";
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
@@ -2237,7 +2243,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <AgentToggleButton />
+            {!isAgentChatRoute && <AgentToggleButton />}
           </div>
         </header>
       )}

@@ -203,6 +203,23 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
   });
 
+  it("opens the current agent chat in the full-page chat route", () => {
+    const source = appLayoutSource();
+    const chatRoute = readFileSync(
+      new URL("../../routes/chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'onFullscreenRequest={() => void navigate("/chat")}',
+    );
+    expect(source).toContain("enabled={!isAgentChatRoute}");
+    expect(source).toContain('pathname === "/chat"');
+    expect(chatRoute).toContain("<AgentChatSurface");
+    expect(chatRoute).toContain("browserTabId={TAB_ID}");
+    expect(chatRoute).toContain("showTabBar");
+  });
+
   it("accepts Shift when an international layout types the Search slash", () => {
     const source = appLayoutSource();
 
