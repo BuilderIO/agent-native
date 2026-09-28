@@ -679,6 +679,8 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
+    String.raw`\b(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\b(?:merge|do not wait|don't wait)\b`,
+    String.raw`\b(?:no|don't|do not|never|stop)\b[^.!?]{0,60}\b(?:say|saying|ask|asking)\b[^.!?]{0,80}\b(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,60}\b(?:approve|approval|merge)\b`,
     String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding)`,
@@ -691,6 +693,12 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
 );
 
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
+  [
+    true,
+    "If there are no changes needed, merge it instead of waiting for another reviewer to approve.",
+  ],
+  [true, "Stop saying someone else needs to approve when the PR is ready."],
+  [false, "Don't merge a PR until its requested changes are addressed."],
   [
     true,
     "You didn't say which PRs were ready to merge or draft replies for the updates.",
@@ -1525,10 +1533,9 @@ const PATTERNS = [
   },
   {
     key: "pr-review-handoff",
-    label:
-      "Had to ask for PR handoff detail or stop repeated external follow-ups",
+    label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
-      ".agents/skills/review-prs (external replies and follow-up wait gate, 2026-09-24)",
+      ".agents/skills/review-prs (ready-PR merge action and external reply gate)",
     re: PR_REVIEW_HANDOFF_RE,
   },
   {

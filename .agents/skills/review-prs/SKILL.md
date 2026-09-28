@@ -1,10 +1,10 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native human pull requests, apply internal
-  auto-approval exceptions, and assess other PRs for merge readiness, requested
-  updates, external reply drafts, and UI screenshot evidence. Use for scheduled
-  or manual PR sweeps.
+  Review recent BuilderIO/agent-native human pull requests, approve eligible
+  internal PRs, and merge changes that are ready by Steve's bar. Use for
+  scheduled or manual PR sweeps; flag unresolved major product or UX decisions
+  to Steve.
 user-invocable: true
 scope: dev
 metadata:
@@ -17,6 +17,12 @@ Review the newest relevant human pull requests in `BuilderIO/agent-native`.
 Approve safe fixes from verified BuilderIO organization members under the
 internal author policy below. Treat approval as a trust decision. Never
 approve an external or unverified author.
+
+Approval and merge readiness are separate. A **Ready to merge by Steve's bar**
+result means merge the PR under the guarded merge procedure below. Do not hand
+it off because `REVIEW_REQUIRED` is set, the author is external, or another
+human approval is absent. Escalate only unresolved major product or UX
+decisions to Steve.
 
 ## Selection and evidence
 
@@ -197,21 +203,27 @@ internal-author policy:
    secrets, data loss, destructive migrations, remote code execution, SSRF,
    payments, deployment safety, or an unexplained dependency/infrastructure
    change.
-4. The scope and ownership are unambiguous. UX implications still require the
-   verified owner of every affected named app unless a verified owner exception
-   applies. Cross-app, framework-wide, or ambiguous UX changes remain flagged.
+4. The scope and affected behavior are understood. Escalate unresolved major
+   product or UX decisions as described below. Owner exceptions govern whether
+   to submit an approval review; they do not block a ready merge.
 
 Do not approve external authors, unverified authors, or internal PRs whose
 remaining concern is ultra-scary. A clean-looking diff is not enough when the
 owner, runtime behavior, or release state is uncertain.
 
-## UX exception and app owners
+## Product and UX decisions
 
-Detect UX implications from the actual diff, not only filenames. UX includes
-visible copy, layout, density, navigation, controls, settings, interaction,
-loading states, accessibility behavior, and user-facing defaults.
+Assess product and UX impact from the actual diff, not just filenames. This
+includes visible copy, layout, navigation, controls, settings, interaction,
+loading states, accessibility behavior, and user-facing defaults. A major
+decision changes a core workflow, navigation or information architecture,
+product defaults or permissions, or behavior across apps. If that decision is
+not already settled by Steve's written direction, flag it to Steve and do not
+merge until he decides. A routine bug fix or bounded improvement within an
+established workflow is not a major decision.
 
-The current app-owner map is:
+The app-owner map is for approval exceptions only; an owner approval is not a
+merge requirement:
 
  - Alice (`3mdistal`) - Content
  - Shomix (`shomix`) - Clips
@@ -220,10 +232,9 @@ The current app-owner map is:
  - Enzo (`enzoames`) - Factory
  - Sid (`sidmohanty11`) - Design
 
-Verify the author's GitHub identity and the affected app. A cross-app,
-framework-wide, or ambiguous UX change has no standard app-owner exception and
-must be flagged unless a verified owner exception applies. An app owner's
-status does not waive the ultra-scary safety gate.
+Verify the author's GitHub identity and affected app before applying an owner
+exception. An app owner's status does not waive the ultra-scary safety gate or
+the major product/UX decision above.
 
 ## Review actions
 
@@ -234,43 +245,53 @@ or explanatory comment unless the invocation explicitly asks for it.
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
 
-For a PR that fails any applicable gate, do not submit an approval. Flag the
-exact concern and the evidence needed to resolve it. External PRs may be
-inspected and recapped, but never approved or auto-merged. If GitHub or
-organization membership is unavailable, preserve the no-approval outcome and
-name the missing check.
+For a PR that fails an approval gate, do not submit an approval. Flag the exact
+concern and the evidence needed to resolve it. External or unverified authors
+never receive an approval review, but their PRs can still be merged when they
+meet the readiness gate below. If GitHub or organization membership is
+unavailable, preserve the no-approval outcome and name the missing check.
 
-## Non-auto-approved PR handoff
+## Merge-ready disposition and handoff
 
-For every human PR that does not receive an approval under the policies above,
-including external PRs, provide a maintainer handoff in addition to the approval
-disposition. A merge-readiness recommendation is separate from a GitHub
-approval or merge action: this skill never merges a PR, and external authors
-remain ineligible for approval. Use the BuilderIO membership API; a confirmed
+For every human PR in the evidence sweep, assess readiness regardless of whether
+this skill can submit an approval. Use the BuilderIO membership API; a confirmed
 nonmember is external, while lookup or visibility failures leave membership
 unknown. Only prepare author-facing reply drafts for authors verified as
 external. Never draft a reply for a verified BuilderIO member, including a
-thank-you; report requested updates or missing UX evidence in the recap
-instead. If membership is unknown, do not treat the author as external or
-draft a reply.
+thank-you; report requested updates in the recap instead. If membership is
+unknown, do not treat the author as external or draft a reply.
 
 Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
-**Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
-ready only when the current head looks sound, every required check has passed,
-and actionable human or automated review findings have a verified fix or an
-evidence-backed terminal disposition. An active human `CHANGES_REQUESTED`
-review or unresolved actionable human request blocks readiness; resolved,
-superseded, or non-actionable threads do not. Do not treat missing human
-approval or `reviewDecision: REVIEW_REQUIRED` alone as a blocker to Steve's readiness
-recommendation. Report separately if GitHub's branch protection still blocks
-the actual merge. Conflicts, pending or failed required checks, active
-actionable bot findings, credible safety concerns, or an otherwise material
-code issue mean **Needs updates** or **Cannot assess**. Report skipped,
-unknown, and non-required checks accurately; never describe them as passing.
+**Needs Steve's product/UX decision**, or **Cannot assess**. Ready means the
+current head is sound, every required check has passed, and actionable human or
+automated findings have a verified fix or evidence-backed terminal disposition.
+An active human `CHANGES_REQUESTED` review or unresolved actionable request
+blocks readiness; resolved, superseded, or non-actionable threads do not.
+Missing approval or `reviewDecision: REVIEW_REQUIRED` alone never blocks
+readiness or merge. Conflicts, pending or failed required checks, active
+actionable bot findings, credible safety concerns, or a material code issue
+mean **Needs updates** or **Cannot assess**. Report skipped, unknown, and
+non-required checks accurately; never describe them as passing.
 
-For every verified external PR needing a code update or screenshot evidence,
-draft a concise reply that names the concrete change or evidence requested and
-links the relevant review thread or check when useful. Before drafting, inspect
+A ready disposition is an instruction to merge, not a recommendation to hand
+off. Continue in the foreground through `babysit-pr`'s 10-minute guarded merge
+gate. When it holds, revalidate the exact live head and use
+the guarded admin merge:
+
+```bash
+gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
+  --match-head-commit <verified-head-oid>
+```
+
+`REVIEW_REQUIRED` alone is not a reason to wait for another reviewer or ask
+Steve to click Merge. This skill's standing authorization covers that merge.
+If the head or another gate changes, restart the gate. If no code or author
+action is needed and the PR is otherwise ready, merge it.
+
+For every verified external PR needing a code update or evidence necessary to
+assess a material behavior change, draft a concise reply that names the concrete
+change or evidence requested and links the relevant review thread or check when
+useful. Before drafting, inspect
 the PR timeline, commits, and review threads for all actionable requests from
 the exact login `steve8708`. If any request remains unaddressed, do not draft or
 post another author-facing comment. In particular, if the latest PR activity is
@@ -291,25 +312,20 @@ Steve comment already covers it; link or summarize that request instead.
 Drafts are for the user to review and are never posted by this skill unless
 the current invocation explicitly authorizes posting.
 
-For UX evidence, inspect the actual diff for new or changed user-facing UI,
-including visible copy, layout, navigation, controls, settings, interaction,
-loading states, accessibility behavior, and user-facing defaults. Check the PR
-body and conversation for screenshots of the changed product UI. Report which
-surface changed and whether screenshots are present. If UI changed and no
-product screenshot is available, mark the screenshot as requested so Steve can
-review the change. Include the screenshot request in an external-author draft
-only when the reply gate above allows a new comment. For internal PRs, report
-the missing screenshot without drafting a comment. A generated recap graphic
-or demo clip does not count as a screenshot of the changed UI. If the PR has no
-user-facing UI change, say so rather than requesting screenshots.
+For a material UX change, inspect the PR body and conversation for screenshots
+of the changed product UI and report which surface changed. A missing screenshot
+alone does not block a routine fix or bounded improvement; request visual
+evidence only when it is needed to assess a material behavior change. A recap
+graphic or demo clip is not a screenshot of the changed UI. If the PR has no
+user-facing UI change, say so.
 
 If GitHub is unavailable before the diff, body, and conversation can be
 inspected, report UX evidence as **Unknown / unable to inspect**; do not infer
 that the PR has no UI change.
 
-Do not apply these extra author-reply and screenshot asks to PRs that were
-auto-approved under an explicit exception; keep their existing recap and
-approval behavior unchanged.
+Do not apply author-reply or screenshot requests to PRs that were auto-approved
+under an explicit exception; keep their existing recap and approval behavior
+unchanged.
 
 This handoff is measured by `pr-review-handoff`; first-contact thanks also
 contribute to the existing `feedback-reply-tone` measure.
@@ -336,8 +352,8 @@ count or restart checks.
 Every run ends with a succinct row for every human PR that entered the evidence
 sweep, including approved, flagged, external, duplicate, already handled, and
 unavailable cases. Include the PR link, author and membership result, review
-disposition, merge-readiness recommendation, UX/screenshot status, relevant
-issue or source link, checks or review links, and the reason. For each
+disposition, merge result, UX/screenshot status, relevant issue or source link,
+checks or review links, and the reason. For each
 non-auto-approved external PR that needs an update or screenshot, include its
 draft reply in a separate section, or mark it waiting on the contributor with
 a link to Steve's outstanding request. For internal PRs, report the needed
@@ -350,20 +366,17 @@ Use this shape:
 ```md
 ## PR review
 
-| PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Author-facing reply | Why and evidence |
-| --- | --- | --- | --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
+| PR | Author / org status | Review disposition | Merge readiness | Merge result | UX / screenshot | Author-facing reply | Why and evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Needs updates / Needs Steve's decision / Cannot assess | Merged (SHA) / Waiting on 10-minute gate / Held (reason) / Not merged | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```
 
 Keep the recap short, link every claim, and distinguish “not approved because
-external” from “not reviewed because GitHub was unavailable.” Also distinguish
-the review disposition from merge readiness, and distinguish product-code or
-CI blockers from a repository rule requiring human approval. A PR can be
-**Ready to merge by Steve's bar** while GitHub still reports a human-review
-requirement; state that restriction without treating it as a required review
-for Steve's recommendation.
+external” from “not reviewed because GitHub was unavailable.” Record the actual
+merge result. Do not report a repository rule requiring human approval as a
+blocker when the PR is ready and the guarded admin merge is available.
 
 ## Related skills
 
