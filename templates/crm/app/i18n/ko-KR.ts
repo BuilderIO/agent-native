@@ -24,6 +24,11 @@ const messages = {
     retry: "다시 시도",
     search: "검색",
   },
+  chatHome: {
+    description:
+      "Native SQL과 연결된 레코드 전반에서 허용된 계정 정보, 후속 작업, 근거를 살펴보세요.",
+    placeholder: "CRM에 대해 질문하기",
+  },
   commandMenu: {
     placeholder: "레코드, 목록, 명령 검색…",
     groupRecords: "레코드",

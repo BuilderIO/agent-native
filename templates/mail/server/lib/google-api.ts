@@ -72,13 +72,20 @@ export function createOAuth2Client(
           grant_type: "refresh_token",
         }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (res.ok) throw error;
+      }
       if (!res.ok) {
-        const code = (data as any).error;
-        const desc = (data as any).error_description;
+        const code = data?.error;
+        const desc = data?.error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        const error = new Error(`OAuth token refresh failed: ${detail}`);
+        Object.assign(error, { status: res.status });
+        throw error;
       }
       const typed = data as {
         access_token: string;
@@ -173,7 +180,7 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
 
 function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   const seconds = Math.ceil(cooldownMs / 1000);
-  return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
+  return `Email service is briefly busy and will be ready again in about ${seconds}s.`;
 }
 
 /**

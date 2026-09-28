@@ -385,6 +385,8 @@ async function settle(page: Page) {
     // paints the fallback). Bounded: an offline stylesheet never loads.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Imported-font stylesheets are appended by a passive effect after render.
+    await frame();
     for (let i = 0; i < 20; i++) {
       await document.fonts.ready;
       await frame();

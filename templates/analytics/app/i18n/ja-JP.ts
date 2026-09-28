@@ -965,6 +965,10 @@ export default {
     recentSales: "最近の売上",
     recentSalesDescription: "今月は 265 件の売上がありました。",
   },
+  analysisResult: {
+    title: "分析結果",
+    comparisonContext: "{{period}}：{{previous}} と比較して {{current}}",
+  },
   routeTitles: {
     notFound: "見つかりません - Analytics",
     analysis: "分析 - Analytics",

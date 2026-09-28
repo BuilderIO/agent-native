@@ -78,7 +78,20 @@ type ManagedGmailClient = {
 
 type ManagedGmailResolution =
   | { ok: true; client: ManagedGmailClient | null }
-  | { ok: false; error: { email: "workspace"; error: string } };
+  | {
+      ok: false;
+      error: { email: "workspace"; error: string; retryable?: true };
+    };
+
+function isRetryableManagedGmailError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("retryable" in error && error.retryable === true) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      (error instanceof TypeError && error.message === "fetch failed"))
+  );
+}
 
 async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   if (!getCredentialContext()) return null;
@@ -128,6 +141,7 @@ async function resolveManagedGmailClientWithError(
           error instanceof Error
             ? error.message
             : "Workspace Gmail connection failed",
+        ...(isRetryableManagedGmailError(error) ? { retryable: true } : {}),
       },
     };
   }
@@ -181,6 +195,15 @@ export function isPermanentRefreshError(message: string): boolean {
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
+function isRetryableRefreshError(error: any): boolean {
+  const status = error?.response?.status ?? error?.status;
+  if (typeof status === "number") {
+    return status === 408 || status === 429 || (status >= 500 && status < 600);
+  }
+  if (error?.response) return false;
+  return error?.name === "AbortError" || error instanceof TypeError;
+}
+
 // Single-flight refresh per stored token row. Concurrent callers for the same
 // account (labels, emails, settings, google-status all fire on mount) must
 // await one in-flight `oauth2.refreshToken` instead of each racing their own
@@ -215,6 +238,7 @@ async function refreshAccessToken(
       await deleteOAuthTokens("google", accountId);
       throw err;
     }
+    if (!isRetryableRefreshError(err)) throw err;
     // Transient failure (network hiccup, 5xx, timeout). If the existing
     // token hasn't actually expired yet — we only entered this path
     // because we're inside the 5-minute pre-expiry buffer — fall back to
@@ -226,7 +250,9 @@ async function refreshAccessToken(
     ) {
       return tokens.access_token;
     }
-    throw err;
+    const retryableError = err instanceof Error ? err : new Error(String(err));
+    Object.assign(retryableError, { retryable: true });
+    throw retryableError;
   }
 
   const updatedTokens: GoogleTokens = {
@@ -457,7 +483,7 @@ export async function getClientsWithErrors(
   accountEmails?: string[],
 ): Promise<{
   clients: Array<{ email: string; accessToken: string; refreshToken: string }>;
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; retryable?: true }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
   const requested = accountEmails
@@ -484,7 +510,7 @@ export async function getClientsWithErrors(
     accessToken: string;
     refreshToken: string;
   }> = [];
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; retryable?: true }> = [];
 
   const results = await Promise.all(
     accounts.map(async (account) => {
@@ -517,6 +543,7 @@ export async function getClientsWithErrors(
           error: {
             email: accountId,
             error: err?.message || "Unknown refresh error",
+            ...(err?.retryable === true ? { retryable: true as const } : {}),
           },
         };
       }

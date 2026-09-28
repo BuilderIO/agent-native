@@ -139,8 +139,13 @@ vi.mock("@agent-native/core/client/settings", () => ({
   SettingsTabsPage: (props: {
     general?: React.ReactNode;
     generalGroups?: React.ReactNode;
-    extraTabs?: Array<{ id: string; label: string; content: React.ReactNode }>;
-    appAreas?: Array<{ id: string; content: React.ReactNode }>;
+    extraTabs?: Array<{
+      id: string;
+      label: string;
+      content: React.ReactNode;
+      icon?: unknown;
+    }>;
+    appAreas?: Array<{ id: string; content: React.ReactNode; icon?: unknown }>;
     notifications?: React.ReactNode;
   }) => {
     settingsTabsPageProps.current = props;
@@ -460,6 +465,11 @@ describe("Calendar Settings", () => {
     expect(props?.appAreas).toBeUndefined();
     expect(props?.notifications).toBeUndefined();
     expect(props).not.toHaveProperty("team");
+    expect(
+      (props?.extraTabs as Array<{ id: string; icon?: unknown }>).find(
+        (tab) => tab.id === "event-rules",
+      )?.icon,
+    ).toBeDefined();
     expect(container.textContent).toContain("language-picker");
     expect(container.querySelector("#google-calendar")).toBeNull();
     expect(container.querySelector("#zoom")).not.toBeNull();
@@ -473,6 +483,11 @@ describe("Calendar Settings", () => {
     expect(
       (props?.appAreas as Array<{ id: string }>).map((area) => area.id),
     ).toEqual(["calendars", "booking", "rules"]);
+    expect(
+      (props?.appAreas as Array<{ id: string; icon?: unknown }>).find(
+        (area) => area.id === "rules",
+      )?.icon,
+    ).toBeDefined();
 
     const general = container.querySelector('[data-page="app"]');
     // Calendar's own zone must not read as the account-wide Preferences one.
@@ -657,6 +672,24 @@ describe("Calendar Settings", () => {
     expect(undoEventRuleActivityMock).toHaveBeenCalledWith({
       activityId: "activity-1",
     });
+  });
+
+  it("links invitation rules to Automations for other actions", async () => {
+    await act(async () => {
+      root.render(<Settings />);
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "settings.eventRules")
+        ?.click();
+    });
+
+    const automationLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/agent/automations"]',
+    );
+    expect(automationLink?.textContent).toBe(
+      "settings.eventRulesAutomationLink",
+    );
   });
 
   it("shows Builder and API key connection options and disables rule editing without Jev", async () => {

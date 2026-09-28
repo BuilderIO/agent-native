@@ -618,6 +618,10 @@ const messages = {
       ruleBackfillUndoComplete: "{{count}} 件のメッセージを復元しました",
       ruleBackfillReview: "一致したメールを確認",
       importantMode: "重要",
+      notifyMode: "通知",
+      notifyModeHelp:
+        "一致したメールを重要に設定し、Mailを開いてベルの通知を有効にしている間、ブラウザーのポップアップを表示します。モバイルアプリは近日公開予定です。",
+      manageAutomationsLink: "その他の自動化アクション",
       notImportantMode: "重要ではない",
       importantLabel: "AI重要",
       reviewImportant: "重要を見る",
@@ -746,6 +750,7 @@ const messages = {
     markRead: "既読にする",
     star: "スターを付ける",
     trash: "ゴミ箱",
+    notify: "通知",
     labelName: "ラベル名",
     addAction: "+ 操作を追加",
     ruleName: "ルール名",

@@ -502,6 +502,7 @@ async function indexExternalSearchLanes(input: {
   contentHash: string;
   sensitivityPolicyVersion: string;
   indexVersion: string;
+  requiredEmbeddingSetId?: string;
   now: string;
 }) {
   const dbExec = getDbExec();
@@ -516,6 +517,12 @@ async function indexExternalSearchLanes(input: {
     namespace: SEARCH_NAMESPACE,
   });
   const family = await configuredEmbeddingFamily();
+  if (
+    input.requiredEmbeddingSetId &&
+    family?.id !== input.requiredEmbeddingSetId
+  ) {
+    throw new Error("Required embedding set unavailable.");
+  }
   const targets = [
     {
       targetType: "artifact" as const,
@@ -595,6 +602,51 @@ async function indexExternalSearchLanes(input: {
   }
 }
 
+function safeEmbeddingLaneFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const status = message.match(
+    /^Embedding provider builder\/builder-multimodal-embedding failed with status ([1-5]\d\d)\.$/,
+  );
+  if (status) return `Builder embedding provider HTTP ${status[1]}`;
+  if (
+    message ===
+    "Embedding provider builder/builder-multimodal-embedding timed out."
+  ) {
+    return "Builder embedding provider timed out";
+  }
+  if (
+    message === "Embedding response was malformed." ||
+    message === "Embedding response contained an invalid vector." ||
+    message === "Required embedding set unavailable." ||
+    message === "Builder embedding text input exceeds 32,000 characters."
+  ) {
+    return message;
+  }
+  if (error instanceof TypeError && message === "fetch failed") {
+    return "network request failed";
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && /^[A-Z0-9]{5}$/.test(code)) {
+    return `database error ${code}`;
+  }
+  return "unexpected external search error";
+}
+
+export async function runSearchExternalLane(
+  run: () => Promise<void>,
+  requiredEmbeddingSetId?: string,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    if (requiredEmbeddingSetId) {
+      throw new Error(
+        `Embedding backfill external lane failed: ${safeEmbeddingLaneFailure(error)}.`,
+      );
+    }
+  }
+}
+
 async function retireExternalSearchLanesForArtifacts(
   artifactIds: string[],
   now: string,
@@ -664,6 +716,7 @@ export async function indexCaptureForSearch(input: {
   artifact?: BrainSearchArtifact;
   id: string;
   now?: string;
+  requiredEmbeddingSetId?: string;
 }): Promise<{ indexed: boolean; reason?: string }> {
   if (!canIndexCapture(input.capture)) {
     return { indexed: false, reason: "capture-not-indexable" };
@@ -817,24 +870,25 @@ export async function indexCaptureForSearch(input: {
     burstIds.push(burstId);
     burstBodies.push(contextualText);
   }
-  try {
-    await indexExternalSearchLanes({
-      artifactId: storedArtifact.id,
-      artifact,
-      artifactBody: artifactText(artifact),
-      burstIds,
-      burstBodies,
-      audienceId: input.audience.audienceId,
-      sourceId: input.capture.sourceId,
-      aclHash: key.aclHash,
-      contentHash: key.contentHash,
-      sensitivityPolicyVersion: key.sensitivityPolicyVersion,
-      indexVersion: key.indexVersion,
-      now,
-    });
-  } catch {
-    // SQL artifacts remain searchable when an optional external lane is unavailable.
-  }
+  await runSearchExternalLane(
+    () =>
+      indexExternalSearchLanes({
+        artifactId: storedArtifact.id,
+        artifact,
+        artifactBody: artifactText(artifact),
+        burstIds,
+        burstBodies,
+        audienceId: input.audience.audienceId,
+        sourceId: input.capture.sourceId,
+        aclHash: key.aclHash,
+        contentHash: key.contentHash,
+        sensitivityPolicyVersion: key.sensitivityPolicyVersion,
+        indexVersion: key.indexVersion,
+        requiredEmbeddingSetId: input.requiredEmbeddingSetId,
+        now,
+      }),
+    input.requiredEmbeddingSetId,
+  );
   if (!(await currentIndexSnapshotMatches(input.capture, input.audience))) {
     const staleAt = nowIso();
     await db
@@ -847,7 +901,10 @@ export async function indexCaptureForSearch(input: {
   return { indexed: true };
 }
 
-export async function indexBrainCapture(captureId: string): Promise<{
+export async function indexBrainCapture(
+  captureId: string,
+  requiredEmbeddingSetId?: string,
+): Promise<{
   indexed: number;
   reason?: string;
 }> {
@@ -881,6 +938,7 @@ export async function indexBrainCapture(captureId: string): Promise<{
     audience: audiences[0]!,
     id: nanoid(),
     now: nowIso(),
+    requiredEmbeddingSetId,
   });
   return result.indexed
     ? { indexed: 1 }

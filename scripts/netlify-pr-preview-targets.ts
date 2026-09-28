@@ -200,9 +200,10 @@ export function previewEligibleSiteNames(repoRoot = REPO_ROOT): string[] {
 }
 
 export function previewSiteFromCommand(body: string): string | undefined {
-  const match = body.match(/^\/preview ([a-z][a-z0-9-]*)$/);
+  const normalizedBody = body.toLowerCase();
+  const match = normalizedBody.match(/^\/preview ([a-z][a-z0-9-]*)$/);
   // JavaScript's $ can match before a final line terminator.
-  if (!match || match[0] !== body) return undefined;
+  if (!match || match[0] !== normalizedBody) return undefined;
   return previewEligibleSiteNames().includes(match[1]) ? match[1] : undefined;
 }
 

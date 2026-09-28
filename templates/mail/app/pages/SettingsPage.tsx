@@ -55,7 +55,12 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Navigate, useLocation, useSearchParams } from "react-router";
+import {
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { AiFilterSection } from "@/components/settings/AiFilterSection";
@@ -428,16 +433,22 @@ function AliasesSection({ embedded = false }: { embedded?: boolean }) {
 }
 
 function ActionBadge({ action }: { action: AutomationAction }) {
+  const t = useT();
   const label =
-    action.type === "label" ? `label: ${action.labelName}` : action.type;
+    action.type === "label"
+      ? `label: ${action.labelName}`
+      : action.type === "notify"
+        ? t("settings.notify")
+        : action.type;
   return (
-    <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
+    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
       {label}
     </span>
   );
 }
 
 const ACTION_TYPES = [
+  { value: "notify", labelKey: "settings.notify" },
   { value: "label", labelKey: "settings.applyLabel" },
   { value: "archive", labelKey: "settings.archive" },
   { value: "mark_read", labelKey: "settings.markRead" },
@@ -516,7 +527,7 @@ function ActionBuilder({
       ))}
       <button
         onClick={addAction}
-        className="text-[12px] text-indigo-400 hover:text-indigo-300"
+        className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
       >
         {t("settings.addAction")}
       </button>
@@ -556,7 +567,7 @@ function AutomationEditRow({
   };
 
   return (
-    <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-4 space-y-3">
+    <div className="rounded-lg border border-border/40 bg-muted/20 p-4 space-y-3">
       <div>
         <label className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
           {t("settings.ruleName")}
@@ -1973,8 +1984,9 @@ function MailSettingsShell() {
 
 function LegacyMailSettings() {
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const navState = useNavigationState();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [activeSection, setActiveSection] = useState<string>("integrations");
@@ -2080,15 +2092,24 @@ function LegacyMailSettings() {
     const section = legacyMailSettingsTab(requested) ?? requested;
     if (!section || !validSectionIds.has(section)) return;
     setActiveSection(section);
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.delete("section");
-        return next;
+    const next = new URLSearchParams(searchParams);
+    next.delete("section");
+    const search = next.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: search ? `?${search}` : "",
+        hash: location.hash,
       },
       { replace: true },
     );
-  }, [searchParams, setSearchParams, validSectionIds]);
+  }, [
+    location.hash,
+    location.pathname,
+    navigate,
+    searchParams,
+    validSectionIds,
+  ]);
 
   useEffect(() => {
     navState.sync({ view: "settings", settingsSection: activeSection });
@@ -2099,7 +2120,11 @@ function LegacyMailSettings() {
     next.set("section", pathTab);
     return (
       <Navigate
-        to={{ pathname: STANDARD_APP_ROUTES.settings, search: `?${next}` }}
+        to={{
+          pathname: STANDARD_APP_ROUTES.settings,
+          search: `?${next}`,
+          hash: location.hash,
+        }}
         replace
       />
     );

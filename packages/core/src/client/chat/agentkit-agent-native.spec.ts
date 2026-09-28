@@ -241,6 +241,199 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("restores the complete durable reply when a same-id AgentKit snapshot is shorter", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-short-reply",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      content: [
+                        { type: "text", text: "Full answer with final lines" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "assistant-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "Full answer" }],
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-short-reply",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "assistant-1",
+        parts: [{ type: "text", text: "Full answer with final lines" }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("restores the durable reply when the server and AgentKit use different message ids", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-different-ids",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-run-1",
+                      role: "assistant",
+                      status: "complete",
+                      content: [
+                        { type: "text", text: "Full answer with final lines" },
+                      ],
+                      metadata: { runId: "run-1" },
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "message-1",
+                      role: "assistant",
+                      status: "complete",
+                      parts: [{ type: "text", text: "Full answer" }],
+                    },
+                  ],
+                  events: [
+                    {
+                      id: "event-1",
+                      type: "message.created",
+                      threadId: "thread-different-ids",
+                      runId: "run-1",
+                      sequence: 1,
+                      occurredAt: "2026-09-28T00:00:00.000Z",
+                      message: {
+                        id: "message-1",
+                        role: "assistant",
+                        parts: [],
+                      },
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-different-ids",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      {
+        id: "message-1",
+        parts: [{ type: "text", text: "Full answer with final lines" }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("does not replace unrelated or reordered AgentKit content with durable text", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({
+              id: "thread-other-reply",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    message: {
+                      id: "server-other-run",
+                      role: "assistant",
+                      content: [{ type: "text", text: "Different answer" }],
+                      metadata: { runId: "other-run" },
+                    },
+                  },
+                  {
+                    message: {
+                      id: "message-1",
+                      role: "assistant",
+                      content: [{ type: "text", text: "Rewritten answer" }],
+                    },
+                  },
+                  {
+                    message: {
+                      id: "message-2",
+                      role: "assistant",
+                      content: [
+                        { type: "text", text: "Before tool with suffix" },
+                      ],
+                    },
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "message-1",
+                      role: "assistant",
+                      parts: [{ type: "text", text: "Original answer" }],
+                    },
+                    {
+                      id: "message-2",
+                      role: "assistant",
+                      parts: [
+                        { type: "text", text: "Before tool" },
+                        {
+                          type: "data",
+                          mediaType: "application/json",
+                          data: { tool: "done" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-other-reply",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      { id: "message-1", parts: [{ type: "text", text: "Original answer" }] },
+      {
+        id: "message-2",
+        parts: [
+          { type: "text", text: "Before tool" },
+          {
+            type: "data",
+            mediaType: "application/json",
+            data: { tool: "done" },
+          },
+        ],
+      },
+    ]);
+    await transport.dispose();
+  });
+
   it("restores failed action calls without success widgets", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async () =>

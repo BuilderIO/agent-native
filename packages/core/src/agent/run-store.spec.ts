@@ -28,7 +28,9 @@ let claimStateRows: Array<{
 let runListRows: Array<Record<string, unknown>> = [];
 let refreshedRunListRows: Array<Record<string, unknown>> | null = null;
 let runListSelectCount = 0;
-let runOwnerRows: Array<{ owner_email: string | null }> = [];
+let turnInitiatorRows: Array<Record<string, unknown>> = [];
+let priorTurnRunRows: Array<{ id: string }> = [];
+let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
@@ -69,6 +71,34 @@ const mockDb: any = {
         })),
         rowsAffected: 0,
       };
+    }
+    if (/FROM agent_runs r\s+JOIN agent_turn_initiators/i.test(rawSql)) {
+      return { rows: turnInitiatorByRunRows, rowsAffected: 0 };
+    }
+    if (/FROM agent_turn_initiators WHERE thread_id/i.test(rawSql)) {
+      return { rows: turnInitiatorRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT id FROM agent_runs[\s\S]*COALESCE\(turn_id, id\) = \?/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: priorTurnRunRows, rowsAffected: 0 };
+    }
+    if (/INSERT INTO agent_turn_initiators/i.test(rawSql)) {
+      if (turnInitiatorRows.length === 0) {
+        turnInitiatorRows = [
+          {
+            principal_email: args[2],
+            auth_user_id: args[3],
+            org_id: args[4],
+            org_scope: args[5],
+            is_anonymous: args[6],
+            first_run_id: args[7],
+          },
+        ];
+      }
+      return { rows: [], rowsAffected: 1 };
     }
     if (
       /SELECT id FROM agent_runs\s*WHERE thread_id/i.test(rawSql) &&
@@ -127,9 +157,6 @@ const mockDb: any = {
       )
     ) {
       return { rows: claimStateRows, rowsAffected: 0 };
-    }
-    if (/JOIN chat_threads/i.test(rawSql)) {
-      return { rows: runOwnerRows, rowsAffected: 0 };
     }
     if (/INSERT INTO agent_run_events/i.test(rawSql)) {
       insertEventBehavior();
@@ -205,7 +232,7 @@ const {
   getRunStatus,
   listRunsForThread,
   readBackgroundRunClaim,
-  getRunOwnerEmail,
+  getTurnInitiatorByRun,
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
@@ -257,7 +284,9 @@ describe("run store", () => {
     refreshedRunListRows = null;
     runListSelectCount = 0;
     claimedBackgroundRunIds.clear();
-    runOwnerRows = [];
+    turnInitiatorRows = [];
+    priorTurnRunRows = [];
+    turnInitiatorByRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
     unclaimedBackgroundRunRows = [];
@@ -322,15 +351,27 @@ describe("run store", () => {
     expect(await readBackgroundRunClaim("run-missing")).toBeNull();
   });
 
-  it("getRunOwnerEmail resolves the thread owner for a run, or null when missing", async () => {
-    runOwnerRows = [{ owner_email: "owner@example.com" }];
-    expect(await getRunOwnerEmail("run-1")).toBe("owner@example.com");
-    const joinCall = execCalls.find((c) => /JOIN chat_threads/i.test(c.sql));
-    expect(joinCall).toBeTruthy();
-    expect(joinCall?.args).toEqual(["run-1"]);
+  it("reads the initiator bound to a background run's logical turn", async () => {
+    turnInitiatorByRunRows = [
+      {
+        principal_email: "editor@example.com",
+        auth_user_id: "auth-editor",
+        org_id: "org-editor",
+        org_scope: "personal",
+        is_anonymous: false,
+        first_run_id: "run-first",
+      },
+    ];
 
-    runOwnerRows = [];
-    expect(await getRunOwnerEmail("run-missing")).toBeNull();
+    await expect(getTurnInitiatorByRun("run-continuation")).resolves.toEqual({
+      email: "editor@example.com",
+      authUserId: "auth-editor",
+      orgId: "org-editor",
+      orgScope: "personal",
+      anonymous: false,
+      firstRunId: "run-first",
+    });
+    expect(execCalls.at(-1)?.args).toEqual(["run-continuation"]);
   });
 
   it("persists a terminal event when marking a run aborted", async () => {
@@ -960,6 +1001,95 @@ describe("run store", () => {
     expect(
       execCalls.some((call) => call.sql.includes("INSERT INTO agent_runs")),
     ).toBe(true);
+  });
+
+  it("binds the initiator before inserting a claimed run", async () => {
+    await tryClaimRunSlot("thread-bound", "run-first", undefined, {
+      turnId: "turn-bound",
+      turnInitiator: {
+        email: "editor@example.com",
+        authUserId: "auth-editor",
+        orgId: "org-editor",
+        orgScope: "personal",
+        anonymous: false,
+      },
+    });
+
+    const initiatorInsert = execCalls.findIndex((call) =>
+      /INSERT INTO agent_turn_initiators/i.test(call.sql),
+    );
+    const runInsert = execCalls.findIndex((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(initiatorInsert).toBeGreaterThanOrEqual(0);
+    expect(runInsert).toBeGreaterThan(initiatorInsert);
+    expect(execCalls[initiatorInsert]?.args).toEqual([
+      "thread-bound",
+      "turn-bound",
+      "editor@example.com",
+      "auth-editor",
+      "org-editor",
+      "personal",
+      false,
+      "run-first",
+      expect.any(Number),
+    ]);
+  });
+
+  it("refuses a turn claimed by a different principal", async () => {
+    turnInitiatorRows = [
+      {
+        principal_email: "owner@example.com",
+        auth_user_id: "auth-owner",
+        org_id: "org-owner",
+        org_scope: null,
+        is_anonymous: false,
+        first_run_id: "run-first",
+      },
+    ];
+
+    await expect(
+      tryClaimRunSlot("thread-shared", "run-editor", undefined, {
+        turnId: "turn-shared",
+        turnInitiator: {
+          email: "editor@example.com",
+          authUserId: "auth-editor",
+          orgId: "org-owner",
+          anonymous: false,
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AgentTurnInitiatorMismatchError" });
+    expect(
+      execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+    ).toBe(false);
+  });
+
+  it("refuses a continuation inserted by a different principal", async () => {
+    turnInitiatorRows = [
+      {
+        principal_email: "editor@example.com",
+        auth_user_id: "auth-editor",
+        org_id: "org-editor",
+        org_scope: null,
+        is_anonymous: false,
+        first_run_id: "run-first",
+      },
+    ];
+
+    await expect(
+      insertRun("run-next", "thread-shared", "turn-shared", {
+        dispatchMode: "background",
+        turnInitiator: {
+          email: "owner@example.com",
+          authUserId: "auth-owner",
+          orgId: "org-editor",
+          anonymous: false,
+        },
+      }),
+    ).rejects.toMatchObject({ name: "AgentTurnInitiatorMismatchError" });
+    expect(
+      execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+    ).toBe(false);
   });
 
   it("tryClaimRunSlot denies the slot when a live running row exists", async () => {

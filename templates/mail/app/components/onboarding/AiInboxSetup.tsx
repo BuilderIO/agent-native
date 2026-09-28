@@ -1,7 +1,10 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/core/client/onboarding";
+import {
+  useFirstRunOnboardingGateOwnsSurface,
+  useOnboardingPreviewMode,
+} from "@agent-native/core/client/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -96,6 +99,7 @@ function SetupRuleRow({
   icon,
   title,
   condition,
+  placeholder,
   enabled,
   onConditionChange,
   onEnabledChange,
@@ -103,6 +107,7 @@ function SetupRuleRow({
   icon: React.ReactNode;
   title: string;
   condition: string;
+  placeholder: string;
   enabled: boolean;
   onConditionChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
@@ -121,6 +126,7 @@ function SetupRuleRow({
         <Input
           value={condition}
           onChange={(event) => onConditionChange(event.target.value)}
+          placeholder={placeholder}
           aria-label={title}
         />
       </label>
@@ -404,6 +410,7 @@ export function AiInboxSetup({
 }) {
   const t = useT();
   const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
+  const onboardingPreview = useOnboardingPreviewMode();
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
@@ -440,14 +447,10 @@ export function AiInboxSetup({
   const [customTagName, setCustomTagName] = useState("");
   const [customTagPrompt, setCustomTagPrompt] = useState("");
   const [importantPrompt, setImportantPrompt] = useState("");
-  const [archivePrompt, setArchivePrompt] = useState(() =>
-    t("mail.sort.aiSetupArchiveExample"),
-  );
+  const [archivePrompt, setArchivePrompt] = useState("");
   const [archiveEnabled, setArchiveEnabled] = useState(false);
   const [archiveUserOptedOut, setArchiveUserOptedOut] = useState(false);
-  const [spamPrompt, setSpamPrompt] = useState(() =>
-    t("mail.sort.aiSetupFilteredExample"),
-  );
+  const [spamPrompt, setSpamPrompt] = useState("");
   const [spamEnabled, setSpamEnabled] = useState(false);
   const [spamUserOptedOut, setSpamUserOptedOut] = useState(false);
   const [customCleanupOpen, setCustomCleanupOpen] = useState(false);
@@ -468,8 +471,14 @@ export function AiInboxSetup({
       ),
     [rules],
   );
+  const setupSurfaceAllowed =
+    embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
+  const loadingSurfaceVisible =
+    setupSurfaceAllowed &&
+    forceOpen &&
+    (googleStatus.isLoading || (connected && jevAvailability.isLoading));
   const visible =
-    !firstRunOnboardingOwnsSurface &&
+    setupSurfaceAllowed &&
     connected &&
     !googleStatus.isLoading &&
     !jevAvailability.isLoading &&
@@ -653,17 +662,22 @@ export function AiInboxSetup({
     customTagSelected &&
     (!customTagName.trim() || !customTagPrompt.trim());
 
-  if (
-    embedded &&
-    forceOpen &&
-    (googleStatus.isLoading || (connected && jevAvailability.isLoading))
-  ) {
+  if (loadingSurfaceVisible) {
     return (
-      <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
-        <Skeleton className="h-7 w-48" />
-        <Skeleton className="h-14 w-full" />
-        <Skeleton className="h-10 w-28" />
-      </div>
+      <SetupSurface
+        embedded={embedded}
+        visible={loadingSurfaceVisible}
+        onClose={() => {
+          onOpenChange?.(false);
+          void complete();
+        }}
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-6" aria-busy="true">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-10 w-28" />
+        </div>
+      </SetupSurface>
     );
   }
 
@@ -821,6 +835,7 @@ export function AiInboxSetup({
                 icon={<IconArchive className="size-4" />}
                 title={t("mail.aiFilter.skipInboxMode")}
                 condition={archivePrompt}
+                placeholder={t("mail.sort.aiSetupArchiveExample")}
                 enabled={archiveEnabled}
                 onConditionChange={(value) => {
                   setArchivePrompt(value);
@@ -835,6 +850,7 @@ export function AiInboxSetup({
                 icon={<IconFilter className="size-4" />}
                 title={t("mail.aiFilter.filteredMode")}
                 condition={spamPrompt}
+                placeholder={t("mail.sort.aiSetupFilteredExample")}
                 enabled={spamEnabled}
                 onConditionChange={(value) => {
                   setSpamPrompt(value);

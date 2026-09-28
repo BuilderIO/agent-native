@@ -30,12 +30,24 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain('t("mail.sort.aiSetupImportantExample")');
   });
 
-  it("uses stable router links for tooltip-wrapped tabs", () => {
+  it("polls inbox notifications and offers browser system popups", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'import { NotificationsBell } from "@agent-native/core/client/notifications"',
+    );
+    expect(
+      source.match(/<NotificationsBell browserNotifications \/>/g),
+    ).toHaveLength(1);
+  });
+
+  it("uses stable router links for tabs and the settings gear", () => {
     const source = appLayoutSource().replace(/\s+/g, " ");
 
     expect(source).toContain("RouterSidebarLink,");
     expect(source).toContain("const link = ( <RouterSidebarLink");
     expect(source).toContain("<TooltipTrigger asChild>{link}</TooltipTrigger>");
+    expect(source).toContain('to={`${mailSettingsRoute("ai-filter")}#tags`}');
   });
 
   it("shows inbox tabs on mobile and scrolls the full toolbar after the hamburger", () => {
@@ -189,6 +201,23 @@ describe("AppLayout inbox tab bar", () => {
       'onSearch={() => document.getElementById("mail-search")?.focus()}',
     );
     expect(source).toContain("onFocus={() => setSearchFocused(true)}");
+  });
+
+  it("opens the current agent chat in the full-page chat route", () => {
+    const source = appLayoutSource();
+    const chatRoute = readFileSync(
+      new URL("../../routes/chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'onFullscreenRequest={() => void navigate("/chat")}',
+    );
+    expect(source).toContain("enabled={!isAgentChatRoute}");
+    expect(source).toContain('pathname === "/chat"');
+    expect(chatRoute).toContain("<AgentChatSurface");
+    expect(chatRoute).toContain("browserTabId={TAB_ID}");
+    expect(chatRoute).toContain("showTabBar");
   });
 
   it("accepts Shift when an international layout types the Search slash", () => {

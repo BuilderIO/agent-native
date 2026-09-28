@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   rulesLoading: false,
   firstRunOnboardingGateOwnsSurface: false,
+  onboardingPreview: false,
   startBackfill: vi.fn(),
   updateSettings: vi.fn(),
   settingsPending: false,
@@ -84,6 +85,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/onboarding", () => ({
   useFirstRunOnboardingGateOwnsSurface: () =>
     mocks.firstRunOnboardingGateOwnsSurface,
+  useOnboardingPreviewMode: () => mocks.onboardingPreview,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -173,6 +175,7 @@ describe("AiInboxSetup", () => {
     mocks.automations = [];
     mocks.rulesLoading = false;
     mocks.firstRunOnboardingGateOwnsSurface = false;
+    mocks.onboardingPreview = false;
     mocks.updateRule.mockReset();
     mocks.createRule.mockImplementation(async (input) => ({
       id: `rule-${++id}`,
@@ -205,13 +208,47 @@ describe("AiInboxSetup", () => {
   it("defers inbox setup while first-run onboarding owns the surface", () => {
     mocks.firstRunOnboardingGateOwnsSurface = true;
 
-    render(<AiInboxSetup forceOpen />);
+    const { container, rerender } = render(<AiInboxSetup forceOpen />);
 
     expect(
       screen.queryByRole("heading", {
         name: "mail.sort.aiSetupTagsHeadline",
       }),
     ).toBeNull();
+
+    mocks.googleStatus.isLoading = true;
+    rerender(<AiInboxSetup forceOpen />);
+
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("keeps first-run preview inline without a duplicate setup modal", () => {
+    mocks.onboardingPreview = true;
+
+    const { container } = render(
+      <>
+        <AiInboxSetup forceOpen />
+        <AiInboxSetup forceOpen embedded />
+      </>,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: "mail.sort.aiSetupTagReceipts" }),
+    ).toHaveLength(1);
+    expect(container.querySelectorAll("[role='dialog']")).toHaveLength(0);
+  });
+
+  it("renders the embedded setup while startup onboarding owns the surface", () => {
+    mocks.firstRunOnboardingGateOwnsSurface = true;
+
+    render(<AiInboxSetup forceOpen embedded />);
+
+    expect(
+      screen.getByRole("heading", { name: "mail.sort.aiSetupTagsHeadline" }),
+    ).not.toBeNull();
   });
 
   it("requires text or an explicit skip on the importance step", () => {
@@ -358,11 +395,19 @@ describe("AiInboxSetup", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
+    fireEvent.change(
+      await screen.findByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Keep project decisions visible" } },
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      await screen.findByRole("button", {
+        name: "mail.sort.aiSetupSortInbox",
+      }),
     );
 
     const skipButton = screen.getByRole("button", {
@@ -410,8 +455,10 @@ describe("AiInboxSetup", () => {
     const spamInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.filteredMode",
     }) as HTMLInputElement;
-    expect(archiveInput.value).toBe("mail.sort.aiSetupArchiveExample");
-    expect(spamInput.value).toBe("mail.sort.aiSetupFilteredExample");
+    expect(archiveInput.value).toBe("");
+    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
+    expect(spamInput.value).toBe("");
+    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
     expect(
       screen
         .getAllByRole("switch")
@@ -431,6 +478,9 @@ describe("AiInboxSetup", () => {
       }),
     );
     await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
     expect(mocks.createRule).not.toHaveBeenCalledWith(
       expect.objectContaining({
         actions: expect.arrayContaining([{ type: "archive" }]),
@@ -636,6 +686,25 @@ describe("AiInboxSetup", () => {
   it("shows a skeleton in first-run while Jev availability loads", () => {
     mocks.jevAvailability.isLoading = true;
     const { container } = render(<AiInboxSetup forceOpen embedded />);
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupTagsHeadline",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows the Settings setup skeleton while Google status loads", () => {
+    mocks.googleStatus.isLoading = true;
+    const { container } = render(<AiInboxSetup forceOpen />);
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
+  it("keeps Settings setup visible while Jev availability loads", () => {
+    mocks.jevAvailability.isLoading = true;
+    const { container } = render(<AiInboxSetup forceOpen />);
 
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(

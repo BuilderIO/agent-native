@@ -371,6 +371,7 @@ import {
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
+  DuplicateMode,
   FrameGeometry,
   GradientEditOverlayTarget,
   MultiScreenCanvasTool,
@@ -6817,7 +6818,7 @@ function DesignEditor() {
     (
       screenId: string,
       request?: {
-        mode?: "alt-click" | "alt-drag";
+        mode?: DuplicateMode;
         canvasPosition?: { x: number; y: number };
         canvasFrameGeometryById?: CanvasFrameGeometryById;
         preserveCamera?: boolean;

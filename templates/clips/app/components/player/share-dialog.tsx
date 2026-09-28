@@ -427,7 +427,7 @@ function ShareRecordingContent({
 
       <div className="px-3 py-2">
         {view === "main" ? (
-          viewerReshareOnly ? (
+          viewerReshareOnly && passwordProtected ? (
             peopleTab
           ) : (
             <ShareModeTabs

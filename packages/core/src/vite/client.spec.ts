@@ -3400,6 +3400,25 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("lets toolkit keep its pinned Tabler copy when the app declares another", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@tabler/icons-react": "^3.46.0",
+          "@tanstack/react-query": "^5.101.2",
+        },
+      }),
+    );
+
+    const dedupe = _getClientDedupe(tmpDir);
+    expect(dedupe).toContain("@tanstack/react-query");
+    expect(dedupe).not.toContain("@tabler/icons-react");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it("pre-optimizes core client deps when core is source-aliased", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-optimize-"));
     const coreRoot = path.resolve(import.meta.dirname, "../..");

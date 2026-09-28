@@ -13,6 +13,7 @@ import {
   IconChevronRight,
   IconDownload,
   IconExternalLink,
+  IconAlertCircle,
   IconKey,
   IconLoader2,
   IconLogout,
@@ -36,6 +37,7 @@ import { Link, useNavigate } from "react-router";
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
+import { builderSubscriptionUpgradeUrl } from "../../shared/builder-link-tracking.js";
 import type { UserProfile } from "../../user-profile/shared.js";
 import {
   Dialog,
@@ -88,6 +90,8 @@ export interface OrgSwitcherProps {
   className?: string;
   hideWhenSingle?: boolean;
   reserveSpace?: boolean;
+  /** Render its Builder credit notice elsewhere in the sidebar. */
+  hideBuilderCreditNotice?: boolean;
   /**
    * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the
    * org list, pending invitations and "Join your team", is identical; dropping
@@ -119,6 +123,98 @@ export interface OrgSwitcherProps {
 
 export type AccountMenuProps = OrgSwitcherProps;
 export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
+
+export function BuilderCreditNotice({
+  compact = false,
+  className,
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
+  const { data: org } = useOrg();
+  const builderCreditStatus = useActionQuery<{
+    exhausted: boolean;
+    period?: "daily" | "monthly";
+  } | null>(
+    "get-builder-credit-status",
+    { orgId: org?.orgId ?? null },
+    {
+      enabled: Boolean(org?.email),
+      staleTime: 30_000,
+      refetchInterval: 60_000,
+    },
+  );
+  const t = useT();
+
+  if (
+    builderCreditStatus.isError ||
+    builderCreditStatus.data?.exhausted !== true
+  ) {
+    return null;
+  }
+
+  const quotaLabel =
+    builderCreditStatus.data.period === "daily"
+      ? t("agentChat.usage.dailyFreeLimit")
+      : builderCreditStatus.data.period === "monthly"
+        ? t("agentChat.usage.monthlyPlan")
+        : null;
+  const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
+    .filter((label): label is string => label !== null)
+    .join(" · ");
+  const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
+    "builder_credit_limit_sidebar",
+  );
+  const noticeLabel = [title, t("agentChat.billing.builderCreditUpgrade")].join(
+    " · ",
+  );
+
+  return compact ? (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={noticeLabel}
+            className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <IconAlertCircle className="size-4" aria-hidden="true" />
+          </a>
+        </TooltipTrigger>
+        <TooltipContent side="right">{noticeLabel}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  ) : (
+    <div
+      role="status"
+      className={cn(
+        "rounded-md border border-border bg-muted px-2.5 py-2 text-xs",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <IconAlertCircle
+          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="leading-snug text-foreground">{title}</p>
+          <a
+            href={builderUpgradeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+          >
+            {t("agentChat.billing.builderCreditUpgrade")}
+            <IconArrowUpRight className="size-3" aria-hidden="true" />
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function nameFromEmail(email: string | null | undefined): string {
   if (!email) return "";
@@ -214,6 +310,7 @@ export function OrgSwitcher({
   hideWhenSingle,
   reserveSpace,
   compact,
+  hideBuilderCreditNotice,
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
@@ -342,7 +439,6 @@ export function OrgSwitcher({
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
     joinByDomain.error) as Error | null;
-
   const avatar = (
     <Avatar
       name={displayName}
@@ -717,42 +813,50 @@ export function OrgSwitcher({
 
   return (
     <>
-      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
-        {compact ? (
-          // The menu trigger has to sit directly on the button: both Radix
-          // slots merge their props into the same DOM node, and a provider
-          // between them would swallow the click that opens the menu.
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <span className="block font-medium">{displayName}</span>
-                <span className="block opacity-70">{organizationLabel}</span>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-1.5",
+          compact && "items-center",
         )}
-        <DropdownMenuContent
-          ref={contentRef}
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={12}
-          aria-label={t("agentChat.accountMenu.label")}
-          className="w-[max(15.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)]"
-          onCloseAutoFocus={(event) => {
-            if (!openingDialogRef.current) return;
-            openingDialogRef.current = false;
-            event.preventDefault();
-          }}
-        >
-          {view === "apps" && links.length > 0 ? appItems : mainItems}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      >
+        {!hideBuilderCreditNotice && <BuilderCreditNotice compact={compact} />}
+        <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+          {compact ? (
+            // The menu trigger has to sit directly on the button: both Radix
+            // slots merge their props into the same DOM node, and a provider
+            // between them would swallow the click that opens the menu.
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <span className="block font-medium">{displayName}</span>
+                  <span className="block opacity-70">{organizationLabel}</span>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          )}
+          <DropdownMenuContent
+            ref={contentRef}
+            side="top"
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
+            aria-label={t("agentChat.accountMenu.label")}
+            className="w-[max(15.5rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)]"
+            onCloseAutoFocus={(event) => {
+              if (!openingDialogRef.current) return;
+              openingDialogRef.current = false;
+              event.preventDefault();
+            }}
+          >
+            {view === "apps" && links.length > 0 ? appItems : mainItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <Dialog
         open={createOpen}

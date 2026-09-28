@@ -1649,6 +1649,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(onDuplicate).toHaveBeenCalledTimes(1);
     expect(onDuplicate.mock.calls[0]![0]).toBe("screen-a");
+    expect(onDuplicate.mock.calls[0]![1].mode).toBe("cmd-d");
   });
 
   it("duplicates a multi-selection on Cmd+D as one selected batch", async () => {
@@ -1701,6 +1702,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
 
     expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(onDuplicate.mock.calls[0]![1].mode).toBe("cmd-d");
     expect(onDuplicate.mock.calls[0]![1].canvasFrameGeometryById).toMatchObject(
       {
         "screen-a": { x: 0, y: 0, width: 320, height: 640 },

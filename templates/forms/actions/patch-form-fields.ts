@@ -1,4 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
@@ -79,6 +83,11 @@ export default defineAction({
         "Array of field ops (a JSON string of the same array is also accepted). Each op is {op:'upsert',field:{...}} | {op:'remove',id:string} | {op:'reorder',ids:string[]}",
       ),
   }),
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   run: async (args, ctx) => {
     await assertAccess("form", args.id, "editor");
 
@@ -152,7 +161,28 @@ export default defineAction({
             },
             ctx,
           );
-          return { id: args.id, fields: nextFields, updatedAt: now };
+          const priorFieldIds = new Set(currentFields.map((field) => field.id));
+          const addedFollowUps = nextFields
+            .map((field, index) => ({ field, index }))
+            .filter(
+              ({ field }) => field.conditional && !priorFieldIds.has(field.id),
+            );
+          const change =
+            addedFollowUps.length === 1
+              ? {
+                  verb: "created" as const,
+                  kind: "form-follow-up",
+                  title: addedFollowUps[0]!.field.label,
+                  detail: `#${addedFollowUps[0]!.index + 1}`,
+                  url: `/forms/${encodeURIComponent(args.id)}?tab=edit`,
+                }
+              : undefined;
+          return {
+            id: args.id,
+            fields: nextFields,
+            updatedAt: now,
+            ...(change ? { change } : {}),
+          };
         }
       }
 

@@ -254,6 +254,19 @@ describe("ChatRoute AgentKit surface", () => {
     ).toBeNull();
   });
 
+  it("keeps the empty chat state to its heading", () => {
+    routeState.threadId = "thread-one";
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      emptyState: React.ComponentType;
+    };
+    act(() => root.render(React.createElement(slots.emptyState)));
+
+    expect(container.querySelector("h1")?.textContent).toBe("chat.heroTitle");
+    expect(container.querySelector("p")).toBeNull();
+  });
+
   it("shows Builder setup only for a missing key on the first user message", () => {
     routeState.threadId = "thread-one";
     routeState.messages = [{ id: "user-1", role: "user" }];

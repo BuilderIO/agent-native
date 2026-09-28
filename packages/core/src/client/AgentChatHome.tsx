@@ -19,15 +19,16 @@ export function AgentChatHome({
   defaultMode = "chat",
   showHeader = false,
   showTabBar = false,
+  emptyStateDisplay = "hidden",
+  centerComposerWhenEmpty = true,
+  composerLayoutVariant = "hero",
+  suggestionPlacement = "after-composer",
+  homeIntroSlot,
+  afterComposerSlot,
   ...props
 }: AgentChatHomeProps) {
   return (
-    <main
-      className={cn(
-        "flex min-h-screen w-full bg-background px-3 py-3 sm:px-4 sm:py-4",
-        className,
-      )}
-    >
+    <div className={cn("flex min-h-0 w-full flex-1 bg-background", className)}>
       <div
         className={cn(
           "mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col",
@@ -40,13 +41,16 @@ export function AgentChatHome({
           defaultMode={defaultMode}
           showHeader={showHeader}
           showTabBar={showTabBar}
+          emptyStateDisplay={emptyStateDisplay}
+          centerComposerWhenEmpty={centerComposerWhenEmpty}
+          composerLayoutVariant={composerLayoutVariant}
+          suggestionPlacement={suggestionPlacement}
+          homeIntroSlot={homeIntroSlot}
+          afterComposerSlot={afterComposerSlot}
           chatViewTransition={chatViewTransition}
-          className={cn(
-            "min-h-0 flex-1 rounded-lg border border-border shadow-sm",
-            surfaceClassName,
-          )}
+          className={cn("min-h-0 flex-1", surfaceClassName)}
         />
       </div>
-    </main>
+    </div>
   );
 }

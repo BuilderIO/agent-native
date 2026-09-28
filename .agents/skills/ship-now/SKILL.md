@@ -4,9 +4,12 @@ description: >-
   Fast-path the current branch through local `pnpm prep:urgent`, targeted recovery,
   feedback resolution, whole-branch push, immediate admin merge, and
   fresh-branch rotation. Use when the user explicitly wants to merge
-  immediately after local prep recovery, then monitor beta, docs production,
-  and release workflows. GitHub Actions auto-deploys beta and the docs site
-  through the prebuilt publisher; other production promotion is manual.
+  immediately after local prep recovery, then monitor CI, beta publisher, docs,
+  and release workflows. Independent beta behavior checks require an explicit
+  request or an environment-specific risk, as defined in `ship-and-monitor`.
+  GitHub Actions auto-deploys
+  beta and the docs site through the prebuilt publisher; other production
+  promotion is manual.
 ---
 
 # Ship Now
@@ -24,45 +27,30 @@ Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
 which builds in GitHub Actions and uploads prebuilt artifacts to the independent
 Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
 auto-builds are disabled, so do not wait for Netlify build queues or
-deploy-preview checks; verify the Actions run and its per-site smoke checks.
+deploy-preview checks; verify the Actions run and its built-in per-site smoke
+checks. Independent beta behavior checks follow the gate below; routine source
+changes do not get an extra beta smoke just because they were published.
 Production promotion is manual for other production sites. The public docs
 site is the temporary exception: matching `main` changes trigger
 `.github/workflows/deploy-docs-production.yml`, which publishes
 `www.agent-native.com` directly and disables its Git-connected Netlify builds.
-`/ship-now` monitors beta, docs production, and any release tail after the
-fast merge; it does not imply that other production sites were promoted. If a
-critical fix needs another production site, explicitly run the manual
-promotion and monitor that result separately.
+`/ship-now` monitors the beta publisher, docs production, and any release tail
+after the fast merge; it does not imply that other production sites were
+promoted. If a critical fix needs another production site, explicitly run the
+manual promotion and monitor that result separately.
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it
 manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
 as a deployment step; clearing one is not the production promotion.
 
-## Auth-path post-merge gate
+## Auth-path beta gate
 
-When a merge changes Better Auth, OAuth callback/identity plumbing, or the
-shared AuthPage/onboarding surface, beta deployment is only the built-runtime
-checkpoint. After the affected beta sites deploy, dispatch both lanes below
-from `main`, using the exact affected app ids:
-
-```bash
-gh workflow run beta-e2e.yml --ref main \
-  -f lane=signup \
-  -f signup_apps=<email-signup-affected-apps> \
-  -f signup_environments=beta
-gh workflow run beta-e2e.yml --ref main \
-  -f lane=public+authed \
-  -f apps=<affected-beta-apps>
-```
-
-The signup lane's `signup_apps` input is independent of the browser lane's
-`apps` input. Wait for the signup job's classified output to be exactly
-`success` and for the affected browser lane to pass. Complete each touched
-Google callback in a real browser session as well; the seeded authenticated
-lane deliberately excludes Google-only Mail and Calendar. A failure,
-cancellation, inconclusive Mailosaur result, missing beta deploy, or untested
-provider path stays Open - do not report the auth fix as done.
+Use the host-dependent auth gate in `.agents/skills/ship-and-monitor/SKILL.md`.
+Run beta E2E only when changed auth behavior depends on beta host/cookie
+settings, provider callback registration, deployed auth configuration, or
+serverless session behavior; AuthPage copy or layout changes alone do not
+trigger it.
 
 ## Fast-path contract
 

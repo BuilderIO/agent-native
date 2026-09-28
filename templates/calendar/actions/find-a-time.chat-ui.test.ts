@@ -45,6 +45,13 @@ describe("find-a-time chat card", () => {
           durationMin: 45,
         },
       ],
+      change: {
+        verb: "created",
+        kind: "calendar-time-choice",
+        title: "Best shared time",
+        detail: "Thu, Apr 23 · 10:30 AM–11:15 AM · PT",
+        url: "calendar:/home?createSlot=1&start=2026-04-23T17%3A30%3A00.000Z&end=2026-04-23T18%3A15%3A00.000Z&timezone=America%2FLos_Angeles",
+      },
     };
     const chatUI = action.chatUI!;
 
@@ -59,11 +66,28 @@ describe("find-a-time chat card", () => {
       },
     });
 
-    const unavailable = {
-      ...result,
-      errors: [{ email: "guest@example.test" }],
-    };
+    const unavailable = { errors: [{ email: "guest@example.test" }] };
     expect(chatUI.when?.({}, unavailable)).toBe(false);
     expect(chatUI.projectResult?.({}, unavailable)).toBeNull();
+  });
+
+  it("formats the choice detail in the caller locale", () => {
+    const result = {
+      change: {
+        verb: "created",
+        kind: "calendar-time-choice",
+        title: "Best shared time",
+        detail: "jeu. 23 avr. · 10:30–11:15 · PT",
+        url: "calendar:/home?createSlot=1&start=2026-04-23T17%3A30%3A00.000Z&end=2026-04-23T18%3A15%3A00.000Z&timezone=America%2FLos_Angeles",
+      },
+    };
+    const projected = action.chatUI!.projectResult!({}, result) as {
+      change: { detail: string };
+    };
+
+    expect(projected.change.detail).toContain("10:30");
+    expect(projected.change.detail).not.toMatch(
+      /Thu|Apr|AM|America\/Los_Angeles/u,
+    );
   });
 });

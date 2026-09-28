@@ -172,9 +172,12 @@ function loadRememberUserFocusedElement() {
     var userFocusedElement = null;
     var trustedFocusIntent = null;
     var rovingGroupSelector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
+    var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
     var window = {
       setTimeout: function (callback) { timers.push(callback); },
-      getComputedStyle: function () { return { direction: "ltr" }; },
+      getComputedStyle: function (element) {
+        return { direction: element.getAttribute("dir") || "ltr" };
+      },
     };
     function getCanvasFocusTarget(event) { return event.target; }
     ${isRovingFocusSibling}
@@ -218,16 +221,45 @@ function loadRememberUserFocusedElement() {
   };
 }
 
+function canvasFocusTransferIsSafe(options: {
+  activeElement: Element;
+  activeTextEditEl: HTMLElement | null;
+  userFocusedElement: Element | null;
+}): boolean {
+  const source = extractFunction(
+    loadEditorChromeBridgeScript(),
+    "isCanvasFocusTransferSafe",
+  );
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(
+    "activeElement",
+    "activeTextEditEl",
+    "userFocusedElement",
+    `var document = { activeElement: activeElement }; var trustedFocusIntent = null; ${source}\nreturn isCanvasFocusTransferSafe();`,
+  );
+  return factory(
+    options.activeElement,
+    options.activeTextEditEl,
+    options.userFocusedElement,
+  ) as boolean;
+}
+
 type FocusTestElement = {
   tagName: string;
+  type: string;
+  name: string;
+  checked: boolean;
+  form: FocusTestElement | null;
   parentElement: FocusTestElement | null;
   children: FocusTestElement[];
+  matches: (selector: string) => boolean;
   getAttribute: (name: string) => string | null;
   setAttribute: (name: string, value: string) => void;
   matchesSelector: (selector: string) => boolean;
   closest: (selector: string) => FocusTestElement | null;
   querySelectorAll: (selector: string) => FocusTestElement[];
   contains: (other: FocusTestElement) => boolean;
+  getRootNode: () => FocusTestElement;
 };
 
 function createFocusTestElement(
@@ -237,6 +269,22 @@ function createFocusTestElement(
 ): FocusTestElement {
   const node = {
     tagName: tagName.toUpperCase(),
+    get type() {
+      return attributes.type ?? "";
+    },
+    get name() {
+      return attributes.name ?? "";
+    },
+    get checked() {
+      return attributes.checked === "true";
+    },
+    set checked(value: boolean) {
+      if (value) attributes.checked = "true";
+      else delete attributes.checked;
+    },
+    get form() {
+      return node.closest("form");
+    },
     parentElement: null as FocusTestElement | null,
     children,
     getAttribute(name: string) {
@@ -245,23 +293,24 @@ function createFocusTestElement(
     setAttribute(name: string, value: string) {
       attributes[name] = value;
     },
+    matches(selector: string) {
+      return node.matchesSelector(selector);
+    },
     matchesSelector(selector: string) {
       return selector.split(",").some((candidate) => {
         const normalized = candidate.trim();
-        if (normalized === "[tabindex]")
-          return attributes.tabindex !== undefined;
-        const roleMatch = normalized.match(/^\[role="([^"]+)"\]$/);
-        if (roleMatch) return attributes.role === roleMatch[1];
-        const tableRoleMatch = normalized.match(/^table\[role="([^"]+)"\]$/);
-        if (tableRoleMatch) {
-          return (
-            node.tagName === "TABLE" && attributes.role === tableRoleMatch[1]
-          );
+        if (normalized === 'input:not([type="hidden"])') {
+          return node.tagName === "INPUT" && attributes.type !== "hidden";
         }
-        const hrefMatch = normalized.match(/^([a-z]+)\[href\]$/);
-        if (hrefMatch) {
+        const attributeMatch = normalized.match(
+          /^([a-z]+)?\[([a-z-]+)(?:="([^"]*)")?\]$/i,
+        );
+        if (attributeMatch) {
+          const [, tag, name, value] = attributeMatch;
           return (
-            node.tagName === hrefMatch[1].toUpperCase() && !!attributes.href
+            (!tag || node.tagName === tag.toUpperCase()) &&
+            attributes[name] !== undefined &&
+            (value === undefined || attributes[name] === value)
           );
         }
         return node.tagName === normalized.toUpperCase();
@@ -293,6 +342,11 @@ function createFocusTestElement(
         current = current.parentElement;
       }
       return false;
+    },
+    getRootNode() {
+      let root: FocusTestElement = node as FocusTestElement;
+      while (root.parentElement) root = root.parentElement;
+      return root;
     },
   } as FocusTestElement;
   for (const child of children) child.parentElement = node;
@@ -347,6 +401,43 @@ const radiusDragMaximums =
   >("radiusDragMaximums");
 
 describe("editor-chrome bridge — focus ownership", () => {
+  it("only protects focus while the active element is inside a Design text edit", () => {
+    const appSearch = {
+      isConnected: true,
+      contains: () => false,
+    } as unknown as HTMLElement;
+    const textEdit = {
+      isConnected: true,
+      contains: (element: Element) => element !== appSearch,
+    } as unknown as HTMLElement;
+    const staleTextEdit = {
+      isConnected: false,
+      contains: () => false,
+    } as unknown as HTMLElement;
+
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: appSearch,
+        activeTextEditEl: textEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(true);
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: textEdit,
+        activeTextEditEl: textEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(false);
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: appSearch,
+        activeTextEditEl: staleTextEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(true);
+  });
+
   it("does not treat programmatic refocus as user intent", () => {
     const input = {} as Element;
     const focusTracker = loadRememberUserFocusedElement();
@@ -420,6 +511,109 @@ describe("editor-chrome bridge — focus ownership", () => {
     focusTracker.remember({ target: second, composedPath: () => [second] });
 
     expect(focusTracker.focused()).toBe(second);
+  });
+
+  it("tracks same-name native radios by form owner and wraps at the ends", () => {
+    const first = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+      checked: "true",
+    });
+    const middle = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    const last = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    createFocusTestElement("form", {}, [first, middle, last]);
+    const otherFormRadio = createFocusTestElement("input", {
+      type: "radio",
+      name: "choice",
+    });
+    createFocusTestElement("form", {}, [otherFormRadio]);
+    const focusTracker = loadRememberUserFocusedElement();
+
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    last.checked = true;
+    first.checked = false;
+    focusTracker.remember({ target: last, composedPath: () => [last] });
+    expect(focusTracker.focused()).toBe(last);
+
+    focusTracker.setIntent({
+      target: first,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    focusTracker.remember({
+      target: otherFormRadio,
+      composedPath: () => [otherFormRadio],
+    });
+    expect(focusTracker.focused()).toBeNull();
+  });
+
+  it("tracks adjacent grid-cell controls without roving-attribute changes", () => {
+    const firstControl = createFocusTestElement("button");
+    const secondControl = createFocusTestElement("input");
+    createFocusTestElement("div", { role: "grid" }, [
+      createFocusTestElement("div", { role: "row" }, [
+        createFocusTestElement("div", { role: "gridcell" }, [firstControl]),
+        createFocusTestElement("div", { role: "gridcell" }, [secondControl]),
+      ]),
+    ]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: firstControl,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+
+    focusTracker.remember({
+      target: secondControl,
+      composedPath: () => [secondControl],
+    });
+
+    expect(focusTracker.focused()).toBe(secondControl);
+  });
+
+  it("tracks supported arrow wrapping at group boundaries", () => {
+    for (const [role, itemRole, key] of [
+      ["radiogroup", "radio", "ArrowLeft"],
+      ["tablist", "tab", "ArrowLeft"],
+      ["menu", "menuitem", "ArrowUp"],
+      ["menubar", "menuitem", "ArrowLeft"],
+      ["toolbar", "button", "ArrowLeft"],
+    ] as const) {
+      const first = createFocusTestElement("div", {
+        role: itemRole,
+        tabindex: "0",
+      });
+      const last = createFocusTestElement("div", {
+        role: itemRole,
+        tabindex: "-1",
+      });
+      createFocusTestElement("div", { role }, [first, last]);
+      const focusTracker = loadRememberUserFocusedElement();
+      focusTracker.setIntent({
+        target: first,
+        kind: "navigation",
+        key,
+        expiresAt: Date.now() + 1000,
+      });
+      first.setAttribute("tabindex", "-1");
+      last.setAttribute("tabindex", "0");
+      focusTracker.remember({ target: last, composedPath: () => [last] });
+
+      expect(focusTracker.focused()).toBe(last);
+    }
   });
 
   it("tracks grid arrows across header and data-cell roles", () => {
@@ -651,6 +845,80 @@ describe("editor-chrome bridge — focus ownership", () => {
     focusTracker.runTimer();
     expect(focusTracker.pendingTimers()).toBe(0);
     expect(focusTracker.intent()).toBeNull();
+  });
+
+  it("skips mounted descendants of collapsed tree items", () => {
+    const parent = createFocusTestElement(
+      "div",
+      { role: "treeitem", tabindex: "0", "aria-expanded": "false" },
+      [
+        createFocusTestElement("div", { role: "group" }, [
+          createFocusTestElement("div", {
+            role: "treeitem",
+            tabindex: "-1",
+          }),
+        ]),
+      ],
+    );
+    const nextVisible = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "-1",
+    });
+    createFocusTestElement("div", { role: "tree" }, [parent, nextVisible]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: parent,
+      kind: "navigation",
+      key: "ArrowDown",
+      expiresAt: Date.now() + 1000,
+    });
+    parent.setAttribute("tabindex", "-1");
+    nextVisible.setAttribute("tabindex", "0");
+
+    focusTracker.remember({
+      target: nextVisible,
+      composedPath: () => [nextVisible],
+    });
+
+    expect(focusTracker.focused()).toBe(nextVisible);
+  });
+
+  it("reverses tree parent and child arrows in RTL", () => {
+    const parent = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "0",
+      "aria-expanded": "true",
+    });
+    const child = createFocusTestElement("div", {
+      role: "treeitem",
+      tabindex: "-1",
+    });
+    const group = createFocusTestElement("div", { role: "group" }, [child]);
+    group.parentElement = parent;
+    parent.children.push(group);
+    createFocusTestElement("div", { role: "tree", dir: "rtl" }, [parent]);
+    const focusTracker = loadRememberUserFocusedElement();
+    focusTracker.setIntent({
+      target: parent,
+      kind: "navigation",
+      key: "ArrowLeft",
+      expiresAt: Date.now() + 1000,
+    });
+    parent.setAttribute("tabindex", "-1");
+    child.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: child, composedPath: () => [child] });
+    expect(focusTracker.focused()).toBe(child);
+
+    focusTracker.setIntent({
+      target: child,
+      kind: "navigation",
+      key: "ArrowRight",
+      expiresAt: Date.now() + 1000,
+    });
+    child.setAttribute("tabindex", "-1");
+    parent.setAttribute("tabindex", "0");
+    focusTracker.remember({ target: parent, composedPath: () => [parent] });
+    expect(focusTracker.focused()).toBe(parent);
   });
 
   it("does not treat autofocus on a second toolbar button as arrow navigation", () => {

@@ -41,7 +41,7 @@ describe("summarizeArchiveFailures", () => {
       succeeded: 0,
       total: 1,
       failures: [
-        "Email service is briefly busy and will be ready again in about 90s. Ask the user for the missing info if you need it now.",
+        "Email service is briefly busy and will be ready again in about 90s.",
       ],
     });
 

@@ -23,6 +23,7 @@ const TEST_DB_PATH = join(
 type Schema = typeof import("../db/schema.js");
 let getDb: () => any;
 let schema: Schema;
+let updateAttribute: typeof import("../../actions/update-crm-attribute.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -31,6 +32,8 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as any);
+  updateAttribute = (await import("../../actions/update-crm-attribute.js"))
+    .default;
 }, 60000);
 
 afterAll(() => {
@@ -528,6 +531,67 @@ describe("native CRM typed-attribute boundary", () => {
     expect(stagePolicy).toMatchObject({
       attributeType: "status",
       authority: "local-authoritative",
+    });
+  });
+
+  it("preserves template attribute edits when native records are written", async () => {
+    const connectionId = `native-typed-edit-${crypto.randomUUID()}`;
+    const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
+    const record = {
+      connectionId,
+      provider: "native" as const,
+      objectType: "opportunities",
+      kind: "opportunity" as const,
+      remoteId: `opp-${crypto.randomUUID()}`,
+    };
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "create",
+        record,
+        fields: { name: "Acme deal", amount: 184000 },
+        idempotencyKey: `create-${record.remoteId}`,
+      }),
+    );
+
+    const amountPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(amountPolicy).toBeDefined();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateAttribute.run(
+        {
+          attributeId: amountPolicy!.id,
+          title: "Valor",
+          required: true,
+          config: { currency: { code: "BRL" } },
+        } as never,
+        { caller: "frontend", userEmail: OWNER } as never,
+      ),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "update",
+        record,
+        fields: { amount: 200000 },
+        idempotencyKey: `update-${record.remoteId}`,
+      }),
+    );
+
+    const updatedPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(updatedPolicy).toMatchObject({
+      label: "Valor",
+      required: true,
+      attributeType: "currency",
+    });
+    expect(JSON.parse(updatedPolicy!.configJson)).toEqual({
+      currency: { code: "BRL" },
     });
   });
 
