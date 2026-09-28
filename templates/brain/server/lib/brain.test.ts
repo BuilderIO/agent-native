@@ -694,6 +694,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
+  refreshSlackPrivateChannelAudience: vi.fn(async () => undefined),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -794,7 +795,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  refreshSlackPrivateChannelAudience,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -3729,6 +3733,150 @@ describe("Brain connector smoke coverage", () => {
         capture?.content.slice(segment.startOffset, segment.endOffset),
       ),
     ).toEqual(segments.map((segment) => segment.text));
+  });
+
+  it("refreshes private-channel membership even when no new messages exist", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: ["U123", "U456"] });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        const email =
+          url.searchParams.get("user") === "U123"
+            ? "ada@example.test"
+            : "grace@example.test";
+        return Response.json({ ok: true, user: { profile: { email } } });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({ ok: true, messages: [], has_more: false });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-idle-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
+      source,
+      channelId: "G123",
+      memberEmails: ["ada@example.test", "grace@example.test"],
+    });
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an idle audience with a revoked Slack member removed", async () => {
+    let memberIds = ["U123", "U456"];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: memberIds });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        const email =
+          url.searchParams.get("user") === "U123"
+            ? "ada@example.test"
+            : "grace@example.test";
+        return Response.json({ ok: true, user: { profile: { email } } });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({ ok: true, messages: [], has_more: false });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-revoked-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    await runConnectorSync(source as never);
+    memberIds = ["U123"];
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
+      [
+        {
+          source,
+          channelId: "G123",
+          memberEmails: ["ada@example.test", "grace@example.test"],
+        },
+      ],
+      [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
+    ]);
+  });
+
+  it("does not refresh a private audience when Slack membership is unresolved", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: ["U123"] });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        return Response.json({ ok: true, user: { profile: {} } });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-unresolved-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 0,
+      stats: { rejectedChannels: 1 },
+    });
+    expect(refreshSlackPrivateChannelAudience).not.toHaveBeenCalled();
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
   });
 
   it("paginates private Slack membership before deriving the member-scoped audience", async () => {

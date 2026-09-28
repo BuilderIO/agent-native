@@ -8,7 +8,10 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import { listAccessibleAudienceIds } from "./audiences.js";
+import {
+  listAccessibleAudienceIds,
+  refreshSlackPrivateChannelAudience,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   createCapture,
@@ -2491,6 +2494,13 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
       if (channel.is_private && !privateMemberEmails?.length) {
         stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
         continue;
+      }
+      if (channel.is_private && privateMemberEmails) {
+        await refreshSlackPrivateChannelAudience({
+          source,
+          channelId: channel.id,
+          memberEmails: privateMemberEmails,
+        });
       }
 
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
