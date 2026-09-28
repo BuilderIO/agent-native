@@ -949,7 +949,10 @@ export default {
     recentSales: "المبيعات الأخيرة",
     recentSalesDescription: "حققت 265 عملية بيع هذا الشهر.",
   },
-  analysisResult: { title: "نتيجة التحليل" },
+  analysisResult: {
+    title: "نتيجة التحليل",
+    comparisonContext: "{{period}}: {{current}} مقابل {{previous}}",
+  },
   routeTitles: {
     notFound: "غير موجود - Analytics",
     analysis: "تحليل - Analytics",

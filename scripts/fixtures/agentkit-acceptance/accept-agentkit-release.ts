@@ -9,6 +9,7 @@ export default defineAction({
     release: z
       .literal("agentkit-acceptance")
       .describe("The release contract being accepted"),
+    environment: z.literal("production"),
   }),
   chatUI: {
     renderer: ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
