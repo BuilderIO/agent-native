@@ -11,6 +11,8 @@ import {
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
+import { installBridge, waitForBridge } from "./helpers";
+
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -537,6 +539,19 @@ test.describe("URL-backed live auto-layout probe", () => {
     };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
+    await installBridge(page);
+    await page.evaluate(() => ((window as any).__bridge = []));
+    await iframe.evaluate((element) => {
+      element.contentWindow?.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="v1"]',
+        },
+        "*",
+      );
+    });
+    const selectedNode = await waitForBridge(page, "element-select");
+    expect(selectedNode.payload?.sourceId).toBe("v1");
     const sourceBounds = await source.boundingBox();
     const targetBounds = await target.boundingBox();
     if (!sourceBounds || !targetBounds) {
@@ -547,21 +562,6 @@ test.describe("URL-backed live auto-layout probe", () => {
       sourceBounds.y + sourceBounds.height / 2,
     );
     await expectCanvasFocus();
-    await page.mouse.click(
-      sourceBounds.x + sourceBounds.width / 2,
-      sourceBounds.y + sourceBounds.height / 2,
-    );
-    await expect
-      .poll(() =>
-        focusFrame
-          .locator('[data-agent-native-edit-overlay="selection"]')
-          .evaluate((element) => getComputedStyle(element).display !== "none"),
-      )
-      .toBe(true);
-    await page.mouse.move(
-      sourceBounds.x + sourceBounds.width / 2,
-      sourceBounds.y + sourceBounds.height / 2,
-    );
     await page.mouse.down();
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2 + 10,
