@@ -115,8 +115,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       `const { data: currentViewEmails = [] } = useEmails(
     isMailboxView ? view : "inbox",
-    activeSearchQuery ?? undefined,
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined,
     activeLabel ?? undefined,`,
+    );
+  });
+
+  it("keys the shell mailbox query to the active saved filter", () => {
+    const source = appLayoutSource();
+
+    expect(source).toMatch(
+      /const activeSavedFilterQuery = savedFilters\.find\(\s*\(filter\) => filter\.id === activeFilterId,\s*\)\?\.query;/,
+    );
+    expect(source).toContain(
+      "activeSavedFilterQuery ?? activeSearchQuery ?? undefined",
     );
   });
 

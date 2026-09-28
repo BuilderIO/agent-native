@@ -564,6 +564,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
   const { data: automations = [] } = useAutomations();
   const aiTags = useMemo(() => {
     const tags = new Map<string, { id: string; name: string }>();
@@ -809,7 +812,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ].includes(view);
   const { data: currentViewEmails = [] } = useEmails(
     isMailboxView ? view : "inbox",
-    activeSearchQuery ?? undefined,
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined,
     activeLabel ?? undefined,
     { enabled: isMailboxView },
   );
