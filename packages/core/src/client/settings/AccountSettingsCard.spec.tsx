@@ -402,7 +402,7 @@ describe("AccountSettingsForm name editing", () => {
     expect(container.textContent).toContain("E-Mail-Adresse ändern");
   });
 
-  it("renders the sign-out action in account settings", async () => {
+  it("leaves Log out to the account menu", async () => {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -411,11 +411,8 @@ describe("AccountSettingsForm name editing", () => {
       );
     });
 
-    const signOutRow = container.querySelector("#sign-out");
-    expect(signOutRow?.textContent).toContain("Log out");
-    expect(signOutRow?.querySelector("button")?.textContent?.trim()).toBe(
-      "Log out",
-    );
+    expect(container.querySelector("#sign-out")).toBeNull();
+    expect(container.textContent).not.toContain("Log out");
   });
 
   it("keeps privacy requests behind the Account settings UI confirmation", async () => {

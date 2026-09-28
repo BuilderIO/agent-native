@@ -909,17 +909,6 @@ export async function listCrmSignals(input: {
     .limit(Math.min(Math.max(input.limit, 1), 100));
 }
 
-/**
- * The field map a stored mutation payload carries, or `present: false` when it
- * carries none.
- *
- * Only a payload wrapping its values in `fields` holds field values.
- * `before_json` and `after_json` hold revision metadata (`{ remoteRevision }`)
- * or a merge summary, so reading them as a field map invented a
- * `remoteRevision` "field" and — worse — made a real change render as
- * "Empty → Empty". A payload that never recorded a value is not a payload that
- * recorded an empty one.
- */
 export type CrmProposalValues =
   | { present: false }
   | { present: true; values: Record<string, Primitive> };
@@ -1057,9 +1046,6 @@ export async function listCrmProposals(input: {
         expectedRemoteRevision: proposal.expectedRemoteRevision,
         createdAt: proposal.createdAt,
         appliedAt: proposal.appliedAt,
-        // Resolved per field name, never per payload: picking `after_json`
-        // wholesale whenever it held any key dropped the change `patch_json`
-        // carries, which is what rendered a real edit as "Empty → Empty".
         fields: fieldNames.map((name) => {
           const beforeValue = proposalValueOf(before, name);
           const afterValue = proposalValueOf(after, name);

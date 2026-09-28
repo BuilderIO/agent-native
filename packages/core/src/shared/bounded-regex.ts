@@ -1,52 +1,13 @@
-/**
- * Bounded evaluation of regular expressions that come from an agent or an end
- * user rather than from source.
- *
- * `new RegExp(source).test(value)` is not a bounded operation. A pattern an LLM
- * routinely writes for "must be at least two words" — `^([A-Za-z]+\s?)+$` — is
- * 17 characters, compiles cleanly, and backtracks exponentially: matching it
- * against a 26-character non-matching value already costs ~750 ms and doubles
- * with every additional character. Stored on a form field it freezes the
- * respondent's tab and, because the same pattern is re-checked server side on
- * submit, the request handler's event loop with it. Capping the input length
- * does not help; the blowup is reached well inside any sane cap.
- *
- * There is no timeout on `RegExp` in JavaScript, so the bound has to come from
- * refusing to run patterns whose shape permits the blowup. `analyzeRegexSource`
- * is that refusal, and it is deliberately a heuristic: it recognises the
- * ambiguity signatures that cause super-linear backtracking rather than proving
- * their absence. Patterns it clears are still evaluated against a capped input.
- *
- * Callers get a tri-state result. "Did not match" and "was not evaluated" are
- * different answers, and collapsing the second into the first is how an
- * unenforceable rule silently becomes an enforced-looking one.
- */
-
-/** Longest pattern source accepted. Real validation patterns are far shorter. */
 export const MAX_USER_REGEX_LENGTH = 512;
 
-/** Longest value fed to a user-authored pattern. */
 export const MAX_USER_REGEX_INPUT_LENGTH = 4096;
 
-/** Largest finite repetition count accepted for a capped input. */
 const MAX_USER_REGEX_REPEAT = MAX_USER_REGEX_INPUT_LENGTH;
 
-/** Nesting depth beyond which the analyzer stops trusting its own reading. */
 const MAX_GROUP_DEPTH = 12;
 
-/**
- * Flags that change which characters an atom matches, and so have to reach the
- * probes. `m` and `d` cannot affect a single-character membership test, and
- * `g`/`y` would break it outright by carrying `lastIndex` between probes.
- */
 const MATCHING_FLAGS = ["i", "s", "u", "v"];
 
-/**
- * Baseline probe characters, covering the common shorthand classes. This set
- * alone is not enough: a pattern over letters this list happens to omit (`A`,
- * `x`) would produce empty character sets and read as unambiguous, so
- * `collectProbeChars` adds every character the pattern itself names.
- */
 const BASE_PROBE_CHARS = [
   "a",
   "Z",
@@ -65,15 +26,8 @@ const BASE_PROBE_CHARS = [
   "!",
 ];
 
-/** Escapes that denote a class or assertion rather than a literal character. */
 const NON_LITERAL_ESCAPES = new Set("dDwWsSbBnrtfvxucpPk0123456789".split(""));
 
-/**
- * Probe alphabet for one pattern: the baseline plus every literal character the
- * pattern mentions, including character-class members and range endpoints. Two
- * atoms can only be compared on characters the probe set actually contains, so
- * anything the pattern names has to be in it.
- */
 function collectProbeChars(source: string): string[] {
   const chars = new Set(BASE_PROBE_CHARS);
   for (let i = 0; i < source.length; i += 1) {
@@ -101,14 +55,10 @@ type AtomKind =
 
 interface RegexAtom {
   kind: AtomKind;
-  /** Atom source with its quantifier stripped. */
   source: string;
-  /** Present for groups: the alternation branches of the group body. */
   branches?: RegexAtom[][];
-  /** Lookarounds match a position, not text, so they cost no input. */
   zeroWidth?: boolean;
   min: number;
-  /** `Number.POSITIVE_INFINITY` for `*`, `+` and `{n,}`. */
   max: number;
 }
 
@@ -154,8 +104,6 @@ function parseQuantifier(state: ParseState): { min: number; max: number } {
         : min;
     }
   }
-  // A lazy or possessive marker changes match semantics, not the ambiguity
-  // that drives backtracking cost.
   if (source[state.index] === "?" || source[state.index] === "+") {
     if (max !== 1 || min !== 1) state.index += 1;
   }
@@ -164,7 +112,7 @@ function parseQuantifier(state: ParseState): { min: number; max: number } {
 
 function parseCharClass(state: ParseState): string {
   const start = state.index;
-  state.index += 1; // consume "["
+  state.index += 1;
   if (state.source[state.index] === "^") state.index += 1;
   if (state.source[state.index] === "]") state.index += 1;
   while (state.index < state.source.length) {
@@ -241,9 +189,6 @@ function parseSequence(state: ParseState): RegexAtom[] {
       kind = "class";
     } else if (ch === "\\") {
       const next = state.source[state.index + 1];
-      // `\p{L}` is one atom. Reading it as `\p` plus a literal `{L}` both
-      // misjudges its character set and leaves a stray `}` to carry the
-      // quantifier, so the verdict then describes a pattern nobody wrote.
       if (
         (next === "p" || next === "P") &&
         state.source[state.index + 2] === "{"
@@ -308,11 +253,6 @@ function isNullable(atom: RegexAtom): boolean {
   return false;
 }
 
-/**
- * Whether this atom can consume different numbers of characters. `{1,10}` is
- * finite but still ambiguous under an outer repetition, so a bounded quantifier
- * is not automatically safe.
- */
 function isVariableLength(atom: RegexAtom): boolean {
   if (atom.max > atom.min) return true;
   if (atom.kind !== "group") return false;
@@ -322,7 +262,6 @@ function isVariableLength(atom: RegexAtom): boolean {
   return lengths.size > 1;
 }
 
-/** Smallest number of characters a branch must consume. */
 function minLength(branch: RegexAtom[]): number {
   let total = 0;
   for (const atom of consuming(branch)) {
@@ -334,19 +273,8 @@ function minLength(branch: RegexAtom[]): number {
   return total;
 }
 
-/**
- * Characters an atom can match in one position, or `unknown` when the analyzer
- * cannot characterize it. `unknown` overlaps everything: an atom we cannot read
- * must not be reported as provably disjoint from its neighbour.
- */
 type CharSet = Set<string> | "unknown";
 
-/**
- * Derived by asking the engine itself, one probe character at a time, so a
- * single-character match can never be the expensive case. The pattern flags
- * matter here: under `i`, `a` and `A` are the same character, which is what
- * turns an otherwise disjoint alternation into an ambiguous one.
- */
 function charSetOf(atom: RegexAtom, ctx: AnalysisContext): CharSet {
   const memoized = ctx.charSets.get(atom);
   if (memoized) return memoized;
@@ -377,12 +305,9 @@ function computeCharSet(atom: RegexAtom, ctx: AnalysisContext): CharSet {
   for (const ch of ctx.probeChars) {
     if (probe.test(ch)) set.add(ch);
   }
-  // A consuming atom that matches none of the probes is one the probe alphabet
-  // cannot describe, not one that matches nothing.
   return set.size === 0 ? "unknown" : set;
 }
 
-/** Characters a branch can start with, looking past nullable leading atoms. */
 function leadingCharSet(branch: RegexAtom[], ctx: AnalysisContext): CharSet {
   const set = new Set<string>();
   for (const atom of branch) {
@@ -402,11 +327,6 @@ function overlaps(a: CharSet, b: CharSet): boolean {
 
 interface AnalysisContext {
   flags: string;
-  /**
-   * Each atom's set is asked for repeatedly — once per neighbour and once per
-   * alternation pair — and every miss costs a `RegExp` compile plus one probe
-   * per character. Without this the pair loop is cubic in the pattern length.
-   */
   charSets: Map<RegexAtom, CharSet>;
   probeChars: readonly string[];
 }
@@ -422,12 +342,6 @@ function consuming(branch: RegexAtom[]): RegexAtom[] {
   return branch.filter((atom) => atom.kind !== "anchor" && !atom.zeroWidth);
 }
 
-/**
- * Longest run of input one iteration of this branch can swallow. A body that
- * can only ever take a single character cannot hand characters back and forth
- * between iterations, which is what separates `(a?)+` and `([A-Z0-9]?){0,16}`
- * — both linear — from `(a+)+` and `([a-z]*)*`.
- */
 function maxIterationLength(branch: RegexAtom[]): number {
   let total = 0;
   for (const atom of consuming(branch)) {
@@ -456,12 +370,6 @@ function describe(atom: RegexAtom): string {
   return `${atom.source}${quantifier}`;
 }
 
-/**
- * Whether two fixed-length branches match exactly the same text, position by
- * position. `(ab|ab)+` offers the engine an indistinguishable choice on every
- * iteration, which is the same exponential fan-out as `(a|a)+` without being
- * two single atoms. `(cat|car)+` differs in its last position and is fine.
- */
 function sameLanguage(
   a: RegexAtom[],
   b: RegexAtom[],
@@ -475,7 +383,6 @@ function sameLanguage(
     if (atom.min !== other.min || atom.max !== other.max) return false;
     const setA = charSetOf(atom, ctx);
     const setB = charSetOf(other, ctx);
-    // Two atoms the probe alphabet cannot describe are not provably different.
     if (setA === "unknown" || setB === "unknown") return true;
     return setA.size === setB.size && [...setA].every((ch) => setB.has(ch));
   });
@@ -490,12 +397,8 @@ function analyzeRepeatedGroup(
   for (const branch of branches) {
     const atoms = consuming(branch);
     if (atoms.length === 0) continue;
-    // One character per iteration leaves nothing for the iterations to argue
-    // over, so none of the splitting rules below can apply.
     if (maxIterationLength(branch) < 2) continue;
 
-    // An inner part that may match nothing lets the outer repetition split the
-    // same input in exponentially many ways.
     if (atoms.length > 1) {
       const nullable = atoms.find(isNullable);
       const variable = atoms.find(
@@ -506,7 +409,6 @@ function analyzeRepeatedGroup(
       }
     }
 
-    // Neighbouring repetitions competing for the same characters.
     for (let i = 0; i + 1 < atoms.length; i += 1) {
       const left = atoms[i];
       const right = atoms[i + 1];
@@ -516,7 +418,6 @@ function analyzeRepeatedGroup(
       }
     }
 
-    // The junction between two iterations of the outer repetition.
     const first = atoms[0];
     const last = atoms[atoms.length - 1];
     if (
@@ -531,10 +432,6 @@ function analyzeRepeatedGroup(
     }
   }
 
-  // Alternatives inside a repetition that can both claim the same text. Equal
-  // fixed-length alternatives that merely share a first character (`cat|car`)
-  // are unambiguous, so length has to differ, one side has to be able to
-  // stretch, or the two have to match the same text before this counts.
   for (let i = 0; i < branches.length; i += 1) {
     for (let j = i + 1; j < branches.length; j += 1) {
       const a = branches[i];
@@ -555,13 +452,6 @@ function analyzeRepeatedGroup(
   return null;
 }
 
-/**
- * Adjacent variable-length repetitions over the same characters compete for
- * input. Bounded callers can keep a quadratic pair within the input cap, but
- * callers scanning uncapped content must reject it too. Non-overlapping
- * separators (the `@` in an email pattern) break the run, which is what keeps
- * ordinary patterns out of this check.
- */
 function analyzeAdjacentRun(
   branch: RegexAtom[],
   ctx: AnalysisContext,
@@ -635,9 +525,6 @@ function walk(
     if (nullableSeparated) return nullableSeparated;
     for (const atom of branch) {
       if (atom.kind !== "group") continue;
-      // Any group that can iterate more than once re-splits the same input
-      // across its iterations, and a finite bound does not remove that
-      // fan-out: `^(a+){10}$` never returns on a 41-character non-match.
       if (atom.max > 1) {
         const reason = analyzeRepeatedGroup(atom, ctx);
         if (reason) return reason;
@@ -690,24 +577,11 @@ function containsVariableLengthLookaround(branches: RegexAtom[][]): boolean {
   );
 }
 
-/**
- * Report whether `source` is shaped like a pattern that can backtrack
- * super-linearly. A `safe: true` verdict means no known blowup signature was
- * found, not that the pattern is provably linear.
- *
- * `flags` participates in the verdict. `^(a|A)+$` is unambiguous on its own and
- * catastrophic under `i`, so analyzing the source without the flags it will be
- * run with answers a different question than the caller asked.
- */
 export function analyzeRegexSource(
   source: string,
   flags = "",
   options: { inputBounded?: boolean } = {},
 ): RegexSafetyVerdict {
-  // The analysis itself is super-linear in the pattern length — every pair of
-  // alternatives is compared — so it needs the same cap it exists to enforce.
-  // Callers that reach this directly rather than through `compileUserRegex`
-  // would otherwise trade a slow match for a slow verdict.
   if (source.length > MAX_USER_REGEX_LENGTH) {
     return {
       safe: false,
@@ -738,9 +612,6 @@ export function analyzeRegexSource(
   if (oversizedQuantifier) {
     return { safe: false, reason: oversizedQuantifier };
   }
-  // `i` with `u` folds `ſ` onto `s`, and `s` lets `.` cover a newline an
-  // alternative also matches — both turn a disjoint reading into an ambiguous
-  // one, so the probes have to run under the caller's flags.
   const probeFlags = MATCHING_FLAGS.filter((flag) => flags.includes(flag)).join(
     "",
   );
@@ -762,10 +633,6 @@ export type UserRegexCompileResult =
   | { status: "invalid-syntax"; message: string }
   | { status: "unsafe"; message: string };
 
-/**
- * Compile a pattern that came from outside source control, rejecting sources
- * that are over-long, syntactically invalid, or shaped like a ReDoS.
- */
 export function compileUserRegex(
   source: string,
   options: { flags?: string } = {},
@@ -800,13 +667,6 @@ export type UserRegexTestResult =
   | { status: "no-match" }
   | { status: "unevaluated"; reason: string };
 
-/**
- * Test `value` against a user-authored pattern within a bounded budget.
- *
- * `unevaluated` is a distinct outcome on purpose: the caller has to decide what
- * an unenforceable rule means for its surface, and cannot accidentally read it
- * as "the value passed".
- */
 export function testUserRegex(
   source: string,
   value: string,

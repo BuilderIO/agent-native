@@ -23,6 +23,7 @@ const mockDb = vi.hoisted(() => ({
           ownerEmail: "owner@example.test",
           orgId: "org-1",
           status: "processing",
+          uploadAttemptId: "attempt-1",
           uploadGenerationId: "generation-1",
         },
       ]),
@@ -91,6 +92,7 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      uploadAttemptId: "recordings.uploadAttemptId",
       uploadGenerationId: "recordings.uploadGenerationId",
       loomImportClaimId: "recordings.loomImportClaimId",
       loomImportClaimedAt: "recordings.loomImportClaimedAt",
@@ -125,6 +127,8 @@ describe("post-finalize worker", () => {
       token: "valid-token",
       delayMs: 1_000,
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
     mockRunWithRequestContext.mockImplementation(
@@ -157,6 +161,8 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       kind: "media-ready",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
       regenerate: undefined,
       requireAccepted: true,
     });
@@ -231,6 +237,8 @@ describe("post-finalize worker", () => {
       kind: "media-ready",
       token: "valid-token",
       retryAttempt: 2,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
     });
     await expect(handler({} as any)).resolves.toMatchObject({
       ok: true,
@@ -239,8 +247,84 @@ describe("post-finalize worker", () => {
     expect(mockFinalizeRun).toHaveBeenCalledWith({
       id: "rec-1",
       mediaVerificationRetryAttempt: 2,
+      uploadAttemptId: "attempt-1",
       uploadGenerationId: "generation-1",
     });
+  });
+
+  it("passes captured attempt and generation identities to finalization", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "processing",
+            uploadAttemptId: "attempt-1",
+            uploadGenerationId: "generation-1",
+          },
+        ]),
+      };
+      return builder;
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+    });
+
+    expect(mockFinalizeRun).toHaveBeenCalledWith({
+      id: "rec-1",
+      mediaVerificationRetryAttempt: 1,
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    });
+  });
+
+  it("skips media verification jobs for a replaced upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      uploadAttemptId: "attempt-old",
+      uploadGenerationId: "generation-old",
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-changed",
+    });
+
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("skips media verification jobs without a captured upload identity", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+      skipped: true,
+      reason: "upload-identity-missing",
+    });
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
   it("repairs a missing thumbnail in the owner request context", async () => {

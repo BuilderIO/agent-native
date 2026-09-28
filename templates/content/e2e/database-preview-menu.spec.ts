@@ -512,9 +512,6 @@ test("database Page preview reflects mocked Page role capabilities and unavailab
     const row = fixture.rows[0]!;
     const databasePageUrl = `/page/${fixture.databaseDocumentId}`;
 
-    // Authentication, fixture ownership, and this baseline read are real local
-    // server evidence. The role projections below mock only get-document so the
-    // shared Page host can be checked deterministically for every capability.
     const ownedDocument = await readAction(page, "get-document", {
       id: row.documentId,
       databaseId: fixture.databaseId,

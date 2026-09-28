@@ -22,11 +22,6 @@ export type AgentNativeLifecycleEventName =
 export type AgentNativeActionEventName =
   (typeof AGENT_NATIVE_ACTION_EVENTS)[keyof typeof AGENT_NATIVE_ACTION_EVENTS];
 
-/**
- * Explicit migration aliases for event names that predate the snake_case
- * convention. Keep the source event intact so historical dashboards continue
- * to work while new dashboards can move to the canonical name.
- */
 export const LEGACY_TRACKING_EVENT_NAME_ALIASES = {
   "auth.login_clicked": "auth_login_clicked",
   "auth.signup_clicked": "auth_signup_clicked",

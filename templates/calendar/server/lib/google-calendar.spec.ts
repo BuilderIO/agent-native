@@ -29,10 +29,15 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const runWithRequestContextMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getCredentialContextMock = vi.hoisted(() =>
+  vi.fn((): { userEmail: string; orgId: string | null } | null => null),
+);
+const resolveWorkspaceConnectionForAppMock = vi.hoisted(() => vi.fn());
+const resolveOAuthAccessTokenMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
-  getCredentialContext: vi.fn(() => null),
+  getCredentialContext: getCredentialContextMock,
   getRequestOrgId: getRequestOrgIdMock,
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: async ({
@@ -89,6 +94,16 @@ vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({ execute: dbExecuteMock }),
 }));
 
+vi.mock("@agent-native/core/workspace-connections", () => ({
+  resolveWorkspaceConnectionForApp: resolveWorkspaceConnectionForAppMock,
+}));
+
+vi.mock("./provider-api.js", () => ({
+  getCalendarProviderApiRuntime: () => ({
+    resolveOAuthAccessToken: resolveOAuthAccessTokenMock,
+  }),
+}));
+
 vi.mock("./google-api.js", () => ({
   createOAuth2Client: createOAuth2ClientMock,
   oauth2GetUserInfo: oauth2GetUserInfoMock,
@@ -120,9 +135,11 @@ import {
   disconnect,
   getClientForAccount,
   getDefaultAccountSelection,
+  getConnectedAccounts,
   getEvent,
   getGoogleAccountTimezone,
   invalidateAccountTimezoneCache,
+  isConnected,
   listEvents,
   listGoogleCalendars,
   listOverlayEvents,
@@ -311,10 +328,6 @@ describe("calendar unusable OAuth token records", () => {
   });
 
   it("reports disconnected without deleting the row when a record parses to an empty object", async () => {
-    // A stored row that fails to decrypt (key rotation / wrong key) parses to
-    // `{}` in core's parseStoredTokens. The account must read as disconnected
-    // — but the row must NOT be deleted, because this process may simply hold
-    // the wrong key while the row is still decryptable elsewhere.
     getOAuthAccountsMock.mockResolvedValue([
       { accountId: "steve@example.com", tokens: {} },
     ]);
@@ -1530,15 +1543,11 @@ describe("Google account time zone lookup", () => {
 
     const inFlight = getGoogleAccountTimezone("racing-peer@example.com");
 
-    // Disconnect races ahead of the in-flight lookup finishing.
     await disconnect("racing-peer@example.com");
 
     resolveCalendar!({ timeZone: "America/Chicago" });
     await expect(inFlight).resolves.toBe("America/Chicago");
 
-    // The in-flight lookup's result (reflecting pre-disconnect state) must
-    // not have been written to the cache after the disconnect invalidated
-    // it - the next lookup should re-resolve from scratch.
     listOAuthAccountsByOwnerMock.mockResolvedValue([]);
     calendarGetCalendarMock.mockResolvedValue({ timeZone: "America/Chicago" });
     await expect(
@@ -1573,9 +1582,6 @@ describe("Google account time zone lookup", () => {
     runWithRequestContextMock.mockImplementation(
       (_context: unknown, callback: () => unknown) => callback(),
     );
-    // Connecting a secondary Google account (a different email than the
-    // app-owner) on someone else's behalf - `owner` is who the timezone
-    // cache is actually keyed by.
     await exchangeCode(
       "oauth-code",
       undefined,
@@ -1614,9 +1620,6 @@ describe("Google account time zone lookup", () => {
       getGoogleAccountTimezone("owner-disconnect@example.com"),
     ).resolves.toBe("America/Chicago");
 
-    // disconnect() is called with the connected account's own email, not
-    // the app-owner the cache is keyed by - the fix must resolve the owner
-    // from the account row before it's deleted.
     listOAuthAccountsMock.mockResolvedValueOnce([
       {
         accountId: "personal-disconnect@example.com",
@@ -2285,6 +2288,36 @@ describe("calendar RSVP updates", () => {
     );
   });
 
+  it("restores an automatic RSVP to needsAction", async () => {
+    await rsvpEvent(
+      "event-1",
+      "needsAction",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      "single",
+      undefined,
+      "all",
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "event-1",
+      {
+        attendees: [
+          {
+            email: "steve@example.com",
+            responseStatus: "needsAction",
+          },
+        ],
+        attendeesOmitted: true,
+      },
+      { sendUpdates: "all" },
+    );
+  });
+
   it("sends an empty comment so an RSVP note can be cleared", async () => {
     await rsvpEvent(
       "event-1",
@@ -2730,5 +2763,80 @@ describe("calendar Google OAuth exchange", () => {
     await expect(exchangeCode("oauth-code")).rejects.toThrow(
       "Google OAuth redirect URI is required.",
     );
+  });
+});
+
+describe("connection status reads a broken managed connection as disconnected", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listOAuthAccountsByOwnerMock.mockResolvedValue([]);
+    getOAuthAccountsMock.mockResolvedValue([]);
+    getCredentialContextMock.mockReturnValue({
+      userEmail: "user@example.com",
+      orgId: null,
+    });
+    resolveWorkspaceConnectionForAppMock.mockResolvedValue({ available: true });
+  });
+
+  // A workspace connection can be registered and marked "connected" in the
+  // catalog while the token it backs can no longer be resolved (revoked,
+  // mid-authorization, misconfigured credential). `isConnected` and
+  // `getConnectedAccounts` are read as a plain yes/no by every read and write
+  // action (list-events included), so a thrown resolution error here must not
+  // surface as a 500 - it must read the same as "not connected".
+  it("isConnected returns false instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(isConnected("user@example.com")).resolves.toBe(false);
+  });
+
+  it("getConnectedAccounts returns an empty list instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([]);
+  });
+
+  it("still reports connected once the managed token resolves", async () => {
+    resolveOAuthAccessTokenMock.mockResolvedValue({
+      accountId: "shared@example.com",
+      accessToken: "token",
+    });
+
+    await expect(isConnected("user@example.com")).resolves.toBe(true);
+    await expect(getConnectedAccounts("user@example.com")).resolves.toEqual([
+      "shared@example.com",
+    ]);
+  });
+
+  it("getAuthStatus reports disconnected instead of throwing", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(getAuthStatus("user@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+  });
+
+  it("listEvents surfaces the failure instead of throwing or going silent", async () => {
+    resolveOAuthAccessTokenMock.mockRejectedValue(
+      new Error("no workspace token available"),
+    );
+
+    await expect(
+      listEvents(
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-02T00:00:00.000Z",
+        "user@example.com",
+      ),
+    ).resolves.toEqual({
+      events: [],
+      errors: [{ email: "workspace", error: "no workspace token available" }],
+    });
   });
 });

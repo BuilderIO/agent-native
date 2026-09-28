@@ -749,7 +749,6 @@ describe("ThumbsFeedback localization", () => {
       '[aria-label="Thumbs down"]',
     ) as HTMLButtonElement;
 
-    // Click up, then switch to down before the up request resolves.
     act(() => up.click());
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     act(() => down.click());
@@ -758,9 +757,6 @@ describe("ThumbsFeedback localization", () => {
     expect(down.getAttribute("aria-pressed")).toBe("true");
     expect(up.getAttribute("aria-pressed")).toBe("false");
 
-    // The stale up request now resolves successfully. It must not flash the
-    // up button's confirmation state or steal the live-region announcement
-    // from the newer, still-in-flight down vote.
     act(() => resolveUpRequest?.({ ok: true }));
     await act(async () => {
       await Promise.resolve();
@@ -804,7 +800,6 @@ describe("ThumbsFeedback localization", () => {
       '[aria-label="Thumbs up"]',
     ) as HTMLButtonElement;
 
-    // Click down (request hangs), then switch back to up before it resolves.
     act(() => down.click());
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     act(() => up.click());
@@ -812,8 +807,6 @@ describe("ThumbsFeedback localization", () => {
 
     expect(up.getAttribute("aria-pressed")).toBe("true");
 
-    // The stale down request now fails. It must not clear the newer,
-    // already-applied up selection.
     act(() => rejectDownRequest?.());
     await act(async () => {
       await Promise.resolve();

@@ -11,8 +11,6 @@ export const CURSOR_OVERLAY_MAX_LIFETIME_MS =
 
 const CURSOR_OVERLAY_ID = "agent-native-phantom-cursor";
 
-// This is a fixed extension-owned expression. Coordinates are the only values
-// interpolated into it; the browser-control protocol never accepts page code.
 const CURSOR_OVERLAY_SOURCE = String.raw`(action => {
   const id = "${CURSOR_OVERLAY_ID}";
   const candidate = document.getElementById(id);

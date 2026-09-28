@@ -255,6 +255,48 @@ renderers का आकार प्रतिशत में नहीं, ब�
 जो ऐसा दिखता है मानो renderer बना ही नहीं। चार्ट और ऊँचाई पर निर्भर अन्य दृश्यों को पिक्सेल
 (या `rem`) आधार दें; चौड़ाई प्रतिशत में ठीक है क्योंकि ट्रांसक्रिप्ट कॉलम की चौड़ाई निश्चित होती है।
 
+### चुनें कि एक्शन UI कब दिखे {#conditional-native-ui}
+
+एक एक्शन कई तरह के काम कर सकता है, जबकि कार्ड केवल कुछ नतीजों के लिए ज़रूरी हो। उन कॉल को चुनने के लिए `chatUI` में `when(args, result)` जोड़ें। सफल एक्शन के बाद सर्वर इस प्रेडिकेट को चलाता है। अगर यह `false` लौटाता है, तो नतीजा सामान्य, संक्षिप्त किए जा सकने वाले टूल इतिहास में रहता है। प्रेडिकेट सहेजा या ब्राउज़र को भेजा नहीं जाता।
+
+Mail में `manage-draft` इसका उपयोग करता है। ड्राफ़्ट बनाते समय कार्ड दिखता है, जबकि अपडेट और डिलीट सामान्य टूल कॉल रहते हैं:
+
+```ts
+chatUI: {
+  renderer: "mail.draft-created",
+  when: (args, result) => {
+    if (
+      args.action !== "create" ||
+      !result ||
+      typeof result !== "object" ||
+      Array.isArray(result)
+    ) {
+      return false;
+    }
+    const output = result as Record<string, unknown>;
+    return typeof output.deepLink === "string" && Boolean(output.draft);
+  },
+},
+```
+
+कई write operations वाले एक्शन में arguments और सफल नतीजे, दोनों जाँचें। Mail का Gmail filter action केवल उन बनाए या बदले गए filters के लिए rule card चुनता है जिनमें summary fields हों:
+
+```ts
+when: (args, result) => {
+  if (
+    (args.operation !== "create" && args.operation !== "replace") ||
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result)
+  ) {
+    return false;
+  }
+  const output = result as Record<string, unknown>;
+  const filter = output.filter as Record<string, unknown> | undefined;
+  return output.ok === true && Boolean(filter?.criteriaSummary);
+},
+```
+
 ## BYO एजेंट रनटाइम {#byo-agent-runtimes}
 
 `AgentChatRuntime` चैट शेल के लिए अपना एजेंट लाने का अनुबंध है, और
@@ -404,10 +446,7 @@ const runtime = createAgentNativeChatRuntime({
 });
 ```
 
-`<AssistantChat createAdapter={...} />` का उपयोग केवल तभी करें जब आपको पूर्ण की आवश्यकता हो
-assistant-ui adapter control. Use `PromptComposer` by itself when your product
-संपूर्ण बाहरी प्रतिलेख का स्वामी है और केवल Agent-Native का कंपोजर चाहता है
-फ़ील्ड.
+कस्टम AgentKit transport के लिए `<AssistantChat createTransport={...} />` का उपयोग करें, या यदि होस्ट पहले से turns चलाता है तो `runtime` पास करें। मौजूदा `assistant-ui ChatModelAdapter` implementations को AgentKit transcript और composer का उपयोग करने के लिए `AgentTransport` या `AgentChatRuntime` पर पोर्ट करना होगा। `PromptComposer` का उपयोग तब करें जब आपका product पूरा external transcript संभालता हो और उसे केवल Agent-Native composer field चाहिए।
 
 OpenAI, AG-UI, Claude एजेंट SDK, और वर्सेल AI SDK स्ट्रीम मानक का उपयोग कर सकते हैं
 कनेक्टर सहायक। ACP कोडिंग-एजेंट/एडिटर इंटरऑपरेबिलिटी बनी हुई है,

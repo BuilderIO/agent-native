@@ -104,18 +104,11 @@ function jsonBody(value: unknown): string {
   return body;
 }
 
-/**
- * Result of a batched read. `values` holds only the keys the server has a row
- * for; every other requested key is in `missing`. A key stored with a `null`
- * value lands in `values` with `null` and NOT in `missing` — that is how
- * "never written" stays distinguishable from "written as null/empty".
- */
 export interface ClientAppStateBatch {
   values: Record<string, unknown>;
   missing: string[];
 }
 
-/** Server caps a batch at 100 keys; stay under it when splitting. */
 const MAX_BATCH_KEYS = 100;
 
 export async function readClientAppStateMany(
@@ -124,7 +117,7 @@ export async function readClientAppStateMany(
 ): Promise<ClientAppStateBatch> {
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const unique = [...new Set(keys)];
-  for (const key of unique) appStateUrl(key); // validates the key shape
+  for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
 
   const merged: ClientAppStateBatch = { values: {}, missing: [] };
@@ -155,10 +148,6 @@ export async function readClientAppStateMany(
   return merged;
 }
 
-// Reads issued in the same tick are coalesced into one batched request. Every
-// mounted composer, question card and suggestion hook reads its own key on
-// mount, which used to be one HTTP request (and one full identity resolution)
-// each — ~55 on an analytics dashboard load.
 let pendingBatch:
   | { keys: Set<string>; promise: Promise<ClientAppStateBatch> }
   | undefined;
@@ -212,7 +201,7 @@ export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
-  appStateUrl(key); // validates the key shape before it joins a batch
+  appStateUrl(key);
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
@@ -236,6 +225,32 @@ export async function writeClientAppState<T = unknown>(
   return parseAppStateResponse<T>(response, `Write application state "${key}"`);
 }
 
+export async function compareAndSetClientAppState(
+  key: string,
+  expected: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+  options: ClientAppStateWriteOptions = {},
+): Promise<boolean> {
+  assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
+  const response = await fetch(appStateUrl(key), {
+    method: "PATCH",
+    headers: buildHeaders(options.requestSource),
+    body: jsonBody({ expected, next }),
+    keepalive: options.keepalive,
+    signal: options.signal,
+  });
+  const result = await parseAppStateResponse<{ changed?: unknown }>(
+    response,
+    `Compare application state \"${key}\"`,
+  );
+  if (typeof result?.changed !== "boolean") {
+    throw new Error(
+      `Compare application state \"${key}\" returned an unexpected payload.`,
+    );
+  }
+  return result.changed;
+}
+
 export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
@@ -243,8 +258,6 @@ export async function deleteClientAppState(
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
   const response = await fetch(appStateUrl(key), {
     method: "DELETE",
-    // DELETE carries no JSON body, so this custom header is the only
-    // same-origin marker the CSRF check can see from an embedded frame.
     headers: {
       "X-Agent-Native-CSRF": "1",
       ...(browserTabHeaders() ?? {}),

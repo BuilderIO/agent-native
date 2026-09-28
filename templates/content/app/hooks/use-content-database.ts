@@ -461,10 +461,6 @@ export function removeDocumentPropertyFromDatabaseResponse(
   };
 }
 
-// `get-content-database` returns a union at runtime: the full response, or an
-// unavailable payload (`{ available: false, reason: "deleted" | "not_found" }`)
-// with no `database` field. Consumers typed against ContentDatabaseResponse
-// must narrow with this guard before touching `data.database`.
 export function isContentDatabaseUnavailable(
   data: unknown,
 ): data is { available: false; reason: string } {
@@ -726,8 +722,6 @@ export function useContentDatabase(
         documentId
           ? readCachedContentDatabaseResponse(queryClient, documentId)
           : undefined,
-      // Cross-key seeds (e.g. a differently-paginated cached response) render
-      // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
       refetchOnMount: options?.refetchOnMount,
       meta: { contentDatabaseSystemRole: options?.systemRole },
@@ -769,12 +763,6 @@ export function useContentDatabase(
   };
 }
 
-// `enabled` pauses fetching without touching the query key: a caller that
-// wants to briefly hold off refetching (e.g. to avoid competing with a
-// higher-priority read) can pass `databaseId` unchanged and flip `enabled` to
-// false instead of nulling `databaseId` out. Nulling it changes the query key
-// to its disabled `undefined`-params form, which has no cached data of its
-// own and drops the rows already on screen for as long as it stays disabled.
 export function isContentDatabaseByIdQueryEnabled(
   databaseId: string | null,
   options?: { enabled?: boolean },
@@ -1529,9 +1517,6 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
       await queryClient.cancelQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
-      // Patch every cached response for this document, not just the exact
-      // unpaginated key — the rendered table observes a `{documentId, limit}`
-      // key, and setQueryData does not partial-match the way invalidate does.
       const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
         contentDatabaseQueryFilter(documentId),
       );

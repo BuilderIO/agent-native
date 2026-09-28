@@ -34,8 +34,6 @@ describe("PlanImageViewer", () => {
     expect(img?.getAttribute("src")).toBe("https://cdn.example.com/cat.png");
     expect(img?.getAttribute("alt")).toBe("A cat");
 
-    // The root must be a <span> so it stays valid inside the <p> that
-    // react-markdown wraps standalone images in (SSR/hydration safety).
     expect(container.firstElementChild?.tagName).toBe("SPAN");
 
     expect(
@@ -63,8 +61,6 @@ describe("PlanImageViewer", () => {
     ) as HTMLButtonElement;
     act(() => zoom.click());
 
-    // The lightbox portals to <body> with its own toolbar; the "Fit" /
-    // "Actual size" zoom label only exists inside the lightbox.
     expect(document.body.textContent).toContain("Fit to screen");
     expect(
       document.body.querySelector('[aria-label="Download image"]'),
@@ -81,9 +77,6 @@ describe("PlanImageViewer", () => {
       />,
     );
 
-    // The hover action group must contain exactly two buttons: the zoom button
-    // and the ⋯ options trigger. The edit affordance lives INSIDE the ⋯ menu, so
-    // it must not add a third (separate) button — matching inline markdown images.
     const actions = container.querySelector(".plan-image__actions");
     expect(actions).toBeTruthy();
     expect(actions!.querySelectorAll("button")).toHaveLength(2);

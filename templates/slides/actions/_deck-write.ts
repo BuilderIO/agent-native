@@ -1,15 +1,74 @@
-/**
- * Shared helpers for the editor-owned deck write actions (`add-deck`,
- * `save-deck`, `delete-deck`). Underscore-prefixed so action discovery skips
- * it — this module is not itself an action.
- */
 import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { and, eq, isNull, type AnyColumn } from "drizzle-orm";
+import { z } from "zod";
 
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
-/** A deck is stored as one opaque JSON blob in `decks.data`. */
 export type DeckPayload = Record<string, unknown>;
+
+export const deckClientWriteSchema = z.object({
+  clientId: z.string().min(1),
+  sequence: z.number().int().positive(),
+  expectedUpdatedAt: z.string().nullable().optional(),
+});
+
+export type DeckClientWrite = z.infer<typeof deckClientWriteSchema>;
+
+type DeckWriteRevision = {
+  updatedAt: string | null;
+  lastWriteClientId?: string | null;
+  lastWriteClientSequence?: number | null;
+  lastWriteRevision?: string | null;
+};
+
+export function assertDeckClientWriteCurrent(
+  resource: DeckWriteRevision,
+  deckId: string,
+  write: DeckClientWrite | undefined,
+): "apply" | "already-applied" {
+  if (!write) return "apply";
+
+  const sameCurrentWriter =
+    resource.lastWriteClientId === write.clientId &&
+    resource.lastWriteRevision === resource.updatedAt;
+  const lastSequence = resource.lastWriteClientSequence ?? 0;
+  if (sameCurrentWriter && write.sequence < lastSequence) {
+    throw deckHttpError(
+      409,
+      `Deck ${deckId} has a newer edit; keepalive replay was ignored.`,
+    );
+  }
+  if (sameCurrentWriter && write.sequence === lastSequence) {
+    return "already-applied";
+  }
+  if (
+    write.expectedUpdatedAt !== undefined &&
+    write.expectedUpdatedAt !== resource.updatedAt &&
+    !(sameCurrentWriter && write.sequence > lastSequence)
+  ) {
+    throw deckHttpError(
+      409,
+      `Deck ${deckId} changed while saving; re-read it before retrying.`,
+    );
+  }
+  return "apply";
+}
+
+export function deckClientWriteFields(
+  write: DeckClientWrite | undefined,
+  revision: string | null,
+): Pick<
+  DeckWriteRevision,
+  "lastWriteClientId" | "lastWriteClientSequence" | "lastWriteRevision"
+> {
+  return write
+    ? {
+        lastWriteClientId: write.clientId,
+        lastWriteClientSequence: write.sequence,
+        lastWriteRevision: revision,
+      }
+    : {};
+}
 
 export function nextDeckRevision(
   expectedUpdatedAt: string | null | undefined,
@@ -75,10 +134,6 @@ export function assertDeckWriteApplied(
   }
 }
 
-/**
- * Actions surface HTTP status through `statusCode`; the action route echoes the
- * message verbatim for client errors and swallows it for anything >= 500.
- */
 export function deckHttpError(statusCode: number, message: string): Error {
   return Object.assign(new Error(message), { statusCode });
 }

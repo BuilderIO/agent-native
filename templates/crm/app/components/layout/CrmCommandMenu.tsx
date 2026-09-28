@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  buildSettingsRoute,
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
@@ -58,7 +59,6 @@ type TablerIcon = typeof IconList;
 
 interface PaletteEntry {
   id: string;
-  /** Stable ranking value; never shown. */
   value: string;
   label: string;
   keywords: string[];
@@ -326,7 +326,7 @@ function CrmCommandResults({
             "preferences",
           ),
           icon: IconSettings,
-          run: () => navigate("/settings/connections"),
+          run: () => navigate(buildSettingsRoute("integrations")),
         },
         {
           id: "shortcuts",
@@ -511,6 +511,7 @@ export function CrmCommandMenu() {
         renderResults={renderResults}
         changelog={changelog}
         changelogKey="crm"
+        chatStorageKey="crm"
       >
         {null}
       </CommandMenu>
@@ -534,7 +535,6 @@ function useCrmKeyboardShortcuts({
       { key: "n", handler: () => emitCrmUiIntent(CRM_NEW_RECORD_EVENT) },
       { key: "t", handler: () => emitCrmUiIntent(CRM_NEW_TASK_EVENT) },
       { key: "e", handler: () => emitCrmUiIntent(CRM_EDIT_RECORD_EVENT) },
-      // `?` needs Shift on US layouts and none on several others.
       { key: "?", handler: onShowShortcuts },
       { key: "?", shift: true, handler: onShowShortcuts },
     ],

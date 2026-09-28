@@ -4,7 +4,12 @@ import { fail, defineAction } from "../../action.js";
 import { getOutputReviewSummarySource } from "../reviews.js";
 import { getTraceSummary, upsertHumanReviewSummary } from "../store.js";
 import type { HumanReviewArtifactRef, HumanReviewSummary } from "../types.js";
-import { requireObservabilityOrgAdmin } from "./authorization.js";
+import {
+  authorizeObservabilityOrgAdmin,
+  getObservabilityOrgAdminAccess,
+  requireObservabilityReviewRunScope,
+  resolveObservabilityReviewOrg,
+} from "./authorization.js";
 
 const summaryText = (max: number) =>
   z
@@ -28,7 +33,7 @@ const artifactSchema = z
     artifactId: z
       .string()
       .trim()
-      .min(1)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/)
       .max(200)
       .describe("Exact artifact ID shown in the source action evidence."),
     title: summaryText(240).describe(
@@ -51,7 +56,9 @@ function appPathMatches(ref: HumanReviewArtifactRef): boolean {
   const patterns = {
     design: new RegExp(`^/(?:design|present)/${id}$`),
     slides: new RegExp(`^/deck/${id}(?:/present)?$`),
-    analytics: new RegExp(`^/(?:dashboards|analyses|adhoc)/${id}$`),
+    analytics: new RegExp(
+      `^(?:/(?:dashboards|analyses|adhoc)/${id}|/api/media/${id})$`,
+    ),
   };
   return patterns[ref.appId].test(ref.path);
 }
@@ -79,7 +86,8 @@ function artifactEvidenceMatches(
   const idKeys = {
     design: /^(?:id|artifact_?id|design_?id)$/i,
     slides: /^(?:id|artifact_?id|slide_?id|deck_?id|presentation_?id)$/i,
-    analytics: /^(?:id|artifact_?id|chart_?id|dashboard_?id|analysis_?id)$/i,
+    analytics:
+      /^(?:id|artifact_?id|chart_?id|dashboard_?id|analysis_?id|filename)$/i,
   };
   const markerKeys = /^(?:app_?id|app|application|server_?id|tool_?name)$/i;
   const hasAppMarker = (value: unknown): boolean => {
@@ -92,13 +100,20 @@ function artifactEvidenceMatches(
           : hasAppMarker(item),
     );
   };
-  const visit = (value: unknown): boolean => {
+  const visit = (value: unknown, renderable = true): boolean => {
     if (!value || typeof value !== "object") return false;
-    if (Array.isArray(value)) return value.some(visit);
-    return Object.entries(value as Record<string, unknown>).some(
-      ([key, item]) =>
-        (idKeys[appId].test(key) && item === artifactId) || visit(item),
-    );
+    if (Array.isArray(value))
+      return value.some((item) => visit(item, renderable));
+    const record = value as Record<string, unknown>;
+    return Object.entries(record).some(([key, item]) => {
+      const currentRenderable = renderable && record.renderable !== false;
+      return (
+        (idKeys[appId].test(key) &&
+          item === artifactId &&
+          !(appId === "design" && !currentRenderable)) ||
+        visit(item, currentRenderable)
+      );
+    });
   };
 
   return source.some((span) => {
@@ -109,7 +124,7 @@ function artifactEvidenceMatches(
       (typeof record.name === "string" &&
         appMarkerMatches(record.name, appId)) ||
       hasAppMarker(record.output);
-    return appMatches && visit(record.output);
+    return appMatches && visit(record.output, record.renderable !== false);
   });
 }
 
@@ -124,6 +139,15 @@ export default defineAction({
         .min(1)
         .max(200)
         .describe("The target observability run ID."),
+      orgId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .optional()
+        .describe(
+          "The target organization ID; must match the active organization.",
+        ),
       ask: summaryText(2_000).describe(
         "Concise summary of what the user asked.",
       ),
@@ -134,8 +158,15 @@ export default defineAction({
     })
     .strict(),
   agentTool: true,
+  authorize: authorizeObservabilityOrgAdmin,
   run: async (args, ctx) => {
-    const { userId, orgId } = await requireObservabilityOrgAdmin(ctx);
+    const access = getObservabilityOrgAdminAccess(ctx);
+    const { userId } = access;
+    requireObservabilityReviewRunScope(args.runId);
+    const orgId = resolveObservabilityReviewOrg(
+      { kind: "organization", orgId: access.orgId },
+      args.orgId,
+    );
     const target = await getTraceSummary(args.runId, { orgId });
     if (!target)
       fail("That agent output is no longer available.", { statusCode: 404 });
@@ -147,16 +178,25 @@ export default defineAction({
       fail("That agent output is no longer available.", { statusCode: 404 });
 
     const artifacts = args.artifacts.map((artifact) => {
+      const isAttachedArtifact = source.attachedArtifacts.some(
+        (attached) =>
+          attached.appId === artifact.appId &&
+          attached.artifactId === artifact.artifactId,
+      );
       if (
+        !isAttachedArtifact &&
         !artifactEvidenceMatches(
           source.toolEvidence,
           artifact.appId,
           artifact.artifactId,
         )
       )
-        fail("Artifact IDs must come from the run's captured tool evidence.", {
-          statusCode: 400,
-        });
+        fail(
+          "Artifact IDs must come from the thread or captured tool evidence.",
+          {
+            statusCode: 400,
+          },
+        );
       const normalized: HumanReviewArtifactRef = {
         appId: artifact.appId,
         artifactId: artifact.artifactId,

@@ -44,8 +44,6 @@ export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
 export const REALTIME_VOICE_MAX_TOOLS = 32;
 export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
-/** Absolute, not sliding — a signed grant cannot be extended server-side, so
- * this must outlast the provider's 60-minute maximum realtime session. */
 export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 75 * 60 * 1_000;
 export const REALTIME_VOICE_CAPABILITY_HEADER =
   "X-Agent-Native-Realtime-Capability";
@@ -87,11 +85,6 @@ const REALTIME_VOICE_REASONING_EFFORT = {
   deep: "medium",
 } as const;
 
-/**
- * Realtime sessions have a deliberately bounded tool manifest. Keep the
- * context/navigation tools ahead of large template registries so voice can
- * always see and operate the same UI navigation surface as text chat.
- */
 const REALTIME_VOICE_PRIORITY_TOOLS = [
   "navigate",
   "set-url-path",
@@ -122,25 +115,15 @@ export interface RealtimeVoiceToolExecutionResult {
 }
 
 export interface MountRealtimeVoiceRoutesOptions {
-  /** Server-controlled model. Defaults to gpt-live-1. */
   model?: string;
-  /** Server-controlled output voice. Defaults to marin. */
   voice?: string;
-  /** Static app guidance appended to the safe default voice instructions. */
   instructions?: string;
-  /** Per-request app/navigation guidance. It is sent only to OpenAI. */
   getInstructions?: (
     context: RealtimeVoiceRequestContext,
   ) => string | null | undefined | Promise<string | null | undefined>;
-  /** Optional app-specific active-organization resolver. */
   resolveOrgId?: (
     event: H3Event,
   ) => string | null | undefined | Promise<string | null | undefined>;
-  /**
-   * Central agent tool executor supplied by the agent-chat plugin. The executor
-   * owns validation, approval, journaling, timeout, mutation notification, and
-   * action-result normalization; this transport must not call ActionEntry.run.
-   */
   executeTool: (
     request: RealtimeVoiceToolExecutionRequest,
   ) =>
@@ -536,10 +519,6 @@ async function buildInstructions(
   );
 }
 
-/**
- * Hash the authenticated identity before sending it to OpenAI. The stable
- * digest is useful for abuse detection without disclosing the user's email.
- */
 export async function realtimeVoiceSafetyIdentifier(
   userEmail: string,
 ): Promise<string> {
@@ -1030,7 +1009,6 @@ function createToolHandler(
   });
 }
 
-/** Mount the authenticated OpenAI Realtime WebRTC and tool bridge routes. */
 export function mountRealtimeVoiceRoutes(
   nitroApp: any,
   actions: Record<string, ActionEntry>,

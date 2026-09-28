@@ -7,7 +7,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
-import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
+import {
+  createDeckChatBeginningSnapshot,
+  deckVersionChatContextFromRun,
+} from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -15,6 +18,7 @@ const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 const INITIAL_TOOL_NAMES = [
   "view-screen",
   "get-layout-overflows",
+  "audit-contrast",
   "list-decks",
   "get-deck",
   "get-design-system",
@@ -44,11 +48,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
-  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
   "navigate",
   "list-decks",
   "get-deck",
@@ -138,6 +138,7 @@ async function autosaveDeckAfterAgentTurn(
   },
 ): Promise<void> {
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
+  if (!run.threadId || !run.runId) return;
 
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {
@@ -147,15 +148,35 @@ async function autosaveDeckAfterAgentTurn(
     ownerEmail: string;
   };
   const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  const chatContext = deckVersionChatContextFromRun(run);
   await createDeckVersionSnapshot(deck, {
     force: true,
     label: "Chat autosave",
-    chatContext: deckVersionChatContextFromRun(run),
+    chatContext: chatContext ? { ...chatContext, phase: "end" } : undefined,
+  });
+}
+
+async function autosaveDeckBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "deck" || !run.threadId || !run.runId) return;
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  await createDeckChatBeginningSnapshot(deck, {
+    threadId: run.threadId,
+    runId: run.runId,
   });
 }
 
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
@@ -170,25 +191,12 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   a2aAgentDelegation: true,
-  // Customer and product activity data belongs to Analytics. Keep raw DB
-  // tools out of both the interactive and A2A Slides agent surfaces so the
-  // agent cannot bypass the Analytics data dictionary with local SQL.
   frameworkTools: { database: "off" },
-  // Enable sandboxed JavaScript execution so Slides agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Google Drive endpoint.
   codeExecution: { production: "sandboxed" },
-  // Upload routes and action routes must use the same session/org resolver.
-  // Reading getOrgContext directly here skipped the upload route's session
-  // fallback and could reject a freshly uploaded reference after a transient
-  // org lookup or active-org transition.
   resolveOrgId: async (event) => {
     const authContext = await resolveSlidesRequestAuthContext(event);
     return authContext.orgId === undefined ? null : authContext.orgId;
   },
-  // Guest access requests authenticate with a signed deck capability and the
-  // requester email, so this action must reach its own validation without a
-  // browser session.
   actionRoutePublicPaths: [
     "/_agent-native/actions/get-deck-access-status",
     "/_agent-native/actions/request-deck-access",
@@ -280,6 +288,8 @@ When adding slides to an existing deck, first read get-deck and match the establ
 
 Layout-fit workflow is strict. After creating or structurally rewriting slides, verify their layout in the same turn even when the user did not explicitly ask about overflow. At the final verification point, call get-layout-overflows once and use only measurements whose contentHash and layoutFitRevision match the current persisted slides. If measurements are unknown, do not claim the deck fits. For each measured overflow, read that slide with get-deck slideId=<id> (full HTML is returned for a targeted read), then make one bounded structural repair pass with one patch-slide operation per affected slide in a single patch-deck call. Wait for the repair action result and verify the persisted HTML with get-deck slideId=<id> compact=true before saying it is fixed. If a fresh measurement still reports overflow, make at most one focused follow-up repair based on that measurement; never loop, repeatedly re-measure, or claim success after a chat response alone. When the user asks to fix an existing overflow, first call view-screen and inspect the deck-wide layout-fit section, then follow this same bounded workflow.
 
+Contrast verification is the last step of any turn that created or changed slides, even when the user did not ask about contrast. After every other edit, including layout-fit repairs, and right before the final response, call audit-contrast once for the deck. If it cannot run because the deck is not open in the editor, say contrast was not checked instead of claiming it passes. For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Every replacement color must match the deck's theme: when a design system is linked, choose a passing color from that system's own palette, and if none passes, keep the token and report it rather than inventing a color; otherwise reuse a color already in the deck or shift the failing color's lightness while keeping its hue. Never introduce an unrelated hue to pass contrast. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked. If slides come back skipped as stale-render, call audit-contrast once more before reporting. Remaining unverified text sits over an image, gradient, or visual effect; name those slides and objects, and do not call them risky or fine without a measurement.
+
 Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
 
 Image workflow is strict. For direct insertion, call generate-image-api with insertIntoSlide: true plus deckId and slideId. Claim that an image was added only when that action returns inserted: true; a preview URL or completed generation alone is not a slide edit. For preview-only variations, call generate-image-api without insertIntoSlide, then use update-slide to place the chosen URL and re-read the target with get-deck slideId=<id> compact=false to confirm its persisted HTML contains that image source before claiming success.
@@ -301,8 +311,6 @@ When a Google Drive or Google Slides request needs authentication, tell the user
         search: async (query: string) => {
           const db = getDb();
           const access = accessFilter(decks, deckShares);
-          // Project only id/title — decks.data is the full deck JSON (every
-          // slide) and must not be pulled into this per-keystroke search.
           const mentionColumns = { id: decks.id, title: decks.title };
           const rows = query
             ? await db

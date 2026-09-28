@@ -9,6 +9,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import { markdownSuggestionOperations } from "../../shared/suggestion-diff.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-suggested-edits-${process.pid}-${Date.now()}.pglite`,
@@ -26,8 +28,11 @@ let adapter: Adapter;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
 let commentThreadDigest: typeof import("./comment-ai.js").commentThreadDigest;
+const previousSyncEventsEnabled =
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
 
 beforeAll(async () => {
+  process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../db/index.js");
   getDb = dbModule.getDb;
@@ -41,16 +46,30 @@ beforeAll(async () => {
   commentThreadDigest = (await import("./comment-ai.js")).commentThreadDigest;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
+  await (await import("../plugins/suggested-edits.js")).default();
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL,
+    identity_authority TEXT, identity_id TEXT
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL,
+    federation_removal_pending_at INTEGER
+  )`);
 }, 60_000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
+  if (previousSyncEventsEnabled === undefined)
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
+  else
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS =
+      previousSyncEventsEnabled;
 });
 
 const ownerEmail = "owner@example.com";
 let sequence = 0;
 
-async function seedSystemDatabasePage() {
+async function seedSystemDatabasePage(ordinaryMembershipCount = 0) {
   sequence += 1;
   const suffix = `${sequence}`;
   const documentId = `suggestion-system-page-${suffix}`;
@@ -106,7 +125,98 @@ async function seedSystemDatabasePage() {
     createdAt: now,
     updatedAt: now,
   });
-  return { documentId, propertyId };
+  const ordinaryPropertyIds: string[] = [];
+  for (let index = 0; index < ordinaryMembershipCount; index += 1) {
+    const ordinaryDatabaseId = `suggestion-ordinary-db-${suffix}-${index}`;
+    const ordinaryPropertyId = `suggestion-ordinary-blocks-${suffix}-${index}`;
+    ordinaryPropertyIds.push(ordinaryPropertyId);
+    await db.insert(schema.documents).values({
+      id: `suggestion-ordinary-db-page-${suffix}-${index}`,
+      title: "Collection",
+      content: "",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabases).values({
+      id: ordinaryDatabaseId,
+      ownerEmail,
+      documentId: `suggestion-ordinary-db-page-${suffix}-${index}`,
+      title: "Collection",
+      primaryBlocksPropertyId: ordinaryPropertyId,
+      blocksSeeded: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: ordinaryPropertyId,
+      ownerEmail,
+      databaseId: ordinaryDatabaseId,
+      name: "Content",
+      type: "blocks",
+      optionsJson: JSON.stringify({ blocks: { primary: true } }),
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `suggestion-ordinary-item-${suffix}-${index}`,
+      ownerEmail,
+      databaseId: ordinaryDatabaseId,
+      documentId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  return { documentId, databaseDocumentId, propertyId, ordinaryPropertyIds };
+}
+
+async function seedMetadataOnlyDatabasePage() {
+  sequence += 1;
+  const suffix = `${sequence}`;
+  const documentId = `suggestion-metadata-page-${suffix}`;
+  const databaseId = `suggestion-metadata-db-${suffix}`;
+  const now = new Date().toISOString();
+  const db = getDb();
+  await db.insert(schema.documents).values([
+    {
+      id: documentId,
+      title: "Metadata row",
+      content: "Before",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: "rev-1",
+    },
+    {
+      id: `suggestion-metadata-db-page-${suffix}`,
+      title: "Collection",
+      content: "Before",
+      ownerEmail,
+      createdAt: now,
+      updatedAt: "rev-1",
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail,
+    documentId: `suggestion-metadata-db-page-${suffix}`,
+    title: "Collection",
+    blocksSeeded: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: `suggestion-metadata-item-${suffix}`,
+    ownerEmail,
+    databaseId,
+    documentId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return {
+    documentId,
+    databaseId,
+    databaseDocumentId: `suggestion-metadata-db-page-${suffix}`,
+  };
 }
 
 const operation = {
@@ -147,40 +257,491 @@ async function accept(
   acceptedOperation: SuggestionOperation = operation,
   prepared = coordination(),
 ) {
-  const result = await adapter.apply({
-    resourceType: "document",
-    resourceId: documentId,
-    suggestion: {
-      id: `suggestion-${documentId}`,
-      revision: 1,
+  const result = await runWithRequestContext({ userEmail: ownerEmail }, () =>
+    adapter.apply({
       resourceType: "document",
       resourceId: documentId,
-      adapterKind: adapter.kind,
-      adapterVersion: 1,
-      threadId: `thread-${documentId}`,
-      authorEmail: "commenter@example.com",
-      actorKind: "human",
-      baseRevision,
-      status: "pending",
-      summary: "Suggest edits",
-      ownerEmail,
-      orgId: null,
-      visibility: "private",
-      createdAt: "now",
-      updatedAt: "now",
-      metadata: null,
+      suggestion: {
+        id: `suggestion-${documentId}`,
+        revision: 1,
+        resourceType: "document",
+        resourceId: documentId,
+        adapterKind: adapter.kind,
+        adapterVersion: 1,
+        threadId: `thread-${documentId}`,
+        authorEmail: "commenter@example.com",
+        actorKind: "human",
+        baseRevision,
+        status: "pending",
+        summary: "Suggest edits",
+        ownerEmail,
+        orgId: null,
+        visibility: "private",
+        createdAt: "now",
+        updatedAt: "now",
+        metadata: null,
+        operations: [acceptedOperation],
+      },
       operations: [acceptedOperation],
-    },
-    operations: [acceptedOperation],
-    access: { role: "editor" },
-    ctx: {},
-    transaction: tx,
-    coordination: prepared,
-  });
+      access: { role: "editor" },
+      ctx: {},
+      transaction: tx,
+      coordination: prepared,
+    }),
+  );
   return { prepared, result };
 }
 
 describe("Content suggested edits Blocks transaction", () => {
+  it("accepts two proposal edits with one prepared Yjs persistence and replays safely", async () => {
+    sequence += 1;
+    const documentId = `suggestion-proposal-page-${sequence}`;
+    const before = "Alpha, beta is good.";
+    const after = "Alpha beta is great.";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Proposal page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    const actions =
+      await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal");
+    const decisions =
+      await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal");
+    const run = () =>
+      runWithRequestContext({ userEmail: ownerEmail }, async () => {
+        const document = await getDocumentAction.run({ id: documentId }, ctx);
+        const operations = markdownSuggestionOperations(before, after);
+        expect(operations).toHaveLength(2);
+        const created = await actions.default.run(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: adapter.kind,
+            baseRevision: document.revision,
+            summary: "Two edits",
+            idempotencyKey: `content-proposal-${documentId}`,
+            suggestions: operations.map((part, index) => ({
+              summary: `Edit ${index + 1}`,
+              operations: [part],
+            })),
+          },
+          ctx,
+        );
+        const members = created.suggestions.map((suggestion) => ({
+          id: suggestion.id,
+          observedRevision: suggestion.revision,
+          observedBase: suggestion.baseRevision,
+        }));
+        const request = {
+          proposalId: created.proposal.id,
+          decision: "accepted" as const,
+          idempotencyKey: `content-proposal-decision-${documentId}`,
+          members,
+        };
+        const accepted = await decisions.default.run(request, ctx);
+        expect(
+          accepted.suggestions.map((suggestion) => suggestion.status),
+        ).toEqual(["accepted", "accepted"]);
+        const replay = await decisions.default.run(request, ctx);
+        expect(replay.suggestions.map((suggestion) => suggestion.id)).toEqual(
+          created.suggestions.map((suggestion) => suggestion.id),
+        );
+        const updated = await getDocumentAction.run({ id: documentId }, ctx);
+        expect(updated.content).toBe(after);
+        expect(updated.bodyRevision).toBe(2);
+      });
+    await run();
+  });
+
+  it("rolls back the first Content edit when the second proposal edit conflicts", async () => {
+    sequence += 1;
+    const documentId = `suggestion-conflict-page-${sequence}`;
+    const before = "Alpha, beta is good.";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Conflict page",
+      content: before,
+      ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ctx = { caller: "cli" as const, userEmail: ownerEmail };
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const document = await getDocumentAction.run({ id: documentId }, ctx);
+      const first = markdownSuggestionOperations(
+        before,
+        "Alpha beta is good.",
+      )[0]!;
+      const second = markdownSuggestionOperations(
+        before,
+        "Alpha; beta is good.",
+      )[0]!;
+      const created = await (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion-proposal")
+      ).default.run(
+        {
+          resourceType: "document",
+          resourceId: documentId,
+          adapterKind: adapter.kind,
+          baseRevision: document.revision,
+          summary: "Conflicting edits",
+          idempotencyKey: `content-conflict-${documentId}`,
+          suggestions: [
+            { summary: "Remove comma", operations: [first] },
+            { summary: "Replace comma", operations: [second] },
+          ],
+        },
+        ctx,
+      );
+      await expect(
+        (
+          await import("@agent-native/core/review/suggestions/actions/decide-resource-suggestion-proposal")
+        ).default.run(
+          {
+            proposalId: created.proposal.id,
+            decision: "accepted",
+            idempotencyKey: `content-conflict-decision-${documentId}`,
+            members: created.suggestions.map((suggestion) => ({
+              id: suggestion.id,
+              observedRevision: suggestion.revision,
+              observedBase: suggestion.baseRevision,
+            })),
+          },
+          ctx,
+        ),
+      ).rejects.toThrow("proposal member is stale");
+      const unchanged = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(unchanged.content).toBe(before);
+      expect(unchanged.bodyRevision).toBe(0);
+      const listed = await (
+        await import("@agent-native/core/review/suggestions/actions/list-resource-suggestions")
+      ).default.run({ resourceType: "document", resourceId: documentId }, ctx);
+      expect(listed.suggestions.map((suggestion) => suggestion.status)).toEqual(
+        ["pending", "pending"],
+      );
+    });
+  });
+  it("accepts a standalone Page without a collection membership", async () => {
+    sequence += 1;
+    const documentId = `suggestion-standalone-page-${sequence}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      title: "Standalone Page",
+      content: "Before",
+      ownerEmail,
+      createdAt: new Date().toISOString(),
+      updatedAt: "rev-1",
+    });
+
+    await getDbExec().transaction!(async (tx) => {
+      await accept(documentId, tx);
+    });
+
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("After");
+  });
+
+  it("honors collection access through a non-active organization", async () => {
+    const { documentId, ordinaryPropertyIds } = await seedSystemDatabasePage(1);
+    const collaborator = "another-org-member@example.com";
+    const organizationId = `suggestion-other-org-${sequence}`;
+    const db = getDb();
+    const [collection] = await db
+      .select({ documentId: schema.contentDatabases.documentId })
+      .from(schema.contentDatabases)
+      .where(
+        eq(
+          schema.contentDatabases.primaryBlocksPropertyId,
+          ordinaryPropertyIds[0]!,
+        ),
+      );
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [organizationId, "Other organization", ownerEmail, 1],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: [
+        `suggestion-other-member-${sequence}`,
+        organizationId,
+        collaborator,
+        "member",
+        1,
+      ],
+    });
+    await db
+      .update(schema.documents)
+      .set({ orgId: organizationId, visibility: "org" })
+      .where(eq(schema.documents.id, collection!.documentId));
+
+    await expect(
+      getDbExec().transaction!(async (tx) =>
+        runWithRequestContext(
+          { userEmail: collaborator, orgId: "another-active-org" },
+          () =>
+            adapter.validateProposal({
+              resourceType: "document",
+              resourceId: documentId,
+              baseRevision: "rev-1",
+              operations: [operation],
+              ctx: { transaction: tx },
+            }),
+        ),
+      ),
+    ).resolves.toEqual([operation]);
+
+    const spaceId = `suggestion-other-space-${sequence}`;
+    const now = new Date().toISOString();
+    await db.insert(schema.contentSpaces).values({
+      id: spaceId,
+      name: "Other organization",
+      kind: "organization",
+      ownerEmail,
+      orgId: organizationId,
+      filesDatabaseId: `suggestion-other-files-${sequence}`,
+      createdBy: ownerEmail,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.documents)
+      .set({ spaceId })
+      .where(eq(schema.documents.id, collection!.documentId));
+    const { accessibleDocumentIds } =
+      await import("../../actions/_document-access.js");
+    await runWithRequestContext({ userEmail: collaborator }, async () => {
+      const accessible = await accessibleDocumentIds(
+        [collection!.documentId],
+        [],
+      );
+      expect(accessible.has(collection!.documentId)).toBe(true);
+    });
+    await runWithRequestContext(
+      { userEmail: "unrelated@example.com" },
+      async () => {
+        const accessible = await accessibleDocumentIds(
+          [collection!.documentId],
+          [],
+        );
+        expect(accessible.has(collection!.documentId)).toBe(false);
+      },
+    );
+  });
+
+  it("keeps a soft-deleted collection Page excluded at proposal and acceptance", async () => {
+    const { databaseId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(schema.contentDatabases.id, databaseId));
+
+    await expect(
+      getDbExec().transaction!(async (tx) =>
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: databaseDocumentId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
+      ),
+    ).rejects.toThrow(/Collection Pages/);
+    await expect(
+      getDbExec().transaction!(async (tx) => accept(databaseDocumentId, tx)),
+    ).rejects.toThrow(/Collection Pages/);
+  });
+
+  it("rejects metadata-only collection items and collection Pages at proposal and acceptance", async () => {
+    const { documentId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    for (const targetId of [documentId, databaseDocumentId]) {
+      await expect(
+        getDbExec().transaction!(async (tx) =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: targetId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
+      ).rejects.toThrow(
+        targetId === documentId
+          ? /no primary Blocks field/
+          : /Collection Pages/,
+      );
+      await expect(
+        getDbExec().transaction!(async (tx) => accept(targetId, tx)),
+      ).rejects.toThrow(
+        targetId === documentId
+          ? /no primary Blocks field/
+          : /Collection Pages/,
+      );
+    }
+    const rows = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(rows).toEqual([{ content: "Before" }]);
+  });
+
+  it("rejects acceptance if the last primary Blocks field was removed after proposal", async () => {
+    const { documentId, databaseDocumentId } =
+      await seedMetadataOnlyDatabasePage();
+    const propertyId = `suggestion-metadata-primary-${sequence}`;
+    const db = getDb();
+    const now = new Date().toISOString();
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail,
+      databaseId: `suggestion-metadata-db-${sequence}`,
+      name: "Content",
+      type: "blocks",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: propertyId })
+      .where(eq(schema.contentDatabases.documentId, databaseDocumentId));
+    await getDbExec().transaction!(async (tx) => {
+      await expect(
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: documentId,
+            baseRevision: "rev-1",
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
+      ).resolves.toEqual([operation]);
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: null })
+      .where(eq(schema.contentDatabases.documentId, databaseDocumentId));
+    await expect(
+      getDbExec().transaction!(async (tx) => accept(documentId, tx)),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
+  it("rechecks the eligible field after taking the acceptance membership locks", async () => {
+    const { documentId, ordinaryPropertyIds } = await seedSystemDatabasePage(1);
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              typeof query !== "string" &&
+              query.sql === "SELECT id FROM documents WHERE id = ? FOR UPDATE"
+            ) {
+              await execute({
+                sql: "UPDATE content_databases SET primary_blocks_property_id = NULL WHERE primary_blocks_property_id = ?",
+                args: [ordinaryPropertyIds[0]],
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
+  it("rejects a Page that gains an ordinary membership before acceptance locks memberships", async () => {
+    const { documentId } = await seedSystemDatabasePage(1);
+    const ordinaryDatabaseId = `suggestion-ordinary-db-${sequence}-0`;
+    const filesItemId = `suggestion-system-item-${sequence}`;
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(
+        eq(
+          schema.contentDatabaseItems.id,
+          `suggestion-ordinary-item-${sequence}-0`,
+        ),
+      );
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              typeof query !== "string" &&
+              query.sql === "SELECT id FROM documents WHERE id = ? FOR UPDATE"
+            ) {
+              await execute({
+                sql: "UPDATE content_database_items SET database_id = ? WHERE id = ?",
+                args: [ordinaryDatabaseId, filesItemId],
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toThrow(/no primary Blocks field/);
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
+  it("returns a retryable conflict when membership writes hold the table lock", async () => {
+    const { documentId } = await seedSystemDatabasePage();
+    await expect(
+      getDbExec().transaction!(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const wrapped = {
+          ...tx,
+          execute: async (query: Parameters<DbExec["execute"]>[0]) => {
+            if (
+              query ===
+              "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT"
+            ) {
+              throw Object.assign(new Error("lock unavailable"), {
+                code: "55P03",
+              });
+            }
+            return execute(query);
+          },
+        } as DbExec;
+        return accept(documentId, wrapped);
+      }),
+    ).rejects.toMatchObject({ errorCode: "suggestion_conflict" });
+    const [document] = await getDb()
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    expect(document?.content).toBe("Before");
+  });
+
   it("rechecks the bound comment thread inside suggestion creation", async () => {
     const { documentId } = await seedSystemDatabasePage();
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
@@ -243,20 +804,23 @@ describe("Content suggested edits Blocks transaction", () => {
     ).rejects.toThrow("comment changed");
   });
 
-  it("accepts a system database Page and reconciles its primary Blocks identity", async () => {
-    const { documentId, propertyId } = await seedSystemDatabasePage();
+  it("accepts a Page in multiple ordinary databases and reconciles every primary Blocks field", async () => {
+    const { documentId, propertyId, ordinaryPropertyIds } =
+      await seedSystemDatabasePage(2);
     const before = await runWithRequestContext({ userEmail: ownerEmail }, () =>
       getDocumentAction.run({ id: documentId }),
     );
     await getDbExec().transaction!(async (tx) => {
       await expect(
-        adapter.validateProposal({
-          resourceType: "document",
-          resourceId: documentId,
-          baseRevision: before.baseRevision,
-          operations: [operation],
-          ctx: { transaction: tx },
-        }),
+        runWithRequestContext({ userEmail: ownerEmail }, () =>
+          adapter.validateProposal({
+            resourceType: "document",
+            resourceId: documentId,
+            baseRevision: before.baseRevision,
+            operations: [operation],
+            ctx: { transaction: tx },
+          }),
+        ),
       ).resolves.toEqual([operation]);
     });
 
@@ -299,6 +863,30 @@ describe("Content suggested edits Blocks transaction", () => {
     });
     expect(field).toMatchObject({ documentId, propertyId, revision: 1 });
     expect(blocks).toEqual([{ markdown: "After" }]);
+    for (const ordinaryPropertyId of ordinaryPropertyIds) {
+      const [ordinaryField] = await db
+        .select()
+        .from(schema.documentBlockFields)
+        .where(eq(schema.documentBlockFields.propertyId, ordinaryPropertyId));
+      const ordinaryBlocks = await db
+        .select({ markdown: schema.documentBlocks.markdown })
+        .from(schema.documentBlocks)
+        .where(eq(schema.documentBlocks.fieldId, ordinaryField!.id));
+      expect(ordinaryField).toMatchObject({
+        documentId,
+        propertyId: ordinaryPropertyId,
+        revision: 1,
+      });
+      expect(ordinaryBlocks).toEqual([{ markdown: "After" }]);
+    }
+    const versions = await db
+      .select({ content: schema.documentVersions.content })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(versions.map((version) => version.content).sort()).toEqual([
+      "After",
+      "Before",
+    ]);
     expect(
       yDocToProsemirrorJSON(accepted.prepared.ydoc.doc, "default"),
     ).toMatchObject({

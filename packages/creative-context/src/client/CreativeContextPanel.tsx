@@ -182,6 +182,11 @@ export interface CreativeContextPanelProps {
   canManageOrg?: boolean;
   scopeControl?: ReactNode;
   connectionsHref?: string;
+  /**
+   * `"settings"` drops the page title, description, and page padding for a
+   * host that already renders them, such as the redesigned Settings page.
+   */
+  variant?: "page" | "settings";
 }
 
 function isVisibleInScope(
@@ -1201,6 +1206,7 @@ export function CreativeContextPanel({
   canManageOrg = false,
   scopeControl,
   connectionsHref = "/settings/integrations",
+  variant = "page",
 }: CreativeContextPanelProps) {
   const t = useT();
   const formatters = useFormatters();
@@ -2048,29 +2054,43 @@ export function CreativeContextPanel({
   const unavailable =
     sourcesQuery.error || packsQuery.error || contextsQuery.error;
 
+  const headerControls = (
+    <div className="flex flex-wrap items-center gap-2">
+      {scopeControl ??
+        (org?.orgId ? (
+          <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
+        ) : null)}
+      <CreativeContextChip
+        state={contextState.state}
+        packs={packs}
+        contexts={contexts}
+      />
+    </div>
+  );
+
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 pb-5">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {t("creativeContext.title")}
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {t("creativeContext.description")}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {scopeControl ??
-            (org?.orgId ? (
-              <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
-            ) : null)}
-          <CreativeContextChip
-            state={contextState.state}
-            packs={packs}
-            contexts={contexts}
-          />
-        </div>
-      </header>
+    <div
+      className={
+        variant === "settings"
+          ? "flex w-full flex-col gap-7"
+          : "mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10"
+      }
+    >
+      {variant === "settings" ? (
+        <div className="flex justify-end">{headerControls}</div>
+      ) : (
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-border/70 pb-5">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {t("creativeContext.title")}
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {t("creativeContext.description")}
+            </p>
+          </div>
+          {headerControls}
+        </header>
+      )}
 
       {loading ? (
         <div className="space-y-3" aria-label={t("creativeContext.loading")}>

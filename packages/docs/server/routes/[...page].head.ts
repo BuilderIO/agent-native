@@ -58,8 +58,6 @@ export default async function docsHeadHandler(event: H3Event) {
   const headers = new Headers(response.headers);
   const requestUrl = getRequestURL(event);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  // Preserve the stronger full-query key emitted by core for query-preserving
-  // redirects; the normal Docs key is only for ordinary public SSR pages.
   applyDocsSsrCacheKeyHeaders(headers, {
     varyByQuery: isCloudGettingStartedPath(requestUrl),
   });
@@ -76,9 +74,6 @@ export default async function docsHeadHandler(event: H3Event) {
 }
 
 function setSsrCacheHeaders(event: H3Event) {
-  // HEAD mirrors the GET cache policy exactly. Keep this tied to the framework
-  // resolver instead of app-level provider config so public docs deploys keep
-  // CDN SWR and Netlify durable caching without local header blocks.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }

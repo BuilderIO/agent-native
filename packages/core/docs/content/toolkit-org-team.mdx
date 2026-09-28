@@ -21,26 +21,53 @@ connections, service tokens, and app switching.
 
 ## Pieces {#pieces}
 
-| Piece                    | Purpose                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `<TeamPage>`             | Standard team management page for members, invites, roles, and organization preferences.        |
-| `<OrgSwitcher>`          | Current organization picker for sidebars and headers.                                           |
-| `<InvitationBanner>`     | One-click invite and domain-match join prompts.                                                 |
-| `<RequireActiveOrg>`     | Guard for pages that need an active organization before rendering app data.                     |
-| `useOrgRole()`           | Shared role booleans for member, invite, settings, and domain controls.                         |
-| `appRoles` prop          | Adds a per-app role column and picker to `<TeamPage>` from a `defineAppRoles` descriptor.       |
-| `useAppRoles()`          | An app's role vocabulary, its assignments in the active org, and whether the viewer may edit.   |
-| `useAppRole()`           | The current user's assigned roles in one app, or an empty array when unassigned.                |
-| `useSetAppMemberRoles()` | Replace one member's app-role set. Org owner/admin only, enforced server-side.                  |
-| Organization handlers    | Create, rename, switch, invite, accept, remove, and update roles/domains.                       |
-| Roles                    | Owner, admin, and member gates for sharing, settings, service tokens, and provider connections. |
-| Allowed domains          | Automatic join and domain-scoped access policy.                                                 |
-| App links                | Workspace app-link parsing and visible app-switcher helpers.                                    |
+| Piece                    | Purpose                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| `<TeamPage>`             | Standard team management page for members, invites, roles, and organization preferences.         |
+| `<OrgSwitcher>`          | Account menu for the sidebar footer: organizations, Settings, Usage, app downloads, and Log out. |
+| `<InvitationBanner>`     | One-click invite and domain-match join prompts.                                                  |
+| `<RequireActiveOrg>`     | Guard for pages that need an active organization before rendering app data.                      |
+| `useOrgRole()`           | Shared role booleans for member, invite, settings, and domain controls.                          |
+| `appRoles` prop          | Adds a per-app role column and picker to `<TeamPage>` from a `defineAppRoles` descriptor.        |
+| `useAppRoles()`          | An app's role vocabulary, its assignments in the active org, and whether the viewer may edit.    |
+| `useAppRole()`           | The current user's assigned roles in one app, or an empty array when unassigned.                 |
+| `useSetAppMemberRoles()` | Replace one member's app-role set. Org owner/admin only, enforced server-side.                   |
+| Organization handlers    | Create, rename, switch, invite, accept, remove, and update roles/domains.                        |
+| Roles                    | Owner, admin, and member gates for sharing, settings, service tokens, and provider connections.  |
+| Allowed domains          | Automatic join and domain-scoped access policy.                                                  |
+| App links                | Workspace app-link parsing and visible app-switcher helpers.                                     |
 
 ## API {#api}
 
 Render organization context wherever data scope changes. Put `OrgSwitcher` in
-the persistent shell and make `/settings/organization` or `/team` open `TeamPage`.
+the persistent shell. Organization management lives in Settings: the
+Organization group's General, Members, Usage, Authentication, Apps,
+Infrastructure, and Audit log pages (the last four for owners and admins).
+`/team` and `/settings/organization` redirect there.
+
+`OrgSwitcher` is the account menu (also exported as `AccountMenu`). Its button
+shows the signed-in person's photo, name, and current organization, and
+`compact` renders the photo alone for a collapsed rail. The menu lists the
+person's email, their organizations, pending invitations, email-domain matches,
+and Create organization, then Settings, Usage, and Log out. Member invitations
+and organization settings live in Settings. Pass
+`utilityLinks` to add a "Get apps and extensions" list for the app's downloads;
+links with `external: true` open in a new tab.
+
+```tsx
+<OrgSwitcher
+  compact={collapsed}
+  utilityLinks={[
+    {
+      id: "chrome-extension",
+      label: "Chrome extension",
+      href: "https://example.com/extension",
+      external: true,
+    },
+    { id: "desktop-app", label: "Get desktop app", href: "/download" },
+  ]}
+/>
+```
 
 ```tsx
 import {
@@ -68,6 +95,11 @@ export function AdminOnlyControl() {
 }
 ```
 
+With the `settings-redesign` flag on, the Settings shell renders the
+Organization pages from `@agent-native/core/client/org`: `OrgGeneralPage`,
+`OrgMembersPage({ appRoles? })`, `OrgAuthenticationPage`, and `OrgAppsPage`.
+With the flag off, `TeamPage` passed as `team` renders the earlier Team tab.
+
 Server code imports the same role helpers from `@agent-native/core/org-team`.
 The route plugin mounts `/_agent-native/org/*` for org creation, switching,
 invites, domains, member roles, app roles, and A2A secret sync.
@@ -75,7 +107,9 @@ invites, domains, member roles, app roles, and A2A secret sync.
 ### Per-app roles {#app-roles}
 
 When an app needs its own permission vocabulary on top of team membership,
-declare it with `defineAppRoles` and pass the descriptor to `TeamPage`. The
+declare it with `defineAppRoles` and pass the descriptor to `TeamPage`, and to
+`OrgMembersPage` by replacing the Members page (see
+[Settings Kit → Registering a page](/docs/toolkit-settings#registering-a-page)). The
 descriptor is the serializable half of the declaration — no database imports —
 so the same object can be handed to `defineAppRoles` on the server and to the
 component in the browser bundle:
@@ -133,10 +167,12 @@ the server-side `authorize` guard.
 ## UX Standard {#ux-standard}
 
 - Users can see which organization they are in before creating or sharing data.
-- Invites and roles live in the team settings surface, not per-resource dialogs.
+- Invites and roles live on Settings › Organization › Members, not in
+  per-resource dialogs.
 - App-specific roles appear as another column on that same team surface, never
   as a separate permissions page or a second organization.
-- Org domain changes are owner-only and explain who can auto-join.
+- Owners and admins change the org domain, and the control explains who
+  can auto-join.
 - App switching lists workspace/default app links. Active-org continuity comes
   from the target app sharing the same auth and organization state.
 

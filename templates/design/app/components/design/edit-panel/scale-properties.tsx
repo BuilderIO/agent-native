@@ -29,7 +29,6 @@ export interface ScaleAnchor {
 }
 
 export interface ScaleToolControls {
-  /** Scales the selection by `factor` relative to its current size. */
   onScale: (factor: number, anchor: ScaleAnchor) => void;
   onExit: () => void;
 }
@@ -56,8 +55,6 @@ function roundFactor(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Figma's Scale section: shown while the K tool is active. The factor is
- *  relative to the size the selection had when the tool opened. */
 export function ScaleProperties({
   element,
   controls,

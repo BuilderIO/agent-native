@@ -37,7 +37,6 @@ import {
   resolveOwnerEngineApiKey,
 } from "./production-agent.js";
 
-/** Owner-scoped `app_secrets` rows, keyed by the provider env var. */
 function ownerSecrets(secrets: Record<string, string>) {
   readAppSecretMock.mockImplementation(async ({ key }: { key: string }) =>
     secrets[key] ? { value: secrets[key], last4: "-key", updatedAt: 1 } : null,
@@ -57,10 +56,6 @@ beforeEach(() => {
 
 describe("resolveOwnerEngineApiKey", () => {
   it("resolves the named engine's own key rather than the active setting's", async () => {
-    // The regression this guards: the saved `agent-engine` setting decides
-    // which provider `getOwnerActiveApiKey` reads, so a plugin configured for
-    // OpenAI used to receive the owner's Anthropic key — untagged, which meant
-    // `resolveEngine` handed a live Anthropic secret to OpenAI.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({
       ANTHROPIC_API_KEY: "sk-ant-owner",
@@ -75,6 +70,10 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 
@@ -101,18 +100,54 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-owner",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 
-  it("falls back to the active engine's key, untagged, when no engine is named", async () => {
-    // No explicit engine means the registry picks one and re-derives the
-    // credential itself, so an opaque key is the honest answer here.
+  it("preserves the active engine key's provenance when no engine is named", async () => {
+    // The registry may select another engine, so the key must stay tagged for
+    // provider matching while retaining the scope that owns its value.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
-    ).resolves.toEqual({ apiKey: "sk-ant-owner", apiKeyEnvVar: undefined });
+    ).resolves.toEqual({
+      apiKey: "sk-ant-owner",
+      apiKeyEnvVar: undefined,
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
+    });
+  });
+
+  it("uses the tagged host fallback when the active engine setting is unavailable", async () => {
+    getSettingMock.mockRejectedValue(new Error("settings unavailable"));
+
+    await expect(
+      resolveOwnerEngineApiKey({
+        ownerEmail: "owner@example.com",
+        anthropicFallback: "host-anthropic-key",
+      }),
+    ).resolves.toEqual({
+      apiKey: "host-anthropic-key",
+      apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment" },
+    });
+    expect(readAppSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unavailable active engine setting without a safe fallback", async () => {
+    const settingsError = new Error("settings unavailable");
+    getSettingMock.mockRejectedValue(settingsError);
+
+    await expect(
+      resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
+    ).rejects.toBe(settingsError);
   });
 
   it("pairs an explicit OpenAI engine with the OpenAI deploy key", async () => {
@@ -129,6 +164,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
       apiKeyEnvVar: "OPENAI_API_KEY",
+      credentialProvenance: { scope: "deployment" },
     });
   });
 
@@ -142,6 +178,7 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "sk-ant-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: { scope: "deployment" },
     });
   });
 
@@ -158,6 +195,10 @@ describe("resolveOwnerEngineApiKey", () => {
     ).resolves.toEqual({
       apiKey: "scoped-owner-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      credentialProvenance: {
+        scope: "user",
+        scopeId: "owner@example.com",
+      },
     });
   });
 

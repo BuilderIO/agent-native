@@ -35,8 +35,6 @@ vi.mock("../secrets/storage.js", () => ({
 }));
 
 const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
-// Real `gatewayLaneUnavailableMessage`: which audience this route's copy is
-// written for is the behavior under test, so that decision is not stubbed.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveBuilderGatewayAuth: (...args: unknown[]) =>
@@ -59,9 +57,6 @@ describe("google realtime session credential gate", () => {
     state.hasGoogleSecret = true;
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     delete process.env.BUILDER_GATEWAY_TOKEN;
-    // Pinned rather than inherited: the deploy-lane predicate reads these, and a
-    // runner with a preview/hosted value set takes the owner path, so the visitor
-    // assertions below would silently test the wrong branch.
     delete process.env.FUSION_ENVIRONMENT;
     delete process.env.FUSION_ENV_ORIGIN;
     delete process.env.VITE_FUSION_ENV_ORIGIN;
@@ -96,9 +91,6 @@ describe("google realtime session credential gate", () => {
     expect(state.status).toBe(400);
   });
 
-  // On a credits deployment the pre-flight gate above passes — the injected pair
-  // resolves — so the rejection a visitor actually reaches is the gateway's own
-  // 402/403 reply, which this route used to hand back verbatim.
   describe("with the credits lane connected", () => {
     beforeEach(() => {
       resolveBuilderGatewayAuth.mockResolvedValue({

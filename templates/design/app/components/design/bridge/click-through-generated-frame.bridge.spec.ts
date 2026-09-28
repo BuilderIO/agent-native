@@ -3,24 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Regression for a click-through miss on generated Frame wrappers.
- *
- * shared/code-layer.ts's wrapNodes() tags EVERY wrapper it produces
- * (auto-layout-wrap and Frame Selection alike) with
- * data-agent-native-group-wrapper="true", whether the wrapper is a Frame
- * (data-an-primitive="frame") or a Group (data-agent-native-group="true").
- * clickThroughSelectionTarget used to resolve its click-through target via
- * selectionTargetForHit, which promotes any hit to that same marker's
- * ancestor — so with the Frame already selected, a click on its child
- * resolved right back to the Frame (resolved === selectedEl) and bailed.
- * A Frame drawn fresh with the Frame tool never gets the group-wrapper
- * marker, so that path always click-through'd fine — proving the marker,
- * not the "frame" primitive kind, was the cause.
- *
- * Runs the real generated bridge in a real browser: this hangs off
- * `document.elementsFromPoint`, which needs a real layout engine.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return (
     editorChromeBridgeScript
@@ -39,11 +21,6 @@ function hydratedEditorChromeBridgeScript(): string {
   );
 }
 
-// Frame A: auto-layout-wrap/Frame-Selection output — carries both the
-// group-wrapper marker and data-an-primitive="frame". Frame B: drawn with
-// the Frame tool — data-an-primitive="frame" only, no group-wrapper marker.
-// Group C: wrapNodes() output for a plain (non-auto-layout) group — the
-// group-wrapper marker plus data-agent-native-group="true".
 const FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="frame-a" data-agent-native-layer-name="Frame A"
        data-agent-native-group-wrapper="true" data-agent-native-preserve-styles="true"
@@ -113,7 +90,6 @@ async function clickSequence(points: [number, number][]) {
 
 describe("click-through onto a generated Frame's children", () => {
   it("dual-tagged Frame (group-wrapper + data-an-primitive=frame): second click selects the child", async () => {
-    // Kid A1 center: frame-a is at (40,40); kid-a1 at local (16,16)-(96,84).
     const selected = await clickSequence([
       [96, 90],
       [96, 90],
@@ -135,12 +111,6 @@ describe("click-through onto a generated Frame's children", () => {
   });
 
   it("Group wrapper (data-agent-native-group=true): now also click-throughs, matching the Frame fix", async () => {
-    // Side effect of the fix: clickThroughSelectionTarget no longer promotes
-    // to ANY group-wrapper-marked ancestor, so a selected Group's children
-    // are reachable the same way a selected Frame's are. This intentionally
-    // reverses the old "Group always needs double-click" click-through
-    // behavior (selectionTargetForHit's own group promotion, used for the
-    // FIRST click and for descendIntoGroup, is unchanged).
     const selected = await clickSequence([
       [96, 370],
       [96, 370],

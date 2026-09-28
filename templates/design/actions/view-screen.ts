@@ -1,12 +1,3 @@
-/**
- * See what the user is currently looking at on screen.
- *
- * Reads navigation state and design context from application state.
- *
- * Usage:
- *   pnpm action view-screen
- */
-
 import { defineAction } from "@agent-native/core/action";
 import {
   listAppState,
@@ -221,7 +212,7 @@ function buildReviewSummary(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, live-collaboration opt-in, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -339,9 +330,9 @@ export default defineAction({
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
-          // The design's own linked system, not the template's. Picking one on
-          // an empty design writes it here and nowhere else, so leaving it out
-          // meant the first read after the choice could not see it.
+          liveCollaborationEnabled:
+            (access.resource as { liveCollaborationEnabled?: unknown })
+              .liveCollaborationEnabled === true,
           designSystemId:
             typeof (access.resource as { designSystemId?: unknown })
               .designSystemId === "string"
@@ -516,7 +507,7 @@ export default defineAction({
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
     if (generationSession) {
-      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000;
       const startedAt =
         typeof (generationSession as { startedAt?: unknown }).startedAt ===
         "string"

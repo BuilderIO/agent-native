@@ -9,12 +9,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-/**
- * Slim, non-blocking banner shown below the canvas when the current user only
- * has viewer access to the design (Figma-style "you can't edit this" notice).
- * Editing affordances are disabled elsewhere via `canEditDesign`; signed-in
- * viewers get their one canvas action integrated into the same quiet notice.
- */
 export function ReadOnlyDesignBanner({
   pinMode = false,
   onCommentPin,

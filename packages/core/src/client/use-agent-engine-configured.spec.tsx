@@ -28,7 +28,7 @@ async function flushAfterPaint() {
 
 function Probe({ enabled = true }: { enabled?: boolean }) {
   const status = useAgentEngineConfigured(enabled);
-  return <output>{status.state}</output>;
+  return <output data-can-chat={status.canChat}>{status.state}</output>;
 }
 
 function ScopedProbe({
@@ -70,7 +70,11 @@ describe("useAgentEngineConfigured", () => {
           return jsonResponse({ configured: true });
         }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: true, engine: "builder" });
+          return jsonResponse({
+            configured: true,
+            chatEligible: true,
+            engine: "builder",
+          });
         }
         return jsonResponse([]);
       }),
@@ -84,6 +88,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -92,6 +97,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
   it("defers the readiness check past first paint and starts it on mount", async () => {
@@ -121,7 +127,7 @@ describe("useAgentEngineConfigured", () => {
 
     await act(async () => {
       for (const resolve of responses) {
-        resolve(jsonResponse({ configured: true }));
+        resolve(jsonResponse({ configured: true, chatEligible: true }));
       }
       await Promise.resolve();
       await Promise.resolve();
@@ -160,9 +166,8 @@ describe("useAgentEngineConfigured", () => {
     // The event-driven probe stays immediate and the scheduled initial probe
     // is consumed, not stacked behind it.
     expect(engineFetchCount).toBe(1);
-    // Fail the canonical probe; the legacy fallback probes it spawns fail
-    // too, so the check settles on "unavailable" (and schedules a retry the
-    // unmount below cancels).
+    // Fail the canonical probe so the check settles on "unavailable" and
+    // schedules a retry that the unmount below cancels.
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
         resolve(new Response("unavailable", { status: 500 }));
@@ -238,18 +243,15 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("unavailable");
   });
 
-  it("uses missing-key events when no current engine is configured", async () => {
+  it("uses chat eligibility instead of broad engine configuration", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
-        if (href.includes("/_agent-native/builder/status")) {
-          return jsonResponse({ configured: false });
-        }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
+          return jsonResponse({ configured: true, chatEligible: false });
         }
-        return jsonResponse([]);
+        throw new Error(`Unexpected status route: ${href}`);
       }),
     );
 
@@ -261,6 +263,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("missing");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -269,6 +272,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("missing");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
   });
 
   it("ignores missing-key events when provider checks are disabled", async () => {
@@ -282,6 +286,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -289,7 +294,31 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not carry the disabled short-circuit into chat eligibility", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ configured: true, chatEligible: true })),
+    );
+
+    await act(async () => {
+      root.render(<Probe enabled={false} />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+
+    await act(async () => {
+      root.render(<Probe enabled />);
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+    await flushAfterPaint();
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
   it("returns missing immediately from the shared status fetch helper", async () => {
@@ -297,37 +326,48 @@ describe("useAgentEngineConfigured", () => {
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
-        if (href.includes("/_agent-native/builder/status")) {
-          return jsonResponse({ configured: false });
-        }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
+          return jsonResponse({ configured: false, chatEligible: false });
         }
-        return jsonResponse([]);
+        throw new Error(`Unexpected status route: ${href}`);
       }),
     );
 
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
   });
 
-  it("uses the canonical engine status when legacy status checks are partial", async () => {
+  it("fails closed when a reachable server omits chat eligibility", async () => {
+    const fetch = vi.fn(async (_url: string | URL | Request) =>
+      jsonResponse({ configured: true }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(fetchAgentEngineConfiguredState()).resolves.toBe(
+      "unavailable",
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("sets canChat from chat eligibility instead of broad configured status", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string | URL | Request) => {
-        const href = String(url);
-        if (href.includes("/_agent-native/env-status")) {
-          return jsonResponse([]);
-        }
-        if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
-        }
-        return new Promise<Response>(() => {});
-      }),
+      vi.fn(async () =>
+        jsonResponse({ configured: false, chatEligible: true }),
+      ),
     );
 
-    await expect(
-      fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
-    ).resolves.toBe("missing");
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
   it("returns unavailable when every status check times out", async () => {
@@ -343,7 +383,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(status).resolves.toBe("unavailable");
   });
 
-  it("does not abort another status endpoint when its own probe times out", async () => {
+  it("does not abort an unrelated status request when the chat probe times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -379,7 +419,7 @@ describe("useAgentEngineConfigured", () => {
       state: "available",
       value: [{ key: "ANTHROPIC_API_KEY" }],
     });
-    await expect(status).resolves.toBe("configured");
+    await expect(status).resolves.toBe("unavailable");
   });
 
   it("does not use missing fallback after unavailable status checks", async () => {
@@ -405,8 +445,10 @@ describe("useAgentEngineConfigured", () => {
       "fetch",
       vi.fn(() => {
         requestCount += 1;
-        if (requestCount <= 3) return new Promise<Response>(() => {});
-        return Promise.resolve(jsonResponse({ configured: true }));
+        if (requestCount <= 1) return new Promise<Response>(() => {});
+        return Promise.resolve(
+          jsonResponse({ configured: true, chatEligible: true }),
+        );
       }),
     );
 
@@ -417,7 +459,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
     ).resolves.toBe("configured");
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("retries a failed check instead of latching a dead state", async () => {
@@ -425,13 +467,11 @@ describe("useAgentEngineConfigured", () => {
     let failing = true;
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string | URL | Request) => {
+      vi.fn((_url: string | URL | Request) => {
         if (failing) return Promise.reject(new Error("offline"));
-        const href = String(url);
-        if (href.includes("/_agent-native/env-status")) {
-          return Promise.resolve(jsonResponse([]));
-        }
-        return Promise.resolve(jsonResponse({ configured: true }));
+        return Promise.resolve(
+          jsonResponse({ configured: true, chatEligible: true }),
+        );
       }),
     );
 
@@ -458,16 +498,11 @@ describe("useAgentEngineConfigured", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
-        (url: string | URL | Request) =>
+        (_url: string | URL | Request) =>
           new Promise<Response>((resolve) => {
-            const href = String(url);
             setTimeout(
               () =>
-                resolve(
-                  href.includes("/_agent-native/env-status")
-                    ? jsonResponse([])
-                    : jsonResponse({ configured: true }),
-                ),
+                resolve(jsonResponse({ configured: true, chatEligible: true })),
               6000,
             );
           }),
@@ -496,18 +531,11 @@ describe("useAgentEngineConfigured", () => {
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
         if (initialCheck) {
-          if (href.includes("/_agent-native/builder/status")) {
-            return jsonResponse({ configured: true });
-          }
           if (href.includes("/_agent-native/agent-engine/status")) {
-            return jsonResponse({ configured: true });
+            return jsonResponse({ configured: true, chatEligible: true });
           }
-          return jsonResponse([]);
         }
-        if (href.includes("/_agent-native/env-status")) {
-          return jsonResponse([]);
-        }
-        return jsonResponse({ configured: false });
+        return jsonResponse({ configured: false, chatEligible: false });
       }),
     );
 

@@ -237,7 +237,6 @@ async function topNodeAt(page: Page, parentId: string): Promise<string | null> {
     });
 }
 
-/** Children painted at the parent's +100,+100 point, bottom to top. */
 async function paintedOrder(
   page: Page,
   parentId: string,
@@ -515,7 +514,6 @@ test("Figma overview board arrange commands measure, persist, and support contex
 }) => {
   const designId = await createBoardDesign(request);
   const initialOrder = ["red", "blue", "green"];
-  // Front/back cases move an end layer two steps, so a one-step move fails.
   const cases = [
     { node: "Red", key: "]", expected: ["blue", "green", "red"] },
     {

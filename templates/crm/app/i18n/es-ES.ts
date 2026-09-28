@@ -24,6 +24,11 @@ const messages = {
     retry: "Reintentar",
     search: "Buscar",
   },
+  chatHome: {
+    description:
+      "Explora el contexto permitido de las cuentas, las tareas de seguimiento y las pruebas en Native SQL y los registros conectados.",
+    placeholder: "Pregunta sobre tu CRM",
+  },
   commandMenu: {
     placeholder: "Busca registros, listas y comandos…",
     groupRecords: "Registros",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
     languageLabel: "Idioma de la interfaz",
+    mcpAbout:
+      "Conecta CRM con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en CRM por ti: buscar registros, actualizar campos y gestionar tareas. Solo ve lo que tú puedes ver.",
   },
   connection: {
     tab: "Conexión",

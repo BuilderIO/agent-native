@@ -213,6 +213,9 @@ const messages = {
       noErrorMessage: "（無錯誤訊息）",
     },
   },
+  settingsShortcut: {
+    command: "設定",
+  },
   agentPanel: {
     useBuilder: "使用生成器",
     openDesktopToEditCode: "開啟桌面編輯程式碼",
@@ -228,6 +231,7 @@ const messages = {
     newChat: "新聊天",
     newTerminal: "新航站樓",
     panelOptions: "代理面板選項",
+    integrations: "整合",
     collapseSidebar: "收起側邊欄",
     widenChat: "將聊天視窗加寬",
     returnChatToLayout: "將聊天視窗放回版面配置",
@@ -253,6 +257,8 @@ const messages = {
     sharedKeyInEffect: "目前使用的是共用金鑰。",
     useOrganizationKey: "改用組織金鑰",
     keyStatusUnavailable: "無法取得金鑰狀態。",
+    saveScopeRoleUnavailable:
+      "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
   },
   share: {
     titleWithResource: "分享「{{title}}」",
@@ -260,6 +266,8 @@ const messages = {
     owner: "擁有者：{{name}}",
     close: "關閉",
     shareOptions: "分享選項",
+    people: "人員",
+    agents: "代理程式",
     link: "連結",
     invite: "Invite",
     embed: "Embed",
@@ -650,6 +658,7 @@ const messages = {
     reviewFeedback: "回饋",
     reviewOutput: "審核回答",
     reviewPreview: "預覽回答",
+    reviewPreviewUnavailable: "無法預覽",
     closePreview: "隱藏預覽",
     addFeedback: "新增回饋",
     draftInstruction: "草擬指示",

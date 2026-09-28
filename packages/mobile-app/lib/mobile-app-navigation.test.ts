@@ -4,6 +4,7 @@ import {
   filterAvailableMobileTabAppIds,
   getAppRoute,
   getDefaultMobileTabAppIds,
+  getMobileAppUrl,
   MOBILE_BOTTOM_TAB_LIMIT,
   toggleMobileTabAppId,
 } from "./mobile-app-navigation";
@@ -23,16 +24,12 @@ describe("mobile chat-first navigation", () => {
   });
 
   it("fills missing preferred slots with the next registered app", () => {
-    // Only one preferred app is available, so the spare slot falls through to
-    // an unpreferred one rather than being left empty.
     expect(
       getDefaultMobileTabAppIds([{ id: "clips" }, { id: "calendar" }]),
     ).toEqual(["calendar", "clips"]);
   });
 
   it("does not choose disabled apps for default slots", () => {
-    // `content` outranks `design` in the preferred order, so it would take the
-    // second slot if being disabled were ignored.
     expect(
       getDefaultMobileTabAppIds([
         { id: "content", enabled: false },
@@ -57,7 +54,6 @@ describe("mobile chat-first navigation", () => {
       new Set(["mail", "analytics"]),
     );
 
-    // "removed" is gone, so the second slot is free and the toggle lands.
     expect(toggleMobileTabAppId(currentIds, "analytics")).toEqual({
       ids: ["mail", "analytics"],
       changed: true,
@@ -68,5 +64,14 @@ describe("mobile chat-first navigation", () => {
   it("uses the tab route for registered apps and the secure fallback for custom apps", () => {
     expect(getAppRoute("mail")).toBe("/mail");
     expect(getAppRoute("custom-notes")).toBe("/app/custom-notes");
+  });
+
+  it("keeps embedded app settings routes on the app origin", () => {
+    expect(getMobileAppUrl("https://chat.example", "/settings#uploads")).toBe(
+      "https://chat.example/settings#uploads",
+    );
+    expect(
+      getMobileAppUrl("https://chat.example", "https://other.example/"),
+    ).toBe("https://chat.example");
   });
 });

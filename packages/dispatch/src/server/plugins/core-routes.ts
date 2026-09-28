@@ -20,8 +20,6 @@ const corePlugin = createCoreRoutesPlugin({
 
 const dispatchCoreRoutesPlugin: NitroPluginDef = (nitroApp) => {
   const coreInit = corePlugin(nitroApp);
-  // `getH3App` installs the framework CSRF middleware on its first call for
-  // this app, so any route registered through it is already behind that check.
   getH3App(nitroApp).use(
     WORKSPACE_APP_CHAT_PROXY_PREFIX,
     createWorkspaceAppChatProxyHandler(),

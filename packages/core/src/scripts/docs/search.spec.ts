@@ -55,9 +55,6 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
       "CANVAS_REFERENCE_TOKEN: this is the reference sub-file body.",
     );
 
-    // readSkillsDir (exercised through readAgentsBundleFromFs) is the
-    // load-bearing piece under test: it must read the reference sub-file's
-    // *content*, not just its name, into `Skill.files`.
     const bundle = readAgentsBundleFromFs(tplDir);
     mocks.loadAgentsBundle.mockResolvedValue(bundle);
   });

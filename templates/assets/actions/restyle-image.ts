@@ -3,6 +3,10 @@ import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
+import {
   ASPECT_RATIOS,
   IMAGE_MODELS,
   IMAGE_QUALITY_TIERS,
@@ -16,6 +20,11 @@ import { resolveLiveBatchContinuation } from "./variant-slots.js";
 export default defineAction({
   description:
     "Restyle an existing image with its library's brand look. Preserves the subject image while using the library's deterministic style anchors and references.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     subjectAssetId: z.string(),
     prompt: z

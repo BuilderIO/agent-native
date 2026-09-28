@@ -1,5 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
@@ -73,15 +74,6 @@ function mergeAttendees(
   return Array.from(merged.values());
 }
 
-/**
- * Whether raw `attendeesInput` names at least one guest Google would actually
- * invite. Like every `needsApproval` input this arrives unparsed, as either the
- * array or the comma-separated string the schema accepts — and anything without
- * an `@` is dropped before `run` counts attendees, so it mails nobody.
- * Delegating to the same normalizer `run` uses keeps the gate from drifting
- * away from what it is gating; re-implementing the address check here would let
- * a future change to that filter silently skip an approval.
- */
 function namesGuests(value: unknown): boolean {
   if (typeof value !== "string" && !Array.isArray(value)) return false;
   return (
@@ -98,6 +90,19 @@ function workingLocationTitle(
     return properties.officeLocation?.label || "Office";
   }
   return properties.customLocation?.label || "Working location";
+}
+
+function eventChange(id: string, title: string) {
+  return {
+    verb: "updated" as const,
+    kind: "calendar-event",
+    title: title.trim().slice(0, 180) || "Event",
+    url: buildDeepLink({
+      app: "calendar",
+      view: "calendar",
+      params: { eventId: id },
+    }),
+  };
 }
 
 export default defineAction({
@@ -217,12 +222,6 @@ export default defineAction({
       ),
   }),
   toolCallable: false,
-  // Ordinary field edits are reversible in place and stay unblocked. Two paths
-  // are not: notifying guests mails people outside the app, and a move deletes
-  // the event from the source calendar after recreating it elsewhere, defaulting
-  // to notifying every attendee. A move cannot be previewed, and the predicate
-  // must stay pure, so it gates on targetAccountEmail rather than reading the
-  // event to find out whether that move would email anyone.
   needsApproval: ({
     sendUpdates,
     notificationMessage,
@@ -231,12 +230,7 @@ export default defineAction({
   }) =>
     targetAccountEmail !== undefined ||
     sendUpdates === "all" ||
-    // The companion note sends on its own, whatever sendUpdates says.
     !!notificationMessage?.trim() ||
-    // Adding a guest is an invitation: `run` leaves sendUpdates to Google's
-    // default of "all" whenever addAttendees names anyone, so this mirrors that
-    // `??` instead of gating every attendee edit. Replacing the list through
-    // `attendees` does not reach it, and so is not gated here.
     (sendUpdates === undefined && namesGuests(addAttendees)),
   run: async (args, actionContext?: ActionRunContext) => {
     const ownerEmail = requireActionUserEmail();
@@ -445,15 +439,17 @@ export default defineAction({
         },
         actionContext,
       );
+      const id = googleEventResultId(args.id, result.id, targetAccountEmail!);
       return {
         success: true,
-        id: googleEventResultId(args.id, result.id, targetAccountEmail!),
+        id,
         replacedId: googleEventResultId(args.id, googleEventId, accountEmail),
         accountEmail: targetAccountEmail,
         updated: ["accountEmail"],
         htmlLink: result.htmlLink,
         hangoutLink: result.meetLink,
         conferenceData: result.conferenceData,
+        change: eventChange(id, existingEvent.title),
         ...(guestNotification ? { guestNotification } : {}),
       };
     }
@@ -746,9 +742,19 @@ export default defineAction({
       );
     }
 
+    const id = googleEventResultId(
+      args.id,
+      returnedGoogleEventId,
+      accountEmail,
+    );
+    const title =
+      hasWorkingLocationPatch && updates.workingLocationProperties
+        ? workingLocationTitle(updates.workingLocationProperties)
+        : (args.title ?? existingEvent?.title ?? "Event");
+
     return {
       success: true,
-      id: googleEventResultId(args.id, returnedGoogleEventId, accountEmail),
+      id,
       ...(returnedGoogleEventId !== googleEventId
         ? {
             replacedId: googleEventResultId(
@@ -766,6 +772,7 @@ export default defineAction({
       conferenceData: result.conferenceData,
       ...(args.removeGoogleMeet ? { removedGoogleMeet: true } : {}),
       ...returnedPatch,
+      change: eventChange(id, title),
       ...(guestNotification ? { guestNotification } : {}),
     };
   },

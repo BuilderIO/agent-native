@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 
-// Stable per locale, like the real `useFormatters()`.
 const formatters = { formatNumber: (value: number) => String(value) };
 const translate = (key: string) => key;
 vi.mock("../i18n.js", () => ({

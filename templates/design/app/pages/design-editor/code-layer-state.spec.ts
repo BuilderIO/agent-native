@@ -285,8 +285,6 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
       }),
     );
 
-    // The element's attribute position is authored; the owner line came from a
-    // transformed React 19 owner stack. One shared tier would misreport one.
     expect(info.provenance).toMatchObject({
       method: "data-attribute",
       ownerMethod: "debug-stack",
@@ -294,9 +292,6 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
   });
 
   it("keeps a stack-derived position labelled transformed instead of laundering it through data-source-*", () => {
-    // The bridge writes the projection's data-source-* from React 19's owner
-    // stack. Without the tier attribute those coordinates would read back as a
-    // build-time transform's authored ones.
     const info = elementInfoFromCodeLayerNode(
       makeNode({
         dataAttributes: {
@@ -525,9 +520,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
   });
 
   it("finds the sourceId match even when an unrelated earlier node matches the selector first", () => {
-    // Regression: the old implementation was a single combined `.find()`
-    // over (selector OR sourceId), so a selector-only match earlier in the
-    // array could win over the correct sourceId match later in the array.
     const selectorMatchButWrongNode = makeNode({
       id: "decoy",
       selector: "body > div",
@@ -570,11 +562,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
   });
 
   it("refuses to resolve (returns null) when a selector matches multiple nodes and no sourceId disambiguates", () => {
-    // Two repeated card instances share the same generic suffix selector —
-    // exactly the shape a bridge target for a not-yet-stamped repeated
-    // list/card item emits. Silently picking the first would risk mutating
-    // the wrong sibling; the resolver must fail closed instead, mirroring
-    // the server-side resolveTarget's ambiguity-conflict discipline.
     const cardA = makeNode({
       id: "card-a",
       selector: "div > p",
@@ -626,8 +613,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
 });
 
 describe("isClientRenderedMountShell", () => {
-  // Observed: a Vite SPA screen projected to [html, body, div#root], so every
-  // runtime selection resolved "absent" and the editor blamed the element.
   it("recognizes the served shell of a client-rendered app", () => {
     const projection = {
       nodes: [
@@ -674,8 +659,6 @@ describe("isClientRenderedMountShell", () => {
 });
 
 describe("resolveCodeLayerTargetFromBridge distinguishes absent from ambiguous", () => {
-  // The point of the typed result: `null` cannot say whether the element is gone
-  // or one of several identical instances, which need different remedies.
   function repeatedCards() {
     const shared = {
       selector: "div > p",
@@ -1008,21 +991,8 @@ describe("codeLayerNodeMatchesBridgeTarget", () => {
   });
 });
 
-// BUG-UNDO-RESIZE-GEOMETRY regression coverage — live QA: undo after a canvas
-// drag-RESIZE reverted the DOM correctly but the right panel's Layout W/H
-// stayed stale (167x86 instead of the actually-reverted 116.8x36) until
-// deselect/reselect. Root cause: refreshElementInfoFromContent's resync
-// merged width/height additively (so a value absent from the reverted node
-// never overwrote the pre-undo one) AND never refreshed boundingRect at all,
-// which is what edit-panel/element-classification.ts's cssElementSize falls
-// back to when computedStyles has no parseable width/height.
 describe("refreshedComputedStyles geometry handling", () => {
   it("clears a stale width/height when the fresh source no longer authors one (fail-before case)", () => {
-    // Before the fix: the additive merge below (`{...info.computedStyles,
-    // ...sourceWithAliases}`) kept `width`/`height` from `info` whenever the
-    // fresh (reverted) node didn't carry them — exactly what happened for an
-    // undo that removed the drag-resize's inline width/height, reverting to
-    // a class-driven size the string parse can't see.
     const staleInfo = makeElementInfo({
       computedStyles: { width: "167px", height: "86px", color: "red" },
     });
@@ -1033,7 +1003,6 @@ describe("refreshedComputedStyles geometry handling", () => {
     );
     expect(result.width).toBeUndefined();
     expect(result.height).toBeUndefined();
-    // Non-geometry properties still carry over/merge normally.
     expect(result.color).toBe("red");
   });
 
@@ -1066,12 +1035,6 @@ describe("refreshedComputedStyles geometry handling", () => {
 
 describe("refreshedBoundingRectSize", () => {
   it("recomputes width/height from the freshly-resolved computedStyles instead of staying pinned to the pre-undo rect (fail-before case)", () => {
-    // Before the fix: refreshElementInfoFromContent's `{...info}` spread (via
-    // canonicalElementInfoForCodeLayerNode, and again in its DOM-parse
-    // fallback) left `boundingRect` completely untouched, so cssElementSize's
-    // fallback-to-boundingRect path kept reporting the pre-undo drag-resize
-    // rect forever — this is what the Layout panel's W/H fields showed when
-    // computedStyles itself had no parseable width/height.
     const staleInfo = makeElementInfo({
       boundingRect: { x: 4, y: 8, width: 167, height: 86 },
     });
@@ -1093,10 +1056,6 @@ describe("refreshedBoundingRectSize", () => {
 
 describe("isCodeLayerNodeRuntimeOnly", () => {
   it("is never runtime-only for a file whose layers panel is showing its own source projection (fail-before case)", () => {
-    // Before the fix, callers gated on the FILE-level model.runtimeOnly flag
-    // directly, so a static/inline screen (fileIsRuntimeProjected: false)
-    // never hit this function at all and was fine either way — this case
-    // guards the base condition the narrower per-node check must preserve.
     expect(
       isCodeLayerNodeRuntimeOnly({
         fileIsRuntimeProjected: false,
@@ -1107,12 +1066,6 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
   });
 
   it("is NOT runtime-only for a localhost node whose stamped node id also appears in the source projection (fail-before case)", () => {
-    // Before the fix: every node on a hydrated localhost screen was flagged
-    // runtimeOnly=true purely because the FILE used the runtime projection —
-    // even a node with a perfectly resolvable source match, and even on a
-    // plain static-HTML target with no React at all. That made
-    // handleToggleLayerLocked/Hidden always route through the
-    // React-semantic-handoff path and show "still loading" forever.
     expect(
       isCodeLayerNodeRuntimeOnly({
         fileIsRuntimeProjected: true,
@@ -1177,11 +1130,6 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
 
 describe("runtimeLayerStateHandoffMode", () => {
   it("is preview-only for a runtime node with no React source provenance (fail-before case)", () => {
-    // Before the fix this case was indistinguishable from an unresolvable
-    // anchor: hide/lock bailed with "React source anchors still loading" and
-    // never set hiddenLayerIds/lockedLayerIds, so DesignCanvas's layer-states
-    // message stayed empty and nothing hid in the live iframe. A plain-HTML
-    // localhost target never produces provenance, so that load never comes.
     expect(
       runtimeLayerStateHandoffMode({
         runtimeOnly: true,
@@ -1295,24 +1243,12 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
   });
 });
 
-// ── grid-template source overlay (bug fix) ──────────────────────────────
-// The live bridge's inline-style read normalizes a bare zero-length grid
-// track with its implied unit ("minmax(0, 1fr)" -> "minmax(0px, 1fr)"),
-// while a passive multi-selection member (elementInfoFromCodeLayerNode)
-// reads the same declaration straight off the raw source — same authored
-// template, two byte-different strings, which made
-// mixedElementFromSelection's exact-string compare report a false Mixed.
-
 describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", () => {
   const gridNode = makeNode({
     id: "html:grid-a",
     selectors: ['[data-agent-native-node-id="grid-a"]'],
     selector: '[data-agent-native-node-id="grid-a"]',
     dataAttributes: { "data-agent-native-node-id": "grid-a" },
-    // Hyphen-cased and lowercased, matching how parseStyle/cssPropertyKey
-    // actually store a real buildCodeLayerProjection node's raw
-    // declarations — a camelCase fixture here would not exercise
-    // sourceAuthoredGridTemplateOverlay's pre-check at all.
     style: { "grid-template-columns": "repeat(2, minmax(0, 1fr))" },
   });
 
@@ -1347,8 +1283,6 @@ describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", ()
       nonGridNode,
     );
 
-    // "No inline snapshot" must stay that way, not become a new `{}` —
-    // authoredStyleValue and friends read the two as different states.
     expect(canonical.inlineStyles).toBeUndefined();
   });
 
@@ -1694,8 +1628,6 @@ describe("codeLayerNodeLooksLikeComponent", () => {
     );
   });
 
-  // The canvas copy of a class rule carried no utility guard, so the same
-  // element read violet there and blue here.
   it("does not infer a component from any class name", () => {
     expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(false);
     expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(false);

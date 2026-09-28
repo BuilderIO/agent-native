@@ -17,12 +17,6 @@ export type LiveScreenLayerDropPreparation =
       reason: "destination-not-live" | "source-is-live" | "node-unresolved";
     };
 
-/**
- * Serialize one stored layer subtree for insertion into a live iframe.
- *
- * A live screen's stored content is its route URL. The caller must hand this
- * fragment to the runtime bridge and leave `destinationContent` untouched.
- */
 export function prepareLiveScreenLayerDrop(args: {
   sourceContent: string;
   destinationContent: string;

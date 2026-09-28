@@ -136,7 +136,6 @@ describe("extractManagedInteractionStateCss / injectManagedInteractionStateCss",
     );
     const removed = injectManagedInteractionStateCss(withBlock, "");
     expect(removed).not.toContain("data-agent-native-states");
-    // No accumulated blank line where the block used to be.
     expect(removed).toBe(BASE_HTML);
   });
 
@@ -205,12 +204,9 @@ describe("parseInteractionStatesCss / serializeInteractionStatesModel", () => {
       '[data-agent-native-node-id="a_node"]:disabled',
     );
     const zNodeIdx = css.indexOf('[data-agent-native-node-id="z_node"]');
-    // a_node (alphabetically first) comes before z_node.
     expect(hoverIdx).toBeGreaterThanOrEqual(0);
     expect(hoverIdx).toBeLessThan(zNodeIdx);
-    // Within a_node, focus (state order index 1) comes before disabled (index 4).
     expect(hoverIdx).toBeLessThan(disabledIdx);
-    // Within z_node, hover comes before active per STATE order? No: hover(0) before active(3).
     const zHoverIdx = css.indexOf('[data-agent-native-node-id="z_node"]:hover');
     const zActiveIdx = css.indexOf(
       '[data-agent-native-node-id="z_node"]:active',
@@ -271,7 +267,6 @@ describe("duplicateStatePreviewRules", () => {
       '[data-agent-native-node-id="btn_1"][data-an-state-preview="hover"]',
     );
     const css = extractManagedInteractionStateCss(withPreviews) ?? "";
-    // Same declarations in both the real rule and the twin.
     const realRuleMatch = /:hover\s*\{\s*color:\s*red\s*!important;\s*\}/.exec(
       css,
     );
@@ -718,10 +713,6 @@ describe("Code-panel hand-edit tolerance", () => {
 
 describe("transition passthrough (documentation contract)", () => {
   it("does not reject the transition property/value inside a state rule", () => {
-    // Transitions normally live on the BASE element (see module doc comment),
-    // but nothing here special-cases or blocks the "transition" property
-    // itself if a caller ever does set it within a state rule — it's just an
-    // ordinary CSS property/value pair as far as this module is concerned.
     const html = upsertStateStyle(
       BASE_HTML,
       "btn_1",

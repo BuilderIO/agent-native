@@ -1,7 +1,6 @@
 import { agentNativePath } from "./api-path.js";
 
 export interface OpenOAuthPopupOptions {
-  /** HTTP(S) URL loaded synchronously while the user gesture is active. */
   initialUrl?: string;
   features?: string;
 }

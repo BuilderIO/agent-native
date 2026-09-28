@@ -53,7 +53,6 @@ describe("assignRoundRobin", () => {
       metrics,
       strategy: "lowest-recent-bookings",
     });
-    // priority 1 > priority 2; within priority 1, weight 5 > weight 1
     expect(result?.userEmail).toBe("c@x.com");
   });
 

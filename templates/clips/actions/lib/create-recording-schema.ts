@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { RECORDING_TITLE_SOURCES } from "./title-source.js";
+import { RECORDING_TITLE_SOURCES } from "../../shared/title-source.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -25,6 +25,13 @@ export const createRecordingSchema = z.object({
     .max(200)
     .nullish()
     .describe("Captured application name, when known"),
+  recordingPlatform: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.enum(["web", "desktop", "extension", "mobile"]))
+    .optional()
+    .describe("Recorder platform"),
   sourceWindowTitle: z
     .string()
     .trim()

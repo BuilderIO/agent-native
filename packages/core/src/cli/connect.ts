@@ -1,35 +1,3 @@
-/**
- * `agent-native connect <url>` — wire your local MCP-capable coding agent
- * to a DEPLOYED agent-native app. OAuth-capable clients receive a standard
- * remote MCP URL entry and authenticate in the host. Fallback clients use the
- * browser device-code flow: open the verification URL, approve in the browser,
- * and the minted HTTP MCP server entry is written idempotently.
- *
- *   agent-native connect <url> [--client all|claude-code|
- *                               codex|cowork|cursor|opencode|github-copilot]
- *                               [--scope user|project]
- *                               [--name <serverName>]
- *   agent-native reconnect [<url>] [--client ...] [--name <serverName>]
- *   agent-native connect <url> --token <token>   (no-browser fallback)
- *   agent-native connect        [--client ...]   (pick first-party apps)
- *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
- *
- * Server contract (implemented by another agent on `<url>`):
- *   POST <url>/mcp/connect/device/start  (no auth)
- *     body { client?, app? }
- *     → { device_code, user_code, verification_uri,
- *         verification_uri_complete, interval, expires_in }
- *   POST <url>/mcp/connect/device/poll   (no auth)
- *     body { device_code }
- *     → { status: "pending" }
- *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
- *     | { status: "expired" }
- *     | { status: "consumed" }
- *     | { status: "error" | "not_found", message? }
- *
- * Node-only CLI module. Uses Node built-ins, @clack/prompts, and global fetch.
- */
-
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -63,11 +31,6 @@ const LEGACY_MCP_PATH = MCP_LEGACY_ROUTE_PREFIX;
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
 
-/**
- * Maps a normalised hosted MCP URL to the canonical server name for that
- * first-party app. Kept in sync with BUILT_IN_APP_SKILLS in skills.ts (we
- * cannot import from there — it imports connect.ts, which would be circular).
- */
 const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
   "https://plan.agent-native.com/mcp": "plan",
   "https://assets.agent-native.com/mcp": "agent-native-assets",
@@ -124,49 +87,21 @@ function logErr(msg: string): void {
   logErrImpl(msg);
 }
 
-// ---------------------------------------------------------------------------
-// Arg parsing
-// ---------------------------------------------------------------------------
-
 export interface ParsedConnectArgs {
-  /** Developer profile switch: local dev gateway or saved production config. */
   mode?: "dev" | "prod" | "reauth" | "reconnect";
-  /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
-  /** all | claude-code | codex | cowork | cursor | opencode | github-copilot (default "all"). claude-code-cli is accepted as a legacy alias for claude-code. */
   client: string;
-  /** True when the user passed --client explicitly, so we skip the picker. */
   clientExplicit: boolean;
-  /** user | project (default "user"). */
   scope: string;
-  /** Override the minted MCP server name. */
   name?: string;
-  /** No-browser fallback: skip device flow, use this token directly. */
   token?: string;
-  /**
-   * Mint an ORG SERVICE token with this service name (e.g. "ci") instead of
-   * writing local MCP configs. Authenticates the human via the device flow,
-   * then calls the app's `create-org-service-token` action and prints the
-   * token once — for CI secrets like PLAN_RECAP_TOKEN.
-   */
   serviceToken?: string;
-  /** Optional token TTL in days (1–365) for --service-token. */
   ttlDays?: number;
-  /** Connect every first-party hosted app. */
   all: boolean;
-  /** Comma-separated app names for profile switching. */
   apps?: string;
-  /** Local dev-lazy gateway URL for `connect dev`. */
   gateway?: string;
-  /** Shorthand for a local dev-lazy gateway port. */
   port?: number;
-  /** Local owner email override for dev entries. */
   ownerEmail?: string;
-  /**
-   * Embed `catalog_scope: "full"` in the minted token so the connected client
-   * bypasses the connector-catalog tier and sees the complete action surface.
-   * Matches the `fullCatalog` body param on the app's token-mint route.
-   */
   fullCatalog?: boolean;
 }
 
@@ -212,10 +147,6 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
   return out;
 }
 
-/**
- * Normalize a user-supplied app URL: trim, require http/https, strip the
- * trailing slash. Throws a friendly Error otherwise.
- */
 export function normalizeUrl(raw: string): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) {
@@ -250,19 +181,14 @@ export function normalizeUrl(raw: string): string {
         `Use https:// so bearer tokens are not sent in cleartext.`,
     );
   }
-  // origin + pathname, trailing slash stripped (origin keeps no path).
   const base = `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
   return base;
 }
 
-// Clients offered in the interactive picker and expanded by "all". Excludes
-// the `claude-code-cli` alias so users only ever see a single "Claude Code"
-// option (it still works if passed explicitly via --client).
 const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
   (c) => c !== "claude-code-cli",
 );
 
-/** Resolve the requested clients list. "all" → every supported client. */
 export function resolveClients(client: string): ClientId[] {
   const c = normalizeClientAlias(client ?? "all");
   if (c === "all" || c === "") return [...SELECTABLE_CLIENTS];
@@ -278,9 +204,6 @@ export function resolveClients(client: string): ClientId[] {
 
 function normalizeClientAlias(value: string): string {
   const id = value.trim().toLowerCase();
-  // The Claude Code CLI and desktop share ~/.claude.json, so they are one
-  // client. `claude-code-cli` stays accepted for back-compat but collapses to
-  // the single "Claude Code" option everywhere it surfaces.
   if (
     id === "claude" ||
     id === "claude-code-desktop" ||
@@ -596,7 +519,6 @@ async function showReconnectSuccessOutro({
   }
 }
 
-/** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
 function appSlugFromUrl(url: string): string {
   try {
     const host = new URL(url).hostname;
@@ -632,10 +554,6 @@ function reconnectServerNameForMcpUrl(
   return legacyNames.includes(serverName) ? canonical : serverName;
 }
 
-// ---------------------------------------------------------------------------
-// Browser open (mirrors workspace-dev.ts openBrowser)
-// ---------------------------------------------------------------------------
-
 function openInBrowser(url: string): void {
   if (process.env.AGENT_NATIVE_NO_OPEN === "1") return;
   try {
@@ -656,10 +574,6 @@ function openInBrowser(url: string): void {
     // Non-fatal: the user can open the URL manually (we already printed it).
   }
 }
-
-// ---------------------------------------------------------------------------
-// Device-code flow
-// ---------------------------------------------------------------------------
 
 interface DeviceStartResponse {
   device_code: string;
@@ -686,36 +600,24 @@ interface DevicePollResponse {
   error?: string;
 }
 
-/** Injectable hooks so the poll state machine is unit-testable. */
 export interface ConnectDeps {
-  /** Defaults to global fetch. */
   fetchImpl?: typeof fetch;
-  /** Sleep between polls (ms). Defaults to real setTimeout. */
   sleep?: (ms: number) => Promise<void>;
-  /** Open the verification URL. Defaults to the platform browser opener. */
   openBrowser?: (url: string) => void | Promise<void>;
-  /** Optional wrapper for showing progress while the browser opener runs. */
   withBrowserOpenSpinner?: (
     message: string,
     openBrowser: () => void | Promise<void>,
   ) => void | Promise<void>;
-  /** Override "now" for the expiry cap (ms epoch). Defaults to Date.now. */
   now?: () => number;
-  /** Tests/embedders can force or suppress the interactive client picker. */
   isInteractive?: () => boolean;
-  /** Injectable client picker. Defaults to @clack/prompts multiselect. */
   promptClients?: (
     context: ConnectClientPromptContext,
   ) => Promise<ClientId[] | null>;
-  /** Injectable hosted app picker. Defaults to @clack/prompts multiselect. */
   promptHostedApps?: (
     context: ConnectHostedAppsPromptContext,
   ) => Promise<string[] | null>;
-  /** Override the persisted connect preferences file. */
   preferencesFile?: string;
-  /** Override the saved dev/prod profile file. */
   profilesFile?: string;
-  /** Optional output hooks used when another clack-based command embeds connect. */
   logOut?: (message: string) => void;
   logErr?: (message: string) => void;
 }
@@ -841,11 +743,6 @@ async function validateOAuthMcpServer(
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/**
- * Run the device-code flow against `baseUrl` and return the approved grant.
- * Resolves with `null` (and prints a clear message) on expired/consumed or
- * other terminal failure — the caller maps that to a non-zero exit.
- */
 export async function runDeviceFlow(
   baseUrl: string,
   appSlug: string,
@@ -864,9 +761,6 @@ export async function runDeviceFlow(
   const now = deps.now ?? (() => Date.now());
 
   let start: DeviceStartResponse | null = null;
-  // A cold/propagating Plan instance can briefly 404/5xx before its connect
-  // route is registered (async plugin init). Retry a few times so a recoverable
-  // blip doesn't kill the connect before polling even begins.
   const START_ATTEMPTS = 4;
   for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
     try {
@@ -930,9 +824,6 @@ export async function runDeviceFlow(
 
   let spin = 0;
   let transientStreak = 0;
-  // Ride out brief cold-instance blips, but don't poll a persistently-dead
-  // endpoint forever: give up after this many consecutive transient (404/5xx
-  // or network-error) polls. Reset as soon as one poll responds normally.
   const MAX_TRANSIENT_POLLS = 20;
   const isTTY = !!process.stdout.isTTY;
   while (now() < deadline) {
@@ -948,12 +839,6 @@ export async function runDeviceFlow(
         if (isTerminalPollBody(json)) {
           poll = json as DevicePollResponse;
         } else if (status === 404 || status >= 500) {
-          // Transient: a cold/propagating Plan instance can briefly serve a
-          // bare 404 (the MCP route isn't registered until async plugin init
-          // settles) or a 5xx before it's healthy. The next poll usually lands
-          // on a warm instance, so keep polling until the deadline instead of
-          // hard-failing the whole connect on a recoverable blip. (This is the
-          // recurring "Cannot find any route matching [POST] .../mcp" case.)
           poll = { status: "pending" };
           transient = true;
         } else {
@@ -968,7 +853,6 @@ export async function runDeviceFlow(
         poll = (json ?? { status: "pending" }) as DevicePollResponse;
       }
     } catch {
-      // Transient network error — keep polling.
       poll = { status: "pending" };
       transient = true;
     }
@@ -1052,19 +936,11 @@ function isTerminalPollBody(json: any): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Writing config(s)
-// ---------------------------------------------------------------------------
-
 function projectBaseDir(): string {
   const cwd = process.cwd();
   return findWorkspaceRoot(cwd) ?? path.resolve(cwd);
 }
 
-/**
- * Write the HTTP MCP entry into every requested client config idempotently.
- * Returns the list of files written so the caller can print them.
- */
 export function writeConfigs(
   clients: ClientId[],
   serverName: string,
@@ -1089,10 +965,6 @@ export function writeConfigs(
   }
   return written;
 }
-
-// ---------------------------------------------------------------------------
-// Developer profile switcher (`connect dev` / `connect prod`)
-// ---------------------------------------------------------------------------
 
 type SavedMcpEntry =
   | {
@@ -1571,9 +1443,6 @@ async function devHeadersForApp(params: {
   if (ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = ownerEmail;
   }
-  // Local dev defaults to the compact/connector catalog + tool-search, same as
-  // every other client. The local server still honors AGENT_NATIVE_MCP_FULL_CATALOG=1
-  // for an explicit full-catalog opt-in, so we don't force the header here.
   return Object.keys(headers).length ? headers : undefined;
 }
 
@@ -1839,10 +1708,6 @@ async function connectProdProfile(
   return missing.length === 0;
 }
 
-// ---------------------------------------------------------------------------
-// Single-app connect
-// ---------------------------------------------------------------------------
-
 interface ReconnectTarget {
   rawUrl: string;
   serverName?: string;
@@ -1881,11 +1746,6 @@ function preferredReconnectEntry(
   );
 }
 
-/**
- * Return true when `url` is an agent-native MCP endpoint.
- * Matches either the public `/mcp` path or the legacy `/_agent-native/mcp`
- * path, regardless of the MCP server's name in the config.
- */
 function isAgentNativeMcpUrl(url: string | undefined): boolean {
   if (!url) return false;
   try {
@@ -1973,16 +1833,12 @@ async function resolveReconnectTarget(
     };
   }
 
-  // No URL provided: scan all configs for agent-native MCP entries by URL
-  // pattern, not by server name prefix. This finds the canonical "plan" entry
-  // (and any other custom-named entries) that the old prefix scan missed.
   const agentNativeEntries = distinctReconnectEntries(
     parsed.name
       ? entries.filter((entry) => entry.serverName === parsed.name)
       : entries.filter((entry) => isAgentNativeMcpUrl(entry.url)),
   );
 
-  // Group by normalised URL so we can detect multi-app situations.
   const byUrl = new Map<string, ExistingMcpEntry[]>();
   for (const entry of agentNativeEntries) {
     const key = canonicalMcpUrl(entry.url) ?? entry.url;
@@ -2003,10 +1859,6 @@ async function resolveReconnectTarget(
   }
 
   if (byUrl.size === 1) {
-    // Exactly one distinct URL: prefer the entry whose serverName matches the
-    // canonical name for this app (e.g. "plan" over "agent-native-plans").
-    // Fall back to any entry whose name doesn't start with "agent-native-"
-    // (short canonical names like "plan"), then bucket[0].
     const [url, bucket] = [...byUrl.entries()][0];
     const preferred = preferredReconnectEntry(url, bucket) ?? bucket[0];
     return {
@@ -2018,7 +1870,6 @@ async function resolveReconnectTarget(
     };
   }
 
-  // Multiple distinct URLs: pick interactively when TTY, else list with hints.
   const urlList = [...byUrl.keys()];
   if (shouldPrompt(deps)) {
     const clack = await import("@clack/prompts");
@@ -2061,7 +1912,6 @@ async function resolveReconnectTarget(
   }
   logErr("  Re-run with a URL or --name <serverName>. For example:");
   for (const u of urlList) {
-    // Strip the MCP path suffix for a cleaner reconnect URL suggestion.
     const baseUrl = stripMcpPath(u);
     logErr(`    npx -y @agent-native/core@latest reconnect ${baseUrl}`);
   }
@@ -2141,7 +1991,6 @@ async function connectOne(
   let headers: Record<string, string> | undefined;
 
   if (parsed.token) {
-    // No-browser fallback: skip the device flow entirely.
     token = parsed.token;
     mcpUrl = normalizedMcpUrl;
     serverName = parsed.name ?? defaultServerName(baseUrl);
@@ -2242,9 +2091,6 @@ async function connectOne(
     );
   }
 
-  // After writing the canonical entry, remove any same-URL duplicates (alias
-  // names, legacy default names, stale custom names) from the same config
-  // files so each app has exactly one MCP session.
   const allRemovedNames: string[] = [];
   for (const client of clients) {
     const removed = removeSameUrlDuplicatesForClient(
@@ -2285,15 +2131,7 @@ async function connectOne(
       logOut(
         `  Minting a publish token for the local Plans server (device flow)…`,
       );
-      const grant = await runDeviceFlow(
-        baseUrl,
-        appSlug,
-        // Use a non-OAuth client arg so the server mints a bearer token even
-        // though our primary clients are OAuth-native. "codex" is a stable,
-        // always-supported non-OAuth client identifier.
-        "codex",
-        deps,
-      );
+      const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
       if (grant?.token) {
         publishToken = grant.token;
       } else {
@@ -2360,11 +2198,6 @@ async function connectOne(
   return { ok: true, serverName, files: allWritten.map((w) => w.file) };
 }
 
-// ---------------------------------------------------------------------------
-// --all : connect every first-party hosted app
-// ---------------------------------------------------------------------------
-
-/** Hosted first-party apps: visible (non-hidden) templates with a prodUrl. */
 export function hostedApps(): HostedApp[] {
   return visibleTemplates()
     .filter((t) => typeof t.prodUrl === "string" && t.prodUrl.length > 0)
@@ -2422,11 +2255,6 @@ async function connectAll(
   return connectApps(hostedApps(), parsed, clients, deps);
 }
 
-// ---------------------------------------------------------------------------
-// Org service-token mint (--service-token <name>)
-// ---------------------------------------------------------------------------
-
-/** `postJson` with a bearer Authorization header (action-route calls). */
 async function postJsonAuthed(
   fetchImpl: typeof fetch,
   url: string,
@@ -2494,8 +2322,6 @@ export async function runServiceTokenMint(
   logOut(`  Creating org service token "${serviceName}" on ${baseUrl}`);
   logOut("  First, verify it's you (the token will belong to your org)…");
 
-  // Use a non-OAuth client arg so the server mints a bearer grant we can use
-  // against the action route (same approach as the Plans publish-token mint).
   const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
   if (!grant?.token) {
     logErr("  Could not authenticate (the server returned no bearer token).");
@@ -2565,10 +2391,6 @@ export async function runServiceTokenMint(
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
 const HELP = `npx @agent-native/core@latest connect — wire your coding agent to a deployed app
 
 Usage:
@@ -2627,14 +2449,6 @@ Developer:
 Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
-/**
- * `agent-native connect` entry point. `deps` is injectable for tests; the
- * dispatcher in index.ts calls it with just `args`.
- *
- * Sets `process.exitCode = 1` on failure (so the process exits non-zero
- * once the event loop drains) rather than calling `process.exit`, keeping
- * the function testable — same pattern as `audit-agent-web`.
- */
 export async function runConnect(
   args: string[],
   deps: ConnectDeps = {},

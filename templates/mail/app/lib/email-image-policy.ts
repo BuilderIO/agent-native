@@ -1,6 +1,5 @@
 export type EmailImagePolicy = "show" | "block-trackers" | "block-all";
 
-// Known tracking pixel domains (partial matches against hostname)
 const TRACKER_DOMAINS = [
   "open.convertkit-",
   "pixel.mailchimp.com",
@@ -97,7 +96,6 @@ function stripCssRemoteResources(css: string): [string, number] {
   return [withoutRemoteUrls, blocked];
 }
 
-/** Strip images from HTML based on policy. Returns [processedHtml, imageCount]. */
 export function processHtmlImages(
   html: string,
   policy: EmailImagePolicy,
@@ -126,7 +124,6 @@ export function processHtmlImages(
     }
   });
 
-  // Also strip tracking pixel style tags (1x1 images via CSS background)
   if (policy === "block-trackers" || policy === "block-all") {
     root.querySelectorAll('img[width="1"][height="1"]').forEach((img) => {
       img.remove();

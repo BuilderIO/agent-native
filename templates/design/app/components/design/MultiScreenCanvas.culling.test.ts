@@ -154,9 +154,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(source.match(/getScreenContentCullState\(cullTier\)/g)).toHaveLength(
       2,
     );
-    // iframeCount must count only the breakpoint frames actually mounted —
-    // visibleBreakpointWidths filters duplicates of the device width — so the
-    // bounded live-iframe budget isn't over-consumed and evicting visible frames.
     expect(source).toContain(
       "visibleBreakpointWidths(screen.breakpointWidths, metadata.width)",
     );
@@ -241,11 +238,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("keeps a breakpoint-bearing board fully mounted instead of evicting on camera moves", () => {
-      // The reported flicker: 14 screens x (primary + two breakpoint previews)
-      // = 42 contexts. Charged against one flat 32-iframe budget this admitted
-      // only ten screens, so every committed pan/zoom re-ranked the survivors
-      // and destroyed/recreated the losers' documents. Budgeting screens keeps
-      // the whole board live, and the iframe ceiling still bounds memory.
       const candidates = Array.from({ length: 14 }, (_, index) =>
         candidate(`responsive-${index}`, index * 2_700, 3),
       );
@@ -257,7 +249,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       expect([...first.tierByScreenId.values()]).not.toContain("evicted");
 
-      // Same board one camera commit later: nothing may change hands.
       const second = compute(candidates, { previous: first, epoch: 2 });
       expect(second.liveScreenIds).toEqual(first.liveScreenIds);
       expect([...second.tierByScreenId.values()]).not.toContain("evicted");
@@ -357,8 +348,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       const result = compute(candidates);
 
-      // 32 screens x 4 contexts would be 128, past the ceiling, so the ceiling
-      // binds first and no screen is ever partially mounted.
       expect(result.mountedIframeCount).toBeLessThanOrEqual(
         OVERVIEW_LIVE_IFRAME_CEILING,
       );
@@ -437,8 +426,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       const result = compute(candidates, { budget: 10 });
 
-      // Screen groups remain atomic: two groups x (base + three breakpoints)
-      // fit, while a third would cross the 10-context cap.
       expect(result.liveScreenIds.size).toBe(2);
       expect(result.mountedIframeCount).toBe(8);
       expect(result.mountedIframeCount).toBeLessThanOrEqual(10);
@@ -511,8 +498,6 @@ describe("MultiScreenCanvas viewport culling", () => {
         1.5,
       );
       expect(bounds).not.toBeNull();
-      // Visible world rect is [0,1000]x[0,800] before overscan/padding.
-      // Overscan adds 1.5x the viewport size in each direction.
       const expectedLeft = 0 - 1000 * 1.5 - SURFACE_PADDING;
       const expectedRight = 1000 + 1000 * 1.5 - SURFACE_PADDING;
       const expectedTop = 0 - 800 * 1.5 - SURFACE_PADDING;
@@ -554,8 +539,6 @@ describe("MultiScreenCanvas viewport culling", () => {
         100,
         0,
       )!;
-      // Panning the world left (-x) reveals content further right in world
-      // space, i.e. the visible rect's world-space left edge increases.
       expect(panned.left).toBeCloseTo(noPan.left + 500);
       expect(panned.top).toBeCloseTo(noPan.top + 200);
     });
@@ -576,7 +559,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("is true for a frame merely overlapping the viewport edge", () => {
-      // Frame spans x:[-100, 220] (width 320) — overlaps the left edge.
       expect(isFrameWithinOverscannedViewport(geom(-100, 100), viewport)).toBe(
         true,
       );
@@ -595,7 +577,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("is true exactly at the boundary (touching edge counts as visible)", () => {
-      // Frame's right edge exactly equals viewport.left (0): right=0 >= left=0.
       expect(isFrameWithinOverscannedViewport(geom(-320, 100), viewport)).toBe(
         true,
       );
@@ -608,13 +589,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("uses the rotated AABB, not the unrotated rect, for a rotated frame", () => {
-      // A 640-wide x 100-tall frame at (100, 280): unrotated its AABB is
-      // [100,740]x[280,380], fully above a viewport starting at top=400 (no
-      // intersection). Rotated 90 degrees around its own center, the AABB
-      // becomes ~100 wide x 640 tall centered at the same point, stretching
-      // down to y=650 -- which does intersect a viewport starting at
-      // top=400. If this helper used the unrotated rect it would wrongly
-      // report "not visible" for the rotated case too.
       const belowViewport: OverscannedViewportBounds = {
         left: 0,
         top: 400,
@@ -685,8 +659,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("treats a selected screen as always visible regardless of position", () => {
-      // alwaysVisible is resolved by the caller from (isActive || isSelected);
-      // this test exercises the same override path via alwaysVisible=true.
       expect(
         computeScreenCullTier({
           geometry: geom(-9999, -9999),
@@ -736,8 +708,6 @@ describe("MultiScreenCanvas viewport culling", () => {
         hasBeenVisible: false,
       });
       expect(first).toBe("placeholder");
-      // Simulate the frame having become visible in between (e.g. it was
-      // selected, or panned into view), then panned back out again.
       const second = computeScreenCullTier({
         geometry: offscreen,
         viewport,
@@ -761,8 +731,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       expect(viewport).not.toBeNull();
 
-      // A screen positioned far away from the panned-to region (10 screen
-      // widths further right) should be culled.
       const farScreen = geom(2000 + 20_000, 2000, 320, 640);
       expect(
         computeScreenCullTier({
@@ -785,9 +753,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       expect(viewport).not.toBeNull();
 
-      // Raw visible rect (ignoring overscan) is roughly [0,1200]x[0,800] in
-      // world space (before SURFACE_PADDING offset). Place a screen just
-      // past that raw edge but still within the >=1.5x overscan margin.
       const justOffscreen = geom(1200 + 100, 100, 320, 640);
       expect(
         computeScreenCullTier({
@@ -821,8 +786,6 @@ describe("MultiScreenCanvas viewport culling", () => {
     });
 
     it("centers a wildly-out-of-range geometry (corrupted camera) into the viewport", () => {
-      // Reproduces the smoke-test symptom: a degenerate camera sends
-      // getCanvasPoint's world coordinates to ±65536-ish.
       const geometry = geom(65536, -65536, 320, 640);
       const clamped = clampFrameGeometryToViewport(
         geometry,
@@ -830,7 +793,6 @@ describe("MultiScreenCanvas viewport culling", () => {
       );
       expect(clamped.width).toBe(320);
       expect(clamped.height).toBe(640);
-      // Centered within the 1200x800 viewport.
       expect(clamped.x).toBeCloseTo((1200 - 320) / 2);
       expect(clamped.y).toBeCloseTo((800 - 640) / 2);
     });

@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { IconHistory, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { uploadFileClient } from "@/lib/upload-file-client";
 
@@ -86,6 +88,9 @@ export function RewindExtensionDialog({
   onApplied,
 }: RewindExtensionDialogProps) {
   const t = useT();
+  const storageStatus = useVideoStorageStatus(open);
+  const storageConfigured =
+    storageStatus.data?.configured === true && !storageStatus.isError;
   const makePrivateForRewind = useActionMutation(
     "make-recording-private-for-rewind",
   );
@@ -96,6 +101,8 @@ export function RewindExtensionDialog({
   const [status, setStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [privacyConfirmed, setPrivacyConfirmed] = useState(false);
+  const [storageCheckFailed, setStorageCheckFailed] = useState(false);
+  const [fileStoragePromptOpen, setFileStoragePromptOpen] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -109,8 +116,14 @@ export function RewindExtensionDialog({
       setStatus(null);
       setProgress(0);
       setPrivacyConfirmed(false);
+      setStorageCheckFailed(false);
+      setFileStoragePromptOpen(false);
     }
   }, [busy, open]);
+
+  useEffect(() => {
+    if (storageConfigured) setFileStoragePromptOpen(false);
+  }, [storageConfigured]);
 
   const makePrivate = useCallback(async () => {
     setBusy(true);
@@ -133,7 +146,18 @@ export function RewindExtensionDialog({
     async (seconds: 30 | 300) => {
       setBusy(true);
       setProgress(0);
+      setStorageCheckFailed(false);
       try {
+        const storageCheck = await storageStatus.refetch();
+        if (storageCheck.isError) {
+          setStorageCheckFailed(true);
+          setFileStoragePromptOpen(true);
+          return;
+        }
+        if (!storageCheck.data?.configured) {
+          setFileStoragePromptOpen(true);
+          return;
+        }
         setStatus("Asking Clips Alpha for local Rewind history…");
         const created = (await requestExtension.mutateAsync({
           recordingId,
@@ -242,6 +266,7 @@ export function RewindExtensionDialog({
       recordingId,
       requestExtension,
       requestTranscript,
+      storageStatus,
       videoFormat,
       recordingWidth,
     ],
@@ -301,12 +326,13 @@ export function RewindExtensionDialog({
               {t("rewindExtension.makePrivateContinue")}
             </Button>
           </div>
-        ) : (
+        ) : storageCheckFailed && storageStatus.isError ? null : (
           <div className="grid gap-2">
             <Button
               variant="outline"
               className="h-auto justify-start py-3 text-left"
               onClick={() => void addFromRewind(30)}
+              disabled={busy}
             >
               <span>
                 <strong className="block">
@@ -321,6 +347,7 @@ export function RewindExtensionDialog({
               variant="outline"
               className="h-auto justify-start py-3 text-left"
               onClick={() => void addFromRewind(300)}
+              disabled={busy}
             >
               <span>
                 <strong className="block">
@@ -344,6 +371,17 @@ export function RewindExtensionDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <FileStorageSetupPopover
+        open={fileStoragePromptOpen}
+        onOpenChange={setFileStoragePromptOpen}
+        onConnected={() => void storageStatus.refetch()}
+        {...(!storageStatus.isSuccess || storageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void storageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
     </Dialog>
   );
 }

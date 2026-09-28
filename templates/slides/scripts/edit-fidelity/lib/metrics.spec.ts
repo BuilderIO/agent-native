@@ -6,9 +6,16 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isDraftRevert,
+  isSplicedOnce,
+  keepaliveMismatches,
   lineDiff,
+  orphanedBaselineKeys,
   ratchetBaselineEntry,
+  resized,
+  restyledAddedText,
   toBaselineEntry,
+  type BaselineEntry,
   type ScenarioMetrics,
 } from "./metrics.ts";
 
@@ -29,6 +36,7 @@ const snap = (records: SnapRecord[]): Snapshot => ({
   inventory: { elements: 0, visible: 0, hidden: 0, svg: 0, img: 0, style: 0 },
   text: "",
   editedRect: null,
+  editedText: null,
 });
 
 const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
@@ -36,6 +44,7 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
   editingPct: 0,
   afterPct: 0,
   reloadPct: 0,
+  typedPct: 0,
   outsideEditingPct: 0,
   outsideAfterPct: 0,
   styleDeltasEditing: 0,
@@ -45,6 +54,18 @@ const metrics = (over: Partial<ScenarioMetrics> = {}): ScenarioMetrics => ({
   hardFailures: 0,
   violations: 0,
   ...over,
+});
+
+describe("resized", () => {
+  it("ignores subpixel noise but recognizes a one-pixel size change", () => {
+    const before = { ...rect, height: 138 };
+    expect(resized(before, before)).toBe(false);
+    expect(resized(before, { ...before, height: 138.5 })).toBe(false);
+    expect(resized(before, { ...before, height: 139 })).toBe(true);
+    expect(resized(before, { ...before, height: 139.01 })).toBe(true);
+    expect(resized(before, { ...before, width: 101.01 })).toBe(true);
+    expect(resized(null, rect)).toBe(false);
+  });
 });
 
 describe("diffSnapshots", () => {
@@ -74,6 +95,38 @@ describe("diffSnapshots", () => {
     );
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([{ key: "box:div.card#0", inside: false }]);
+    expect(d.added).toEqual([]);
+  });
+
+  it("keeps untouched copies of a repeated text paired when the edited copy is renamed", () => {
+    const d = diffSnapshots(
+      snap([
+        rec("text:Q1#0", { color: "a" }, true),
+        rec("text:Q1#1", { color: "b" }),
+        rec("text:Q1#2", { color: "c" }),
+      ]),
+      snap([
+        rec("text:Q1 ok#0", { color: "a" }, true),
+        rec("text:Q1#0", { color: "b" }),
+        rec("text:Q1#1", { color: "c" }),
+      ]),
+    );
+    expect(d.deltas).toEqual([]);
+    expect(d.missing).toEqual([]);
+    expect(d.added).toEqual([]);
+  });
+
+  it("does not pair on the inside flag, which each snapshot locates differently", () => {
+    const records = (wrapperInside: boolean) => [
+      rec("box:div#0", { bg: "red" }),
+      rec("box:div#1", { bg: "pill" }, wrapperInside),
+      rec("text:Title#0", {}, true),
+      rec("box:div#2", { bg: "blue" }),
+      rec("box:div#3", { bg: "green" }),
+    ];
+    const d = diffSnapshots(snap(records(false)), snap(records(true)));
+    expect(d.deltas).toEqual([]);
+    expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
   });
 });
@@ -144,6 +197,28 @@ describe("baseline ratchet", () => {
       ),
     ).toEqual(["k: status pass -> no-edit"]);
   });
+
+  it("holds a field an older entry lacks to the zero ceiling, and ratchets it", () => {
+    const { typedPct: _typedPct, ...old } = toBaselineEntry(metrics());
+    const baseline = { k: old as BaselineEntry };
+    expect(
+      findBaselineProblems(
+        new Map([["k", metrics({ typedPct: 0.05 })]]),
+        baseline,
+        () => true,
+      ),
+    ).toEqual([]);
+    expect(
+      findBaselineProblems(
+        new Map([["k", metrics({ typedPct: 3 })]]),
+        baseline,
+        () => true,
+      ),
+    ).toEqual(["k: typedPct 3% exceeds ceiling 0.1%"]);
+    expect(
+      ratchetBaselineEntry(baseline.k, metrics({ typedPct: 3 })).typedPct,
+    ).toBe(0.1);
+  });
 });
 
 describe("ratchetBaselineEntry", () => {
@@ -152,6 +227,7 @@ describe("ratchetBaselineEntry", () => {
     editingPct: 0,
     afterPct: 0,
     reloadPct: 0,
+    typedPct: 0,
     outsideEditingPct: 0,
     outsideAfterPct: 0,
     styleDeltasEditing: 0,
@@ -190,6 +266,7 @@ describe("findBaselineProblems and errors", () => {
       editingPct: 0,
       afterPct: 0,
       reloadPct: 0,
+      typedPct: 0,
       outsideEditingPct: 0,
       outsideAfterPct: 0,
       styleDeltasEditing: 0,
@@ -206,5 +283,236 @@ describe("findBaselineProblems and errors", () => {
         () => true,
       ),
     ).toEqual(["c/s01/t00/noop: errored"]);
+  });
+});
+
+describe("isSplicedOnce", () => {
+  it("accepts the token inserted once anywhere, across breaks and ZWSP", () => {
+    expect(isSplicedOnce("Hello world", " ok", "Hello world ok")).toBe(true);
+    expect(isSplicedOnce("Hello world", " ok", "Hello ok world")).toBe(true);
+    expect(isSplicedOnce("a b", "new line", "a b\n\u200b\nnew line")).toBe(
+      true,
+    );
+    expect(isSplicedOnce("trust. The", " ok", "trust.  okThe")).toBe(true);
+  });
+
+  it("rejects a lost space", () => {
+    expect(isSplicedOnce("Update", " ok", "Updateok")).toBe(false);
+    expect(isSplicedOnce("a b", "new line", "a b\n\nnewline")).toBe(false);
+  });
+
+  it("rejects lost text, a missing token, or a doubled one", () => {
+    expect(
+      isSplicedOnce("trust. The hosted", "new line", "trust.new line"),
+    ).toBe(false);
+    expect(isSplicedOnce("Hello", " ok", "Hello")).toBe(false);
+    expect(isSplicedOnce("Hello", " ok", "Hello ok ok")).toBe(false);
+    expect(isSplicedOnce("Hello", " ok", "Hello okX")).toBe(false);
+  });
+
+  it("accepts marker glyphs a bullet split clones beside the token", () => {
+    expect(
+      isSplicedOnce("●Own it●Expand", "new line", "●Own it●●●new line●Expand"),
+    ).toBe(true);
+  });
+});
+
+describe("orphanedBaselineKeys", () => {
+  it("names keys whose case or slide left the corpus", () => {
+    const counts = new Map([["deck", 2]]);
+    expect(
+      orphanedBaselineKeys(
+        ["deck/s01/t00/noop", "deck/s03/t00/noop", "gone/s01/t00/noop"],
+        counts,
+      ),
+    ).toEqual(["deck/s03/t00/noop", "gone/s01/t00/noop"]);
+  });
+});
+
+describe("restyledAddedText", () => {
+  const white = { color: "rgb(255, 255, 255)", "font-weight": "700" };
+  it("flags typed text in a new node with a style the element never had", () => {
+    const view = snap([rec("text:Q3 Update#0", white, true)]);
+    const reload = snap([
+      rec("text:Q3 Update#0", white, true),
+      rec("text:ok#0", { color: "rgb(0, 0, 0)", "font-weight": "400" }, true),
+    ]);
+    expect(restyledAddedText(view, reload)).toEqual(["text:ok#0"]);
+  });
+
+  it("accepts a new node styled like the element's text, e.g. a split row", () => {
+    const view = snap([rec("text:Own it#0", white, true)]);
+    const reload = snap([
+      rec("text:Own it#0", white, true),
+      rec("text:new line#0", white, true),
+    ]);
+    expect(restyledAddedText(view, reload)).toEqual([]);
+  });
+});
+
+describe("isDraftRevert", () => {
+  const stored =
+    '<div class="a" style="color: red"><p><span style="color: #1F4E79; font-weight: 700">Q3 &amp; Q4</span></p><p style="margin: 4px">Other</p><svg><text>x</text></svg></div>';
+  const start = stored.indexOf("<span");
+  const element = { start, end: stored.indexOf("</p>", start) };
+  const patch = (content: string, fields: object = { content }) => ({
+    action: "patch-deck",
+    body: {
+      deckId: "d",
+      operations: [{ op: "patch-slide", slideId: "s1", fields }],
+    },
+  });
+  const draft = stored.replace("Q4", "Qx4");
+  const check = (writes: Array<{ action: string; body: any }>) =>
+    isDraftRevert(stored, element, "x", writes, "s1");
+
+  it("accepts the typed draft followed by a byte-exact revert", () => {
+    expect(check([patch(draft), patch(stored)])).toBe(true);
+  });
+
+  it("rejects a style change alongside the typed token", () => {
+    const restyledDraft = draft.replace(
+      'style="color: #1F4E79; font-weight: 700"',
+      'style="color: red; font-weight: 700"',
+    );
+    expect(check([patch(restyledDraft), patch(stored)])).toBe(false);
+  });
+
+  it("rejects a wrapper inserted around the typed token", () => {
+    const wrappedDraft = draft.replace("Qx4", "Q<strong>x</strong>4");
+    expect(check([patch(wrappedDraft), patch(stored)])).toBe(false);
+  });
+
+  it("rejects churn: a draft without the key, a loose revert, or extra writes", () => {
+    const nbsp = stored.replace("Q3 ", "Q3&nbsp;");
+    expect(check([patch(nbsp), patch(stored)])).toBe(false);
+    expect(check([patch(draft), patch(nbsp)])).toBe(false);
+    expect(check([patch(draft), patch(stored), patch(stored)])).toBe(false);
+    expect(check([patch(stored)])).toBe(false);
+  });
+
+  it("rejects a draft that removes a visible space as well as the typed key", () => {
+    const missingSpace = draft.replace("&amp; ", "&amp;");
+    expect(check([patch(missingSpace), patch(stored)])).toBe(false);
+  });
+
+  it("rejects a draft that changed bytes outside the edited element or put the key elsewhere", () => {
+    const flattened =
+      '<div class="a"><p>Q3 &amp; Qx4</p><p>Other</p><svg><text>x</text></svg></div>';
+    expect(check([patch(flattened), patch(stored)])).toBe(false);
+    const elsewhere = stored.replace("Other", "Otxher");
+    expect(check([patch(elsewhere), patch(stored)])).toBe(false);
+  });
+
+  it("rejects a write that sets more than the edited slide's content", () => {
+    expect(
+      check([patch(draft, { content: draft, notes: "n" }), patch(stored)]),
+    ).toBe(false);
+    const twoSlides = patch(draft);
+    twoSlides.body.operations.push({
+      op: "patch-slide",
+      slideId: "s2",
+      fields: { content: "<p>other</p>" },
+    });
+    expect(check([twoSlides, patch(stored)])).toBe(false);
+    expect(
+      check([
+        {
+          action: "save-deck",
+          body: { deck: { slides: [{ id: "s1", content: draft }] } },
+        },
+        patch(stored),
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("keepaliveMismatches", () => {
+  const body = (content: string, slideId = "s1") =>
+    JSON.stringify({
+      deckId: "d",
+      operations: [{ op: "patch-slide", slideId, fields: { content } }],
+    });
+
+  it("names a pagehide write whose slide content differs from the saved one", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          { action: "patch-deck", body: body("<p>saved</p>") },
+          { action: "patch-deck", body: body("<p>stale</p>") },
+          { action: "patch-deck", body: body("<p>other</p>", "s2") },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual(["<p>stale</p>"]);
+  });
+
+  it("reports a write that deletes the slide or saves a deck without it", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          {
+            action: "patch-deck",
+            body: JSON.stringify({
+              operations: [{ op: "delete-slide", slideId: "s1" }],
+            }),
+          },
+          {
+            action: "save-deck",
+            body: JSON.stringify({
+              deck: { slides: [{ id: "s2", content: "<p>other</p>" }] },
+            }),
+          },
+          { action: "patch-deck", body: body("<p>other</p>", "s2") },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual([null, null]);
+  });
+
+  it("ignores a patch that does not change slide content", () => {
+    expect(
+      keepaliveMismatches(
+        [
+          {
+            action: "patch-deck",
+            body: JSON.stringify({
+              operations: [
+                {
+                  op: "patch-slide",
+                  slideId: "s1",
+                  fields: { notes: "updated" },
+                },
+              ],
+            }),
+          },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual([]);
+  });
+
+  it("reads save-deck and update-slide bodies, and reports an unreadable one", () => {
+    const deck = JSON.stringify({
+      deckId: "d",
+      deck: { slides: [{ id: "s1", content: "<p>stale</p>" }] },
+    });
+    expect(
+      keepaliveMismatches(
+        [
+          { action: "save-deck", body: deck },
+          {
+            action: "update-slide",
+            body: JSON.stringify({ slideId: "s1", content: "<p>saved</p>" }),
+          },
+          { action: "patch-deck", body: null },
+        ],
+        "s1",
+        "<p>saved</p>",
+      ),
+    ).toEqual(["<p>stale</p>", null]);
   });
 });

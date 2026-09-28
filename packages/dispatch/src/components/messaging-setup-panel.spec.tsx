@@ -11,7 +11,11 @@ const clientState = vi.hoisted(() => ({
   envStatuses: [] as any[],
 }));
 
-vi.mock("@agent-native/core/client/integrations", () => ({
+vi.mock("@agent-native/core/client/integrations", async () => ({
+  // The shared channel helpers are real; only the network calls are faked.
+  ...(await vi.importActual<
+    typeof import("@agent-native/core/client/integrations")
+  >("@agent-native/core/client/integrations")),
   disconnectManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
   listManagedIntegrationBudgets: vi.fn(() => Promise.resolve([])),
   listManagedIntegrationInstallations: vi.fn(() => Promise.resolve([])),

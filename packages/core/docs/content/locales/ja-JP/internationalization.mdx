@@ -79,7 +79,7 @@ function Greeting({ name }: { name: string }) {
 
 日付、数値、相対時間、リストには `useFormatters()` を使用します。翻訳文字列の中にロケール依存の日付や数値の書式設定を組み込まないでください。
 
-アプリがユーザーに言語を変更させる場所には `<LanguagePicker />` を配置します。標準の設定ページのパターンについては、[ツールキット: 設定](/docs/toolkit-settings) を参照してください。`openAgentSettings()` がどこに位置づけられるかもそこに記載されています。
+Settings には Account › Preferences に **Interface language** の行がすでにあり、そこでの変更はすべてのアプリに適用されます。そのため、アプリ独自の Settings ページに 2 つ目の選択肢は追加しません。`settings-redesign` フラグがオフの場合は、タブ付きページの General タブに選択肢を置きます。ヘッダーのショートカットなど、アプリがユーザーに言語を変更させるそれ以外の場所には `<LanguagePicker />` を配置します。Settings ページの規約については [ツールキット: 設定](/docs/toolkit-settings) を参照してください。
 
 ## Actions と永続性
 
@@ -115,5 +115,5 @@ action 名、ルート、enum 値、アプリステートのキー、データ�
 ## 次のステップ
 
 - [**概要**](/docs/client-overview#app-shell) — i18n が基盤とする `AppProviders` ラッパーやその他のブラウザフック
-- [**ツールキット: 設定**](/docs/toolkit-settings) — 標準の設定ページに `<LanguagePicker>` を配置する方法
+- [**ツールキット: 設定**](/docs/toolkit-settings) — Account › Preferences がインターフェースの言語を持つ Settings ページの規約
 - [**はじめに**](/docs/getting-started) — すでにローカライズされたカタログを提供しているテンプレートで最初のアプリを構築する

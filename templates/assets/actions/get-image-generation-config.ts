@@ -14,12 +14,6 @@ import {
 } from "../server/lib/generation.js";
 import { isObjectStorageConfigured } from "../server/lib/storage.js";
 
-/**
- * Surface the server-side `BUILDER_IMAGE_GENERATION_ENABLED` env flag so
- * the settings UI can keep image readiness separate from Builder video access.
- *
- * Kept advisory — generation actions still check the flag themselves.
- */
 export default defineAction({
   description:
     "Returns the deployment's asset-generation config and any recent setup issue.",

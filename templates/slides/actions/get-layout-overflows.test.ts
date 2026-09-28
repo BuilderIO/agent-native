@@ -245,8 +245,6 @@ describe("get-layout-overflows", () => {
   it("keeps incrementing through unknown (not-yet-measured) results, not just overflow", async () => {
     let history: { deckId: string; count: number; lastCheckAt: number } | null =
       null;
-    // No deck-fit-checks/slide-fit-check state at all -> every slide is
-    // unknown, overflows stays empty, but canClaimDeckFits is still false.
     mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "layout-overflow-check-history:deck-1") return history;
       return null;
@@ -282,7 +280,6 @@ describe("get-layout-overflows", () => {
       },
     );
 
-    // Interleave checks for deck-1 and deck-2, both unresolved (unknown).
     await action.run({ deckId: "deck-1" });
     await action.run({ deckId: "deck-2" });
     await action.run({ deckId: "deck-1" });

@@ -141,10 +141,6 @@ export function useTransactionalEmailBridge(): void {
     };
 
     tick();
-    // clips_transactional_email_jobs is SQL, but the transactional-emails
-    // cron job enqueues awaiting_ai rows directly without bumping a change
-    // version, so no SQL/action change event reaches this browser — only
-    // this timer notices a claimable job.
     const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
     return () => {
       controller.abort();

@@ -1,4 +1,7 @@
+import { SOURCE_STAMP_ATTR } from "./slide-source-map";
+
 const PLACEHOLDER_TARGET_PREFIX = "placeholder:";
+const MAX_PENDING_SLIDE_IMAGE_UPLOADS = 16;
 
 interface ReplaceOptions {
   alt?: string;
@@ -32,6 +35,124 @@ export interface OptimisticImagePreview {
   style?: string;
   position?: SlideImageDropPosition;
   objectId?: string;
+}
+
+export interface SlideImageUploadProvenance {
+  editedSourceStamp: string;
+  editedNodeMarkup: string;
+}
+
+const pendingSlideImageUploads = new Map<
+  string,
+  Map<string, SlideImageUploadProvenance | null>
+>();
+let pendingSlideImageUploadCount = 0;
+
+function trimPendingSlideImageUploads(): void {
+  // ponytail: FIFO cap of 16 hints; use upload IDs if simultaneous uploads outgrow it.
+  while (pendingSlideImageUploadCount > MAX_PENDING_SLIDE_IMAGE_UPLOADS) {
+    const firstSlide = pendingSlideImageUploads.entries().next().value;
+    if (!firstSlide) {
+      pendingSlideImageUploadCount = 0;
+      return;
+    }
+
+    const [slideId, contentSnapshots] = firstSlide;
+    const firstContent = contentSnapshots.keys().next().value;
+    if (firstContent === undefined) {
+      pendingSlideImageUploads.delete(slideId);
+      continue;
+    }
+
+    contentSnapshots.delete(firstContent);
+    pendingSlideImageUploadCount -= 1;
+    if (contentSnapshots.size === 0) pendingSlideImageUploads.delete(slideId);
+  }
+}
+
+export function registerSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+  provenance: SlideImageUploadProvenance,
+): void {
+  let contentSnapshots = pendingSlideImageUploads.get(slideId);
+  if (!contentSnapshots) {
+    contentSnapshots = new Map();
+    pendingSlideImageUploads.set(slideId, contentSnapshots);
+  }
+  if (!contentSnapshots.has(content)) {
+    contentSnapshots.set(content, provenance);
+    pendingSlideImageUploadCount += 1;
+    trimPendingSlideImageUploads();
+    return;
+  }
+
+  const previous = contentSnapshots.get(content);
+  if (
+    !previous ||
+    previous.editedSourceStamp !== provenance.editedSourceStamp ||
+    previous.editedNodeMarkup !== provenance.editedNodeMarkup
+  ) {
+    contentSnapshots.set(content, null);
+  }
+}
+
+export function takeSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+): SlideImageUploadProvenance | null {
+  const provenance =
+    pendingSlideImageUploads.get(slideId)?.get(content) ?? null;
+  discardSlideImageUploadProvenance(slideId, content);
+  return provenance;
+}
+
+export function discardSlideImageUploadProvenance(
+  slideId: string,
+  content: string,
+): void {
+  const contentSnapshots = pendingSlideImageUploads.get(slideId);
+  if (contentSnapshots?.delete(content)) pendingSlideImageUploadCount -= 1;
+  if (contentSnapshots?.size === 0) pendingSlideImageUploads.delete(slideId);
+}
+
+export function captureSlideImageUploadProvenance(
+  root: HTMLElement,
+  sourceSnapshotHtml = root.innerHTML,
+): SlideImageUploadProvenance | null {
+  const edited = root.querySelector<HTMLElement>('[contenteditable="true"]');
+  const editedSourceStamp = edited?.getAttribute(SOURCE_STAMP_ATTR);
+  if (!edited || !editedSourceStamp) return null;
+
+  const sourceSnapshot = Array.from(
+    parseFragment(sourceSnapshotHtml).body.querySelectorAll<HTMLElement>(
+      `[${SOURCE_STAMP_ATTR}]`,
+    ),
+  ).find(
+    (element) => element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+  );
+  if (!sourceSnapshot || sourceSnapshot.tagName !== edited.tagName) return null;
+
+  const snapshot = sourceSnapshot.cloneNode(true) as HTMLElement;
+  for (const node of [
+    snapshot,
+    ...snapshot.querySelectorAll<HTMLElement>("*"),
+  ]) {
+    for (const attribute of [
+      "contenteditable",
+      "data-builder-id",
+      "data-slide-text-block",
+      "data-editing-block",
+      "spellcheck",
+    ]) {
+      node.removeAttribute(attribute);
+    }
+  }
+
+  return {
+    editedSourceStamp,
+    editedNodeMarkup: snapshot.outerHTML,
+  };
 }
 
 const DROPPED_IMAGE_WIDTH = 320;
@@ -75,8 +196,6 @@ function parsePlaceholderTarget(src: string): PlaceholderTarget | null {
 }
 
 function parseFragment(html: string): Document {
-  // Opening in <body> keeps a slide's leading <style> (and <link>, comments)
-  // in the body instead of <head>, where serializing the body would drop it.
   return new DOMParser().parseFromString(`<body>${html}`, "text/html");
 }
 
@@ -95,8 +214,17 @@ function findImageWithSource(
   );
 }
 
-function imageStructure(doc: Document): string {
+function imageStructure(doc: Document, ignoredSourceStamp?: string): string {
   const body = doc.body.cloneNode(true) as HTMLElement;
+  if (ignoredSourceStamp) {
+    const editedNode = Array.from(
+      body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+    ).find(
+      (element) =>
+        element.getAttribute(SOURCE_STAMP_ATTR) === ignoredSourceStamp,
+    );
+    editedNode?.remove();
+  }
   body.querySelectorAll("img").forEach((image, index) => {
     image.replaceWith(`__slide-image-${index}__`);
   });
@@ -188,7 +316,6 @@ function updateImageAttributesInPlace(
   }
 }
 
-/** Update image attributes in place while preserving live drag/resize styles. */
 export function swapImageSourcesInPlace(
   root: HTMLElement,
   previousContent: string,
@@ -220,7 +347,63 @@ export function swapImageSourcesInPlace(
   return true;
 }
 
-/** Resolve after a hosted image is decoded, keeping the old preview visible. */
+export function updateLiveImagesUnderEdit(
+  root: HTMLElement,
+  previousContent: string,
+  nextContent: string,
+  provenance: SlideImageUploadProvenance | null,
+): boolean {
+  const previousDoc = parseFragment(previousContent);
+  const nextDoc = parseFragment(nextContent);
+  const previousImages = Array.from(previousDoc.body.querySelectorAll("img"));
+  const nextImages = Array.from(nextDoc.body.querySelectorAll("img"));
+  const liveImages = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+  const edited = root.querySelector<HTMLElement>('[contenteditable="true"]');
+  const editedSourceStamp = edited?.getAttribute(SOURCE_STAMP_ATTR);
+  const nextEditedNode = editedSourceStamp
+    ? Array.from(
+        nextDoc.body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+      ).find(
+        (element) =>
+          element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+      )
+    : null;
+  if (
+    !provenance ||
+    !editedSourceStamp ||
+    editedSourceStamp !== provenance.editedSourceStamp ||
+    !nextEditedNode ||
+    nextEditedNode.outerHTML !== provenance.editedNodeMarkup ||
+    !Array.from(
+      previousDoc.body.querySelectorAll<HTMLElement>(`[${SOURCE_STAMP_ATTR}]`),
+    ).some(
+      (element) =>
+        element.getAttribute(SOURCE_STAMP_ATTR) === editedSourceStamp,
+    ) ||
+    nextImages.length === 0 ||
+    previousImages.length !== nextImages.length ||
+    liveImages.length !== nextImages.length ||
+    previousImages.every(
+      (image, index) => image.outerHTML === nextImages[index].outerHTML,
+    )
+  ) {
+    return false;
+  }
+  if (
+    imageStructure(previousDoc, editedSourceStamp) !==
+    imageStructure(nextDoc, editedSourceStamp)
+  ) {
+    return false;
+  }
+  liveImages.forEach((image, index) => {
+    const stamp = image.getAttribute(SOURCE_STAMP_ATTR);
+    updateImageAttributesInPlace(image, nextImages[index]);
+    if (stamp === null) image.removeAttribute(SOURCE_STAMP_ATTR);
+    else image.setAttribute(SOURCE_STAMP_ATTR, stamp);
+  });
+  return true;
+}
+
 export function prefetchImage(src: string): Promise<boolean> {
   if (typeof Image === "undefined") return Promise.resolve(true);
 
@@ -1013,7 +1196,6 @@ export function updateImageFitInSlideHtml(
   return content;
 }
 
-/** Replace one optimistic preview, or remove it when its upload failed. */
 export function replaceOptimisticImagePreview(
   content: string,
   previewSrc: string,
@@ -1041,7 +1223,6 @@ export function replaceOptimisticImagePreview(
   return serializeFragment(doc);
 }
 
-/** Keep edits made to a temporary image while its blob URL is stripped. */
 export function captureOptimisticImagePreview(
   content: string,
   preview: OptimisticImagePreview,
@@ -1124,12 +1305,6 @@ export function insertImageIntoSlideHtml(
     return serializeFragment(doc);
   }
 
-  // No placeholder to slot into: .fmd-slide is a flex column, so a plain
-  // appended <img> becomes a flex item that competes for space with (and
-  // visually squishes) the slide's existing content. Position it as a
-  // full-bleed background layer behind the existing content instead, which
-  // matches how the agent already inserts generated images onto slides that
-  // have none.
   const img = doc.createElement("img");
   img.setAttribute("src", newSrc);
   img.setAttribute("alt", cleanAlt(options.alt));
@@ -1156,7 +1331,6 @@ export function insertImageIntoSlideHtml(
   return serializeFragment(doc);
 }
 
-/** Insert a desktop drop as a durable, independently movable canvas object. */
 export function insertDroppedImageIntoSlideHtml(
   content: string,
   newSrc: string,
@@ -1201,9 +1375,6 @@ export function insertDroppedImageIntoSlideHtml(
     }
     slideRoot.appendChild(img);
   } else {
-    // Markdown-backed slides keep their source text. Appending a raw image tag
-    // lets ReactMarkdown preserve the text while the slide canvas supplies the
-    // positioned containing block at render time.
     doc.body.append(doc.createTextNode("\n\n"), img);
   }
 

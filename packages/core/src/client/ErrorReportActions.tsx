@@ -37,12 +37,7 @@ export function ErrorReportActions({
   const githubIssueUrl = buildGitHubIssueUrl(report);
 
   return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center justify-center gap-2",
-        className,
-      )}
-    >
+    <div className={cn("flex flex-col items-center gap-2", className)}>
       <FeedbackButton
         variant="outlined"
         label={feedbackLabel}

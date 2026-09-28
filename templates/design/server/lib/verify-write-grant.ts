@@ -22,11 +22,8 @@ import { getDb, schema } from "../db/index.js";
 export interface WriteGrantContext {
   designId: string;
   connectionId: string;
-  /** Email of the currently authenticated user (from request context). */
   ownerEmail: string;
-  /** Active organization. Null denotes the user's personal workspace. */
   orgId: string | null;
-  /** Target path relative to rootPath (or absolute — validated either way). */
   targetPath: string;
 }
 
@@ -36,11 +33,6 @@ export interface WriteGrantResult {
   grantId: string;
 }
 
-/**
- * Safe client-facing precondition error. The action HTTP surface only returns
- * messages for explicit 4xx errors; without this status the Code workbench
- * receives a generic 500 and cannot open the human consent dialog.
- */
 export class WriteConsentRequiredError extends Error {
   readonly statusCode = 428;
 
@@ -50,10 +42,6 @@ export class WriteConsentRequiredError extends Error {
   }
 }
 
-/**
- * Resolve the active write-consent grant for a given design + connection.
- * Throws if no valid grant exists or the target path escapes rootPath.
- */
 export async function verifyWriteGrant(
   ctx: WriteGrantContext,
 ): Promise<WriteGrantResult> {
@@ -101,18 +89,8 @@ export async function verifyWriteGrant(
   };
 }
 
-/**
- * Assert that targetPath is inside rootPath using path.resolve to block ".."
- * traversal and absolute-path injection.
- *
- * The final realpath confinement (symlink escape prevention) is performed
- * bridge-side using fs.realpath; this layer handles the logical check.
- *
- * Throws if the resolved target is not a descendant of the resolved root.
- */
 export function assertPathInside(rootPath: string, targetPath: string): void {
   const resolvedRoot = path.resolve(rootPath);
-  // targetPath may be relative (to root) or absolute — resolve relative to root
   const resolvedTarget = path.isAbsolute(targetPath)
     ? path.resolve(targetPath)
     : path.resolve(rootPath, targetPath);

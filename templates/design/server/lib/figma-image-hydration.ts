@@ -23,21 +23,10 @@ import {
 import { mutateDesignData } from "./design-data-mutation.js";
 import { decodeFigImages, type DecodedFigImage } from "./fig-file-decoder.js";
 
-// ---------------------------------------------------------------------------
-// HTML helpers
-// ---------------------------------------------------------------------------
-
 const DATA_IMAGE_REF_ATTR_RE = /\sdata-figma-image-ref="([^"]*)"/;
 
-// Must match the renderer's real placeholder form `url('about:blank')` (single
-// quotes survive style-attr escaping); lenient to the `&quot;` entity form for
-// older screens, with the back-reference keeping the quotes matched.
 const IMAGE_URL_PLACEHOLDER_RE = /url\((&quot;|')about:blank\1\)/g;
 
-/**
- * Wrap `url()` exactly as the renderer's escaped `style="…"` would, so hydrated
- * fills are byte-identical to natively rendered image fills.
- */
 function cssUrlInAttr(url: string): string {
   const inner = url
     .replace(/'/g, "%27")
@@ -60,10 +49,6 @@ export function collectImageRefHashes(html: string): string[] {
   return Array.from(hashes);
 }
 
-/**
- * Fill `url('about:blank')` placeholders on `data-figma-image-ref` elements: the
- * Nth placeholder maps to the Nth hash in the space-separated attr value.
- */
 export function hydrateImageRefsInHtml(
   html: string,
   resolvedUrls: Map<string, string>,
@@ -93,7 +78,6 @@ export function hydrateImageRefsInHtml(
       return cssUrlInAttr(durableUrl);
     });
 
-    // Hashes beyond url() occurrences (shouldn't happen with our renderer).
     while (hashIdx < hashes.length) {
       unresolvedHashes.push(hashes[hashIdx++]!);
     }
@@ -115,21 +99,12 @@ export function hydrateImageRefsInHtml(
   return { html: newHtml, resolved: resolvedCount, missing };
 }
 
-// ---------------------------------------------------------------------------
-// Shared file load + persist
-// ---------------------------------------------------------------------------
-
 export interface HydratableFile {
   workspaceFile: SourceWorkspaceFile;
   designId: string;
-  /** Present only when the screen was imported via a REST clipboard path. */
   figmaFileKey?: string;
 }
 
-/**
- * Scoped, editor-access load of one HTML design file, plus the originating Figma
- * file key when recorded. Throws identical not-found/non-HTML errors for both resolvers.
- */
 export async function loadHydratableFile(
   fileId: string,
 ): Promise<HydratableFile> {
@@ -200,10 +175,6 @@ export interface ApplyHydrationResult {
   skipped: number;
 }
 
-/**
- * Hydrate placeholders and persist (CAS + collab sync), pruning
- * `screenMetadata.unresolvedImageRefs`. Never writes when nothing resolved.
- */
 export async function applyHydration(opts: {
   file: SourceWorkspaceFile;
   designId: string;
@@ -277,10 +248,6 @@ export async function applyHydration(opts: {
   return { resolved, missing: uniqueMissing.length, skipped };
 }
 
-// ---------------------------------------------------------------------------
-// Token-free `.fig` resolver
-// ---------------------------------------------------------------------------
-
 const FIG_HYDRATE_UPLOAD_CONCURRENCY = 4;
 
 function mimeTypeForExt(ext: string): string {
@@ -291,22 +258,12 @@ function mimeTypeForExt(ext: string): string {
   return "application/octet-stream";
 }
 
-/**
- * Decode a `.fig` and index its embedded images by SHA-1 hash. Decode once per
- * upload and reuse the index across screens — a multi-screen hydration must not
- * re-parse the whole file per screen.
- */
 export function indexFigImages(figBytes: Buffer): Map<string, DecodedFigImage> {
   const byHash = new Map<string, DecodedFigImage>();
   for (const image of decodeFigImages(figBytes)) byHash.set(image.hash, image);
   return byHash;
 }
 
-/**
- * Match placeholder hashes against a `.fig`'s embedded `images/` bytes (keyed by
- * the same SHA-1 the paste stamped) and mirror matches to durable storage. No
- * Figma token or REST call.
- */
 export async function resolveFigImageHashes(opts: {
   figImages: Map<string, DecodedFigImage>;
   hashes: string[];
@@ -348,11 +305,6 @@ export async function resolveFigImageHashes(opts: {
   return resolved;
 }
 
-/**
- * Token-free hydration of one screen's image placeholders from an uploaded
- * `.fig`. Takes a pre-decoded image index (see `indexFigImages`) so a
- * multi-screen hydration decodes the file once, not once per screen.
- */
 export async function hydrateFileImagesFromFig(opts: {
   fileId: string;
   figImages: Map<string, DecodedFigImage>;

@@ -17,6 +17,12 @@ import {
   readClientAppState,
   setClientAppState,
 } from "./application-state.js";
+import { BuilderSetupCard } from "./chat/run-recovery.js";
+import { useT } from "./i18n.js";
+import {
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "./use-agent-engine-configured.js";
 import { useChangeVersions } from "./use-change-version.js";
 import { cn } from "./utils.js";
 
@@ -34,9 +40,6 @@ export interface GuidedQuestionOption {
   icon?: string;
   description?: string;
   recommended?: boolean;
-  /** Optional preview content (mockup, code snippet, or short comparison)
-   *  shown beneath the option to help the user compare choices. Mirrors the
-   *  `preview` field of Claude Code's AskUserQuestion options. */
   preview?: string;
 }
 
@@ -57,7 +60,6 @@ export interface GuidedQuestion {
   allowOther?: boolean;
   includeExplore?: boolean;
   includeDecide?: boolean;
-  /** Submit immediately when a single-select option is clicked. */
   submitOnSelect?: boolean;
 }
 
@@ -71,13 +73,6 @@ export interface GuidedQuestionPayload {
   submitLabel?: string;
   submitMessage?: string;
   skipMessage?: string;
-  /**
-   * Hidden context appended to whichever message this card sends. The card's
-   * answer opens a continuation turn that inherits nothing from the turn that
-   * posed it, so anything the follow-up work depends on — a linked design
-   * system, the user's original brief — has to travel with the payload or it
-   * is gone by the time the agent acts on the answer.
-   */
   submitContext?: string;
   /**
    * @internal Set by {@link askUserQuestion} for client-initiated questions.
@@ -85,12 +80,6 @@ export interface GuidedQuestionPayload {
    * promise with the answer instead of forwarding it to the agent chat.
    */
   clientResolveId?: string;
-  /**
-   * Chat thread that asked. Set by the agent's `ask-question` tool. A payload
-   * carrying this only renders in that conversation; one without it (app code
-   * calling {@link askUserQuestion}, deterministic writes) is not thread-bound
-   * and renders wherever the flow is mounted.
-   */
   threadId?: string;
 }
 
@@ -161,16 +150,6 @@ export function normalizeGuidedAnswers(
   );
 }
 
-/**
- * Answers travel to the model as one message, and history trimming decides
- * independently whether the turn that asked survives alongside it. The agent's
- * `ask-question` tool also ids every question it ever asks `q1`, so a bare
- * `q1: Weekly` says nothing on its own and nothing distinguishes one answer
- * message from the next. Restate the question next to its answer whenever the
- * question is known, so the answer means the same thing no matter what else
- * survives. Ids stay as the label when no question matches — app callers pass
- * meaningful ones (`density`, `sections`).
- */
 export function formatGuidedAnswersForAgent(
   answers: GuidedQuestionAnswers,
   questions?: readonly GuidedQuestion[],
@@ -207,47 +186,27 @@ function settledGuidedSubmitContext(context: string): string {
   return [context, SETTLED_ANSWERS_INSTRUCTION].filter(Boolean).join("\n\n");
 }
 
-/** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
- *  tool and Claude Code's AskUserQuestion option shape. */
 export interface AskUserQuestionOption {
-  /** Display text the user picks (1-5 words). */
   label: string;
-  /** Value reported back. Defaults to `label` when omitted. */
   value?: string;
-  /** Short explanation of the trade-off. */
   description?: string;
-  /** Optional preview (mockup, code snippet, short comparison) shown under the option. */
   preview?: string;
-  /** Mark the most likely option so the UI highlights it. */
   recommended?: boolean;
 }
 
-/** Input for {@link askUserQuestion}. */
 export interface AskUserQuestionInput {
-  /** The complete question. Clear, specific, ends with a question mark. */
   question: string;
-  /** Optional very short chip/heading (≈12 chars), e.g. "Date range". */
   header?: string;
-  /** 2-4 distinct options (mutually exclusive unless `allowMultiple`). */
   options: AskUserQuestionOption[];
-  /** Allow a free-text "Other" answer. Default `true`. */
   allowFreeText?: boolean;
-  /** Allow selecting more than one option (multi-select). Default `false`. */
   allowMultiple?: boolean;
-  /** Application-state key the agent panel polls. Default `"guided-questions"`. */
   stateKey?: string;
 }
 
 const GUIDED_QUESTIONS_STATE_KEY = "guided-questions";
 
-/** The user's answer to an {@link askUserQuestion}: the selected option
- *  value(s), the free-text "Other" string, or `null` if the user skipped. */
 export type AskUserQuestionResult = string | string[] | null;
 
-// In-memory resolver registry shared between `askUserQuestion` (which registers
-// a resolver and writes the question to application state) and
-// `useGuidedQuestionFlow` (which renders the question and, on submit/skip,
-// resolves the matching promise). Same module → the map is shared.
 type AskQuestionResolver = (answer: AskUserQuestionResult) => void;
 const clientQuestionResolvers = new Map<string, AskQuestionResolver>();
 let askQuestionCounter = 0;
@@ -261,8 +220,6 @@ function nextClientResolveId(): string {
   return `askq-${askQuestionCounter}-${rand}`;
 }
 
-/** Resolve a pending client-initiated question by id. Returns false when no
- *  resolver is registered (e.g. an agent-initiated question, or a reload). */
 function resolveClientQuestion(
   id: string,
   answer: AskUserQuestionResult,
@@ -274,8 +231,6 @@ function resolveClientQuestion(
   return true;
 }
 
-/** Pull the answer for a single guided question out of the answers map,
- *  normalizing "Other" free-text and multi-select arrays. */
 function extractSingleAnswer(
   answers: GuidedQuestionAnswers,
   questionId: string,
@@ -297,31 +252,6 @@ function extractSingleAnswer(
   return String(raw);
 }
 
-/**
- * Ask the user a multiple-choice question from app code and render it inline in
- * the agent panel — the client-side twin of the agent's `ask-question` tool.
- *
- * The question is written to application state (`"guided-questions"` by
- * default), where the mounted `GuidedQuestionFlow` (driven by
- * {@link useGuidedQuestionFlow}) renders it, and the agent panel is revealed so
- * it's visible. **Resolves with the user's answer** — the selected option
- * value (or `value[]` when `allowMultiple`), the free-text "Other" string, or
- * `null` if they skip — so the caller can branch on it (e.g. build the right
- * generate prompt before kicking off agent work):
- *
- * ```ts
- * const length = await askUserQuestion({
- *   question: "How long should this deck be?",
- *   header: "Deck length",
- *   options: [{ label: "Short", recommended: true }, { label: "Long" }],
- * });
- * if (length) sendToAgentChat({ message: `Make a ${length} deck`, submit: true });
- * ```
- *
- * Requires the agent panel (the mounted `GuidedQuestionFlow`) to exist, which
- * it does in every template. The returned promise stays pending until the user
- * answers or skips.
- */
 export async function askUserQuestion(
   input: AskUserQuestionInput,
 ): Promise<AskUserQuestionResult> {
@@ -392,7 +322,6 @@ export async function askUserQuestion(
     clientQuestionResolvers.set(resolveId, resolve);
   });
 
-  // Reveal the agent panel so the inline question is visible even if collapsed.
   if (typeof window !== "undefined") {
     try {
       window.dispatchEvent(new CustomEvent("agent-panel:open"));
@@ -445,7 +374,6 @@ function defaultGuidedAnswers(
   return answers;
 }
 
-/** Stable content hash so poll refreshes do not reset in-progress answers. */
 export function guidedQuestionsFingerprint(
   questions: GuidedQuestion[],
 ): string {
@@ -510,7 +438,49 @@ export interface GuidedQuestionFlowProps {
   skipLabel?: string;
   submitLabel?: string;
   isSubmitting?: boolean;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
+  showProviderStatusGate?: boolean;
   className?: string;
+}
+
+export function GuidedQuestionProviderGate({
+  providerStatus,
+  onRetry,
+}: {
+  providerStatus: AgentEngineConfiguredState;
+  onRetry?: () => void;
+}) {
+  const t = useT();
+
+  if (providerStatus === "missing") {
+    return (
+      <BuilderSetupCard fullWidth onConnected={onRetry} onRetry={onRetry} />
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+      role="status"
+    >
+      <span>
+        {providerStatus === "unknown"
+          ? t("agentChat.setup.checkingProvider")
+          : t("agentChat.setup.providerStatusUnavailable")}
+      </span>
+      {providerStatus === "unavailable" ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function GuidedQuestionFlow({
@@ -522,6 +492,10 @@ export function GuidedQuestionFlow({
   skipLabel = "Skip",
   submitLabel = "Continue",
   isSubmitting = false,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  onRetryProviderStatus,
+  showProviderStatusGate = true,
   className,
 }: GuidedQuestionFlowProps) {
   const [answers, setAnswers] = useState<GuidedQuestionAnswers>(() =>
@@ -542,10 +516,13 @@ export function GuidedQuestionFlow({
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
   const submitAnswers = useCallback(
-    (nextAnswers: GuidedQuestionAnswers = answers) =>
-      onSubmit(normalizeGuidedAnswers(nextAnswers)),
-    [answers, onSubmit],
+    (nextAnswers: GuidedQuestionAnswers = answers) => {
+      if (isSubmissionBlocked || isSubmitting) return;
+      onSubmit(normalizeGuidedAnswers(nextAnswers));
+    },
+    [answers, isSubmissionBlocked, isSubmitting, onSubmit],
   );
+  const inputsDisabled = isSubmitting || isSubmissionBlocked;
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -570,20 +547,33 @@ export function GuidedQuestionFlow({
           )}
         </div>
 
-        <div className="guided-question-flow-list min-h-0 flex-1 overflow-y-auto pe-1">
+        <fieldset
+          disabled={inputsDisabled}
+          className="guided-question-flow-list m-0 min-h-0 min-w-0 flex-1 overflow-y-auto border-0 p-0 pe-1"
+        >
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
               index={index}
               question={question}
               value={answers[question.id]}
+              disabled={inputsDisabled}
               onChange={(value) => setAnswer(question.id, value)}
               onSubmitAnswer={(value) =>
                 submitAnswers({ ...answers, [question.id]: value })
               }
             />
           ))}
-        </div>
+        </fieldset>
+
+        {isSubmissionBlocked && showProviderStatusGate ? (
+          <div className="guided-question-provider-gate mt-3">
+            <GuidedQuestionProviderGate
+              providerStatus={providerStatus}
+              onRetry={onRetryProviderStatus}
+            />
+          </div>
+        ) : null}
 
         <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-1.5">
@@ -603,7 +593,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={onSkip}
-              disabled={isSubmitting}
+              disabled={inputsDisabled}
               className="cursor-pointer rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               {skipLabel}
@@ -611,7 +601,7 @@ export function GuidedQuestionFlow({
             <button
               type="button"
               onClick={() => submitAnswers()}
-              disabled={!allRequiredAnswered || isSubmitting}
+              disabled={!allRequiredAnswered || inputsDisabled}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
@@ -628,12 +618,14 @@ function QuestionCard({
   index,
   question,
   value,
+  disabled,
   onChange,
   onSubmitAnswer,
 }: {
   index: number;
   question: GuidedQuestion;
   value: unknown;
+  disabled: boolean;
   onChange: (value: unknown) => void;
   onSubmitAnswer: (value: unknown) => void;
 }) {
@@ -678,7 +670,7 @@ function QuestionCard({
         <SliderQuestion question={question} value={value} onChange={onChange} />
       )}
       {question.type === "file" && (
-        <FileDropZone value={value} onChange={onChange} />
+        <FileDropZone value={value} disabled={disabled} onChange={onChange} />
       )}
       {question.type === "freeform" && (
         <textarea
@@ -953,15 +945,19 @@ function SliderQuestion({
 
 function FileDropZone({
   value,
+  disabled,
   onChange,
 }: {
   value: unknown;
+  disabled: boolean;
   onChange: (value: unknown) => void;
 }) {
   const [dragOver, setDragOver] = useState(false);
   const files: File[] = Array.isArray(value) ? (value as File[]) : [];
 
-  const addFiles = (incoming: File[]) => onChange([...files, ...incoming]);
+  const addFiles = (incoming: File[]) => {
+    if (!disabled) onChange([...files, ...incoming]);
+  };
   const removeFile = (index: number) =>
     onChange(files.filter((_, fileIndex) => fileIndex !== index));
 
@@ -969,11 +965,19 @@ function FileDropZone({
     <div>
       <div
         onDragOver={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
           event.preventDefault();
           setDragOver(false);
           addFiles(Array.from(event.dataTransfer.files));
@@ -993,6 +997,7 @@ function FileDropZone({
             <input
               type="file"
               multiple
+              disabled={disabled}
               onChange={(event) => {
                 if (event.target.files)
                   addFiles(Array.from(event.target.files));
@@ -1016,6 +1021,7 @@ function FileDropZone({
               <button
                 type="button"
                 onClick={() => removeFile(index)}
+                disabled={disabled}
                 className="cursor-pointer text-muted-foreground/70 hover:text-foreground"
                 aria-label={`Remove ${file.name}`}
               >
@@ -1038,7 +1044,6 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
 }
 
 export interface UseGuidedQuestionFlowOptions {
-  /** Disable application-state reads for signed-out or otherwise inactive surfaces. */
   enabled?: boolean;
   stateKey?: string;
   /**
@@ -1049,13 +1054,9 @@ export interface UseGuidedQuestionFlowOptions {
    * (which it almost always does — see `sessionBrowserTabId`).
    */
   browserTabId?: string;
-  /**
-   * The conversation this flow is mounted in. Agent-written payloads name the
-   * thread that asked, and a pending question belongs to that conversation
-   * only — the application-state key is per browser tab, so without this the
-   * same card follows the user into every other chat in the tab.
-   */
   threadId?: string;
+  providerStatusChecksEnabled?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
   queryKey?: readonly unknown[];
   refetchInterval?: number | false;
   submitMessage?: string;
@@ -1065,28 +1066,18 @@ export interface UseGuidedQuestionFlowOptions {
     formattedAnswers: string;
   }) => string;
   buildSkipContext?: () => string;
-  /**
-   * Host delivery boundary for submitted answers. Omit to use the shared
-   * browser chat bridge; AgentKit hosts can route the visible answer through
-   * their controller without maintaining a second conversation runtime.
-   */
   onSubmitMessage?: (input: {
     answers: GuidedQuestionAnswers;
     formattedAnswers: string;
     message: string;
     context: string;
   }) => void | Promise<{ delivered: boolean }>;
-  /** Host delivery boundary for the optional skip action. */
   onSkipMessage?: (input: {
     message: string;
     context: string;
   }) => void | Promise<{ delivered: boolean }>;
 }
 
-/**
- * Whether a stored payload belongs to the conversation currently on screen.
- * Payloads with no `threadId` are not thread-bound and always match.
- */
 function payloadBelongsToThread(
   payload: GuidedQuestionPayload,
   threadId: string | undefined,
@@ -1102,6 +1093,8 @@ export function useGuidedQuestionFlow({
   stateKey = "show-questions",
   browserTabId,
   threadId,
+  providerStatusChecksEnabled = true,
+  providerStatus: providedProviderStatus,
   queryKey = ["show-questions"],
   refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
@@ -1128,8 +1121,6 @@ export function useGuidedQuestionFlow({
     [normalizedBrowserTabId, scopedKey, stateKey],
   );
   const stateVersion = useChangeVersions(stateVersionSources);
-  // Match the queryKey to the scope so two tabs polling different scoped keys
-  // don't share a cache entry.
   const resolvedQueryKey = useMemo(
     () => [...queryKey, normalizedBrowserTabId ?? "global", stateVersion],
     [queryKey, normalizedBrowserTabId, stateVersion],
@@ -1159,8 +1150,6 @@ export function useGuidedQuestionFlow({
         }
         return null;
       };
-      // Agent writes are tab-scoped; read the scoped key first, then fall back
-      // to the bare key (e.g. a deterministic write that omits the tab id).
       return (
         (normalizedBrowserTabId ? await read(scopedKey) : null) ??
         (await read(stateKey))
@@ -1168,9 +1157,6 @@ export function useGuidedQuestionFlow({
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
-    // A matching app-state event changes the query key. Preserve the existing
-    // payload while the replacement read is in flight so full-canvas question
-    // forms do not unmount and flash during routine sync updates.
     placeholderData: keepPreviousData,
   });
 
@@ -1182,9 +1168,6 @@ export function useGuidedQuestionFlow({
           guidedQuestionsFingerprint(prev.questions) ===
             guidedQuestionsFingerprint(data.questions) &&
           prev.clientResolveId === data.clientResolveId &&
-          // Two chats can ask a word-for-word identical question. Keeping the
-          // old payload would bind the new one to the wrong thread, hiding it
-          // in the chat that asked and re-showing it in the one that didn't.
           prev.threadId === data.threadId
         ) {
           return prev;
@@ -1196,11 +1179,31 @@ export function useGuidedQuestionFlow({
     }
   }, [data]);
 
-  // A question asked in another conversation stays in application state — the
-  // user can still answer it by going back to that chat — but it must not
-  // render here.
   const visiblePayload =
     payload && payloadBelongsToThread(payload, threadId) ? payload : null;
+  const needsAgentProvider = Boolean(
+    visiblePayload?.questions.length && !visiblePayload.clientResolveId,
+  );
+  const queriedProviderStatus = useAgentEngineConfigured(
+    enabled &&
+      needsAgentProvider &&
+      providerStatusChecksEnabled &&
+      providedProviderStatus === undefined,
+    { tabId: browserTabId, threadId },
+  );
+  const providerStatus = providerStatusChecksEnabled
+    ? (providedProviderStatus ?? queriedProviderStatus.state)
+    : "configured";
+  const isSubmissionBlocked =
+    enabled &&
+    needsAgentProvider &&
+    providerStatusChecksEnabled &&
+    providerStatus !== "configured";
+  const retryProviderStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submissionInFlightRef = useRef(false);
 
@@ -1208,8 +1211,6 @@ export function useGuidedQuestionFlow({
     setPayload(null);
     queryClient.setQueryData(resolvedQueryKey, null);
     const del = (key: string) => deleteClientAppState(key).catch(() => {});
-    // Clear whichever key actually held the payload (scoped or bare) so the
-    // card doesn't reappear on the next poll.
     void del(scopedKey);
     if (scopedKey !== stateKey) void del(stateKey);
   }, [queryClient, resolvedQueryKey, scopedKey, stateKey]);
@@ -1242,8 +1243,6 @@ export function useGuidedQuestionFlow({
   const handleSubmit = useCallback(
     (answers: GuidedQuestionAnswers) => {
       if (submissionInFlightRef.current) return;
-      // Client-initiated question (askUserQuestion): resolve the caller's
-      // promise with the answer instead of forwarding it to the agent chat.
       const resolveId = visiblePayload?.clientResolveId;
       if (resolveId) {
         const firstId = visiblePayload?.questions?.[0]?.id ?? "q1";
@@ -1251,6 +1250,7 @@ export function useGuidedQuestionFlow({
         clear();
         return;
       }
+      if (isSubmissionBlocked) return;
       const formattedAnswers = formatGuidedAnswersForAgent(
         answers,
         visiblePayload?.questions,
@@ -1289,6 +1289,7 @@ export function useGuidedQuestionFlow({
       clear,
       onSubmitMessage,
       sendAndClearOnDelivery,
+      isSubmissionBlocked,
       visiblePayload,
       submitMessage,
     ],
@@ -1302,9 +1303,8 @@ export function useGuidedQuestionFlow({
       clear();
       return;
     }
+    if (isSubmissionBlocked) return;
     const message = visiblePayload?.skipMessage ?? skipMessage;
-    // Skipping a variant set asks for another one — the replacement needs the
-    // same context the first set was built from.
     const context = [buildSkipContext?.(), visiblePayload?.submitContext]
       .filter(Boolean)
       .join("\n\n");
@@ -1319,22 +1319,14 @@ export function useGuidedQuestionFlow({
     clear,
     onSkipMessage,
     sendAndClearOnDelivery,
+    isSubmissionBlocked,
     visiblePayload,
     skipMessage,
   ]);
 
-  // A caller that is about to treat "no question right now" as final (e.g.
-  // dropping state that lets it route a later answer) can race the app-state
-  // read this hook otherwise waits on passively: the agent can write the
-  // question after the caller's own trigger (a chat run stopping) but before
-  // this hook's next reactive read picks it up. Force one fresh read instead
-  // of trusting whatever `questions` already holds.
   const refetchPendingQuestion = useCallback(async () => {
     const result = await refetch();
     if (result.status === "error") {
-      // A failed forced check is not the same thing as "no question" — report
-      // still-waiting so the caller keeps the state it was about to drop
-      // instead of discarding it on unrelated network trouble.
       return true;
     }
     const latest = result.data ?? null;
@@ -1354,6 +1346,9 @@ export function useGuidedQuestionFlow({
     skipLabel: visiblePayload?.skipLabel,
     submitLabel: visiblePayload?.submitLabel,
     isSubmitting,
+    isSubmissionBlocked,
+    providerStatus,
+    retryProviderStatus,
     clear,
     handleSubmit,
     handleSkip,
