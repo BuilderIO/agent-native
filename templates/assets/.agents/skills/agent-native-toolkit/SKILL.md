@@ -65,11 +65,12 @@ The repeated app shell has two distinct navigation surfaces:
   recommendation, synthesis, visible progress, or steering, route the button
   to the AgentSidebar and let the agent call focused actions. Keep revisions in
   the same thread instead of adding a second freeform prompt box.
-- Standalone apps with `AgentSidebar` must use the shared AgentKit chat surface
-  and one AgentKit controller/transport. Do not mount the legacy `AssistantChat`
-  renderer or create a second chat stream owner. Keep assistant-ui imports inside
-  the shared composer integration; when linked dependencies need Vite aliases,
-  resolve one `@agent-native/agentkit` context and verify a real handoff.
+- Standalone apps with `AgentSidebar` must use one AgentKit controller and
+  transport. Core's `AssistantChat` export remains supported as an alias for
+  `AgentKitAssistantChat`; use AgentKit slots and registries for custom message
+  UI. Keep assistant-ui transcript/runtime imports inside the shared composer
+  integration; when linked dependencies need Vite aliases, resolve one
+  `@agent-native/agentkit` context and verify a real handoff.
 
 Contextual agent UI is not a reason to expose every option at once. Start with
 the domain task's primary action, reveal review or configuration only when the

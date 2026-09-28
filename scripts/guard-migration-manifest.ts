@@ -22,6 +22,10 @@ type MigrationMove = {
 };
 type MigrationManifest = {
   moves?: Record<string, MigrationMove>;
+  removedExports?: Record<
+    string,
+    { symbols: string[]; migrationGuide: string }
+  >;
 };
 type ExportSnapshot = {
   exports?: Record<string, string[]>;
@@ -240,6 +244,9 @@ function buildExportedSymbolCatalog(
       specifiers.add(from);
       for (const target of activeMoveTargets(move)) specifiers.add(target);
     }
+    for (const specifier of Object.keys(manifest.removedExports ?? {})) {
+      specifiers.add(specifier);
+    }
   }
   const { Project } = createRequire(
     path.join(repoRoot, "packages/core/package.json"),
@@ -362,6 +369,41 @@ export function checkMigrationManifest(
           message: `${from}#${symbolMove.fromName} has active migration target ${symbolMove.to}#${symbolMove.toName}, but that symbol is not exported. Mark the symbol move planned until it ships.`,
         });
       }
+    }
+    for (const [specifier, removed] of Object.entries(
+      migrationManifest.removedExports ?? {},
+    )) {
+      const sourceSymbols = exportedSymbols[specifier];
+      for (const symbol of removed.symbols) {
+        if (!sourceSymbols?.has(symbol)) continue;
+        violations.push({
+          packageName,
+          message: `${specifier} marks ${symbol} removed, but the package still exports it. Update the removal inventory or remove the stale export.`,
+        });
+      }
+    }
+  }
+
+  for (const [specifier, removed] of Object.entries(
+    migrationManifest.removedExports ?? {},
+  )) {
+    if (packageCatalog && !targetIsExported(specifier, packageCatalog)) {
+      violations.push({
+        packageName,
+        message: `${specifier} lists removed exports but is not a published package entrypoint.`,
+      });
+    }
+    if (!Array.isArray(removed.symbols) || removed.symbols.length === 0) {
+      violations.push({
+        packageName,
+        message: `${specifier} must list at least one removed symbol in removedExports.`,
+      });
+    }
+    if (!/^https:\/\//.test(removed.migrationGuide)) {
+      violations.push({
+        packageName,
+        message: `${specifier} removedExports must link to a migration guide.`,
+      });
     }
   }
 

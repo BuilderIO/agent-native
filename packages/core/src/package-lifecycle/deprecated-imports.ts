@@ -10,7 +10,14 @@ import {
   type MigrationMoveStatus,
 } from "./migration-manifest.js";
 
-const SOURCE_EXTENSIONS = new Set([".ts", ".tsx"]);
+const SOURCE_EXTENSIONS = new Set([
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".tsx",
+]);
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
@@ -28,7 +35,8 @@ export interface DeprecatedImportFinding {
   from: string;
   to: string[];
   symbols: string[];
-  status: MigrationMoveStatus;
+  status: MigrationMoveStatus | "removed";
+  migrationGuide?: string;
 }
 
 export interface ScanDeprecatedImportsOptions {
@@ -138,6 +146,10 @@ export function scanDeprecatedImports(
   const root = path.resolve(options.root);
   const manifests = options.manifests ?? loadMigrationManifestsForProject(root);
   const moves = mergeMoves(manifests);
+  const removedExports = Object.assign(
+    {},
+    ...manifests.map((manifest) => manifest.removedExports ?? {}),
+  );
   const findings: DeprecatedImportFinding[] = [];
   const fromDeclaration =
     /\b(import|export)\s+([^;]*?)\s+from\s+["']([^"']+)["']\s*;?/g;
@@ -148,16 +160,34 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(fromDeclaration)) {
       const from = match[3];
       const move = moves[from];
-      if (!move) continue;
-      const matches = matchingMoveTargets(move, importedNames(match[2]));
-      for (const matched of matches) {
+      const removedExport = removedExports[from];
+      if (!move && !removedExport) continue;
+      const names = importedNames(match[2]);
+      if (move) {
+        const matches = matchingMoveTargets(move, names);
+        for (const matched of matches) {
+          findings.push({
+            file,
+            line: lineAt(text, match.index ?? 0),
+            from,
+            to: matched.targets,
+            symbols: matched.symbols,
+            status: matched.status,
+          });
+        }
+      }
+      const removedSymbols = names?.filter((name) =>
+        removedExport?.symbols.includes(name),
+      );
+      if (removedSymbols && removedSymbols.length > 0) {
         findings.push({
           file,
           line: lineAt(text, match.index ?? 0),
           from,
-          to: matched.targets,
-          symbols: matched.symbols,
-          status: matched.status,
+          to: [],
+          symbols: removedSymbols,
+          status: "removed",
+          migrationGuide: removedExport?.migrationGuide,
         });
       }
     }

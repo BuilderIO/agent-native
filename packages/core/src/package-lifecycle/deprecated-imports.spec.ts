@@ -170,4 +170,40 @@ describe("scanDeprecatedImports", () => {
       }),
     ]);
   });
+
+  it("reports removed chat exports with their migration guide", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-removed-"));
+    roots.push(root);
+    fs.writeFileSync(
+      path.join(root, "index.js"),
+      'import { createAgentChatAdapter, AssistantChat } from "@agent-native/core/client/agent-chat";\n',
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              "@agent-native/core/client/agent-chat": {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        line: 1,
+        from: "@agent-native/core/client/agent-chat",
+        to: [],
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+        migrationGuide: "https://example.test/agentkit-chat.md",
+      }),
+    ]);
+  });
 });

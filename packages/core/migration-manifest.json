@@ -1355,5 +1355,67 @@
     "@agent-native/core/client/visual-style-controls": {
       "to": "@agent-native/toolkit/design-tweaks"
     }
+  },
+  "removedExports": {
+    "@agent-native/core/client": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+    },
+    "@agent-native/core/client/chat": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+    },
+    "@agent-native/core/client/agent-chat": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+    }
   }
 }

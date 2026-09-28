@@ -227,6 +227,42 @@ describe("runDoctorScan", () => {
       }),
     ]);
   });
+
+  it("reports removed API imports with a direct migration guide", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "app/root.tsx":
+        'import { createAgentChatAdapter } from "@agent-native/core/client/agent-chat";\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["migration-manifest"],
+      migrationManifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          removedExports: {
+            "@agent-native/core/client/agent-chat": {
+              symbols: ["createAgentChatAdapter"],
+              migrationGuide: "https://example.test/agentkit-chat.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "migration-manifest",
+        file: "app/root.tsx",
+        message: expect.stringContaining("createAgentChatAdapter was removed"),
+      }),
+    ]);
+    expect(report.findings[0]?.message).toContain(
+      "https://example.test/agentkit-chat.md",
+    );
+  });
 });
 
 describe("runDoctor (CLI)", () => {

@@ -20,6 +20,12 @@ export type MigrationMoveStatus = "active" | "planned";
 export interface MigrationManifest {
   sinceVersion: string;
   moves: Record<string, MigrationMove>;
+  removedExports?: Record<string, RemovedExportManifest>;
+}
+
+export interface RemovedExportManifest {
+  symbols: string[];
+  migrationGuide: string;
 }
 
 export interface ResolvedMigrationSymbolMove {
