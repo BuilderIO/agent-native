@@ -11,8 +11,6 @@ import {
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
-import { installBridge, waitForBridge } from "./helpers";
-
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -267,9 +265,10 @@ test.describe("URL-backed live auto-layout probe", () => {
             .evaluate(() => window.location.pathname),
         ),
       );
-    await expect.poll(getFramePaths).toContain("/settings");
+    await expect
+      .poll(async () => [...(await getFramePaths())].sort())
+      .toEqual(["/", "/settings"]);
     const framePaths = await getFramePaths();
-    expect([...framePaths].sort()).toEqual(["/", "/settings"]);
     const settingsFrameIndex = framePaths.indexOf("/settings");
     const iframe = liveFrames.nth(1 - settingsFrameIndex);
     const frame = iframe.contentFrame();
@@ -539,23 +538,25 @@ test.describe("URL-backed live auto-layout probe", () => {
     };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
-    await installBridge(page);
-    await page.evaluate(() => ((window as any).__bridge = []));
-    await iframe.evaluate((element) => {
-      element.contentWindow?.postMessage(
-        {
-          type: "select-element",
-          selector: '[data-agent-native-node-id="v1"]',
-        },
-        "*",
-      );
-    });
-    const selectedNode = await waitForBridge(page, "element-select");
-    expect(selectedNode.payload?.sourceId).toBe("v1");
+    const initialSourceBounds = await source.boundingBox();
+    if (!initialSourceBounds) {
+      throw new Error("live focus probe source has no bounds");
+    }
+    await page.mouse.click(
+      initialSourceBounds.x + initialSourceBounds.width / 2,
+      initialSourceBounds.y + initialSourceBounds.height / 2,
+    );
+    await expect
+      .poll(() =>
+        focusFrame
+          .locator('[data-agent-native-edit-overlay="selection"]')
+          .evaluate((element) => getComputedStyle(element).display !== "none"),
+      )
+      .toBe(true);
     const sourceBounds = await source.boundingBox();
     const targetBounds = await target.boundingBox();
     if (!sourceBounds || !targetBounds) {
-      throw new Error("live focus probe drag targets have no bounds");
+      throw new Error("selected live focus probe source has no bounds");
     }
     await page.mouse.move(
       sourceBounds.x + sourceBounds.width / 2,
