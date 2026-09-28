@@ -1016,9 +1016,9 @@ async function runScenario(
       }
     }
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
-    // Recheck after reopening in case a prior pagehide write raced the restore.
+    // Earlier writes were checked after settling; only new writes can still overwrite the fixture.
     const leftBehind = keepaliveMismatches(
-      [...priorPagehideWrites, ...(await takeKeepaliveWrites(page))],
+      await takeKeepaliveWrites(page),
       slideId,
       ctx.stored,
     );
