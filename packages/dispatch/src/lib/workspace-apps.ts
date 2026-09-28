@@ -338,6 +338,15 @@ export function workspaceAppTargetPath(app: {
   return normalizeWorkspaceAppHomePath(undefined);
 }
 
+export function workspaceAppDirectLaunchHref(app: {
+  path?: string | null;
+  url?: string | null;
+  homePath?: string | null;
+}): string | null {
+  if (app.path?.trim()) return null;
+  return workspaceAppDirectHref(app, workspaceAppTargetPath(app));
+}
+
 export function workspaceAppEmbedTarget(
   app: Pick<WorkspaceAppSummary, "path" | "url">,
 ): { path?: string; url?: string } {

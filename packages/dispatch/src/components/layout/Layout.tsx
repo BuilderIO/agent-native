@@ -122,6 +122,7 @@ import {
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
+  workspaceAppDirectLaunchHref,
   workspaceAppRoute,
   workspaceAppTargetPath,
   type WorkspaceAppSummary,
@@ -1510,6 +1511,14 @@ export function Layout({
       const registration = chatFirstAppRegistrations.find(
         (candidate) => candidate.id.toLowerCase() === app.id.toLowerCase(),
       );
+      const hasWorkspaceRoute = Boolean(registration?.path?.trim());
+      if (!hasWorkspaceRoute) {
+        if (registration) {
+          const directHref = workspaceAppDirectLaunchHref(registration);
+          if (directHref) navigateToWorkspaceApp(directHref);
+        }
+        return;
+      }
       const directHref =
         registration &&
         !isWorkspaceSsoApp(registration) &&

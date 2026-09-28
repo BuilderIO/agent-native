@@ -13,6 +13,7 @@ import {
   workspaceAppInitialPathFromSplat,
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
+  workspaceAppDirectLaunchHref,
   workspaceAppHref,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -30,6 +31,21 @@ describe("workspace app routes", () => {
         url: "https://workspace.example.test/feedback-leaderboard/leaderboard",
       }),
     ).toBe("https://workspace.example.test/feedback-leaderboard/leaderboard");
+  });
+
+  it("opens grant-only apps directly at their registered URL", () => {
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBe("https://sales.example.test/sales");
+    expect(
+      workspaceAppDirectLaunchHref({
+        path: "/sales",
+        url: "https://sales.example.test/sales",
+      }),
+    ).toBeNull();
   });
 
   it("round-trips encoded app ids", () => {
