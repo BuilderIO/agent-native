@@ -17,6 +17,7 @@ export interface ActionContext {
   accountEmail: string;
   labelCache: Map<string, string>;
   signal?: AbortSignal;
+  notificationIdempotencyKey?: string;
   from?: string;
   subject?: string;
   snippet?: string;
@@ -122,6 +123,9 @@ export async function executeAction(
               accountEmail: ctx.accountEmail,
               messageId: ctx.messageId,
             },
+            ...(ctx.notificationIdempotencyKey
+              ? { idempotencyKey: ctx.notificationIdempotencyKey }
+              : {}),
           },
           { owner: ctx.ownerEmail },
           { signal: ctx.signal },

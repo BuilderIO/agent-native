@@ -463,13 +463,21 @@ function startTriggerDrain(
   const existing = _drainingTriggers.get(triggerId);
   if (existing)
     return options?.skipExisting ? Promise.resolve(false) : existing;
+  let localStaleExpiredCount = 0;
+  const onStaleEventExpired =
+    options?.onStaleEventExpired ?? (() => (localStaleExpiredCount += 1));
   const drain = drainTriggerQueue(
     triggerId,
     options?.maxEvents,
     options?.expireStaleMailEvents,
     options?.deadline,
-    options?.onStaleEventExpired,
+    onStaleEventExpired,
   ).finally(() => {
+    if (localStaleExpiredCount > 0) {
+      console.info(
+        `[triggers] Expired ${localStaleExpiredCount} stale ${MAIL_RECEIVED_EVENT} events from in-process drain.`,
+      );
+    }
     if (_drainingTriggers.get(triggerId) === drain)
       _drainingTriggers.delete(triggerId);
   });
@@ -503,12 +511,14 @@ async function drainTriggerQueue(
     }
     const deps = _deps;
     if (!deps) return processedEvents > 0;
+    const shouldExpireStaleMailEvents =
+      expireStaleMailEvents || deps.appId === "mail";
     const queued = await claimNextAutomationTriggerEvent(triggerId, deps.appId);
     if (!queued) return processedEvents > 0;
     processedEvents += 1;
 
     if (
-      expireStaleMailEvents &&
+      shouldExpireStaleMailEvents &&
       deps.appId === "mail" &&
       queued.eventName === MAIL_RECEIVED_EVENT &&
       Date.parse(queued.emittedAt) < Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS

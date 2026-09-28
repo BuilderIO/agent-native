@@ -585,19 +585,26 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
             actions.has(responseAction === "accepted" ? "accept" : "decline")
           ) {
             signal?.throwIfAborted();
-            await googleCalendar.rsvpEvent(
-              event.id,
-              responseAction,
-              {
-                ownerEmail: owner,
-                accountEmail: account.email,
-              },
-              "single",
-              undefined,
-              undefined,
-              signal,
-            );
-            signal?.throwIfAborted();
+            try {
+              await googleCalendar.rsvpEvent(
+                event.id,
+                responseAction,
+                {
+                  ownerEmail: owner,
+                  accountEmail: account.email,
+                },
+                "single",
+                undefined,
+                undefined,
+                signal,
+              );
+              signal?.throwIfAborted();
+            } catch (error) {
+              if (!signal?.aborted) throw error;
+              const token = releasedRsvpClaims.get(identity);
+              if (token) await releaseRsvpClaim(identity, token);
+              signal.throwIfAborted();
+            }
             activity.push(entry);
           } else {
             delete pendingRsvps[entry.id];

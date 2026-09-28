@@ -245,6 +245,14 @@ function pendingNotificationActionKey(
   return JSON.stringify([ruleId, messageId]);
 }
 
+function mailNotificationIdempotencyKey(
+  ruleId: string,
+  accountEmail: string,
+  messageId: string,
+): string {
+  return `mail-rule:${ruleId}:${accountEmail.trim().toLowerCase()}:${messageId}`;
+}
+
 function isPendingNotificationAction(
   value: unknown,
 ): value is PendingNotificationAction {
@@ -331,6 +339,11 @@ async function retryPendingNotificationActions(
       accountEmail,
       labelCache: new Map(),
       signal,
+      notificationIdempotencyKey: mailNotificationIdempotencyKey(
+        action.ruleId,
+        accountEmail,
+        action.messageId,
+      ),
       from: action.from,
       subject: action.subject,
       snippet: action.snippet,
@@ -2026,6 +2039,11 @@ async function runAutomationsForAccount(
           accountEmail,
           labelCache,
           signal,
+          notificationIdempotencyKey: mailNotificationIdempotencyKey(
+            ruleId,
+            accountEmail,
+            messageId,
+          ),
           from: message.from,
           subject: message.subject,
           snippet: message.snippet,

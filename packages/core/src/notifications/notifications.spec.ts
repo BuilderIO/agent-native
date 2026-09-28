@@ -205,6 +205,24 @@ describe("notifications registry", () => {
       expect(mockInsertNotification).toHaveBeenCalledTimes(1);
     });
 
+    it("passes cancellation to registered notification channels", async () => {
+      const controller = new AbortController();
+      const deliver = vi.fn();
+      registerNotificationChannel({ name: "slow", deliver });
+
+      await notifyWithDelivery(
+        { severity: "info", title: "Mail arrived", channels: ["slow"] },
+        { owner: "boni@local" },
+        { signal: controller.signal },
+      );
+
+      expect(deliver).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Mail arrived" }),
+        { owner: "boni@local" },
+        { signal: controller.signal },
+      );
+    });
+
     it("channel throws — other channels still run and inbox still persists", async () => {
       const badDeliver = vi.fn(() => {
         throw new Error("slack is down");

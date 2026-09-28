@@ -114,6 +114,7 @@ export async function notifyWithDelivery(
         body: input.body,
         metadata: storedMetadata,
         deliveredChannels: ["inbox"],
+        idempotencyKey: input.idempotencyKey,
       });
       delivered.push("inbox");
     } catch (err) {
@@ -127,7 +128,9 @@ export async function notifyWithDelivery(
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
       signal?.throwIfAborted();
-      const delivered = await channel.deliver(input, meta);
+      const delivered = signal
+        ? await channel.deliver(input, meta, { signal })
+        : await channel.deliver(input, meta);
       if (delivered === false) return null;
       return channel.name;
     }),

@@ -46,6 +46,8 @@ describe("automation notification action", () => {
         accountEmail: "mailbox@example.com",
         labelCache: new Map(),
         signal: controller.signal,
+        notificationIdempotencyKey:
+          "mail-rule:rule-1:mailbox@example.com:message-1",
         from: "person@example.test",
         subject: "School update",
         snippet: "Field trip forms are due Friday.",
@@ -63,6 +65,7 @@ describe("automation notification action", () => {
           accountEmail: "mailbox@example.com",
           messageId: "message-1",
         },
+        idempotencyKey: "mail-rule:rule-1:mailbox@example.com:message-1",
       },
       { owner: "owner@example.com" },
       { signal: controller.signal },

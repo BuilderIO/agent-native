@@ -372,6 +372,39 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent.mock.calls[0]?.[6]).toBe(controller.signal);
   });
 
+  it("releases the claim and preserves reconciliation when an RSVP resolves after abort", async () => {
+    const { owner, account, settingsByOwner } = configureOwnerSweep();
+    let finishRsvp!: () => void;
+    mocks.rsvpEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRsvp = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+
+    await vi.waitFor(() => expect(mocks.rsvpEvent).toHaveBeenCalledTimes(1));
+    controller.abort();
+    finishRsvp();
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+    const runtime = settingsByOwner[owner]["calendar-event-rules-runtime"];
+    const activityId =
+      "google:one@example.com:primary:event-1|2026-09-25T12:00:00.000Z:confirmed|accepted";
+    expect(runtime.rsvpClaims).toEqual({});
+    expect(runtime.pendingRsvps).toMatchObject({
+      [activityId]: {
+        eventId: "event-1",
+        accountEmail: account,
+        action: "accepted",
+      },
+    });
+    expect(
+      settingsByOwner[owner]["calendar-settings"].eventRuleActivity,
+    ).toBeUndefined();
+  });
+
   it("does not clear the previous error after the sweep is aborted", async () => {
     configureOwnerSweep({ rules: {}, runtime: { lastError: "previous" } });
     let continueMutation!: () => void;
