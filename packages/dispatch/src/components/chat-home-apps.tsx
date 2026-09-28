@@ -133,7 +133,11 @@ export function DispatchChatHomeApps() {
                       openApp: t("dispatch.pages.openApp", {
                         defaultValue: "Open",
                       }),
+                      openAppAccessible: t("dispatch.pages.chatFirstOpenApp", {
+                        name: app.name,
+                      }),
                       openInNewTab: t("dispatch.pages.chatFirstOpenInNewTab"),
+                      moreOptions: t("extensions.moreOptions"),
                     }}
                   />
                 </article>

@@ -68,6 +68,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("../../components/layout/Layout", () => ({
+  dispatchNavLinkTarget: (path: string) => path,
   useDispatchExtensions: () => undefined,
   useDispatchWorkspaceAppLauncher: () => ({
     apps: clientState.workspaceApps,
@@ -99,9 +100,16 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string, values?: { defaultValue?: string }) =>
-    values?.defaultValue ??
-    (key === "dispatch.pages.chatFirstWorkspaceApps" ? "Workspace apps" : key),
+  useT:
+    () => (key: string, values?: { defaultValue?: string; name?: string }) =>
+      values?.defaultValue ??
+      (key === "dispatch.pages.chatFirstWorkspaceApps"
+        ? "Workspace apps"
+        : key === "dispatch.pages.chatFirstOpenApp"
+          ? `Open ${values?.name}`
+          : key === "extensions.moreOptions"
+            ? "More options"
+            : key),
 }));
 
 describe("Dispatch ChatRoute", () => {

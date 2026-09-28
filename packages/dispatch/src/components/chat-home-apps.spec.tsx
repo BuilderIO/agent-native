@@ -35,18 +35,20 @@ const appLayoutState = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
+  useT: () => (key: string, values?: { name?: string }) =>
     ({
       "dispatch.nav.apps": "Apps",
       "dispatch.pages.allApps": "All apps",
       "dispatch.pages.chatFirstNewApp": "New",
       "dispatch.pages.openApp": "Open",
+      "dispatch.pages.chatFirstOpenApp": "Open {{name}}",
       "dispatch.pages.chatFirstOpenInNewTab": "Open in new tab",
       "dispatch.pages.chatFirstDefaultDescriptionCalendar":
         "Localized Calendar description",
+      "extensions.moreOptions": "Localized more options",
       "dispatch.pages.searchApps": "Search apps",
       "dispatch.pages.searchAppsPlaceholder": "Search apps",
-    })[key] ?? key,
+    })[key]?.replace("{{name}}", values?.name ?? "") ?? key,
 }));
 
 vi.mock("./layout/Layout", () => ({
@@ -116,7 +118,7 @@ describe("DispatchChatHomeApps", () => {
     );
     expect(container.textContent).toContain("Structured project plans");
     expect(
-      container.querySelector("button[aria-label='Open options for Plan']"),
+      container.querySelector("button[aria-label='Localized more options']"),
     ).not.toBeNull();
     expect(container.querySelector("button[aria-label='Open Plan']")).not.toBe(
       null,

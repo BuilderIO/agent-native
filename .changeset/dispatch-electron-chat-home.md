@@ -1,5 +1,6 @@
 ---
 "@agent-native/dispatch": minor
+"@agent-native/core": patch
 ---
 
-Restore the searchable app directory on Dispatch chat home.
+Restore the searchable Dispatch app directory and localize its action labels.
