@@ -32,16 +32,14 @@
 }
 
 .slides-home-search {
-  position: absolute;
-  top: 50%;
-  left: 50%;
+  grid-column: 2;
   display: flex;
   width: min(100%, 30rem);
   min-width: 150px;
   max-width: 30rem;
   align-items: center;
   align-self: center;
-  transform: translate(-50%, -50%);
+  justify-self: center;
 }
 
 @media (min-width: 64rem) {
@@ -74,12 +72,10 @@
   }
 
   .slides-home-search {
-    position: static;
     grid-column: 1 / -1;
     grid-row: 2;
     width: 100%;
     justify-self: center;
-    transform: none;
   }
 }
 
