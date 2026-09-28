@@ -13,7 +13,12 @@ import {
   splitMarkdownBlocks,
   writeClipboardText,
 } from "@agent-native/toolkit/agentkit";
-import { Dialog, Popover, TextArea } from "@agent-native/toolkit/design-system";
+import {
+  Dialog,
+  Menu,
+  Popover,
+  TextArea,
+} from "@agent-native/toolkit/design-system";
 import {
   IconActivity,
   IconAlertCircle,
@@ -2462,7 +2467,7 @@ export function AgentMessageActions({
                 threadId={threadId}
               />
             ) : null}
-            <Popover
+            <Menu
               open={actionsMenuOpen}
               onOpenChange={(open) => {
                 setActionsMenuOpen(open);
@@ -2470,7 +2475,7 @@ export function AgentMessageActions({
               }}
               placement="bottom"
               align="end"
-              className="agentkit-message-menu w-48 p-1"
+              className="agentkit-message-menu w-48"
               trigger={
                 <IconButton
                   label={labels.messageActions}
@@ -2480,56 +2485,45 @@ export function AgentMessageActions({
                   title={labels.messageActions}
                 />
               }
-            >
-              <div className="agentkit-message-menu-items" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="agentkit-message-menu-item"
-                  disabled={!requestId || requestIdAction.pending}
-                  title={
-                    requestId
-                      ? requestIdCopied
-                        ? labels.copied
-                        : labels.copyRequestId
-                      : labels.requestIdUnavailable
-                  }
-                  onClick={() => {
-                    setActionsMenuOpen(false);
-                    void requestIdAction.execute().catch(() => undefined);
-                  }}
-                >
-                  {requestIdCopied ? (
-                    <IconCircleCheck aria-hidden="true" />
+              items={[
+                {
+                  id: "copy-request-id",
+                  label: requestIdCopied
+                    ? labels.copied
+                    : requestId
+                      ? labels.copyRequestId
+                      : labels.requestIdUnavailable,
+                  icon: requestIdCopied ? (
+                    <IconCircleCheck size={14} aria-hidden="true" />
                   ) : (
-                    <IconId aria-hidden="true" />
-                  )}
-                  <span>
-                    {requestIdCopied
-                      ? labels.copied
-                      : requestId
-                        ? labels.copyRequestId
-                        : labels.requestIdUnavailable}
-                  </span>
-                </button>
-                {forkingCapability.visible && onThreadForked ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="agentkit-message-menu-item"
-                    disabled={!forkingCapability.enabled || forkAction.pending}
-                    title={forkingCapability.reason}
-                    onClick={() => {
-                      setActionsMenuOpen(false);
-                      void forkAction.execute().catch(() => undefined);
-                    }}
-                  >
-                    <IconGitBranch aria-hidden="true" />
-                    <span>{labels.fork}</span>
-                  </button>
-                ) : null}
-              </div>
-            </Popover>
+                    <IconId size={14} aria-hidden="true" />
+                  ),
+                  disabled: !requestId || requestIdAction.pending,
+                },
+                ...(forkingCapability.visible && onThreadForked
+                  ? [
+                      {
+                        id: "fork-chat",
+                        label: (
+                          <span title={forkingCapability.reason}>
+                            {labels.fork}
+                          </span>
+                        ),
+                        icon: <IconGitBranch size={14} aria-hidden="true" />,
+                        disabled:
+                          !forkingCapability.enabled || forkAction.pending,
+                      },
+                    ]
+                  : []),
+              ]}
+              onAction={(id) => {
+                if (id === "copy-request-id") {
+                  void requestIdAction.execute().catch(() => undefined);
+                } else if (id === "fork-chat") {
+                  void forkAction.execute().catch(() => undefined);
+                }
+              }}
+            />
           </div>
         </>
       ) : (

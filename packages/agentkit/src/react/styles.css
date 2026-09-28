@@ -992,63 +992,6 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   font-size: 0.6875rem;
 }
 
-.agentkit-message-menu {
-  z-index: 290;
-  inline-size: 12rem;
-  min-inline-size: 12rem;
-  padding: 0.25rem;
-  border: 1px solid
-    var(--agent-kit-border, color-mix(in srgb, CanvasText 16%, transparent));
-  border-radius: var(--radius-md, var(--radius, 0.375rem));
-  color: var(--agent-kit-popover-text, CanvasText);
-  background: var(--agent-kit-popover-surface, Canvas);
-  box-shadow: 0 4px 6px -1px color-mix(in srgb, CanvasText 10%, transparent);
-}
-
-.agentkit-message-menu-items {
-  display: grid;
-  gap: 0.125rem;
-}
-
-.agentkit-message-menu-item {
-  display: flex;
-  inline-size: 100%;
-  min-block-size: 2rem;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
-  border: 0;
-  border-radius: var(--radius-sm, var(--radius));
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  text-align: start;
-  cursor: pointer;
-}
-
-.agentkit-message-menu-item svg {
-  flex: none;
-  inline-size: 0.875rem;
-  block-size: 0.875rem;
-}
-
-.agentkit-message-menu-item:hover:not(:disabled),
-.agentkit-message-menu-item:focus-visible:not(:disabled) {
-  background: color-mix(
-    in srgb,
-    var(--agent-kit-popover-surface, Canvas) 96%,
-    var(--agent-kit-popover-text, CanvasText) 4%
-  );
-}
-
-.agentkit-message-menu-item:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
 .agentkit-branch-navigation {
   display: inline-flex;
   align-items: center;

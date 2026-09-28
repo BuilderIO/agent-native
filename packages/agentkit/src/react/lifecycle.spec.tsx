@@ -2000,7 +2000,13 @@ describe("AgentKit subscriptions and recovery", () => {
         'button[aria-label="Message actions"]',
       );
       await act(async () => {
-        more?.click();
+        more?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
         await Promise.resolve();
       });
       const fork = Array.from(
@@ -2069,6 +2075,7 @@ describe("AgentKit subscriptions and recovery", () => {
         'button[aria-label="Message actions"]',
       );
       expect(trigger).toBeTruthy();
+      expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
       const leadingActions = tree.container.querySelector(
         ".agentkit-message-actions-leading",
@@ -2082,7 +2089,10 @@ describe("AgentKit subscriptions and recovery", () => {
         tree.container.querySelector(".agentkit-message-actions-trailing"),
       ).toBeTruthy();
       await act(async () => {
-        trigger?.click();
+        (trigger as HTMLElement | null)?.focus();
+        trigger?.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+        );
         await Promise.resolve();
       });
       expect(
@@ -2092,7 +2102,7 @@ describe("AgentKit subscriptions and recovery", () => {
           ?.getAttribute("aria-expanded"),
       ).toBe("true");
       const actionMenu = document.body.querySelector(
-        '.agentkit-message-menu [role="menu"]',
+        '.agentkit-message-menu[role="menu"]',
       );
       expect(actionMenu).toBeTruthy();
       const requestIdButton = Array.from(
@@ -2110,7 +2120,13 @@ describe("AgentKit subscriptions and recovery", () => {
       ).toBeTruthy();
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
       await act(async () => {
-        trigger?.click();
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
         await Promise.resolve();
       });
       expect(trigger?.getAttribute("aria-expanded")).toBe("true");
@@ -2121,7 +2137,13 @@ describe("AgentKit subscriptions and recovery", () => {
       ).find((button) => button.textContent?.trim() === "Copied");
       expect(copiedRequestId).toBeTruthy();
       await act(async () => {
-        trigger?.click();
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
         await Promise.resolve();
       });
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
