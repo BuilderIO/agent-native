@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve composer image and pasted-text attachments when sending chat messages.
+Preserve chat composer attachments and clear pending selection before sending.

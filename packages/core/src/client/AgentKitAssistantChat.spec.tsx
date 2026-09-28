@@ -944,7 +944,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
-  it("does not wait for pending-selection cleanup before sending", async () => {
+  it("waits for pending-selection cleanup before sending", async () => {
     let resolveDelete!: () => void;
     vi.mocked(deleteClientAppState).mockImplementationOnce(
       () =>
@@ -966,12 +966,14 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
 
     expect(resolveDelete).toBeDefined();
-    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
 
     await act(async () => {
       resolveDelete();
       await submitPromise;
     });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
   });
 
   it("durably queues unresolved sends with files and references across remounts", async () => {

@@ -1336,16 +1336,21 @@ const AgentKitAssistantChatBody = forwardRef<
     props.suggestionVisibility !== "after-agent-response" ||
     thread.messages.some((message) => message.role === "assistant");
 
-  const clearPendingSelection = useCallback(() => {
+  const clearPendingSelection = useCallback(async () => {
     selectionRevisionRef.current += 1;
     setPendingSelection(null);
-    void deleteClientAppState("pending-selection-context", {
+    await deleteClientAppState("pending-selection-context", {
       keepalive: true,
-    }).catch(() => {});
+    });
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-panel:selection-cleared"));
     }
   }, []);
+  const requestPendingSelectionClear = useCallback(() => {
+    void clearPendingSelection().catch((error: unknown) => {
+      console.warn("[agent-chat] Couldn't clear the pending selection", error);
+    });
+  }, [clearPendingSelection]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1393,7 +1398,7 @@ const AgentKitAssistantChatBody = forwardRef<
       selectionRevisionRef.current += 1;
       setPendingSelection(null);
     };
-    const onClearRequested = () => clearPendingSelection();
+    const onClearRequested = requestPendingSelectionClear;
     window.addEventListener("agent-panel:selection-attached", onAttached);
     window.addEventListener("agent-panel:selection-cleared", onCleared);
     window.addEventListener(
@@ -1408,7 +1413,7 @@ const AgentKitAssistantChatBody = forwardRef<
         onClearRequested,
       );
     };
-  }, [clearPendingSelection]);
+  }, [requestPendingSelectionClear]);
 
   useEffect(() => {
     const apply = () => {
@@ -1695,7 +1700,7 @@ const AgentKitAssistantChatBody = forwardRef<
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
       if (!options.recoveryAction) {
-        clearPendingSelection();
+        await clearPendingSelection();
       }
       const requestMode =
         options.requestMode ??
@@ -2486,7 +2491,7 @@ const AgentKitAssistantChatBody = forwardRef<
     text: composerText,
     onTextChange: onComposerTextChange,
     onRemoveContextItem: removeContextItem,
-    onClearSelection: clearPendingSelection,
+    onClearSelection: requestPendingSelectionClear,
     onBeforeSubmit: beforeSubmit,
     onSubmit: submitPrepared,
     sendMessage: send,
