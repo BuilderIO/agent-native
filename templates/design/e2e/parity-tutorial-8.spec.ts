@@ -601,9 +601,9 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     const sourceId = await fileId(request, designId, "index.html");
     const neighborId = await fileId(request, designId, "neighbor.html");
     const fartherId = await fileId(request, designId, "farther.html");
-    const sourceGeometry = { x: 0, y: 120, width: 320, height: 240, z: 0 };
-    const neighborGeometry = { x: 376, y: 120, width: 320, height: 240, z: 1 };
-    const fartherGeometry = { x: 1128, y: 120, width: 320, height: 240, z: 2 };
+    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 0 };
+    const neighborGeometry = { x: 200, y: 1200, width: 320, height: 240, z: 1 };
+    const fartherGeometry = { x: 2000, y: 720, width: 320, height: 240, z: 2 };
     await action(request, "update-design", {
       id: designId,
       dataOperations: [
@@ -699,7 +699,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 752, z: 1 },
+        copy: { ...sourceGeometry, x: 560, z: 1 },
         neighborZ: 2,
         fartherZ: 3,
       });
@@ -759,7 +759,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 1504, z: 1 },
+        copy: { ...sourceGeometry, x: 920, z: 1 },
         firstCopyZ: 2,
         neighborZ: 3,
         fartherZ: 4,
@@ -826,7 +826,7 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 1504, z: 1 },
+        copy: { ...sourceGeometry, x: 920, z: 1 },
         firstCopyZ: 2,
         neighborZ: 3,
         fartherZ: 4,

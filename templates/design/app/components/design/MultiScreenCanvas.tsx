@@ -9317,7 +9317,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         duplicateResults.push(
           onDuplicate(targetId, {
-            mode: "alt-click",
+            mode: "cmd-d",
             screen,
             canvasPosition,
             canvasFrameGeometryById: frameGeometryRef.current,

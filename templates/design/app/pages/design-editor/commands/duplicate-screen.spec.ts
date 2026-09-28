@@ -137,13 +137,13 @@ describe("getDuplicateScreenGeometry", () => {
   it("uses the next free slot instead of jumping past farther screens", () => {
     const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
     const occupied = [
-      { x: 576, y: 720, width: 320, height: 240, z: 90 },
+      { x: 560, y: 720, width: 320, height: 240, z: 90 },
       { x: 1800, y: 720, width: 320, height: 240, z: 100 },
       { x: 576, y: 1200, width: 320, height: 240, z: 200 },
     ];
 
     expect(getDuplicateScreenGeometry(source, occupied)).toMatchObject({
-      x: 952,
+      x: 936,
       y: 720,
       width: 320,
       height: 240,
@@ -167,7 +167,43 @@ describe("getDuplicateScreenGeometry", () => {
 });
 
 describe("runDuplicateScreen", () => {
-  it("places Cmd+D duplicates in the first free slot from their requested position", async () => {
+  it("uses the measured 40px gap for Cmd+D", async () => {
+    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: { canvasFrames: { source: sourceGeometry } },
+      },
+      liveFrameGeometryRef: { current: { source: sourceGeometry } },
+    });
+
+    await runDuplicateScreen(args, "source", { mode: "cmd-d" });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 560, y: 720 }),
+      expect.any(Object),
+    );
+  });
+
+  it("keeps Alt-click duplicates on the board's 56px spacing", async () => {
+    const sourceGeometry = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: { canvasFrames: { source: sourceGeometry } },
+      },
+      liveFrameGeometryRef: { current: { source: sourceGeometry } },
+    });
+
+    await runDuplicateScreen(args, "source", { mode: "alt-click" });
+
+    expect(args.focusCreatedScreen).toHaveBeenCalledWith(
+      "copy",
+      expect.objectContaining({ x: 576, y: 720 }),
+      expect.any(Object),
+    );
+  });
+
+  it("places Alt-click duplicates in the first free slot", async () => {
     const args = duplicateArgsWithOccupiedFrame({
       x: 696,
       y: 0,
@@ -919,7 +955,7 @@ describe("runDuplicateScreen", () => {
 
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "copy",
-      expect.objectContaining({ x: 1952, y: 400 }),
+      expect.objectContaining({ x: 1936, y: 400 }),
       expect.any(Object),
     );
   });
@@ -1184,11 +1220,11 @@ describe("runDuplicateScreen", () => {
 
     expect(
       args.pendingDuplicateGeometriesRef.current.get("index-copy.html"),
-    ).toMatchObject({ x: 1756 });
+    ).toMatchObject({ x: 1740 });
     await vi.waitFor(() =>
       expect(args.focusCreatedScreen).toHaveBeenCalledWith(
         "copy",
-        expect.objectContaining({ x: 1756 }),
+        expect.objectContaining({ x: 1740 }),
         expect.any(Object),
       ),
     );
@@ -1266,15 +1302,15 @@ describe("runDuplicateScreen", () => {
     expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
       expect.objectContaining({
         fileId: "copy",
-        geometry: expect.objectContaining({ x: 696, y: 0 }),
+        geometry: expect.objectContaining({ x: 680, y: 0 }),
       }),
     );
     expect(
       args.pendingDuplicateGeometriesRef.current.get("index-copy.html"),
-    ).toEqual(expect.objectContaining({ x: 696, y: 0 }));
+    ).toEqual(expect.objectContaining({ x: 680, y: 0 }));
     expect(writeFrameGeometrySnapshot).toHaveBeenCalledTimes(1);
     expect(writeFrameGeometrySnapshot).toHaveBeenLastCalledWith(
-      expect.objectContaining({ copy: expect.objectContaining({ x: 696 }) }),
+      expect.objectContaining({ copy: expect.objectContaining({ x: 680 }) }),
     );
   });
 
@@ -1507,7 +1543,7 @@ describe("runDuplicateScreen", () => {
       geometries
         .map((geometry: { x: number }) => geometry.x)
         .sort((left: number, right: number) => left - right),
-    ).toEqual([696, 1392]);
+    ).toEqual([680, 1360]);
     const frames = (args.designDataJsonRef.current as any).canvasFrames;
     expect([
       frames["index-copy.html"].z,
