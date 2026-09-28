@@ -540,6 +540,7 @@ test.describe("URL-backed live auto-layout probe", () => {
     };
     const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
     const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
     const initialSourceBounds = await source.boundingBox();
     if (!initialSourceBounds) {
       throw new Error("live focus probe source has no bounds");
@@ -589,7 +590,10 @@ test.describe("URL-backed live auto-layout probe", () => {
       page.locator("[data-design-pending-visual-style-toolbar]"),
     ).toBeVisible();
     await expectCanvasFocus();
-    await page.keyboard.press("ControlOrMeta+z");
+    await page.keyboard.down(primaryModifier);
+    await expectCanvasFocus(1_000);
+    await page.keyboard.press("z");
+    await page.keyboard.up(primaryModifier);
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v1", "v2", "v3"]);
@@ -608,7 +612,12 @@ test.describe("URL-backed live auto-layout probe", () => {
     const shell = page.locator("[data-screen-shell]").first();
     const interact = shell.locator("[data-frame-full-view]");
     await expect(interact).toBeVisible({ timeout: 90_000 });
-    await interact.click();
+    const interactBounds = await interact.boundingBox();
+    if (!interactBounds) throw new Error("Interact button has no bounds");
+    await page.mouse.click(
+      interactBounds.x + Math.min(8, interactBounds.width / 2),
+      interactBounds.y + interactBounds.height / 2,
+    );
     await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
 
     const frame = page.locator("iframe[data-design-preview-iframe]").first();
