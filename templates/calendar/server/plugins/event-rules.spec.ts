@@ -168,6 +168,31 @@ describe("calendar event rules sweep", () => {
     ).toBe(false);
   });
 
+  it("does not apply a Jev decision after the sweep is aborted", async () => {
+    configureOwnerSweep();
+    let finishJev!: (response: { answers: Record<string, unknown> }) => void;
+    mocks.requestJevThroughBuilder.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishJev = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+
+    await vi.waitFor(() =>
+      expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(1),
+    );
+    const mutationCount = mocks.mutateUserSetting.mock.calls.length;
+    controller.abort();
+    finishJev({ answers: { event_0_0: { noul: 1 } } });
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount);
+    expect(mocks.getEvent).not.toHaveBeenCalled();
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+  });
+
   it("keeps per-account progress and continues to later owners after failure", async () => {
     const settingsByOwner: Record<string, Record<string, any>> = {
       "first@example.com": {

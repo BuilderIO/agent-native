@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   isProductionServerlessFunctionRuntime: vi.fn(),
+  getDbExec: vi.fn(),
+  oauthCandidateQuery: vi.fn(),
+  ensureSyncAccountRow: vi.fn(),
   isInBackgroundFunctionRuntime: vi.fn(),
   registerEvent: vi.fn(),
   registerRecurringSweepHandler: vi.fn(),
@@ -28,6 +31,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agent-native/core/db")>();
   return {
     ...actual,
+    getDbExec: mocks.getDbExec,
     isProductionServerlessFunctionRuntime:
       mocks.isProductionServerlessFunctionRuntime,
   };
@@ -62,6 +66,10 @@ vi.mock("../lib/google-auth.js", () => ({
   getClientFromAccount: mocks.getClientFromAccount,
   startWatch: mocks.startWatch,
 }));
+vi.mock("../lib/inbox-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/inbox-store.js")>();
+  return { ...actual, ensureSyncAccountRow: mocks.ensureSyncAccountRow };
+});
 vi.mock("../lib/jobs.js", () => ({
   getDuePendingJobs: mocks.getDuePendingJobs,
   getSnoozeThreadId: mocks.getSnoozeThreadId,
@@ -89,6 +97,13 @@ describe("Mail background job scheduling", () => {
     vi.clearAllMocks();
     sweepHandlers.clear();
     mocks.isProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mocks.getDbExec.mockReturnValue({ execute: mocks.oauthCandidateQuery });
+    mocks.oauthCandidateQuery.mockResolvedValue({ rows: [] });
+    mocks.ensureSyncAccountRow.mockImplementation(
+      async (ownerEmail: string, accountEmail: string) => ({
+        id: `${ownerEmail}:${accountEmail}`,
+      }),
+    );
     mocks.isInBackgroundFunctionRuntime.mockReturnValue(false);
     mocks.registerRecurringSweepHandler.mockImplementation(((
       id: string,
@@ -163,6 +178,16 @@ describe("Mail background job scheduling", () => {
           }),
         }) as any,
     );
+    mocks.oauthCandidateQuery.mockResolvedValue({
+      rows: [
+        {
+          sync_account_id: "alice@example.com:mailbox@example.com",
+          owner_email: "alice@example.com",
+          account_id: "mailbox@example.com",
+          oauth_owner: "alice@example.com",
+        },
+      ],
+    });
     mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
 
     const plugin = await loadMailJobsPlugin();
@@ -198,6 +223,29 @@ describe("Mail background job scheduling", () => {
     } = { lastRenewedAt: null, claimId: null, claimedAt: null };
     mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
     mocks.startWatch.mockResolvedValue(true);
+    mocks.oauthCandidateQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            sync_account_id: "account-row",
+            owner_email: "alice@example.com",
+            account_id: "account-1",
+            oauth_owner: "alice@example.com",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            sync_account_id: "account-row",
+            owner_email: "alice@example.com",
+            account_id: "account-1",
+            oauth_owner: "alice@example.com",
+          },
+        ],
+      });
     mocks.getDb.mockImplementation(
       () =>
         ({
@@ -263,6 +311,61 @@ describe("Mail background job scheduling", () => {
     expect(state.lastRenewedAt).toBeTypeOf("number");
   });
 
+  it("includes selected OAuth accounts that do not have a sync row yet", async () => {
+    const candidate = {
+      sync_account_id: null,
+      owner_email: "alice@example.com",
+      account_id: "mailbox@example.com",
+      oauth_owner: "alice@example.com",
+    };
+    mocks.oauthCandidateQuery
+      .mockResolvedValueOnce({ rows: [candidate] })
+      .mockResolvedValueOnce({
+        rows: [{ ...candidate, sync_account_id: "account-row" }],
+      });
+    mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
+    mocks.startWatch.mockResolvedValue(true);
+    mocks.getDb.mockReturnValue({
+      update: () => ({
+        set: (changes: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () =>
+              Object.keys(changes).some((key) =>
+                [
+                  "lastAutomationAttemptedAt",
+                  "lastWatchAttemptedAt",
+                  "watchRenewClaimId",
+                  "lastWatchRenewedAt",
+                ].includes(key),
+              )
+                ? [{ id: "account-row" }]
+                : [],
+          }),
+        }),
+      }),
+    } as any);
+
+    const plugin = await loadMailJobsPlugin();
+    plugin();
+    await sweepHandlers.get("mail-background-jobs")!({
+      deadlineAt: Date.now() + 60_000,
+    });
+
+    expect(mocks.ensureSyncAccountRow).toHaveBeenCalledOnce();
+    expect(mocks.ensureSyncAccountRow).toHaveBeenCalledWith(
+      "alice@example.com",
+      "mailbox@example.com",
+    );
+    expect(mocks.getOAuthTokens).toHaveBeenCalledTimes(2);
+    expect(mocks.processAutomationsForAccount).toHaveBeenCalledOnce();
+    expect(mocks.startWatch).toHaveBeenCalledOnce();
+    for (const [query] of mocks.oauthCandidateQuery.mock.calls) {
+      expect(query.sql).toContain("LEFT JOIN mail_sync_accounts");
+      expect(query.sql).toContain("LIMIT ?");
+      expect(query.sql).not.toContain("oauth_tokens.tokens");
+    }
+  });
+
   it("caps the durable AI-filter backfill at the shared deadline and 45 seconds", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000);
     const plugin = await loadMailJobsPlugin();
@@ -290,20 +393,21 @@ describe("Mail background job scheduling", () => {
       accounts.slice(0, 5),
       [accounts[5]!, ...accounts.slice(0, 4)],
     ];
-    const requestedLimits: number[] = [];
+    mocks.oauthCandidateQuery.mockImplementation(
+      async ({ args }: { args: unknown[] }) => ({
+        rows: (candidateBatches.shift() ?? [])
+          .slice(0, args[1] as number)
+          .map((account) => ({
+            sync_account_id: account.id,
+            owner_email: account.ownerEmail,
+            account_id: account.accountEmail,
+            oauth_owner: account.ownerEmail,
+          })),
+      }),
+    );
     mocks.getDb.mockImplementation(
       () =>
         ({
-          select: () => ({
-            from: () => ({
-              orderBy: () => ({
-                limit: async (limit: number) => {
-                  requestedLimits.push(limit);
-                  return (candidateBatches.shift() ?? []).slice(0, limit);
-                },
-              }),
-            }),
-          }),
           update: () => ({
             set: () => ({
               where: () => ({
@@ -335,7 +439,9 @@ describe("Mail background job scheduling", () => {
       "account-2",
       "account-3",
     ]);
-    expect(requestedLimits).toEqual([5, 5]);
+    expect(
+      mocks.oauthCandidateQuery.mock.calls.map(([query]) => query.args[1]),
+    ).toEqual([5, 5]);
     expect(mocks.getOAuthTokens).toHaveBeenCalledTimes(10);
   });
 

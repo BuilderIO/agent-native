@@ -1,4 +1,7 @@
-import { isProductionServerlessFunctionRuntime } from "@agent-native/core/db";
+import {
+  getDbExec,
+  isProductionServerlessFunctionRuntime,
+} from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { getOAuthTokens } from "@agent-native/core/oauth-tokens";
 import {
@@ -7,7 +10,7 @@ import {
   startIntervalJob,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
-import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -19,6 +22,7 @@ import {
 import { purgeExpiredMailAiFilterRuleUndoSnapshots } from "../lib/ai-filter-rule-undo.js";
 import { processAutomationsForAccount } from "../lib/automation-engine.js";
 import { getClientFromAccount, startWatch } from "../lib/google-auth.js";
+import { ensureSyncAccountRow } from "../lib/inbox-store.js";
 import {
   getDuePendingJobs,
   getSnoozeThreadId,
@@ -65,18 +69,32 @@ async function oldestMailAccountCandidates(
     | typeof schema.mailSyncAccounts.lastWatchAttemptedAt,
   limit: number,
 ) {
-  return getDb()
-    .select({
-      id: schema.mailSyncAccounts.id,
-      ownerEmail: schema.mailSyncAccounts.ownerEmail,
-      accountEmail: schema.mailSyncAccounts.accountEmail,
-    })
-    .from(schema.mailSyncAccounts)
-    .orderBy(
-      asc(sql`COALESCE(${attemptColumn}, 0)`),
-      asc(schema.mailSyncAccounts.id),
-    )
-    .limit(limit);
+  const attemptColumnName =
+    attemptColumn === schema.mailSyncAccounts.lastAutomationAttemptedAt
+      ? "last_automation_attempted_at"
+      : "last_watch_attempted_at";
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT mail_sync_accounts.id AS sync_account_id,
+                 COALESCE(mail_sync_accounts.owner_email, oauth_tokens.owner, oauth_tokens.account_id) AS owner_email,
+                 oauth_tokens.account_id,
+                 oauth_tokens.owner AS oauth_owner
+          FROM public.oauth_tokens AS oauth_tokens
+          LEFT JOIN mail_sync_accounts
+            ON LOWER(mail_sync_accounts.owner_email) = LOWER(COALESCE(oauth_tokens.owner, oauth_tokens.account_id))
+            AND LOWER(mail_sync_accounts.account_email) = LOWER(oauth_tokens.account_id)
+          WHERE oauth_tokens.provider = ?
+          ORDER BY COALESCE(mail_sync_accounts.${attemptColumnName}, 0),
+                   LOWER(COALESCE(oauth_tokens.owner, oauth_tokens.account_id)),
+                   LOWER(oauth_tokens.account_id)
+          LIMIT ?`,
+    args: ["google", limit],
+  });
+  return rows.map((row) => ({
+    id: (row.sync_account_id as string | null) ?? null,
+    ownerEmail: row.owner_email as string,
+    accountEmail: row.account_id as string,
+    oauthOwner: (row.oauth_owner as string | null) ?? null,
+  }));
 }
 
 async function markAccountAttempted(
@@ -190,7 +208,9 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
     const ownerEmail = acc.ownerEmail.trim().toLowerCase();
     let claim: WatchRenewalClaim | null = null;
     try {
-      await markAccountAttempted(acc.id, "watch");
+      const accountRowId =
+        acc.id ?? (await ensureSyncAccountRow(ownerEmail, acc.accountEmail)).id;
+      await markAccountAttempted(accountRowId, "watch");
       if (isDeadlineReached(context)) {
         throw incompleteSweepError(
           `Gmail watch renewal remains pending for ${acc.accountEmail}.`,
@@ -199,7 +219,7 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
       const tokens = await getOAuthTokens(
         "google",
         acc.accountEmail,
-        ownerEmail,
+        acc.oauthOwner ?? undefined,
       );
       if (isDeadlineReached(context)) {
         throw incompleteSweepError(
@@ -207,7 +227,7 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
         );
       }
       if (!tokens) continue;
-      claim = await claimWatchRenewal(acc.id);
+      claim = await claimWatchRenewal(accountRowId);
       if (!claim) continue;
       const client = await getClientFromAccount({
         accountId: acc.accountEmail,
@@ -306,7 +326,10 @@ async function processAutomations(
     }
     const ownerEmail = account.ownerEmail.trim().toLowerCase();
     try {
-      await markAccountAttempted(account.id, "automation");
+      const accountRowId =
+        account.id ??
+        (await ensureSyncAccountRow(ownerEmail, account.accountEmail)).id;
+      await markAccountAttempted(accountRowId, "automation");
       if (isDeadlineReached(context)) {
         throw incompleteSweepError(
           `Mail automation remains pending for ${account.accountEmail}.`,
@@ -315,7 +338,7 @@ async function processAutomations(
       const tokens = await getOAuthTokens(
         "google",
         account.accountEmail,
-        ownerEmail,
+        account.oauthOwner ?? undefined,
       );
       if (isDeadlineReached(context)) {
         throw incompleteSweepError(
