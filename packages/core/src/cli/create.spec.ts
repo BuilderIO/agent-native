@@ -18,6 +18,8 @@ import {
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
+  _mergeWorkspaceYamlListItems,
+  _mergeWorkspaceYamlSections,
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
@@ -51,6 +53,52 @@ afterEach(() => {
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("keeps commented workspace override sections intact when merging", () => {
+    const workspaceYaml = [
+      "overrides: # Application-specific pins",
+      '  nf3: "0.3.17"',
+      "# Keep the local package override below with this section.",
+      '  local-lib: "file:./local-lib"',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        nf3: '"0.3.17"',
+        "new-lib": '"1.0.0"',
+      },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(merged.match(/^  nf3:/gm)).toHaveLength(1);
+    expect(merged).toContain(
+      "# Keep the local package override below with this section.",
+    );
+    expect(merged).toContain('  new-lib: "1.0.0"');
+  });
+
+  it("does not treat commented release-age items as configured exceptions", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude: # Exact internal packages",
+      "  - @agent-native/core",
+      "# Revisit this exception after the next stable release:",
+      "#  - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ["@agent-native/agentkit"],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(merged.match(/^  - @agent-native\/agentkit$/gm)).toHaveLength(1);
+    expect(merged).toContain("#  - @agent-native/agentkit");
+  });
+
   it("adds the guard contract to a community-style build without overwriting its doctor", () => {
     const root = path.join(tmpDir, "community-app");
     fs.mkdirSync(root, { recursive: true });

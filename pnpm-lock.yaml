@@ -2794,9 +2794,6 @@ importers:
       qrcode.react:
         specifier: 4.2.0
         version: 4.2.0(react@19.2.7)
-      react:
-        specifier: 19.2.7
-        version: 19.2.7
       react-i18next:
         specifier: 17.0.8
         version: 17.0.8(i18next@26.3.1(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
@@ -2954,6 +2951,9 @@ importers:
       playwright:
         specifier: 'catalog:'
         version: 1.63.0
+      react:
+        specifier: 19.2.7
+        version: 19.2.7
       react-dom:
         specifier: 19.2.7
         version: 19.2.7(react@19.2.7)

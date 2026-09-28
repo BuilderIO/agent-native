@@ -22,8 +22,13 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function startTty(args: string[], cwd: string, cols = 84) {
-  const env = { ...process.env, NO_COLOR: "1" };
+function startTty(
+  args: string[],
+  cwd: string,
+  cols = 84,
+  environment: NodeJS.ProcessEnv = {},
+) {
+  const env = { ...process.env, ...environment, NO_COLOR: "1" };
   delete env.FORCE_COLOR;
   delete env.CLICOLOR_FORCE;
   const child = pty.spawn(process.execPath, [cliEntry, ...args], {
@@ -50,7 +55,11 @@ function startTty(args: string[], cwd: string, cols = 84) {
     get output() {
       return output;
     },
-    async waitFor(needle: string, after = 0): Promise<number> {
+    async waitFor(
+      needle: string,
+      after = 0,
+      timeoutMs = 15_000,
+    ): Promise<number> {
       const existing = output.indexOf(needle, after);
       if (existing >= 0) return existing;
       return new Promise<number>((resolve, reject) => {
@@ -61,7 +70,7 @@ function startTty(args: string[], cwd: string, cols = 84) {
               `Timed out waiting for ${JSON.stringify(needle)} after ${after}. Output: ${output.slice(-1200)}`,
             ),
           );
-        }, 15_000);
+        }, timeoutMs);
         const subscription = child.onData(() => {
           const found = output.indexOf(needle, after);
           if (found < 0) return;
@@ -82,6 +91,22 @@ afterEach(() => {
 });
 
 describe("agent-native create TUI", () => {
+  it("keeps live redraws in an interactive TTY when CI is set", async () => {
+    const cwd = temporaryDirectory();
+    const cli = startTty(["create"], cwd, 84, { CI: "true" });
+
+    const firstScreen = await cli.waitFor("Esc cancel");
+    await wait(50);
+    cli.child.write("\x1b[B");
+    await cli.waitFor("Step 1 of 4", firstScreen + 1, 3_000);
+    cli.child.write("\x1b");
+
+    const { exitCode } = await cli.exited;
+    expect(exitCode).toBe(0);
+    expect(fs.readdirSync(cwd)).toEqual([]);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }, 10_000);
+
   it("shows help in a TTY without starting the interactive menu", async () => {
     const cwd = temporaryDirectory();
     const cli = startTty(["create", "--help"], cwd);
@@ -173,6 +198,27 @@ describe("agent-native create TUI", () => {
     const { exitCode } = await cli.exited;
     expect(exitCode).toBe(0);
     expect(fs.readdirSync(path.join(cwd, "apps"))).toEqual([]);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }, 30_000);
+
+  it("keeps missing app selections when another requested app is installed", async () => {
+    const cwd = temporaryDirectory();
+    fs.mkdirSync(path.join(cwd, "apps", "chat"), { recursive: true });
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "@test/shared" } }),
+    );
+    const cli = startTty(["create", "--template", "chat,dispatch"], cwd);
+
+    await cli.waitFor("Choose apps to add");
+    await cli.waitFor("1 selected");
+    expect(cli.output).toContain("[x] Dispatch");
+    expect(cli.output).not.toContain("[x] Chat");
+    cli.child.write("\x1b");
+
+    const { exitCode } = await cli.exited;
+    expect(exitCode).toBe(0);
+    expect(fs.existsSync(path.join(cwd, "apps", "dispatch"))).toBe(false);
     fs.rmSync(cwd, { recursive: true, force: true });
   }, 30_000);
 

@@ -145,6 +145,26 @@ function moveTemplatesToFront(
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
+async function loadCreateTui() {
+  if (
+    !process.stdin.isTTY ||
+    !process.stdout.isTTY ||
+    process.env.CI === "false"
+  ) {
+    return import("./create-tui.js");
+  }
+
+  // Ink caches CI detection on import, but a real TTY still needs live redraws.
+  const originalCi = process.env.CI;
+  process.env.CI = "false";
+  try {
+    return await import("./create-tui.js");
+  } finally {
+    if (originalCi === undefined) delete process.env.CI;
+    else process.env.CI = originalCi;
+  }
+}
+
 const HEADLESS_OPTION = {
   name: "headless",
   label: "Headless",
@@ -205,9 +225,11 @@ export async function runCreateCommand(
   const installedApps = workspace
     ? listInstalledApps(workspace.workspaceRoot)
     : [];
-  const alreadyInstalled = parsed.find((template) =>
-    installedApps.includes(template),
+  const requestedApps = parsed.filter(
+    (template) => !installedApps.includes(template),
   );
+  const alreadyInstalled =
+    parsed.length > 0 && requestedApps.length === 0 ? parsed[0] : undefined;
   if (alreadyInstalled) {
     console.error(
       `App "${alreadyInstalled}" is already installed in this workspace.`,
@@ -247,17 +269,12 @@ export async function runCreateCommand(
     return;
   }
 
-  const { runCreateWizard } = await import("./create-tui.js");
+  const { runCreateWizard } = await loadCreateTui();
   const answers = await runCreateWizard({
     cwd: process.cwd(),
     initialName: workspace ? undefined : name,
     initialKind,
-    initialTemplates: workspace
-      ? parsed.filter(
-          (template) =>
-            template !== "dispatch" || !installedApps.includes("dispatch"),
-        )
-      : parsed,
+    initialTemplates: workspace ? requestedApps : parsed,
     initialCommunityTemplate,
     installedApps,
     validateName(value) {
@@ -310,7 +327,7 @@ export async function runCreateCommand(
     forceWorkspace:
       answers.kind === "chat-workspace" || answers.kind === "first-party",
     _communityAppPicker: async (apps) => {
-      const { promptInkChoice } = await import("./create-tui.js");
+      const { promptInkChoice } = await loadCreateTui();
       const selection = await promptInkChoice(
         "Choose an app from this community workspace",
         apps.map((app) => ({ value: app.name, label: app.label })),
@@ -2357,6 +2374,7 @@ export { parseWorkspaceScope };
 export {
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
   mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
+  mergeWorkspaceYamlListItems as _mergeWorkspaceYamlListItems,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
@@ -3225,14 +3243,12 @@ function mergeWorkspaceYamlSections(
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
       if (workspaceYamlSectionHasEntry(result, section, key)) continue;
-      const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-      const match = sectionHeader.exec(result);
-      if (match) {
-        const insertAt = match.index + match[0].length;
+      const existingSection = findWorkspaceYamlSection(result, section);
+      if (existingSection) {
         result =
-          result.slice(0, insertAt) +
+          result.slice(0, existingSection.insertAt) +
           `\n  ${key}: ${value}` +
-          result.slice(insertAt);
+          result.slice(existingSection.insertAt);
       } else {
         result =
           result.trimEnd() +
@@ -3249,19 +3265,31 @@ function workspaceYamlSectionHasEntry(
   section: string,
   key: string,
 ): boolean {
-  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m");
-  const match = sectionHeader.exec(yaml);
-  if (!match) return false;
+  const existingSection = findWorkspaceYamlSection(yaml, section);
+  if (!existingSection) return false;
 
-  const sectionStart = match.index + match[0].length;
-  const remaining = yaml.slice(sectionStart);
-  const nextSection = /^\S[^\n]*$/m.exec(remaining);
-  const sectionBody = remaining.slice(
-    0,
-    nextSection?.index ?? remaining.length,
+  const entry = new RegExp(`^  ${escapeRegExp(key)}[ \\t]*:`, "m");
+  return entry.test(existingSection.body);
+}
+
+function findWorkspaceYamlSection(
+  yaml: string,
+  section: string,
+): { body: string; insertAt: number } | undefined {
+  const sectionHeader = new RegExp(
+    `^${escapeRegExp(section)}:[ \\t]*(?:#.*)?$`,
+    "m",
   );
-  const entry = new RegExp(`^  ${escapeRegExp(key)}\\s*:`, "m");
-  return entry.test(sectionBody);
+  const match = sectionHeader.exec(yaml);
+  if (!match) return undefined;
+
+  const insertAt = match.index + match[0].length;
+  const remaining = yaml.slice(insertAt);
+  const nextSection = /^(?!#)\S[^:\n]*:[ \t]*(?:#.*)?$/m.exec(remaining);
+  return {
+    body: remaining.slice(0, nextSection?.index ?? remaining.length),
+    insertAt,
+  };
 }
 
 function mergeWorkspaceYamlListItems(
@@ -3272,13 +3300,17 @@ function mergeWorkspaceYamlListItems(
   let result = yaml;
   for (const item of items) {
     const rendered = `  - ${item}`;
-    if (result.includes(rendered)) continue;
-    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
-    const match = sectionHeader.exec(result);
-    if (match) {
-      const insertAt = match.index + match[0].length;
+    const existingSection = findWorkspaceYamlSection(result, section);
+    const listItem = new RegExp(
+      `^  - (?:['"])?${escapeRegExp(item)}(?:['"])?[ \\t]*(?:#.*)?$`,
+      "m",
+    );
+    if (existingSection && listItem.test(existingSection.body)) continue;
+    if (existingSection) {
       result =
-        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+        result.slice(0, existingSection.insertAt) +
+        `\n${rendered}` +
+        result.slice(existingSection.insertAt);
     } else {
       result =
         result.trimEnd() +
