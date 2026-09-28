@@ -207,17 +207,25 @@ describe("transactional email registry", () => {
     );
   });
 
-  it("points a synchronous caller at the async preview for an async preview", async () => {
+  it("uses previewAsync for the async preview and preview otherwise", async () => {
+    define("test.sync-only");
     define("test.async-preview", {
-      preview: async () => ({ subject: "async", html: "<p>a</p>", text: "a" }),
+      previewAsync: async () => ({
+        subject: "async",
+        html: "<p>a</p>",
+        text: "a",
+      }),
     });
-    expect(() => renderTransactionalEmailPreview("test.async-preview")).toThrow(
-      /renderTransactionalEmailPreviewAsync/,
+    expect(renderTransactionalEmailPreview("test.async-preview").subject).toBe(
+      "subject:test.async-preview",
     );
     expect(
       (await renderTransactionalEmailPreviewAsync("test.async-preview"))
         .subject,
     ).toBe("async");
+    expect(
+      (await renderTransactionalEmailPreviewAsync("test.sync-only")).subject,
+    ).toBe("subject:test.sync-only");
   });
 
   it("rejects an unknown id in the async preview", async () => {

@@ -10,7 +10,9 @@ export interface TransactionalEmailDefinition {
   recipientLabel: string;
   sender: string;
   senderLabel: string;
-  preview: () => RenderedEmailMessage | Promise<RenderedEmailMessage>;
+  preview: () => RenderedEmailMessage;
+  /** Async preview, used by `renderTransactionalEmailPreviewAsync` when set. */
+  previewAsync?: () => Promise<RenderedEmailMessage>;
 }
 
 export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
@@ -170,30 +172,23 @@ function requireDefinition(id: string): RegisteredTransactionalEmail {
   return definition;
 }
 
-/**
- * Synchronous preview for definitions whose preview is synchronous. A
- * framework email with an app override renders asynchronously; use
- * `renderTransactionalEmailPreviewAsync` for those.
- */
 export function renderTransactionalEmailPreview(
   id: string,
 ): RenderedEmailMessage {
-  const rendered = requireDefinition(id).preview();
-  if (rendered instanceof Promise) {
-    // coercion-ok: the throw below reports this; the abandoned promise must not
-    // also surface as an unhandled rejection.
-    rendered.catch(() => {});
-    throw new Error(
-      `Transactional email "${id}" renders asynchronously. Use renderTransactionalEmailPreviewAsync.`,
-    );
-  }
-  return rendered;
+  return requireDefinition(id).preview();
 }
 
+/**
+ * Preview that also renders an app's override of a framework email, which the
+ * synchronous `renderTransactionalEmailPreview` cannot.
+ */
 export async function renderTransactionalEmailPreviewAsync(
   id: string,
 ): Promise<RenderedEmailMessage> {
-  return requireDefinition(id).preview();
+  const definition = requireDefinition(id);
+  return definition.previewAsync
+    ? definition.previewAsync()
+    : definition.preview();
 }
 
 export {

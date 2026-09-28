@@ -186,27 +186,19 @@ async function renderOverrideHtml(
 }
 
 /**
- * The framework default when no override is registered, otherwise the
- * override's rendering. Stays synchronous in the default case so catalog
- * previews keep working for synchronous `renderTransactionalEmailPreview`
- * callers.
+ * The framework default, for synchronous catalog previews. Throws once an app
+ * registers an override, so a synchronous preview never shows the design the
+ * app replaced.
  */
-export function resolveTransactionalEmail<Id extends CoreTransactionalEmailId>(
-  id: Id,
-  args: CoreTransactionalEmailArgs[Id],
-): RenderedEmailMessage | Promise<RenderedEmailMessage> {
-  const defaults = CORE_EMAIL_DEFAULTS[id] as CoreEmailDefault<Id>;
-  const defaultEmail = defaults.render(args);
-  const override = getOverrides().get(id) as
-    | TransactionalEmailOverride<Id>
-    | undefined;
-  if (!override) return defaultEmail;
-  return renderOverride(
-    id,
-    override,
-    { ...args, app: defaults.app(args) } as CoreTransactionalEmailProps<Id>,
-    defaultEmail,
-  );
+export function renderDefaultTransactionalEmail<
+  Id extends CoreTransactionalEmailId,
+>(id: Id, args: CoreTransactionalEmailArgs[Id]): RenderedEmailMessage {
+  if (getOverrides().has(id)) {
+    throw new Error(
+      `Transactional email "${id}" has an app override, which renders asynchronously. Use renderTransactionalEmailPreviewAsync.`,
+    );
+  }
+  return (CORE_EMAIL_DEFAULTS[id] as CoreEmailDefault<Id>).render(args);
 }
 
 async function renderOverride<Id extends CoreTransactionalEmailId>(
@@ -247,5 +239,16 @@ async function renderOverride<Id extends CoreTransactionalEmailId>(
 export async function renderTransactionalEmail<
   Id extends CoreTransactionalEmailId,
 >(id: Id, args: CoreTransactionalEmailArgs[Id]): Promise<RenderedEmailMessage> {
-  return resolveTransactionalEmail(id, args);
+  const defaults = CORE_EMAIL_DEFAULTS[id] as CoreEmailDefault<Id>;
+  const defaultEmail = defaults.render(args);
+  const override = getOverrides().get(id) as
+    | TransactionalEmailOverride<Id>
+    | undefined;
+  if (!override) return defaultEmail;
+  return renderOverride(
+    id,
+    override,
+    { ...args, app: defaults.app(args) } as CoreTransactionalEmailProps<Id>,
+    defaultEmail,
+  );
 }
