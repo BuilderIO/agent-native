@@ -1,13 +1,12 @@
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
-
-let _initPromise: Promise<void> | undefined;
 
 function serializeTokens(tokens: Record<string, unknown>): string {
   return encryptSecretValue(JSON.stringify(tokens));
@@ -43,24 +42,24 @@ function oauthTokensTable(): string {
   return "public.oauth_tokens";
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const table = oauthTokensTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          provider TEXT NOT NULL,
-          account_id TEXT NOT NULL,
-          owner TEXT,
-          tokens TEXT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          revision BIGINT NOT NULL,
-          PRIMARY KEY (provider, account_id)
-        )
-      `;
-
-      {
+export const oauthTokensStore = defineStore({
+  id: "oauth_tokens",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const table = oauthTokensTable();
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${table} (
+            provider TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            owner TEXT,
+            tokens TEXT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            revision BIGINT NOT NULL,
+            PRIMARY KEY (provider, account_id)
+          )
+        `;
         await ensureTableExists("oauth_tokens", createSql);
         await ensureColumnExists(
           "oauth_tokens",
@@ -77,21 +76,35 @@ export async function ensureTable(): Promise<void> {
           "revision",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision BIGINT`,
         );
-        await client.execute(
-          `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
+      },
+    },
+    {
+      name: "backfill-owner",
+      run: async (exec) => {
+        await exec.execute(
+          `UPDATE ${oauthTokensTable()} SET owner = account_id WHERE owner IS NULL`,
         );
-        await client.execute(
-          `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
+      },
+    },
+    {
+      name: "backfill-revision",
+      run: async (exec) => {
+        await exec.execute(
+          `UPDATE ${oauthTokensTable()} SET revision = updated_at WHERE revision IS NULL`,
         );
-        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], client);
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async (exec) => {
+        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], exec);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return oauthTokensStore.ready();
 }
 
 export async function getOAuthTokens(

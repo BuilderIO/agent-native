@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type {
   PublicRemoteDevice,
   RemoteComputerCapabilities,
@@ -13,70 +14,72 @@ import type {
   RemoteExecutionWorkload,
 } from "./remote-types.js";
 
-let _initPromise: Promise<void> | undefined;
+export const remoteDevicesStore = defineStore({
+  id: "remote_devices",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS integration_remote_devices (
+            id TEXT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            label TEXT NOT NULL,
+            platform TEXT,
+            app_version TEXT,
+            host_name TEXT,
+            metadata_json TEXT,
+            device_token_hash TEXT NOT NULL,
+            last_seen_at BIGINT,
+            status TEXT NOT NULL,
+            revoked_at BIGINT,
+            created_at BIGINT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS integration_remote_devices (
-          id TEXT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          label TEXT NOT NULL,
-          platform TEXT,
-          app_version TEXT,
-          host_name TEXT,
-          metadata_json TEXT,
-          device_token_hash TEXT NOT NULL,
-          last_seen_at BIGINT,
-          status TEXT NOT NULL,
-          revoked_at BIGINT,
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+        await ensureTableExists("integration_remote_devices", createSql);
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "platform",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "app_version",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "host_name",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "metadata_json",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "revoked_at",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at BIGINT`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_token_hash",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("integration_remote_devices", createSql);
-      await ensureColumnExists(
-        "integration_remote_devices",
-        "platform",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_remote_devices",
-        "app_version",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_remote_devices",
-        "host_name",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_remote_devices",
-        "metadata_json",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_remote_devices",
-        "revoked_at",
-        `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at BIGINT`,
-      );
-      await ensureIndexExists(
-        "idx_remote_devices_token_hash",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
-      );
-      await ensureIndexExists(
-        "idx_remote_devices_owner",
-        `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return remoteDevicesStore.ready();
 }
 
 function rowToDevice(row: Record<string, unknown>): RemoteDevice {

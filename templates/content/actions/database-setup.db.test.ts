@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { withMigrationRuntime } from "@agent-native/core/db";
 import {
   runFrameworkReleaseMigrations,
   runWithRequestContext,
@@ -43,7 +44,7 @@ beforeAll(async () => {
   getDb = db.getDb;
   schema = db.schema;
   if (databaseUrl.startsWith("postgres"))
-    await runFrameworkReleaseMigrations(undefined);
+    await withMigrationRuntime(() => runFrameworkReleaseMigrations(undefined));
   await (await import("../server/plugins/db.js")).default(undefined as never);
   create = (await import("./create-content-database.js")).default;
   read = (await import("./get-content-database.js")).default;

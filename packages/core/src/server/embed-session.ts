@@ -12,6 +12,7 @@ import {
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
@@ -66,7 +67,6 @@ const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
   ],
 };
 
-let _initPromise: Promise<void> | undefined;
 let _devSigningKey: string | undefined;
 
 export interface EmbedSessionTicketInput {
@@ -171,38 +171,42 @@ export function resolvedEmbedCapabilityScope(
   return scope;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const embedTicketsCreateSql = `
-        CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
-          ticket_hash TEXT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          target_path TEXT NOT NULL,
-          scope TEXT,
-          created_at BIGINT NOT NULL,
-          expires_at BIGINT NOT NULL,
-          consumed_at BIGINT
-        )
-      `;
-      await ensureTableExists(
-        "agent_native_embed_tickets",
-        embedTicketsCreateSql,
-      );
-      await ensureTableExists(
-        "agent_native_embed_session_revocations",
-        `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
-          owner_hash TEXT PRIMARY KEY,
-          revoked_before BIGINT NOT NULL
-        )`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export const embedSessionsStore = defineStore({
+  id: "embed_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const embedTicketsCreateSql = `
+          CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
+            ticket_hash TEXT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            target_path TEXT NOT NULL,
+            scope TEXT,
+            created_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            consumed_at BIGINT
+          )
+        `;
+        await ensureTableExists(
+          "agent_native_embed_tickets",
+          embedTicketsCreateSql,
+        );
+        await ensureTableExists(
+          "agent_native_embed_session_revocations",
+          `CREATE TABLE IF NOT EXISTS agent_native_embed_session_revocations (
+            owner_hash TEXT PRIMARY KEY,
+            revoked_before BIGINT NOT NULL
+          )`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return embedSessionsStore.ready();
 }
 
 function getSigningKey(): string {

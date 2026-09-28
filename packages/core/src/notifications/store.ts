@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
@@ -9,17 +10,18 @@ function bumpPoll(owner: string): void {
   recordChange({ source: "notifications", type: "change", key: owner });
 }
 
-let _initPromise: Promise<void> | undefined;
-
 function normalizeLimit(value: number | undefined, fallback = 50): number {
   if (!Number.isFinite(value) || value == null || value <= 0) return fallback;
   return Math.min(Math.floor(value), 200);
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const notificationsStore = defineStore({
+  id: "notifications",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
@@ -32,21 +34,18 @@ export async function ensureTable(): Promise<void> {
             read_at BIGINT
           )
         `;
-
-      {
         await ensureTableExists("notifications", createSql);
         await ensureIndexExists(
           "idx_notifications_owner_unread",
           `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return notificationsStore.ready();
 }
 
 function parseRow(row: Record<string, unknown>): Notification {

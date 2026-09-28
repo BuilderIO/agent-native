@@ -76,6 +76,7 @@
     "guard:chat-first-shared-ui": "tsx scripts/guard-chat-first-shared-ui.ts",
     "guard:no-empty-migrations": "tsx scripts/guard-no-empty-migrations.ts",
     "guard:release-schema-complete": "tsx scripts/guard-release-schema-complete.ts",
+    "gen:store-registry": "tsx scripts/gen-store-registry.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:identity-columns-registered": "tsx scripts/guard-identity-columns-registered.ts",
     "guard:no-raw-app-identity-env": "tsx scripts/guard-no-raw-app-identity-env.ts",

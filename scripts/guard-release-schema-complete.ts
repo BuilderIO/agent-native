@@ -13,9 +13,9 @@ if (result.findings.length > 0) {
         (finding) => `  - ${finding.file}:${finding.line}: ${finding.message}`,
       ),
       "",
-      "Add the store's zero-argument ensure function to packages/core/src/server/release-schema.ts.",
-      "Production serverless cannot create tables on the request path, so a store missing from that list",
-      "has no path to creation on a hosted deploy — the first symptom is a missing-relation error in prod.",
+      "Declare the module's schema with defineStore() from packages/core/src/db/store-registry.ts,",
+      "then run `pnpm gen:store-registry`. Hosted request runtimes never create tables, so schema",
+      "outside a registered store has no path to creation on a hosted deploy.",
       "For a reviewed exception, add // guard:allow-unreleased-schema - <reason> to the file.",
     ].join("\n"),
   );
@@ -23,5 +23,5 @@ if (result.findings.length > 0) {
 }
 
 console.log(
-  `Release schema list covers every store that defines tables (${result.findings.length} findings).`,
+  `Store registry is fresh and covers every module that defines tables (${result.findings.length} findings).`,
 );

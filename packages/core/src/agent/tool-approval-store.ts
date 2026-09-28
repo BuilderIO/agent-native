@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
@@ -14,53 +15,58 @@ import {
 const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
-let initPromise: Promise<void> | undefined;
-let policyInitPromise: Promise<void> | undefined;
+export const agentToolApprovalsStore = defineStore({
+  id: "agent_tool_approvals",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "agent_tool_approvals",
+          AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_binding",
+          AGENT_TOOL_APPROVAL_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_logical",
+          AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approvals_recovery",
+          AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureAgentToolApprovalTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      await ensureTableExists(
-        "agent_tool_approvals",
-        AGENT_TOOL_APPROVAL_TABLE_SQL.postgres,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_binding",
-        AGENT_TOOL_APPROVAL_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_logical",
-        AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approvals_recovery",
-        AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
-      );
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+export const agentToolApprovalPoliciesStore = defineStore({
+  id: "agent_tool_approval_policies",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "agent_tool_approval_policies",
+          AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
+        );
+        await ensureIndexExists(
+          "idx_agent_tool_approval_policies_scope",
+          AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureAgentToolApprovalTable(): Promise<void> {
+  return agentToolApprovalsStore.ready();
 }
 
-export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
-  if (!policyInitPromise) {
-    policyInitPromise = (async () => {
-      await ensureTableExists(
-        "agent_tool_approval_policies",
-        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL.postgres,
-      );
-      await ensureIndexExists(
-        "idx_agent_tool_approval_policies_scope",
-        AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
-      );
-    })().catch((error) => {
-      policyInitPromise = undefined;
-      throw error;
-    });
-  }
-  return policyInitPromise;
+export function ensureAgentToolApprovalPolicyTable(): Promise<void> {
+  return agentToolApprovalPoliciesStore.ready();
 }
 
 export interface AgentToolApprovalBinding {

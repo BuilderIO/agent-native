@@ -6,6 +6,8 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
@@ -357,7 +359,6 @@ export interface EffectiveResourceContext {
   layers: EffectiveResourceLayer[];
 }
 
-let _initPromise: Promise<void> | undefined;
 let _lastScratchCleanupAt = 0;
 
 const AGENT_SCRATCH_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1025,19 +1026,7 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
     });
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const client = getDbExec();
-  const createSql = `
+const RESOURCES_CREATE_SQL = `
     CREATE TABLE IF NOT EXISTS resources (
       id TEXT PRIMARY KEY,
       path TEXT NOT NULL,
@@ -1058,50 +1047,76 @@ async function _doEnsureTable(): Promise<void> {
     )
   `;
 
-  {
-    await ensureTableExists("resources", createSql);
-    const pgColumns: Array<[string, string]> = [
-      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
-      ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
-      ["thread_id", "TEXT"],
-      ["run_id", "TEXT"],
-      ["expires_at", "BIGINT"],
-      ["metadata", "TEXT"],
-    ];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        "resources",
-        col,
-        `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-  }
+export const resourcesStore = defineStore({
+  id: "resources",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("resources", RESOURCES_CREATE_SQL);
+        const pgColumns: Array<[string, string]> = [
+          ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+          ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
+          ["thread_id", "TEXT"],
+          ["run_id", "TEXT"],
+          ["expires_at", "BIGINT"],
+          ["metadata", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            "resources",
+            col,
+            `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: () =>
+        widenIntColumnsToBigInt("resources", [
+          "created_at",
+          "updated_at",
+          "expires_at",
+        ]),
+    },
+    {
+      name: "visibility-expires-index",
+      run: async () => {
+        await ensureIndexExists(
+          "resources_visibility_expires_idx",
+          `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
+        ).catch((err) => {
+          // At release, fail so the ledger never records an index that was not built.
+          if (isMigrationAuthorizedRuntime()) throw err;
+          // An index is an optimization, not a correctness requirement: a
+          // concurrent creator or a permissions edge must not fail table init and
+          // take the app down with it. The scan it avoids is slow, not wrong — but
+          // say so, because "silently slow forever" is the outcome nobody notices.
+          // coercion-ok: absence of an index degrades latency, never correctness
+          console.warn(
+            "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
+            (err as Error)?.message ?? err,
+          );
+        });
+      },
+    },
+    {
+      name: "seed-default-resources",
+      run: (exec) => seedDefaultResources(exec),
+    },
+  ],
+});
 
-  await widenIntColumnsToBigInt("resources", [
-    "created_at",
-    "updated_at",
-    "expires_at",
-  ]);
+export function ensureTable(): Promise<void> {
+  return resourcesStore.ready();
+}
 
-  await ensureIndexExists(
-    "resources_visibility_expires_idx",
-    `CREATE INDEX IF NOT EXISTS resources_visibility_expires_idx ON resources (visibility, expires_at)`,
-  ).catch((err) => {
-    // An index is an optimization, not a correctness requirement: a
-    // concurrent creator or a permissions edge must not fail table init and
-    // take the app down with it. The scan it avoids is slow, not wrong — but
-    // say so, because "silently slow forever" is the outcome nobody notices.
-    // coercion-ok: absence of an index degrades latency, never correctness
-    console.warn(
-      "[resources] could not ensure resources_visibility_expires_idx; scratch cleanup will full-scan:",
-      (err as Error)?.message ?? err,
-    );
-  });
-
+async function seedDefaultResources(client: DbExec): Promise<void> {
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid
   // race conditions).
   //
-  // Guarded by a durable marker: `_doEnsureTable` runs once per PROCESS, which on
+  // Guarded by a durable marker: this seed used to run once per PROCESS, which on
   // serverless is once per cold start, so this block was issuing ~10 writes and
   // 2 migration scans per container to insert rows that had existed since day
   // one (53,785 of them in one production sample). The marker makes it once per

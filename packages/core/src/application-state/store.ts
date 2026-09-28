@@ -1,10 +1,10 @@
 import { getDbExec, isLocalDatabase, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
-let _initPromise: Promise<void> | undefined;
 const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
 function utf8ByteLength(value: string): number {
@@ -15,35 +15,48 @@ function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS application_state (
-          session_id TEXT NOT NULL,
-          key TEXT NOT NULL,
-          value TEXT NOT NULL,
-          updated_at BIGINT NOT NULL,
-          PRIMARY KEY (session_id, key)
-        )
-      `;
+export const applicationStateStore = defineStore({
+  id: "application_state",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS application_state (
+            session_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            updated_at BIGINT NOT NULL,
+            PRIMARY KEY (session_id, key)
+          )
+        `;
+        await ensureTableExists("application_state", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("application_state", ["updated_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "app_state_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
+        );
+        await ensureIndexExists(
+          "app_state_key_updated_idx",
+          `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("application_state", createSql);
-      await widenIntColumnsToBigInt("application_state", ["updated_at"]);
-      await ensureIndexExists(
-        "app_state_updated_at_idx",
-        `CREATE INDEX IF NOT EXISTS app_state_updated_at_idx ON application_state (updated_at)`,
-      );
-      await ensureIndexExists(
-        "app_state_key_updated_idx",
-        `CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return applicationStateStore.ready();
 }
 
 export async function appStateGet(

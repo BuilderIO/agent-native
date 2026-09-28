@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { getDbExec, isUniqueViolation, retryOnDdlRace } from "../db/client.js";
+import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
 const TABLE = "integration_identity_links";
-let _initPromise: Promise<void> | undefined;
 
 export interface IntegrationIdentityLink {
   id: string;
@@ -44,27 +44,23 @@ const INDEXES = [
   ],
 ] as const;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      {
+export const identityLinksStore = defineStore({
+  id: "identity_links",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
         await ensureTableExists(TABLE, createSql());
         for (const [name, sql] of INDEXES) {
           await ensureIndexExists(name, sql);
         }
-        return;
-      }
-      await retryOnDdlRace(() => client.execute(createSql()));
-      for (const [, sql] of INDEXES) {
-        await retryOnDdlRace(() => client.execute(sql));
-      }
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return identityLinksStore.ready();
 }
 
 function required(value: string, name: string): string {

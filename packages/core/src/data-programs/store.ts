@@ -9,6 +9,7 @@ import {
   ensureIndexExists,
   ensureColumnExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { accessFilter, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import {
@@ -33,47 +34,49 @@ const DEFAULT_RUN_KEEP = 5;
 
 const getDb = createGetDb({ dataPrograms, dataProgramShares });
 
-let _initPromise: Promise<void> | undefined;
+export const dataProgramsStore = defineStore({
+  id: "data_programs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const runsCreateSql = dataProgramRunsCreateSql(integerType);
 
-export async function ensureDataProgramTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const integerType = "BIGINT";
-      const runsCreateSql = dataProgramRunsCreateSql(integerType);
+        await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL);
+        await ensureTableExists(
+          "data_program_shares",
+          DATA_PROGRAM_SHARES_CREATE_SQL,
+        );
+        await ensureTableExists("data_program_runs", runsCreateSql);
+        await ensureColumnExists(
+          "data_program_runs",
+          "truncated",
+          DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
+        );
+        await ensureIndexExists(
+          "data_programs_app_owner_idx",
+          DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "data_programs_app_name_idx",
+          DATA_PROGRAMS_APP_NAME_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "data_program_shares_resource_idx",
+          DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "data_program_runs_lookup_idx",
+          DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("data_programs", DATA_PROGRAMS_CREATE_SQL);
-      await ensureTableExists(
-        "data_program_shares",
-        DATA_PROGRAM_SHARES_CREATE_SQL,
-      );
-      await ensureTableExists("data_program_runs", runsCreateSql);
-      await ensureColumnExists(
-        "data_program_runs",
-        "truncated",
-        DATA_PROGRAM_RUNS_TRUNCATED_COLUMN_SQL,
-      );
-      await ensureIndexExists(
-        "data_programs_app_owner_idx",
-        DATA_PROGRAMS_APP_OWNER_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "data_programs_app_name_idx",
-        DATA_PROGRAMS_APP_NAME_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "data_program_shares_resource_idx",
-        DATA_PROGRAM_SHARES_RESOURCE_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "data_program_runs_lookup_idx",
-        DATA_PROGRAM_RUNS_LOOKUP_INDEX_SQL,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureDataProgramTables(): Promise<void> {
+  return dataProgramsStore.ready();
 }
 
 export function registerDataProgramsShareable(): void {
@@ -90,7 +93,7 @@ export function registerDataProgramsShareable(): void {
 }
 
 export function _resetDataProgramInitPromiseForTests(): void {
-  _initPromise = undefined;
+  dataProgramsStore.reset();
 }
 
 export type DataProgramRefreshMode = "manual" | "ttl";

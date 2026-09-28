@@ -4,13 +4,12 @@ import {
   ensureTableExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type {
   AuditEvent,
   AuditQueryFilters,
   AuditVisibility,
 } from "./types.js";
-
-let _initPromise: Promise<void> | undefined;
 
 export const AGENT_AUDIT_LOG_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS agent_audit_log (
@@ -46,23 +45,25 @@ export const AGENT_AUDIT_LOG_CREATE_SQL = `
   )
 `;
 
-export async function ensureAuditTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const lineageColumns = [
-        "run_id",
-        "task_id",
-        "parent_task_id",
-        "source_kind",
-        "source_platform",
-        "source_id",
-        "source_url",
-        "network_protocol",
-        "network_id",
-        "network_peer",
-      ];
+export const auditStore = defineStore({
+  id: "audit",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const lineageColumns = [
+          "run_id",
+          "task_id",
+          "parent_task_id",
+          "source_kind",
+          "source_platform",
+          "source_id",
+          "source_url",
+          "network_protocol",
+          "network_id",
+          "network_peer",
+        ];
 
-      {
         await ensureTableExists("agent_audit_log", AGENT_AUDIT_LOG_CREATE_SQL);
         // `app` is added here rather than in the base CREATE, which org
         // migration 1032 replays verbatim.
@@ -101,14 +102,13 @@ export async function ensureAuditTables(): Promise<void> {
           "idx_audit_created",
           `CREATE INDEX IF NOT EXISTS idx_audit_created ON agent_audit_log (created_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureAuditTables(): Promise<void> {
+  return auditStore.ready();
 }
 
 export async function insertAuditEvent(event: AuditEvent): Promise<void> {
@@ -386,5 +386,5 @@ export async function deleteOldAuditEvents(cutoffMs: number): Promise<number> {
 }
 
 export function __resetAuditInitForTests(): void {
-  _initPromise = undefined;
+  auditStore.reset();
 }

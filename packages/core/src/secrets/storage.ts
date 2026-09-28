@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   encryptSecretValue as encryptLegacyValue,
@@ -28,38 +29,40 @@ import { invalidateOptionalKeyCache } from "./optional-key-cache.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
-let _initPromise: Promise<void> | undefined;
+export const appSecretsStore = defineStore({
+  id: "app_secrets",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = APP_SECRETS_CREATE_SQL.replace(
+          /\bINTEGER\b/g,
+          "BIGINT",
+        );
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = APP_SECRETS_CREATE_SQL.replace(
-        /\bINTEGER\b/g,
-        "BIGINT",
-      );
+        await ensureTableExists("app_secrets", createSql);
+        await ensureColumnExists(
+          "app_secrets",
+          "description",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
+        );
+        await ensureColumnExists(
+          "app_secrets",
+          "url_allowlist",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
+        );
+        await ensureColumnExists(
+          "app_secrets",
+          "shared_encrypted_value",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("app_secrets", createSql);
-      await ensureColumnExists(
-        "app_secrets",
-        "description",
-        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS description TEXT`,
-      );
-      await ensureColumnExists(
-        "app_secrets",
-        "url_allowlist",
-        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
-      );
-      await ensureColumnExists(
-        "app_secrets",
-        "shared_encrypted_value",
-        `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return appSecretsStore.ready();
 }
 
 export const VAULT_SYNC_DESCRIPTION_PREFIX = "Synced from Dispatch vault:";

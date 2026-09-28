@@ -20,6 +20,7 @@ import { randomBytes } from "node:crypto";
 
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
 export const RECAP_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -34,8 +35,6 @@ export const RECAP_IMAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  */
 const TOKEN_PATTERN = /^[0-9a-f]{32,128}$/;
 
-let _initPromise: Promise<void> | undefined;
-
 function buildRecapImagesCreateSql(): string {
   return `
         CREATE TABLE IF NOT EXISTS recap_images (
@@ -49,17 +48,20 @@ function buildRecapImagesCreateSql(): string {
       `;
 }
 
-export async function ensureRecapImageTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const recapImagesCreateSql = buildRecapImagesCreateSql();
-      await ensureTableExists("recap_images", recapImagesCreateSql);
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+export const recapImagesStore = defineStore({
+  id: "recap_images",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("recap_images", buildRecapImagesCreateSql());
+      },
+    },
+  ],
+});
+
+export function ensureRecapImageTable(): Promise<void> {
+  return recapImagesStore.ready();
 }
 
 export async function pruneExpiredRecapImages(

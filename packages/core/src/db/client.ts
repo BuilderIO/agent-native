@@ -9,6 +9,7 @@ import {
   beginDatabaseOperation,
   recordDatabaseRetry,
 } from "./request-telemetry.js";
+import { isProductionServerlessFunctionRuntime } from "./runtime-facts.js";
 import { isServerRuntimeStarted } from "./server-runtime.js";
 
 const recyclingPostgresPools = new WeakSet<object>();
@@ -579,33 +580,7 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
-export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch (e: any) {
-    if (!isPgCatalogRace(e)) throw e;
-    return await fn();
-  }
-}
-
-function isPgCatalogRace(e: any): boolean {
-  const msg = String(e?.message ?? "");
-  if (e?.code === "42P07") return true;
-  if (e?.code === "42710") {
-    const routine = String(e?.routine ?? "");
-    return routine === "TypeCreate" || /type .* already exists/i.test(msg);
-  }
-  if (e?.code !== "23505") return false;
-  const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
-  const detail = String(e?.detail ?? "");
-  return (
-    constraint.startsWith("pg_type") ||
-    constraint.startsWith("pg_class") ||
-    detail.includes("pg_type") ||
-    detail.includes("pg_class") ||
-    /relation .* already exists/i.test(msg)
-  );
-}
+export { retryOnDdlRace } from "./runtime-facts.js";
 
 export function isUniqueViolation(e: any): boolean {
   if (e?.code === "23505") return true;
@@ -1002,25 +977,7 @@ export function isServerlessRuntime(): boolean {
   );
 }
 
-export function isProductionServerlessFunctionRuntime(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NODE_ENV !== "production" || env.NETLIFY_LOCAL === "true") {
-    return false;
-  }
-
-  return Boolean(
-    env.NETLIFY === "true" ||
-    env.NETLIFY_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    env.AWS_LAMBDA_FUNCTION_VERSION ||
-    env.LAMBDA_TASK_ROOT ||
-    env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
-    env.VERCEL_FUNCTION_ID ||
-    env.VERCEL_REGION ||
-    env.VERCEL === "1",
-  );
-}
+export { isProductionServerlessFunctionRuntime } from "./runtime-facts.js";
 
 export function isHostedFunctionInvocationRuntime(
   env: NodeJS.ProcessEnv = process.env,
@@ -1399,6 +1356,7 @@ function disposePostgresPoolEventually(
 
 let _exec: DbExec | undefined;
 let _initPromise: Promise<void> | undefined;
+let _proxy: DbExec | undefined;
 
 async function executePglite(
   client: {
@@ -1959,7 +1917,8 @@ export function withDbExec<T>(exec: DbExec, run: () => T): T {
 export function getDbExec(): DbExec {
   const scoped = scopedDbExec.getStore();
   if (scoped) return scoped;
-  if (_exec) return _exec;
+  // Never hand out the raw `_exec`: it bypasses the schema-mutation guard.
+  if (_proxy) return _proxy;
 
   function sanitize(
     sql: string | { sql: string; args?: unknown[] },
@@ -1974,6 +1933,10 @@ export function getDbExec(): DbExec {
     s: string | { sql: string; args?: unknown[] },
   ): ReturnType<DbExec["execute"]> {
     assertSchemaMutationAllowed(s);
+    if (!_exec) {
+      if (!_initPromise) _initPromise = initClient();
+      await _initPromise;
+    }
     try {
       return await _exec!.execute(sanitize(s));
     } catch (err) {
@@ -2094,6 +2057,7 @@ export function getDbExec(): DbExec {
       return batch(statements);
     },
   };
+  _proxy = proxy;
   return proxy;
 }
 
@@ -2102,4 +2066,5 @@ export async function closeDbExec(): Promise<void> {
   await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;
+  _proxy = undefined;
 }

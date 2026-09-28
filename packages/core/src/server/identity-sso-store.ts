@@ -1,13 +1,8 @@
 import { randomBytes } from "node:crypto";
 
-import {
-  getDbExec,
-  isConnectionError,
-  isProductionServerlessFunctionRuntime,
-} from "../db/client.js";
+import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
-
-let _initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
 
 const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
@@ -344,29 +339,27 @@ function buildIdentitySsoJtiCreateSql(): string {
       `;
 }
 
-export async function ensureTable(): Promise<void> {
-  // Release migrations own schema in production serverless functions. A
-  // request must not turn a missing migration into request-time DDL.
-  if (isProductionServerlessFunctionRuntime()) return;
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const flowStateSql = buildIdentitySsoFlowStateCreateSql();
-      const jtiSql = buildIdentitySsoJtiCreateSql();
-      {
-        await ensureTableExists("identity_sso_flow_state", flowStateSql);
-        await ensureTableExists("identity_sso_jti", jtiSql);
-        return;
-      }
+export const identitySsoStore = defineStore({
+  id: "identity_sso",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists(
+          "identity_sso_flow_state",
+          buildIdentitySsoFlowStateCreateSql(),
+        );
+        await ensureTableExists(
+          "identity_sso_jti",
+          buildIdentitySsoJtiCreateSql(),
+        );
+      },
+    },
+  ],
+});
 
-      const client = getDbExec();
-      await client.execute(flowStateSql);
-      await client.execute(jtiSql);
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return identitySsoStore.ready();
 }
 
 function numOrNull(value: unknown): number | null {

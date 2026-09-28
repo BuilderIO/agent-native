@@ -2,14 +2,13 @@ import { randomUUID } from "node:crypto";
 
 import {
   getDbExec,
-  isProductionServerlessFunctionRuntime,
   isUniqueViolation,
   retryOnDdlRace,
   safeJsonParse,
   type DbExec,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
+import { defineStore } from "../db/store-registry.js";
 import { isOrgMember } from "../org/membership.js";
 import {
   getRequestOrgId,
@@ -195,33 +194,27 @@ async function ensureWorkspaceUserGroupNameTrigger(
   }
 }
 
-let initPromise: Promise<void> | undefined;
+export const workspaceUserGroupsStore = defineStore({
+  id: "workspace_user_groups",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const client = getDbExec();
+        const table = workspaceUserGroupsTable();
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${table} (
+            id TEXT PRIMARY KEY,
+            org_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            normalized_name TEXT,
+            member_emails_json TEXT NOT NULL DEFAULT '[]',
+            created_by_email TEXT NOT NULL DEFAULT '',
+            created_at BIGINT NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT 0
+          )
+        `;
 
-export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
-  if (
-    isProductionServerlessFunctionRuntime() &&
-    !isMigrationAuthorizedRuntime()
-  ) {
-    return;
-  }
-  if (!initPromise) {
-    initPromise = (async () => {
-      const client = getDbExec();
-      const table = workspaceUserGroupsTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          id TEXT PRIMARY KEY,
-          org_id TEXT NOT NULL DEFAULT '',
-          name TEXT NOT NULL DEFAULT '',
-          normalized_name TEXT,
-          member_emails_json TEXT NOT NULL DEFAULT '[]',
-          created_by_email TEXT NOT NULL DEFAULT '',
-          created_at BIGINT NOT NULL DEFAULT 0,
-          updated_at BIGINT NOT NULL DEFAULT 0
-        )
-      `;
-
-      {
         await ensureTableExists("workspace_user_groups", createSql);
         await ensureWorkspaceUserGroupColumns(client, table);
         await ensureWorkspaceUserGroupNameTrigger(client);
@@ -235,30 +228,13 @@ export async function ensureWorkspaceUserGroupsTable(): Promise<void> {
              ON ${table} (org_id, normalized_name)
              WHERE normalized_name IS NOT NULL`,
         );
-        return;
-      }
+      },
+    },
+  ],
+});
 
-      await retryOnDdlRace(() => client.execute(createSql));
-      await ensureWorkspaceUserGroupColumns(client, table);
-      await ensureWorkspaceUserGroupNameTrigger(client);
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_workspace_user_groups_org_updated ON ${table} (org_id, updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE UNIQUE INDEX IF NOT EXISTS ${WORKSPACE_USER_GROUP_NAME_INDEX}
-             ON ${table} (org_id, normalized_name)
-             WHERE normalized_name IS NOT NULL`,
-        ),
-      );
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+export function ensureWorkspaceUserGroupsTable(): Promise<void> {
+  return workspaceUserGroupsStore.ready();
 }
 
 export async function listWorkspaceUserGroupsForOrg(

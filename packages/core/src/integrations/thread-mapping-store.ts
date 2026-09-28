@@ -1,12 +1,14 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const threadMappingsStore = defineStore({
+  id: "thread_mappings",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS integration_thread_mappings (
           platform TEXT NOT NULL,
           external_thread_id TEXT NOT NULL,
@@ -17,14 +19,14 @@ export async function ensureTable(): Promise<void> {
           PRIMARY KEY (platform, external_thread_id)
         )
       `;
+        await ensureTableExists("integration_thread_mappings", createSql);
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("integration_thread_mappings", createSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return threadMappingsStore.ready();
 }
 
 export interface ThreadMapping {

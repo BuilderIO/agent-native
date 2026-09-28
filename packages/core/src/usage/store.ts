@@ -5,6 +5,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 
@@ -189,58 +190,58 @@ export function resolveUsageAppKey(app?: string | null): string {
   return (config.app.id ?? config.app.name ?? "").trim();
 }
 
-let _initPromise: Promise<void> | undefined;
+export const usageStore = defineStore({
+  id: "usage",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS token_usage (
+            id BIGINT PRIMARY KEY,
+            owner_email TEXT NOT NULL,
+            input_tokens BIGINT NOT NULL DEFAULT 0,
+            output_tokens BIGINT NOT NULL DEFAULT 0,
+            cache_read_tokens BIGINT NOT NULL DEFAULT 0,
+            cache_write_tokens BIGINT NOT NULL DEFAULT 0,
+            cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
+            builder_credits_used NUMERIC,
+            engine_name TEXT,
+            cost_source TEXT NOT NULL DEFAULT 'estimated',
+            model TEXT NOT NULL DEFAULT '',
+            label TEXT NOT NULL DEFAULT 'chat',
+            app TEXT NOT NULL DEFAULT '',
+            ref_id TEXT NOT NULL DEFAULT '',
+            org_id TEXT,
+            run_id TEXT,
+            thread_id TEXT,
+            task_id TEXT,
+            -- guard:allow-identity-column integration scope IDs identify an integration record, not a user principal.
+            integration_scope_id TEXT,
+            source_platform TEXT,
+            source_id TEXT,
+            created_at BIGINT NOT NULL
+          )
+        `;
 
-export async function ensureUsageTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS token_usage (
-          id BIGINT PRIMARY KEY,
-          owner_email TEXT NOT NULL,
-          input_tokens BIGINT NOT NULL DEFAULT 0,
-          output_tokens BIGINT NOT NULL DEFAULT 0,
-          cache_read_tokens BIGINT NOT NULL DEFAULT 0,
-          cache_write_tokens BIGINT NOT NULL DEFAULT 0,
-          cost_cents_x100 BIGINT NOT NULL DEFAULT 0,
-          builder_credits_used NUMERIC,
-          engine_name TEXT,
-          cost_source TEXT NOT NULL DEFAULT 'estimated',
-          model TEXT NOT NULL DEFAULT '',
-          label TEXT NOT NULL DEFAULT 'chat',
-          app TEXT NOT NULL DEFAULT '',
-          ref_id TEXT NOT NULL DEFAULT '',
-          org_id TEXT,
-          run_id TEXT,
-          thread_id TEXT,
-          task_id TEXT,
-          -- guard:allow-identity-column integration scope IDs identify an integration record, not a user principal.
-          integration_scope_id TEXT,
-          source_platform TEXT,
-          source_id TEXT,
-          created_at BIGINT NOT NULL
-        )
-      `;
+        const additions: Array<[string, string]> = [
+          ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
+          ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
+          ["builder_credits_used", "NUMERIC"],
+          ["engine_name", "TEXT"],
+          ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
+          ["label", `TEXT NOT NULL DEFAULT 'chat'`],
+          ["app", `TEXT NOT NULL DEFAULT ''`],
+          ["ref_id", `TEXT NOT NULL DEFAULT ''`],
+          ["org_id", "TEXT"],
+          ["run_id", "TEXT"],
+          ["thread_id", "TEXT"],
+          ["task_id", "TEXT"],
+          ["integration_scope_id", "TEXT"],
+          ["source_platform", "TEXT"],
+          ["source_id", "TEXT"],
+        ];
 
-      const additions: Array<[string, string]> = [
-        ["cache_read_tokens", `BIGINT NOT NULL DEFAULT 0`],
-        ["cache_write_tokens", `BIGINT NOT NULL DEFAULT 0`],
-        ["builder_credits_used", "NUMERIC"],
-        ["engine_name", "TEXT"],
-        ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
-        ["label", `TEXT NOT NULL DEFAULT 'chat'`],
-        ["app", `TEXT NOT NULL DEFAULT ''`],
-        ["ref_id", `TEXT NOT NULL DEFAULT ''`],
-        ["org_id", "TEXT"],
-        ["run_id", "TEXT"],
-        ["thread_id", "TEXT"],
-        ["task_id", "TEXT"],
-        ["integration_scope_id", "TEXT"],
-        ["source_platform", "TEXT"],
-        ["source_id", "TEXT"],
-      ];
-
-      {
         await ensureTableExists("token_usage", createSql);
         for (const [col, def] of additions) {
           await ensureColumnExists(
@@ -249,7 +250,17 @@ export async function ensureUsageTable(): Promise<void> {
             `ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS ${col} ${def}`,
           );
         }
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
         await widenIntColumnsToBigInt("token_usage", ["created_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
         await ensureIndexExists(
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
@@ -272,14 +283,13 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_org_app_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_org_app_created ON token_usage (org_id, LOWER(app), created_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureUsageTable(): Promise<void> {
+  return usageStore.ready();
 }
 
 export function calculateCost(

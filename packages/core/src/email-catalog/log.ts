@@ -6,10 +6,9 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
-
-let _initPromise: Promise<void> | undefined;
 
 const ADDITIVE_TEXT_COLUMNS = [
   "request_payload",
@@ -18,58 +17,75 @@ const ADDITIVE_TEXT_COLUMNS = [
   "text_body",
 ] as const;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const {
-        EMAIL_LOG_CREATE_SQL,
-        EMAIL_LOG_ORG_APP_INDEX_SQL,
-        EMAIL_LOG_TEMPLATE_INDEX_SQL,
-        EMAIL_LOG_ORG_STATUS_INDEX_SQL,
-        EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
-      } = await import("./schema.js");
-      const createSql = EMAIL_LOG_CREATE_SQL.replace(/\bINTEGER\b/g, "BIGINT");
-      await ensureTableExists("email_log", createSql);
-      await widenIntColumnsToBigInt("email_log", ["created_at"]);
-      await ensureColumnExists(
-        "email_log",
-        "org_id",
-        "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
-      );
-      for (const column of ADDITIVE_TEXT_COLUMNS) {
+export const emailLogStore = defineStore({
+  id: "email_log",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const { EMAIL_LOG_CREATE_SQL } = await import("./schema.js");
+        const createSql = EMAIL_LOG_CREATE_SQL.replace(
+          /\bINTEGER\b/g,
+          "BIGINT",
+        );
+        await ensureTableExists("email_log", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("email_log", ["created_at"]);
+      },
+    },
+    {
+      name: "columns-and-indexes",
+      run: async () => {
+        const {
+          EMAIL_LOG_ORG_APP_INDEX_SQL,
+          EMAIL_LOG_TEMPLATE_INDEX_SQL,
+          EMAIL_LOG_ORG_STATUS_INDEX_SQL,
+          EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
+        } = await import("./schema.js");
         await ensureColumnExists(
           "email_log",
-          column,
-          `ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+          "org_id",
+          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS org_id TEXT",
         );
-      }
-      await ensureColumnExists(
-        "email_log",
-        "response_status",
-        "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS response_status BIGINT",
-      );
-      await ensureIndexExists(
-        "email_log_template_created_idx",
-        EMAIL_LOG_TEMPLATE_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "email_log_org_app_created_idx",
-        EMAIL_LOG_ORG_APP_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "email_log_org_status_created_idx",
-        EMAIL_LOG_ORG_STATUS_INDEX_SQL,
-      );
-      await ensureIndexExists(
-        "email_log_org_provider_created_idx",
-        EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
-      );
-    })().catch((error) => {
-      _initPromise = undefined;
-      throw error;
-    });
-  }
-  return _initPromise;
+        for (const column of ADDITIVE_TEXT_COLUMNS) {
+          await ensureColumnExists(
+            "email_log",
+            column,
+            `ALTER TABLE email_log ADD COLUMN IF NOT EXISTS ${column} TEXT`,
+          );
+        }
+        await ensureColumnExists(
+          "email_log",
+          "response_status",
+          "ALTER TABLE email_log ADD COLUMN IF NOT EXISTS response_status BIGINT",
+        );
+        await ensureIndexExists(
+          "email_log_template_created_idx",
+          EMAIL_LOG_TEMPLATE_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "email_log_org_app_created_idx",
+          EMAIL_LOG_ORG_APP_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "email_log_org_status_created_idx",
+          EMAIL_LOG_ORG_STATUS_INDEX_SQL,
+        );
+        await ensureIndexExists(
+          "email_log_org_provider_created_idx",
+          EMAIL_LOG_ORG_PROVIDER_INDEX_SQL,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return emailLogStore.ready();
 }
 
 export interface RecordEmailSendArgs {

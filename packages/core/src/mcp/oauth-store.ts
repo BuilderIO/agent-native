@@ -10,9 +10,8 @@ import { randomBytes, randomUUID, createHash } from "node:crypto";
 
 import { getDbExec, isConnectionError } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
-
-let _initPromise: Promise<void> | undefined;
 
 export const MCP_OAUTH_CODE_TTL_MS = 10 * 60_000;
 
@@ -64,73 +63,77 @@ export const MCP_OAUTH_REFRESH_TOKEN_TTL_MS = 365 * 24 * 60 * 60_000;
 export const MCP_OAUTH_REGISTER_MAX = 60;
 export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createClientsSql = `
-        CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
-          client_id TEXT PRIMARY KEY,
-          client_name TEXT,
-          redirect_uris TEXT NOT NULL,
-          grant_types TEXT,
-          response_types TEXT,
-          token_endpoint_auth_method TEXT,
-          application_type TEXT,
-          created_at BIGINT
-        )
-      `;
-      const createCodesSql = `
-        CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
-          code TEXT PRIMARY KEY,
-          client_id TEXT NOT NULL,
-          redirect_uri TEXT NOT NULL,
-          code_challenge TEXT NOT NULL,
-          code_challenge_method TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          org_domain TEXT,
-          scope TEXT NOT NULL,
-          resource TEXT NOT NULL,
-          created_at BIGINT,
-          expires_at BIGINT,
-          consumed_at BIGINT
-        )
-      `;
-      const createRefreshTokensSql = `
-        CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (
-          id TEXT PRIMARY KEY,
-          token_hash TEXT UNIQUE NOT NULL,
-          client_id TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          org_domain TEXT,
-          scope TEXT NOT NULL,
-          resource TEXT NOT NULL,
-          created_at BIGINT,
-          expires_at BIGINT,
-          last_used_at BIGINT,
-          revoked_at BIGINT,
-          replaced_by_hash TEXT
-        )
-      `;
+export const mcpOauthStore = defineStore({
+  id: "mcp_oauth",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createClientsSql = `
+          CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
+            client_id TEXT PRIMARY KEY,
+            client_name TEXT,
+            redirect_uris TEXT NOT NULL,
+            grant_types TEXT,
+            response_types TEXT,
+            token_endpoint_auth_method TEXT,
+            application_type TEXT,
+            created_at BIGINT
+          )
+        `;
+        const createCodesSql = `
+          CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
+            code TEXT PRIMARY KEY,
+            client_id TEXT NOT NULL,
+            redirect_uri TEXT NOT NULL,
+            code_challenge TEXT NOT NULL,
+            code_challenge_method TEXT NOT NULL,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            org_domain TEXT,
+            scope TEXT NOT NULL,
+            resource TEXT NOT NULL,
+            created_at BIGINT,
+            expires_at BIGINT,
+            consumed_at BIGINT
+          )
+        `;
+        const createRefreshTokensSql = `
+          CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (
+            id TEXT PRIMARY KEY,
+            token_hash TEXT UNIQUE NOT NULL,
+            client_id TEXT NOT NULL,
+            owner_email TEXT NOT NULL,
+            org_id TEXT,
+            org_domain TEXT,
+            scope TEXT NOT NULL,
+            resource TEXT NOT NULL,
+            created_at BIGINT,
+            expires_at BIGINT,
+            last_used_at BIGINT,
+            revoked_at BIGINT,
+            replaced_by_hash TEXT
+          )
+        `;
 
-      await ensureTableExists("mcp_oauth_clients", createClientsSql);
-      await ensureColumnExists(
-        "mcp_oauth_clients",
-        "application_type",
-        `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
-      );
-      await ensureTableExists("mcp_oauth_codes", createCodesSql);
-      await ensureTableExists(
-        "mcp_oauth_refresh_tokens",
-        createRefreshTokensSql,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("mcp_oauth_clients", createClientsSql);
+        await ensureColumnExists(
+          "mcp_oauth_clients",
+          "application_type",
+          `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
+        );
+        await ensureTableExists("mcp_oauth_codes", createCodesSql);
+        await ensureTableExists(
+          "mcp_oauth_refresh_tokens",
+          createRefreshTokensSql,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return mcpOauthStore.ready();
 }
 
 export interface OAuthClientRow {
