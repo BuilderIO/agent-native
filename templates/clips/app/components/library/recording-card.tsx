@@ -1,6 +1,7 @@
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { UPLOAD_RETRY_RESUME_FLAG } from "@shared/feature-flags";
+import { isDefaultTitle } from "@shared/title-source";
 import { isRetryableUploadInterruption } from "@shared/upload-interruption";
 import {
   IconDotsVertical,
@@ -47,7 +48,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
 import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import {
