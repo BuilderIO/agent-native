@@ -205,6 +205,7 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryRequestMode?: "act" | "plan";
   deferredFileParts?: FilePart[];
   contextAlreadyIncluded?: boolean;
+  pendingSelectionCapturedAt?: number | null;
   skipAmbientSelectionContext?: boolean;
   deferredAgentId?: string | null;
   deferredContextScope?: AgentKitAssistantChatProps["contextScope"] | null;
@@ -1726,6 +1727,7 @@ const AgentKitAssistantChatBody = forwardRef<
       const selectionHydration = pendingSelectionHydrationRef.current;
       await selectionHydration?.promise;
       const currentPendingSelection = pendingSelectionRef.current;
+      const selectionRevision = selectionRevisionRef.current;
       const context =
         options.recoveryAction || options.contextAlreadyIncluded
           ? ""
@@ -1750,12 +1752,22 @@ const AgentKitAssistantChatBody = forwardRef<
       const fileParts =
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
+      const selectionChangedDuringSubmission =
+        selectionRevision !== selectionRevisionRef.current ||
+        (options.pendingSelectionCapturedAt !== undefined &&
+          options.pendingSelectionCapturedAt !==
+            (currentPendingSelection?.capturedAt ?? null));
       const skipAmbientSelectionContext =
         options.skipAmbientSelectionContext === true ||
-        selectionHydration?.status !== "loaded" ||
+        selectionHydration?.status === "pending" ||
         isClientAppStateMutationPending("pending-selection-context") ||
+        selectionChangedDuringSubmission ||
         Boolean(pendingSelectionPromptContext(currentPendingSelection));
-      if (!options.recoveryAction) {
+      if (
+        !options.recoveryAction &&
+        !selectionChangedDuringSubmission &&
+        Boolean(pendingSelectionPromptContext(currentPendingSelection))
+      ) {
         requestPendingSelectionClear();
       }
       const requestMode =
@@ -1927,6 +1939,7 @@ const AgentKitAssistantChatBody = forwardRef<
             const selectionHydration = pendingSelectionHydrationRef.current;
             await selectionHydration?.promise;
             const currentPendingSelection = pendingSelectionRef.current;
+            const selectionRevision = selectionRevisionRef.current;
             const attachments = options.attachments ?? [];
             const needsFileStorage =
               files.length > 0 ||
@@ -1943,6 +1956,8 @@ const AgentKitAssistantChatBody = forwardRef<
               attachments,
               files,
             );
+            const selectionChangedDuringUpload =
+              selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
               ? ""
               : [
@@ -1953,9 +1968,12 @@ const AgentKitAssistantChatBody = forwardRef<
                   .join("\n\n");
             const { submitMessageId } = options;
             const deferredOptions = { ...options };
+            deferredOptions.pendingSelectionCapturedAt =
+              currentPendingSelection?.capturedAt ?? null;
             if (
               options.skipAmbientSelectionContext === true ||
-              selectionHydration?.status !== "loaded"
+              selectionHydration?.status === "pending" ||
+              selectionChangedDuringUpload
             ) {
               deferredOptions.skipAmbientSelectionContext = true;
             }

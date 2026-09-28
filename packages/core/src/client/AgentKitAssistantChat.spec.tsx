@@ -1071,6 +1071,105 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("does not clear persisted selection when hydration fails", async () => {
+    chatMocks.appState.set("pending-selection-context", {
+      text: "selection to preserve",
+      capturedAt: Date.now(),
+    });
+    vi.mocked(readClientAppState).mockImplementation(async (key) => {
+      if (key === "pending-selection-context") {
+        throw new Error("network unavailable");
+      }
+      return chatMocks.appState.get(key) ?? null;
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Send without selection",
+        [],
+        [],
+        {},
+      );
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Send without selection",
+    });
+    expect(
+      chatMocks.control.sendMessage.mock.calls[0]?.[0]?.options?.metadata,
+    ).not.toHaveProperty("agentNativeSkipPendingSelectionContext");
+    expect(deleteClientAppState).not.toHaveBeenCalled();
+    expect(chatMocks.appState.has("pending-selection-context")).toBe(true);
+  });
+
+  it("preserves a selection attached while composer files upload", async () => {
+    let resolveUpload!: (
+      parts: Awaited<ReturnType<typeof chatMocks.control.uploadFiles>>,
+    ) => void;
+    chatMocks.control.uploadFiles.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveUpload = resolve)),
+    );
+    await mount(baseProps());
+    await flush();
+
+    const image = new File(["image bytes"], "slide-image.png", {
+      type: "image/png",
+    });
+    let submitPromise!: Promise<void>;
+    await act(async () => {
+      submitPromise = chatMocks.composerProps.onSubmit(
+        "Describe this slide",
+        [image],
+        [],
+        {
+          attachments: [
+            { id: "image-1", type: "image", name: image.name, file: image },
+          ],
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const capturedAt = Date.now();
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { text: "New selection" },
+        }),
+      );
+      chatMocks.appState.set("pending-selection-context", {
+        text: "New selection",
+        capturedAt,
+      });
+      resolveUpload([
+        {
+          type: "file",
+          name: image.name,
+          mediaType: image.type,
+          url: "https://files.example.test/slide-image.png",
+        },
+      ]);
+      await submitPromise;
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Describe this slide",
+      options: {
+        metadata: { agentNativeSkipPendingSelectionContext: true },
+      },
+    });
+    expect(deleteClientAppState).not.toHaveBeenCalled();
+    expect(chatMocks.appState.get("pending-selection-context")).toEqual({
+      text: "New selection",
+      capturedAt,
+    });
+  });
+
   it("hydrates pending selection before constructing the send", async () => {
     let resolveSelectionRead!: (value: unknown) => void;
     vi.mocked(readClientAppState).mockImplementation(async (key) => {
@@ -1118,14 +1217,17 @@ describe("AgentKitAssistantChat host behavior", () => {
       missing: false,
       state: "unknown",
     };
-    chatMocks.control.uploadFiles.mockResolvedValueOnce([
-      {
-        type: "file",
-        name: "notes.txt",
-        mediaType: "text/plain",
-        url: "https://files.example.test/notes.txt",
-      },
-    ]);
+    const initialCapturedAt = Date.now();
+    chatMocks.appState.set("pending-selection-context", {
+      text: "Initial selection",
+      capturedAt: initialCapturedAt,
+    });
+    let resolveUpload!: (
+      parts: Awaited<ReturnType<typeof chatMocks.control.uploadFiles>>,
+    ) => void;
+    chatMocks.control.uploadFiles.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveUpload = resolve)),
+    );
     chatMocks.guidedQuestions = [{ id: "question-1" }];
     const ref = createRef<AssistantChatHandle>();
     container = document.createElement("div");
@@ -1148,19 +1250,46 @@ describe("AgentKitAssistantChat host behavior", () => {
       source: "composer",
     } as const;
 
+    let deferredSend!: Promise<AssistantChatSubmitResult>;
     await act(async () => {
       ref.current?.prefillMessage("Visible composer draft");
-      await ref.current?.sendMessage("Wait for the provider", undefined, {
-        submitMessageId: "pending-provider-submit",
-        attachments: [
-          {
-            type: "text/plain",
-            name: "notes.txt",
-            text: "private attachment body",
-          },
-        ],
-        recoveryReferences: [reference],
-      } as AssistantChatSendOptions);
+      deferredSend = ref.current!.sendMessage(
+        "Wait for the provider",
+        undefined,
+        {
+          submitMessageId: "pending-provider-submit",
+          attachments: [
+            {
+              type: "text/plain",
+              name: "notes.txt",
+              text: "private attachment body",
+            },
+          ],
+          recoveryReferences: [reference],
+        } as AssistantChatSendOptions,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const nextCapturedAt = initialCapturedAt + 1;
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { text: "Selection for the next prompt" },
+        }),
+      );
+      chatMocks.appState.set("pending-selection-context", {
+        text: "Selection for the next prompt",
+        capturedAt: nextCapturedAt,
+      });
+      resolveUpload([
+        {
+          type: "file",
+          name: "notes.txt",
+          mediaType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+      ]);
+      await deferredSend;
     });
 
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
@@ -1179,7 +1308,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     const persisted = chatMocks.appState.get(stateKey!) as {
       submissions: Array<{
         fileParts: unknown[];
-        options: { recoveryReferences: unknown[] };
+        options: {
+          pendingSelectionCapturedAt: number | null;
+          recoveryReferences: unknown[];
+          skipAmbientSelectionContext: boolean;
+        };
       }>;
     };
     expect(persisted.submissions[0]).toMatchObject({
@@ -1190,7 +1323,11 @@ describe("AgentKitAssistantChat host behavior", () => {
           url: "https://files.example.test/notes.txt",
         },
       ],
-      options: { recoveryReferences: [reference] },
+      options: {
+        pendingSelectionCapturedAt: initialCapturedAt,
+        recoveryReferences: [reference],
+        skipAmbientSelectionContext: true,
+      },
     });
     expect(JSON.stringify(persisted)).not.toContain("private attachment body");
 
@@ -1214,7 +1351,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
     const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
     expect(request).toMatchObject({
-      text: "Wait for the provider",
       attachments: [
         {
           type: "file",
@@ -1227,10 +1363,17 @@ describe("AgentKitAssistantChat host behavior", () => {
         custom: {
           agentNativeDeferredSubmissionId: "pending-provider-submit",
         },
+        agentNativeSkipPendingSelectionContext: true,
       },
     });
+    expect(request?.text).toContain("Initial selection");
+    expect(request?.text).not.toContain("Selection for the next prompt");
     expect(results).toHaveLength(1);
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
+    expect(chatMocks.appState.get("pending-selection-context")).toEqual({
+      text: "Selection for the next prompt",
+      capturedAt: nextCapturedAt,
+    });
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, listener);
   });
 
