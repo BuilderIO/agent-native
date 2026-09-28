@@ -1009,11 +1009,9 @@ function PromptComposerRuntime(props: PromptComposerProps) {
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },
   });
-  const resetKey = [
-    props.draftScope ?? "",
-    props.initialTextKey ?? "",
-    props.initialText ?? "",
-  ].join(":");
+  const resetKey = [props.draftScope ?? "", props.initialTextKey ?? ""].join(
+    ":",
+  );
 
   return (
     <TooltipProvider delayDuration={200}>
