@@ -6747,11 +6747,8 @@ it(
               .borderBottomLeftRadius,
           ]);
           expect(after).not.toBeNull();
-          expect(
-            Math.hypot(after!.x - before.x, after!.y - before.y),
-          ).toBeGreaterThan(1);
-          expect(after!.x).toBeGreaterThan(before.x);
-          expect(after!.y).toBeGreaterThan(before.y);
+          expect(after!.x - before.x).toBeCloseTo(10, 1);
+          expect(after!.y - before.y).toBeCloseTo(10, 1);
           expect(radius).toEqual(["10px", "0px", "0px", "0px"]);
           await page.mouse.up();
           await page.keyboard.up("Alt");
@@ -6935,13 +6932,8 @@ it.each(["polygon", "star"] as const)(
       expect(Number(preview.radius)).toBeGreaterThan(0);
       expect(preview.d).toContain(" A ");
       expect(movedHandleBox).not.toBeNull();
-      expect(
-        Math.hypot(
-          movedHandleBox!.x - handleBox.x,
-          movedHandleBox!.y - handleBox.y,
-        ),
-      ).toBeGreaterThan(1);
-      expect(movedHandleBox!.y).toBeGreaterThan(handleBox.y);
+      expect(movedHandleBox!.x - handleBox.x).toBeCloseTo(move.dx, 1);
+      expect(movedHandleBox!.y - handleBox.y).toBeCloseTo(move.dy, 1);
       await browserPage.mouse.up();
       const messages = await readBridgeMessages(browserPage);
       expect(
