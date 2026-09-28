@@ -227,6 +227,7 @@ export default {
     },
   },
   common: {
+    loading: "Chargement...",
     genericError: "Quelque chose s'est mal passé",
   },
   editPanel: {

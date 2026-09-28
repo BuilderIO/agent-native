@@ -663,7 +663,7 @@ export default function PromptPopover({
       attachmentAdapter={attachmentAdapter}
       inlineTextAttachments={false}
       maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-      disabled={disabled || loading || submitting || checkingProvider}
+      disabled={disabled || loading || submitting}
       submissionDisabled={submissionDisabled}
       submitting={submitting || checkingProvider}
       layoutVariant={inline ? "hero" : undefined}

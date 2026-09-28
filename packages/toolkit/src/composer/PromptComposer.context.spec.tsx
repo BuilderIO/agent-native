@@ -276,7 +276,9 @@ describe("controlled composer context", () => {
         expect(
           container.querySelector('[data-testid="provider-setup"]'),
         ).not.toBeNull();
-        expect(container.querySelector('[contenteditable="true"]')).toBeNull();
+        expect(
+          container.querySelector('[contenteditable="true"]'),
+        ).not.toBeNull();
         const uploadTrigger = container.querySelector<HTMLButtonElement>(
           'button[aria-label="Add context"]',
         )!;
@@ -538,7 +540,7 @@ describe("controlled composer context", () => {
     ).toBe("Keep the editable draft");
   });
 
-  it("keeps chat locked while provider status is unresolved", async () => {
+  it("keeps the draft editable and blocks submission while provider status is unresolved", async () => {
     const composerRef = React.createRef<TiptapComposerHandle>();
     const onSubmit = vi.fn();
     await act(async () =>
@@ -570,11 +572,18 @@ describe("controlled composer context", () => {
       ),
     );
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(container.querySelector('[contenteditable="true"]')).toBeNull();
-    expect(container.querySelector('[role="status"]')).not.toBeNull();
     expect(
-      container.querySelector('[contenteditable="false"]')?.textContent,
-    ).toContain("Keep my draft");
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("Keep my draft");
+    expect(
+      container.querySelector('[role="status"]')?.getAttribute("aria-label"),
+    ).toBe("common.loading");
+    expect(container.textContent).not.toContain("checkingProvider");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )?.disabled,
+    ).toBe(true);
   });
 
   it.each(["click", "enter"])(

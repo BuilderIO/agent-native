@@ -216,6 +216,7 @@ export default {
     },
   },
   common: {
+    loading: "正在加载...",
     genericError: "出了点问题",
   },
   editPanel: {

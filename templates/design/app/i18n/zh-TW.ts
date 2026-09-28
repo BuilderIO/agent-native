@@ -308,6 +308,7 @@ export default {
     },
   },
   common: {
+    loading: "載入中...",
     genericError: "出了點問題",
   },
   editPanel: {

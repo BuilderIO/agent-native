@@ -4729,9 +4729,7 @@ export function TiptapComposer({
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
                     aria-label={
-                      submitting
-                        ? t("agentChat.setup.checkingProvider")
-                        : sendButtonTooltip
+                      submitting ? t("common.loading") : sendButtonTooltip
                     }
                     aria-busy={submitting || undefined}
                     data-agent-composer-slot="send-button"
@@ -4745,9 +4743,7 @@ export function TiptapComposer({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {submitting
-                    ? t("agentChat.setup.checkingProvider")
-                    : sendButtonTooltip}
+                  {submitting ? t("common.loading") : sendButtonTooltip}
                 </TooltipContent>
               </Tooltip>
             )}

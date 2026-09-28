@@ -1871,11 +1871,12 @@ describe("TiptapComposer slash commands", () => {
 
     expect(editor.getAttribute("contenteditable")).toBe("true");
     expect(document.activeElement).toBe(editor);
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      )?.disabled,
-    ).toBe(true);
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-label")).toMatch(/loading/i);
+    expect(sendButton?.getAttribute("aria-label")).not.toMatch(/checking/i);
   });
 
   it("keeps the editor focused after a successful submission", async () => {
