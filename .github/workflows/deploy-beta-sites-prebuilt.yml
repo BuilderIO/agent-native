@@ -113,6 +113,7 @@ jobs:
     name: ${{ matrix.site }} beta prebuilt build
     permissions:
       contents: read
+      pull-requests: read
     needs: [resolve-source, discover-sites]
     strategy:
       fail-fast: false
@@ -183,6 +184,7 @@ jobs:
       needs.confirm-current-source.outputs.current == 'true' }}
     permissions:
       contents: read
+      pull-requests: read
     needs: [resolve-source, discover-sites, build, confirm-current-source]
     strategy:
       fail-fast: false

@@ -101,6 +101,7 @@ jobs:
     if: needs.authorize.result == 'success'
     permissions:
       contents: read
+      pull-requests: read
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: preview
