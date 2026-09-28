@@ -20,13 +20,42 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     });
     return (
       <div data-testid="agent-chat-surface">
-        {props.composerSlot as React.ReactNode}
         {props.homeIntroSlot as React.ReactNode}
+        <div data-testid="chat-composer" />
+        {props.afterComposerSlot as React.ReactNode}
       </div>
     );
   },
   markAgentChatHomeHandoff: vi.fn(),
   sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/toolkit/agentkit", () => ({
+  AgentSuggestionBar: ({
+    suggestions,
+    onSelect,
+  }: {
+    suggestions: Array<{ id: string; label: string; prompt?: string }>;
+    onSelect: (suggestion: {
+      id: string;
+      label: string;
+      prompt?: string;
+    }) => void;
+  }) => (
+    <div data-testid="agent-suggestion-bar">
+      {suggestions.map((suggestion) => (
+        <button
+          key={suggestion.id}
+          type="button"
+          onClick={() => onSelect(suggestion)}
+        >
+          {suggestion.label}
+        </button>
+      ))}
+    </div>
+  ),
+  agentSuggestionPrompt: (suggestion: { prompt?: string; label: string }) =>
+    suggestion.prompt ?? suggestion.label,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -83,6 +112,12 @@ describe("Forms ask page", () => {
       false,
     );
     expect(container.textContent).toContain("What should this form do?");
+    expect(container.textContent).not.toContain(
+      "Build, publish, and analyze forms with an agent.",
+    );
+    expect(
+      container.querySelector("[data-testid='agent-suggestion-bar']"),
+    ).not.toBeNull();
   });
 
   it("prefills the shared composer when a suggestion chip is clicked", () => {
@@ -108,5 +143,8 @@ describe("Forms ask page", () => {
       submit: false,
       chatTarget: "local",
     });
+    expect(
+      container.querySelector("[data-testid='agent-suggestion-bar']"),
+    ).not.toBeNull();
   });
 });

@@ -22,7 +22,7 @@ export function AgentChatHome({
   emptyStateDisplay = "hidden",
   centerComposerWhenEmpty = true,
   composerLayoutVariant = "hero",
-  suggestionPlacement = "context-chips",
+  suggestionPlacement = "after-composer",
   homeIntroSlot,
   afterComposerSlot,
   ...props

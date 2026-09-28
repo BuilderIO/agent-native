@@ -2585,6 +2585,7 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
   }
   const promptSuggestions =
     surface.props.suggestionPlacement !== "context-chips" &&
+    surface.props.suggestionPlacement !== "after-composer" &&
     surface.props.suggestionPlacement !== "hidden" &&
     surface.showSuggestions
       ? surface.suggestions
@@ -3088,6 +3089,12 @@ function AgentKitComposerSurface({
     props.suggestionPlacement === "context-chips" &&
     showSuggestions &&
     suggestions.length > 0;
+  const showAfterComposerSuggestions =
+    props.suggestionPlacement === "after-composer" &&
+    !hasRenderedMessages &&
+    threadRestore.status === "ready" &&
+    showSuggestions &&
+    suggestions.length > 0;
   const showAfterComposerSlot =
     props.afterComposerSlot &&
     !hasRenderedMessages &&
@@ -3138,7 +3145,6 @@ function AgentKitComposerSurface({
           attached
           bouncePulse={setupBouncePulse}
           layout={props.missingApiKeySetupLayout ?? "default"}
-          onRetry={retryProviderStatus}
           onConnected={() =>
             window.dispatchEvent(new Event("agent-engine:configured-changed"))
           }
@@ -3317,6 +3323,14 @@ function AgentKitComposerSurface({
         ) : null}
         <ExternalAgentNudge variant="prompt" />
       </div>
+      {showAfterComposerSuggestions ? (
+        <AgentKitSuggestedPrompts
+          suggestions={suggestions}
+          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          onSelect={submitSuggestion}
+          className="agentkit-home-suggestions"
+        />
+      ) : null}
       {showAfterComposerSlot ? (
         <div className="agentkit-after-composer-slot">
           {props.afterComposerSlot}

@@ -59,7 +59,6 @@ export default function AskRoute() {
       homeIntroSlot={
         <div className="brain-chat-intro">
           <h1>{t("ask.heroTitle")}</h1>
-          <p>{t("ask.heroDescription")}</p>
         </div>
       }
     />

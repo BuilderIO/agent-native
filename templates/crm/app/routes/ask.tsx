@@ -42,7 +42,6 @@ export default function AskCrmRoute() {
       homeIntroSlot={
         <div className="crm-chat-intro">
           <h1>{t("navigation.askCrm")}</h1>
-          <p>{t("chatHome.description")}</p>
         </div>
       }
     />
