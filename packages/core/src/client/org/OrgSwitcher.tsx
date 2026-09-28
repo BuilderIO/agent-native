@@ -154,9 +154,9 @@ export function BuilderCreditNotice({
 
   const quotaLabel =
     builderCreditStatus.data.period === "daily"
-      ? t("agentChat.usage.dailyFreeLimit")
+      ? t("agentChat.usage.dailyDefaultLimit")
       : builderCreditStatus.data.period === "monthly"
-        ? t("agentChat.usage.monthlyPlan")
+        ? t("agentChat.usage.monthlyLimit")
         : null;
   const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
     .filter((label): label is string => label !== null)

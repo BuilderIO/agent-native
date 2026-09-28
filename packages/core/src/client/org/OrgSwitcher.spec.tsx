@@ -442,8 +442,8 @@ describe("OrgSwitcher (account menu)", () => {
   );
 
   it.each([
-    { period: "daily", label: "Free daily limit" },
-    { period: "monthly", label: "Monthly plan" },
+    { period: "daily", label: "Default daily limit" },
+    { period: "monthly", label: "Monthly limit" },
   ] as const)(
     "shows the $period Builder limit with its upgrade link",
     ({ period, label }) => {
