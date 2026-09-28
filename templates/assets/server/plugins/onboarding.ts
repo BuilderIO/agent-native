@@ -17,6 +17,8 @@ import {
 } from "@agent-native/core/onboarding";
 import {
   BuilderCredentialLookupError,
+  GEMINI_API_KEY,
+  resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
@@ -63,8 +65,8 @@ export default async (nitroApp: any): Promise<void> => {
           writeScope: "workspace",
           fields: [
             {
-              key: "GEMINI_API_KEY",
-              label: "GEMINI_API_KEY",
+              key: GEMINI_API_KEY,
+              label: GEMINI_API_KEY,
               placeholder: "AIza...",
               secret: true,
             },
@@ -100,7 +102,7 @@ export default async (nitroApp: any): Promise<void> => {
       }
 
       const manualLookups = await Promise.allSettled([
-        resolveSecret("GEMINI_API_KEY"),
+        resolveGeminiApiKey(),
         resolveSecret("OPENAI_API_KEY"),
       ]);
       if (

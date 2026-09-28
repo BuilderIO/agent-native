@@ -94,7 +94,7 @@ export function ImportDeckButton({
               <Button
                 ref={menuTrigger}
                 type="button"
-                size="sm"
+                size="icon-sm"
                 disabled={busy}
                 aria-busy={busy}
                 aria-label={t(

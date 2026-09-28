@@ -274,6 +274,13 @@ const overrides = {
     emailNotificationsDescription:
       "當有人評論你的文件、在討論串中回覆或提到你時，收到郵件通知。",
     saveFailed: "儲存失敗",
+    notificationsEmail: "電子郵件",
+    commentsRepliesMentions: "評論、回覆和提及",
+    commentsRepliesMentionsDescription:
+      "當有人評論或回覆你的文件，或提到你時。",
+    retry: "重試",
+    mcpAbout:
+      "將 Content 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。該應用程式就能代你在 Content 中工作：搜尋、撰寫和編輯文件。它只能看到你能看到的內容。",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",

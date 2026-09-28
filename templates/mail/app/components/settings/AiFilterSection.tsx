@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {
@@ -23,7 +24,7 @@ import {
 } from "@tabler/icons-react";
 import type { DragEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { AiInboxSetup } from "@/components/onboarding/AiInboxSetup";
@@ -432,8 +433,9 @@ function RuleBackfillStatus({
   );
 }
 
-export function AiFilterSection() {
+export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
   const t = useT();
+  const { hash } = useLocation();
   const navigate = useNavigate();
   const { data: state, isLoading: filterLoading } = useAiFilter();
   const automations = useAutomations();
@@ -522,6 +524,37 @@ export function AiFilterSection() {
       setThresholdDraft(String(Math.round(state.autoFilterThreshold * 100)));
     }
   }, [state?.autoFilterThreshold]);
+
+  const scrolledHash = useRef<string | null>(null);
+  useEffect(() => {
+    const targetId = hash.slice(1);
+    if (
+      scrolledHash.current === hash ||
+      (targetId !== "tags" && targetId !== "importance-rules")
+    ) {
+      return;
+    }
+
+    const scrollToTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target?.getClientRects().length) return false;
+      target.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      scrolledHash.current = hash;
+      return true;
+    };
+
+    if (scrollToTarget()) return;
+
+    const observer = new MutationObserver(() => {
+      if (scrollToTarget()) observer.disconnect();
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [hash]);
 
   const updateAiSettings = (
     next:
@@ -824,20 +857,34 @@ export function AiFilterSection() {
 
   const decisions = latestAiFilterDecisions(state).slice(0, 5);
 
+  const enabledSwitch = (
+    <Switch
+      checked={state.enabled}
+      onCheckedChange={(enabled) => updateAiSettings({ enabled })}
+      aria-label={t("mail.aiFilter.toggle")}
+      disabled={!jevConfigured && !state.enabled}
+    />
+  );
+
   return (
     <>
       <div className="max-w-180 space-y-7 pb-10">
-        <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <h2 className="text-base font-semibold text-foreground">
-            {t("mail.aiFilter.triageTitle")}
-          </h2>
-          <Switch
-            checked={state.enabled}
-            onCheckedChange={(enabled) => updateAiSettings({ enabled })}
-            aria-label={t("mail.aiFilter.toggle")}
-            disabled={!jevConfigured && !state.enabled}
-          />
-        </div>
+        {embedded ? (
+          <SettingsGroup id="ai-filter-settings">
+            <SettingsRow
+              id="ai-filter-enabled"
+              label={t("mail.aiFilter.triageTitle")}
+              control={enabledSwitch}
+            />
+          </SettingsGroup>
+        ) : (
+          <div className="flex items-center justify-between border-b border-border/50 pb-4">
+            <h2 className="text-base font-semibold text-foreground">
+              {t("mail.aiFilter.triageTitle")}
+            </h2>
+            {enabledSwitch}
+          </div>
+        )}
 
         {jevAvailability.isLoading ? (
           <Skeleton className="h-16 w-full" />
@@ -961,9 +1008,26 @@ export function AiFilterSection() {
           <div className="space-y-5">
             {RULE_MODES.map((mode) => {
               const modeRules = rulesByMode[mode];
-              if (mode !== "filtered" && modeRules.length === 0) return null;
+              if (
+                mode !== "filtered" &&
+                mode !== "important" &&
+                mode !== "tag" &&
+                modeRules.length === 0
+              ) {
+                return null;
+              }
+              const anchorId =
+                mode === "tag"
+                  ? "tags"
+                  : mode === "important"
+                    ? "importance-rules"
+                    : undefined;
               return (
-                <section key={mode} className="space-y-2">
+                <section
+                  key={mode}
+                  id={anchorId}
+                  className="scroll-mt-6 space-y-2"
+                >
                   <div className="flex items-center gap-1">
                     <h4 className="text-sm font-semibold text-foreground">
                       {modeLabel(mode)}
@@ -976,6 +1040,7 @@ export function AiFilterSection() {
                         variant="ghost"
                         size="sm"
                         className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                        disabled={!jevConfigured}
                         onClick={() => {
                           setNewRuleMode("filtered");
                           setNewRuleOpen(true);
@@ -985,6 +1050,22 @@ export function AiFilterSection() {
                         {t("mail.aiFilter.newRule")}
                       </Button>
                     )}
+                    {(mode === "important" || mode === "tag") &&
+                      modeRules.length === 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto w-full justify-start rounded-none px-3 py-2.5 text-sm font-medium"
+                          disabled={!jevConfigured}
+                          onClick={() => {
+                            setNewRuleMode(mode);
+                            setNewRuleOpen(true);
+                          }}
+                        >
+                          <IconPlus className="size-4" />
+                          {t("mail.aiFilter.newRule")}
+                        </Button>
+                      )}
                     {modeRules.map((rule) => {
                       const status = recentBackfills.data?.find((run) =>
                         run.perRule.some(
@@ -1172,7 +1253,6 @@ export function AiFilterSection() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8"
             onClick={() => setSetupAgainOpen(true)}
           >
             {t("mail.sort.aiSetupRunAgain")}

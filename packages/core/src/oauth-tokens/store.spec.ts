@@ -130,6 +130,7 @@ const {
   getOAuthTokenSnapshot,
   getOAuthTokenSnapshotForUserOwner,
   getOAuthTokens,
+  listOAuthTokenOwners,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
 } = await import("./store.js");
@@ -151,6 +152,39 @@ describe("oauth token store", () => {
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
     vi.clearAllMocks();
+  });
+
+  it("reads token owners for many accounts in bounded batches", async () => {
+    const accountIds = Array.from({ length: 1_100 }, (_, i) => `acct-${i}`);
+    const original = mockDb.execute.getMockImplementation()!;
+    mockDb.execute.mockImplementation(async (input) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      const args = typeof input === "string" ? [] : (input.args ?? []);
+      execCalls.push({ sql, args });
+      if (
+        /SELECT account_id, owner FROM/i.test(sql) &&
+        args.includes("acct-7")
+      ) {
+        return {
+          rows: [{ account_id: "acct-7", owner: "user:ann@example.com" }],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      listOAuthTokenOwners("mcp", [...accountIds, "acct-7"]),
+    ).resolves.toEqual([
+      { accountId: "acct-7", owner: "user:ann@example.com" },
+    ]);
+
+    const reads = execCalls.filter((call) =>
+      /SELECT account_id, owner FROM/i.test(call.sql),
+    );
+    expect(reads.map((call) => call.args.length - 1)).toEqual([500, 500, 100]);
+    expect(reads.every((call) => call.args[0] === "mcp")).toBe(true);
+    await expect(listOAuthTokenOwners("mcp", [])).resolves.toEqual([]);
+    mockDb.execute.mockImplementation(original);
   });
 
   it("refuses to rebind a Google account owned by a different user", async () => {

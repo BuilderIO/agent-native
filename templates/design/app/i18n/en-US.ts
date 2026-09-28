@@ -173,6 +173,8 @@ export default {
       "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    mcpAbout:
+      "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -181,8 +183,6 @@ export default {
     notFoundDescription: "The page you are looking for does not exist.",
     notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
-    teamCreateOrgDescription:
-      "Set up a team to share designs with your colleagues.",
   },
   onboarding: {
     fileStorage: {

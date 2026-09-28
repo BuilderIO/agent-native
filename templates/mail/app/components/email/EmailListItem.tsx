@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
 import { mailLabelMatches } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -683,7 +684,7 @@ export const EmailListItem = memo(function EmailListItem({
                   {t("mail.aiFilter.notImportantMode")}
                 </button>
                 <Link
-                  to="/settings?section=ai-filter"
+                  to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
                   className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t("mail.sort.priorityEditRules")}

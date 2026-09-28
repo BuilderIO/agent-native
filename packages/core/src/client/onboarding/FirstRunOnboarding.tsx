@@ -17,8 +17,10 @@ import React, {
 } from "react";
 import { useLocation } from "react-router";
 
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import {
   buildSettingsRoute,
+  SETTINGS_PAGE_IDS,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import type {
@@ -31,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -117,16 +120,18 @@ const FIRST_RUN_ROLE_OPTIONS = [
   { value: "other", labelKey: "agentChat.onboarding.roleOther" },
 ] as const;
 
-const BUILDER_MORE_SERVICES = [
-  "Voice input",
-  "Background agents",
-  "Image generation",
-  "Video generation",
-  "Connected agents",
-  "Hosting and deployment",
-  "Browser automation",
-  "Embeddings",
-] as const;
+/**
+ * Where "Skip and configure manually" lands: Agent › Model, whose empty state
+ * adds a provider key in one click, since the agent can't answer until a model
+ * provider is set up. API keys with the redesign off.
+ */
+export function manualSetupSettingsRoute({
+  redesign,
+}: {
+  redesign: boolean;
+}): string {
+  return buildSettingsRoute(redesign ? SETTINGS_PAGE_IDS.model : "keys");
+}
 
 export interface FirstRunOnboardingProps {
   initialFirstRun?: boolean;
@@ -159,6 +164,7 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
@@ -373,9 +379,12 @@ export function FirstRunOnboarding({
     return <OnboardingSkeleton />;
   }
 
+  // Every shared service Builder.io powers, the same list Infrastructure
+  // shows, plus the app's own headline capabilities it covers.
   const builderCapabilities = profile.capabilities.filter(
     (capability) =>
-      capability.builderIncluded && isHeadlineCapability(capability),
+      capability.builderIncluded &&
+      (!!capability.service || isHeadlineCapability(capability)),
   );
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
@@ -431,7 +440,7 @@ export function FirstRunOnboarding({
       null,
       "",
       `${appMountedPath(
-        buildSettingsRoute("keys"),
+        manualSetupSettingsRoute({ redesign: redesign.enabled }),
         pathname || STANDARD_APP_ROUTES.home,
       )}${query ? `?${query}` : ""}`,
     );
@@ -561,7 +570,7 @@ export function FirstRunOnboarding({
                         <span className="flex-1 text-xs text-foreground">
                           {copy.label}
                         </span>
-                        {capability.id === "design-system-intelligence" && (
+                        {capability.builderOnly && (
                           <CapabilityInfoButton
                             why={copy.why}
                             ariaLabel={t(
@@ -576,27 +585,6 @@ export function FirstRunOnboarding({
                       </div>
                     );
                   })}
-                  {BUILDER_MORE_SERVICES.filter(
-                    (service) =>
-                      !builderCapabilities.some(
-                        (capability) =>
-                          getCapabilityCopy(
-                            t,
-                            capability,
-                          ).label.toLowerCase() === service.toLowerCase(),
-                      ),
-                  ).map((service) => (
-                    <div
-                      key={service}
-                      className="flex items-center gap-2 rounded-md px-2 py-1"
-                    >
-                      <IconCheck
-                        className="shrink-0 text-muted-foreground"
-                        size={15}
-                      />
-                      <span className="text-xs text-foreground">{service}</span>
-                    </div>
-                  ))}
                 </div>
                 <div className="flex flex-col gap-2">
                   <button
@@ -973,7 +961,7 @@ type CapabilityTranslator = (
 
 type CapabilityCopy = Pick<
   OnboardingCapability,
-  "id" | "required" | "suggested"
+  "id" | "required" | "suggested" | "builderOnly"
 > & {
   label: string;
   keySummary: string;
@@ -988,6 +976,7 @@ function getCapabilityCopy(
     id: capability.id,
     required: capability.required,
     suggested: capability.suggested,
+    builderOnly: capability.builderOnly,
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
@@ -1037,18 +1026,17 @@ function CapabilityList({
   );
 }
 
-const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
-
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
-    capability.required ||
-    !!capability.suggested ||
-    NO_MANUAL_PATH_CAPABILITY_IDS.has(capability.id)
+    capability.required || !!capability.suggested || !!capability.builderOnly
   );
 }
 
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
-  if (NO_MANUAL_PATH_CAPABILITY_IDS.has(copy.id)) {
+  // Builder-only services have no bring-your-own path, so the manual list
+  // shows them crossed out with no Required/Recommended tag instead of
+  // mislabeling them "Optional".
+  if (copy.builderOnly) {
     return (
       <div className="flex items-center gap-2 rounded-md px-2 py-1">
         <IconX className="shrink-0 text-muted-foreground" size={14} />

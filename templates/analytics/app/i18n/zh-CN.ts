@@ -164,6 +164,9 @@ export default {
     bellSound: "提示音",
     bellSoundDescription: "代理完成运行时播放提示音。默认关闭。",
     bellSoundSaveFailed: "无法保存提示音偏好设置。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "邮件",
+    notificationsSoundGroup: "声音",
     replayStorage: "会话回放存储",
     replayStorageDescription:
       "会话回放录制需要配置文件上传服务商。可连接 Builder.io 使用免费层对象存储，或使用您自己的 S3 兼容存储桶。",
@@ -907,6 +910,7 @@ export default {
     recentSales: "最近销售",
     recentSalesDescription: "你本月完成了 265 笔销售。",
   },
+  analysisResult: { title: "分析结果" },
   routeTitles: {
     notFound: "未找到 - Analytics",
     analysis: "分析 - Analytics",

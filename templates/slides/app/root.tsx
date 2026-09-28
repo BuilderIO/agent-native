@@ -44,6 +44,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";

@@ -358,11 +358,19 @@ describe("AiInboxSetup", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
+    fireEvent.change(
+      await screen.findByRole("textbox", {
+        name: "mail.sort.aiSetupImportantHeadline",
+      }),
+      { target: { value: "Keep project decisions visible" } },
+    );
     fireEvent.click(
       screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+      await screen.findByRole("button", {
+        name: "mail.sort.aiSetupSortInbox",
+      }),
     );
 
     const skipButton = screen.getByRole("button", {
@@ -410,8 +418,10 @@ describe("AiInboxSetup", () => {
     const spamInput = screen.getByRole("textbox", {
       name: "mail.aiFilter.filteredMode",
     }) as HTMLInputElement;
-    expect(archiveInput.value).toBe("mail.sort.aiSetupArchiveExample");
-    expect(spamInput.value).toBe("mail.sort.aiSetupFilteredExample");
+    expect(archiveInput.value).toBe("");
+    expect(archiveInput.placeholder).toBe("mail.sort.aiSetupArchiveExample");
+    expect(spamInput.value).toBe("");
+    expect(spamInput.placeholder).toBe("mail.sort.aiSetupFilteredExample");
     expect(
       screen
         .getAllByRole("switch")
@@ -431,6 +441,9 @@ describe("AiInboxSetup", () => {
       }),
     );
     await waitFor(() => expect(mocks.startBackfill).toHaveBeenCalledOnce());
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
     expect(mocks.createRule).not.toHaveBeenCalledWith(
       expect.objectContaining({
         actions: expect.arrayContaining([{ type: "archive" }]),

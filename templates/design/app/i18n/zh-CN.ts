@@ -164,6 +164,8 @@ export default {
     labsIntro: "这些是全新的不稳定功能，可能存在错误。我们重视你的反馈。",
     labTweaks: "设计微调",
     labTweaksDescription: "试用 AI 设计微调功能。",
+    mcpAbout:
+      "将 Design 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Design 中工作：创建和编辑设计。它只能看到你有权看到的内容。",
   },
   pages: {
     presentEmpty: "没有可演示的内容",
@@ -172,7 +174,6 @@ export default {
     notFoundDescription: "您要查找的页面不存在。",
     notFoundSignIn: "登录",
     notFoundBackToDesigns: "返回设计",
-    teamCreateOrgDescription: "设置团队，与同事共享设计。",
   },
   onboarding: {
     fileStorage: {

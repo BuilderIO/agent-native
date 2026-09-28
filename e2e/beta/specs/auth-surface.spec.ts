@@ -8,6 +8,7 @@ import {
   selectedSites,
 } from "../lib/fleet";
 import { mustRespond, parseJson } from "../lib/http";
+import { SETTINGS_NESTED_ROUTE } from "../lib/settings";
 import { installBetaE2ETrafficMarker } from "../lib/test-traffic";
 
 const sites = selectedSites();
@@ -25,7 +26,11 @@ for (const site of sites) {
     test("carries a continuation for the route the visitor asked for", async ({
       page,
     }) => {
-      const target = "/settings/general";
+      // Landing on the app root after signing in — instead of the page you
+      // asked for — is the return-path regression this catches. A nested
+      // Settings route (`/settings/:page/:sub`) is the deepest shape the
+      // redesign links to, so both segments have to survive the round trip.
+      const target = SETTINGS_NESTED_ROUTE;
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",
       });

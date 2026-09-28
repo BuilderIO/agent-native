@@ -48,6 +48,9 @@ jobs:
       - name: Test change scope classifier
         run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts scripts/ci-build-workspaces.test.ts
 
+      - name: Test fast-test lane planner
+        run: node --experimental-strip-types --test scripts/ci-test-lanes.test.ts
+
       - name: Classify changed paths
         id: scope
         env:

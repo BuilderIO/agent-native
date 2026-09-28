@@ -250,7 +250,8 @@ export default defineAction({
     const readiness = await readSourceEmbeddingReadiness(args.sourceId);
     if (!args.dryRun && !readiness.ready) {
       throw new Error(
-        readiness.warning ?? "Configure Builder embeddings before backfilling.",
+        readiness.warning ??
+          "Set up an embeddings provider before backfilling.",
       );
     }
 

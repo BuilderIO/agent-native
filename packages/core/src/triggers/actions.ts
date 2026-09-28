@@ -1,3 +1,7 @@
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -13,6 +17,7 @@ import {
   listRemoteDevicesForOwner,
 } from "../integrations/remote-devices-store.js";
 import { describeCron, effectiveTimezone } from "../jobs/cron.js";
+import { parseJobResource } from "../jobs/frontmatter.js";
 import { queueAutomationRunNow } from "../jobs/run-now.js";
 import {
   getIntegrationRequestContext,
@@ -217,6 +222,11 @@ async function handleDefine(
     return JSON.stringify({
       created: true,
       name: definition.name,
+      change: {
+        verb: "created",
+        kind: "automation",
+        title: definition.name.slice(0, 180),
+      },
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       event: definition.meta.event ?? null,
@@ -307,9 +317,40 @@ async function handleUpdate(
       },
     );
     await refreshEventSubscriptions();
+    const previous = parseJobResource(definition.resource.content);
+    const changed =
+      definition.body !== previous.body ||
+      definition.meta.enabled !== previous.meta.enabled ||
+      definition.meta.schedule !== previous.meta.schedule ||
+      definition.meta.timezone !== previous.meta.timezone ||
+      definition.meta.condition !== previous.meta.condition ||
+      definition.meta.delegatedPolicyId !== previous.meta.delegatedPolicyId ||
+      definition.meta.model !== previous.meta.model ||
+      definition.meta.reasoningEffort !== previous.meta.reasoningEffort ||
+      definition.meta.executionHostId !== previous.meta.executionHostId ||
+      definition.meta.executionEngine !== previous.meta.executionEngine ||
+      definition.meta.executionCwd !== previous.meta.executionCwd ||
+      JSON.stringify(definition.meta.mcpTools ?? []) !==
+        JSON.stringify(previous.meta.mcpTools ?? []) ||
+      definition.meta.orgId !== previous.meta.orgId ||
+      definition.meta.runAs !== previous.meta.runAs;
     return JSON.stringify({
       updated: true,
       name: definition.name,
+      ...(changed
+        ? {
+            change: {
+              verb:
+                definition.meta.enabled !== previous.meta.enabled
+                  ? definition.meta.enabled
+                    ? "enabled"
+                    : "disabled"
+                  : "updated",
+              kind: "automation",
+              title: definition.name.slice(0, 180),
+            },
+          }
+        : {}),
       scope: definition.scope,
       triggerType: definition.meta.triggerType,
       enabled: definition.meta.enabled,
@@ -349,7 +390,15 @@ async function handleDelete(
       name,
     );
     await refreshEventSubscriptions();
-    return JSON.stringify({ deleted: true, name });
+    return JSON.stringify({
+      deleted: true,
+      name,
+      change: {
+        verb: "deleted",
+        kind: "automation",
+        title: name.slice(0, 180),
+      },
+    });
   } catch (error) {
     return `Error: ${(error as Error).message}`;
   }
@@ -418,6 +467,48 @@ export function createAutomationToolEntries(
 ): Record<string, ActionEntry> {
   return {
     "manage-automations": {
+      chatUI: {
+        renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+        when: (args, result) => {
+          if (
+            (args.action !== "define" &&
+              args.action !== "update" &&
+              args.action !== "delete") ||
+            typeof result !== "string"
+          ) {
+            return false;
+          }
+          try {
+            const value = JSON.parse(result) as Record<string, unknown>;
+            const change = normalizeActionChangeResult(value)?.change;
+            return (
+              (args.action === "define" &&
+                value.created === true &&
+                change?.verb === "created") ||
+              (args.action === "update" &&
+                value.updated === true &&
+                (change?.verb === "updated" ||
+                  change?.verb === "enabled" ||
+                  change?.verb === "disabled")) ||
+              (args.action === "delete" &&
+                value.deleted === true &&
+                change?.verb === "deleted")
+            );
+          } catch {
+            // coercion-ok: non-JSON automation errors remain ordinary tool rows.
+            return false;
+          }
+        },
+        projectResult: (_args, result) => {
+          if (typeof result !== "string") return null;
+          try {
+            return normalizeActionChangeResult(JSON.parse(result));
+          } catch {
+            // coercion-ok: malformed projections omit only the optional widget.
+            return null;
+          }
+        },
+      },
       tool: {
         description: `Manage automations (scheduled, event-triggered, and webhook-triggered tasks). Use the "action" parameter to choose an operation:
 

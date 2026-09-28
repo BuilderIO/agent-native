@@ -532,6 +532,13 @@ describe("manage-draft create-then-reply flow", () => {
 
     expect(updated.id).toBe(created.id);
     expect(updated.draft.body).toContain("Quick follow-up");
-    expect(updated).not.toHaveProperty("change");
+    expect(updated.change).toEqual({
+      verb: "updated",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
+    expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
   });
 });

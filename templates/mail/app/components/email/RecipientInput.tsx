@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { Alias } from "@shared/types";
 import {
   IconX,
@@ -163,7 +164,9 @@ function AliasPopover({
   }, [anchorEl, onClose]);
 
   const handleEdit = () => {
-    void navigate(`/settings?alias=${alias.id}`);
+    void navigate(
+      `${mailSettingsRoute("aliases")}?alias=${encodeURIComponent(alias.id)}`,
+    );
     onClose();
   };
 

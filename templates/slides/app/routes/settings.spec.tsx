@@ -94,13 +94,13 @@ vi.mock("@agent-native/toolkit/app-shell", () => ({
 }));
 
 vi.mock("@shared/labs", () => ({ SLIDES_LABS: [] }));
-vi.mock("@/components/ui/switch", () => ({ Switch: () => null }));
-vi.mock("@/hooks/use-slides-prefs", () => ({
-  useSlidesPrefs: () => ({
-    prefs: { emailNotifications: true },
-    loading: false,
-    save: vi.fn(),
-  }),
+vi.mock("@/components/settings/notification-settings", () => ({
+  COMMENT_EMAILS_ROW_ID: "comments-and-replies",
+  LegacyEmailNotificationsRow: () => null,
+  NotificationSettings: () => null,
+}));
+vi.mock("@/hooks/use-settings-redesign", () => ({
+  useSettingsRedesign: () => ({ status: "ready", enabled: false }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 

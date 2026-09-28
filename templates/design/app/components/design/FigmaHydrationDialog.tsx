@@ -184,6 +184,7 @@ export function FigmaHydrationDialog({
               ) : null}
             </div>
             <Input
+              size="sm"
               id="figma-hydration-token"
               type="password"
               value={token}
@@ -191,7 +192,7 @@ export function FigmaHydrationDialog({
               placeholder={t("designEditor.import.figmaTokenPlaceholder")}
               autoComplete="new-password"
               aria-invalid={error ? true : undefined}
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={busy}
             />
             {error ? (

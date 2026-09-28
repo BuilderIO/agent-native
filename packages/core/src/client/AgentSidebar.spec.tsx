@@ -20,6 +20,7 @@ vi.mock("./agent-sidebar-url-sync.js", () => ({
   ScreenRefreshBoundary: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  SettingsReturnPathRecorder: () => null,
   URLSync: () => <div data-testid="agent-sidebar-url-sync" />,
 }));
 vi.mock("./app-chat-sidebar.js", () => ({

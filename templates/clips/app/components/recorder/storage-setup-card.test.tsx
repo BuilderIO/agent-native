@@ -9,6 +9,11 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   retry: vi.fn(() => true),
   useBuilderConnectFlow: vi.fn(),
+  storageSetupHref: "/settings/general#video-storage" as string | null,
+}));
+
+vi.mock("@/components/settings/settings-links", () => ({
+  useStorageSetupHref: () => mocks.storageSetupHref,
 }));
 
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -64,6 +69,7 @@ describe("StorageSetupCard", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.start.mockReset();
+    mocks.storageSetupHref = "/settings/general#video-storage";
     mocks.cancel.mockReset();
     mocks.retry.mockReset().mockReturnValue(true);
     mocks.useBuilderConnectFlow.mockReset().mockReturnValue({
@@ -405,5 +411,26 @@ describe("StorageSetupCard", () => {
 
     expect(container.textContent).toContain("storageSetup.builderTimeout");
     expect(container.querySelector("button[disabled]")).toBeNull();
+  });
+
+  it("links owners and admins to storage setup", () => {
+    mocks.storageSetupHref = "/settings/infra#uploads";
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(
+      container.querySelector('a[href="/settings/infra#uploads"]'),
+    ).not.toBeNull();
+  });
+
+  it("asks members to find an owner or admin when they can't set up storage", () => {
+    mocks.storageSetupHref = null;
+    act(() => {
+      root.render(<StorageSetupCard onConfigured={vi.fn()} />);
+    });
+
+    expect(container.textContent).not.toContain("storageSetup.configureS3");
+    expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
   });
 });

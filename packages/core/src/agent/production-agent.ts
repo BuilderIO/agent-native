@@ -62,6 +62,10 @@ import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { isObjectOnly } from "../mcp/tool-input-schema.js";
+import {
+  describeSettingsViewForAgent,
+  SETTINGS_VIEW_STATE_KEY,
+} from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
 import {
   completeRun as completeProgressRun,
@@ -92,6 +96,12 @@ import {
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
+  isPersonalProviderKeyUseRestricted,
+  isPersonalProviderPolicyKey,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+  PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+} from "../server/personal-provider-key-policy.js";
+import {
   assertRequestActionSurfaceIsolation,
   getRequestRunContext,
   ensureRequestRunContext,
@@ -100,6 +110,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
@@ -214,6 +225,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
+import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -511,38 +523,56 @@ async function getOwnerApiKeyDetailed(
   const secretKey =
     PROVIDER_TO_ENV[provider] ?? `${provider.toUpperCase()}_API_KEY`;
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const orgId = getRequestOrgId();
+  // Restricted members keep their stored keys, but none of the personal rows
+  // below (user, solo workspace, legacy settings) may answer. Unknown is a
+  // failed lookup, never "not restricted". Keys outside the policy (Jev) are
+  // never gated, so their lookup must not depend on the policy read either.
+  let personalRestricted = false;
+  try {
+    personalRestricted =
+      isPersonalProviderPolicyKey(secretKey) &&
+      (await isPersonalProviderKeyUseRestricted(
+        orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
+      ));
+  } catch {
+    lookupFailed = true;
+    reportLookupFailure();
+    return undefined;
+  }
   try {
     const { readAppSecret } = await import("../secrets/storage.js");
     const refs: Array<{
       scope: "user" | "org" | "workspace";
       scopeId: string;
-    }> = [{ scope: "user", scopeId: ownerEmail }];
-    const orgId = getRequestOrgId();
+    }> = personalRestricted ? [] : [{ scope: "user", scopeId: ownerEmail }];
     if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
         { scope: "workspace", scopeId: orgId },
       );
-    } else if (!syntheticTraffic) {
+    } else if (!syntheticTraffic && !personalRestricted) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
     for (const ref of refs) {
-      const fromSecrets = await readAppSecret({
-        key: secretKey,
-        scope: ref.scope,
-        scopeId: ref.scopeId,
-      });
-      if (
-        fromSecrets?.value &&
-        !(await getProviderCredentialAuthFailure({
-          key: secretKey,
-          value: fromSecrets.value,
-        }))
-      ) {
-        return {
-          apiKey: fromSecrets.value,
-          credentialProvenance: ref,
-        };
+      for (const storedKey of secretKeyNames(secretKey)) {
+        const fromSecrets = await readAppSecret({
+          key: storedKey,
+          scope: ref.scope,
+          scopeId: ref.scopeId,
+        });
+        if (
+          fromSecrets?.value &&
+          !(await getProviderCredentialAuthFailure({
+            key: secretKey,
+            value: fromSecrets.value,
+          }))
+        ) {
+          return {
+            apiKey: fromSecrets.value,
+            credentialProvenance: ref,
+          };
+        }
       }
     }
   } catch {
@@ -552,7 +582,7 @@ async function getOwnerApiKeyDetailed(
       return undefined;
     }
   }
-  if (syntheticTraffic) {
+  if (syntheticTraffic || personalRestricted) {
     reportLookupFailure();
     return undefined;
   }
@@ -766,8 +796,12 @@ export async function getOwnerActiveApiKey(
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const engineSetting = await getSetting("agent-engine");
+    const { readDefaultAgentEngineSetting } =
+      await import("./default-agent-engine.js");
+    const engineSetting = await readDefaultAgentEngineSetting({
+      userEmail: ownerEmail ?? getRequestUserEmail(),
+      orgId: getRequestOrgId(),
+    });
     const activeEngine =
       (engineSetting?.engine as string | undefined) ?? "anthropic";
     return (await getOwnerApiKeyForEngine(activeEngine, ownerEmail)).apiKey;
@@ -849,6 +883,44 @@ export async function resolveOwnerEngineApiKey(input: {
         credentialProvenance: { scope: "deployment" },
       }
     : NO_OWNER_API_KEY;
+}
+
+/**
+ * The error a chat turn answers with when no model credential is usable. A
+ * member whose org restricts personal API keys can't fix that by adding a key,
+ * so they get the restriction instead of the connect-a-provider prompt.
+ */
+export async function missingCredentialsChatError(input: {
+  ownerEmail: string | null | undefined;
+  visitorFacing: boolean;
+}): Promise<{
+  type: "error";
+  error: string;
+  errorCode: string;
+  recoverable?: false;
+}> {
+  let restricted = false;
+  if (!input.visitorFacing && input.ownerEmail) {
+    const lookup = isPersonalProviderKeyUseRestricted({
+      email: input.ownerEmail,
+    });
+    // coercion-ok: the turn has already failed; an unreadable policy keeps the generic copy.
+    restricted = await lookup.catch(() => false);
+  }
+  return restricted
+    ? {
+        type: "error",
+        error: PERSONAL_PROVIDER_KEYS_RESTRICTED_MESSAGE,
+        errorCode: PERSONAL_PROVIDER_KEYS_RESTRICTED_ERROR_CODE,
+        recoverable: false,
+      }
+    : {
+        type: "error",
+        error: formatLlmCredentialErrorMessage({
+          visitorFacing: input.visitorFacing,
+        }),
+        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+      };
 }
 
 /** @deprecated Use getOwnerApiKey("anthropic", ownerEmail) instead */
@@ -1152,6 +1224,7 @@ const PLAN_MODE_BLOCKED_READONLY_TOOLS = new Set([
   "refresh-screen",
   "set-search-params",
   "set-url-path",
+  "open-settings-page",
 ]);
 
 const SOURCE_SWEEP_AGENT_TEAM_ALLOWED_ACTIONS = [
@@ -8490,7 +8563,14 @@ export function createProductionAgentHandler(
       storedModel,
       defaultModel: engine.defaultModel,
     });
-    const modelCandidate = modelSelection.model;
+    // Only the engine default yields to the provider's checked models. A model
+    // the request or a stored default names still runs after it is unchecked,
+    // so chats already on it keep working.
+    const modelCandidate =
+      modelSelection.source === "default"
+        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
+          modelSelection.model)
+        : modelSelection.model;
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     let effectiveModel = model;
@@ -8545,18 +8625,15 @@ export function createProductionAgentHandler(
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
       const encoder = new TextEncoder();
-      const missingCredentialsError = formatLlmCredentialErrorMessage({
+      const missingCredentialsEvent = await missingCredentialsChatError({
+        ownerEmail,
         visitorFacing: isBuilderGatewayDeployConfigured(),
       });
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({
-                type: "error",
-                error: missingCredentialsError,
-                errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-              })}\n\n`,
+              `data: ${JSON.stringify(missingCredentialsEvent)}\n\n`,
             ),
           );
           controller.close();
@@ -8679,6 +8756,17 @@ export function createProductionAgentHandler(
               for (const [k, v] of Object.entries(url.searchParams)) {
                 lines.push(`  ${k}: ${v}`);
               }
+            }
+            // The Settings shell names the page it resolved, which a legacy
+            // or mounted pathname doesn't say directly.
+            if (url.pathname?.includes("/settings")) {
+              const settingsPage = describeSettingsViewForAgent(
+                await readAppStateForBrowserTab(
+                  SETTINGS_VIEW_STATE_KEY,
+                  requestBrowserTabId,
+                ),
+              );
+              if (settingsPage) lines.push(settingsPage);
             }
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }

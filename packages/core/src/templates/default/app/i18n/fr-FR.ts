@@ -232,6 +232,9 @@ const messages = {
       noErrorMessage: "(aucun message d’erreur)",
     },
   },
+  settingsShortcut: {
+    command: "Paramètres",
+  },
   agentPanel: {
     useBuilder: "Utiliser le générateur",
     openDesktopToEditCode: "Ouvrir le bureau pour modifier le code",
@@ -247,6 +250,7 @@ const messages = {
     newChat: "Nouveau chat",
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
+    integrations: "Intégrations",
     collapseSidebar: "Réduire la barre latérale",
     widenChat: "Élargir le chat",
     returnChatToLayout: "Remettre le chat dans la mise en page",
@@ -272,6 +276,8 @@ const messages = {
     sharedKeyInEffect: "Une clé partagée est utilisée.",
     useOrganizationKey: "Utiliser la clé de l’organisation",
     keyStatusUnavailable: "L’état de la clé est indisponible.",
+    saveScopeRoleUnavailable:
+      "Impossible de charger votre rôle dans l’organisation. Les clés ne peuvent pas encore être enregistrées.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',

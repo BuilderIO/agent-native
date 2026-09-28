@@ -444,7 +444,7 @@ describe("owner access", () => {
             resourceId: planId,
             visibility: "org",
           }),
-        ).resolves.toEqual({ ok: true, visibility: "org" });
+        ).resolves.toMatchObject({ ok: true, visibility: "org" });
       });
 
       row = await rawPlan(planId);
