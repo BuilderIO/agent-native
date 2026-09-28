@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   registerEvent: vi.fn(),
   registerRecurringSweepHandler: vi.fn(),
   startIntervalJob: vi.fn(),
-  listOAuthAccounts: vi.fn(),
+  getOAuthTokens: vi.fn(),
   processMailAiFilterBackfills: vi.fn(),
   purgeExpiredMailAiFilterBackfills: vi.fn(),
   purgeExpiredMailAiFilterRuleUndoSnapshots: vi.fn(),
@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   sendScheduledEmail: vi.fn(),
   shouldResurfaceSnoozedThread: vi.fn(),
   getSnoozeThreadId: vi.fn(),
-  ensureSyncAccountRow: vi.fn(),
   getDb: vi.fn(),
 }));
 
@@ -37,7 +36,7 @@ vi.mock("@agent-native/core/event-bus", () => ({
   registerEvent: mocks.registerEvent,
 }));
 vi.mock("@agent-native/core/oauth-tokens", () => ({
-  listOAuthAccounts: mocks.listOAuthAccounts,
+  getOAuthTokens: mocks.getOAuthTokens,
 }));
 vi.mock("@agent-native/core/server", () => ({
   isInBackgroundFunctionRuntime: mocks.isInBackgroundFunctionRuntime,
@@ -63,9 +62,6 @@ vi.mock("../lib/google-auth.js", () => ({
   getClientFromAccount: mocks.getClientFromAccount,
   startWatch: mocks.startWatch,
 }));
-vi.mock("../lib/inbox-store.js", () => ({
-  ensureSyncAccountRow: mocks.ensureSyncAccountRow,
-}));
 vi.mock("../lib/jobs.js", () => ({
   getDuePendingJobs: mocks.getDuePendingJobs,
   getSnoozeThreadId: mocks.getSnoozeThreadId,
@@ -77,7 +73,7 @@ vi.mock("../lib/jobs.js", () => ({
   shouldResurfaceSnoozedThread: mocks.shouldResurfaceSnoozedThread,
 }));
 
-type SweepContext = { deadlineAt: number };
+type SweepContext = { deadlineAt: number; signal?: AbortSignal };
 const sweepHandlers = new Map<
   string,
   (context: SweepContext) => Promise<void>
@@ -101,7 +97,7 @@ describe("Mail background job scheduling", () => {
       sweepHandlers.set(id, handler);
       return () => sweepHandlers.delete(id);
     }) as any);
-    mocks.listOAuthAccounts.mockResolvedValue([]);
+    mocks.getOAuthTokens.mockResolvedValue({ access_token: "fake-token" });
     mocks.processMailAiFilterBackfills.mockResolvedValue(undefined);
     mocks.purgeExpiredMailAiFilterBackfills.mockResolvedValue(undefined);
     mocks.purgeExpiredMailAiFilterRuleUndoSnapshots.mockResolvedValue(
@@ -129,6 +125,7 @@ describe("Mail background job scheduling", () => {
   });
 
   it("runs every durable step despite failures and reports one aggregate failure", async () => {
+    vi.stubEnv("GMAIL_WATCH_TOPIC", "");
     mocks.purgeExpiredMailAiFilterRuleUndoSnapshots.mockRejectedValueOnce(
       new Error("undo cleanup failed"),
     );
@@ -138,12 +135,35 @@ describe("Mail background job scheduling", () => {
     mocks.getDuePendingJobs.mockRejectedValueOnce(
       new Error("scheduled jobs failed"),
     );
-    mocks.listOAuthAccounts.mockRejectedValueOnce(
-      new Error("automation account listing failed"),
+    mocks.getDb.mockImplementation(
+      () =>
+        ({
+          select: () => ({
+            from: () => ({
+              orderBy: () => ({
+                limit: async (limit: number) =>
+                  [
+                    {
+                      id: "alice@example.com:mailbox@example.com",
+                      ownerEmail: "alice@example.com",
+                      accountEmail: "mailbox@example.com",
+                    },
+                  ].slice(0, limit),
+              }),
+            }),
+          }),
+          update: () => ({
+            set: () => ({
+              where: () => ({
+                returning: async () => [
+                  { id: "alice@example.com:mailbox@example.com" },
+                ],
+              }),
+            }),
+          }),
+        }) as any,
     );
-    mocks.listOAuthAccounts.mockRejectedValueOnce(
-      new Error("watch account listing failed"),
-    );
+    mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
 
     const plugin = await loadMailJobsPlugin();
     plugin();
@@ -157,7 +177,7 @@ describe("Mail background job scheduling", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).name).toBe("AggregateError");
-    expect((error as Error & { errors: unknown[] }).errors).toHaveLength(5);
+    expect((error as Error & { errors: unknown[] }).errors).toHaveLength(3);
     expect(
       mocks.purgeExpiredMailAiFilterRuleUndoSnapshots,
     ).toHaveBeenCalledOnce();
@@ -167,7 +187,7 @@ describe("Mail background job scheduling", () => {
       expect.any(Number),
       20,
     );
-    expect(mocks.listOAuthAccounts).toHaveBeenCalledTimes(2);
+    expect(mocks.processAutomationsForAccount).toHaveBeenCalledOnce();
   });
 
   it("renews each Gmail watch once per six-hour DB-backed window", async () => {
@@ -176,15 +196,24 @@ describe("Mail background job scheduling", () => {
       claimId: string | null;
       claimedAt: number | null;
     } = { lastRenewedAt: null, claimId: null, claimedAt: null };
-    mocks.listOAuthAccounts.mockResolvedValue([
-      { accountId: "account-1", owner: "alice@example.com" },
-    ]);
-    mocks.ensureSyncAccountRow.mockResolvedValue({ id: "account-row" });
     mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
     mocks.startWatch.mockResolvedValue(true);
     mocks.getDb.mockImplementation(
       () =>
         ({
+          select: () => ({
+            from: () => ({
+              orderBy: () => ({
+                limit: async () => [
+                  {
+                    id: "account-row",
+                    ownerEmail: "alice@example.com",
+                    accountEmail: "account-1",
+                  },
+                ],
+              }),
+            }),
+          }),
           update: () => ({
             set: (changes: Record<string, unknown>) => ({
               where: () => ({
@@ -252,30 +281,27 @@ describe("Mail background job scheduling", () => {
   it("rotates automation accounts by DB-backed attempt time across sweeps", async () => {
     vi.stubEnv("GMAIL_WATCH_TOPIC", "");
     const accounts = Array.from({ length: 6 }, (_, index) => ({
-      accountId: `account-${index}`,
-      owner: `owner${index}@example.com`,
-      tokens: { access_token: "fake-token" },
+      id: `owner${index}@example.com:account-${index}`,
+      ownerEmail: `owner${index}@example.com`,
+      accountEmail: `account-${index}`,
     }));
-    const attemptRows = [
-      [],
-      accounts.slice(0, 5).map((account) => ({
-        id: `${account.owner}:${account.accountId}`,
-        attemptedAt: 1,
-      })),
-    ];
-    mocks.listOAuthAccounts.mockResolvedValue(accounts);
-    mocks.ensureSyncAccountRow.mockImplementation(
-      async (owner: string, accountId: string) => ({
-        id: `${owner}:${accountId}`,
-      }),
-    );
     mocks.getClientFromAccount.mockResolvedValue({ accessToken: "fake-token" });
+    const candidateBatches = [
+      accounts.slice(0, 5),
+      [accounts[5]!, ...accounts.slice(0, 4)],
+    ];
+    const requestedLimits: number[] = [];
     mocks.getDb.mockImplementation(
       () =>
         ({
           select: () => ({
             from: () => ({
-              where: async () => attemptRows.shift() ?? [],
+              orderBy: () => ({
+                limit: async (limit: number) => {
+                  requestedLimits.push(limit);
+                  return (candidateBatches.shift() ?? []).slice(0, limit);
+                },
+              }),
             }),
           }),
           update: () => ({
@@ -309,6 +335,8 @@ describe("Mail background job scheduling", () => {
       "account-2",
       "account-3",
     ]);
+    expect(requestedLimits).toEqual([5, 5]);
+    expect(mocks.getOAuthTokens).toHaveBeenCalledTimes(10);
   });
 
   it("keeps the opt-in in-process loops for local development", async () => {

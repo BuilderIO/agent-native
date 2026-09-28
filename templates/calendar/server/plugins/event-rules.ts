@@ -8,6 +8,7 @@ import {
   requestJevThroughBuilder,
   runWithRequestContext,
   scheduledTriggerAvailability,
+  type RecurringSweepContext,
   type JevResponse,
 } from "@agent-native/core/server";
 import { startIntervalJob } from "@agent-native/core/server/interval-job";
@@ -628,7 +629,8 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
   }
 }
 
-const runRegisteredCalendarEventRules = () => runCalendarEventRulesOnce();
+const runRegisteredCalendarEventRules = (context: RecurringSweepContext) =>
+  runCalendarEventRulesOnce(context.signal);
 let unregisterRecurringSweepHandler: (() => void) | undefined;
 
 export default function registerCalendarEventRules() {
