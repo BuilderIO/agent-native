@@ -109,6 +109,17 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).not.toContain("labelThreadCounts");
   });
 
+  it("scopes mailbox actions to the active search and label", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      `const { data: currentViewEmails = [] } = useEmails(
+    isMailboxView ? view : "inbox",
+    activeSearchQuery ?? undefined,
+    activeLabel ?? undefined,`,
+    );
+  });
+
   it("keeps Mail navigation in a hamburger-controlled drawer", () => {
     const source = appLayoutSource();
 

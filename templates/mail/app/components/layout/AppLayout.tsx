@@ -809,8 +809,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   ].includes(view);
   const { data: currentViewEmails = [] } = useEmails(
     isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
+    activeSearchQuery ?? undefined,
+    activeLabel ?? undefined,
     { enabled: isMailboxView },
   );
   const reportSpam = useReportSpam();

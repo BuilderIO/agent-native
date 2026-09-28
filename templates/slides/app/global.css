@@ -49,6 +49,15 @@
   .slides-home-toolbar .slides-home-import-label {
     display: none;
   }
+
+  .slides-home-toolbar .slides-home-import-button {
+    width: 2rem;
+    padding-inline: 0;
+  }
+
+  .slides-home-toolbar .slides-home-import-chevron {
+    display: none;
+  }
 }
 
 @container (max-width: 32rem) {
