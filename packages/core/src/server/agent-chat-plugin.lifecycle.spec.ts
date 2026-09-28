@@ -31,6 +31,7 @@ vi.mock("../settings/store.js", () => ({
   getAllSettings: vi.fn(async () => ({})),
   getSetting: vi.fn(async () => null),
   getSettingsEmitter: () => lifecycle.settingsEmitter,
+  listSettingsByKeySegments: vi.fn(async () => []),
   putSetting: vi.fn(async () => {}),
 }));
 
