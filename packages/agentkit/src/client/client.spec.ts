@@ -335,6 +335,107 @@ describe("AgentKitClient", () => {
     await run.completed;
   });
 
+  it("waits for a terminal snapshot write before refreshing completed messages", async () => {
+    const timestamp = "2026-08-29T00:00:00.000Z";
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Follow up",
+      createdAt: timestamp,
+    };
+    const previousMessage: AgentMessage = {
+      id: "assistant-before",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "Earlier reply." }],
+    };
+    const initialSnapshot: AgentThreadSnapshot = {
+      id: "thread-1",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messages: [previousMessage],
+      queuedMessages: [queued],
+    };
+    let persistedSnapshot = initialSnapshot;
+    let snapshotReads = 0;
+    const snapshotWriteStarted = Promise.withResolvers<void>();
+    const finishSnapshotWrite = Promise.withResolvers<void>();
+    const promoted = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        yield {
+          ...protocolEvent(2, {
+            type: "message.created",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              parts: [],
+              status: "streaming",
+            },
+          }),
+          runId,
+        };
+        yield {
+          ...protocolEvent(3, {
+            type: "message.delta",
+            messageId: "assistant-1",
+            text: "Queued reply.",
+          }),
+          runId,
+        };
+        yield {
+          ...protocolEvent(4, {
+            type: "message.completed",
+            message: {
+              id: "assistant-1",
+              role: "assistant",
+              parts: [{ type: "text", text: "Queued reply." }],
+              status: "complete",
+            },
+          }),
+          runId,
+        };
+        yield { ...protocolEvent(5, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot() {
+        snapshotReads += 1;
+        return persistedSnapshot;
+      },
+      async persistThreadSnapshot({ snapshot }) {
+        snapshotWriteStarted.resolve();
+        await finishSnapshotWrite.promise;
+        persistedSnapshot = snapshot;
+      },
+      steerQueuedMessage: promoted,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await snapshotWriteStarted.promise;
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    expect(snapshotReads).toBe(1);
+
+    finishSnapshotWrite.resolve();
+    await run.completed;
+
+    expect(snapshotReads).toBe(2);
+    expect(client.getThread("thread-1").messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "assistant-1",
+          parts: [{ type: "text", text: "Queued reply." }],
+        }),
+      ]),
+    );
+  });
+
   it("keeps a missing durable thread as an empty new-chat projection", async () => {
     const getThreadSnapshot = vi.fn(async () => null);
     const getThread = vi.fn(async () => {

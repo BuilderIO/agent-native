@@ -1842,14 +1842,15 @@ export class AgentKitClient implements AgentKitController {
           }
           this.setConnection("connected");
           const snapshotPersistence = this.persistThreadSnapshot(threadId);
-          if (
+          const completed =
             terminalEvent.type === "run.completed" ||
             (terminalEvent.type === "run.status" &&
-              terminalEvent.status === "completed")
-          ) {
-            const queuedWorkKnown =
-              this.getThread(threadId).queuedMessages.length > 0;
-            if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+              terminalEvent.status === "completed");
+          const queuedWorkKnown =
+            completed && this.getThread(threadId).queuedMessages.length > 0;
+          if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+          const persistenceError = await snapshotPersistence;
+          if (completed) {
             const shouldRefreshProjection =
               !this.threadLoads.has(threadId) &&
               (this.transport.getThreadSnapshot || this.transport.getThread);
@@ -1862,7 +1863,6 @@ export class AgentKitClient implements AgentKitController {
             }
             if (!queuedWorkKnown) this.scheduleQueuePromotion(threadId);
           }
-          const persistenceError = await snapshotPersistence;
           if (persistenceError) {
             this.fail(persistenceError.error, "thread_snapshot_persist_failed");
           }

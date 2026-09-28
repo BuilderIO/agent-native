@@ -1406,6 +1406,7 @@ interface LoopbackProviderState {
   markdownChunks: number;
   markdownPartialReady: boolean;
   releaseMarkdownPartial: (() => void) | null;
+  releaseIncompleteStream: (() => void) | null;
   queuedPromptSeen: boolean;
   rejectedSteerPromptSeen: boolean;
   suggestionPromptSeen: boolean;
@@ -1575,7 +1576,10 @@ async function handleLoopbackCompletion(
           content: "**This partial response must not survive retry",
         }),
       );
-      await sleep(1_000);
+      await new Promise<void>((resolve) => {
+        state.releaseIncompleteStream = resolve;
+      });
+      state.releaseIncompleteStream = null;
       response.destroy(new Error("Deterministic incomplete provider stream"));
       return;
     }
@@ -1783,6 +1787,7 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
     markdownChunks: 0,
     markdownPartialReady: false,
     releaseMarkdownPartial: null,
+    releaseIncompleteStream: null,
     queuedPromptSeen: false,
     rejectedSteerPromptSeen: false,
     suggestionPromptSeen: false,
@@ -1828,16 +1833,29 @@ async function startLoopbackProvider(): Promise<RunningLoopbackProvider> {
   return {
     baseUrl,
     state,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      state.releaseIncompleteStream?.();
+      state.releaseMarkdownPartial?.();
+      await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      );
+    },
   };
 }
 
 async function fillAndSubmitComposer(page: Page, text: string): Promise<void> {
   await waitForStableChatSurface(page);
   const editor = page.locator('[data-agent-composer-slot="editor-input"]');
+  await page.waitForFunction(
+    () => {
+      const editor = document.querySelector(
+        '[data-agent-composer-slot="editor-input"]',
+      );
+      return editor instanceof HTMLElement && editor.isContentEditable;
+    },
+    undefined,
+    { timeout: isCi ? 120_000 : 30_000 },
+  );
   await retryAfterNavigation("prepare composer", () => editor.fill(text));
   try {
     await editor.press("Enter");
@@ -2585,14 +2603,17 @@ async function assertAgentKitChatAcceptance(
           request.method() === "GET" &&
           url.origin === new URL(page.url()).origin &&
           url.pathname ===
-            `/_agent-native/agent-chat/threads/${encodeURIComponent(activeThreadId)}`
+            `/_agent-native/agent-chat/threads/${encodeURIComponent(threadId)}`
         );
       }),
   );
   await assertComposerFocused(page);
 
   await helloMessage.getByRole("button", { name: "Message actions" }).click();
-  await page.getByRole("menuitem", { name: "Fork conversation" }).click();
+  await page
+    .getByRole("menu")
+    .getByRole("menuitem", { name: "Fork conversation" })
+    .click();
   await Promise.race([
     page.waitForURL(
       (url) => url.pathname !== threadPath && url.pathname.startsWith("/chat/"),
@@ -2767,94 +2788,86 @@ async function assertAgentKitChatAcceptance(
       })
       .waitFor({ state: "visible" });
   } catch (error) {
-    const queueDiagnostics = await page.evaluate(async (activeThreadId) => {
-      const activeRun = await fetch(
+    const endpointDiagnostics = await page.evaluate(async (activeThreadId) => {
+      const activeRunResponse = await fetch(
         `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(activeThreadId)}`,
         { cache: "no-store" },
-      ).then(async (response) => ({
-        status: response.status,
-        body: await response.text(),
-      }));
-      const persistedThread = await fetch(
+      );
+      const threadResponse = await fetch(
         `/_agent-native/agent-chat/threads/${encodeURIComponent(activeThreadId)}`,
         { cache: "no-store" },
-      ).then(async (response) => {
-        const body = await response.text();
-        try {
-          const stored = JSON.parse(body) as {
-            threadData?: unknown;
-          };
-          const repository =
-            typeof stored.threadData === "string"
-              ? (JSON.parse(stored.threadData) as Record<string, unknown>)
-              : {};
-          const text = (parts: unknown) =>
-            Array.isArray(parts)
-              ? parts
-                  .flatMap((part) =>
-                    part && typeof part === "object" && "text" in part
-                      ? [String(part.text)]
-                      : [],
-                  )
-                  .join("")
-              : "";
-          const durableMessages = Array.isArray(repository.messages)
-            ? repository.messages.map((entry) => {
-                const record =
-                  entry && typeof entry === "object" && "message" in entry
-                    ? (entry.message as Record<string, unknown>)
-                    : (entry as Record<string, unknown>);
-                return {
-                  id: record.id,
-                  role: record.role,
-                  text: text(record.content),
-                };
-              })
-            : [];
-          const agentKit =
-            repository.agentKit && typeof repository.agentKit === "object"
-              ? (repository.agentKit as Record<string, unknown>)
-              : {};
-          const agentKitMessages = Array.isArray(agentKit.messages)
-            ? agentKit.messages.map((entry) => {
-                const record = entry as Record<string, unknown>;
-                return {
-                  id: record.id,
-                  role: record.role,
-                  text: text(record.parts),
-                };
-              })
-            : [];
-          return {
-            status: response.status,
-            durableMessages,
-            agentKitMessages,
-            queuedMessages: Array.isArray(repository.queuedMessages)
-              ? repository.queuedMessages.length
-              : null,
-          };
-        } catch (error) {
-          return {
-            status: response.status,
-            parseError: String(error),
-            body: body.slice(0, 1_000),
-          };
-        }
-      });
+      );
       return {
-        activeRun,
-        persistedThread,
-        queue: document.querySelector('[aria-label="Queued messages"]')
-          ?.textContent,
-        messages: Array.from(
-          document.querySelectorAll('.agentkit-message[data-role="assistant"]'),
-        ).map((message) => ({
-          id: message.getAttribute("data-message-id"),
-          busy: message.getAttribute("aria-busy"),
-          text: message.textContent?.slice(0, 400),
-        })),
+        activeRunStatus: activeRunResponse.status,
+        activeRunBody: await activeRunResponse.text(),
+        threadStatus: threadResponse.status,
+        threadBody: await threadResponse.text(),
       };
     }, threadId);
+    const storedThread = JSON.parse(endpointDiagnostics.threadBody) as {
+      threadData?: unknown;
+    };
+    const repository =
+      typeof storedThread.threadData === "string"
+        ? (JSON.parse(storedThread.threadData) as Record<string, unknown>)
+        : {};
+    const messageText = (parts: unknown) =>
+      Array.isArray(parts)
+        ? parts
+            .flatMap((part) =>
+              part && typeof part === "object" && "text" in part
+                ? [String(part.text)]
+                : [],
+            )
+            .join("")
+        : "";
+    const durableMessages = Array.isArray(repository.messages)
+      ? repository.messages.map((entry) => {
+          const record =
+            entry && typeof entry === "object" && "message" in entry
+              ? (entry.message as Record<string, unknown>)
+              : (entry as Record<string, unknown>);
+          return {
+            id: record.id,
+            role: record.role,
+            text: messageText(record.content),
+          };
+        })
+      : [];
+    const agentKit =
+      repository.agentKit && typeof repository.agentKit === "object"
+        ? (repository.agentKit as Record<string, unknown>)
+        : {};
+    const agentKitMessages = Array.isArray(agentKit.messages)
+      ? agentKit.messages.map((entry) => {
+          const record = entry as Record<string, unknown>;
+          return {
+            id: record.id,
+            role: record.role,
+            text: messageText(record.parts),
+          };
+        })
+      : [];
+    const queueDiagnostics = {
+      activeRun: {
+        status: endpointDiagnostics.activeRunStatus,
+        body: endpointDiagnostics.activeRunBody,
+      },
+      persistedThread: {
+        status: endpointDiagnostics.threadStatus,
+        durableMessages,
+        agentKitMessages,
+        queuedMessages: Array.isArray(repository.queuedMessages)
+          ? repository.queuedMessages.length
+          : null,
+      },
+      queue: await page
+        .locator('[aria-label="Queued messages"]')
+        .allInnerTexts(),
+      messages: await page
+        .locator('.agentkit-message[data-role="assistant"]')
+        .allInnerTexts(),
+    };
     console.error("Queued follow-up render diagnostics:", queueDiagnostics);
     throw error;
   }
@@ -2921,6 +2934,8 @@ async function assertAgentKitChatAcceptance(
   await queue.getByText(rejectedSteerPrompt, { exact: true }).waitFor({
     state: "visible",
   });
+  provider.releaseIncompleteStream?.();
+  provider.releaseIncompleteStream = null;
   await page.locator(".agentkit-run-failure").waitFor({ state: "visible" });
   network.allowExpectedIncompleteStreamFailure = false;
   await approval.waitFor({ state: "detached" });
@@ -2940,7 +2955,7 @@ async function assertAgentKitChatAcceptance(
       JSON.stringify(
         {
           alerts: await page.getByRole("alert").allTextContents(),
-          queue: await queue.innerText(),
+          queue: await queue.allInnerTexts(),
           composerErrors: await page
             .locator(".agentkit-composer-error")
             .allTextContents(),

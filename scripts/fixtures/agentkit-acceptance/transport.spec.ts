@@ -103,6 +103,7 @@ test("translates transformed replay cursors back to source sequence space", asyn
 
 test("rejects one queued steering attempt and permits the retry", async () => {
   let steerCalls = 0;
+  let queuedMessageId = "";
   const transport: AgentTransport = {
     async startRun() {
       return { runId: "run-1" };
@@ -111,15 +112,19 @@ test("rejects one queued steering attempt and permits the retry", async () => {
       return (async function* () {})();
     },
     async cancelRun() {},
-    async listQueuedMessages() {
-      return [
-        {
-          id: "queued-retry",
-          threadId: "thread-1",
-          text: acceptanceRejectedSteerPrompt,
+    async queueMessage(input) {
+      queuedMessageId = "queued-retry";
+      return {
+        message: {
+          id: queuedMessageId,
+          threadId: input.threadId,
+          text: input.text,
           createdAt: "2026-09-17T00:00:00.000Z",
         },
-      ];
+      };
+    },
+    async listQueuedMessages() {
+      return [];
     },
     async steerQueuedMessage() {
       steerCalls++;
@@ -127,11 +132,15 @@ test("rejects one queued steering attempt and permits the retry", async () => {
     },
   };
   const instrumented = instrumentAgentKitAcceptanceTransport(transport);
+  await instrumented.queueMessage?.({
+    threadId: "thread-1",
+    text: acceptanceRejectedSteerPrompt,
+  });
 
   await assert.rejects(
     instrumented.steerQueuedMessage?.({
       threadId: "thread-1",
-      messageId: "queued-retry",
+      messageId: queuedMessageId,
     }),
     /Deterministic queue steering rejection/u,
   );
@@ -139,7 +148,7 @@ test("rejects one queued steering attempt and permits the retry", async () => {
 
   await instrumented.steerQueuedMessage?.({
     threadId: "thread-1",
-    messageId: "queued-retry",
+    messageId: queuedMessageId,
   });
   assert.equal(steerCalls, 1);
 });
