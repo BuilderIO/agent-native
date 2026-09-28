@@ -25,7 +25,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::meetings_watcher::{MeetingsWatcherState, Poller, SessionCredentials};
 
@@ -125,6 +125,7 @@ pub(crate) async fn refresh(
 }
 
 pub(crate) fn spawn_refresh(
+    app: AppHandle,
     server_url: Option<String>,
     cookie: Option<String>,
     auth_token: Option<String>,
@@ -151,6 +152,9 @@ pub(crate) fn spawn_refresh(
         )
         .await
         {
+            if matches!(&err, RefreshError::Unauthorized) {
+                let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+            }
             eprintln!("[feature-flags] refresh failed: {err}");
         }
     });
@@ -196,6 +200,7 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
                             Err(RefreshError::NoCredentials) => {}
                             Err(RefreshError::Unauthorized) => {
                                 eprintln!("[feature-flags] watcher refresh failed: unauthorized");
+                                let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
                                 state.note_unauthorized(
                                     Poller::FeatureFlags,
                                     credentials,

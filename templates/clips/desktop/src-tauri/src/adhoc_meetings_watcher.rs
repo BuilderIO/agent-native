@@ -107,9 +107,19 @@ enum LookupError {
 impl std::fmt::Display for LookupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LookupError::Unauthorized => write!(f, "list-meetings http 401"),
+            LookupError::Unauthorized => write!(f, "list-meetings http 401/403"),
             LookupError::Other(msg) => write!(f, "{msg}"),
         }
+    }
+}
+
+fn is_auth_rejection(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
+}
+
+fn note_adhoc_lookup_authorized(app: &AppHandle) {
+    if let Some(state) = app.try_state::<MeetingsWatcherState>() {
+        state.note_authorized(Poller::AdhocMeetings);
     }
 }
 
@@ -672,6 +682,13 @@ async fn tick_macos(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forbidden_responses_are_auth_rejections() {
+        assert!(is_auth_rejection(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(is_auth_rejection(reqwest::StatusCode::FORBIDDEN));
+        assert!(!is_auth_rejection(reqwest::StatusCode::NOT_FOUND));
+    }
 
     fn config_with(
         mode: MeetingTranscriptionMode,
@@ -1630,11 +1647,11 @@ async fn create_adhoc_meeting(
         }
     })?;
     let status = resp.status();
-    if status == reqwest::StatusCode::UNAUTHORIZED {
+    if is_auth_rejection(status) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
-        return Err(CreateFailure::Unauthorized(
-            "create-meeting http 401".to_string(),
-        ));
+        return Err(CreateFailure::Unauthorized(format!(
+            "create-meeting http {status}"
+        )));
     }
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
@@ -1737,7 +1754,7 @@ async fn fetch_agenda_page(
         .send()
         .await
         .map_err(|error| LookupError::Other(format!("list-meetings fetch: {error}")))?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+    if is_auth_rejection(response.status()) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
         return Err(LookupError::Unauthorized);
     }
@@ -1747,6 +1764,7 @@ async fn fetch_agenda_page(
             response.status()
         )));
     }
+    note_adhoc_lookup_authorized(app);
     let body: serde_json::Value = response
         .json()
         .await
@@ -1827,7 +1845,7 @@ async fn find_calendar_meeting(
         .send()
         .await
         .map_err(|error| LookupError::Other(format!("list-meetings fetch: {error}")))?;
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+    if is_auth_rejection(response.status()) {
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
         return Err(LookupError::Unauthorized);
     }
@@ -1837,6 +1855,7 @@ async fn find_calendar_meeting(
             response.status()
         )));
     }
+    note_adhoc_lookup_authorized(app);
     let body: serde_json::Value = response
         .json()
         .await

@@ -810,6 +810,20 @@ mod tests {
     }
 
     #[test]
+    fn an_authorized_adhoc_lookup_clears_the_rejection_count() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
+        state.note_unauthorized(Poller::AdhocMeetings, creds.clone(), base, now);
+        state.note_authorized(Poller::AdhocMeetings);
+
+        assert!(!state.note_unauthorized(Poller::AdhocMeetings, creds, base, now));
+    }
+
+    #[test]
     fn meetings_lab_defaults_off_and_can_be_toggled() {
         let state = MeetingsWatcherState::default();
 

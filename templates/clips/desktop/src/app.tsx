@@ -1467,6 +1467,16 @@ export function App({
     }
   }, [serverUrl]);
 
+  const pushMeetingsSession = useCallback(async () => {
+    const cookie = typeof document !== "undefined" ? document.cookie || "" : "";
+    const authToken = loadDesktopAuthToken(serverUrl);
+    try {
+      await invoke("meetings_watcher_set_session", { cookie, authToken });
+    } catch {
+      // coercion-ok: older Clips builds do not expose the optional watcher command.
+    }
+  }, [serverUrl]);
+
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
@@ -1478,22 +1488,12 @@ export function App({
   }, [serverUrl]);
 
   useEffect(() => {
-    function pushSession() {
-      const cookie =
-        typeof document !== "undefined" ? document.cookie || "" : "";
-      const authToken = loadDesktopAuthToken(serverUrl);
-      invoke("meetings_watcher_set_session", { cookie, authToken }).catch(
-        () => {
-          // Older builds may not expose this command yet — best-effort.
-        },
-      );
-    }
-    pushSession();
+    void pushMeetingsSession();
     let unlisten: (() => void) | null = null;
-    listen("meetings:auth-needed", () => {
+    listen("meetings:auth-needed", async () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
-      pushSession();
-      void checkAuth();
+      const authResult = await checkAuth();
+      if (authResult.state === "authenticated") await pushMeetingsSession();
     })
       .then((u) => {
         unlisten = u;
@@ -1508,14 +1508,18 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl, checkAuth]);
+  }, [signedInAs, serverUrl, checkAuth, pushMeetingsSession]);
 
   useEffect(() => {
     if (authStatus !== "authed") return;
     function resumePolling() {
       if (document.hidden) return;
-      invoke("meetings_watcher_resume_polling").catch(() => {
-        // Older builds may not expose this command yet — best-effort.
+      void checkAuth().then(async (authResult) => {
+        if (authResult.state !== "authenticated") return;
+        await pushMeetingsSession();
+        await invoke("meetings_watcher_resume_polling").catch(() => {
+          // Older builds may not expose this command yet — best-effort.
+        });
       });
     }
     resumePolling();
@@ -1523,7 +1527,7 @@ export function App({
     return () => {
       document.removeEventListener("visibilitychange", resumePolling);
     };
-  }, [authStatus]);
+  }, [authStatus, checkAuth, pushMeetingsSession]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
