@@ -1,6 +1,7 @@
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { agentChatStreamingUrl, agentNativePath } from "../api-path.js";
@@ -1570,7 +1571,15 @@ interface AgentNativeMessageProjectionState {
 function pendingApprovalStructuredHistory(
   state: AgentNativeMessageProjectionState,
 ) {
-  return state.message.content.flatMap((part) => {
+  return state.message.content.flatMap<AgentChatStructuredMessage>((part) => {
+    if (part.type === "text") {
+      return [
+        {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: part.text }],
+        },
+      ];
+    }
     if (part.type !== "tool-call" || part.result === undefined) return [];
     return [
       {
