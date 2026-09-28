@@ -390,6 +390,89 @@ describe("AiInboxSetup", () => {
     ).toBe(JSON.stringify(["rule-1", "rule-2", "rule-3", "rule-4", "rule-5"]));
   });
 
+  it("continues with the in-memory rule handoff when session storage writes fail", async () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+    const onComplete = vi.fn();
+    const preferences = render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="preferences"
+        onComplete={onComplete}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.createRule).toHaveBeenCalledTimes(2);
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      aiSetupCompleted: true,
+    });
+    preferences.unmount();
+
+    mocks.automations = mocks.createRule.mock.calls.map(([input], index) => ({
+      id: `rule-${index + 1}`,
+      ...input,
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      enabled: true,
+    }));
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-1", "rule-2"],
+      }),
+    );
+  });
+
+  it("keeps sorting open and does not navigate when onboarding completion fails", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    const onComplete = vi.fn().mockResolvedValue(false);
+
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupAdjustRules" }),
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).not.toBeNull();
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBe(JSON.stringify(["rule-receipts"]));
+    expect(window.sessionStorage.getItem("mail.ai-setup.backfill-run-id")).toBe(
+      "run-1",
+    );
+  });
+
   it("starts a real-mail backfill for saved rule IDs after setup and shows review and undo", async () => {
     const onComplete = vi.fn();
     window.sessionStorage.setItem(

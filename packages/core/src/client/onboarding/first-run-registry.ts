@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 
 export interface FirstRunOnboardingExtensionProps {
-  onComplete: () => void;
+  onComplete: () => void | boolean | Promise<void | boolean>;
   onSkip: () => void;
   onStepChange?: (stepIndex: number) => void;
 }

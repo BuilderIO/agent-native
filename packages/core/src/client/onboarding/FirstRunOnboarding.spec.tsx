@@ -1364,6 +1364,7 @@ describe("FirstRunOnboarding", () => {
   });
 
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
+    let completionResult: boolean | void;
     mocks.completeFirstRun
       .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
       .mockResolvedValueOnce(undefined);
@@ -1383,7 +1384,12 @@ describe("FirstRunOnboarding", () => {
       id: "test-extension",
       component: ({ onComplete, onSkip }) => (
         <>
-          <button type="button" onClick={onComplete}>
+          <button
+            type="button"
+            onClick={async () => {
+              completionResult = await onComplete();
+            }}
+          >
             Extension Complete
           </button>
           <button type="button" onClick={onSkip}>
@@ -1435,6 +1441,7 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    expect(completionResult).toBe(false);
     expect(document.body.textContent).toContain("Extension Complete");
     expect(document.body.textContent).toContain(
       "first-run completion failed: 500",

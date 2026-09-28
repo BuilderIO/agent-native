@@ -87,6 +87,7 @@ type CustomTag = {
 
 const PENDING_SETUP_RULE_IDS = "mail.ai-setup.pending-rule-ids";
 const PENDING_SETUP_BACKFILL_RUN_ID = "mail.ai-setup.backfill-run-id";
+let pendingSetupRuleIdsFallback: string[] | null = null;
 
 const IMPORTANT_SUGGESTIONS = [
   "mail.sort.aiSetupImportantBoss",
@@ -433,14 +434,27 @@ function readPendingSetupRuleIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
     const value = window.sessionStorage.getItem(PENDING_SETUP_RULE_IDS);
-    if (value === null) return [];
+    if (value === null) return pendingSetupRuleIdsFallback ?? [];
     const ids: unknown = JSON.parse(value);
     return Array.isArray(ids) && ids.every((id) => typeof id === "string")
       ? ids
-      : [];
+      : (pendingSetupRuleIdsFallback ?? []);
     // coercion-ok: unreadable pending state means no onboarding rules may be backfilled.
   } catch {
-    return [];
+    return pendingSetupRuleIdsFallback ?? [];
+  }
+}
+
+function writePendingSetupRuleIds(ruleIds: string[]): void {
+  pendingSetupRuleIdsFallback = [...ruleIds];
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      PENDING_SETUP_RULE_IDS,
+      JSON.stringify(ruleIds),
+    );
+  } catch {
+    // coercion-ok: the in-memory handoff keeps the current onboarding flow moving.
   }
 }
 
@@ -455,6 +469,7 @@ function readPendingSetupBackfillRunId(): string | null {
 }
 
 function clearPendingSetupBackfill(): void {
+  pendingSetupRuleIdsFallback = null;
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
@@ -498,7 +513,7 @@ export function AiInboxSetup({
   firstRunStage?: "preferences" | "sorting";
   onStepChange?: (stepIndex: number) => void;
   onOpenChange?: (open: boolean) => void;
-  onComplete?: () => void;
+  onComplete?: () => void | boolean | Promise<void | boolean>;
   onSkip?: () => void;
 }) {
   const t = useT();
@@ -574,6 +589,8 @@ export function AiInboxSetup({
   const importantTextareaRef = useRef<HTMLTextAreaElement>(null);
   const focusBossSuggestionCaret = useRef(false);
   const [saving, setSaving] = useState(false);
+  const [completing, setCompleting] = useState(false);
+  const completionInFlight = useRef(false);
   const [backfillRunId, setBackfillRunId] = useState<string | null>(() =>
     firstRunStage === "sorting" ? readPendingSetupBackfillRunId() : null,
   );
@@ -601,6 +618,11 @@ export function AiInboxSetup({
     embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
   const firstRunPreferences = firstRunStage === "preferences";
   const firstRunSorting = firstRunStage === "sorting";
+
+  useEffect(() => {
+    if (firstRunPreferences) pendingSetupRuleIdsFallback = null;
+  }, [firstRunPreferences]);
+
   const loadingSurfaceVisible =
     setupSurfaceAllowed &&
     forceOpen &&
@@ -644,24 +666,53 @@ export function AiInboxSetup({
     backfillStarted.current = recoveredRunId !== null;
   }, [firstRunStage, forceOpen]);
 
-  const complete = async () => {
+  const complete = async (): Promise<boolean> => {
+    if (completionInFlight.current) return false;
+    completionInFlight.current = true;
+    setCompleting(true);
+    const keepOpen = () => {
+      completionInFlight.current = false;
+      setCompleting(false);
+    };
     if (onboardingPreview) {
-      onOpenChange?.(false);
-      onComplete?.();
-      return;
+      try {
+        const completed = await onComplete?.();
+        if (completed === false) {
+          keepOpen();
+          return false;
+        }
+        onOpenChange?.(false);
+        return true;
+      } catch {
+        keepOpen();
+        return false;
+      }
     }
     if (onComplete) {
-      clearPendingSetupBackfill();
-      onOpenChange?.(false);
-      onComplete();
-      return;
+      try {
+        const completed = await onComplete();
+        if (completed === false) {
+          keepOpen();
+          return false;
+        }
+        clearPendingSetupBackfill();
+        onOpenChange?.(false);
+        return true;
+      } catch {
+        keepOpen();
+        toast.error(t("mail.aiFilter.settingsFailed"));
+        return false;
+      }
     }
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
       clearPendingSetupBackfill();
       onOpenChange?.(false);
+      return true;
     } catch {
+      keepOpen();
       toast.error(t("mail.aiFilter.settingsFailed"));
+      return false;
     }
   };
 
@@ -836,12 +887,10 @@ export function AiInboxSetup({
       const uniqueRuleIds = [...new Set(ruleIds)];
       if (firstRunPreferences) {
         clearPendingSetupBackfill();
-        window.sessionStorage.setItem(
-          PENDING_SETUP_RULE_IDS,
-          JSON.stringify(uniqueRuleIds),
-        );
+        writePendingSetupRuleIds(uniqueRuleIds);
         await updateSettings.mutateAsync({ aiSetupCompleted: true });
-        onComplete?.();
+        const completed = await onComplete?.();
+        if (completed === false) return;
         return;
       }
 
@@ -985,8 +1034,7 @@ export function AiInboxSetup({
     void runBackfill(ruleIds, destinations);
   };
   const onAdjustRules = async () => {
-    await complete();
-    navigate("/settings?section=ai-filter");
+    if (await complete()) navigate("/settings?section=ai-filter");
   };
   const undoBackfill = async (undoToken: string) => {
     if (onboardingPreview || !backfillRunId) return;
@@ -1085,7 +1133,7 @@ export function AiInboxSetup({
             size="sm"
             className="text-xs text-muted-foreground hover:text-foreground"
             onClick={() => void onAdjustRules()}
-            disabled={updateSettings.isPending}
+            disabled={updateSettings.isPending || completing}
           >
             {t("mail.sort.aiSetupAdjustRules")}
           </Button>
@@ -1093,7 +1141,7 @@ export function AiInboxSetup({
             type="button"
             className={ONBOARDING_PRIMARY_BUTTON_CLASS}
             onClick={() => void complete()}
-            disabled={updateSettings.isPending}
+            disabled={updateSettings.isPending || completing}
           >
             {t("mail.sort.aiSetupDone")}
           </Button>

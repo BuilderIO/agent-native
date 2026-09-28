@@ -617,7 +617,7 @@ export function FirstRunOnboarding({
       return null;
     }
     const Extension = extension.component;
-    const advanceExtension = () => {
+    const advanceExtension = async () => {
       if (extensionPlacement === "before-setup") {
         trackFirstRunStepCompleted(
           "extension",
@@ -628,14 +628,14 @@ export function FirstRunOnboarding({
       if (extensionIndex < activeExtensions.length - 1) {
         setExtensionIndex((current) => current + 1);
         setExtensionStepIndex(0);
-        return;
+        return true;
       }
       if (extensionPlacement === "before-setup") {
         setExtensionStepIndex(0);
         setScreen("choice");
-        return;
+        return true;
       }
-      void finishOnboarding("extension", extensionIndex);
+      return finishOnboarding("extension", extensionIndex);
     };
     return (
       <OnboardingShell
