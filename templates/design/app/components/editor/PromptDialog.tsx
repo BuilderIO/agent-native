@@ -1,6 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
+  PromptComposer,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextSnapshot,
@@ -20,15 +21,7 @@ import {
   IconPlus,
   IconSparkles,
 } from "@tabler/icons-react";
-import {
-  lazy,
-  Suspense,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -64,15 +57,6 @@ import {
 import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
-
-const loadPromptComposer = () =>
-  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
-    default: PromptComposer,
-  }));
-const LazyPromptComposer = lazy(loadPromptComposer);
-export function preloadPromptComposer() {
-  void loadPromptComposer().catch(() => {});
-}
 
 export interface UploadedFile {
   path: string;
@@ -218,6 +202,7 @@ interface PromptPopoverProps {
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -304,6 +289,7 @@ export default function PromptPopover({
   skipLabel,
   offerStartChoice = false,
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   anchorRef,
   centered = false,
@@ -357,6 +343,7 @@ export default function PromptPopover({
   const skipInFlightRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const [checkingProvider, setCheckingProvider] = useState(false);
   const draftTextRef = useRef<string | undefined>(undefined);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [restoredPrompt, setRestoredPrompt] = useState<{
@@ -596,6 +583,16 @@ export default function PromptPopover({
     ],
   );
 
+  const handleBeforeSubmit = useCallback(async () => {
+    if (!onBeforeSubmit) return true;
+    setCheckingProvider(true);
+    try {
+      return await onBeforeSubmit();
+    } finally {
+      setCheckingProvider(false);
+    }
+  }, [onBeforeSubmit]);
+
   const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
   const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
   if (open) {
@@ -724,60 +721,45 @@ export default function PromptPopover({
 
       <div className={cn(!inline && "px-2 pb-2", showStartChoice && "hidden")}>
         <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
-          <Suspense
-            fallback={
-              <div
-                aria-busy="true"
-                className="flex min-h-36 flex-col justify-between gap-3 rounded-md border border-input p-3"
-              >
-                <Skeleton className="h-16 w-full" />
-                <div className="flex items-center justify-between gap-2">
-                  <Skeleton className="size-8" />
-                  <Skeleton className="h-8 w-24" />
-                </div>
-              </div>
+          <PromptComposer
+            key={
+              inline
+                ? orgScopedDraftScope
+                : (placeholder ?? t("home.describeBuild"))
             }
-          >
-            <LazyPromptComposer
-              key={
-                inline
-                  ? orgScopedDraftScope
-                  : (placeholder ?? t("home.describeBuild"))
-              }
-              autoFocus
-              attachmentsEnabled
-              attachmentAdapter={attachmentAdapter}
-              inlineTextAttachments={false}
-              maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-              disabled={disabled || loading || submitting}
-              submissionDisabled={submissionDisabled}
-              layoutVariant={inline ? "hero" : undefined}
-              className={
-                inline ? "design-home-prompt-composer-area" : undefined
-              }
-              composerRef={composerRef}
-              ariaLabel={placeholder ?? t("home.describeBuild")}
-              showModelSelector={showModelSelector}
-              modelStatusChecksEnabled={modelStatusChecksEnabled}
-              placeholder={placeholder ?? t("home.describeBuild")}
-              onSubmit={handleSubmit}
-              onTextChange={(text) => {
-                draftTextRef.current = text;
-              }}
-              contextItems={contextItems}
-              onRemoveContextItem={onRemoveContextItem}
-              onRetryContextItem={onRetryContextItem}
-              onAttachmentsChange={handleAttachmentsChange}
-              draftScope={orgScopedDraftScope}
-              initialText={activeRestoredPrompt?.text ?? initialText}
-              initialTextKey={
-                activeRestoredPrompt
-                  ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
-                  : `seed:${initialTextKey ?? 0}`
-              }
-              contextMenuItems={contextMenuItems ?? []}
-            />
-          </Suspense>
+            autoFocus
+            attachmentsEnabled
+            attachmentAdapter={attachmentAdapter}
+            inlineTextAttachments={false}
+            maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
+            disabled={disabled || loading || submitting || checkingProvider}
+            submissionDisabled={submissionDisabled}
+            submitting={submitting || checkingProvider}
+            layoutVariant={inline ? "hero" : undefined}
+            className={inline ? "design-home-prompt-composer-area" : undefined}
+            composerRef={composerRef}
+            ariaLabel={placeholder ?? t("home.describeBuild")}
+            showModelSelector={showModelSelector}
+            modelStatusChecksEnabled={modelStatusChecksEnabled}
+            placeholder={placeholder ?? t("home.describeBuild")}
+            onSubmit={handleSubmit}
+            onBeforeSubmit={handleBeforeSubmit}
+            onTextChange={(text) => {
+              draftTextRef.current = text;
+            }}
+            contextItems={contextItems}
+            onRemoveContextItem={onRemoveContextItem}
+            onRetryContextItem={onRetryContextItem}
+            onAttachmentsChange={handleAttachmentsChange}
+            draftScope={orgScopedDraftScope}
+            initialText={activeRestoredPrompt?.text ?? initialText}
+            initialTextKey={
+              activeRestoredPrompt
+                ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
+                : `seed:${initialTextKey ?? 0}`
+            }
+            contextMenuItems={contextMenuItems ?? []}
+          />
         </LazyChunkErrorBoundary>
       </div>
       {!inline &&

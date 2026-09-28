@@ -72,6 +72,7 @@ const {
   referenceProps,
   signedIn,
   agentEngine,
+  fetchAgentEngineConfiguredState,
   agentSubmit,
   callAction,
   contextOptions,
@@ -87,6 +88,7 @@ const {
   referenceProps: vi.fn(),
   signedIn: { value: true },
   agentEngine: { state: "configured", missing: false },
+  fetchAgentEngineConfiguredState: vi.fn(),
   agentSubmit: vi.fn(),
   callAction: vi.fn().mockResolvedValue(undefined),
   contextOptions: vi.fn(),
@@ -149,6 +151,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     </div>
   ),
   useAgentEngineConfigured: () => agentEngine,
+  fetchAgentEngineConfiguredState,
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   callAction,
@@ -379,6 +382,9 @@ beforeEach(() => {
   signedIn.value = true;
   agentEngine.state = "configured";
   agentEngine.missing = false;
+  fetchAgentEngineConfiguredState.mockImplementation(async () =>
+    agentEngine.state === "unknown" ? "unavailable" : agentEngine.state,
+  );
   homeSuggestions.value = [
     {
       id: "suggestion-1",
@@ -416,7 +422,6 @@ describe("Slides prompt-led home", () => {
       expect.objectContaining({
         presentation: "inline",
         disabled: false,
-        submissionDisabled: false,
       }),
     );
     expect(
@@ -599,11 +604,11 @@ describe("Slides prompt-led home", () => {
     expect(screen.getByRole("textbox", { name: "Presentation prompt" })).toBe(
       prompt,
     );
-    expect(promptProps.mock.lastCall![0].disabled).toBe(true);
-    expect(promptProps.mock.lastCall![0].submissionDisabled).toBe(true);
+    expect(promptProps.mock.lastCall![0].disabled).toBe(false);
+    expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
     expect(createDeck).not.toHaveBeenCalled();
   });
-  it("uses the shared Builder setup card and gates the composer until configured", async () => {
+  it("uses the shared Builder setup card and keeps the composer interactive", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     const missing = renderHome();
@@ -617,13 +622,13 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("link", { name: "Custom keys" }).getAttribute("href"),
     ).toBe("/settings/keys");
-    expect((prompt as HTMLTextAreaElement).disabled).toBe(true);
+    expect((prompt as HTMLTextAreaElement).disabled).toBe(false);
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        disabled: true,
-        submissionDisabled: true,
+        disabled: false,
         showModelSelector: false,
         modelStatusChecksEnabled: false,
+        onBeforeSubmit: expect.any(Function),
         onSkip: expect.any(Function),
       }),
     );
@@ -663,27 +668,36 @@ describe("Slides prompt-led home", () => {
     expect(promptProps).toHaveBeenLastCalledWith(
       expect.objectContaining({
         disabled: false,
-        submissionDisabled: false,
         showModelSelector: true,
         modelStatusChecksEnabled: false,
       }),
     );
   });
 
-  it("keeps the composer disabled until provider status is known and offers retry when unavailable", async () => {
+  it("keeps the composer interactive while checking and offers retry if status is unavailable", async () => {
     agentEngine.state = "unknown";
     agentEngine.missing = false;
     renderHome();
-    expect(screen.getByRole("status").textContent).toContain(
-      "agentChat.setup.checkingProvider",
-    );
+    expect(screen.queryByRole("status")).toBeNull();
     expect(
       (
         screen.getByRole("textbox", {
           name: "Presentation prompt",
         }) as HTMLTextAreaElement
       ).disabled,
-    ).toBe(true);
+    ).toBe(false);
+    expect(promptProps.mock.lastCall![0].disabled).toBe(false);
+    expect(promptProps.mock.lastCall![0].onBeforeSubmit).toEqual(
+      expect.any(Function),
+    );
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+    expect(canSubmit).toBe(false);
+    expect(screen.getByRole("status").textContent).toContain(
+      "providerStatusUnavailable",
+    );
 
     cleanup();
     agentEngine.state = "unavailable";
@@ -744,6 +758,9 @@ describe("Slides prompt-led home", () => {
   it("shows the Recent tab for shared-only accessible decks", async () => {
     renderHome({ decks: [sharedDeck] });
     expect(await screen.findByRole("tab", { name: "Recent" })).toBeTruthy();
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByRole("tab", { name: "Templates" })).toBeTruthy();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
   });
@@ -770,17 +787,16 @@ describe("Slides prompt-led home", () => {
     header.unmount();
   });
 
-  it("gates recents on the unfiltered owned collection, not matching search results", async () => {
+  it("defaults to recents when the unfiltered owned collection has content", async () => {
     renderHome({ decks: [ownDeck, sharedDeck] });
+    expect(
+      screen.getByRole("tab", { name: "Recent" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(
       screen
         .getByRole("tab", { name: "Templates" })
         .getAttribute("aria-selected"),
-    ).toBe("true");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Recent" }), {
-      button: 0,
-      ctrlKey: false,
-    });
+    ).toBe("false");
     expect(screen.getByRole("tabpanel", { name: "Recent" })).toBeTruthy();
     expect(screen.getByText("My presentation")).toBeTruthy();
     expect(screen.queryByText("Shared presentation")).toBeNull();

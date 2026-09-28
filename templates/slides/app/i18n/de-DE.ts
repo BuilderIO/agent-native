@@ -1073,6 +1073,11 @@ const messages = {
     emptyDescription:
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
+  },
 };
 
 export default messages;
