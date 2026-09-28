@@ -758,6 +758,7 @@ export function startInPlaceTextSession(
     /** Where the edit left the selection; a run only continues from there. */
     after: TextOffsets | null;
   } | null = null;
+  let focusSelection: TextOffsets | null = null;
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
@@ -909,7 +910,8 @@ export function startInPlaceTextSession(
   const notify = () => {
     authorZwspOrdinals();
     unscroll();
-    if (lastEdit) lastEdit.after = selectionOffsets(true);
+    focusSelection = selectionOffsets(true);
+    if (lastEdit) lastEdit.after = focusSelection;
     options.onInput?.();
   };
 
@@ -955,6 +957,16 @@ export function startInPlaceTextSession(
       textPoint(el, from, fromBefore, breaks),
       textPoint(el, to, toBefore, breaks),
     );
+  }
+
+  function onBlur() {
+    const range = selectionRange();
+    if (range) focusSelection = selectionOffsets(true);
+    else if (lastEdit?.after) focusSelection = lastEdit.after;
+  }
+
+  function onFocus() {
+    if (active && focusSelection) selectOffsets(focusSelection, true);
   }
 
   /**
@@ -2097,6 +2109,8 @@ export function startInPlaceTextSession(
   }
 
   const listeners: [string, (event: never) => void][] = [
+    ["blur", onBlur],
+    ["focus", onFocus],
     ["beforeinput", onBeforeInput],
     ["input", onInput],
     ["keydown", onKeyDown],
@@ -2293,6 +2307,7 @@ export function startInPlaceTextSession(
   if (!hasRenderedContent(el) && !el.textContent?.includes(ZERO_WIDTH_SPACE)) {
     settleCaret(el, el.childNodes.length);
   }
+  focusSelection = selectionOffsets(true);
 
   return {
     get element() {

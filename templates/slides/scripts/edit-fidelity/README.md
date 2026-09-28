@@ -22,6 +22,22 @@ is open in Chromium:
 pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 ```
 
+The Slides chat E2E job in `ci.yml` runs this check for pull requests that
+change Slides, Core, or Toolkit files.
+
+Run the Chromium IME Escape regression in an in-place slide text session:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+```
+
+Run the synthetic Slides text-surface typing, composition, clipboard, undo/redo,
+and slide-switching round in Chromium:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -37,24 +53,26 @@ To reuse a server that is already running, set
 `SLIDES_BASE_URL=http://localhost:<port>`. The harness refuses any other host,
 because it creates and rewrites decks.
 
-| Option                         | Meaning                                                                                    |
-| ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `case-filter`                  | Substring of the corpus file name                                                          |
-| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                     |
-| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                         |
-| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept    |
-| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`) |
-| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                       |
-| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                      |
-| `--slides 1,3`                 | 1-based slide numbers                                                                      |
-| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                               |
-| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                            |
-| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                     |
-| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                       |
-| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
-| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
-| `--headed`                     | Show the browser                                                                           |
-| `--typing-chat`                | Run only the Agent chat typing regression with a slide text edit session open              |
+| Option                         | Meaning                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `case-filter`                  | Substring of the corpus file name                                                                   |
+| `--corpus <dir>`               | Corpus directory. Default: `corpus/` next to this file                                              |
+| `--baseline <file>`            | Ratchet file. Default: `<corpus>/../baseline.json`                                                  |
+| `--update`                     | Rewrite the baseline entries for everything that ran. Entries that did not run are kept             |
+| `--accept-failing`             | With `--update`, also record `fail`/`no-edit` results as accepted ceilings (never `error`)          |
+| `--scenarios a,b`              | A subset of `noop,typedelete,append,enter3,clickout`                                                |
+| `--max-slides N`               | Run the first N slides of each case, after `--slides`                                               |
+| `--slides 1,3`                 | 1-based slide numbers                                                                               |
+| `--max-targets-per-slide N`    | Default 4. A case's `targets` entry overrides this per slide                                        |
+| `--targets 0,2`                | Target indexes, from the slide's `targets.json`                                                     |
+| `--concurrency N`              | Runs N cases in parallel, each in its own page against the same server                              |
+| `--out <dir>` / `--run <name>` | Output directory. Default: `<repo>/.tmp/slides-edit-fidelity/<run>/`                                |
+| `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                                     |
+| `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                            |
+| `--headed`                     | Show the browser                                                                                    |
+| `--typing-chat`                | Run only the Agent chat typing regression with a slide text edit session open                       |
+| `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                           |
+| `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic Chromium decks |
 
 Exit codes:
 
