@@ -166,6 +166,7 @@ interface PromptPopoverProps {
     attachments: PromptAttachmentActions,
     options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
@@ -205,6 +206,7 @@ export default function PromptPopover({
   title,
   placeholder = "Describe what you want...",
   onSubmit,
+  onBeforeSubmit,
   loading = false,
   disabled = false,
   submissionDisabled = false,
@@ -232,6 +234,7 @@ export default function PromptPopover({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
+  const [checkingProvider, setCheckingProvider] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
   const retainingAttachmentsRef = useRef(false);
@@ -571,6 +574,16 @@ export default function PromptPopover({
     ],
   );
 
+  const handleBeforeSubmit = useCallback(async () => {
+    if (!onBeforeSubmit) return true;
+    setCheckingProvider(true);
+    try {
+      return await onBeforeSubmit();
+    } finally {
+      setCheckingProvider(false);
+    }
+  }, [onBeforeSubmit]);
+
   useImperativeHandle(
     controllerRef,
     () => ({
@@ -783,10 +796,13 @@ export default function PromptPopover({
                   loading ||
                   uploading ||
                   submitting ||
+                  checkingProvider ||
                   Boolean(importMode)
                 }
+                submitting={submitting || checkingProvider}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
+                onBeforeSubmit={handleBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}

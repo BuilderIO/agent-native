@@ -1083,6 +1083,11 @@ const messages = {
     emptyDescription:
       "Créez de belles présentations avec la génération par IA.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Impossible de vérifier la connexion à l’IA.",
+    },
+  },
 };
 
 export default messages;
