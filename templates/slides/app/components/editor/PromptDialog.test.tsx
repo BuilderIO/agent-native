@@ -842,6 +842,44 @@ describe("uploadPromptFiles", () => {
     expect(isPromptUploadLimitError(error)).toBe(true);
   });
 
+  it("shows unsupported-type guidance for chunked uploads", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("/api/uploads/status")) {
+        return new Response(JSON.stringify({ referenceStorageReady: true }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ sessionId: "upload-session" }), {
+          status: 200,
+        });
+      }
+      if (url.includes("isFinal=1")) {
+        return new Response(
+          JSON.stringify({
+            error: "Unsupported file type. Allowed: PDF, PPTX, DOCX",
+          }),
+          { status: 400 },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await uploadPromptFilesImpl(
+      [new File([new Uint8Array(4 * 1024 * 1024 + 1)], "reference.exe")],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(isPromptUploadUnsupportedFileTypeError(error)).toBe(true);
+    expect(error).toMatchObject({ fileName: "reference.exe", status: 400 });
+    expect(error.message).not.toContain("Allowed: PDF");
+    expect(formatPromptUploadFailure(error, "Unsupported file type.")).toBe(
+      "reference.exe: Unsupported file type.",
+    );
+  });
+
   it("blocks eager attachments when reference storage is unavailable", async () => {
     const uploadFetch = vi.fn();
     const fetchMock = vi.fn(async (input: string | URL) => {

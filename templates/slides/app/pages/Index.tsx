@@ -1423,6 +1423,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryFiles([]);
     setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);

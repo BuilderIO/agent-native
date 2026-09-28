@@ -269,6 +269,15 @@ describe("new deck generation flow", () => {
     expect(source).toContain("setShowNewDeckReferenceStep(true)");
   });
 
+  it("clears uploaded files when a retry prompt is skipped", () => {
+    const skip = source.slice(
+      source.indexOf("const handlePromptSkip"),
+      source.indexOf("const handleDirectImport"),
+    );
+
+    expect(skip).toContain("setNewDeckRetryFiles([]);");
+  });
+
   it("imports directly from the new-deck prompt and opens the imported deck", () => {
     const directImportFlow = source.slice(
       source.indexOf("const handleDirectImport"),
