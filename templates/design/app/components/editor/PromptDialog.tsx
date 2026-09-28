@@ -1,10 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  PromptComposer,
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextSnapshot,
+  type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
@@ -21,7 +21,16 @@ import {
   IconPlus,
   IconSparkles,
 } from "@tabler/icons-react";
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  lazy,
+  Suspense,
+  type ComponentType,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { toast } from "sonner";
 
 import {
@@ -84,6 +93,15 @@ const IMAGE_COMPRESSION_PASSES = [
   { maxDimension: 1024, jpegQuality: 0.7 },
   { maxDimension: 768, jpegQuality: 0.65 },
 ];
+
+const loadPromptComposer = () =>
+  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+    default: PromptComposer,
+  }));
+const LazyPromptComposer = lazy(loadPromptComposer);
+export function preloadPromptComposer() {
+  void loadPromptComposer().catch(() => {});
+}
 
 function dataUrlBytes(dataUrl: string): number {
   return new TextEncoder().encode(dataUrl).byteLength;
@@ -173,6 +191,7 @@ async function readChatImageAttachment(
 export type PromptCreationMode = "design" | "app";
 
 interface PromptPopoverProps {
+  composerComponent?: ComponentType<PromptComposerProps>;
   inline?: boolean;
   submissionIdentity?: string;
   contextItems?: AgentChatContextItem[];
@@ -266,6 +285,7 @@ function hasOpenNestedPromptPopoverSurface() {
 }
 
 export default function PromptPopover({
+  composerComponent,
   inline = false,
   submissionIdentity,
   contextItems,
@@ -632,6 +652,46 @@ export default function PromptPopover({
   const showCreativeContextPicker =
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
+  const Composer = composerComponent ?? LazyPromptComposer;
+  const promptComposer = (
+    <Composer
+      key={
+        inline ? orgScopedDraftScope : (placeholder ?? t("home.describeBuild"))
+      }
+      autoFocus
+      attachmentsEnabled
+      attachmentAdapter={attachmentAdapter}
+      inlineTextAttachments={false}
+      maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
+      disabled={disabled || loading || submitting || checkingProvider}
+      submissionDisabled={submissionDisabled}
+      submitting={submitting || checkingProvider}
+      layoutVariant={inline ? "hero" : undefined}
+      className={inline ? "design-home-prompt-composer-area" : undefined}
+      composerRef={composerRef}
+      ariaLabel={placeholder ?? t("home.describeBuild")}
+      showModelSelector={showModelSelector}
+      modelStatusChecksEnabled={modelStatusChecksEnabled}
+      placeholder={placeholder ?? t("home.describeBuild")}
+      onSubmit={handleSubmit}
+      onBeforeSubmit={handleBeforeSubmit}
+      onTextChange={(text) => {
+        draftTextRef.current = text;
+      }}
+      contextItems={contextItems}
+      onRemoveContextItem={onRemoveContextItem}
+      onRetryContextItem={onRetryContextItem}
+      onAttachmentsChange={handleAttachmentsChange}
+      draftScope={orgScopedDraftScope}
+      initialText={activeRestoredPrompt?.text ?? initialText}
+      initialTextKey={
+        activeRestoredPrompt
+          ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
+          : `seed:${initialTextKey ?? 0}`
+      }
+      contextMenuItems={contextMenuItems ?? []}
+    />
+  );
 
   const content = (
     <>
@@ -721,45 +781,7 @@ export default function PromptPopover({
 
       <div className={cn(!inline && "px-2 pb-2", showStartChoice && "hidden")}>
         <LazyChunkErrorBoundary fallback={<LazyChunkRetryFallback />}>
-          <PromptComposer
-            key={
-              inline
-                ? orgScopedDraftScope
-                : (placeholder ?? t("home.describeBuild"))
-            }
-            autoFocus
-            attachmentsEnabled
-            attachmentAdapter={attachmentAdapter}
-            inlineTextAttachments={false}
-            maxDocumentAttachmentBytes={MAX_UPLOAD_BYTES}
-            disabled={disabled || loading || submitting || checkingProvider}
-            submissionDisabled={submissionDisabled}
-            submitting={submitting || checkingProvider}
-            layoutVariant={inline ? "hero" : undefined}
-            className={inline ? "design-home-prompt-composer-area" : undefined}
-            composerRef={composerRef}
-            ariaLabel={placeholder ?? t("home.describeBuild")}
-            showModelSelector={showModelSelector}
-            modelStatusChecksEnabled={modelStatusChecksEnabled}
-            placeholder={placeholder ?? t("home.describeBuild")}
-            onSubmit={handleSubmit}
-            onBeforeSubmit={handleBeforeSubmit}
-            onTextChange={(text) => {
-              draftTextRef.current = text;
-            }}
-            contextItems={contextItems}
-            onRemoveContextItem={onRemoveContextItem}
-            onRetryContextItem={onRetryContextItem}
-            onAttachmentsChange={handleAttachmentsChange}
-            draftScope={orgScopedDraftScope}
-            initialText={activeRestoredPrompt?.text ?? initialText}
-            initialTextKey={
-              activeRestoredPrompt
-                ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
-                : `seed:${initialTextKey ?? 0}`
-            }
-            contextMenuItems={contextMenuItems ?? []}
-          />
+          <Suspense fallback={null}>{promptComposer}</Suspense>
         </LazyChunkErrorBoundary>
       </div>
       {!inline &&

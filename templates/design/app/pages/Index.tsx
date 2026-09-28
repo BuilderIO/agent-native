@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  PromptComposer,
   snapshotComposerContextItems,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
@@ -1144,6 +1145,7 @@ export default function Index() {
               inline
               open
               onOpenChange={() => {}}
+              composerComponent={PromptComposer}
               composerRef={composerRef}
               onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}

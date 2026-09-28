@@ -487,6 +487,7 @@ describe("Index skip to editor", () => {
       modelStatusChecksEnabled: false,
       onBeforeSubmit: expect.any(Function),
     });
+    expect(mocks.promptProps?.composerComponent).toBeDefined();
     mocks.fetchAgentEngineConfiguredState.mockRejectedValueOnce(
       new Error("temporary failure"),
     );
