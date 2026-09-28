@@ -143,7 +143,7 @@ Discharge it before reading anything new.
 
 Slack is the ledger. Do not keep a local one — a per-run state file cannot
 see the previous run, which is why the follow-up never happened. Run this
-first, every time:
+first, every time, to enumerate the workflow's questions and their context:
 
 ```
 slack_search: "this was sent from a bot." in:<#CHANNEL>
@@ -159,12 +159,22 @@ reply's timestamp; acting on it targets the wrong message.
 
 Find new replies even when their parent is older than the five-day scan. Before
 searching, read that channel's reply-scan cursor from the previous recap; if
-absent, scan all available history. Search that channel over an overlapping
-date window, sorted oldest-first, and filter hits to timestamps after its
-cursor. Resolve each hit to its parent's `thread_ts` and read the full thread.
-Slack's `after:` takes a date, not a message timestamp; start at least one day
-before the cursor date. Follow `next_cursor` until exhausted. Record that
-channel's last processed timestamp only after every page is handled.
+absent, scan all available history. The disclosure search above cannot find a
+new reply when its bot-message hit predates the cursor. Search all messages in
+that channel over an overlapping date window instead:
+
+```
+slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
+  sort=timestamp sort_dir=asc
+```
+
+Filter each hit by its message timestamp after that channel's cursor, then
+resolve it to its parent's `thread_ts` and read the full thread. Never filter
+these hits by the older parent or disclosure timestamp. Slack's `after:` takes
+a date, not a message timestamp; start at least one day before the cursor date.
+Follow `next_cursor` until exhausted. Record that channel's last processed
+timestamp only after every page is handled, retaining the greatest fully
+processed timestamp.
 
 An item is answered only when a person speaks after the question without this
 workflow's disclosure marker. Open the thread: a partial, unrelated, or
