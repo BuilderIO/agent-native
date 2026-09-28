@@ -1271,6 +1271,7 @@ export class AgentKitClient implements AgentKitController {
     if (!queueMessage) {
       throw new AgentKitCapabilityError("messageQueue");
     }
+    const runWasActive = this.getThread(input.threadId).activeRunIds.length > 0;
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
       const result = await this.invokeRequest(requestContext, (context) =>
@@ -1297,6 +1298,7 @@ export class AgentKitClient implements AgentKitController {
         messages: [...thread.queuedMessages, result.message],
         removedIds,
       });
+      if (runWasActive) this.scheduleQueuePromotion(input.threadId);
       return result.message;
     });
   }
