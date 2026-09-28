@@ -488,6 +488,11 @@ async function ensureNativeObject(input: {
   );
   for (const field of known.values()) {
     const existingPolicy = policyByName.get(field.name);
+    if (existingPolicy) {
+      await assertAccess("crm-field-policy", existingPolicy.id, "editor");
+      continue;
+    }
+
     const attributeColumns = crmAttributeColumnsFor(
       field,
       "local-authoritative",
@@ -505,24 +510,6 @@ async function ensureNativeObject(input: {
       ...attributeColumns,
       updatedAt: now,
     };
-    if (existingPolicy) {
-      await assertAccess("crm-field-policy", existingPolicy.id, "editor");
-      await db
-        .update(schema.crmFieldPolicies)
-        .set(values)
-        .where(
-          and(
-            eq(schema.crmFieldPolicies.id, existingPolicy.id),
-            accessFilter(
-              schema.crmFieldPolicies,
-              schema.crmFieldPolicyShares,
-              undefined,
-              "editor",
-            ),
-          ),
-        );
-      continue;
-    }
     const policyId = crypto.randomUUID();
     await db.insert(schema.crmFieldPolicies).values({
       id: policyId,

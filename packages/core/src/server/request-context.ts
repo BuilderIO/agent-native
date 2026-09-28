@@ -106,6 +106,7 @@ export interface RequestContext {
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
   authUserId?: string;
+  agentRunAnonymous?: boolean;
   userName?: string;
   orgId?: string;
   orgScope?: "personal";

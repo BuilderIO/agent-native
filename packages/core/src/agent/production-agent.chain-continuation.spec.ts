@@ -25,7 +25,11 @@ import {
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
-import { RUN_DIAG_STAGE } from "./run-store.js";
+import {
+  AgentTurnInitiatorMismatchError,
+  AgentTurnInitiatorUnavailableError,
+  RUN_DIAG_STAGE,
+} from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
 
 const ENV_KEYS = [
@@ -435,6 +439,30 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       "dispatch down",
     );
   });
+
+  it.each([
+    new AgentTurnInitiatorMismatchError("thread-1", "turn-1"),
+    new AgentTurnInitiatorUnavailableError("thread-1", "turn-1"),
+  ])(
+    "does not fall back to inline dispatch for initiator errors: $name",
+    async (error) => {
+      const h = makeHarness();
+      (h.deps.insertRun as any).mockRejectedValueOnce(error);
+
+      await runChain(h);
+
+      expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+      expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-chunk0",
+        "errored",
+      );
+      expect(h.deps.setRunError).toHaveBeenCalledWith(
+        "run-chunk0",
+        "background_continuation_dispatch_failed",
+        error.message,
+      );
+    },
+  );
 
   it("refuses to chain when the SQL per-turn run budget is exhausted (cross-chain loop killer)", async () => {
     const h = makeHarness({
