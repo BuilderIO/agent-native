@@ -1125,10 +1125,10 @@ async function runTextSurfaceQa(page: Page, base: string) {
         "slide text: rapid typing and debounce pause changed the text",
       );
     }
-    await page
+    const titleInput = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')
-      .first()
-      .focus();
+      .first();
+    await titleInput.focus();
     await editor.focus();
     await editor.pressSequentially(" focus");
     expectedSlideText += " focus";
@@ -1142,9 +1142,92 @@ async function runTextSurfaceQa(page: Page, base: string) {
       path: path.join(outRoot, "slide-text-focus-return.png"),
       fullPage: true,
     });
-    const titleInput = page
-      .locator('[data-slides-editor-root="true"] input[type="text"]')
-      .first();
+    const backwardsSelection = await editor.evaluate((element: HTMLElement) => {
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        nodes.push(node as Text);
+      }
+      const pointAt = (offset: number): [Text, number] | null => {
+        let remaining = offset;
+        for (const node of nodes) {
+          if (remaining <= node.length) return [node, remaining];
+          remaining -= node.length;
+        }
+        return null;
+      };
+      const length = nodes.reduce((total, node) => total + node.length, 0);
+      const end = pointAt(length);
+      const start = pointAt(length - 5);
+      if (!start || !end) return false;
+      const [endNode, endOffset] = end;
+      const [startNode, startOffset] = start;
+      const selection = window.getSelection();
+      selection?.setBaseAndExtent(endNode, endOffset, startNode, startOffset);
+      return selection?.toString() === "focus";
+    });
+    if (!backwardsSelection) {
+      problems.push(
+        "slide text: could not make the backwards selection target",
+      );
+    } else {
+      await titleInput.focus();
+      await editor.focus();
+      const restoredSelection = await editor.evaluate(
+        (element: HTMLElement) => {
+          const selection = window.getSelection();
+          if (!selection?.anchorNode || !selection.focusNode) return null;
+          const offset = (node: Node, nodeOffset: number) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.setEnd(node, nodeOffset);
+            return range.toString().length;
+          };
+          return {
+            anchor: offset(selection.anchorNode, selection.anchorOffset),
+            focus: offset(selection.focusNode, selection.focusOffset),
+            text: selection.toString(),
+          };
+        },
+      );
+      if (
+        !restoredSelection ||
+        restoredSelection.anchor <= restoredSelection.focus ||
+        restoredSelection.text !== "focus"
+      ) {
+        problems.push(
+          `slide text: refocus changed backwards selection direction (${JSON.stringify(restoredSelection)})`,
+        );
+      } else {
+        await editor.press("Shift+ArrowLeft");
+        const extendedSelection = await editor.evaluate(
+          (element: HTMLElement) => {
+            const selection = window.getSelection();
+            if (!selection?.anchorNode || !selection.focusNode) return null;
+            const offset = (node: Node, nodeOffset: number) => {
+              const range = document.createRange();
+              range.selectNodeContents(element);
+              range.setEnd(node, nodeOffset);
+              return range.toString().length;
+            };
+            return {
+              anchor: offset(selection.anchorNode, selection.anchorOffset),
+              focus: offset(selection.focusNode, selection.focusOffset),
+              text: selection.toString(),
+            };
+          },
+        );
+        if (
+          !extendedSelection ||
+          extendedSelection.anchor <= extendedSelection.focus ||
+          extendedSelection.text !== " focus"
+        ) {
+          problems.push(
+            `slide text: Shift+ArrowLeft did not extend the backwards selection (${JSON.stringify(extendedSelection)})`,
+          );
+        }
+      }
+    }
     const clickPoint = await editor.evaluate((element: HTMLElement) => {
       const text = document
         .createTreeWalker(element, NodeFilter.SHOW_TEXT)

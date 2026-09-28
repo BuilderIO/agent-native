@@ -238,6 +238,7 @@ interface TextOffsets {
   to: number;
   fromBefore: boolean;
   toBefore: boolean;
+  backward: boolean;
 }
 
 interface Snapshot extends TextOffsets {
@@ -759,6 +760,7 @@ export function startInPlaceTextSession(
     after: TextOffsets | null;
   } | null = null;
   let focusSelection: TextOffsets | null = null;
+  let pointerFocusPending = false;
   let edited = false;
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
@@ -925,23 +927,41 @@ export function startInPlaceTextSession(
   }
 
   function selectionOffsets(breaks = false): TextOffsets {
+    const selection = window.getSelection();
     const range = selectionRange();
-    if (!range) return { from: 0, to: 0, fromBefore: false, toBefore: false };
+    if (!range) {
+      return {
+        from: 0,
+        to: 0,
+        fromBefore: false,
+        toBefore: false,
+        backward: false,
+      };
+    }
     const { startContainer, startOffset, endContainer, endOffset } = range;
     return {
       from: textOffset(el, startContainer, startOffset, breaks),
       to: textOffset(el, endContainer, endOffset, breaks),
       fromBefore: endsText(startContainer, startOffset),
       toBefore: endsText(endContainer, endOffset),
+      backward:
+        !range.collapsed &&
+        selection?.anchorNode === endContainer &&
+        selection.anchorOffset === endOffset,
     };
   }
 
   function select(
     start: readonly [Node, number],
     end: readonly [Node, number],
+    backward = false,
   ) {
     const selection = window.getSelection();
     if (!selection) return;
+    if (backward) {
+      selection.setBaseAndExtent(end[0], end[1], start[0], start[1]);
+      return;
+    }
     const range = document.createRange();
     range.setStart(...start);
     range.setEnd(...end);
@@ -950,12 +970,13 @@ export function startInPlaceTextSession(
   }
 
   function selectOffsets(
-    { from, to, fromBefore, toBefore }: TextOffsets,
+    { from, to, fromBefore, toBefore, backward }: TextOffsets,
     breaks = false,
   ) {
     select(
       textPoint(el, from, fromBefore, breaks),
       textPoint(el, to, toBefore, breaks),
+      backward,
     );
   }
 
@@ -966,7 +987,18 @@ export function startInPlaceTextSession(
   }
 
   function onFocus() {
-    if (active && focusSelection) selectOffsets(focusSelection, true);
+    if (!pointerFocusPending && active && focusSelection) {
+      selectOffsets(focusSelection, true);
+    }
+    pointerFocusPending = false;
+  }
+
+  function onPointerDown() {
+    pointerFocusPending = document.activeElement !== el;
+  }
+
+  function onPointerUp() {
+    pointerFocusPending = false;
   }
 
   /**
@@ -988,7 +1020,7 @@ export function startInPlaceTextSession(
       ([node, offset]) =>
         node instanceof Text && el.contains(node) && offset <= node.length,
     );
-    if (points && intact) select(points[0], points[1]);
+    if (points && intact) select(points[0], points[1], offsets.backward);
     else selectOffsets(offsets);
     return true;
   }
@@ -1035,7 +1067,8 @@ export function startInPlaceTextSession(
       lastEdit.after?.from === selection.from &&
       lastEdit.after.to === selection.to &&
       lastEdit.after.fromBefore === selection.fromBefore &&
-      lastEdit.after.toBefore === selection.toBefore;
+      lastEdit.after.toBefore === selection.toBefore &&
+      lastEdit.after.backward === selection.backward;
     lastEdit = { kind, at: now, boundary, after: null };
     if (coalesce) return;
     undoStack.push(snapshot());
@@ -2111,6 +2144,8 @@ export function startInPlaceTextSession(
   const listeners: [string, (event: never) => void][] = [
     ["blur", onBlur],
     ["focus", onFocus],
+    ["pointerdown", onPointerDown],
+    ["pointerup", onPointerUp],
     ["beforeinput", onBeforeInput],
     ["input", onInput],
     ["keydown", onKeyDown],
