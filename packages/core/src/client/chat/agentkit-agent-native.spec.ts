@@ -796,6 +796,96 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
+  it("drops a server-run placeholder when its canonical message is restored", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({
+          id: "thread-server-run-placeholder",
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:01:00.000Z",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                id: "server-run-1",
+                role: "assistant",
+                metadata: { runId: "run-1" },
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "tool-shared",
+                    toolName: "create-release",
+                    args: { release: "agentkit-acceptance" },
+                    result: { created: true },
+                    chatUI: { renderer: "test.action" },
+                  },
+                ],
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "assistant-canonical",
+                  role: "assistant",
+                  parts: [
+                    {
+                      type: "text",
+                      text: "Approval continuation completed.",
+                    },
+                  ],
+                  status: "complete",
+                },
+              ],
+              events: [
+                {
+                  id: "event-1",
+                  threadId: "thread-server-run-placeholder",
+                  runId: "run-1",
+                  sequence: 1,
+                  occurredAt: "2026-09-26T00:00:01.000Z",
+                  type: "message.completed",
+                  message: {
+                    id: "assistant-canonical",
+                    role: "assistant",
+                    parts: [
+                      {
+                        type: "text",
+                        text: "Approval continuation completed.",
+                      },
+                    ],
+                    status: "complete",
+                  },
+                },
+              ],
+              toolCalls: [
+                {
+                  id: "tool-shared",
+                  name: "create-release",
+                  status: "completed",
+                  runId: "run-1",
+                  output: { created: true },
+                },
+              ],
+            },
+          }),
+        }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-server-run-placeholder",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "assistant-canonical",
+    ]);
+    expect(snapshot?.widgets).toMatchObject([
+      {
+        messageId: "assistant-canonical",
+        widget: { id: "tool-shared:chat-ui" },
+      },
+    ]);
+  });
+
   it("attaches a legacy widget to its canonical tool message after reload", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async () =>

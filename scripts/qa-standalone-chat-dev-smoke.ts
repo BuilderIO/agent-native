@@ -2758,8 +2758,11 @@ async function assertAgentKitChatAcceptance(
         active?: boolean;
         status?: string;
       };
+      if (typeof run.active !== "boolean") {
+        throw new Error("Active-run status omitted its active boolean");
+      }
       return (
-        run.active !== true ||
+        !run.active ||
         [
           "completed",
           "complete",

@@ -392,64 +392,68 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
 }
 
 function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
-  return messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    parts: message.parts.flatMap((part): AgentMessagePart[] => {
-      if (part.type === "text") {
-        return [
-          {
-            type: "text",
-            text: part.text,
-            ...(part.format ? { format: part.format } : {}),
-          },
-        ];
-      }
-      if (part.type === "citation") {
-        return [
-          {
-            type: "citation",
-            title: part.title,
-            ...(part.url ? { url: part.url } : {}),
-            ...(part.sourceId ? { sourceId: part.sourceId } : {}),
-          },
-        ];
-      }
-      if (part.type === "annotation") {
-        return [
-          {
-            type: "annotation",
-            annotation: {
-              id: part.annotation.id,
-              kind: part.annotation.kind,
-              label: part.annotation.label,
-              ...(part.annotation.url ? { url: part.annotation.url } : {}),
-              ...(part.annotation.start !== undefined
-                ? { start: part.annotation.start }
-                : {}),
-              ...(part.annotation.end !== undefined
-                ? { end: part.annotation.end }
-                : {}),
+  return messages.map((message) => {
+    const runId = asRecord(message.metadata)?.runId;
+    return {
+      id: message.id,
+      role: message.role,
+      parts: message.parts.flatMap((part): AgentMessagePart[] => {
+        if (part.type === "text") {
+          return [
+            {
+              type: "text",
+              text: part.text,
+              ...(part.format ? { format: part.format } : {}),
             },
-          },
-        ];
-      }
-      if (part.type === "file") {
-        return [
-          {
-            type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(part.url ? { url: part.url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
-          },
-        ];
-      }
-      return [];
-    }),
-    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
-    ...(message.status ? { status: message.status } : {}),
-  }));
+          ];
+        }
+        if (part.type === "citation") {
+          return [
+            {
+              type: "citation",
+              title: part.title,
+              ...(part.url ? { url: part.url } : {}),
+              ...(part.sourceId ? { sourceId: part.sourceId } : {}),
+            },
+          ];
+        }
+        if (part.type === "annotation") {
+          return [
+            {
+              type: "annotation",
+              annotation: {
+                id: part.annotation.id,
+                kind: part.annotation.kind,
+                label: part.annotation.label,
+                ...(part.annotation.url ? { url: part.annotation.url } : {}),
+                ...(part.annotation.start !== undefined
+                  ? { start: part.annotation.start }
+                  : {}),
+                ...(part.annotation.end !== undefined
+                  ? { end: part.annotation.end }
+                  : {}),
+              },
+            },
+          ];
+        }
+        if (part.type === "file") {
+          return [
+            {
+              type: "file",
+              name: part.name,
+              ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+              ...(part.url ? { url: part.url } : {}),
+              ...(part.fileId ? { fileId: part.fileId } : {}),
+            },
+          ];
+        }
+        return [];
+      }),
+      ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+      ...(message.status ? { status: message.status } : {}),
+      ...(typeof runId === "string" ? { metadata: { runId } } : {}),
+    };
+  });
 }
 
 function persistedActionWidgets(
@@ -741,7 +745,7 @@ export function createAgentNativeAgentKitTransport(
           widgets: agentKit.widgets,
         })
       : undefined;
-    const messages = [
+    const candidateMessages = [
       ...(protocolSnapshot?.messages ?? storedMessageProjection),
     ];
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -750,6 +754,68 @@ export function createAgentNativeAgentKitTransport(
         toolCall.messageId ? [[toolCall.id, toolCall.messageId] as const] : [],
       ),
     );
+    const canonicalMessageIds = new Set(
+      candidateMessages
+        .filter((message) => !message.id.startsWith("server-run-"))
+        .map((message) => message.id),
+    );
+    const canonicalMessageIdByRunId = new Map<string, string>();
+    for (const event of protocolSnapshot?.events ?? []) {
+      if (
+        event.type === "message.completed" &&
+        canonicalMessageIds.has(event.message.id)
+      ) {
+        canonicalMessageIdByRunId.set(event.runId, event.message.id);
+      }
+    }
+    for (const run of protocolSnapshot?.runs ?? []) {
+      if (
+        run.activeMessageId &&
+        canonicalMessageIds.has(run.activeMessageId) &&
+        !canonicalMessageIdByRunId.has(run.id)
+      ) {
+        canonicalMessageIdByRunId.set(run.id, run.activeMessageId);
+      }
+    }
+    for (const toolCall of protocolSnapshot?.toolCalls ?? []) {
+      if (
+        toolCall.runId &&
+        toolCall.messageId &&
+        canonicalMessageIds.has(toolCall.messageId) &&
+        !canonicalMessageIdByRunId.has(toolCall.runId)
+      ) {
+        canonicalMessageIdByRunId.set(toolCall.runId, toolCall.messageId);
+      }
+    }
+    const legacyRunIdsByMessageId = new Map(
+      storedMessageProjection.flatMap((message) => {
+        const runId = asRecord(message.metadata)?.runId;
+        return typeof runId === "string" ? [[message.id, runId] as const] : [];
+      }),
+    );
+    const redundantServerRunMessageIds = new Set(
+      actionWidgets.toolCalls.flatMap((toolCall) => {
+        const canonicalMessageId = canonicalToolCallMessageIds.get(toolCall.id);
+        return toolCall.messageId?.startsWith("server-run-") &&
+          canonicalMessageId &&
+          canonicalMessageIds.has(canonicalMessageId)
+          ? [toolCall.messageId]
+          : [];
+      }),
+    );
+    const messages = candidateMessages.filter((message) => {
+      if (
+        message.role !== "assistant" ||
+        !message.id.startsWith("server-run-")
+      ) {
+        return true;
+      }
+      const runId = asRecord(message.metadata)?.runId;
+      return (
+        !(typeof runId === "string" && canonicalMessageIdByRunId.has(runId)) &&
+        !redundantServerRunMessageIds.has(message.id)
+      );
+    });
     const embeddedWidgetIds = new Set(
       messages.flatMap((message) =>
         message.parts.flatMap((part) =>
@@ -765,15 +831,18 @@ export function createAgentNativeAgentKitTransport(
     const reconciledActionWidgets = actionWidgets.widgets.map(
       ({ messageId, widget }) => {
         const toolCallId = asRecord(widget.data)?.toolCallId;
-        const canonicalMessageId =
+        const toolCallMessageId =
           typeof toolCallId === "string"
             ? canonicalToolCallMessageIds.get(toolCallId)
             : undefined;
+        const runId = legacyRunIdsByMessageId.get(messageId);
+        const canonicalMessageId =
+          (toolCallMessageId && messageIds.has(toolCallMessageId)
+            ? toolCallMessageId
+            : undefined) ??
+          (runId ? canonicalMessageIdByRunId.get(runId) : undefined);
         return {
-          messageId:
-            canonicalMessageId && messageIds.has(canonicalMessageId)
-              ? canonicalMessageId
-              : messageId,
+          messageId: canonicalMessageId ?? messageId,
           widget,
         };
       },
