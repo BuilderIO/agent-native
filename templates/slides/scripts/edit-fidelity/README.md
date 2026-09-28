@@ -15,6 +15,13 @@ Run the script from `templates/slides`:
 pnpm exec tsx scripts/edit-fidelity/run.ts [case-filter] [options]
 ```
 
+Run the focused chat caret regression while a synthetic slide text edit session
+is open in Chromium:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -47,6 +54,7 @@ because it creates and rewrites decks.
 | `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
 | `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
 | `--headed`                     | Show the browser                                                                           |
+| `--typing-chat`                | Run only the Agent chat typing regression with a slide text edit session open              |
 
 Exit codes:
 

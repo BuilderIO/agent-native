@@ -134,6 +134,7 @@ const cpuThrottle = numOpt("--cpu-throttle", 1);
 const update = argv.includes("--update");
 const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
+const typingChatOnly = argv.includes("--typing-chat");
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
     fatal(`unknown scenario ${s}; expected ${SCENARIOS.join(",")}`);
@@ -532,6 +533,101 @@ async function exitEdit(
   return waitFor(async () => !(await editorState(page, slideId)).editing, 5000);
 }
 
+async function runChatTypingRegression(page: Page, base: string) {
+  await page.route("**/_agent-native/agent-engine/status", (route: any) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ configured: true, chatEligible: true }),
+    }),
+  );
+  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+  await ensureSignedIn(page);
+  const created = await action(page, "create-deck", {
+    title: "[edit-fidelity] chat typing regression",
+    slides: [
+      {
+        id: "chat-typing-slide",
+        content:
+          '<div class="fmd-slide"><p>Slide text edit stays open</p></div>',
+      },
+    ],
+  });
+  const deckId = String(created.id ?? created.deckId);
+  await openSlide(page, base, deckId, 0, "chat-typing-slide");
+  const [target] = await listTargets(page, "chat-typing-slide");
+  if (!target) throw new Error("synthetic slide has no editable text target");
+  if (!(await enterEdit(page, "chat-typing-slide", target.point, []))) {
+    throw new Error("could not open the synthetic slide text edit session");
+  }
+
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+    ),
+  );
+  const selector =
+    '.agent-sidebar-panel[data-agent-sidebar-state="open"] [data-agent-composer-slot="editor-input"]';
+  const composer = page.locator(selector);
+  await composer.waitFor({ state: "visible", timeout: 45_000 });
+  if (!(await editorState(page, "chat-typing-slide")).editing) {
+    throw new Error(
+      "opening the Agent sidebar ended the slide text edit session",
+    );
+  }
+  await page.waitForFunction(
+    (inputSelector: string) =>
+      document
+        .querySelector<HTMLElement>(inputSelector)
+        ?.getAttribute("contenteditable") === "true",
+    selector,
+    { timeout: 20_000 },
+  );
+  await composer.focus();
+
+  await composer.evaluate((element: HTMLElement) => {
+    (window as any).__typingRegressionComposer = element;
+  });
+
+  const first = "Fast typing should keep every character in order.";
+  const second = " A pause must not reset the caret either.";
+  await composer.pressSequentially(first);
+  await sleep(400);
+  await composer.pressSequentially(second);
+
+  const expected = first + second;
+  const result = await page.evaluate((selector: string) => {
+    const editor = document.querySelector<HTMLElement>(selector);
+    const selection = window.getSelection();
+    const focusNode = selection?.focusNode;
+    return {
+      text: editor?.innerText ?? null,
+      sameNode: editor === (window as any).__typingRegressionComposer,
+      focused: document.activeElement === editor,
+      caretOffset:
+        editor && focusNode && editor.contains(focusNode)
+          ? (selection?.focusOffset ?? null)
+          : null,
+    };
+  }, selector);
+  const editAfterTyping = await editorState(page, "chat-typing-slide");
+  const problems: string[] = [];
+  if (result.text !== expected) {
+    problems.push(`text mismatch: ${JSON.stringify(result.text)}`);
+  }
+  if (!result.sameNode) problems.push("composer remounted while typing");
+  if (!result.focused) problems.push("composer lost focus while typing");
+  if (result.caretOffset !== expected.length) {
+    problems.push(
+      `caret ended at ${result.caretOffset}, expected ${expected.length}`,
+    );
+  }
+  if (!editAfterTyping.editing) {
+    problems.push("slide text edit session ended while typing in chat");
+  }
+  return problems;
+}
+
 /**
  * Polls the stored slide until it stops changing and no write the page sent
  * is still in flight. Saves are debounced, so "no change yet" is only trusted
@@ -897,11 +993,12 @@ async function runScenario(
   page.on("requestfailed", onWriteDone);
 
   try {
+    await page.goto(`${ctx.base}/home`, { waitUntil: "domcontentloaded" });
+    // Flush the previous slide pagehide before restoring this scenario's fixture.
+    await takeKeepaliveWrites(page);
     await restoreSlide(page, deckId, slideId, ctx.stored);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
-    // Leaving the previous page fires pagehide after restoreSlide, so a
-    // keepalive flush it sent can land after the restore and change the
-    // slide this scenario starts from.
+    // Recheck after reopening in case a prior pagehide write raced the restore.
     const leftBehind = keepaliveMismatches(
       await takeKeepaliveWrites(page),
       slideId,
@@ -909,7 +1006,7 @@ async function runScenario(
     );
     if (leftBehind.length) {
       throw new Error(
-        `leaving the previous page sent ${leftBehind.length} keepalive write(s) that can overwrite the restored slide`,
+        `${leftBehind.length} pagehide keepalive write(s) can overwrite the restored slide`,
       );
     }
     const current = (await listTargets(page, slideId))[target.index];
@@ -1814,6 +1911,22 @@ async function main() {
     await ensureSignedIn(warm);
     await warmUp(warm, base);
     await warm.close();
+
+    if (typingChatOnly) {
+      const page = await context.newPage();
+      const problems = await runChatTypingRegression(page, base);
+      await page.close();
+      if (problems.length) {
+        console.error(
+          `[edit-fidelity] chat typing regression: ${problems.join("; ")}`,
+        );
+        return 1;
+      }
+      console.log(
+        "[edit-fidelity] chat typing regression passed with a slide edit session open",
+      );
+      return 0;
+    }
 
     console.log(
       `[edit-fidelity] ${base} · ${cases.length} case(s) · scenarios ${scenarios.join(",")} · out ${outRoot}`,
