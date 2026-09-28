@@ -3,7 +3,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
+import SlideRenderer, {
   computeSlideFitTransform,
   getRenderedSlideSource,
   isRawHtmlSlide,
@@ -178,8 +178,6 @@ describe("computeSlideFitTransform", () => {
 
 describe("isRawHtmlSlide", () => {
   it("treats any stored markup as raw HTML, whatever its layout", () => {
-    // Imported PPTX slides carry extra classes and the `content` layout; the
-    // editor once disagreed with the renderer here and refused to edit them.
     expect(
       isRawHtmlSlide({
         content: '<div class="fmd-slide fmd-imported-pptx"><div>Hi</div></div>',
@@ -442,6 +440,34 @@ describe("SlideInner source stamps", () => {
 });
 
 describe("SlideInner autofit", () => {
+  it("centers full-size slides inside their viewport while scaling to contain", () => {
+    render(
+      <SlideRenderer
+        slide={{
+          id: "presentation-slide",
+          layout: "blank",
+          notes: "",
+          content: '<div class="fmd-slide"><h1>Centered</h1></div>',
+        }}
+        aspectRatio="16:9"
+        thumbnail={false}
+      />,
+    );
+
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="presentation-slide"]',
+    )?.parentElement?.parentElement;
+    expect(viewport?.classList.contains("flex")).toBe(true);
+    expect(viewport?.classList.contains("items-center")).toBe(true);
+    expect(viewport?.classList.contains("justify-center")).toBe(true);
+    expect(viewport?.firstElementChild?.classList.contains("shrink-0")).toBe(
+      true,
+    );
+    expect(
+      viewport?.firstElementChild?.classList.contains("origin-center"),
+    ).toBe(true);
+  });
+
   it("updates an uploaded image source without replacing its live node", async () => {
     const previewContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
@@ -558,6 +584,9 @@ describe("SlideInner autofit", () => {
         ) {
           return rect(110, 80, 740, 380);
         }
+        if (this.textContent?.includes("Expanded")) {
+          return rect(110, 80, 1200, 500);
+        }
         if (this.textContent?.includes("Horizontally fitted")) {
           return rect(110, 80, 1000, 500);
         }
@@ -598,9 +627,6 @@ describe("SlideInner autofit", () => {
         "[data-fmd-autofit-content]",
       );
       expect(fitLayer).toBeTruthy();
-      // Vertical overflow no longer triggers a uniform scale-down — the slide
-      // renders at native size and the editor surfaces the overflow so the
-      // agent can rewrite the HTML to fit instead.
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.getAttribute("data-fmd-autofit-active")).toBeNull();
       expect(onOverflowChange).toHaveBeenCalledWith(
@@ -784,11 +810,6 @@ describe("SlideInner autofit", () => {
     expect(slideDeclaresTextColor(html as string)).toBe(expected);
   });
 
-  // The `.slide-content <tag>` palette in global.css is a per-element
-  // declaration, so it beats any color a slide inherits from its own wrapper.
-  // `data-slide-content-scope` turns it off. It reached only the raw-HTML
-  // container, so an agent-recolored slide that renders through a markdown
-  // layout (rehype-raw carries the same HTML) stayed white-on-cream.
   it("turns the palette off for a markdown layout whose slide declares colors", () => {
     const slide: Slide = {
       id: "markdown-authored-colors",
@@ -868,10 +889,47 @@ describe("SlideInner autofit", () => {
     expect(heading).toBeTruthy();
     heading!.contentEditable = "true";
 
-    // The contenteditable mutation schedules another fit pass. It must retain
-    // the pre-edit transform rather than reset to 1 and visibly shift content.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+  });
+
+  it("updates the fit during an edit before the editor exits", async () => {
+    const slide: Slide = {
+      id: "raw-editing-growth",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide" style="padding: 80px 110px;"><h2>Horizontally fitted title</h2></div>',
+    };
+
+    render(<SlideInner slide={slide} />);
+
+    const fitLayer = await waitFor(() => {
+      const layer = document.querySelector<HTMLElement>(
+        "[data-fmd-autofit-content]",
+      );
+      expect(layer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+      return layer;
+    });
+    const heading = fitLayer?.querySelector<HTMLElement>("h2");
+    expect(heading?.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    heading!.contentEditable = "true";
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
+
+    heading!.firstChild!.textContent = "Horizontally fitted title Expanded";
+    const editedScale = await waitFor(() => {
+      const scale = fitLayer?.style.getPropertyValue("--fmd-fit-scale");
+      expect(scale).not.toBe("0.74");
+      return scale;
+    });
+
+    heading!.contentEditable = "false";
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe(
+      editedScale,
+    );
   });
 
   it("keeps the live edit node on a mermaid slide across re-renders", () => {
@@ -910,7 +968,6 @@ describe("SlideInner autofit", () => {
     expect(fmdSlide.querySelector("p")?.textContent).toBe("Caption below");
     const placeholder = fmdSlide.querySelector("[data-mermaid-index]")!;
     expect(placeholder).toBeTruthy();
-    // The diagram component mounts inside the placeholder, not beside it.
     await waitFor(() =>
       expect(placeholder.querySelector("[data-mermaid-diagram]")).toBeTruthy(),
     );
@@ -932,8 +989,6 @@ describe("SlideInner autofit", () => {
       const fitLayer = document.querySelector<HTMLElement>(
         "[data-fmd-autofit-content]",
       );
-      // The absolute object expands scrollWidth to 786px, but its independent
-      // geometry must not shrink or shift the 740px normal-flow layout.
       expect(fitLayer?.scrollWidth).toBe(786);
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("1");
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-x")).toBe("0px");
@@ -987,7 +1042,6 @@ describe("SlideInner autofit", () => {
         disconnect() {}
       },
     );
-    // Far below the viewport, the way most thumbnails in a long deck are.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       () => rect(0, 100_000, 740, 380),
     );
@@ -1001,8 +1055,6 @@ describe("SlideInner autofit", () => {
     };
     render(<SlideInner slide={slide} />);
 
-    // The fit layer is only ever created by a measure pass, so its absence
-    // proves the expensive per-descendant measurement never ran.
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(document.querySelector("[data-fmd-autofit-content]")).toBeNull();
 
@@ -1072,8 +1124,6 @@ describe("imported deck webfonts", () => {
         removeEventListener: () => {},
       },
     });
-    // happy-dom really requests a connected <link rel="stylesheet">, so record
-    // the element instead of connecting it and putting the suite on the network.
     appendedToHead.length = 0;
     vi.spyOn(document.head, "appendChild").mockImplementation(((
       node: HTMLElement,
@@ -1097,7 +1147,6 @@ describe("imported deck webfonts", () => {
   });
 
   it("asks a static-weight family for discrete weights, not a variable axis", () => {
-    // The css2 endpoint 400s the whole request when a family has no such axis.
     expect(resolveImportedFont("Open Sans")?.href).toBe(
       "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap",
     );
@@ -1137,7 +1186,6 @@ describe("imported deck webfonts", () => {
 
     expect(html).toContain("font-family:'Work Sans', sans-serif");
     expect(html).not.toContain("Work Sans Medium");
-    // Unservable families stay as authored so a locally installed copy still matches.
     expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
     expect(hrefs).toEqual([
       "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",

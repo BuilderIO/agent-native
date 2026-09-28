@@ -29,7 +29,6 @@ function boundedString(value: unknown, maxLength: number): string | null {
     : null;
 }
 
-/** Keep the original deck brief and file handles in every scoped follow-up. */
 export function buildSlidesDeckGenerationContext(
   value: unknown,
 ): string | null {
@@ -202,9 +201,6 @@ export async function prepareSlidesChatAttachments(args: {
     path: string;
     url?: string;
     type: string;
-    // Unset (not 0) for an attachment we never downloaded — an already-hosted
-    // URL-only attachment has no known byte size, and "0" would misreport it
-    // as an empty file instead of an unmeasured one.
     size?: number;
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
@@ -217,13 +213,6 @@ export async function prepareSlidesChatAttachments(args: {
     if (!attachment) continue;
     const ext = path.extname(attachment.name).toLowerCase();
 
-    // An attachment can arrive already durably hosted — a plain `url` with no
-    // inline `data` (e.g. `referenceImagePaths`/image content parts wrap an
-    // uploaded file as `{ type: "image", url }`, per
-    // packages/core/src/client/agent-chat-adapter.ts). There are no bytes to
-    // save, but the file IS attached; skipping it here because only `data`
-    // was ever recognized as "attached" is what silently drops it and leaves
-    // the agent with no signal it exists.
     if (
       typeof attachment.data !== "string" &&
       typeof attachment.url === "string"
@@ -340,11 +329,6 @@ export async function prepareSlidesChatAttachments(args: {
   const failureList = failed
     .map((file) => `- ${file.name}: ${file.reason}`)
     .join("\n");
-  // saveUploadedReferenceFile() saves the file either way but swallows the
-  // public-URL upload failure (missing/misbehaving file-upload provider) so
-  // the private path is never blocked. Without this callout the agent has no
-  // signal that embedding is impossible and silently drops the image from
-  // the deck instead of telling the user why.
   const unembeddableImages = uploaded.filter(
     (file) => !file.url && file.type.startsWith("image/"),
   );
@@ -374,7 +358,7 @@ export async function prepareSlidesChatAttachments(args: {
       ? [
           "The following attached image(s) have NO embeddable URL — the file-upload provider that hosts public image URLs failed or is not configured, so they were only saved to private import storage and CANNOT be embedded as `<img>` in slide HTML:",
           unembeddableImageList,
-          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public file-upload provider is available, and that connecting Builder.io (or another file provider) in Settings will enable embedding.",
+          "Do not silently skip these images. Tell the user the image(s) could not be added to the deck because no public object storage is available. They can connect Builder.io (free) or configure their own S3-compatible storage keys in Settings → File uploads to enable embedding.",
         ].join("\n")
       : "",
     failed.length > 0
@@ -403,10 +387,6 @@ function stripForwardedAttachmentData(
   saved: { path: string; url?: string },
 ): AgentChatAttachment {
   const next = { ...attachment };
-  // Keep visual data for the current model turn so uploaded screenshots remain
-  // available for vision analysis. Keep non-visual bytes until core's shared
-  // pre-upload boundary has created the durable public object-storage URL;
-  // `slidesUploadPath` is a private import handle, not a chat attachment URL.
   const inlineImage = isVisualAttachment(attachment)
     ? decodeDataUrl(attachment.data)
     : null;

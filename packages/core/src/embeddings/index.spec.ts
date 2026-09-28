@@ -4,6 +4,12 @@ const mocks = vi.hoisted(() => ({
   prefetchSecrets: vi.fn(async () => undefined),
   resolveBuilderGatewayAuth: vi.fn(),
   resolveSecretDetailed: vi.fn(),
+  readServiceProviderChoice: vi.fn(),
+}));
+
+vi.mock("../server/service-providers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/service-providers.js")>()),
+  readServiceProviderChoice: mocks.readServiceProviderChoice,
 }));
 
 vi.mock("../server/credential-provider.js", () => ({
@@ -17,7 +23,10 @@ vi.mock("../server/credential-provider.js", () => ({
 import {
   availableEmbeddingFamilies,
   createBuilderEmbeddingFamily,
+  defaultEmbeddingFamily,
   readEmbeddingFamilyAvailability,
+  resolveDefaultEmbeddingFamily,
+  type EmbeddingFamily,
 } from "./index.js";
 
 describe("embedding family availability", () => {
@@ -30,6 +39,7 @@ describe("embedding family availability", () => {
       value: key === "GEMINI_API_KEY" ? "gemini-key" : null,
       lookupFailed: key === "COHERE_API_KEY",
     }));
+    mocks.readServiceProviderChoice.mockResolvedValue(null);
   });
 
   it("prefetches provider keys and preserves unavailable lookups", async () => {
@@ -38,11 +48,39 @@ describe("embedding family availability", () => {
       unavailableProviders: ["cohere"],
     });
     expect(mocks.prefetchSecrets).toHaveBeenCalledWith([
+      "GOOGLE_GENERATIVE_AI_API_KEY",
       "GEMINI_API_KEY",
       "COHERE_API_KEY",
       "VOYAGE_API_KEY",
     ]);
-    expect(mocks.resolveSecretDetailed).toHaveBeenCalledTimes(3);
+    expect(mocks.resolveSecretDetailed).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the Gemini key saved for chat models", async () => {
+    mocks.resolveSecretDetailed.mockImplementation(async (key: string) => ({
+      value: key === "GOOGLE_GENERATIVE_AI_API_KEY" ? "gemini-chat-key" : null,
+      lookupFailed: false,
+      ...(key === "GOOGLE_GENERATIVE_AI_API_KEY"
+        ? { source: "org", scopeId: "org-1" }
+        : {}),
+    }));
+    const fetchMock = vi.fn(
+      async (_url: string | URL | Request, _init: RequestInit) =>
+        new Response(
+          JSON.stringify({ embedding: { values: Array(1024).fill(0.5) } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [family] = await availableEmbeddingFamilies();
+    expect(family?.provider).toBe("gemini");
+    await expect(family!.embed([{ text: "hello" }], "query")).resolves.toEqual([
+      Array(1024).fill(0.5),
+    ]);
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.stringify(init?.headers)).toContain("gemini-chat-key");
   });
 
   it("fails closed when any provider lookup is unavailable", async () => {
@@ -60,6 +98,48 @@ describe("embedding family availability", () => {
     await expect(readEmbeddingFamilyAvailability()).resolves.toEqual({
       families: [],
       unavailableProviders: ["voyage"],
+      preferredProvider: null,
+    });
+  });
+
+  describe("with Builder.io and a Gemini key", () => {
+    beforeEach(() => {
+      mocks.resolveSecretDetailed.mockImplementation(async (key: string) => ({
+        value: key === "GOOGLE_GENERATIVE_AI_API_KEY" ? "gemini-key" : null,
+        lookupFailed: false,
+      }));
+      mocks.resolveBuilderGatewayAuth.mockResolvedValue({
+        authorization: "Bearer builder-session",
+        spaceId: null,
+        userId: null,
+      });
+    });
+
+    it("uses Builder.io by default instead of turning semantic search off", async () => {
+      const family = await resolveDefaultEmbeddingFamily();
+      expect(family?.provider).toBe("builder");
+      expect(mocks.readServiceProviderChoice).toHaveBeenCalledWith(
+        "embeddings",
+      );
+    });
+
+    it("uses Gemini when the organization chooses it", async () => {
+      mocks.readServiceProviderChoice.mockResolvedValue("gemini");
+      await expect(readEmbeddingFamilyAvailability()).resolves.toMatchObject({
+        preferredProvider: "gemini",
+      });
+      expect((await resolveDefaultEmbeddingFamily())?.provider).toBe("gemini");
+    });
+
+    it("fails closed when the organization's choice can't be read", async () => {
+      mocks.readServiceProviderChoice.mockRejectedValue(new Error("db down"));
+      await expect(readEmbeddingFamilyAvailability()).resolves.toMatchObject({
+        unavailableProviders: ["service-providers"],
+        preferredProvider: null,
+      });
+      await expect(resolveDefaultEmbeddingFamily()).rejects.toThrow(
+        "temporarily unavailable for: service-providers",
+      );
     });
   });
 
@@ -211,5 +291,45 @@ describe("embedding family availability", () => {
       ([, init]) => JSON.parse(String(init?.body)).inputs as unknown[],
     );
     expect(requestInputs.map((inputs) => inputs.length)).toEqual([8, 1, 1, 1]);
+  });
+});
+
+describe("defaultEmbeddingFamily", () => {
+  const family = (provider: string): EmbeddingFamily => ({
+    id: `${provider}:test:3`,
+    provider,
+    model: "test",
+    version: "1",
+    dimensions: 3,
+    embed: async () => [[0, 0, 0]],
+  });
+
+  it("picks Builder.io, then Gemini, Cohere, and Voyage when several are available", () => {
+    expect(
+      defaultEmbeddingFamily([family("voyage"), family("gemini")])?.provider,
+    ).toBe("gemini");
+    expect(
+      defaultEmbeddingFamily([
+        family("cohere"),
+        family("gemini"),
+        family("builder"),
+      ])?.provider,
+    ).toBe("builder");
+    expect(
+      defaultEmbeddingFamily([family("voyage"), family("cohere")])?.provider,
+    ).toBe("cohere");
+  });
+
+  it("uses the choice, and nothing else when the choice isn't available", () => {
+    const families = [family("builder"), family("gemini")];
+    expect(defaultEmbeddingFamily(families, "gemini")?.provider).toBe("gemini");
+    expect(defaultEmbeddingFamily(families, "voyage")).toBeNull();
+  });
+
+  it("never picks among providers outside the known order", () => {
+    expect(defaultEmbeddingFamily([family("acme")])?.provider).toBe("acme");
+    expect(
+      defaultEmbeddingFamily([family("acme"), family("other")]),
+    ).toBeNull();
   });
 });

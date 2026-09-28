@@ -33,8 +33,6 @@ describe("resolvePersistedDevAuthSecret", () => {
       if (process.platform !== "win32") {
         expect(fs.statSync(file).mode & 0o777).toBe(0o600);
       }
-      // Generated secrets are persisted to the dedicated dev file, never
-      // written into env files the developer owns.
       expect(fs.existsSync(path.join(appRoot, ".env.local"))).toBe(false);
     } finally {
       fs.rmSync(appRoot, { recursive: true, force: true });
@@ -52,7 +50,6 @@ describe("resolvePersistedDevAuthSecret", () => {
 
       expect(first).toBe("secret-generation-1");
       expect(second).toBe("secret-generation-1");
-      // The existing file wins, so the second call never even generates.
       expect(generation).toBe(1);
     } finally {
       fs.rmSync(appRoot, { recursive: true, force: true });
@@ -84,9 +81,6 @@ describe("resolvePersistedDevAuthSecret", () => {
   it("keeps the concurrent winner's secret and cleans up the loser", () => {
     const appRoot = tempAppRoot();
     try {
-      // Simulates another process creating the file between this call's
-      // existence check and its link: the generate callback wins the race
-      // on behalf of the concurrent writer.
       const concurrentWriter = () => {
         fs.mkdirSync(path.dirname(secretFile(appRoot)), { recursive: true });
         fs.writeFileSync(secretFile(appRoot), "winner-secret\n", {

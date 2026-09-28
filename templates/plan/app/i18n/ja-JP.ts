@@ -34,6 +34,7 @@ const messages = {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     openAgentSettings: "エージェントを管理",
+    editorGroupTitle: "エディター",
     editorTitle: "VS Code 拡張機能",
     editorDescription:
       "別のブラウザータブではなく、VS Code のサイドパネルでプランを開いてレビューします。",
@@ -655,6 +656,7 @@ const messages = {
       createAccount: "创建账户",
       signIn: "登录",
       haveAccount: "我已有账户",
+      storageStatusUnavailable: "ファイルストレージを確認できませんでした。",
       retry: "重试",
       sendFeedback: "フィードバックを送信",
       feedbackPlaceholder:

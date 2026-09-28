@@ -1,9 +1,3 @@
-/**
- * Client entry for the framework onboarding system.
- *
- * Subpath: `@agent-native/core/client/onboarding`
- */
-
 export { useOnboarding, type UseOnboardingResult } from "./use-onboarding.js";
 export { isFirstRunOnboardingEnabled } from "./first-run-enabled.js";
 export {
@@ -31,6 +25,10 @@ export { OnboardingPanel } from "./OnboardingPanel.js";
 export { OnboardingBanner } from "./OnboardingBanner.js";
 export { SetupButton } from "./SetupButton.js";
 export { FirstRunOnboarding } from "./FirstRunOnboarding.js";
+export {
+  ONBOARDING_PRIMARY_BUTTON_CLASS,
+  OnboardingStepLayout,
+} from "./OnboardingStepLayout.js";
 export {
   listFirstRunOnboardingExtensions,
   registerFirstRunOnboardingExtension,

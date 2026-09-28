@@ -1,20 +1,7 @@
-/**
- * Geometry of one screen's responsive frame group: the primary frame plus the
- * breakpoint previews painted to its right.
- *
- * This lives in `shared/` because both sides of the contract need it. Actions
- * that place screens on the overview board must reserve the same footprint the
- * canvas paints, or another screen can land underneath a breakpoint preview.
- */
-
-/** Gap between the primary frame and each breakpoint preview beside it. */
 export const BREAKPOINT_FRAME_GAP = 24;
 
 export const MAX_SANE_FRAME_DIMENSION_PX = 100_000;
 
-/** Drops any breakpoint whose width equals the primary frame's own width — a
- * redundant duplicate of the base — also cleaning up designs authored before
- * the default set excluded the primary width. */
 export function visibleBreakpointWidths(
   breakpointWidths: readonly number[] | undefined,
   primaryWidthPx: number | undefined,
@@ -32,10 +19,6 @@ export function visibleBreakpointWidths(
   return deduped.filter((width) => Math.abs(width - primaryWidthPx) > 1);
 }
 
-/**
- * Shared because the renderer, placement, and culling must agree whether the
- * primary frame scales its source viewport or reflows to its own aspect ratio.
- */
 export function getScreenPreviewViewport(
   metadata: { width: number; height: number },
   geometry: { width: number; height: number },
@@ -71,7 +54,6 @@ export function getScreenPreviewViewport(
   };
 }
 
-/** Rotates the right-extended preview group around its primary frame center. */
 export function getResponsiveGroupRotatedBounds({
   x,
   y,
@@ -157,20 +139,12 @@ export function getResponsiveBreakpointHeightPx(
     : undefined;
 }
 
-/** The renderer's fallback height for an unmeasured responsive preview. */
 export function deviceViewportFloorForWidth(widthPx: number): number {
   if (!Number.isFinite(widthPx) || widthPx <= 640) return 844;
   if (widthPx <= 1024) return 1024;
   return 900;
 }
 
-/**
- * Total painted width of a screen's frame group: the primary box plus every
- * breakpoint preview beside it, each drawn at the primary's own uniform
- * `scale`. `visibleWidths` must already be filtered through
- * `visibleBreakpointWidths` — callers differ in which width they dedupe
- * against, but the arithmetic must not.
- */
 export function getResponsiveGroupWidth({
   primaryWidth,
   scale,
@@ -186,7 +160,6 @@ export function getResponsiveGroupWidth({
   );
 }
 
-/** Total painted height of a screen's primary and responsive frames. */
 export function getResponsiveGroupHeight({
   primaryHeight,
   scale,

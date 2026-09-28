@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { FIELD_TYPES, SELECT_COLOR_TOKENS } from "./types.js";
 
-/** Parse JSON-string action args before Zod validation. */
 export function parseJsonArg(value: unknown) {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
@@ -117,10 +116,6 @@ const createCustomFieldUnion = z.discriminatedUnion("type", [
   }),
 ]);
 
-/**
- * Agent-tool layer registers requires top-level object.
- * The refinement delegates to the discriminated union so config is still validated per type.
- */
 export const createCustomFieldActionSchema = z
   .object({
     title: titleShapeSchema,

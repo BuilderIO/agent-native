@@ -393,9 +393,6 @@ export async function runMigration(args: MigrationInput) {
               );
             return receiptResult(existing, true);
           }
-          // A separate server can run the same migration while an editor is
-          // saving. Keep the durable database lock across the flush so that
-          // save is part of the state reloaded and validated by this writer.
           if (flushUnderDurableLock) {
             validatePlan(
               args.plan,
@@ -788,7 +785,6 @@ export async function runMigration(args: MigrationInput) {
         };
       }
       const planResult = parseJson(receipt.resultJson);
-      // Legacy ids are deliberately copied into the receipt result only after apply validation.
       const legacyIds: string[] = planResult.legacyPropertyIds ?? [];
       const legacy = current.definitions.filter((definition: any) =>
         legacyIds.includes(definition.id),

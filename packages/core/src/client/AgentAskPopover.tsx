@@ -1,8 +1,8 @@
-import { PromptBar } from "@agent-native/toolkit/composer";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { type ReactNode, useCallback } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
+import { PromptBar } from "./composer/index.js";
 import { useT } from "./i18n.js";
 
 export interface AgentAskPopoverProps {
@@ -14,9 +14,11 @@ export interface AgentAskPopoverProps {
   className?: string;
   icon?: ReactNode;
   draftScope?: string;
+  /** The trigger's look: `default` as a page action, `outline` in a row or group. */
+  variant?: "default" | "secondary" | "outline";
+  size?: "xs" | "sm";
 }
 
-/** A low-emphasis entry point for asking the agent without losing the current surface. */
 export function AgentAskPopover({
   prompt,
   title,
@@ -26,6 +28,8 @@ export function AgentAskPopover({
   className,
   icon,
   draftScope,
+  variant = "outline",
+  size = "sm",
 }: AgentAskPopoverProps) {
   const t = useT();
   const handleSubmit = useCallback(
@@ -62,8 +66,8 @@ export function AgentAskPopover({
       trigger={
         <Button
           type="button"
-          variant="outline"
-          size="sm"
+          variant={variant}
+          size={size}
           className={className ?? "cursor-pointer"}
         >
           {icon}

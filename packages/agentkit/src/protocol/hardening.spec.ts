@@ -99,8 +99,6 @@ describe("capability affordances", () => {
 
     expect(denied.state).toBe("unsupported");
     expect(unreported.state).toBe("unknown");
-    // Both hide the control, but only one is a denial. Collapsing them is what
-    // makes an older backend look like it refused the capability.
     expect(denied.visible).toBe(false);
     expect(unreported.visible).toBe(false);
   });

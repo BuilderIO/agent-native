@@ -20,10 +20,12 @@ const mocks = vi.hoisted(() => ({
   searchQuery: "",
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
+  freezeVirtualStart: false,
   view: "all",
   headerActions: null as unknown,
   priorityRequest: vi.fn(),
   priorityFeedback: vi.fn(),
+  automations: [] as unknown[],
   queryClient: {
     getQueryData: vi.fn(),
     setQueryData: vi.fn(),
@@ -61,7 +63,10 @@ vi.mock("@tanstack/react-virtual", () => ({
     measureElement: vi.fn(),
     scrollToIndex: (index: number, options?: { align: string }) => {
       mocks.scrollToIndex(index, options);
-      if (Number.isFinite(mocks.virtualWindowSize)) {
+      if (
+        Number.isFinite(mocks.virtualWindowSize) &&
+        !mocks.freezeVirtualStart
+      ) {
         mocks.virtualStart = Math.max(
           0,
           index - Math.floor(mocks.virtualWindowSize / 2),
@@ -143,7 +148,7 @@ vi.mock("@/hooks/use-ai-priority-feedback", () => ({
 }));
 
 vi.mock("@/hooks/use-automations", () => ({
-  useAutomations: () => ({ data: [], isFetching: false }),
+  useAutomations: () => ({ data: mocks.automations, isFetching: false }),
 }));
 
 vi.mock("@/hooks/use-emails", () => {
@@ -218,17 +223,29 @@ function Harness({
   emails = messages,
   onCompose,
   accountErrors,
+  emailsError,
+  isFetching,
+  refetchEmails,
   hasNextPage,
   isFetchingNextPage,
   showPrioritySort,
+  jevConfigured = showPrioritySort,
+  jevAvailabilityError,
+  onJevRetry,
   sortMode,
 }: {
   emails?: React.ComponentProps<typeof EmailList>["emails"];
   onCompose?: React.ComponentProps<typeof EmailList>["onCompose"];
   accountErrors?: React.ComponentProps<typeof EmailList>["accountErrors"];
+  emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
+  isFetching?: boolean;
+  refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
+  jevConfigured?: boolean;
+  jevAvailabilityError?: boolean;
+  onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
 }) {
   const [focusedId, setFocusedId] = useState<string | null>("first");
@@ -240,15 +257,21 @@ function Harness({
       <EmailList
         emails={emails}
         isLoading={false}
+        isFetching={isFetching}
+        emailsError={emailsError}
         focusedId={focusedId}
         setFocusedId={setFocusedId}
         selectedIds={selectedIds}
         setSelectedIds={setSelectedIds}
         onCompose={onCompose}
+        refetchEmails={refetchEmails}
         accountErrors={accountErrors}
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         showPrioritySort={showPrioritySort}
+        jevConfigured={jevConfigured}
+        jevAvailabilityError={jevAvailabilityError}
+        onJevRetry={onJevRetry}
         sortMode={sortMode}
       />
     </>
@@ -264,11 +287,55 @@ function press(key: string, shiftKey = false) {
 }
 
 function hasPrioritySortOption(node: unknown): boolean {
-  if (node === "mail.sort.priority") return true;
   if (Array.isArray(node)) return node.some(hasPrioritySortOption);
   if (!isValidElement(node)) return false;
-  const props = node.props as { children?: unknown; value?: unknown };
-  return props.value === "priority" || hasPrioritySortOption(props.children);
+  const props = node.props as {
+    children?: unknown;
+    onSelect?: unknown;
+    value?: unknown;
+  };
+  const isPriorityAction =
+    props.value === "priority" ||
+    (props.onSelect !== undefined &&
+      hasText(props.children, "mail.sort.priority"));
+  return isPriorityAction || hasPrioritySortOption(props.children);
+}
+
+function hasText(node: unknown, text: string): boolean {
+  if (node === text) return true;
+  if (Array.isArray(node)) return node.some((child) => hasText(child, text));
+  if (!isValidElement(node)) return false;
+  return hasText((node.props as { children?: unknown }).children, text);
+}
+
+function hasJevConnectionPrompt(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(hasJevConnectionPrompt);
+  if (!isValidElement(node)) return false;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return true;
+  }
+  return hasJevConnectionPrompt(
+    (node.props as { children?: unknown }).children,
+  );
+}
+
+function jevConnectionPromptVariant(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(jevConnectionPromptVariant).find((variant) => variant);
+  }
+  if (!isValidElement(node)) return undefined;
+  if (
+    typeof node.type === "function" &&
+    node.type.name === "JevConnectionPrompt"
+  ) {
+    return (node.props as { variant?: unknown }).variant;
+  }
+  return jevConnectionPromptVariant(
+    (node.props as { children?: unknown }).children,
+  );
 }
 
 describe("EmailList keyboard navigation interactions", () => {
@@ -279,8 +346,10 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.searchQuery = "";
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
+    mocks.freezeVirtualStart = false;
     mocks.view = "all";
     mocks.headerActions = null;
+    mocks.automations = [];
     mocks.queryClient = {
       getQueryData: vi.fn(),
       setQueryData: vi.fn(),
@@ -292,13 +361,73 @@ describe("EmailList keyboard navigation interactions", () => {
       .mockResolvedValue({ totalVotes: 1, recentVotes: [] });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
-  it("hides Priority sort when Jev is unavailable", () => {
+  it("waits for an explicit retry after a quota cooldown", async () => {
+    vi.useFakeTimers();
+    mocks.view = "inbox";
+    const refetchEmails = vi.fn();
+    const error = Object.assign(new Error("Gmail quota"), {
+      status: 429,
+      retryAfterMs: 15_000,
+    });
+
+    render(<Harness emailsError={error} refetchEmails={refetchEmails} />);
+    const retryButton = screen.getByRole("button", {
+      name: "mail.error.tryAgainIn",
+    }) as HTMLButtonElement;
+    expect(retryButton.disabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(refetchEmails).not.toHaveBeenCalled();
+    expect(retryButton.disabled).toBe(false);
+    fireEvent.click(retryButton);
+    expect(refetchEmails).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Priority visible with a Jev connect action when unavailable", () => {
     mocks.view = "inbox";
     render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
+    expect(jevConnectionPromptVariant(mocks.headerActions)).toBe("menu-item");
+  });
+
+  it("shows a retry menu item when Jev availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort={false}
+        jevConfigured={false}
+        jevAvailabilityError
+      />,
+    );
+
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+  });
+
+  it("keeps the active Priority option visible when availability lookup fails", () => {
+    mocks.view = "inbox";
+    render(
+      <Harness
+        showPrioritySort
+        jevConfigured={false}
+        jevAvailabilityError
+        sortMode="priority"
+      />,
+    );
+
+    expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(false);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
   it("shows Priority sort when Jev is configured", () => {
@@ -306,9 +435,10 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
+    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
   });
 
-  it("reuses priority scores when the visible inbox emails change", async () => {
+  it("surfaces newly visible inbox emails while reusing their cached scores", async () => {
     mocks.view = "inbox";
     mocks.priorityRequest.mockImplementation(
       async ({
@@ -319,7 +449,7 @@ describe("EmailList keyboard navigation interactions", () => {
         scores: emails.map(({ id, accountEmail }) => ({
           emailId: id,
           accountEmail,
-          score: id === "middle" ? 0.9 : id === "last" ? 0.8 : 0.1,
+          score: id === "middle" ? 0.9 : id === "last" ? 0.05 : 0.1,
         })),
       }),
     );
@@ -327,10 +457,12 @@ describe("EmailList keyboard navigation interactions", () => {
       ...email,
       labelIds: ["inbox"],
     }));
-    const secondTabEmails = [messages[1], messages[2]].map((email) => ({
-      ...email,
-      labelIds: ["inbox"],
-    }));
+    const secondTabEmails = [messages[0], messages[1], messages[2]].map(
+      (email) => ({
+        ...email,
+        labelIds: ["inbox"],
+      }),
+    );
     const { rerender } = render(
       <Harness emails={firstTabEmails} showPrioritySort sortMode="priority" />,
     );
@@ -345,9 +477,346 @@ describe("EmailList keyboard navigation interactions", () => {
     await waitFor(() =>
       expect(rows()[0].textContent).toContain("Subject middle"),
     );
+    expect(rows()[1].textContent).toContain("Subject first");
+    expect(rows()[2].textContent).toContain("Subject last");
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.90" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.10" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priority 0.05" }),
+    ).toBeTruthy();
     expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
       emails: [expect.objectContaining({ id: "last" })],
     });
+    rerender(
+      <Harness emails={secondTabEmails} showPrioritySort sortMode="newest" />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.priority 0.90" }),
+    ).toBeNull();
+  });
+
+  it("ranks a newly scored message that enters the priority window", async () => {
+    mocks.view = "inbox";
+    mocks.virtualWindowSize = 3;
+    const baseEmails = Array.from(
+      { length: AI_PRIORITY_MAX_EMAILS + 1 },
+      (_, index) => ({
+        ...messages[index % messages.length],
+        id: `email-${index}`,
+        threadId: `thread-email-${index}`,
+        subject: `Subject email-${index}`,
+        date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+        labelIds: ["inbox"],
+      }),
+    );
+    const newlyEligibleEmail = {
+      ...baseEmails[baseEmails.length - 1]!,
+      subject: "Subject newly-eligible",
+    };
+    mocks.priorityRequest
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === "email-0" ? 0.9 : 0.5,
+          })),
+        }),
+      )
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === `email-${AI_PRIORITY_MAX_EMAILS}` ? 0.99 : 0.4,
+          })),
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={baseEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject email-0"),
+    );
+
+    rerender(
+      <Harness
+        emails={[
+          ...baseEmails.slice(0, AI_PRIORITY_MAX_EMAILS - 1),
+          newlyEligibleEmail,
+        ]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject newly-eligible"),
+    );
+    expect(mocks.priorityRequest).toHaveBeenLastCalledWith({
+      emails: [
+        expect.objectContaining({ id: `email-${AI_PRIORITY_MAX_EMAILS}` }),
+      ],
+    });
+  });
+
+  it("returns messages evicted from the priority window to chronological order", async () => {
+    mocks.view = "inbox";
+    mocks.virtualWindowSize = 4;
+    const baseEmails = Array.from(
+      { length: AI_PRIORITY_MAX_EMAILS + 1 },
+      (_, index) => ({
+        ...messages[index % messages.length],
+        id: `email-${index}`,
+        threadId: `thread-email-${index}`,
+        subject: `Subject email-${index}`,
+        date: new Date(Date.UTC(2026, 0, 20 - index)).toISOString(),
+        labelIds: ["inbox"],
+      }),
+    );
+    const newestEmail = {
+      ...baseEmails[0]!,
+      id: "newest-email",
+      threadId: "thread-newest-email",
+      subject: "Subject newest-email",
+      date: new Date(Date.UTC(2026, 0, 21)).toISOString(),
+    };
+    mocks.priorityRequest
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: id === `email-${AI_PRIORITY_MAX_EMAILS - 1}` ? 0.99 : 0.2,
+          })),
+        }),
+      )
+      .mockImplementationOnce(
+        async ({
+          emails,
+        }: {
+          emails: Array<{ id: string; accountEmail: string }>;
+        }) => ({
+          scores: emails.map(({ id, accountEmail }) => ({
+            emailId: id,
+            accountEmail,
+            score: 0.8,
+          })),
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={baseEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain(
+        `Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`,
+      ),
+    );
+
+    mocks.virtualStart = AI_PRIORITY_MAX_EMAILS - 2;
+    mocks.freezeVirtualStart = true;
+    rerender(
+      <Harness
+        emails={[newestEmail, ...baseEmails]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        rows()
+          .slice(-2)
+          .map((row) => row.textContent),
+      ).toEqual([
+        expect.stringContaining(`Subject email-${AI_PRIORITY_MAX_EMAILS - 1}`),
+        expect.stringContaining(`Subject email-${AI_PRIORITY_MAX_EMAILS}`),
+      ]),
+    );
+  });
+
+  it("ignores a frozen priority order while updated rules are rescored", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    const importantRule = (condition: string, updatedAt: string) => ({
+      id: "important-rule",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI important",
+      condition,
+      actions: [{ type: "label", labelName: "agent-native-important" }],
+      enabled: true,
+      updatedAt,
+    });
+    let resolveUpdatedScores!: (result: {
+      scores: Array<{
+        emailId: string;
+        accountEmail: string;
+        score: number;
+      }>;
+    }) => void;
+    mocks.automations = [importantRule("Prioritize the team", "1")];
+    mocks.priorityRequest
+      .mockResolvedValueOnce({
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: email.id === "middle" ? 0.9 : 0.3,
+        })),
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveUpdatedScores = resolve;
+        }),
+      );
+
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject middle"),
+    );
+
+    mocks.automations = [importantRule("Prioritize the team and clients", "2")];
+    rerender(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    expect(rows()).toHaveLength(0);
+
+    await act(async () => {
+      resolveUpdatedScores({
+        scores: [
+          {
+            emailId: "first",
+            accountEmail: "synthetic@example.test",
+            score: 0.7,
+          },
+          {
+            emailId: "middle",
+            accountEmail: "synthetic@example.test",
+            score: 0.4,
+          },
+          {
+            emailId: "last",
+            accountEmail: "synthetic@example.test",
+            score: 0.1,
+          },
+        ],
+      });
+    });
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject first"),
+    );
+    expect(rows()[1].textContent).toContain("Subject middle");
+    expect(rows()[2].textContent).toContain("Subject last");
+  });
+
+  it("keeps the ranked order while refreshed scores change", async () => {
+    mocks.view = "inbox";
+    const inboxEmails = messages.map((email) => ({
+      ...email,
+      labelIds: ["inbox"],
+    }));
+    mocks.priorityRequest
+      .mockResolvedValueOnce({
+        scores: inboxEmails.map((email) => ({
+          emailId: email.id,
+          accountEmail: email.accountEmail,
+          score: email.id === "first" ? 0.9 : email.id === "middle" ? 0.6 : 0.1,
+        })),
+      })
+      .mockResolvedValueOnce({
+        scores: [
+          {
+            emailId: "first",
+            accountEmail: "synthetic@example.test",
+            score: 0.1,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        scores: [
+          {
+            emailId: "new",
+            accountEmail: "synthetic@example.test",
+            score: 0.99,
+          },
+        ],
+      });
+
+    const { rerender } = render(
+      <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+    );
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Subject first"),
+    );
+
+    rerender(
+      <Harness
+        emails={inboxEmails.map((email) =>
+          email.id === "first" ? { ...email, subject: "Updated first" } : email,
+        )}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(rows()[0].textContent).toContain("Updated first"),
+    );
+
+    expect(rows()[0].textContent).toContain("Updated first");
+    expect(rows()[1].textContent).toContain("Subject middle");
+    expect(rows()[2].textContent).toContain("Subject last");
+
+    rerender(
+      <Harness
+        emails={[
+          ...inboxEmails.map((email) =>
+            email.id === "first"
+              ? { ...email, subject: "Updated first" }
+              : email,
+          ),
+          {
+            ...inboxEmails[0],
+            id: "new",
+            threadId: "thread-new",
+            subject: "Newest mail",
+            date: new Date(Date.UTC(2026, 0, 4)).toISOString(),
+          },
+        ]}
+        showPrioritySort
+        sortMode="priority"
+      />,
+    );
+    await waitFor(() => expect(mocks.priorityRequest).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(rows()[0].textContent).toContain("Newest mail"));
+    expect(rows()[1].textContent).toContain("Updated first");
+    expect(rows()[2].textContent).toContain("Subject middle");
+    expect(rows()[3].textContent).toContain("Subject last");
   });
 
   it("does not roll back a newer priority vote when an older vote fails", async () => {

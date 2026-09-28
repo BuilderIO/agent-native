@@ -13,8 +13,6 @@ export default defineAction({
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (ownerEmail) {
-      // Best-effort: a slow/failed Gmail resync must never block the UI
-      // refresh signal below.
       await ensureInboxFresh(ownerEmail, {
         maxAgeMs: 0,
         budgetMs: 4_000,

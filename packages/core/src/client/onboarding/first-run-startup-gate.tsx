@@ -48,8 +48,12 @@ export function useFirstRunOnboardingGateOwnsSurface(): boolean {
 
 export function FirstRunOnboardingStartupGate({
   children,
+  fallback = <AppShellSkeleton />,
+  suppressSurface = false,
 }: {
   children: React.ReactNode;
+  fallback?: React.ReactNode;
+  suppressSurface?: boolean;
 }) {
   const previewMode = useOnboardingPreviewMode();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -102,11 +106,9 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [shouldResolve]);
 
-  const ownsSurface = decision === "eligible";
-  const hideApp = decision !== "ineligible";
-  // Keep the app at one React tree position while the async eligibility check
-  // settles. Switching between a wrapper and a bare child remounts stateful
-  // app chrome; a consumed one-shot URL preference then cannot be restored.
+  const ownsSurface = !suppressSurface && decision === "eligible";
+  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  const hideApp = gateOwnsSurface;
   const app = shouldResolve ? (
     <div
       aria-hidden={hideApp ? "true" : undefined}
@@ -123,11 +125,15 @@ export function FirstRunOnboardingStartupGate({
   );
 
   return (
-    <FirstRunOnboardingGateContext.Provider value={ownsSurface}>
+    <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
       {app}
-      {decision === "pending" && <FirstRunOnboardingStartupLoading />}
+      {!suppressSurface && decision === "pending" && (
+        <FirstRunOnboardingStartupLoading fallback={fallback} />
+      )}
       {ownsSurface && (
-        <Suspense fallback={<FirstRunOnboardingStartupLoading />}>
+        <Suspense
+          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
+        >
           <FirstRunOnboarding initialFirstRun />
         </Suspense>
       )}
@@ -135,14 +141,19 @@ export function FirstRunOnboardingStartupGate({
   );
 }
 
-function FirstRunOnboardingStartupLoading() {
+function FirstRunOnboardingStartupLoading({
+  fallback,
+}: {
+  fallback: React.ReactNode;
+}) {
   return (
     <div
+      role="status"
+      aria-label="Loading application"
       data-first-run-startup-loading="true"
-      aria-busy="true"
       className="fixed inset-0 z-[110] bg-background"
     >
-      <AppShellSkeleton />
+      <div inert>{fallback}</div>
     </div>
   );
 }

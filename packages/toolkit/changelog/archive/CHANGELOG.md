@@ -1,3 +1,47 @@
+## 0.4.8
+
+### Patch Changes
+
+- ffad302: Allow command dialogs to configure the underlying command root for custom ranking and controlled selection.
+- ffad302: Ease in the backdrop blur for instant command dialogs while keeping the command surface immediately responsive.
+
+## 0.4.7
+
+### Patch Changes
+
+- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
+
+## 0.4.6
+
+### Patch Changes
+
+- f43d34c: Release the updated skill guidance and portable drawer component types.
+
+## 0.4.5
+
+### Patch Changes
+
+- a91535c: Keep alert dialogs centered above full-app overlays.
+
+## 0.4.4
+
+### Patch Changes
+
+- 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
+
+## 0.4.3
+
+### Patch Changes
+
+- 823d635: Add explicit `browser` and `development` export conditions so Vite 8 / Rolldown can resolve toolkit subpaths (including `./collab-ui`) in Fusion agent-native starter projects.
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
+## 0.4.2
+
+### Patch Changes
+
+- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
+
 ## 0.4.1
 
 ### Patch Changes

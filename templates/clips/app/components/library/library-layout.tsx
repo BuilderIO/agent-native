@@ -3,6 +3,7 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -15,6 +16,7 @@ import {
   AppSidebarFooter,
   AppSidebarHeader,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
@@ -192,10 +194,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
-  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW.key);
-  // Bind chat to the currently-open recording (`/r/:id` or `/share/:id`).
-  // Library, spaces, meetings, dictate, and settings stay unscoped.
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
   const recordingScope = useMemo(() => {
     const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
@@ -231,8 +231,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item — count-only, no row payload or
-  // title polling across the app shell.
   const { data: libraryCount } = useRecordingsCount({ view: "library" });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
@@ -333,11 +331,17 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </TooltipContent>
     </Tooltip>
   ) : null;
-  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
-  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    (location.pathname === "/settings" ||
+      location.pathname.startsWith("/settings/")) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
@@ -615,6 +619,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full rtl:translate-x-full md:translate-x-0",
+          settingsOwnsChrome && "hidden",
         )}
       >
         <AppSidebarHeader
@@ -816,7 +821,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   ? "!size-9 !p-0 [&>svg]:!size-4"
                   : "min-w-0 flex-1",
               )}
-              settingsPath="/settings/organization"
               currentAppId="clips"
               utilityLinks={workspaceUtilityLinks}
             />
@@ -826,7 +830,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       </aside>
 
       <div className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col">
-        {!pageOwnsToolbar && (
+        {!pageOwnsToolbar && !settingsOwnsChrome && (
           <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
             <button
               ref={mobileMenuTriggerRef}

@@ -122,7 +122,7 @@ describe("<Sidebar collapsed>", () => {
 
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Settings")).toBeDefined();
+    expect(screen.queryByLabelText("Settings")).toBeNull();
   });
 });
 
@@ -152,7 +152,7 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Slides")).toBeDefined();
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
-    expect(screen.getByText("Settings")).toBeDefined();
+    expect(screen.queryByText("Settings")).toBeNull();
 
     const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -179,14 +179,12 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
   it("hides the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} />);
     expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
-    // Nav still renders.
     expect(screen.getByText("Decks")).toBeDefined();
   });
 
   it("hides the Expand button in the collapsed layout", () => {
     renderAt("/", <Sidebar collapsed={true} />);
     expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
-    // Nav icons still render.
     expect(screen.getByLabelText("Decks")).toBeDefined();
   });
 });
@@ -197,7 +195,6 @@ describe("<Sidebar> accessibility", () => {
     expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(1);
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Settings")).toBeDefined();
   });
 
   it("labels the Collapse button in the expanded layout", () => {

@@ -64,7 +64,6 @@ function slugify(name: string): string {
   );
 }
 
-/** Extract all f_-prefixed filter params from the current URL. */
 function extractCurrentFilters(
   searchParams: URLSearchParams,
 ): Record<string, string> {
@@ -77,7 +76,6 @@ function extractCurrentFilters(
   return result;
 }
 
-/** Check if the saved view's filter map matches the current URL filter state. */
 function filtersMatch(
   current: Record<string, string>,
   saved: Record<string, string>,
@@ -114,14 +112,12 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       const v = views.find((x) => x.id === paramViewId);
       if (v && filtersMatch(currentFilters, v.filters)) return v;
     }
-    // Fall back to any view whose filter set matches exactly.
     return views.find((v) => filtersMatch(currentFilters, v.filters)) ?? null;
   }, [searchParams, views, currentFilters]);
 
   const applyView = (view: DashboardView) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      // Strip all existing f_ params first, then apply the view's filters.
       const toDelete: string[] = [];
       next.forEach((_, k) => {
         if (k.startsWith(FILTER_PARAM_PREFIX)) toDelete.push(k);
@@ -176,7 +172,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5">
+              <Button variant="ghost" size="sm" className="text-xs gap-1.5">
                 <IconLayoutGrid className="h-3.5 w-3.5" />
                 <span className="max-w-[160px] truncate">{triggerLabel}</span>
                 <IconChevronDown className="h-3 w-3 opacity-60" />

@@ -48,8 +48,6 @@ describe("duplicate a Figma/Fusion subtree, then edit or delete inside the copy"
       (node) => node.tag === "h3" && (node.source?.start ?? -1) > copyRootStart,
     )!;
 
-    // delete-selection.ts resolves the clicked node by id, then removes its
-    // byte range. A shared id makes find() return the original instead.
     const resolved = projection.nodes.find(
       (node) => node.id === headingInsideCopy.id,
     )!;

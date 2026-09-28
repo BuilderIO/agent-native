@@ -329,8 +329,6 @@ describe("MultiScreenCanvas live boot budget", () => {
     const render = (activeId: string) => (
       <MultiScreenCanvas
         screens={screens}
-        // 390px mobile screens at a laptop fit zoom are well under the
-        // level-of-detail width.
         zoom={45}
         activeId={activeId}
         selectedScreenIds={[activeId]}
@@ -392,7 +390,6 @@ describe("MultiScreenCanvas live boot budget", () => {
       );
     });
 
-    // Editors still boot through the budget, but none is demoted for size.
     for (let round = 0; round < LARGE_BOARD_SCREEN_COUNT; round += 1) {
       const pending = [...readyById.values()];
       readyById.clear();

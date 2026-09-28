@@ -17,9 +17,18 @@ vi.mock("./AgentSidebarPanel.js", () => ({
 vi.mock("./agent-chat.js", () => ({}));
 vi.mock("./mcp-app-host.js", () => ({}));
 vi.mock("./agent-sidebar-url-sync.js", () => ({
-  ScreenRefreshBoundary: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+  ScreenRefreshBoundary: ({
+    children,
+    active,
+  }: {
+    children: React.ReactNode;
+    active?: boolean;
+  }) => (
+    <div data-testid="screen-refresh-boundary" data-active={active ?? true}>
+      {children}
+    </div>
   ),
+  SettingsReturnPathRecorder: () => null,
   URLSync: () => <div data-testid="agent-sidebar-url-sync" />,
 }));
 vi.mock("./app-chat-sidebar.js", () => ({
@@ -84,6 +93,7 @@ function renderSidebar(
   defaultOpen: boolean,
   position?: "left" | "right",
   disableChatShortcut = false,
+  screenRefreshOnlyWhenPanelActive = false,
 ) {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -94,6 +104,7 @@ function renderSidebar(
         <AgentSidebar
           defaultOpen={defaultOpen}
           disableChatShortcut={disableChatShortcut}
+          screenRefreshOnlyWhenPanelActive={screenRefreshOnlyWhenPanelActive}
           position={position}
         >
           <div data-testid="app-content">App content</div>
@@ -123,10 +134,23 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
-  it("honors explicit right and closed preferences with hosted harness enabled", async () => {
+  it("pauses screen refresh until the panel is active when requested", () => {
+    renderSidebar(false, undefined, false, true);
+
+    expect(
+      container?.querySelector("[data-testid='app-content']"),
+    ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector("[data-testid='screen-refresh-boundary']")
+        ?.getAttribute("data-active"),
+    ).toBe("false");
+  });
+
+  it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
-    renderSidebar(false, "right");
+    renderSidebar(false);
 
     await act(async () => {});
 
@@ -138,6 +162,26 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector(".agent-sidebar-shell")
+        ?.getAttribute("data-agent-native-hosted-harness-ui"),
+    ).toBe("desktop");
+  });
+
+  it("respects an explicit position in hosted-harness UI", async () => {
+    mockHostedHarness.configured = true;
+    mockHostedHarness.enabled = true;
+    renderSidebar(false, "left");
+
+    await act(async () => {});
+
+    expect(
+      container?.querySelector("[data-agent-sidebar-position='left']"),
+    ).toBeTruthy();
+    expect(
+      container?.querySelector("[data-agent-sidebar-main-position='left']"),
     ).toBeTruthy();
   });
 
@@ -238,5 +282,15 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
     ).toBeTruthy();
+  });
+
+  it("restores screen refresh while the panel is open", () => {
+    renderSidebar(true, undefined, false, true);
+
+    expect(
+      container
+        ?.querySelector("[data-testid='screen-refresh-boundary']")
+        ?.getAttribute("data-active"),
+    ).toBe("true");
   });
 });

@@ -267,8 +267,6 @@ describe("babysitMechanicalVerdict", () => {
     });
   });
 
-  // Parking a still-conflicted branch as clean would end the episode, and the
-  // next read would then qualify as a first ask all over again.
   it("keeps a conflicted branch out of clean while mergeability is uncomputed", () => {
     const result = babysitMechanicalVerdict({
       stored: readBabysitStoredState({

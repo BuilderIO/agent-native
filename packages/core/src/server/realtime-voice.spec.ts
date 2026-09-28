@@ -27,8 +27,6 @@ const resolveBuilderGatewayAuth = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-// Real `gatewayLaneUnavailableMessage`: which audience the setup-required copy
-// is written for is under test here, so that decision must not be stubbed.
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
@@ -82,11 +80,6 @@ import {
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
 
-/**
- * The deploy-lane predicate treats any of these as "preview/hosted workspace",
- * which turns the visitor path off, so they are cleared around visitor
- * assertions and restored for the owner assertions that follow.
- */
 const FUSION_RUNTIME_FLAGS = [
   "FUSION_ENVIRONMENT",
   "FUSION_ENV_ORIGIN",
@@ -275,8 +268,6 @@ function withToolCapability(
   return { ...headers, [REALTIME_VOICE_CAPABILITY_HEADER]: capability };
 }
 
-/** Mirrors the browser client, which adopts the re-issued capability whenever
- * a tool search widens the manifest. */
 function adoptCapability(current: string, result: unknown): string {
   const next = (result as { capability?: unknown } | null)?.capability;
   return typeof next === "string" ? next : current;
@@ -837,10 +828,6 @@ describe("realtime voice session route", () => {
     resolveSecret.mockResolvedValue(null);
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
-    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
-    // runtime, so an inherited flag would take the owner path and let the visitor
-    // assertions below pass against the wrong branch. Restored in the `finally`
-    // so the owner pass that follows still runs in the inherited runtime.
     const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();
@@ -914,10 +901,6 @@ describe("realtime voice session route", () => {
     });
   });
 
-  // The pre-flight gate above only fires when nothing resolves. On a credits
-  // deployment the injected pair does resolve, so what a visitor actually
-  // reaches is the gateway's own rejection — which used to arrive verbatim,
-  // status code and upstream sentence included.
   it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
     resolveBuilderGatewayAuth.mockResolvedValue({
       authorization: "Bearer btk-site-token",
@@ -926,8 +909,6 @@ describe("realtime voice session route", () => {
     });
     vi.stubGlobal(
       "fetch",
-      // A fresh Response per call: both passes below read the body, and a shared
-      // instance would leave the second one with an already-consumed stream.
       vi.fn(
         async () =>
           new Response(
@@ -947,10 +928,6 @@ describe("realtime voice session route", () => {
     const { handlers } = mount();
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
-    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
-    // runtime, so an inherited flag would take the owner path and let the visitor
-    // assertions below pass against the wrong branch. Restored in the `finally`
-    // so the owner pass that follows still runs in the inherited runtime.
     const fusionFlags = clearFusionRuntimeFlags();
     try {
       const visitorEvent = sessionEvent();

@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   timelineTrack: {
     helpOtherSide: "先点击那一段，再把红线向右拖。",
     helpOtherSideTerm: "改为从右侧那一段裁掉素材",
@@ -401,10 +409,9 @@ const messages = {
     agentEmptyTitle: "加入对话",
     agentEmptyDescription:
       "创建免费的 Clips 账号，即可评论、回应并询问此剪辑。",
-    commentSignupTitle: "让 AI 智能体了解完整情况",
-    commentSignupContext: "通过一个链接分享文字稿和带时间戳的画面",
-    commentSignupFeedback: "将录制的反馈转化为清晰的后续步骤",
-    commentSignupDebug: "捕获控制台错误和失败的请求",
+    commentSignupTitle: "AI 智能体能看见和听见的屏幕录制",
+    commentSignupDescription:
+      "Clips 是一款免费开源的屏幕录制工具，可与 AI 智能体分享 bug、反馈和分步演示。",
     agentEmptySignInPrompt: "已经有账号了？",
     signUp: "注册",
     ownerInsights: "所有者洞察",
@@ -536,6 +543,9 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮挡处理",
+    redactionsPendingBody:
+      "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",
     publicDescription: "知道链接的任何人都可以查看 - 登录后发表评论或做出反应",
     shareRecording: "分享录音",
     shareTitle: "分享“{{title}}”",
@@ -589,9 +599,6 @@ const messages = {
     customizeEmbed: "自定义嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "这段录制上画了 {{count}} 处遮挡，但尚未合成进视频，因此文件里遮挡下方的内容依然可见。打开编辑器完成合成后，即可重新分享。",
-    redactionsPendingTitle: "请先完成遮挡",
   },
   shareUi: {
     owner: "所有者： {{email}}",
@@ -781,6 +788,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "无法更新当前工作区",
     whatsNew: "最新变化",
     changelogEmpty: "暂无更新。",
+    changelogCommentSignup:
+      "没有评论时，侧边栏会简要说明 Clips 的价值，并提供清晰的注册入口。",
+    changelogCommentsEmptyState:
+      "无评论状态现在会说明屏幕录制如何帮助 AI 智能体。",
+    changelogShareLink:
+      "已登录用户在不可用、过期或私有的分享链接中选择“返回主页”时，现在会进入资料库，而不是公开营销页面。",
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",
@@ -883,6 +896,49 @@ const messages = {
       "Clips 将删除 {{team}} 的已存储机器人令牌，并停止发送可播放的 Slack 预览。",
     thisWorkspace: "此工作区",
     slackConnected: "Slack 已连接",
+  },
+  clipsSettings: {
+    popupBlocked: "浏览器阻止了弹出窗口。请允许此网站显示弹出窗口，然后重试。",
+    recordingsTab: "录制",
+    meetingsTab: "会议",
+    yourDefaults: "你的默认设置",
+    orgDefault: "{{org}} 默认设置",
+    playbackSpeed: "播放速度",
+    playbackSpeedDescription: "打开录制内容时应用。",
+    visibility: "可见性",
+    visibilityDescription:
+      "应用于你创建的录制内容。你可以在任意录制内容上更改。",
+    useOrgDefault: "使用 {{org}} 的默认设置（{{visibility}}）",
+    useDefault: "使用默认设置（{{visibility}}）",
+    transcriptExport: "转录导出",
+    logoDescription: "显示在分享邮件和公开 Clip 页面中。",
+    change: "更改",
+    adminsOnly: "只有所有者和管理员可以更改此项。",
+    brandColorInvalid: "请输入十六进制颜色代码。",
+    loadFailed: "无法加载这些设置。",
+    emailGroup: "电子邮件",
+    calendarGroup: "日历",
+    googleCalendar: "Google Calendar",
+    connect: "连接",
+    reconnect: "重新连接",
+    connectedAs: "已连接为 {{account}}",
+    needsReconnect: "{{account}} 需要重新连接。",
+    disconnectFailed: "无法断开日历连接。",
+    disconnectCalendarDescription:
+      "Clips 将停止同步 {{account}} 中即将开始的会议。",
+    calendarApp: "Google Calendar 应用",
+    desktopGroup: "桌面",
+    meetingCapture: "会议捕获",
+    meetingCaptureDescription:
+      "笔记、自动开始和通知在每台设备的 Clips Desktop 中设置。",
+    openClipsDesktop: "打开 Clips Desktop",
+    keySaved: "已保存",
+    keyNotSaved: "未保存",
+    manage: "管理",
+    add: "添加",
+    linkPreviews: "链接预览",
+    addWorkspace: "添加工作区",
+    storageAskAdmin: "请让所有者或管理员设置存储。",
   },
   insightsHub: {
     title: "洞察",
@@ -1352,10 +1408,20 @@ const messages = {
     disconnected: "麦克风已断开连接。",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "无法打开 Builder.io。如果此应用嵌入在聊天中，请在浏览器标签页中打开；否则请允许此网站显示弹出窗口，然后重试。",
+    builderConnectError: "无法连接到 Builder.io。请重试或联系支持团队。",
+    checkingBuilderConnection: "正在检查 Builder 连接…",
     builderTimeout: "5 分钟内未收到 Builder 响应。请检查弹出窗口并重试。",
     builderConnected: "Builder.io 已连接",
     waitingForBuilder: "正在等待 Builder...",
     connectBuilder: "使用 Builder.io",
+    createBuilderAccount: "创建 Builder.io 账户",
+    signInWithBuilderAccount: "使用 Builder.io 账户登录",
+    builderConsentPrefix: "创建 Builder.io 账户即表示您同意我们的",
+    builderTerms: "服务条款",
+    builderConsentAnd: "和",
+    builderPrivacy: "隐私政策",
     free: "免费",
     configureS3: "配置 S3 兼容存储",
     whyPrompt: "为什么会看到这个？",

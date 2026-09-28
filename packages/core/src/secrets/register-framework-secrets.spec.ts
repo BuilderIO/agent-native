@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import { registerFrameworkSecrets } from "./register-framework-secrets.js";
-import { __resetSecretsRegistry, getRequiredSecret } from "./register.js";
+import {
+  __resetSecretsRegistry,
+  getRegisteredSecretUsage,
+  getRequiredSecret,
+} from "./register.js";
 
 describe("framework secret registrations", () => {
   afterEach(() => {
@@ -116,5 +121,46 @@ describe("framework secret registrations", () => {
       oauthProvider: "salesforce",
       oauthConnectUrl: "/_agent-native/connections/oauth/salesforce/start",
     });
+  });
+
+  it("registers every model provider key at the personal scope the provider forms save by default", () => {
+    registerFrameworkSecrets();
+
+    for (const { envVar } of Object.values(PROVIDER_ENV_META)) {
+      expect(getRequiredSecret(envVar), envVar).toMatchObject({
+        scope: "user",
+        kind: "api-key",
+      });
+    }
+  });
+
+  it("registers one Gemini key that also carries the voice input use", async () => {
+    registerFrameworkSecrets();
+
+    expect(getRequiredSecret("GEMINI_API_KEY")).toBeUndefined();
+    const gemini = getRequiredSecret("GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(gemini).toMatchObject({
+      label: "Google Gemini API key",
+      scope: "user",
+      kind: "api-key",
+    });
+    expect(getRegisteredSecretUsage("GOOGLE_GENERATIVE_AI_API_KEY")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ feature: "Voice input" }),
+      ]),
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(gemini?.validator?.("<GEMINI_KEY>")).resolves.toEqual({
+      ok: false,
+      error: "Google rejected the key (HTTP 400).",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      { headers: { "x-goog-api-key": "<GEMINI_KEY>" } },
+    );
   });
 });

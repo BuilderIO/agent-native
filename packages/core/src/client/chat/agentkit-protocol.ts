@@ -40,6 +40,10 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
+import {
+  emitChatFirstOpenApp,
+  emitChatFirstOpenBrowser,
+} from "../chat-first.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,
@@ -122,6 +126,9 @@ interface ProtocolRun {
   metadata?: Record<string, unknown>;
   activeMessageId?: string;
   activeMessageCompleted: boolean;
+  runtimeSequence?: number;
+  resumeAttempts?: number;
+  pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
   activeActivities: Map<string, AgentActivity>;
@@ -152,6 +159,7 @@ const RUNTIME_USAGE_EVENT_TYPE = "x-core.usage";
 const DEFAULT_MAX_RETAINED_EVENTS = 1_000;
 const DEFAULT_MAX_RETAINED_RUNS = 100;
 const DEFAULT_RETAINED_RUN_TTL_MS = 30 * 60 * 1_000;
+const MAX_DURABLE_RESUME_ATTEMPTS = 3;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 const DISCOVERABLE_CAPABILITIES = [
@@ -371,6 +379,16 @@ function agentNativeMetadata(
     | undefined;
 }
 
+function setRuntimeRunIdMetadata(
+  metadata: Record<string, unknown> | undefined,
+  runtimeRunId: string | undefined,
+): void {
+  const observability = agentNativeMetadata(metadata)?.observability;
+  if (!observability) return;
+  if (runtimeRunId === undefined) delete observability.runtimeRunId;
+  else observability.runtimeRunId = runtimeRunId;
+}
+
 function objectReference(value: unknown): AgentObjectReference | undefined {
   const object = asRecord(value);
   if (
@@ -421,7 +439,7 @@ function runtimeEventMessageId(
     const messageId = metadataString(value, "messageId");
     if (messageId) return messageId;
   }
-  return run.activeMessageId;
+  return run.activeMessageCompleted ? undefined : run.activeMessageId;
 }
 
 function runtimeAnnotationToProtocol(
@@ -933,6 +951,7 @@ function runtimeToolToProtocolTool(
     status,
     output: result,
     error,
+    ...(tool.metadata ? { metadata: tool.metadata } : {}),
   };
 }
 
@@ -978,9 +997,7 @@ function runtimeCapabilitiesToProtocolCapabilities(
     clientEffects: capabilities.rich?.clientEffects,
     multiAgentActivity,
     taskGroups: capabilities.rich?.taskGroups,
-    // This adapter can replay while its process is alive, but it does not own a
-    // durable event store and must not advertise restart-safe run resumption.
-    resumableRuns: false,
+    resumableRuns: capabilities.resumableRuns === true,
     threadHistory: capabilities.messages.history,
     threadForking: capabilities.sessions?.fork,
     modelSelection: capabilities.models?.selectable,
@@ -1059,9 +1076,14 @@ function isTerminalReason(reason: string | undefined): boolean {
 }
 
 function protocolError(error: unknown, code = "runtime_error"): AgentError {
+  const value = asRecord(error);
   return {
-    code,
+    code: typeof value?.code === "string" ? value.code : code,
     message: error instanceof Error ? error.message : String(error),
+    ...(value?.details === undefined ? {} : { details: value.details }),
+    ...(typeof value?.retryable === "boolean"
+      ? { retryable: value.retryable }
+      : {}),
   };
 }
 
@@ -1168,6 +1190,9 @@ export function createAgentKitProtocolAdapter(
 
   const derivedCapabilities: AgentCapabilities = {
     ...runtimeCapabilitiesToProtocolCapabilities(runtime.capabilities),
+    resumableRuns:
+      runtime.capabilities.resumableRuns === true &&
+      (runtime.resume !== undefined || runtime.subscribe !== undefined),
   };
   const capabilities: AgentCapabilities = {
     ...derivedCapabilities,
@@ -1218,9 +1243,11 @@ export function createAgentKitProtocolAdapter(
       derivedCapabilities.connectionRequests &&
       runtime.capabilities.rich?.connectionRequests !== false,
     ),
-    // Deliberately after the options spread: a host must not be able to
-    // advertise a restart-safe guarantee this adapter cannot keep.
-    resumableRuns: false,
+    resumableRuns: Boolean(
+      derivedCapabilities.resumableRuns &&
+      (runtime.resume || runtime.subscribe) &&
+      options.capabilities?.resumableRuns !== false,
+    ),
     "x-run-replay-retention": {
       maxEventsPerRun: maxRetainedEvents,
       maxCompletedRuns: maxRetainedRuns,
@@ -1236,14 +1263,12 @@ export function createAgentKitProtocolAdapter(
     id: AgentCapabilityId,
   ): AgentCapabilityDescriptor {
     if (id === "resumableRuns") {
-      // Not degraded: within one process replay is complete, and across a
-      // restart there is nothing to degrade to. Reporting it as unsupported
-      // matches the boolean projection and stops it reading as unfinished
-      // work. x-run-replay-retention states what replay does cover.
       return capabilityDescriptor(
         id,
-        "unsupported",
-        "Run replay is process-local. Restart-safe resumption requires a durable event transport, which this adapter does not own.",
+        runtimeBooleanCapabilityState(capabilities.resumableRuns),
+        capabilities.resumableRuns
+          ? "The runtime can resume durable runs after a stream disconnect or process restart."
+          : "Run replay is process-local because the runtime does not provide durable resumption.",
       );
     }
     if (id === "uploads" && capabilities.uploads !== true) {
@@ -1345,6 +1370,84 @@ export function createAgentKitProtocolAdapter(
       });
     }
     return session;
+  }
+
+  async function restoreRunFromRuntime(input: {
+    threadId: string;
+    runId: string;
+  }): Promise<ProtocolRun> {
+    if (
+      capabilities.resumableRuns !== true ||
+      (!runtime.resume && !runtime.subscribe)
+    ) {
+      throw new Error(`Unknown AgentKit run: ${input.runId}`);
+    }
+    const session = await getSession(input.threadId);
+    const resumeInput = {
+      sessionId: session.id,
+      runId: input.runId,
+      after: 0,
+    };
+    const turn = runtime.resume
+      ? await runtime.resume(resumeInput)
+      : {
+          id: input.runId,
+          sessionId: session.id,
+          runId: input.runId,
+          events: await runtime.subscribe!(resumeInput),
+        };
+    const metadata = mergeTrustedProtocolMetadata(options.metadata, {
+      [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
+        observability: {
+          protocolRunId: input.runId,
+          runtimeRunId: input.runId,
+          runtimeId: runtime.id,
+          sessionId: session.id,
+          turnId: turn.id,
+          threadId: input.threadId,
+          resumed: true,
+        } satisfies AgentNativeProtocolMetadata["observability"],
+      } satisfies AgentNativeProtocolMetadata,
+    });
+    const run: ProtocolRun = {
+      runId: input.runId,
+      threadId: input.threadId,
+      session,
+      turn: {
+        ...turn,
+        id: turn.id ?? input.runId,
+        sessionId: session.id,
+        runId: input.runId,
+      },
+      events: [],
+      firstRetainedSequence: 1,
+      sequence: 0,
+      status: "running",
+      lastAccessedAtMs: timeMs(),
+      activeReaders: 0,
+      metadata,
+      activeMessageCompleted: false,
+      pendingWidgets: new Map(),
+      actions: new Map(),
+      activeTools: new Map(),
+      activeActivities: new Map(),
+      terminalAppendDepth: 0,
+      pumpPromise: null,
+      continuationPromise: null,
+      streamClosed: false,
+      terminal: false,
+      waitingForContinuation: false,
+      listeners: new Set(),
+    };
+    runs.set(input.runId, run);
+    append(run, {
+      type: "run.started",
+      agentId: runtime.id,
+      metadata,
+    });
+    append(run, { type: "run.status", status: "running" });
+    ensurePump(run);
+    return run;
   }
 
   async function disposeSession(
@@ -1496,6 +1599,31 @@ export function createAgentKitProtocolAdapter(
     event: ProtocolEventInput,
     terminalStatus: "completed" | "failed" | "cancelled",
   ): void {
+    if (run.pendingWidgets.size > 0) {
+      let messageId = run.activeMessageId;
+      const occurredAt = event.occurredAt ?? now();
+      if (!messageId) {
+        messageId = createId("message");
+        run.activeMessageId = messageId;
+        run.activeMessageCompleted = false;
+        append(run, {
+          type: "message.created",
+          occurredAt,
+          metadata: event.metadata,
+          message: { id: messageId, role: "assistant", parts: [] },
+        });
+      }
+      for (const widget of run.pendingWidgets.values()) {
+        append(run, {
+          type: "widget.updated",
+          occurredAt,
+          metadata: event.metadata,
+          messageId,
+          widget,
+        });
+      }
+      run.pendingWidgets.clear();
+    }
     if (run.activeMessageId && !run.activeMessageCompleted) {
       append(run, {
         type: "message.completed",
@@ -1580,9 +1708,20 @@ export function createAgentKitProtocolAdapter(
     run: ProtocolRun,
     event: AgentChatRuntimeEvent,
   ): ProtocolEventInput[] {
+    dispatchChatFirstOpenFromRuntimeEvent(event);
     const base = {
       occurredAt: event.timestamp,
       metadata: mergeProtocolMetadata(run.metadata, event.metadata),
+    };
+    const attachPendingWidgets = (messageId: string) => {
+      const widgets = [...run.pendingWidgets.values()];
+      run.pendingWidgets.clear();
+      return widgets.map((widget) => ({
+        type: "widget.updated" as const,
+        ...base,
+        messageId,
+        widget,
+      }));
     };
     switch (event.type) {
       case "message-start":
@@ -1594,6 +1733,7 @@ export function createAgentKitProtocolAdapter(
             ...base,
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
+          ...attachPendingWidgets(event.message.id),
         ];
       case "message-delta":
         run.activeMessageId = event.messageId;
@@ -1609,6 +1749,7 @@ export function createAgentKitProtocolAdapter(
                 ? { format: event.delta.format ?? textFormat }
                 : {}),
             },
+            ...attachPendingWidgets(event.messageId),
           ];
         }
         if (event.delta.type === "reasoning") {
@@ -1619,6 +1760,7 @@ export function createAgentKitProtocolAdapter(
               messageId: event.messageId,
               text: event.delta.text,
             },
+            ...attachPendingWidgets(event.messageId),
           ];
         }
         return [
@@ -1630,6 +1772,7 @@ export function createAgentKitProtocolAdapter(
               delta: event.delta,
             },
           },
+          ...attachPendingWidgets(event.messageId),
         ];
       case "message-done":
         run.activeMessageId = event.message.id;
@@ -1640,6 +1783,7 @@ export function createAgentKitProtocolAdapter(
             ...base,
             message: runtimeMessageToProtocolMessage(event.message, textFormat),
           },
+          ...attachPendingWidgets(event.message.id),
         ];
       case "tool-start": {
         const metadata = mergeProtocolMetadata(
@@ -1702,9 +1846,17 @@ export function createAgentKitProtocolAdapter(
           ? protocolError(event.error, "tool_error")
           : undefined;
         const invocation = run.actions.get(event.toolCallId);
+        const previousTool = run.activeTools.get(event.toolCallId);
         const metadata = mergeProtocolMetadata(
+          previousTool?.metadata,
           invocation?.metadata,
+          event.metadata,
           base.metadata,
+          {
+            ...(event.completedSideEffect ? { completedSideEffect: true } : {}),
+            ...(event.chatUI ? { chatUI: event.chatUI } : {}),
+            ...(event.mcpApp ? { mcpApp: event.mcpApp } : {}),
+          },
         );
         const actionResult = invocation
           ? actionResultFromTool({
@@ -1717,17 +1869,21 @@ export function createAgentKitProtocolAdapter(
             })
           : undefined;
         if (invocation) run.actions.delete(event.toolCallId);
+        const activeTool = run.activeTools.get(event.toolCallId);
         return [
           {
             type: "tool.updated",
             ...base,
             metadata,
             toolCall: {
+              ...activeTool,
               id: event.toolCallId,
               name: event.toolName,
               status,
-              output: event.result ?? event.resultText,
+              output:
+                event.result !== undefined ? event.result : event.resultText,
               error,
+              ...(metadata ? { metadata } : {}),
             },
           },
           ...(actionResult
@@ -1910,6 +2066,7 @@ export function createAgentKitProtocolAdapter(
           event.metadata,
         );
         if (event.operation === "remove") {
+          run.pendingWidgets.delete(event.widget.id);
           return [
             {
               type: "widget.removed",
@@ -1918,6 +2075,9 @@ export function createAgentKitProtocolAdapter(
             },
           ];
         }
+        const widget = runtimeWidgetToProtocol(event.widget);
+        if (messageId) run.pendingWidgets.delete(widget.id);
+        else run.pendingWidgets.set(widget.id, widget);
         return [
           {
             type:
@@ -1926,7 +2086,7 @@ export function createAgentKitProtocolAdapter(
                 : "widget.updated",
             ...base,
             ...(messageId ? { messageId } : {}),
-            widget: runtimeWidgetToProtocol(event.widget),
+            widget,
           },
         ];
       }
@@ -2171,8 +2331,8 @@ export function createAgentKitProtocolAdapter(
             error: {
               code: event.code ?? "runtime_error",
               message: event.error,
-              retryable: event.recoverable,
-              details: event.cause,
+              retryable: event.retryable ?? event.recoverable,
+              details: event.details ?? event.cause,
             },
           },
         ];
@@ -2233,6 +2393,51 @@ export function createAgentKitProtocolAdapter(
     }
   }
 
+  function dispatchChatFirstOpenFromRuntimeEvent(
+    event: AgentChatRuntimeEvent,
+  ): void {
+    if (
+      event.type !== "tool-done" ||
+      event.status !== "completed" ||
+      (event.toolName !== "open_app" && event.toolName !== "open_browser")
+    ) {
+      return;
+    }
+    let result = asRecord(event.result);
+    if (!result && event.resultText?.trim()) {
+      try {
+        result = asRecord(JSON.parse(event.resultText));
+      } catch {
+        result = undefined;
+      }
+    }
+    if (!result) {
+      console.warn(
+        `[chat-first] ${event.toolName} completed without a readable result`,
+      );
+      return;
+    }
+    const readString = (value: unknown) =>
+      typeof value === "string" && value.trim() ? value : undefined;
+    const delivery =
+      event.toolName === "open_browser"
+        ? emitChatFirstOpenBrowser({
+            url: readString(result.url ?? result.href),
+            title: readString(result.title ?? result.name),
+          })
+        : emitChatFirstOpenApp({
+            app: readString(result.app ?? result.appId ?? result.application),
+            path: readString(result.path ?? result.targetPath),
+            url: readString(result.url ?? result.href),
+            view: readString(result.view),
+          });
+    if (!delivery.delivered) {
+      console.warn(
+        `[chat-first] ${event.toolName} was completed but not delivered (${delivery.reason ?? "unknown"})`,
+      );
+    }
+  }
+
   function notifyWhenChanged(
     run: ProtocolRun,
     signal?: AbortSignal,
@@ -2252,39 +2457,128 @@ export function createAgentKitProtocolAdapter(
     });
   }
 
+  async function resumeRuntimeTurn(
+    run: ProtocolRun,
+    cause?: unknown,
+  ): Promise<AgentChatRuntimeTurn | null> {
+    if (
+      capabilities.resumableRuns !== true ||
+      (!runtime.resume && !runtime.subscribe) ||
+      (typeof asRecord(cause)?.retryable === "boolean" &&
+        asRecord(cause)?.retryable === false) ||
+      (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS
+    ) {
+      return null;
+    }
+    const runtimeRunId = run.turn.runId ?? run.runId;
+    const resumeInput = {
+      sessionId: run.session.id,
+      turnId: run.turn.id,
+      runId: runtimeRunId,
+      after: run.runtimeSequence === undefined ? 0 : run.runtimeSequence + 1,
+      metadata: run.metadata,
+    };
+    let lastError: unknown;
+    while ((run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS) {
+      run.resumeAttempts = (run.resumeAttempts ?? 0) + 1;
+      try {
+        const resumed = runtime.resume
+          ? await runtime.resume(resumeInput)
+          : {
+              id: run.turn.id,
+              sessionId: run.session.id,
+              runId: run.runId,
+              events: await runtime.subscribe!(resumeInput),
+            };
+        return {
+          ...resumed,
+          id: resumed.id ?? run.turn.id,
+          sessionId: run.session.id,
+          runId: resumed.runId ?? runtimeRunId,
+        };
+      } catch (error) {
+        lastError = error;
+        if (asRecord(error)?.retryable === false) throw error;
+      }
+    }
+    if (lastError !== undefined) throw lastError;
+    return null;
+  }
+
+  function setResumedRuntimeTurn(
+    run: ProtocolRun,
+    resumed: AgentChatRuntimeTurn,
+  ): void {
+    const runtimeRunId = run.turn.runId ?? run.runId;
+    if (resumed.runId && resumed.runId !== runtimeRunId) {
+      run.runtimeSequence = undefined;
+      run.resumeAttempts = 0;
+    }
+    run.turn = resumed;
+  }
+
   function ensurePump(run: ProtocolRun): void {
     if (run.pumpPromise || run.streamClosed || run.terminal || !run.turn)
       return;
     run.pumpPromise = (async () => {
       try {
-        for await (const event of run.turn.events) {
-          for (const protocolEvent of runtimeEventToProtocolEvents(
-            run,
-            event,
-          )) {
-            append(run, protocolEvent);
+        while (!run.terminal && !run.waitingForContinuation) {
+          try {
+            for await (const event of run.turn.events) {
+              const sequence = event.metadata?.seq;
+              if (
+                typeof sequence === "number" &&
+                (run.runtimeSequence === undefined ||
+                  sequence > run.runtimeSequence)
+              ) {
+                run.runtimeSequence = sequence;
+                run.resumeAttempts = 0;
+              }
+              for (const protocolEvent of runtimeEventToProtocolEvents(
+                run,
+                event,
+              )) {
+                append(run, protocolEvent);
+              }
+              if (run.waitingForContinuation || run.terminal) break;
+            }
+            if (run.terminal || run.waitingForContinuation) break;
+            const resumed = await resumeRuntimeTurn(run);
+            if (resumed) {
+              setResumedRuntimeTurn(run, resumed);
+              continue;
+            }
+            run.streamClosed = true;
+            run.terminal = true;
+            append(run, {
+              type: "run.failed",
+              error: {
+                code: "stream_ended",
+                message:
+                  "The runtime stream ended before it reported completion.",
+              },
+            });
+            break;
+          } catch (error) {
+            if (run.streamClosed || run.terminal) return;
+            try {
+              const resumed = await resumeRuntimeTurn(run, error);
+              if (resumed) {
+                setResumedRuntimeTurn(run, resumed);
+                continue;
+              }
+            } catch (resumeError) {
+              error = resumeError;
+            }
+            run.streamClosed = true;
+            run.terminal = true;
+            append(run, {
+              type: "run.failed",
+              error: protocolError(error),
+            });
+            break;
           }
-          if (run.waitingForContinuation) break;
         }
-        if (!run.terminal && !run.waitingForContinuation) {
-          run.terminal = true;
-          append(run, {
-            type: "run.failed",
-            error: {
-              code: "stream_ended",
-              message:
-                "The runtime stream ended before it reported completion.",
-            },
-          });
-        }
-      } catch (error) {
-        if (run.streamClosed || run.terminal) return;
-        run.streamClosed = true;
-        run.terminal = true;
-        append(run, {
-          type: "run.failed",
-          error: protocolError(error),
-        });
       } finally {
         run.pumpPromise = null;
         for (const listener of run.listeners) listener();
@@ -2376,6 +2670,13 @@ export function createAgentKitProtocolAdapter(
           "Core requires approval continuations to use resumeRun",
         );
       }
+      const latestUserMessage = [...input.messages]
+        .reverse()
+        .find((message) => message.role === "user");
+      const latestUserMetadata = asRecord(latestUserMessage?.metadata);
+      const recoveryMetadata = asRecord(latestUserMetadata?.custom);
+      const isRecoveryRetry =
+        recoveryMetadata?.agentNativeRecoveryAction === "retry";
       const turnMetadata = mergeTrustedProtocolMetadata(
         options.metadata,
         input.metadata,
@@ -2383,12 +2684,27 @@ export function createAgentKitProtocolAdapter(
         input.options?.agentId ? { agentId: input.options.agentId } : undefined,
         input.options?.locale ? { locale: input.options.locale } : undefined,
         input.options?.mode ? { mode: input.options.mode } : undefined,
+        isRecoveryRetry ? { agentNativeInternalContinuation: true } : undefined,
       );
       const session = await getSession(input.threadId, turnMetadata);
       const messages = input.messages.map(protocolMessageToRuntimeMessage);
+      const attachments =
+        latestUserMessage?.parts.flatMap((part) =>
+          part.type === "file"
+            ? [
+                {
+                  name: part.name,
+                  ...(part.fileId ? { id: part.fileId } : {}),
+                  ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+                  ...(part.url ? { url: part.url } : {}),
+                },
+              ]
+            : [],
+        ) ?? [];
       const turn = await session.startTurn({
         prompt: latestUserPrompt(input.messages),
         messages,
+        ...(attachments.length ? { attachments } : {}),
         model: input.options?.model,
         reasoningEffort: input.options?.reasoningEffort,
         temperature: input.options?.temperature,
@@ -2411,7 +2727,7 @@ export function createAgentKitProtocolAdapter(
           [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
             observability: {
               protocolRunId: runId,
-              runtimeRunId: turn.runId,
+              ...(turn.runId === undefined ? {} : { runtimeRunId: turn.runId }),
               runtimeId: runtime.id,
               sessionId: session.id,
               turnId: turn.id,
@@ -2420,6 +2736,7 @@ export function createAgentKitProtocolAdapter(
           } satisfies AgentNativeProtocolMetadata,
         },
       );
+      setRuntimeRunIdMetadata(runMetadata, turn.runId);
       const run: ProtocolRun = {
         runId,
         threadId: input.threadId,
@@ -2433,6 +2750,7 @@ export function createAgentKitProtocolAdapter(
         activeReaders: 0,
         metadata: runMetadata,
         activeMessageCompleted: false,
+        pendingWidgets: new Map(),
         actions: new Map(),
         activeTools: new Map(),
         activeActivities: new Map(),
@@ -2462,15 +2780,16 @@ export function createAgentKitProtocolAdapter(
       ensurePump(run);
       return { runId, capabilities };
     },
-    subscribeToRun(input) {
+    async *subscribeToRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
+      let run = runs.get(input.runId);
       if (!run || run.threadId !== input.threadId) {
-        throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        if (run) throw new Error(`Unknown AgentKit run: ${input.runId}`);
+        run = await restoreRunFromRuntime(input);
       }
       touchRun(run);
       ensurePump(run);
-      return readRun(run, input.afterSequence, input.signal);
+      yield* readRun(run, input.afterSequence, input.signal);
     },
     async getRun(input) {
       pruneRetainedRuns();
@@ -2756,7 +3075,9 @@ export function createAgentKitProtocolAdapter(
             [AGENT_NATIVE_PROTOCOL_METADATA_KEY]: {
               observability: {
                 protocolRunId: nextRunId,
-                runtimeRunId: nextTurn.runId,
+                ...(nextTurn.runId === undefined
+                  ? {}
+                  : { runtimeRunId: nextTurn.runId }),
                 runtimeId: runtime.id,
                 sessionId: run.session.id,
                 turnId: nextTurn.id,
@@ -2766,6 +3087,7 @@ export function createAgentKitProtocolAdapter(
             } satisfies AgentNativeProtocolMetadata,
           },
         );
+        setRuntimeRunIdMetadata(replacementMetadata, nextTurn.runId);
         const replacementRun: ProtocolRun = {
           runId: nextRunId,
           threadId: input.threadId,
@@ -2780,6 +3102,7 @@ export function createAgentKitProtocolAdapter(
           metadata: replacementMetadata,
           activeMessageId: run.activeMessageId,
           activeMessageCompleted: run.activeMessageCompleted,
+          pendingWidgets: new Map(run.pendingWidgets),
           actions: new Map(run.actions),
           activeTools: new Map(run.activeTools),
           activeActivities: new Map(run.activeActivities),
@@ -2933,6 +3256,9 @@ export function createAgentKitProtocolAdapter(
   }
 
   const hostOperations = options.operations;
+  if (hostOperations?.persistThreadSnapshot) {
+    transport.persistThreadSnapshot = hostOperations.persistThreadSnapshot;
+  }
   if (hostOperations?.createThread) {
     transport.createThread = (input = {}, context) => {
       const metadata = mergeTrustedProtocolMetadata(
@@ -3049,6 +3375,8 @@ export function createAgentKitProtocolAdapter(
     transport.steerQueuedMessage = hostOperations.steerQueuedMessage;
   if (hostOperations?.removeQueuedMessage)
     transport.removeQueuedMessage = hostOperations.removeQueuedMessage;
+  if (hostOperations?.moveQueuedMessageToTop)
+    transport.moveQueuedMessageToTop = hostOperations.moveQueuedMessageToTop;
   if (hostOperations?.submitFeedback) {
     transport.submitFeedback = (input, context) => {
       const metadata = mergeTrustedProtocolMetadata(

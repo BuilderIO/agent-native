@@ -21,7 +21,6 @@ describe("createServer", () => {
   });
 
   it("disables CORS when cors is false", () => {
-    // Should not throw
     const { app } = createServer({ cors: false });
     expect(app).toBeDefined();
   });
@@ -204,8 +203,6 @@ describe("createServer", () => {
   });
 });
 
-// Test parseEnvFile behavior by reimplementing and testing the same logic
-// since the function is private to the module
 describe("parseEnvFile (logic)", () => {
   function parseEnvFile(content: string): Map<string, string> {
     const vars = new Map<string, string>();

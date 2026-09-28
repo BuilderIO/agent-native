@@ -29,10 +29,6 @@ vi.mock("../use-action.js", async (importOriginal) => ({
   callAction: (...args: unknown[]) => callActionMock(...args),
 }));
 
-// The integrations panel that owns the Builder row is behind
-// `<Suspense><lazy(IntegrationsPanel)/></Suspense>` — its dynamic import
-// needs real macrotask ticks to settle (more on a cold module cache), not
-// just queued microtasks.
 async function flushLazyImport(isReady: () => boolean) {
   for (let i = 0; i < 100; i++) {
     if (isReady()) return;
@@ -374,12 +370,15 @@ describe("ConnectionsSettingsContent", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
+    const queryClient = new QueryClient();
 
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <AgentSettingsContent sections={["llm"]} />
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
       await Promise.resolve();
     });

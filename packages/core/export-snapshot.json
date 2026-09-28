@@ -178,6 +178,12 @@
     "./file-upload/actions/upload-image": [
       "dist/file-upload/actions/upload-image.js"
     ],
+    "./file-upload/actions/get-file-storage": [
+      "dist/file-upload/actions/get-file-storage.js"
+    ],
+    "./file-upload/actions/manage-file-storage": [
+      "dist/file-upload/actions/manage-file-storage.js"
+    ],
     "./guards": ["dist/guards/index.d.ts", "dist/guards/index.js"],
     "./history": ["dist/history/index.js"],
     "./history/actions/create-resource-version": [
@@ -197,6 +203,12 @@
     ],
     "./ingestion": ["dist/ingestion/index.js"],
     "./integrations": ["dist/integrations/index.js"],
+    "./integrations/actions/list-messaging-channels": [
+      "dist/integrations/actions/list-messaging-channels.js"
+    ],
+    "./integrations/actions/manage-messaging-channel": [
+      "dist/integrations/actions/manage-messaging-channel.js"
+    ],
     "./local-artifacts": [
       "dist/local-artifacts/index.d.ts",
       "dist/local-artifacts/index.js"

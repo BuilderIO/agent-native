@@ -17,12 +17,6 @@ import { useApps } from "@/lib/use-apps";
 const PANEL_RADIUS = 28;
 const ICON_SIZE = 44;
 
-/**
- * Every workspace app, as a wrapping grid above the tab bar's action button.
- * The bar carries only the apps you pinned, so this is the complete list, and
- * it wraps rather than scrolling sideways: apps hidden off-screen behind a
- * swipe are apps nobody finds.
- */
 export function AppLauncherMenu({
   visible,
   onClose,
@@ -30,7 +24,6 @@ export function AppLauncherMenu({
 }: {
   visible: boolean;
   onClose: () => void;
-  /** Clears the tab bar so the grid sits directly above it. */
   bottomOffset: number;
 }) {
   const navigation = useMobileNavigation();

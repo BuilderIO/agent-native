@@ -79,6 +79,7 @@ function ReviewPreviewFrame({
   url,
   artifactAppId,
   artifactId,
+  reviewOrgId,
   previewLabel,
   compact,
   renderContent,
@@ -87,6 +88,7 @@ function ReviewPreviewFrame({
   url?: string;
   artifactAppId?: "design" | "slides";
   artifactId?: string;
+  reviewOrgId?: string;
   previewLabel: string;
   compact: boolean;
   renderContent?: ReactNode;
@@ -105,7 +107,12 @@ function ReviewPreviewFrame({
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
   const designQuery = useActionQuery<Record<string, unknown>>(
     "get-design",
-    { id: artifactId ?? "", includeFileContent: false },
+    {
+      id: artifactId ?? "",
+      includeFileContent: false,
+      reviewPreview: true,
+      ...(reviewOrgId ? { reviewOrgId } : {}),
+    },
     {
       enabled: mounted && artifactAppId === "design" && Boolean(artifactId),
       staleTime: 5 * 60_000,
@@ -137,6 +144,8 @@ function ReviewPreviewFrame({
       id: artifactId ?? "",
       fileId: designFileId ?? "",
       includeFileContent: true,
+      reviewPreview: true,
+      ...(reviewOrgId ? { reviewOrgId } : {}),
     },
     {
       enabled:
@@ -148,7 +157,12 @@ function ReviewPreviewFrame({
   );
   const deckQuery = useActionQuery<Record<string, unknown>>(
     "get-deck",
-    { id: artifactId ?? "", compact: "true" },
+    {
+      id: artifactId ?? "",
+      compact: "true",
+      reviewPreview: true,
+      ...(reviewOrgId ? { reviewOrgId } : {}),
+    },
     {
       enabled: mounted && artifactAppId === "slides" && Boolean(artifactId),
       staleTime: 5 * 60_000,
@@ -177,6 +191,8 @@ function ReviewPreviewFrame({
       id: artifactId ?? "",
       slideId: activeSlideId ?? "",
       compact: "false",
+      reviewPreview: true,
+      ...(reviewOrgId ? { reviewOrgId } : {}),
     },
     {
       enabled: mounted && artifactAppId === "slides" && Boolean(activeSlideId),
@@ -293,7 +309,9 @@ function ReviewPreviewFrame({
       className={
         compact
           ? "relative size-full overflow-hidden bg-background"
-          : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
+          : kind === "analytics-dashboard"
+            ? "relative w-full max-w-full bg-background"
+            : "relative aspect-[16/10] w-full max-w-full overflow-hidden bg-background"
       }
       data-preview-kind={dataKind}
       data-preview-state={
@@ -337,6 +355,7 @@ function ReviewPreviewFrame({
                     key={slideId}
                     type="button"
                     aria-label={label}
+                    title={label}
                     aria-pressed={activeSlideId === slideId}
                     onClick={() => setSelectedSlideId(slideId)}
                     className="size-8 shrink-0 rounded border border-border text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-muted aria-pressed:text-foreground"
@@ -364,10 +383,12 @@ function ReviewPreviewFrame({
               aria-hidden="true"
               className={
                 compact
-                  ? "pointer-events-none absolute left-0 top-0 h-[600%] w-[600%] origin-top-left scale-[0.166667] border-0"
+                  ? "pointer-events-none absolute left-0 top-0 h-[1200%] w-[1200%] origin-top-left scale-[0.083333] border-0"
                   : showSlideStrip
-                    ? "absolute inset-x-0 bottom-0 top-10 border-0"
-                    : "absolute inset-0 size-full border-0"
+                    ? "pointer-events-none absolute left-0 top-10 h-[calc(400%_-_10rem)] w-[400%] origin-top-left scale-[0.25] border-0"
+                    : artifactAppId
+                      ? "pointer-events-none absolute left-0 top-0 h-[400%] w-[400%] origin-top-left scale-[0.25] border-0"
+                      : "absolute inset-0 size-full border-0"
               }
               loading="lazy"
               onLoad={() => setLoaded(true)}
@@ -703,6 +724,7 @@ export function OutputPreview({
   artifactPreviewIsImage = false,
   artifactPreviewAppId,
   artifactPreviewId,
+  reviewOrgId,
   artifactPreviewContent,
   artifactOnly = false,
 }: {
@@ -715,6 +737,7 @@ export function OutputPreview({
   artifactPreviewIsImage?: boolean;
   artifactPreviewAppId?: "design" | "slides" | "analytics";
   artifactPreviewId?: string;
+  reviewOrgId?: string;
   artifactPreviewContent?: ReactNode;
   artifactOnly?: boolean;
 }) {
@@ -741,6 +764,7 @@ export function OutputPreview({
     return (
       <ReviewPreviewFrame
         artifactId={artifactPreviewId}
+        reviewOrgId={reviewOrgId}
         previewLabel={previewLabel}
         compact={compact}
         renderContent={artifactPreviewContent}
@@ -753,6 +777,7 @@ export function OutputPreview({
       <ReviewPreviewFrame
         artifactAppId="design"
         artifactId={artifactPreviewId}
+        reviewOrgId={reviewOrgId}
         previewLabel={previewLabel}
         compact={compact}
         kind="design"
@@ -768,6 +793,7 @@ export function OutputPreview({
       <ReviewPreviewFrame
         artifactAppId="slides"
         artifactId={artifactPreviewId}
+        reviewOrgId={reviewOrgId}
         previewLabel={previewLabel}
         compact={compact}
         kind="artifact"

@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const jaJP = {
+  agentChat: {
+    setup: {
+      checkingProvider: "AI 接続を確認しています…",
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+  },
   language: {
     label: "言語",
     system: "システム",
@@ -793,7 +800,6 @@ const jaJP = {
       s062: "テンプレートから始め、データを接続し、ダッシュボードの構築を開始します。",
       s063: "ドキュメントを読む",
       s064: "すべてのテンプレートを表示",
-      // V3 ランディングページコピー（2026-09-14）— hero から最終 CTA まで。
       heroEyebrow: "Analytics",
       heroTitle:
         "質問してください。チャート、クエリ、コンテキストを取得します。",
@@ -857,7 +863,6 @@ const jaJP = {
     },
     calendar: {
       s001: "Calendar テンプレートのスクリーンショット",
-      // V3 ランディングページコピー(2026年9月10日) — hero から最終 CTA まで。
       heroEyebrow: "Calendar",
       heroTitle:
         "エージェントと時間を見つけて会議を予約し、その日の予定を調整します",
@@ -1040,7 +1045,6 @@ const jaJP = {
     },
     clips: {
       s001: "Clips テンプレートのスクリーンショット",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "AIエージェントが見て、聞ける画面録画",
       heroDescription:
@@ -1187,7 +1191,6 @@ const jaJP = {
     },
     content: {
       s001: "Content テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "AIエージェントで作業を作成・整理する",
       heroDescription:
@@ -1313,7 +1316,6 @@ const jaJP = {
     },
     design: {
       s001: "Design テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "AIエージェントでインタラクティブなプロトタイプをデザイン",
       heroDescription:
@@ -1435,7 +1437,6 @@ const jaJP = {
     },
     dispatch: {
       s001: "Dispatch テンプレートのスクリーンショット",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "AI エージェントを一箇所でまとめて調整",
       heroDescription:
@@ -1689,21 +1690,21 @@ const jaJP = {
           "はい。チームメンバーが下書きをリクエストすると、あなたのレビューキューに表示されます。それを開いてメッセージを編集し、準備ができたら送信できます。依頼した本人があなたに代わって送信することはできません。送信を管理するのは下書きの所有者、または組織の管理者です。",
       },
       s001: "Mail テンプレートのスクリーンショット",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "AIエージェントで受信トレイを管理",
+      heroTitle: "Jevで受信トレイを思いどおりに",
       heroDescription:
-        "Mail では、優先順位の並べ替え、コンテキストを認識したラベル、スレッドの概要、およびバックグラウンド ルールが 1 つのキーボード ファーストの Gmail 受信トレイに組み込まれ、エージェントが次のステップに進むことができます。",
+        "Jevに自然な言葉で大切なことを伝えましょう。人が書いたGitHubのコメントを残し、上司のメールを優先し、ボット通知を整理して、あなたの修正から学習します。",
       heroCta: "受信トレイを管理",
-      useCasesHeading: "Mail に最初のパスを実行させる",
+      mobileArchiveToast: "ボット通知1,167件をアーカイブ · PRコメント4件を保持",
+      useCasesHeading: "Jevが支える、もっと賢い受信トレイ",
       useCasesBody:
-        "緊急のスレッドを表示し、メッセージに意味ごとにラベルを付けて、受信トレイでの繰り返しの作業を管理しながら進め続けます。",
-      useCase1Title: "今日何が必要かを確認してください",
+        "自然な言葉でルールを設定できます。Jevが大切な人や会話を優先し、適切なラベルを付け、繰り返し届くメールを受信時にアーカイブします。",
+      useCase1Title: "人からの返信を残し、ボット通知を整理",
       useCase1Body:
-        "Mail は、緊急度、期限、待機者によってスレッドをランク付けし、次に役立つアクションを含む概要を受信箱に表示します。",
-      useCase2Title: "意味ごとにメッセージにラベルを付ける",
+        "重要な内容をJevに伝えましょう。GitHubのプルリクエストへの人からのコメントはProductに残し、ボット通知はアーカイブして、上司のメールはImportantに移動します。プロンプトでルールを調整し、フィードバックで迷惑メールの判定も改善できます。",
+      useCase2Title: "すべてのメールに最適なラベルを",
       useCase2Body:
-        "エージェントは送信者や会話のコンテキストからラベルを適用できるため、調査、財務、顧客のスレッドを簡単に見つけることができます。",
+        "Jevはキーワードだけでなく会話の意味に基づいて分類するため、顧客メモ、領収書、調査メールを適切な場所に整理できます。",
       useCase3Title: "定型業務を自動化する",
       useCase3Body:
         "バックグラウンドで新しいメールにラベルを付けたりアーカイブしたりするルールを設定し、いつでも必要なときに実行履歴を確認できます。",
@@ -1724,9 +1725,9 @@ const jaJP = {
       feature5Title: "送信する前に確認してください",
       feature5Body:
         "エージェントに返信の下書きまたは修正を依頼し、受信トレイから送信される前に確認して編集します。",
-      feature6Title: "複数アカウントの検索",
+      feature6Title: "使うほど賢くなる迷惑メールフィルター",
       feature6Body:
-        "接続されている Gmail アカウント全体を検索し、同じ優先度、ラベル、エージェント ツールを 1 か所で使用します。",
+        "誤って除外されたメールを必要なものとして戻すか、不要なメールを報告してください。Jevは修正内容を学び、似たメールにも反映します。",
       finalCtaHeading: "次のメールから始めましょう",
       finalCtaBody:
         "会話を開いて、AIエージェントに要約や返信の下書きを頼んでみましょう。",
@@ -1858,7 +1859,6 @@ const jaJP = {
     },
     slides: {
       s001: "Slides テンプレートのスクリーンショット",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "AIエージェントでプレゼンテーションを作成",
       heroDescription:
@@ -2076,7 +2076,6 @@ const jaJP = {
           "はい。CLI でコピーを作成し、actions、データ、インターフェースを追加してから、アプリケーションをデプロイしてください。環境に合わせて認証とプロバイダーアクセスを設定し、追加したワークフローをユーザーに共有する前にテストしてください。",
       },
       s001: "Chat アプリのスクリーンショット",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "自分だけの AI チャットアプリを作ろう",
       heroDescription:

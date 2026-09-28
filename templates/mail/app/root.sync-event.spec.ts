@@ -23,8 +23,6 @@ describe("createMailSyncEventHandler", () => {
     const qc = fakeQueryClient();
     const onEvent = createMailSyncEventHandler(qc);
 
-    // A sync batch forwards every event to onEvent synchronously (see
-    // use-db-sync.ts's `for (const evt of events) onEventRef.current?.(evt)`).
     for (let i = 0; i < 5; i++) {
       onEvent({
         source: "app-state",
@@ -33,7 +31,6 @@ describe("createMailSyncEventHandler", () => {
         requestSource: "other-tab",
       });
     }
-    // The coalesced invalidation is deferred to a microtask.
     await Promise.resolve();
     await Promise.resolve();
 

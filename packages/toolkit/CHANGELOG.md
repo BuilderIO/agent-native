@@ -1,5 +1,80 @@
 # @agent-native/toolkit
 
+## 0.23.0
+
+### Minor Changes
+
+- a20f0b4: Move the toolkit's Button, Switch, Select, and Input to shadcn new-york-v4 sizing. Buttons are 36px by default and 32px at `sm`, with new `xs`, `icon-xs`, `icon-sm`, and `icon-lg` sizes. `outline` is now the v4 bordered outline (`border bg-background shadow-xs`, with `bg-input/30` in dark mode) instead of an accent fill, and a new `outline-destructive` variant (outline with red text) marks destructive row actions; it maps to the design-system `danger` intent with `outline` emphasis. Switch is 32x18 with a `size` prop (`sm` is 24x14), SelectTrigger and Input take `size="sm" | "default"` (32px or 36px), Toggle is 36px (`sm` 32px), and TabsList is 36px. Alert sets `text-sm` on the root, so titles are 14px, and AlertDescription uses relaxed leading. Adds the shadcn `InputGroup` (`InputGroupAddon`, `InputGroupInput`, `InputGroupButton`, `InputGroupText`, `InputGroupTextarea`) for fields with icons or inline actions. Dispatch's local Button, Switch, Input, Tabs, Toggle, and AlertDialog now re-export the toolkit's, so its tabs and toggles follow the same heights and its confirm dialogs stack above toolkit dialogs. The Dispatch app search matches the 32px toolbar buttons beside it. Settings row, retry, and group-heading buttons use `outline` instead of `secondary`; dialog Cancel buttons stay `secondary`.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.22.3
+
+### Patch Changes
+
+- 880740b: Match attached Connect AI card spacing and stacking across chat surfaces.
+- 55c9666: Support host-owned inline recipient atoms, exact mention aliases, selection restoration, and IME-safe keyboard handling in the shared prompt composer.
+- 55c9666: Let hosts style the shared composer for non-agent prompts: a stacked `@` menu density with larger avatars, `insertTextAtCursor` on the composer handle, a `requireAgentEngine` opt-out so a missing API key never blocks a human comment, data attributes on inline mention pills, filtering of host-supplied `@` items by the typed query so Enter picks the matching item, and an `@` inserted through `insertTextAtCursor` (an @ toolbar button) now opens the mention menu.
+- Release all public npm packages with a patch version bump.
+
+## 0.22.2
+
+### Patch Changes
+
+- d462819: Move framework chat surfaces to AgentKit while preserving chat history, recovery, context, attachments, model selection, runs, and message actions. This removes the old assistant-ui transcript and stream owners, the `AssistantChat.createAdapter` prop, the public `AssistantMessageActionBar` export, and the adapter APIs `createAgentChatAdapter`, `createCodeAgentChatAdapter`, `createAgentChatRuntimeAdapter`, `codeAgentTranscriptEventsToContent`, and `codeAgentTranscriptHasPendingApproval`, plus their adapter-only options and event types. Use AgentKit `runtime` or `createTransport` for custom chat implementations.
+- 797b3e2: Allow editors to keep the latest local intent for overlapping changes, merge independent server edits, and persist local collaborative undo and redo.
+- e76947b: Return safe, source-specific Figma errors and preserve composer feedback for failed context operations.
+- Release all public npm packages with a patch version bump.
+- adc7497: Anchor storage setup to upload controls and keep it hidden until an upload is requested.
+- 797b3e2: Let collaborative editors observe remote document changes separately from local edits and save acknowledgements.
+- ed3801e: Remove nonessential source comments.
+- e7b6fcc: Share a joined quick-copy control, People/Agents tabs, and agent destinations between Content and Clips.
+- e76947b: Close composer context pickers when the composer becomes disabled.
+- 2397f94: Center shared prompt-home content and list composer context options without menu search fields.
+
+## 0.22.1
+
+### Patch Changes
+
+- 7e8a10a: Expose setup guidance when chat and uploads require configured providers.
+- Release all public npm packages with a patch version bump.
+
+## 0.22.0
+
+### Minor Changes
+
+- dbb10d5: Remove the split auth marketing UI and route app entry pages through the shared sign-in flow.
+- 39a89d0: Allow localized search placeholders for composer context categories and reuse the standard upload label for the first context-menu action.
+- 39a89d0: Add connected cascading composer context menus with declarative search, list, link, loading, error, retry, and pagination behavior, plus persistent footer actions for existing links or modal workflows. Apps register authorized data loaders or local choices instead of rebuilding picker views. Allow host file-staging adapters through PromptComposer and AgentKitComposer while preserving shared upload controls and attachment chips, with an opt-out from ordinary text-file inlining when the host already extracts those files. Document scope resets and source-version refreshes, with localized defaults in every supported locale.
+- 39a89d0: Add opt-in hierarchical composer context menus, attachment status and recovery controls, bounded immutable context snapshots, and a shared quick-start submission handle. AgentKit awaits a beforeSend hook and carries the same context metadata through immediate and queued submissions. Composer drafts, files, and context can be staged before provider setup while submission remains gated; hosts can use `submissionDisabled` without disabling staging.
+- 39a89d0: Add declarative context dialogs for URL attachment and paginated multi-selection, with validation, cancellation, batch callbacks, and localized shared controls. Expose the additive picker configuration through AgentKit while preserving existing submenu pickers.
+
+  Add read-only website composer source requests and the server-side readComposerWebsiteSource helper. Website references retain bounded extraction status, warnings, rendering provenance, and explicit truncation, while failed extraction remains an error.
+
+- 39a89d0: Add shared prompt-home layout, controlled template/recent library tabs, and template cards with semantic design-system controls, native link slots, and explicit loading, empty, and error states. Include home geometry in Toolkit styles and the app-shell ejection unit, with localized component documentation.
+- 39a89d0: Add a shared semantic template preview dialog with an inset viewport size, responsive thumbnail rail, keyboard selection, explicit loading/error/empty states, and app-owned rendered content. Align template menus beside captions, reveal them on hover or keyboard focus while keeping them visible on touch devices, and preserve direct primary activation and consistent card dimensions.
+
+### Patch Changes
+
+- 39a89d0: Preserve staged composer context when submitting through composer modes.
+- Release all public npm packages with a patch version bump.
+
+## 0.21.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 6ff4d47: Keep the shared agent chat composer visible above mobile keyboards.
+
+## 0.21.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 2ba6541: Link Custom keys to API settings and keep the composer surface opaque.
+
 ## 0.21.1
 
 ### Patch Changes
@@ -845,49 +920,5 @@
 ### Patch Changes
 
 - c690750: Button press feedback now eases instead of snapping: include the native `scale` property in the Button transition list (Tailwind v4 compiles `active:scale-*` to `scale`, which the previous `transform`-only list didn't animate).
-
-## 0.4.8
-
-### Patch Changes
-
-- ffad302: Allow command dialogs to configure the underlying command root for custom ranking and controlled selection.
-- ffad302: Ease in the backdrop blur for instant command dialogs while keeping the command surface immediately responsive.
-
-## 0.4.7
-
-### Patch Changes
-
-- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
-
-## 0.4.6
-
-### Patch Changes
-
-- f43d34c: Release the updated skill guidance and portable drawer component types.
-
-## 0.4.5
-
-### Patch Changes
-
-- a91535c: Keep alert dialogs centered above full-app overlays.
-
-## 0.4.4
-
-### Patch Changes
-
-- 680b1eb: Scan TypeScript sources from `@agent-native/toolkit/styles.css` so dropdown and popover `z-[250]` utilities are generated in monorepo apps where `dist/` is gitignored.
-
-## 0.4.3
-
-### Patch Changes
-
-- 823d635: Add explicit `browser` and `development` export conditions so Vite 8 / Rolldown can resolve toolkit subpaths (including `./collab-ui`) in Fusion agent-native starter projects.
-- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
-
-## 0.4.2
-
-### Patch Changes
-
-- ec523c4: Show the current sharing visibility icon directly in shared ShareButton triggers and use the users-group glyph for organization visibility.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

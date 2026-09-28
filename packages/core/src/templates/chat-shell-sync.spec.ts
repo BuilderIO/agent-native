@@ -1,26 +1,3 @@
-/**
- * Guard: the scaffold template (packages/core/src/templates/default) and
- * templates/chat must ship byte-identical shell files so that scaffolded apps
- * start from exactly the same code as the reference chat template.
- *
- * When you update entry.server.tsx or entry.client.tsx in either location,
- * update the other copy to match (copy in either direction — the content is
- * canonical, not the direction).
- *
- * Sync commands:
- *   # scaffold → chat
- *   cp packages/core/src/templates/default/app/entry.server.tsx \
- *      templates/chat/app/entry.server.tsx
- *   cp packages/core/src/templates/default/app/entry.client.tsx \
- *      templates/chat/app/entry.client.tsx
- *
- *   # chat → scaffold
- *   cp templates/chat/app/entry.server.tsx \
- *      packages/core/src/templates/default/app/entry.server.tsx
- *   cp templates/chat/app/entry.client.tsx \
- *      packages/core/src/templates/default/app/entry.client.tsx
- */
-
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -51,15 +28,6 @@ function readFile(dir: string, filename: string): string {
   return fs.readFileSync(path.join(dir, filename), "utf-8");
 }
 
-/**
- * Shell files that must be byte-identical between scaffold and chat template.
- * Each entry is [filename, reason]:
- *   entry.server.tsx — both import the app-local React Router ServerRouter
- *     and pass it into the shared core handler; any future change to the
- *     pattern must land in both places at once.
- *   entry.client.tsx — lightweight hydration entry that sets basename from
- *     APP_BASE_PATH; must stay in sync for workspace-mount correctness.
- */
 const SHELL_FILES: Array<[string, string]> = [
   [
     "entry.server.tsx",

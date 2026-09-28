@@ -23,6 +23,11 @@ const messages = {
     retry: "फिर से कोशिश करें",
     search: "खोजें",
   },
+  chatHome: {
+    description:
+      "Native SQL और जुड़े हुए रिकॉर्ड में अनुमत खाता संदर्भ, फ़ॉलो-अप कार्य और साक्ष्य देखें।",
+    placeholder: "अपने CRM के बारे में पूछें",
+  },
   commandMenu: {
     placeholder: "रिकॉर्ड, सूचियाँ और कमांड खोजें…",
     groupRecords: "रिकॉर्ड",
@@ -64,6 +69,8 @@ const messages = {
     languageTitle: "भाषा",
     languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
+    mcpAbout:
+      "CRM को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए CRM में काम कर सकता है: रिकॉर्ड ढूँढना, फ़ील्ड अपडेट करना और कार्य प्रबंधित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
   connection: {
     tab: "कनेक्शन",

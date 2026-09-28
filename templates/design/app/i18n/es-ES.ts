@@ -174,6 +174,8 @@ export default {
       "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
+    mcpAbout:
+      "Conecta Design con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Design por ti: crear diseños y editarlos. Solo ve lo que tú puedes ver.",
   },
   pages: {
     presentEmpty: "No hay contenido para presentar",
@@ -182,8 +184,18 @@ export default {
     notFoundDescription: "La página que buscas no existe.",
     notFoundSignIn: "Iniciar sesión",
     notFoundBackToDesigns: "Volver a diseños",
-    teamCreateOrgDescription:
-      "Configura un equipo para compartir diseños con tus compañeros.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Conecta almacenamiento para subir archivos",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Comprobando la conexión de IA…",
+      providerStatusUnavailable: "No se pudo comprobar la conexión de IA.",
+    },
+    common: { retry: "Reintentar" },
   },
   chat: {
     emptyState: "Describe el diseño que quieres crear",
@@ -1476,6 +1488,18 @@ export default {
         "El puente del editor en vivo no confirmó la conexión tras varios intentos.",
       connectionNotConfirmed:
         "El puente del editor en vivo no confirmó la conexión. ¿Sigue ejecutándose el servidor de desarrollo local?",
+      permissionPromptTitle: "Conecta tus pantallas locales",
+      permissionPromptDescription:
+        "Selecciona Permitir en el aviso de Chrome para habilitar la edición en vivo.",
+      permissionPromptNoPrompt: "¿No aparece el aviso de Chrome?",
+      permissionPromptSettingsInstructions:
+        "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y permite el acceso a las aplicaciones de tu dispositivo.",
+      permissionCloseTitle: "¿Cerrar la configuración?",
+      permissionCloseDescription:
+        "La edición en vivo no funcionará hasta que permitas el acceso en Chrome.",
+      permissionCloseStay: "Mantenerla abierta",
+      permissionCloseAnyway: "Cerrar de todos modos",
+      permissionPromptRetry: "Reintentar conexión",
     },
   },
   multiScreenCanvas: {
@@ -1663,7 +1687,66 @@ export default {
       "Se descartaron {{count}} borradores de comentarios sin enviar al salir de esta vista.",
     staleAnchorDetail: "Ya no se encuentra el elemento original en el lienzo.",
   },
+  homeContext: {
+    websiteReference: "Adjuntar sitio web",
+    websiteUrlLabel: "URL del sitio web",
+    websiteUrl: "Pega la URL de un sitio web",
+    figmaUrlLabel: "Enlace de Figma",
+    invalidFigmaUrl:
+      "Introduce una URL válida de un marco o archivo de figma.com.",
+    tooMany: "Elige hasta 20 referencias.",
+    invalidWebsiteUrl: "Introduce una URL HTTP o HTTPS válida.",
+    createSystem: "Crear un sistema de diseño",
+    noSystems:
+      "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
+    searchSystems: "Buscar sistemas de diseño…",
+    searchFrames: "Buscar marcos de Figma…",
+    searchDesigns: "Buscar diseños…",
+    searchPresentations: "Buscar presentaciones…",
+    searchDesign: "Buscar diseño…",
+    useDesignSystem: "Usar un sistema de diseño",
+    notReady:
+      "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
+    search: "Buscar contexto…",
+    figmaUrl: "Pega un enlace de Figma",
+    browse: "Explorar marcos",
+    loadFailed: "No se pudo cargar esta referencia.",
+    retry: "Reintentar",
+    empty: "No hay referencias coincidentes.",
+    none: "Ninguno",
+    design: "Diseño",
+    slides: "Diapositivas",
+    referenceDesign: "Usar un diseño como referencia",
+    figmaReference: "Adjuntar Figma",
+    referenceDeck: "Usar una presentación como referencia",
+    quickSaas: "Crear una página de SaaS",
+    quickDashboard: "Crear un panel",
+    quickDeck: "Crear una presentación",
+    deckPrompt:
+      "Crea una presentación cuidada con una portada, una narrativa clara, datos visuales y una diapositiva final concisa.",
+  },
   home: {
+    suggestedPrompts: "Indicaciones sugeridas",
+    import: "Importar",
+    importOptions: "Opciones de importación",
+    figmaLink: "Enlace de Figma",
+    importFromFigma: "Importar desde Figma",
+    figmaFile: "Archivo de Figma (.fig)",
+    openImport: "Abrir importación",
+    importSelectedFile: "Importar archivo seleccionado",
+    starterSaasPrompt:
+      "Una página de inicio moderna para un SaaS con tema oscuro, sección principal, tres tarjetas de funciones y una llamada a la acción final.",
+    starterDashboardPrompt:
+      "Un panel de análisis sencillo con navegación lateral, cuatro tarjetas de indicadores clave, un gráfico y una tabla de actividad reciente.",
+    starterMobilePrompt:
+      "Un prototipo de aplicación móvil dentro de un marco de teléfono, con una barra de pestañas inferior y tres tarjetas de lista en la pantalla de inicio.",
+    starterPricingPrompt:
+      "Una página de precios con tres planes, un selector mensual/anual, listas de funciones y el plan recomendado destacado.",
+    designPromptTitle: "Vamos a crear tu primer diseño",
+    recent: "Recientes",
+    browseAllTemplates: "Ver todo",
+    connectBuilderIo: "Conectar Builder.io",
+    connectingBuilder: "Conectando Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "Buscar diseños...",
     newDesign: "Nuevo Design",
@@ -1729,6 +1812,8 @@ export default {
     layoutLabel: "Layout de pantalla listo para guardar",
   },
   templatesPage: {
+    previewEmpty: "Esta plantilla no contiene pantallas para previsualizar.",
+    loading: "Cargando plantillas",
     title: "Plantillas",
     description:
       "Empieza con las dimensiones y valores correctos y ajusta con indicaciones el contenido desbloqueado.",
@@ -1757,7 +1842,7 @@ export default {
     deleteTitle: "¿Eliminar plantilla?",
     deleteDescription:
       "Esto elimina permanentemente {{title}}. Los diseños ya creados no se verán afectados.",
-    templateActions: "Acciones de plantilla",
+    templateActions: "Acciones para {{title}}",
     lockedCount: "{{count}} bloqueadas",
     categories: {
       ad: "Anuncio",

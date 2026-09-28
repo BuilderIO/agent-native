@@ -96,29 +96,45 @@ export function resolveRecordingVisibility(
     : DEFAULT_RECORDING_VISIBILITY;
 }
 
+/** The organization's saved default, or null when it never set one. */
+export async function readOrganizationDefaultVisibility(
+  organizationId: string,
+): Promise<RecordingVisibility | null> {
+  const [row] = await getDb()
+    .select({
+      defaultVisibility: schema.organizationSettings.defaultVisibility,
+    })
+    .from(schema.organizationSettings)
+    .where(eq(schema.organizationSettings.organizationId, organizationId))
+    .limit(1);
+  return isRecordingVisibility(row?.defaultVisibility)
+    ? row.defaultVisibility
+    : null;
+}
+
+/** The active organization's saved default; null with no org or none set. */
+export async function readActiveOrganizationDefaultVisibility(): Promise<RecordingVisibility | null> {
+  const organizationId = await getActiveOrganizationId();
+  return organizationId
+    ? readOrganizationDefaultVisibility(organizationId)
+    : null;
+}
+
 export async function getOrganizationDefaultVisibility(
   organizationId: string | null | undefined,
 ): Promise<RecordingVisibility> {
   if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
 
   try {
-    const [row] = await getDb()
-      .select({
-        defaultVisibility: schema.organizationSettings.defaultVisibility,
-      })
-      .from(schema.organizationSettings)
-      .where(eq(schema.organizationSettings.organizationId, organizationId))
-      .limit(1);
-    return resolveRecordingVisibility(undefined, row?.defaultVisibility);
+    return (
+      (await readOrganizationDefaultVisibility(organizationId)) ??
+      DEFAULT_RECORDING_VISIBILITY
+    );
   } catch {
     return DEFAULT_RECORDING_VISIBILITY;
   }
 }
 
-/**
- * Visibility for a new recording: the personal preference of the creator
- * wins, then the organization default, then the built-in default.
- */
 export async function getDefaultRecordingVisibility(
   organizationId: string | null | undefined,
   userEmail: string | null | undefined = getRequestUserEmail(),
@@ -207,19 +223,6 @@ export async function requireOrganizationAccess(
   return { organizationId: resolvedOrganizationId, email, role };
 }
 
-/**
- * Resolve the caller's active organization id.
- *
- * Resolution order:
- *   1. When an H3Event is available: the framework `getOrgContext()` resolves
- *      the active org via `active-org-id` user-setting, with membership
- *      cross-checked against `org_members`.
- *   2. CLI / no-event: the caller's most recent `org_members` row for their
- *      request email.
- *   3. Any org in the DB (dev / solo fallback).
- *   4. Legacy `current-workspace` app-state key or latest `workspaces` row
- *      (back-compat for in-flight sessions spanning the migration).
- */
 export async function getActiveOrganizationId(
   event?: H3Event,
 ): Promise<string | null> {
@@ -233,24 +236,14 @@ export async function getActiveOrganizationId(
     }
   }
 
-  // Request-context ALS stores the orgId resolved by the framework middleware
-  // (e.g. from better-auth session). This covers action calls where the H3
-  // event isn't forwarded.
   const ctxOrgId = getRequestOrgId();
   if (ctxOrgId) return ctxOrgId;
 
   const email = getRequestUserEmail();
 
   if (email) {
-    // `undefined` records that the framework could not answer, which is not
-    // the same as it answering "no org" — only a definite answer is allowed
-    // to end the search below.
     let resolved: string | null | undefined;
     try {
-      // Honors the user's `active-org-id` setting with a fall back to the
-      // first membership — the same logic getOrgContext uses for HTTP paths.
-      // Don't reach into org_members directly: an ORDER BY here picks the
-      // wrong org when the user belongs to more than one.
       const { resolveOrgIdForEmail } = await import("@agent-native/core/org");
       resolved = await resolveOrgIdForEmail(email);
     } catch {
@@ -268,8 +261,6 @@ export async function getActiveOrganizationId(
     if (resolved === null) return null;
   }
 
-  // Legacy fallback: old workspace UI's `current-workspace` app-state key, and
-  // the deprecated `workspaces` table.
   try {
     const legacy = (await readAppState("current-workspace")) as {
       id?: string;
@@ -295,21 +286,6 @@ export async function getActiveOrganizationId(
   return null;
 }
 
-/**
- * Vet a legacy workspace id before it becomes an active organization id.
- *
- * Neither legacy source is scoped to a caller and neither is cleaned up when an
- * organization is deleted: the app-state key keeps naming a deleted org, and
- * the `workspaces` lookup takes the globally newest row, which can belong to
- * someone else entirely. Either way the caller ends up with an org id they have
- * no relationship with, and every org-scoped read answers 403 instead of the
- * personal scope they actually have.
- *
- * Migration v61 seeds `org_members` for every legacy workspace owner and
- * member, so a real legacy user resolves through membership well before this
- * fallback runs. A caller with no identity at all (CLI, solo dev) has nothing
- * to scope by, so an existing org is the best available answer there.
- */
 async function legacyOrganizationIdForCaller(
   organizationId: string | null | undefined,
   email: string | undefined,
@@ -328,17 +304,10 @@ async function legacyOrganizationIdForCaller(
   return role ? organizationId : null;
 }
 
-/**
- * Like `getActiveOrganizationId` but throws if there's no active org — use
- * in mutations where a null org id should never reach the SQL layer.
- */
 export async function requireActiveOrganizationId(
   event?: H3Event,
 ): Promise<string> {
   const id = await getActiveOrganizationId(event);
-  // A bare Error here reaches the action layer as a generic 500 "Internal
-  // server error", which is what a first-time caller sees before their default
-  // org exists. Keep it a 4xx so the real reason survives to the user.
   if (!id) {
     throw new HTTPError({
       statusCode: 409,
@@ -411,8 +380,6 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
     .where(
       and(
         eq(schema.recordings.id, id),
-        // visibility check happens at the action layer via the framework
-        // sharing helpers; this is just the ownership-or-visible fallback.
         ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
@@ -448,10 +415,6 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
   };
 }
 
-/**
- * Count a view if it meets the view-counting rule:
- *   ≥ 5 seconds watched, OR ≥ 75% of video, OR scrubbed to end.
- */
 export function shouldCountView(
   totalWatchMs: number,
   completedPct: number,
@@ -460,22 +423,10 @@ export function shouldCountView(
   return totalWatchMs >= 5000 || completedPct >= 75 || scrubbedToEnd;
 }
 
-/**
- * The single definition of a counted *viewer*: one `recording_viewers` row
- * whose `countedView` flag is set. That is one row per person, so it answers
- * "how many distinct viewers", not "how many views" — use
- * `countRecordingViews` for the total. The in-memory twin is
- * `isCountedViewerRow` in `shared/view-analytics.ts`.
- */
 export function countedViewCondition() {
   return eq(schema.recordingViewers.countedView, true);
 }
 
-/**
- * Total views for a recording: one per counted view *session*, so a returning
- * viewer's second visit counts again. Every surface that reports a view count
- * (library list, insights, player, public share page) goes through this.
- */
 export async function countRecordingViews(
   recordingId: string,
 ): Promise<number> {

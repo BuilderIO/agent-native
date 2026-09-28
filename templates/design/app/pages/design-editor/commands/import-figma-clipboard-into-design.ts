@@ -40,7 +40,6 @@ function figmaPasteFailureDescription(
 export interface FigmaPasteLayerInsert {
   html: string;
   headLinks: string[];
-  /** null: append as a flow child of an auto-layout container. */
   position: { x: number; y: number } | null;
 }
 
@@ -49,8 +48,6 @@ export interface ImportFigmaClipboardIntoDesignArgs {
   boardFileId: string | undefined;
   figmaPasteImportingRef: RefObject<boolean>;
   id: string | undefined;
-  /** Inserts the layers into the file (inside `selector` when given) and
-   * selects them; false if refused. */
   insertPasteLayers: (
     fileId: string,
     selector: string | null,
@@ -59,7 +56,6 @@ export interface ImportFigmaClipboardIntoDesignArgs {
   navigate: NavigateFunction;
   queryClient: QueryClient;
   resolvePasteScene: () => FigmaPasteScene;
-  /** Prompts about image fills the clipboard could not carry. */
   showPastedImagesNotice: (args: { count: number; fileIds: string[] }) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
@@ -79,8 +75,6 @@ export async function runImportFigmaClipboardIntoDesign(
   }: ImportFigmaClipboardIntoDesignArgs,
   content: string,
 ) {
-  // A paste that lands before the editor has a design id must say so; a bare
-  // return here is indistinguishable from the paste never firing.
   if (!id) {
     toast.error(t("designEditor.import.errors.figmaPasteFailed"), {
       description: "Open a design before pasting from Figma." /* i18n-ignore */,
@@ -207,9 +201,6 @@ export async function runImportFigmaClipboardIntoDesign(
     ) {
       toast.info(t("designEditor.import.figmaPasteMatchGuidance"));
     }
-    // The unresolved-image warning is the notice above, worded for the server.
-    // Repeating it here stacked three toasts on one paste, two of them saying
-    // the same thing.
     const remainingWarnings = handledUnresolvedImages
       ? (result?.warnings ?? []).filter(
           (warning) => !/images? could not be loaded/i.test(warning),

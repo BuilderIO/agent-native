@@ -79,7 +79,7 @@ function Greeting({ name }: { name: string }) {
 
 날짜, 숫자, 상대 시간, 목록에는 `useFormatters()`를 사용하세요. 로케일에 민감한 날짜/숫자 형식은 번역 문자열 안에 넣지 마세요.
 
-앱에서 사용자가 언어를 바꿀 수 있는 위치라면 어디든 `<LanguagePicker />`를 배치하세요. 표준 설정 페이지 패턴과 `openAgentSettings()`가 그 안에서 어디에 들어맞는지는 [Toolkit: Settings](/docs/toolkit-settings)를 참조하세요.
+Settings에는 Account › Preferences에 **Interface language** 행이 이미 있으며, 여기서 바꾼 값은 모든 앱에 적용됩니다. 따라서 앱 자체의 Settings 페이지에는 두 번째 선택기를 추가하지 않습니다. `settings-redesign` 플래그가 꺼져 있으면 탭 페이지의 General 탭에 선택기를 두세요. 헤더 단축키처럼 앱에서 사용자가 언어를 바꿀 수 있는 그 밖의 위치에는 `<LanguagePicker />`를 배치하세요. Settings 페이지 규약은 [Toolkit: Settings](/docs/toolkit-settings)를 참조하세요.
 
 ## Actions와 지속성
 
@@ -115,5 +115,5 @@ pnpm guard:i18n-catalogs
 ## 다음 단계
 
 - [**개요**](/docs/client-overview#app-shell) — i18n이 기반으로 삼는 `AppProviders` 래퍼와 그 외 브라우저 hooks
-- [**Toolkit: Settings**](/docs/toolkit-settings) — 표준 설정 페이지에 `<LanguagePicker>` 배치하기
+- [**Toolkit: Settings**](/docs/toolkit-settings) — Account › Preferences가 인터페이스 언어를 담당하는 Settings 페이지 규약
 - [**시작하기**](/docs/getting-started) — 이미 현지화된 카탈로그를 제공하는 템플릿으로 첫 앱 빌드하기

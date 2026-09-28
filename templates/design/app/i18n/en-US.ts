@@ -173,6 +173,8 @@ export default {
       "These are new, unstable features and may have bugs. We value your feedback.",
     labTweaks: "Design tweaks",
     labTweaksDescription: "Try AI-powered design tweaks.",
+    mcpAbout:
+      "Connect Design to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Design for you: create designs and edit them. It sees only what you can see.",
   },
   pages: {
     presentEmpty: "No content to present",
@@ -181,8 +183,18 @@ export default {
     notFoundDescription: "The page you are looking for does not exist.",
     notFoundSignIn: "Sign in",
     notFoundBackToDesigns: "Back to designs",
-    teamCreateOrgDescription:
-      "Set up a team to share designs with your colleagues.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
   },
   chat: {
     emptyState: "Describe a design to create",
@@ -1461,6 +1473,18 @@ export default {
   },
   designCanvas: {
     localBridge: {
+      permissionPromptTitle: "Connect your local screens",
+      permissionPromptDescription:
+        "Choose Allow in Chrome's prompt to enable live editing.",
+      permissionPromptNoPrompt: "No Chrome prompt?",
+      permissionPromptSettingsInstructions:
+        "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+      permissionCloseTitle: "Close setup?",
+      permissionCloseDescription:
+        "Live editing won't work until you allow access in Chrome.",
+      permissionCloseStay: "Keep setup open",
+      permissionCloseAnyway: "Close anyway",
+      permissionPromptRetry: "Retry connection",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1649,7 +1673,65 @@ export default {
       "{{count}} unsent comment draft(s) were discarded when you left this view.",
     staleAnchorDetail: "Original element no longer found on the canvas.",
   },
+  homeContext: {
+    websiteReference: "Attach website",
+    websiteUrlLabel: "Website URL",
+    websiteUrl: "Paste a website URL",
+    figmaUrlLabel: "Figma link",
+    invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
+    tooMany: "Choose up to 20 references.",
+    invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
+    createSystem: "Create a design system",
+    noSystems:
+      "You don’t have a design system yet. Create one from website, files, or Figma.",
+    searchSystems: "Search design systems…",
+    searchFrames: "Search Figma frames…",
+    searchDesigns: "Search designs…",
+    searchPresentations: "Search presentations…",
+    searchDesign: "Search design…",
+    useDesignSystem: "Use a design system",
+    notReady:
+      "The prompt is not ready to submit. Check the selected context and connection, then try again.",
+    search: "Search context…",
+    figmaUrl: "Paste a Figma link",
+    browse: "Browse frames",
+    loadFailed: "Could not load this reference.",
+    retry: "Retry",
+    empty: "No matching references.",
+    none: "None",
+    design: "Design",
+    slides: "Slides",
+    referenceDesign: "Reference a design",
+    figmaReference: "Attach Figma",
+    referenceDeck: "Reference a presentation",
+    quickSaas: "Create a SaaS landing page",
+    quickDashboard: "Create a dashboard",
+    quickDeck: "Create a slide deck",
+    deckPrompt:
+      "Create a polished slide deck with a title slide, a clear narrative, visual data, and a concise closing slide.",
+  },
   home: {
+    suggestedPrompts: "Suggested prompts",
+    import: "Import",
+    importOptions: "Import options",
+    figmaLink: "Figma link",
+    importFromFigma: "Import from Figma",
+    figmaFile: "Figma file (.fig)",
+    openImport: "Open import",
+    importSelectedFile: "Import selected file",
+    starterSaasPrompt:
+      "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
+    starterDashboardPrompt:
+      "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
+    starterMobilePrompt:
+      "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
+    starterPricingPrompt:
+      "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
+    designPromptTitle: "Let's create your first design",
+    recent: "Recent",
+    browseAllTemplates: "Browse all",
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
@@ -1715,6 +1797,8 @@ export default {
     layoutLabel: "Screen layout ready to save",
   },
   templatesPage: {
+    previewEmpty: "No previewable screens in this template.",
+    loading: "Loading templates",
     title: "Templates",
     description:
       "Start with the right dimensions and defaults, then prompt the unlocked content into place.",
@@ -1742,7 +1826,7 @@ export default {
     deleteTitle: "Delete template?",
     deleteDescription:
       "This permanently deletes {{title}}. Designs already created from it are not affected.",
-    templateActions: "Template actions",
+    templateActions: "Actions for {{title}}",
     lockedCount: "{{count}} locked",
     categories: {
       ad: "Ad",

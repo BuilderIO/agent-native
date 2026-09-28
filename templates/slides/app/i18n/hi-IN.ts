@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} टेम्पलेट की कार्रवाइयाँ",
+    previewAction: "पूर्वावलोकन",
+    title: "टेम्पलेट",
+    browseAll: "सभी देखें",
+    searchPlaceholder: "टेम्पलेट खोजें…",
+    loading: "टेम्पलेट लोड हो रहे हैं",
+    empty: "आपकी खोज से कोई टेम्पलेट मेल नहीं खाता।",
+    loadFailed: "टेम्पलेट लोड नहीं हो सके।",
+    preview: "टेम्पलेट का पूर्वावलोकन",
+    useTemplate: "टेम्पलेट इस्तेमाल करें",
+    opening: "टेम्पलेट खुल रहा है…",
+    createFailed: "इस टेम्पलेट से प्रेज़ेंटेशन नहीं बनाया जा सका।",
+    previous: "पिछली",
+    next: "अगली",
+    slidePosition: "स्लाइड {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
@@ -23,7 +40,6 @@ const messages = {
     brand: "स्लाइड",
     decks: "डेक",
     designSystems: "डिज़ाइन सिस्टम",
-    team: "टीम",
   },
   settings: {
     agentObservability: "एजेंट अवलोकन",
@@ -36,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
+    notificationsEmail: "ईमेल",
+    commentsAndReplies: "टिप्पणियाँ और जवाब",
+    commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
+    retry: "फिर कोशिश करें",
+    mcpAbout:
+      "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     languageTitle: "भाषा",
     languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
@@ -107,7 +129,7 @@ const messages = {
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
-      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
+      "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -166,8 +188,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "ऐप में खोलें",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
@@ -559,6 +579,7 @@ const messages = {
     generating: "स्लाइड जनरेट हो रही हैं...",
     generate: "स्लाइड जनरेट करें",
   },
+  deckResult: { saved: "सहेजा गया" },
   history: {
     unknownTime: "अज्ञात समय",
     justNow: "अभी-अभी",
@@ -624,10 +645,30 @@ const messages = {
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",
   },
+  deckAccessPage: {
+    errorCode: "त्रुटि 403",
+    noAccessTitle: "आपके पास एक्सेस नहीं है",
+    noAccessDescription: "डेक के मालिक से एक्सेस मांगें, या सही खाते पर स्विच करें।",
+    noteLabel: "मालिक के लिए एक नोट जोड़ें (वैकल्पिक)",
+    notePlaceholder: "मैं इस डेक की समीक्षा कर रहा/रही हूं",
+    requesting: "अनुरोध भेजा जा रहा है",
+    requestFailed: "आपका अनुरोध नहीं भेजा गया। कृपया फिर से कोशिश करें।",
+    requestSentDescription:
+      "जैसे ही मालिक आपके अनुरोध को मंज़ूरी देगा, हम आपको ईमेल करेंगे।",
+    goHome: "होम पर जाएं",
+    signedInAs: "इस रूप में साइन इन हैं",
+    switchAccount: "खाता बदलें",
+  },
   deckEditor: {
     lookingForDeck: "यह डेक खोजा जा रहा है",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
+    generationStalled: "5 मिनट तक प्रगति न होने पर जनरेशन रोक दिया गया",
+    generationStalledDescription:
+      "आपकी सेव की गई स्लाइडें यहाँ मौजूद हैं। चैट में इस डेक से आगे बढ़ें।",
+    continueInChat: "चैट में आगे बढ़ें",
+    continueGenerationPrompt:
+      "इस डेक के लिए स्लाइड जनरेट करना जारी रखें। पहले मौजूदा स्लाइड और सेव किया गया जनरेशन संदर्भ देखें। पूरी हो चुकी स्लाइडें रखें और केवल छूटी हुई स्लाइडें जोड़ें।",
     checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
     joinTeamDescription:
       "यह लिंक टीम प्रस्तुति की ओर इशारा करता है। ऊपर दिखाई गई टीम से जुड़ें और डेक यहां अपने-आप खुल जाएगा।",
@@ -663,6 +704,9 @@ const messages = {
     accessApprovalTitle: "एक्सेस दे दी गई",
     accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
     accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalRequesterEmailed: "हमने उन्हें ईमेल करके बता दिया है।",
+    accessApprovalRequesterEmailFailed:
+      "हम {{email}} को ईमेल नहीं भेज सके। उन्हें बताएं कि वे अब डेक खोल सकते हैं।",
     accessApprovalAlreadyMessage: "{{email}} के पास इस डेक की एक्सेस पहले से है।",
     accessApprovalErrorTitle: "एक्सेस नहीं दी जा सकी",
     accessApprovalInvalid: "यह एक्सेस अनुरोध अमान्य या समाप्त हो चुका है।",
@@ -676,7 +720,7 @@ const messages = {
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",
     imageUploadNeedsBuilder:
-      "स्लाइड पर चित्र अपलोड करने के लिए एजेंट composer के मॉडल मेनू से Builder.io कनेक्ट करें। खाली कैनवास पर चित्र छोड़ने से वह बिना provider के भी एजेंट को भेजा जा सकता है।",
+      "चित्र अपलोड करने के लिए ऑब्जेक्ट स्टोरेज कनेक्ट करें: Builder.io (मुफ़्त) कनेक्ट करें या Settings → File uploads में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
@@ -782,12 +826,130 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "उत्पाद पिच डेक बनाएँ",
+      roadmap: "उत्पाद रोडमैप बनाएँ",
+      explainer: "प्रस्तुति में किसी विषय को समझाएँ",
+    },
+    suggestedPrompts: "सुझाए गए प्रॉम्प्ट",
+    importMenu: {
+      import: "आयात करें",
+      options: "आयात के विकल्प",
+      invalidPdf: "PDF फ़ाइल चुनें।",
+      invalidPptx: "PPTX फ़ाइल चुनें।",
+      invalidFile: "PDF या PPTX फ़ाइल चुनें।",
+      networkFailed:
+        "आयात अनुरोध का समय समाप्त हो गया या नेटवर्क कनेक्शन टूट गया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+      notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+      unsupportedFileType: "यह फ़ाइल प्रकार समर्थित नहीं है। समर्थित फ़ाइल चुनें।",
+      uploadLimitExceeded:
+        "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
+    },
+    importDeck: "प्रस्तुति आयात करें",
+    context: {
+      websiteReference: "वेबसाइट जोड़ें",
+      websiteUrlLabel: "वेबसाइट URL",
+      websiteUrl: "वेबसाइट का URL पेस्ट करें",
+      figmaUrlLabel: "Figma लिंक",
+      invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
+      createSystem: "डिज़ाइन सिस्टम बनाएँ",
+      noSystems:
+        "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
+      searchSystems: "डिज़ाइन सिस्टम खोजें…",
+      searchFrames: "Figma फ़्रेम खोजें…",
+      searchDesigns: "डिज़ाइन खोजें…",
+      searchPresentations: "प्रस्तुतियाँ खोजें…",
+      menu: {
+        system: "डिज़ाइन सिस्टम का उपयोग करें",
+        figma: "Figma संलग्न करें",
+        design: "डिज़ाइन का संदर्भ लें",
+        deck: "प्रस्तुति का संदर्भ लें",
+        searchDesign: "डिज़ाइन खोजें…",
+      },
+      loadFailed: "यह संदर्भ लोड नहीं हो सका। फिर कोशिश करें।",
+      saveFailed: "संदर्भ का चयन सहेजा नहीं जा सका।",
+      system: "डिज़ाइन सिस्टम",
+      figmaUrl: "Figma लिंक पेस्ट करें",
+      browse: "फ़्रेम देखें",
+      empty: "कोई संदर्भ नहीं मिला।",
+      previous: "पिछला",
+      next: "अगला",
+      title: "संदर्भ",
+      remove: "संदर्भ हटाएं",
+      deck: "प्रस्तुतियां",
+      design: "डिज़ाइन संदर्भ",
+      figma: "Figma फ़्रेम",
+      notReady:
+        "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
+      emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      websiteReadFailed:
+        "इस वेबसाइट को अपने-आप नहीं पढ़ा जा सका। इसके बजाय संबंधित टेक्स्ट कॉपी करके पेस्ट करें।",
+      figmaReadFailed:
+        "Design यह Figma संदर्भ नहीं पढ़ सका। Design में सेव किया गया Figma access token और यह जाँचें कि उससे जुड़ा खाता फ़ाइल खोल सकता है, फिर दोबारा कोशिश करें।",
+      tooMany: "अधिकतम 20 संदर्भ चुनें।",
+      search: "संदर्भ खोजें",
+      designCategory: "डिज़ाइन",
+    },
+    quickStart: {
+      invalidUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
+      starting: "शुरू हो रहा है…",
+      generate: "बनाएं",
+      connectionRequired:
+        "होम प्रॉम्प्ट के ऊपर AI प्रदाता कनेक्ट करें या अपनी AI कुंजी जोड़ें, फिर दोबारा कोशिश करें।",
+      invalidPdf: "PDF फ़ाइल चुनें।",
+      notReady: "लंबित या विफल संदर्भ और कनेक्शन की स्थिति जांचकर फिर कोशिश करें।",
+      tooLong: "स्रोत पाठ 20,000 अक्षरों से कम रखें।",
+      trends: {
+        label: "उद्योग के नवीनतम रुझानों पर प्रस्तुति बनाएं",
+        field: "उद्योग या विषय",
+        prompt:
+          "दिए गए विषय के नवीनतम रुझानों पर शोध करें और वर्तमान स्रोतों के साथ प्रस्तुति बनाएं। बनाने से पहले जानकारी सत्यापित करें।",
+      },
+      notes: {
+        label: "मीटिंग नोट्स को प्रस्तुति में बदलें",
+        field: "मीटिंग नोट्स",
+        prompt:
+          "दिए गए मीटिंग नोट्स से मुख्य बातें, निर्णय और अगले कदम शामिल करते हुए प्रस्तुति बनाएं। नोट्स को स्रोत सामग्री के रूप में उपयोग करें।",
+      },
+      pdf: {
+        label: "PDF की मुख्य बातों का सार बनाएं",
+        field: "PDF फ़ाइल",
+        prompt:
+          "संलग्न PDF पढ़ें और उसकी मुख्य बातों का सार प्रस्तुत करने वाली प्रस्तुति बनाएं। अपठनीय सामग्री का अनुमान लगाने के बजाय उसकी जानकारी दें।",
+      },
+      website: {
+        label: "मेरी कंपनी की वेबसाइट से प्रस्तुति बनाएं",
+        field: "कंपनी की वेबसाइट का URL",
+        prompt:
+          "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
+      },
+    },
+    connectBuilderIo: "Builder.io कनेक्ट करें",
+    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    recent: "हाल के",
+    starters: {
+      pitch: {
+        label: "प्रस्ताव प्रस्तुति",
+        prompt: "इस विषय पर एक प्रस्ताव प्रस्तुति बनाएँ: ",
+      },
+      update: {
+        label: "परियोजना अपडेट",
+        prompt: "इस परियोजना की प्रगति, परिणाम और अगले चरणों पर अपडेट बनाएँ: ",
+      },
+      lesson: {
+        label: "विषय समझाएँ",
+        prompt: "इस विषय को समझाने वाली प्रस्तुति बनाएँ: ",
+      },
+    },
     loadFailed: "आपका कॉन्टेंट लोड नहीं हो सका",
     loadFailedDescription:
       "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",
     retry: "फिर कोशिश करें",
+    fileStorageStatusUnavailable:
+      "ऑब्जेक्ट स्टोरेज की स्थिति जाँची नहीं जा सकी। फ़ाइलें अपलोड करने से पहले फिर से कोशिश करें।",
+    fileStorageSetupRequired:
+      "कोई ऑब्जेक्ट स्टोरेज कनेक्ट नहीं है। मुफ़्त Builder.io कनेक्ट करें या सेटिंग्स → फ़ाइल अपलोड में अपनी S3-संगत स्टोरेज कुंजियाँ जोड़ें।",
     decksTitle: "डेक",
-    newDeck: "नया डेक",
     deckLengthQuestion: "यह डेक कितना लंबा होना चाहिए?",
     deckLengthHeader: "डेक लंबाई",
     deckLengthShort: "छोटा (3–5 स्लाइड)",
@@ -812,11 +974,13 @@ const messages = {
     newDeckPromptTitle: "नया प्रेज़ेंटेशन",
     newDeckPlaceholder: "जिस प्रेज़ेंटेशन को आप बनाना चाहते हैं उसका वर्णन करें...",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
-    firstDeckPromptTitle: "हम किस तरह का प्रेज़ेंटेशन बनाएं?",
+    firstDeckPromptTitle: "आइए आपकी पहली प्रस्तुति बनाएं",
     firstDeckSkip: "छोड़ें",
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
     importFrom: "इससे आयात करें",
+    referenceFileStorageUnavailable:
+      "फ़ाइल स्टोरेज कॉन्फ़िगर नहीं है। संदर्भ फ़ाइलें इंपोर्ट करने के लिए Builder.io या किसी अन्य फ़ाइल प्रदाता को कनेक्ट करें।",
     attachedFiles: "अटैच किया गया",
     imported: "इंपोर्ट किया गया",
     importedReferenceDeck: "इंपोर्ट किया गया रेफरेंस डेक",

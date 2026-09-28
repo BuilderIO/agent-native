@@ -3,12 +3,6 @@ import { describe, expect, it } from "vitest";
 import { convertToSlideHtml } from "./html-converter.js";
 import type { ParsedElement, ParsedSlide } from "./pptx-parser.js";
 
-/**
- * Real numbers from a portrait PDF page (10287000 x 12852400 EMU, ratio
- * 0.8) that reproduced the reported bug: a square background photo
- * rendered squashed into the top ~50% of the slide, and the title text sat
- * in the middle of the canvas instead of near the bottom.
- */
 function portraitSlide(): ParsedSlide {
   const widthEmu = 10287000;
   const heightEmu = 12852400;
@@ -29,13 +23,6 @@ function portraitSlide(): ParsedSlide {
   };
 }
 
-/**
- * Real numbers for a standard 13.33in x 7.5in widescreen PPTX slide
- * (12192000 x 6858000 EMU, exactly 16:9) — the common case, not an edge
- * case. `toSlidePxX`/`toSlidePxY` scale this down to the 960x540 reference
- * box; font sizes must scale by the same factor instead of a fixed pt->px
- * conversion, or every run renders larger than its box expects.
- */
 function widescreenTextSlide(fontSizePt: number): ParsedSlide {
   const widthEmu = 12192000;
   const heightEmu = 6858000;
@@ -79,13 +66,8 @@ describe("convertToSlideHtml fidelity positioning", () => {
     const width = pxValue(imageStyle, "width");
     const height = pxValue(imageStyle, "height");
 
-    // The source image is square in EMU (width === height): isotropic
-    // scaling must keep it square in the rendered px box too.
     expect(width).toBeCloseTo(height, -1);
 
-    // The nearest aspect-ratio preset for a 0.8 ratio slide is "4:5"
-    // (864x1080) — the image should span (near) the full 1080px canvas
-    // height, not the old fixed 540px reference that squashed it in half.
     expect(height).toBeGreaterThan(1000);
   });
 });
@@ -95,25 +77,16 @@ describe("convertToSlideHtml fidelity text sizing", () => {
     const html = convertToSlideHtml(widescreenTextSlide(24));
     const match = html.match(/font-size:([\d.]+)px/);
     if (!match) throw new Error("missing font-size in rendered run");
-    // 24pt -> 304800 EMU -> * (960 / 12192000) = 24px, not the fixed
-    // 24 * 96/72 = 32px a source-size-blind pt->px conversion would give.
     expect(Number(match[1])).toBeCloseTo(24, 0);
   });
 
   it("defaults an undecorated slide's background to white, not black", () => {
-    // A slide with no `<p:bg>` fill has no `backgroundColor` on the parsed
-    // slide — PowerPoint's own default for that case is a white slide, not
-    // black, and defaulting to black silently made the source's own (often
-    // dark) text unreadable.
     const html = convertToSlideHtml(widescreenTextSlide(24));
     const slideStyle = html.match(
       /class="fmd-slide fmd-imported-pptx"[^>]*style="([^"]*)"/,
     )?.[1];
     if (!slideStyle) throw new Error("missing imported-pptx slide style");
     expect(slideStyle).toContain("background: #ffffff");
-    // A run with no `<a:solidFill>` gets OOXML's own declared default text
-    // color. An invented near-black renders as a visibly different black
-    // beside the deck's real #000000 inside a single text box.
     expect(html).toContain("color:#000000");
     expect(html).not.toContain("color:#ffffff;font-weight");
   });
@@ -151,10 +124,6 @@ describe("convertToSlideHtml numbered bullets", () => {
     )?.[1];
     if (!bulletStyle) throw new Error("missing bullet span in rendered run");
 
-    // A hard `width` sized for one glyph (the common case, e.g. "•") wraps
-    // a two-character bullet like "2." internally under the paragraph's
-    // inherited `white-space:pre-wrap`, splitting the digit from the
-    // period onto separate lines.
     expect(bulletStyle).not.toMatch(/(?<!min-)width:/);
     expect(bulletStyle).toContain("white-space:nowrap");
   });
@@ -216,13 +185,8 @@ describe("convertToSlideHtml table fidelity", () => {
 
   it("does not stamp an invented cell border, and pads cells with the format's own default margins", () => {
     const html = convertToSlideHtml(tableSlide());
-    // A border is drawn only where the source declares one. A fixed light
-    // rule is invisible on the white slides these tables usually sit on and
-    // draws a grid the source never had on dark ones.
     expect(html).not.toContain("rgba(255,255,255,0.25)");
     expect(html).not.toMatch(/<td[^>]*border/);
-    // 0.05in top/bottom, 0.1in left/right, scaled by this slide's own
-    // canvas: 12192000 EMU -> 960px.
     expect(html).toContain("padding:3.6px 7.2px");
   });
 
@@ -245,20 +209,13 @@ describe("convertToSlideHtml table fidelity", () => {
 
     expect(cell).toContain("border-left:1.5px solid #111111;");
     expect(cell).toContain("border-top:1.5px solid #111111;");
-    // A 0.75pt hairline scales to 0.75px on the reference canvas, which the
-    // browser can round away entirely — the floor keeps the rule visible.
     expect(cell).toContain("border-right:1px solid #9E9E9E;");
     expect(cell).toContain("border-bottom:1px dashed #9E9E9E;");
-    // Collapsed borders, or every interior rule doubles against its
-    // neighbour's.
     expect(html).toContain("border-collapse:collapse");
-    // A cell with no declared edges still gets none, so it yields to its
-    // neighbour's rule instead of erasing it.
     expect(cellFor("Merged")?.split(">")[0]).not.toContain("border");
   });
 });
 
-/** One shape on a standard 13.33in x 7.5in widescreen slide (960x540 reference box). */
 function shapeSlide(shape: Partial<ParsedElement>): ParsedSlide {
   const widthEmu = 12192000;
   const heightEmu = 6858000;
@@ -292,8 +249,6 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("rounds a roundRect by PowerPoint's own default adjustment, not a fixed 6px", () => {
-    // 1219200 EMU -> 96px; PowerPoint's default roundRect adj is 16.667% of
-    // the shortest side, so a 95x95px card's real radius is ~16px.
     const style = styleAttr(
       convertToSlideHtml(shapeSlide({ shapeType: "roundRect" })),
       "shape",
@@ -330,10 +285,6 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("paints nothing for a geometry whose real outline is mostly empty space", () => {
-    // A donut ring or a bracket pair is over 90% transparent. Filling its
-    // bounding box covers the neighbouring content the real geometry leaves
-    // visible — four concentric rings become one opaque square over the slide
-    // title.
     for (const shapeType of [
       "donut",
       "frame",
@@ -352,9 +303,6 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("draws a blockArc as the ring segment its own adjustments describe", () => {
-    // Real values from a six-segment ring diagram: 146.4deg to 201.7deg, ring
-    // thickness 22.427% of the shortest side. Reproducing the preset from its
-    // defaults instead would draw all six segments as the same half-ring.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -365,8 +313,6 @@ describe("convertToSlideHtml shape geometry", () => {
       ),
       "shape",
     );
-    // 96x96px box: outer radius 48, inner 48 - 96*0.22427 = 26.5, and the
-    // four corners are (48 + r*cos a, 48 + r*sin a) at 146.434deg/201.703deg.
     expect(style).toContain("clip-path: path('M8 74.5 A48 48 0 0 1 3.4 30.2");
     expect(style).toContain("A26.5 26.5 0 0 0 25.9 62.6 Z')");
     expect(style).toContain("background: #fecf4f");
@@ -379,17 +325,10 @@ describe("convertToSlideHtml shape geometry", () => {
       ),
       "shape",
     );
-    // PowerPoint's defaults are adj1=180deg, adj2=0deg: a half ring swept
-    // clockwise from the left edge back to the right.
     expect(style).toContain("clip-path: path('M0 48 A48 48 0 0 1 96 48");
   });
 
   it("draws a uturnArrow's two runs, bend and head instead of dropping the shape", () => {
-    // Real values from the six-stage serpentine ribbon on an infographics
-    // deck, where all six arrows were absent: 21.237% shaft, 19.892% half
-    // head width, 23.925% head length, and a bend clamped down to the widest
-    // the box allows. The preset's own defaults would draw a fatter arrow with
-    // its head stopping three quarters of the way down the box.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -406,22 +345,15 @@ describe("convertToSlideHtml shape geometry", () => {
       ),
       "shape",
     );
-    // 96x96px box. The outward run climbs the left edge to the 43.5px bend
-    // radius, turns over the top, and comes back down the right to y4=73.
     expect(style).toContain(
       "clip-path: path('M0 96 L0 43.5 A43.5 43.5 0 0 1 43.5 0",
     );
-    // The head: base from the right edge across to x6, tip on the bottom edge.
     expect(style).toContain("L96 73 L76.9 96 L57.8 73");
-    // The inner outline returns along two quarter bends of the smaller radius.
     expect(style).toContain("A23.2 23.2 0 0 0 20.4 43.5 L20.4 96 Z')");
     expect(style).toContain("background: #ff6b35");
   });
 
   it("mirrors a flipped uturnArrow's outline rather than its text box", () => {
-    // Three of the six ribbon arrows carry flipH with a 180deg rotation. The
-    // rotation is a CSS transform, so the mirror has to live in the path — put
-    // it in the transform too and every glyph in the box reads backwards.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -440,14 +372,11 @@ describe("convertToSlideHtml shape geometry", () => {
       "shape",
     );
     expect(style).toContain("clip-path: path('M96 96 L96 43.5");
-    // The head tip mirrors from x=76.9 to x=19.1, and the bend sweeps the
-    // other way.
     expect(style).toContain("L0 73 L19.1 96 L38.2 73");
     expect(style).toContain("A43.5 43.5 0 0 0 52.5 0");
   });
 
   it("draws a bentArrow's corner bend and head", () => {
-    // 25% shaft, 19.072% half head width, 25% head length, 43.75% bend.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -466,13 +395,10 @@ describe("convertToSlideHtml shape geometry", () => {
     expect(style).toContain(
       "clip-path: path('M0 96 L0 48.3 A42 42 0 0 1 42 6.3",
     );
-    // Head base at x4=72, tip on the right edge at aw2=18.3.
     expect(style).toContain("L72 0 L96 18.3 L72 36.6");
   });
 
   it("draws a halfFrame as the mitred L-bracket its adjustments describe", () => {
-    // Real values from a title slide's corner rule: a 13.198% top arm and a
-    // 12.863% left arm. Filling the bounding box instead covered the title.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -494,16 +420,12 @@ describe("convertToSlideHtml shape geometry", () => {
       convertToSlideHtml(shapeSlide({ shapeType: "heart", fill: "#e11d48" })),
       "shape",
     );
-    // Control points reach outside the 96x96 box on purpose: that overhang is
-    // what rounds the lobes.
     expect(style).toContain(
       "clip-path: path('M48 24 C68 -32 146 24 48 96 C-50 24 28 -32 48 24 Z')",
     );
   });
 
   it("draws a pie as the slice between its two angles", () => {
-    // 279.14deg to 270deg wraps forward a full turn: a 350.86deg slice with a
-    // narrow wedge missing, not an empty one.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -520,8 +442,6 @@ describe("convertToSlideHtml shape geometry", () => {
   });
 
   it("gives flow chart terminator and decision nodes their own shapes", () => {
-    // Both render as the plain rectangle of a process box otherwise, which is
-    // the only cue a reader has for where a chart starts and where it branches.
     const terminator = styleAttr(
       convertToSlideHtml(shapeSlide({ shapeType: "flowChartTerminator" })),
       "shape",
@@ -539,9 +459,6 @@ describe("convertToSlideHtml shape geometry", () => {
 
 describe("convertToSlideHtml stroke geometry", () => {
   it("draws a zero-height rule as a single edge at its authored weight, not a four-sided border", () => {
-    // A 2.25pt horizontal rule: the `border` shorthand paints the top *and*
-    // bottom edges of the zero-height box, drawing 6px of line instead of 3px
-    // and growing left/right nubs the source never had.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -574,9 +491,6 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 
   it("treats a hairline thinner than its own two borders as a line too", () => {
-    // A 1.638px-wide, 200px-tall rule (a real one, from an imported deck):
-    // its left and right 1px borders already overlap, so the shorthand can
-    // only ever draw a doubled line, never an outlined box.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -603,10 +517,6 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 
   it("strokes a clipped preset along its outline instead of bordering the box the clip removes", () => {
-    // The two TAM/SAM/SOM pyramids on a real pitch deck: `prstGeom triangle`,
-    // `a:noFill`, and a 0.75pt blue line. A `border` paints the bounding box's
-    // four edges and the clip then eats every part of them outside the
-    // triangle, so both shapes vanished from the import entirely.
     const html = convertToSlideHtml(
       shapeSlide({ shapeType: "triangle", lineColor: "#0000FF" }),
     );
@@ -619,9 +529,6 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 
   it("draws a connector's oval end decorations as dots on both ends of the line", () => {
-    // A chevron timeline's rules: 1.5pt, zero-width, `oval` at both ends. The
-    // dots are a decoration on top of the stroke, so the border that draws the
-    // line cannot draw them and the import lost them entirely.
     const html = convertToSlideHtml(
       shapeSlide({
         shapeType: "straightConnector1",
@@ -637,7 +544,6 @@ describe("convertToSlideHtml stroke geometry", () => {
     expect(styleAttr(html, "shape")).toContain(
       "border-left: 1.5px solid #3A3838",
     );
-    // 3x the 1.5px stroke across, centred on the line's two endpoints.
     expect(html).toContain('<circle cx="3" cy="2.25" r="2.25" fill="#3A3838"');
     expect(html).toContain(
       '<circle cx="3" cy="74.831" r="2.25" fill="#3A3838"',
@@ -664,8 +570,6 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 
   it("keeps a border on a preset the renderer draws with radii rather than a clip", () => {
-    // `border-radius` follows the border, so an ellipse or a roundRect has no
-    // reason to pay for an SVG overlay.
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -681,7 +585,6 @@ describe("convertToSlideHtml stroke geometry", () => {
   });
 });
 
-/** One picture on a standard widescreen slide, in a 96x96px box. */
 function imageSlide(image: Partial<ParsedElement>): ParsedSlide {
   return {
     texts: [],
@@ -704,9 +607,6 @@ function imageSlide(image: Partial<ParsedElement>): ParsedSlide {
 
 describe("convertToSlideHtml picture geometry", () => {
   it("clips a picture to its shape, so a portrait in an ellipse frame is a circle", () => {
-    // Real shape of a `p:pic` on an imported deck: `prstGeom prst="ellipse"`
-    // around a cropped portrait. PowerPoint paints the picture inside that
-    // geometry; rendering the bounding box gives a hard square instead.
     const style = styleAttr(
       convertToSlideHtml(imageSlide({ shapeType: "ellipse" })),
       "image",
@@ -732,11 +632,6 @@ describe("convertToSlideHtml picture geometry", () => {
   });
 });
 
-/**
- * `shapeSlide`'s 1219200 EMU box lands on 96x96px, so a 200x100 path space
- * scales by 0.48 in x and 0.96 in y — every expected coordinate below is that
- * arithmetic, not a recorded snapshot.
- */
 function freeformGeometry(): ParsedElement["geometry"] {
   return {
     kind: "custom",
@@ -770,14 +665,9 @@ describe("convertToSlideHtml custom geometry", () => {
       ),
       "shape",
     );
-    // Relative commands, the `lineto` implied after a `moveto`, and
-    // shortest-form numbers: the same outline as `M0 0 L96 0 C86.4 38.4 57.6
-    // 76.8 28.8 96 Z`, spelled the way the path minifier writes it.
     expect(style).toContain(
       "clip-path: path('m0 0 96 0c-9.6 38.4-38.4 76.8-67.2 96z')",
     );
-    // The clip is what stops the shape occluding its neighbours, so the fill
-    // paints again rather than being suppressed.
     expect(style).toContain("background: #ff0000");
   });
 
@@ -798,8 +688,6 @@ describe("convertToSlideHtml custom geometry", () => {
   });
 
   it("converts an arcTo against the current point, which is where OOXML starts the sweep", () => {
-    // Quarter circle: start at (100,50), radii 50/50, sweeping 90deg from 0deg
-    // puts the center at (50,50) and the end point at (50,100).
     const style = styleAttr(
       convertToSlideHtml(
         shapeSlide({
@@ -832,8 +720,6 @@ describe("convertToSlideHtml custom geometry", () => {
   });
 
   it("strokes a freeform outline as its real path, not as a border around its box", () => {
-    // A line-art pictogram: no fill, a stroked outline only. A `border` here
-    // is exactly the generic square every icon used to collapse into.
     const html = convertToSlideHtml(
       shapeSlide({
         geometry: freeformGeometry(),
@@ -848,12 +734,6 @@ describe("convertToSlideHtml custom geometry", () => {
   });
 
   it("writes a long outline in relative steps without letting rounding drift off the true point", () => {
-    // The reason this deck's HTML is worth minifying at all: one decorative
-    // layout illustration in a real template carries thousands of segments,
-    // and the layout layer repeats it on every slide that uses the layout. A
-    // relative encoding is only safe if each step is measured from the point
-    // that was *emitted*, not the exact one — chaining exact-to-exact deltas
-    // walks the far end of a path like this several px off its box.
     const steps = 2000;
     const style = styleAttr(
       convertToSlideHtml(
@@ -869,8 +749,6 @@ describe("convertToSlideHtml custom geometry", () => {
                   { kind: "moveTo", points: [{ x: 0, y: 0 }] },
                   ...Array.from({ length: steps }, (_, index) => ({
                     kind: "lnTo" as const,
-                    // 4.9997 path units per step: a delta that never lands on
-                    // the 0.1px grid the writer rounds to.
                     points: [{ x: (index + 1) * 4.9997, y: index % 2 }],
                   })),
                 ],
@@ -890,10 +768,7 @@ describe("convertToSlideHtml custom geometry", () => {
     for (let index = 0; index < numbers.length; index += 2) {
       x += numbers[index]!;
     }
-    // 96px box, 10000 path units: the last point's true x is 96 * (2000 *
-    // 4.9997) / 10000, and it has to still be there after 2000 relative steps.
     expect(x).toBeCloseTo((96 * steps * 4.9997) / 10000, 1);
-    // Same outline in absolute coordinates is ~1.9x this size.
     expect(data.length).toBeLessThan(14 * steps);
   });
 
@@ -942,10 +817,6 @@ describe("convertToSlideHtml font families", () => {
       widthEmu,
       heightEmu: 6858000,
     });
-    // No webfont registers "Work Sans Medium" as a family, so a raw
-    // pass-through always falls back to sans-serif even when Work Sans is
-    // loaded. The exact name stays first for the deck that really does ship
-    // the variant family.
     expect(html).toContain(
       "font-family:'Work Sans Medium', 'Work Sans', sans-serif",
     );
@@ -984,9 +855,6 @@ describe("convertToSlideHtml font families", () => {
 
 describe("convertToSlideHtml empty slides", () => {
   it("renders a zero-element slide as its own declared background, not an invented title", () => {
-    // A deliberate full-bleed divider slide has an empty `<p:spTree>`. The
-    // title template invents copy that appears nowhere in the source and
-    // drops the background the slide states explicitly.
     const html = convertToSlideHtml({
       texts: [],
       images: [],
@@ -1027,10 +895,6 @@ describe("convertToSlideHtml paragraph defaults", () => {
   }
 
   it("single-spaces a paragraph that declares no line spacing, matching a declared 100%", () => {
-    // The parser resolves a declared `spcPct val="100000"` to 1.2 — a
-    // percentage of the font's own line height, not of its em size. An
-    // inherited default has to land on the same number, and a bare `1` here
-    // is the ~17% leading compression five unrelated decks were reported for.
     const declared = convertToSlideHtml(
       paragraphSlide([
         { runs: [{ content: "Hi", fontSize: 14 }], lineSpacing: 1.2 },
@@ -1057,8 +921,6 @@ describe("convertToSlideHtml paragraph defaults", () => {
     );
     const rtlParagraph = html.match(/<p data-pptx-paragraph="0"([^>]*)>/)?.[1];
     const ltrParagraph = html.match(/<p data-pptx-paragraph="1"([^>]*)>/)?.[1];
-    // `dir` is the semantic form; the CSS carries it past sanitizeSlideHtml,
-    // whose ALLOWED_ATTRS drops `dir`.
     expect(rtlParagraph).toContain('dir="rtl"');
     expect(rtlParagraph).toContain("direction:rtl;");
     expect(rtlParagraph).toContain("text-align:right;");
@@ -1074,9 +936,6 @@ describe("convertToSlideHtml paragraph defaults", () => {
         { runs: [] },
       ]),
     );
-    // 14pt -> 14px in this slide's 960px reference box, x1.2 single spacing.
-    // An 18pt fallback would reserve 21.6px more for an empty line inside a
-    // 14pt box, and every blank paragraph would push the copy below it down.
     const blank = html.match(/data-pptx-paragraph="1" style="([^"]*)"/)?.[1];
     if (!blank) throw new Error("missing blank paragraph");
     expect(blank).toContain("font-size:14px");

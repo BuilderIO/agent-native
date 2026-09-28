@@ -1,10 +1,3 @@
-/**
- * Core script: db-patch
- *
- * Apply one or more precise edits to a text column in a PostgreSQL table.
- * Local execution uses PGlite and hosted execution uses PostgreSQL.
- */
-
 import path from "node:path";
 
 import { getDatabaseUrl, toPostgresParams } from "../../db/client.js";

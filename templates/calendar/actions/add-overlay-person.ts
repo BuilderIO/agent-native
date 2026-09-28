@@ -18,11 +18,6 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
 
-    // Read-modify-write happens inside mutateUserSetting's compare-and-swap
-    // retry loop, not on a snapshot the client fetched earlier: two adds
-    // (separate tabs, or the search dialog and the request-email landing
-    // page) starting from the same stale list would otherwise let the
-    // later PUT silently overwrite the earlier one's addition.
     const normalizedEmail = args.email.trim().toLowerCase();
     const result = await mutateUserSetting(
       email,

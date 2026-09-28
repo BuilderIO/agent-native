@@ -3,10 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
-// Real in-memory PGlite behind the raw getDbExec client so recordUsage /
-// getUserUsageCents / getUsageSummary exercise genuine aggregation + scoping.
-// A fresh DB per test keeps the module-level _initPromise (CREATE TABLE IF NOT
-// EXISTS) idempotent across tests.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 const rawClient = {
@@ -42,12 +38,6 @@ const {
 const { listAppUsageMetrics } = await import("./metrics-store.js");
 
 beforeEach(async () => {
-  // recordUsage derives its primary key from Date.now()*1000 + random(0..999).
-  // Under a fast loop Date.now() is constant and the 1000-value random space
-  // collides, producing a UNIQUE-constraint failure. Drive Math.random from a
-  // monotonic counter so every insert in a test gets a distinct id without
-  // touching source behavior. (Real Postgres would not hit this in practice;
-  // we are only removing test-induced flakiness.)
   let randomCursor = 0;
   vi.spyOn(Math, "random").mockImplementation(() => {
     randomCursor = (randomCursor + 1) % 1000;
@@ -55,8 +45,6 @@ beforeEach(async () => {
   });
 
   pglite = await createTestPglite();
-  // The store caches CREATE TABLE in a module-level _initPromise that only runs
-  // once for the whole file, so create the table per fresh DB ourselves.
   await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
     id BIGINT PRIMARY KEY,
     owner_email TEXT NOT NULL,
@@ -131,15 +119,11 @@ describe("calculateCost pricing tiers", () => {
   });
 
   it("prices opus higher than sonnet which is higher than haiku for the same tokens", () => {
-    // 1M input + 1M output, centicents.
     const opus = calculateCost(1_000_000, 1_000_000, "claude-opus-4-1");
     const sonnet = calculateCost(1_000_000, 1_000_000, "claude-sonnet-4-5");
     const haiku = calculateCost(1_000_000, 1_000_000, "claude-haiku-4");
-    // opus = (1500 + 7500) * 100 = 900000 centicents.
     expect(opus).toBe(900_000);
-    // sonnet (default) = (300 + 1500) * 100 = 180000.
     expect(sonnet).toBe(180_000);
-    // haiku = (100 + 500) * 100 = 60000.
     expect(haiku).toBe(60_000);
     expect(opus).toBeGreaterThan(sonnet);
     expect(sonnet).toBeGreaterThan(haiku);
@@ -154,56 +138,39 @@ describe("calculateCost pricing tiers", () => {
   it("prices cache read cheaper than cache write", () => {
     const read = calculateCost(0, 0, "claude-sonnet-4-5", 1_000_000, 0);
     const write = calculateCost(0, 0, "claude-sonnet-4-5", 0, 1_000_000);
-    // sonnet cacheRead 30, cacheWrite 375 → centicents.
     expect(read).toBe(3_000);
     expect(write).toBe(37_500);
     expect(write).toBeGreaterThan(read);
   });
 
-  // `inputTokens` is the whole prompt and INCLUDES the cache counts, so the
-  // three are a partition. Charging the full total AND the cache counts on top
-  // billed every cached token twice — on a long cached conversation the cache
-  // is nearly the whole prompt, so the error was ~9x, not a rounding artifact.
   it("prices each input token once when most of the prompt was cached", () => {
-    // A real turn: 42,438-token prompt, all but 3 tokens served from cache.
     const cost = calculateCost(42_438, 285, "gpt-5.6-luna", 36_734, 5_701);
 
-    // luna, short context: $0.20 input / $0.02 cached / $0.25 cache write /
-    // $1.20 output per MTok, in this table's cents-per-MTok units.
     const uncached = (3 / 1_000_000) * 20 * 100;
     const output = (285 / 1_000_000) * 120 * 100;
     const cacheRead = (36_734 / 1_000_000) * 2 * 100;
     const cacheWrite = (5_701 / 1_000_000) * 25 * 100;
     expect(cost).toBe(Math.round(uncached + output + cacheRead + cacheWrite));
 
-    // The shape of the old bug: the whole prompt charged at the full input
-    // rate, on top of the cache counts rather than net of them.
     const doubleCounted =
       (42_438 / 1_000_000) * 20 * 100 + output + cacheRead + cacheWrite;
     expect(cost).toBeLessThan(doubleCounted);
   });
 
-  // Cache writes cost MORE than uncached input, not less and not nothing —
-  // the one rate in OpenAI's table that is easy to assume away, and the one
-  // this table previously had at zero.
   it("prices an OpenAI cache write above the full input rate", () => {
     const write = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 1_000_000);
     const fresh = calculateCost(1_000_000, 0, "gpt-5.6-luna", 0, 0);
-    expect(write).toBe(2_500); // $0.25/MTok
-    expect(fresh).toBe(2_000); // $0.20/MTok
+    expect(write).toBe(2_500);
+    expect(fresh).toBe(2_000);
     expect(write).toBeGreaterThan(fresh);
   });
 
   it("never credits the bill when cache counts exceed the prompt", () => {
-    // An engine still emitting the exclusive convention. Clamped, not negative
-    // — a wrong-signed charge is worse than a low one.
     expect(
       calculateCost(3, 0, "claude-sonnet-4-5", 36_734, 5_701),
     ).toBeGreaterThan(0);
   });
 
-  // A provider without prompt caching passes 0s and must still pay full rate
-  // on the whole prompt — the partition degrades to "all of it is uncached".
   it("charges the full rate throughout when there is no caching", () => {
     expect(calculateCost(1_000_000, 0, "claude-sonnet-4-5", 0, 0)).toBe(30_000);
   });
@@ -232,13 +199,10 @@ describe("recordUsage", () => {
       outputTokens: 0,
       model: "claude-sonnet-4-5",
     });
-    // sonnet input 300/M → 30000 centicents = $3.00.
     await expect(getUserUsageCents("a@example.com")).resolves.toBeCloseTo(300);
   });
 
   it("records a cache-only call (no input/output) instead of skipping it", async () => {
-    // The no-op guard checks cache tokens too, so a prompt-cache-heavy call
-    // with zero billable input/output must still be persisted and priced.
     await recordUsage({
       ownerEmail: "a@example.com",
       inputTokens: 0,
@@ -250,7 +214,6 @@ describe("recordUsage", () => {
     const summary = await getUsageSummary({ ownerEmail: "a@example.com" });
     expect(summary.totalCalls).toBe(1);
     expect(summary.totalCacheReadTokens).toBe(1_000_000);
-    // sonnet cacheRead 30/M → 3000 centicents; getUserUsageCents = /100 = 30.
     await expect(getUserUsageCents("a@example.com")).resolves.toBeCloseTo(30);
   });
 
@@ -290,9 +253,6 @@ describe("recordUsage", () => {
   });
 
   it("persists run/thread/task attribution onto the row", async () => {
-    // Every one of 701 prod rows on analytics had NULL run_id/thread_id/task_id
-    // despite the columns existing, so no spend could be tied to a run, thread,
-    // or outcome. Pin that a supplied id actually lands in the INSERT.
     await recordUsage({
       ownerEmail: "a@example.com",
       inputTokens: 100,
@@ -552,7 +512,6 @@ describe("getUserUsageCents scoping", () => {
     await expect(getUserUsageCents("alice@example.com")).resolves.toBeCloseTo(
       300,
     );
-    // Bob's opus spend is far higher and must not leak into Alice's number.
     const bob = await getUserUsageCents("bob@example.com");
     expect(bob).toBeGreaterThan(300);
     await expect(getUserUsageCents("nobody@example.com")).resolves.toBe(0);
@@ -561,7 +520,6 @@ describe("getUserUsageCents scoping", () => {
 
 describe("getUsageSummary", () => {
   it("aggregates totals and buckets and is scoped to the owner", async () => {
-    // Alice: two chat calls + one automation call.
     await recordUsage({
       ownerEmail: "alice@example.com",
       inputTokens: 1_000_000,
@@ -586,7 +544,6 @@ describe("getUsageSummary", () => {
       label: "automation",
       app: "calendar",
     });
-    // Bob's usage must not appear in Alice's summary.
     await recordUsage({
       ownerEmail: "bob@example.com",
       inputTokens: 5_000_000,
@@ -601,33 +558,26 @@ describe("getUsageSummary", () => {
     expect(summary.totalCalls).toBe(3);
     expect(summary.totalInputTokens).toBe(3_000_000);
 
-    // byLabel buckets are owner-scoped and ordered by cents desc — automation
-    // (opus) outweighs the two sonnet chat calls.
     const labels = Object.fromEntries(summary.byLabel.map((b) => [b.key, b]));
     expect(labels.chat.calls).toBe(2);
     expect(labels.automation.calls).toBe(1);
     expect(summary.byLabel[0].key).toBe("automation");
 
-    // byApp similarly scoped — only Alice's apps.
     expect(summary.byApp.map((b) => b.key).sort()).toEqual([
       "calendar",
       "mail",
     ]);
 
-    // byModel has both models, opus first (more expensive).
     expect(summary.byModel[0].key).toContain("opus");
 
-    // Total cents equals the sum across buckets.
     const labelCentsSum = summary.byLabel.reduce((n, b) => n + b.cents, 0);
     expect(summary.totalCents).toBeCloseTo(labelCentsSum);
 
-    // billing mode defaults to USD.
     expect(summary.billing?.unit).toBe("usd");
   });
 
   it("filters by sinceMs while recent ignores the window", async () => {
     const now = Date.now();
-    // Insert a stale row directly (200 days ago) and a fresh row via the API.
     await pglite.exec(`CREATE TABLE IF NOT EXISTS token_usage (
         id BIGINT PRIMARY KEY,
         owner_email TEXT NOT NULL,
@@ -657,24 +607,19 @@ describe("getUsageSummary", () => {
       model: "claude-sonnet-4-5",
     });
 
-    // Default 30-day window excludes the 200-day-old row.
     const windowed = await getUsageSummary({ ownerEmail: "alice@example.com" });
     expect(windowed.totalCalls).toBe(1);
-    // recent (no window filter) sees both rows.
     expect(windowed.recent.length).toBe(2);
     expect(windowed.recent[0].createdAt).toBeGreaterThan(
       windowed.recent[1].createdAt,
     );
 
-    // Widening sinceMs to 1 year pulls the old row into the aggregates.
     const wide = await getUsageSummary({
       ownerEmail: "alice@example.com",
       sinceMs: now - 365 * 86_400_000,
     });
     expect(wide.totalCalls).toBe(2);
 
-    // byDay buckets the two rows under their (distinct) UTC dates, ascending —
-    // the 200-day-old row sorts before today.
     expect(wide.byDay).toHaveLength(2);
     expect(wide.byDay.map((d) => d.date)).toEqual(
       [...wide.byDay.map((d) => d.date)].sort(),
@@ -846,7 +791,6 @@ describe("recordUsage refId + cost override", () => {
         "SELECT cost_cents_x100 AS c FROM token_usage WHERE ref_id = 'recap-2'",
       )
       .get()) as { c: number };
-    // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
   });
 

@@ -443,7 +443,6 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
-  // Row-union multi-source (slices 6a–6c).
   addARowTo: "Add a row to…",
   addASource: "Add a source",
   localNoCollection: "Local (no collection)",
@@ -748,6 +747,26 @@ const editorToolbarMessages = {
     "Connect a Notion workspace to link this document.",
   copiedPageLink: "Copied page link",
   copyPageLink: "Copy page link",
+  createShareableCopy: "Create shareable copy",
+  copyLink: "Copy link",
+  copyForPeople: "Copy for people",
+  copyForAgents: "Copy for agents",
+  whoHasAccess: "Who has access",
+  sharePeople: "People",
+  shareAgents: "Agents",
+  copyAgentPrompt: "Copy agent prompt",
+  openInClaude: "Open in Claude",
+  openInClaudeCode: "Open in Claude Code",
+  openInCodex: "Open in Codex",
+  agentCopyAccessNote:
+    "Agents can use Content MCP with your existing permissions",
+  temporaryAgentLink: "Temporary agent link",
+  privateLinkCanView: "Only people with access can view",
+  publicLinkCanView: "Anyone with the link can view",
+  copiedAgentPrompt: "Agent prompt copied",
+  couldNotCopyAgentPrompt: "Could not copy agent prompt",
+  agentPrompt:
+    'Read this Content document: {{documentUrl}}\n\nUse an available Content MCP connection for {{mcpUrl}} to call get-document with id "{{documentId}}". A publicly readable page can also be read directly.\n\nIf authenticated access is needed and Content MCP is unavailable or signed out, ask me to connect it and authenticate. Connection setup: {{connectUrl}}. Official guide: {{docsUrl}}\n\nAfter I confirm the connection is ready, retry the read using my account\'s existing permissions. If the authenticated read is denied, tell me that result.',
   couldNotCopyLink: "Could not copy link",
   clipboardAccessUnavailable:
     "Clipboard access is not available in this browser.",
@@ -994,6 +1013,16 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  close: "Close",
+  setup: {
+    checkingProvider: "Checking AI connection…",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connect storage to upload files",
+      statusUnavailable: "File storage status is unavailable.",
+    },
+  },
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
@@ -1073,6 +1102,13 @@ const enUS = {
     emailNotificationsDescription:
       "Get an email when someone comments on, replies in, or mentions you on your document.",
     saveFailed: "Failed to save",
+    notificationsEmail: "Email",
+    commentsRepliesMentions: "Comments, replies, and mentions",
+    commentsRepliesMentionsDescription:
+      "When someone comments on or replies in your document, or mentions you.",
+    retry: "Retry",
+    mcpAbout:
+      "Connect Content to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Content for you: search, write, and edit documents. It sees only what you can see.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -1375,6 +1411,24 @@ const enUS = {
     submit: "Comment",
     askAi: "Ask AI",
     aiBadge: "AI",
+    agentBadge: "Agent",
+    addEmoji: "Add emoji",
+    mentionSomeone: "Mention someone",
+    mentionPeople: "People",
+    mentionAgents: "Agents",
+    commentTitle: "Comment",
+    suggestionTitle: "Suggestion",
+    close: "Close",
+    showEarlierReplies: "Show earlier replies",
+    replyAction: "Reply",
+    panelTabs: "Page panels",
+    aiAuto: "Auto",
+    aiModel: "AI model",
+    aiRemoveRecipient: "Remove AI recipient",
+    aiSend: "Send to AI",
+    aiSendShort: "Send",
+    aiResponseMode: "Response",
+    aiChooseSendMode: "Choose how AI responds",
     aiSuggestChanges: "Suggest changes",
     aiUnavailable: "Unavailable",
     aiReplyInThread: "Reply in thread",
@@ -1386,10 +1440,42 @@ const enUS = {
     aiReplied: "AI replied",
     aiSuggestionReady: "Review suggestion",
     aiChangesApplied: "Changes applied",
+    aiAppliedAndResolved: "Applied and resolved",
+    aiChangeUndone: "Change undone",
+    aiUndo: "Undo",
+    aiDone: "Done",
+    aiMoreChanges: "+{{count}} more",
+    aiUndoUnavailable: "Removed text can't be restored automatically",
+    aiUndoFailed: "Couldn't undo the change",
+    aiResolvedByAi: "Resolved by AI",
     aiNeedsReview: "Needs review",
     aiFailed: "AI request failed",
     retry: "Retry",
+    aiQueued: "AI is queued…",
+    aiRefreshing: "AI is checking the latest page…",
+    aiCancelled: "AI request stopped",
+    aiStop: "Stop",
+    aiStopping: "Stopping…",
+    aiReplyToAi: "Reply to AI",
+    aiReplyingToAi: "Replying to AI",
+    aiOpenConversation: "Open AI conversation",
+    aiConversationPrefill: "Continue this comment conversation…",
+    aiConversationUnavailable: "This AI conversation is unavailable.",
+    aiFollowUpYou: "You",
+    aiFollowUpIncomplete: "This response ended before it finished.",
+    aiRequestCouldNotBeConfirmed: "The AI request could not be confirmed",
+    aiFollowUpCouldNotBeConfirmed: "The AI follow-up could not be confirmed",
+    aiRequestStopCouldNotBeConfirmed:
+      "The AI request could not be stopped because dispatch was not confirmed",
     sourceComment: "Source comment",
+    proposalEditCount_zero: "{{count}} edits",
+    proposalEditCount_one: "{{count}} edit",
+    proposalEditCount_two: "{{count}} edits",
+    proposalEditCount_few: "{{count}} edits",
+    proposalEditCount_many: "{{count}} edits",
+    proposalEditCount_other: "{{count}} edits",
+    acceptRemaining: "Accept remaining",
+    rejectRemaining: "Reject remaining",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
     unanchored: "Highlight unavailable",
@@ -1640,6 +1726,16 @@ export type PartialMessages = {
 
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
+    close: overrides.close ?? enUS.close,
+    setup: { ...enUS.setup, ...overrides.setup },
+    onboarding: {
+      ...enUS.onboarding,
+      ...overrides.onboarding,
+      fileStorage: {
+        ...enUS.onboarding.fileStorage,
+        ...overrides.onboarding?.fileStorage,
+      },
+    },
     root: { ...enUS.root, ...overrides.root },
     theme: { ...enUS.theme, ...overrides.theme },
     navigation: { ...enUS.navigation, ...overrides.navigation },
@@ -1758,8 +1854,6 @@ export interface ContentLocaleBundle {
   history: Partial<Messages["editor"]>;
 }
 
-// es-ES raw literals are the fallback layer mergeMessagesForLocale applies
-// under every non-English locale, so they stay in the eager module.
 const esESRawLiteralOverrides: PartialMessages = {
   root: {
     metaTitle:
@@ -2191,9 +2285,6 @@ function mergeMessagesForLocale(
   };
 }
 
-// Only en-US is bundled eagerly. Locale modules call buildMessagesForLocale on
-// load and register their merged messages here, so synchronous readers fall
-// back to en-US until a locale chunk has loaded.
 export const messagesByLocale: Partial<Record<LocaleCode, Messages>> & {
   "en-US": Messages;
 } = {
@@ -2216,8 +2307,15 @@ export function buildMessagesForLocale(
   for (const [group, groupOverrides] of Object.entries(
     bundle.exactEnglish,
   ) as Array<[string, Record<string, unknown> | undefined]>) {
-    const target = (messages as Record<string, Record<string, unknown>>)[group];
-    if (target && groupOverrides && typeof groupOverrides === "object") {
+    const targetValue = (messages as unknown as Record<string, unknown>)[group];
+    if (
+      targetValue &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue) &&
+      groupOverrides &&
+      typeof groupOverrides === "object"
+    ) {
+      const target = targetValue as Record<string, unknown>;
       for (const [key, value] of Object.entries(groupOverrides)) {
         const nestedTarget = target[key];
         if (

@@ -15,6 +15,9 @@ const accountHealthSkill = readFileSync(
 const {
   agentChatPluginOptions,
   getRequestRunContext,
+  getRequestUserEmail,
+  getRequestOrgId,
+  enqueueAnalyticsMemoryCapture,
   representativeAnalyticsActions,
   retrieveAnalyticsPromptReferences,
   summarizeAnalyticsRun,
@@ -22,6 +25,9 @@ const {
 } = vi.hoisted(() => ({
   agentChatPluginOptions: [] as Array<Record<string, unknown>>,
   getRequestRunContext: vi.fn((): Record<string, any> | null => null),
+  getRequestUserEmail: vi.fn(() => "owner@example.test"),
+  getRequestOrgId: vi.fn(() => null),
+  enqueueAnalyticsMemoryCapture: vi.fn(async () => true),
   retrieveAnalyticsPromptReferences: vi.fn(),
   summarizeAnalyticsRun: vi.fn(
     (input: { preloadedReferenceCount: number }) => ({
@@ -75,7 +81,6 @@ const {
       tool: { description: "Test a provider connection", parameters: {} },
       run: async () => "ok",
     },
-    // A shipped source action the guard's retired name list never named.
     prometheus: {
       readOnly: true,
       grounding: true,
@@ -100,6 +105,9 @@ vi.mock("../lib/analytics-agent-context", () => ({
   retrieveAnalyticsPromptReferences,
   summarizeAnalyticsRun,
 }));
+vi.mock("../lib/analytics-memory-capture.js", () => ({
+  enqueueAnalyticsMemoryCapture,
+}));
 
 vi.mock("@agent-native/core/tracking", () => ({ track }));
 
@@ -109,6 +117,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return {
     ...original,
     getRequestRunContext: () => getRequestRunContext(),
+    getRequestUserEmail: () => getRequestUserEmail(),
+    getRequestOrgId: () => getRequestOrgId(),
     createAgentChatPlugin: (options: Record<string, unknown>) => {
       agentChatPluginOptions.push(options);
       return () => {};
@@ -251,15 +261,22 @@ describe("Analytics prompt-reference preparation", () => {
       scope: unknown,
       run: { events: unknown[] },
     ) => Promise<void>;
-    const run = { events: [] };
+    const run = { threadId: "thread-1", events: [] };
 
     await onAgentRunComplete(null, run);
 
     expect(track).toHaveBeenCalledWith("analytics_agent_run_outcome", {
       preloaded_reference_count: 2,
+      memory_capture_queued: 1,
+    });
+    expect(enqueueAnalyticsMemoryCapture).toHaveBeenCalledWith({
+      owner: "owner@example.test",
+      orgId: null,
+      threadId: "thread-1",
     });
     expect(summarizeAnalyticsRun).toHaveBeenCalledWith({
       events: run.events,
+      groundingActionNames: expect.any(Array),
       preloadedReferenceCount: 2,
     });
   });
@@ -835,11 +852,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not demand a connect-sources link when data-source-status never ran", () => {
-    // A draft that ends in a question counts as a safe no-data response, and
-    // this turn only saved a panel. Nothing here shows a source is missing, so
-    // the guard must not instruct the model to say one is unavailable — the
-    // model recognizes that instruction as a prompt injection and refuses it
-    // out loud to the user.
     const result = realDataFinalGuard(
       guardContext({
         userText: "yes add conversion rate",
@@ -1105,9 +1117,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("does not demand a connect-sources link when the status result could not be read", () => {
-    // A failed workspace-connection lookup hides exactly the workspace-held
-    // connections it would take to prove a provider is missing, so the empty
-    // provider list is "we could not look", not "nothing is connected".
     const result = realDataFinalGuard(
       guardContext({
         userText: "what were our HubSpot deals last week",
@@ -1431,10 +1440,6 @@ describe("realDataFinalGuard", () => {
   });
 
   it("still retries a mutation-turn draft that also states an invented metric", () => {
-    // A completed mutation is not a license to also assert a number the
-    // mutation itself did not compute — see agent-chat.dashboard-edit.spec.ts
-    // A completed mutation is real work, and a claim-free summary of it is
-    // not asserting anything the guard has to ground.
     const result = realDataFinalGuard(
       guardContext({
         userText: "How many signups did we get this week?",

@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connecter",
@@ -264,6 +266,18 @@ export default {
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
     eventRules: "Règles d’invitation",
+    eventRulesAutomationLink:
+      "Pour d’autres actions, créez une automatisation.",
+    eventRulesConnectJev:
+      "Connectez Jev pour appliquer les règles d’invitation",
+    eventRulesFreeBuilderOrApiKey:
+      "Gratuit avec Builder.io, ou ajoutez une clé API.",
+    eventRulesConnectBuilder: "Connecter Builder.io",
+    eventRulesAddJevApiKey: "Ajouter une clé API",
+    eventRulesTabRules: "Règles",
+    eventRulesHelpLabel: "À propos des consignes d’invitation",
+    eventRulesHelp:
+      "Écrivez des consignes pour indiquer à Jev quelles invitations accepter, refuser ou masquer.",
     eventRuleAccept: "Accepter automatiquement",
     eventRuleDecline: "Refuser automatiquement",
     eventRuleHide: "Masquer automatiquement",
@@ -274,6 +288,7 @@ export default {
     eventRulePlaceholderHide:
       "Exemple : masquer les plages de concentration et les rappels",
     eventRulesSave: "Enregistrer les règles",
+    eventRulesClearSaved: "Effacer les règles enregistrées",
     eventRulesRecentActivity: "Activité récente",
     eventRulesNoActivity: "Aucune activité pour le moment",
     eventRuleActivityAccepted: "Accepté",
@@ -292,6 +307,40 @@ export default {
       "Une invitation a été ignorée car les règles d’acceptation et de refus correspondaient.",
     eventRulesUnregistered:
       "L’automatisation Calendar n’est pas enregistrée sur ce serveur.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendriers",
+    bookingTab: "Réservation",
+    eventsGroup: "Événements",
+    appearanceGroup: "Apparence",
+    colorTheme: "Thème de couleur",
+    timezone: "Fuseau horaire du calendrier",
+    timezoneDescription:
+      "Sert à afficher les événements et à en créer de nouveaux.",
+    defaultDuration: "Durée par défaut des événements",
+    defaultDurationDescription:
+      "En minutes. Les liens de réservation peuvent définir la leur.",
+    durationInvalid: "Saisissez une durée de 5 à 480 minutes.",
+    zoom: "Zoom",
+    connectedAs: "Connecté en tant que {{accounts}}",
+    setUp: "Configurer",
+    disconnectGoogleTitle: "Déconnecter Google Calendar ?",
+    disconnectGoogleDescription:
+      "Calendar cesse d'afficher et de synchroniser les événements de vos comptes Google.",
+    disconnectZoomTitle: "Déconnecter Zoom ?",
+    disconnectZoomDescription:
+      "Les nouveaux événements et réservations ne peuvent pas recevoir de lien de réunion Zoom tant que vous ne vous reconnectez pas.",
+    manage: "Gérer",
+    edit: "Modifier",
+    cancel: "Annuler",
+    save: "Enregistrer",
+    fallbackBookingPage: "Page de réservation par défaut",
+    fallbackBookingPageDescription:
+      "Utilisée lorsqu'un lien de réservation n'a ni titre ni description.",
+    fallbackTitle: "Titre",
+    fallbackDescription: "Description",
+    bookingLinksDescription:
+      "Créez des liens de réservation et copiez leurs URL publiques.",
   },
   eventDialog: {
     eventUpdated: "Événement mis à jour",
@@ -535,8 +584,18 @@ export default {
     confirmation: "confirmation",
     confirmationSent:
       "Tout est prêt ! Une confirmation a été envoyée à votre adresse e-mail.",
+    meetingDetailsPending:
+      "Votre créneau est réservé. L’hôte vous communiquera les détails de la réunion.",
     confirmed: "Confirmée",
     confirmedCount: "Confirmées ({{count}})",
+    zoomNeedsReview: "Vérifiez Zoom avant de réessayer",
+    zoomCancellationNeedsReview: "Vérifiez Zoom avant d’annuler",
+    zoomCancellationRequiresHostReview:
+      "L’organisateur doit vérifier la réunion Zoom avant de pouvoir annuler cette réservation.",
+    zoomCancelTitle: "Vérifiez Zoom avant d’annuler",
+    zoomCancelDescription:
+      "Zoom a peut-être créé une réunion pour cette réservation. Vérifiez votre compte Zoom et annulez-y la réunion si elle existe. Continuez uniquement après son annulation ou après avoir confirmé qu’elle n’existe pas.",
+    zoomCancelConfirm: "J’ai vérifié Zoom",
     confirming: "Confirmation",
     conferencing: "Conférence",
     connectZoom: "Connectez Zoom",
@@ -1032,7 +1091,7 @@ export default {
     year: "an",
     zoom: "Zoom",
     zoomAdded: "Zoom ajouté",
-    zoomAddFailed: "Échec de l'ajout du Zoom",
+    zoomAddFailed: zoomAddFailedMessages["fr-FR"],
     zoomConnectFailed: "Impossible de connecter le Zoom",
     zoomConnectionOpened: "Connexion Zoom ouverte",
     zoomNotConfigured: "Zoom OAuth n’est pas configuré.",

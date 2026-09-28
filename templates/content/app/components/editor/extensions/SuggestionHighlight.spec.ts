@@ -123,8 +123,8 @@ describe("SuggestionHighlight", () => {
     const decorations = suggestionHighlightKey
       .getState(editorState)!
       .decorations.find();
-    const insert = decorations.find(
-      (decoration) => decoration.spec.key === "insert-space:inserted",
+    const insert = decorations.find((decoration) =>
+      decoration.spec.key?.startsWith("insert-space:inserted:"),
     ) as any;
     const deletion = decorations.find((decoration) =>
       decoration.spec.key.includes("delete-space"),
@@ -164,8 +164,8 @@ describe("SuggestionHighlight", () => {
     const decorations = suggestionHighlightKey
       .getState(editorState)!
       .decorations.find();
-    const insert = decorations.find(
-      (decoration) => decoration.spec.key === "context-insert-space:inserted",
+    const insert = decorations.find((decoration) =>
+      decoration.spec.key?.startsWith("context-insert-space:inserted:"),
     ) as any;
     const deletion = decorations.find((decoration) =>
       decoration.spec.key.includes("context-delete-space"),
@@ -284,10 +284,12 @@ describe("SuggestionHighlight", () => {
     expect(editorState.doc.textContent).toBe("Before after");
     expect(decorations).toHaveLength(6);
     expect(
-      decorations.find((deco) => deco.spec.key === "replace:inserted")?.from,
+      decorations.find((deco) => deco.spec.key?.startsWith("replace:inserted:"))
+        ?.from,
     ).toBe(13);
     expect(
-      decorations.find((deco) => deco.spec.key === "insert:inserted")?.from,
+      decorations.find((deco) => deco.spec.key?.startsWith("insert:inserted:"))
+        ?.from,
     ).toBe(1);
     const deleted = decorations.find((deco) =>
       (deco as any).type.attrs?.class?.includes("suggestion-delete"),
@@ -305,8 +307,8 @@ describe("SuggestionHighlight", () => {
       class: "suggestion-change suggestion-proposed-text",
       "data-suggestion-id": "mark",
     });
-    const replacement = decorations.find(
-      (deco) => deco.spec.key === "replace:inserted",
+    const replacement = decorations.find((deco) =>
+      deco.spec.key?.startsWith("replace:inserted:"),
     ) as any;
     expect(replacement.type.toDOM().className).toContain(
       "suggestion-highlight--active",
@@ -353,8 +355,8 @@ describe("SuggestionHighlight", () => {
     const decorations = suggestionHighlightKey
       .getState(editorState)!
       .decorations.find();
-    const widget = decorations.find(
-      (deco) => deco.spec.key === "safe:inserted",
+    const widget = decorations.find((deco) =>
+      deco.spec.key?.startsWith("safe:inserted:"),
     )!;
     const dom = (widget as any).type.toDOM();
 
@@ -395,8 +397,8 @@ describe("SuggestionHighlight", () => {
       .getState(editorState)!
       .decorations.find();
     const inserted = (
-      decorations.find(
-        (decoration) => decoration.spec.key === "marked-insert:inserted",
+      decorations.find((decoration) =>
+        decoration.spec.key?.startsWith("marked-insert:inserted:"),
       ) as any
     ).type.toDOM() as HTMLElement;
     const deleted = (
@@ -453,8 +455,8 @@ describe("SuggestionHighlight", () => {
         .getState(editorState)!
         .decorations.find();
       const inserted = (
-        decorations.find(
-          (decoration) => decoration.spec.key === "literal-insert:inserted",
+        decorations.find((decoration) =>
+          decoration.spec.key?.startsWith("literal-insert:inserted:"),
         ) as any
       ).type.toDOM() as HTMLElement;
       const deleted = (

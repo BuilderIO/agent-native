@@ -943,12 +943,399 @@ export const editorChromeBridgeScript: string = `"use strict";
     var editorChromeDocumentObserver = null;
     var editorChromeRootObserver = null;
     var repairingEditorChromeHost = false;
+    var userFocusedElement = null;
+    var trustedFocusIntent = null;
+    var rovingGroupSelector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
+    var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
+    function isCanvasFocusTarget(target) {
+      return !!(target && (isEditorTypingTarget(target) || target.matches(focusTargetSelector)));
+    }
+    function getCanvasFocusTarget(event) {
+      var path = event.composedPath();
+      for (var i = 0; i < path.length; i += 1) {
+        var node = path[i];
+        if (!(node instanceof Element)) continue;
+        if (node instanceof HTMLLabelElement && node.control) {
+          return node.control;
+        }
+        if (isCanvasFocusTarget(node)) return node;
+        var closest = node.closest(focusTargetSelector);
+        if (closest) return closest;
+      }
+      return null;
+    }
+    function armTrustedFocusIntent(target, kind, key) {
+      var rovingGroup = kind === "navigation" && target ? target.closest(rovingGroupSelector) : null;
+      trustedFocusIntent = {
+        target,
+        kind,
+        ...key ? { key } : {},
+        ...rovingGroup ? {
+          rovingGroup,
+          activeDescendantBefore: rovingGroup.getAttribute(
+            "aria-activedescendant"
+          ),
+          tabIndexesBefore: Array.from(
+            rovingGroup.querySelectorAll("[tabindex]")
+          ).map(function(element) {
+            return {
+              element,
+              value: element.getAttribute("tabindex")
+            };
+          })
+        } : {},
+        expiresAt: Date.now() + 1e3
+      };
+    }
+    function clearNavigationFocusIntentAfterAppTasks() {
+      var navigationIntent = trustedFocusIntent;
+      window.setTimeout(function() {
+        window.setTimeout(function() {
+          if (trustedFocusIntent === navigationIntent) {
+            trustedFocusIntent = null;
+          }
+        }, 0);
+      }, 0);
+    }
+    function isRovingFocusSibling(current, next, key, intent) {
+      if (!current) return false;
+      function isNativeRadio(element) {
+        return element.tagName === "INPUT" && element.type === "radio";
+      }
+      if (isNativeRadio(current) && isNativeRadio(next)) {
+        var radioName = current.name;
+        var radioForm = current.form || current.closest("form");
+        var radios = Array.from(
+          current.getRootNode().querySelectorAll(
+            'input[type="radio"]'
+          )
+        ).filter(function(candidate) {
+          var radio = candidate;
+          return radioName !== "" && radio.name === radioName && (radio.form || radio.closest("form")) === radioForm;
+        });
+        var currentRadioIndex = radios.indexOf(current);
+        var nextRadioIndex = radios.indexOf(next);
+        var delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+          if (window.getComputedStyle(current).direction === "rtl") {
+            delta *= -1;
+          }
+        }
+        if (radios.length > 1 && currentRadioIndex !== -1 && nextRadioIndex !== -1 && delta !== 0) {
+          return nextRadioIndex === (currentRadioIndex + delta + radios.length) % radios.length;
+        }
+      }
+      var currentGroup = current.closest(rovingGroupSelector);
+      if (!currentGroup || currentGroup !== next.closest(rovingGroupSelector) || intent.rovingGroup !== currentGroup) {
+        return false;
+      }
+      var role = currentGroup.getAttribute("role");
+      var itemSelector = null;
+      switch (role) {
+        case "grid":
+        case "treegrid":
+          itemSelector = '[role="row"], [role="gridcell"], [role="columnheader"], [role="rowheader"], tr, td, th';
+          break;
+        case "listbox":
+          itemSelector = '[role="option"]';
+          break;
+        case "menu":
+        case "menubar":
+          itemSelector = '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+          break;
+        case "radiogroup":
+          itemSelector = '[role="radio"], input[type="radio"]';
+          break;
+        case "tablist":
+          itemSelector = '[role="tab"]';
+          break;
+        case "toolbar":
+          itemSelector = 'button, a[href], [role="button"], [role="link"]';
+          break;
+        case "tree":
+          itemSelector = '[role="treeitem"]';
+          break;
+      }
+      if (!itemSelector) return false;
+      var currentItem = current.closest(itemSelector);
+      var nextItem = next.closest(itemSelector);
+      if (!currentItem || !nextItem || currentItem === nextItem) return false;
+      function belongsToGroup(item) {
+        if (item.closest(rovingGroupSelector) !== currentGroup) return false;
+        if (item.getAttribute("role")) return true;
+        if (item.tagName !== "TR" && item.tagName !== "TD" && item.tagName !== "TH") {
+          return true;
+        }
+        return item.closest('table[role="grid"], table[role="treegrid"]') === currentGroup;
+      }
+      function isGridRow(item) {
+        return item.getAttribute("role") === "row" || item.tagName === "TR" && belongsToGroup(item);
+      }
+      function gridRows() {
+        return Array.from(
+          currentGroup.querySelectorAll('[role="row"], tr')
+        ).filter(function(row) {
+          return belongsToGroup(row) && isGridRow(row);
+        });
+      }
+      function gridCells(row) {
+        return Array.from(
+          row.querySelectorAll(
+            '[role="gridcell"], [role="columnheader"], [role="rowheader"], td, th'
+          )
+        ).filter(function(cell) {
+          if (!belongsToGroup(cell)) return false;
+          if (cell.getAttribute("role")) {
+            return cell.closest('[role="row"]') === row;
+          }
+          if (cell.tagName === "TD" || cell.tagName === "TH") {
+            return cell.closest("tr") === row && cell.closest('table[role="grid"], table[role="treegrid"]') === currentGroup;
+          }
+          return cell.closest('[role="row"]') === row;
+        });
+      }
+      function ariaIndex(element, name, fallback) {
+        var value = Number(element.getAttribute(name));
+        return Number.isInteger(value) && value > 0 ? value - 1 : fallback;
+      }
+      function hasRovingFocusTransition(currentRovingItem2, nextRovingItem2) {
+        var activeDescendant = currentGroup.getAttribute("aria-activedescendant");
+        var previousActiveDescendant = intent.activeDescendantBefore || null;
+        if (activeDescendant && activeDescendant !== previousActiveDescendant && (activeDescendant === nextRovingItem2.id || activeDescendant === next.id)) {
+          return true;
+        }
+        var previousTabIndex = intent.tabIndexesBefore?.find(function(entry) {
+          return entry.element === currentRovingItem2;
+        });
+        var nextTabIndex = intent.tabIndexesBefore?.find(function(entry) {
+          return entry.element === nextRovingItem2;
+        });
+        if (previousTabIndex?.value === "0" && currentRovingItem2.getAttribute("tabindex") !== "0" && nextTabIndex !== void 0 && nextTabIndex.value !== "0" && nextRovingItem2.getAttribute("tabindex") === "0") {
+          return true;
+        }
+        function isGridCell(item) {
+          return item.getAttribute("role") === "gridcell" || item.getAttribute("role") === "columnheader" || item.getAttribute("role") === "rowheader" || item.tagName === "TD" || item.tagName === "TH";
+        }
+        return (role === "grid" || role === "treegrid") && isGridCell(currentRovingItem2) && isGridCell(nextRovingItem2) && current !== currentRovingItem2 && next !== nextRovingItem2 && current.matches(focusTargetSelector) && next.matches(focusTargetSelector);
+      }
+      if (role === "grid" || role === "treegrid") {
+        var currentRow = currentItem.closest('[role="row"], tr');
+        var nextRow = nextItem.closest('[role="row"], tr');
+        if (!currentRow || !nextRow || !belongsToGroup(currentRow) || !belongsToGroup(nextRow)) {
+          return false;
+        }
+        var rows = gridRows();
+        var currentRowIndex = ariaIndex(
+          currentRow,
+          "aria-rowindex",
+          rows.indexOf(currentRow)
+        );
+        var nextRowIndex = ariaIndex(
+          nextRow,
+          "aria-rowindex",
+          rows.indexOf(nextRow)
+        );
+        var verticalDelta = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+        if (isGridRow(currentItem) && isGridRow(nextItem)) {
+          return verticalDelta !== 0 && nextRowIndex === currentRowIndex + verticalDelta && hasRovingFocusTransition(currentItem, nextItem);
+        }
+        if (isGridRow(currentItem) || isGridRow(nextItem)) {
+          if (role !== "treegrid" || currentRow !== nextRow) return false;
+          var currentIsRow = isGridRow(currentItem);
+          var cells = gridCells(currentRow);
+          if (currentIsRow && key === "ArrowRight") {
+            return cells[0] === nextItem && hasRovingFocusTransition(currentItem, nextItem);
+          }
+          if (!currentIsRow && key === "ArrowLeft") {
+            return cells[0] === currentItem && hasRovingFocusTransition(currentItem, nextItem);
+          }
+          return false;
+        }
+        var currentColumnIndex = ariaIndex(
+          currentItem,
+          "aria-colindex",
+          gridCells(currentRow).indexOf(currentItem)
+        );
+        var nextColumnIndex = ariaIndex(
+          nextItem,
+          "aria-colindex",
+          gridCells(nextRow).indexOf(nextItem)
+        );
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+          var columnDelta = key === "ArrowRight" ? 1 : -1;
+          if (window.getComputedStyle(currentGroup).direction === "rtl") {
+            columnDelta *= -1;
+          }
+          return currentRow === nextRow && nextColumnIndex === currentColumnIndex + columnDelta && hasRovingFocusTransition(currentItem, nextItem);
+        }
+        return verticalDelta !== 0 && nextRowIndex === currentRowIndex + verticalDelta && nextColumnIndex === currentColumnIndex && hasRovingFocusTransition(currentItem, nextItem);
+      }
+      function itemFor(target) {
+        if (role === "tree") return target.closest('[role="treeitem"]');
+        return target.closest(itemSelector);
+      }
+      function isNavigableTreeItem(item) {
+        var currentItem2 = item;
+        while (currentItem2 && currentItem2 !== currentGroup) {
+          if (currentItem2.getAttribute("hidden") !== null || currentItem2.getAttribute("inert") !== null || currentItem2.getAttribute("aria-hidden") === "true") {
+            return false;
+          }
+          if (currentItem2 !== item && currentItem2.getAttribute("role") === "treeitem" && currentItem2.getAttribute("aria-expanded") === "false") {
+            return false;
+          }
+          currentItem2 = currentItem2.parentElement;
+        }
+        return true;
+      }
+      var currentRovingItem = itemFor(current);
+      var nextRovingItem = itemFor(next);
+      if (!currentRovingItem || !nextRovingItem || !belongsToGroup(currentRovingItem) || !belongsToGroup(nextRovingItem)) {
+        return false;
+      }
+      var isRtl = window.getComputedStyle(currentGroup).direction === "rtl";
+      var childKey = isRtl ? "ArrowLeft" : "ArrowRight";
+      var parentKey = isRtl ? "ArrowRight" : "ArrowLeft";
+      if (role === "tree" && key === childKey) {
+        return isNavigableTreeItem(currentRovingItem) && isNavigableTreeItem(nextRovingItem) && nextRovingItem.parentElement?.closest('[role="treeitem"]') === currentRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      }
+      if (role === "tree" && key === parentKey) {
+        return isNavigableTreeItem(currentRovingItem) && isNavigableTreeItem(nextRovingItem) && currentRovingItem.parentElement?.closest('[role="treeitem"]') === nextRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      }
+      var items = Array.from(currentGroup.querySelectorAll(itemSelector)).filter(
+        function(item) {
+          return belongsToGroup(item) && itemFor(item) === item && (role !== "tree" || isNavigableTreeItem(item));
+        }
+      );
+      var currentIndex = items.indexOf(currentRovingItem);
+      var nextIndex = items.indexOf(nextRovingItem);
+      if (currentIndex === -1 || nextIndex === -1) return false;
+      var orientation = currentGroup.getAttribute("aria-orientation");
+      if (!orientation) {
+        orientation = role === "toolbar" || role === "menubar" || role === "tablist" || role === "radiogroup" ? "horizontal" : "vertical";
+      }
+      var delta = key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+      if (!delta) return false;
+      if (orientation === "horizontal") {
+        if (key !== "ArrowLeft" && key !== "ArrowRight") return false;
+        if (window.getComputedStyle(currentGroup).direction === "rtl")
+          delta *= -1;
+      } else if (key !== "ArrowUp" && key !== "ArrowDown") {
+        return false;
+      }
+      var expectedIndex = currentIndex + delta;
+      if (role === "radiogroup" || role === "tablist" || role === "menu" || role === "menubar" || role === "toolbar") {
+        expectedIndex = (expectedIndex + items.length) % items.length;
+      }
+      return nextIndex === expectedIndex && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+    }
+    function rememberUserFocusedElement(event) {
+      var intent = trustedFocusIntent;
+      var target = getCanvasFocusTarget(event);
+      var navigationTargetMatches = intent?.kind !== "navigation" || target === intent.target || target !== null && isRovingFocusSibling(intent.target, target, intent.key, intent);
+      if (!intent || Date.now() > intent.expiresAt || !target || !navigationTargetMatches || intent.kind !== "tab" && intent.kind !== "navigation" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
+        trustedFocusIntent = null;
+        userFocusedElement = null;
+        return;
+      }
+      userFocusedElement = target;
+      trustedFocusIntent = null;
+    }
+    function rememberTrustedCanvasInput(event) {
+      if (readOnly || interactionMode || !event.isTrusted) return;
+      var target = event.target;
+      if (target instanceof Node && editorChromeHost?.contains(target)) return;
+      if (event.type === "pointerdown") {
+        var pointerFocusTarget = getCanvasFocusTarget(event);
+        userFocusedElement = null;
+        if (pointerFocusTarget) {
+          var active = document.activeElement;
+          var visited = /* @__PURE__ */ new Set();
+          while (active && !visited.has(active)) {
+            visited.add(active);
+            if (active === pointerFocusTarget || pointerFocusTarget.contains(active)) {
+              userFocusedElement = pointerFocusTarget;
+              break;
+            }
+            active = active.shadowRoot?.activeElement || null;
+          }
+        }
+        trustedFocusIntent = pointerFocusTarget ? {
+          target: pointerFocusTarget,
+          kind: "pointer",
+          expiresAt: Date.now() + 1e3
+        } : null;
+        return;
+      }
+      if (event.type === "keydown") {
+        var keyEvent = event;
+        if (keyEvent.key === "Tab") {
+          armTrustedFocusIntent(null, "tab");
+          var tabIntent = trustedFocusIntent;
+          window.setTimeout(function() {
+            if (trustedFocusIntent === tabIntent) trustedFocusIntent = null;
+          }, 0);
+          window.parent.postMessage(
+            { type: "agent-native:canvas-tab-navigation" },
+            "*"
+          );
+          return;
+        }
+        var active = document.activeElement;
+        if (active instanceof Element && isCanvasFocusTarget(active)) {
+          userFocusedElement = active;
+          if (keyEvent.key.startsWith("Arrow")) {
+            armTrustedFocusIntent(active, "navigation", keyEvent.key);
+            clearNavigationFocusIntentAfterAppTasks();
+          } else if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape") {
+            armTrustedFocusIntent(active, "activation");
+          }
+        }
+      }
+    }
+    function isCanvasFocusTransferSafe() {
+      if (trustedFocusIntent && Date.now() > trustedFocusIntent.expiresAt) {
+        if (trustedFocusIntent.target === userFocusedElement) {
+          userFocusedElement = null;
+        }
+        trustedFocusIntent = null;
+      }
+      var active = document.activeElement;
+      if (activeTextEditEl?.isConnected && activeTextEditEl.contains(active)) {
+        return false;
+      }
+      var visited = /* @__PURE__ */ new Set();
+      while (active && !visited.has(active)) {
+        visited.add(active);
+        if (userFocusedElement?.isConnected && (active === userFocusedElement || userFocusedElement.contains(active))) {
+          return false;
+        }
+        var shadowActive = active.shadowRoot?.activeElement;
+        if (shadowActive) {
+          active = shadowActive;
+          continue;
+        }
+        return true;
+      }
+      return true;
+    }
+    function reportCanvasFocusState(reason) {
+      if (readOnly || interactionMode) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          focusSafe: isCanvasFocusTransferSafe(),
+          ...reason ? { reason } : {}
+        },
+        "*"
+      );
+    }
     function sendEditorChromeReady() {
       window.parent.postMessage(
         {
           type: "agent-native:editor-chrome-ready",
           routePath: window.location.pathname + window.location.search,
-          documentId: runtimeDocumentId
+          documentId: runtimeDocumentId,
+          focusSafe: !readOnly && !interactionMode && isCanvasFocusTransferSafe()
         },
         "*"
       );
@@ -2528,8 +2915,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         instanceIndex,
         xFor: template.getAttribute("x-for") || "",
         itemIndex: rowIndex,
-        // Empty when this element's text is literal markup in the template body,
-        // which an ordinary markup edit reaches correctly.
         textBinding: el.getAttribute("x-text") || "",
         keyExpression: template.getAttribute(":key") || "",
         itemKey: rowKeyFor(template, row)
@@ -3080,12 +3465,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       "placeContent",
       "placeItems",
       "placeSelf",
-      // "position" is deliberately excluded: the drop/move that carries this
-      // snapshot always decides the landed node's position itself afterward
-      // (setRootLayerPosition / setAbsolutePositioningForNodeInHtml /
-      // removeAbsolutePositioningFromNodeInHtml), and design-editor/
-      // portable-style.ts's applyPortableStyles filters it back out on the
-      // apply side too if it's ever added back here — keep both in sync.
       "rowGap",
       "textAlign",
       "textDecoration",
@@ -4173,11 +4552,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         webkitLineClamp: cs.getPropertyValue("-webkit-line-clamp"),
         textAlign: cs.textAlign,
         textTransform: cs.textTransform,
-        // Clean longhand for decoration-toggle state (Cmd+U underline /
-        // Cmd+Shift+X strikethrough). Deliberately the longhand, not the
-        // \`textDecoration\` shorthand — see typography-helpers.ts's
-        // PERSISTENCE GOTCHA comment: reads use this clean value, writes
-        // still commit through the shorthand property name.
         textDecorationLine: cs.textDecorationLine,
         display: cs.display,
         overflow: cs.overflow,
@@ -4242,8 +4616,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         outlineStyle: cs.outlineStyle,
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
-        // Read off the shape child for a drawn vector (vectorPaintTarget):
-        // the \`<svg>\` wrapper itself is never painted.
         fill: paintCs.fill,
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
@@ -4258,10 +4630,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         vectorTransform: paintCs.transform,
         vectorTransformOrigin: paintCs.transformOrigin,
         vectorTransformBox: paintCs.transformBox,
-        // Text glyph outline (Figma-parity text "Stroke") — CSS has no
-        // unprefixed alias, so this is read via the vendor-prefixed
-        // longhands directly. See applyStyleEdit/normalizeStyleProperty in
-        // shared/code-layer.ts for the matching write-side allow-list entry.
         webkitTextStrokeWidth: cs.webkitTextStrokeWidth,
         webkitTextStrokeColor: cs.webkitTextStrokeColor,
         boxShadow: cs.boxShadow,
@@ -4510,13 +4878,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var runtimeSourceId = runtimeOnlyClone ? getSourceId(el) : "";
       var runtimeSelector = runtimeSourceId ? getSelector(el) : "";
       var pendingNodeId = "";
-      if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && // Defensive guard (mirrors hit-test.bridge.ts's getOrMintPendingNodeId):
-      // a template clone has no counterpart in source HTML, so no host
-      // persist call could ever durably write data-agent-native-node-id for
-      // it, and Alpine re-renders the clone from scratch on the next data
-      // change anyway (the stamped attribute would vanish). Fail closed
-      // instead of minting a pending id that can never be persisted.
-      !isTemplateCloneElement(el)) {
+      if (!getSourceId(el) && el !== document.body && el !== document.documentElement && el.getAttribute && el.setAttribute && !isTemplateCloneElement(el)) {
         pendingNodeId = el.getAttribute("data-an-pending-node-id") || "";
         if (!pendingNodeId) {
           pendingNodeId = freshRuntimeNodeId("pending");
@@ -5363,9 +5725,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeDragCancel && (typeof pressedAt !== "number" || activeDragStartedAt === null || activeDragStartedAt <= pressedAt)) {
         if (cancelActiveBridgeDrag()) return true;
       }
-      if (pendingMoveCommitRevert && typeof pressedAt === "number" && // Strict: a tie (same-tick release and Escape) is not "Escape predates
-      // the release" and must not revert an already-committed drag.
-      pressedAt < pendingMoveCommitRevert.releasedAt) {
+      if (pendingMoveCommitRevert && typeof pressedAt === "number" && pressedAt < pendingMoveCommitRevert.releasedAt) {
         var pending = pendingMoveCommitRevert;
         pendingMoveCommitRevert = null;
         pending.revert();
@@ -7392,8 +7752,6 @@ export const editorChromeBridgeScript: string = `"use strict";
               screenId: designCanvasScreenId,
               selector: getSelector(el),
               sourceId: getSourceId(el),
-              // Carry the iframe's own render-window offset with this geometry.
-              // A delayed local rect must not be paired with a newer host window.
               contentOffsetX: designCanvasContentOffsetX,
               contentOffsetY: designCanvasContentOffsetY,
               rect: {
@@ -8440,7 +8798,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isEditorTypingTarget(target) {
       if (!target || !target.closest) return false;
       return !!target.closest(
-        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+        'input, textarea, select, [contenteditable], [role="textbox"], [role="combobox"], [role="searchbox"], [data-agent-native-text-editing]'
       );
     }
     var ALT_CODE_KEYS = {
@@ -8541,31 +8899,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           "0",
           "]",
           "[",
-          // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
           "u",
-          // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
-          // so browser refresh keeps its expected meaning.
-          // Cmd/Ctrl+K — open the host command menu even while the iframe has
-          // focus. DesignEditor routes this chord to openCommandMenu().
           "k"
-        ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2" || // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
-        // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
-        // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
-        // shortcuts the host has no bare-primary binding for — are left
-        // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        // Cmd/Ctrl+F — find (onFind). Gated on the platform's own primary
-        // modifier, matching isPlatformPrimaryModifier host-side: forwarding
-        // is NOT harmless, because the shield preventDefaults before posting,
-        // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
-        isPlatformPrimaryChord(e) && !e.altKey && !e.shiftKey && normalized === "f" || // Cmd/Ctrl+\\ and Cmd/Ctrl+Shift+\\ toggle Design chrome. Use the
-        // physical code so both shortcuts remain stable across layouts.
-        e.code === "Backslash" && !e.altKey || e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
-        // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B is left alone — the host has no bare-primary binding for it.
-        e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
-        // platform, so gate on ctrlKey rather than \`primary\` — a blanket "t"
-        // above would swallow Cmd+T, a combo the host never binds.
-        e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && ["h", "v", "t"].indexOf(normalized) !== -1;
+        ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2" || isPlatformPrimaryChord(e) && !e.altKey && !e.shiftKey && normalized === "f" || e.code === "Backslash" && !e.altKey || e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || e.altKey && (normalized === "b" || normalized === "k") || e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && ["h", "v", "t"].indexOf(normalized) !== -1;
       }
       if (e.altKey) {
         if (e.shiftKey) return normalized === "s";
@@ -8718,7 +9054,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function isInlineEditableDescendant(el) {
       if (!el || !el.tagName) return false;
       return [
-        // Inline formatting
         "a",
         "abbr",
         "b",
@@ -8736,7 +9071,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         "time",
         "u",
         "wbr",
-        // Block-level text containers
         "p",
         "h1",
         "h2",
@@ -8908,10 +9242,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             shiftKey: Boolean(e && e.shiftKey),
             metaKey: Boolean(e && e.metaKey),
             ctrlKey: Boolean(e && e.ctrlKey),
-            // A live drag reports a changed hit-set on every mousemove tick;
-            // only the mouseup report (see beginMarqueeSelection's onUp) sets
-            // this, so the host records ONE selection-history entry per
-            // gesture instead of one per tick (coalesceMarqueeSelectionHistory).
             final: final === true
           }
         },
@@ -11925,21 +12255,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
           sourceComputedSize: activeCrossScreenComputedSize,
-          // Explicit sibling flag, not just \`styleSnapshot === null\` — the
-          // host must not have to infer capture-failed from a value shape
-          // that could change; see collectPortableStyleSnapshot's doc.
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
-          // The host needs the frozen outerHTML for moves as well as copies. A
-          // live source has no stored HTML document to snapshot, so waiting for
-          // the duplicate-only field leaves move drops with no insert payload.
-          // Use the pre-lift snapshot: during a drag the bridge may temporarily
-          // add a translate() transform to the source element, and that
-          // editor-only transform must never become destination markup.
-          // Send it from "start": the host can finalize from its own window
-          // mouseup, in which case this iframe never sees the release and no
-          // "end" is posted.
           sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
@@ -12235,14 +12553,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
           return {
             anchor: container,
-            // Grid placement is calculated against the container, while the
-            // insertion line communicates the layer-order position within the
-            // occupied cell. Keep the structural target as "inside" so the
-            // grid placement path still owns persistence and displacement.
             placement: "inside",
-            // Grid placement is calculated against the container, but source
-            // order must follow the occupied cell so persistence matches the
-            // held preview and Figma's layer order.
             persistenceAnchor: displaced || container,
             persistencePlacement: displaced ? pointer <= midpoint + 0.5 ? "before" : "after" : "inside",
             axis: gridAxis,
@@ -12255,9 +12566,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             },
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
-            // Column auto-flow derives placement from source order. Persisting
-            // measured coordinates here would freeze responsive auto-flow into
-            // explicit gridColumn/gridRow styles.
             ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
             gridDisplacement: displaced
           };
@@ -12410,6 +12718,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -12426,7 +12735,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          var before = placementPointer < center;
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -12494,7 +12805,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               clientY,
               dragged
             );
-            if (betweenChildren) return betweenChildren;
+            if (betweenChildren && (hit === el.parentElement || isAutoLayoutElement(hit))) {
+              return betweenChildren;
+            }
             return {
               anchor: hit,
               placement: "inside",
@@ -12617,7 +12930,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "flow-insert"
         };
       }
-      var target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      var receivingContainer = currentParent.parentElement;
+      var target = pointerOutsideCurrentParent && isAutoLayoutElement(document.body) && (!pointHit || pointHit === document.body || pointHit === document.documentElement) ? screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) : null;
+      if (!target && pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+        target = nearestChildInsertionTarget(
+          receivingContainer,
+          clientX,
+          clientY,
+          dragged
+        ) || {
+          anchor: receivingContainer,
+          placement: "inside",
+          axis: parentFlowAxis(receivingContainer),
+          dropMode: "flow-insert"
+        };
+      } else if (!target) {
+        target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
+      }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
         var nestedHit = elementFromEditorPoint(clientX, clientY);
         while (nestedHit && nestedHit.parentElement !== currentParent && nestedHit !== el && !el.contains(nestedHit)) {
@@ -12641,21 +12970,47 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && !isAutoLayoutElement(document.body)) {
+        target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
+      }
       var container = dropContainerForTarget(target);
       if (ignoreTargetAutoLayout && container && container !== document.body && isAutoLayoutElement(container)) {
-        return {
+        target = {
           anchor: container,
           placement: "inside",
           axis: parentFlowAxis(container),
           dropMode: "absolute-container"
         };
       }
-      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body)) {
-        return {
+      var unnestPromotedBoardRootTarget = target?.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
+      var screenRootFlowTarget = container === document.body && target?.dropMode === "flow-insert" && isAutoLayoutElement(document.body);
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget && !screenRootFlowTarget) {
+        target = {
           anchor: currentParent,
           placement: "after",
           axis: "y",
           dropMode: "absolute-container"
+        };
+      }
+      var exitedContainer = el.parentElement;
+      var receivingContainer = exitedContainer && exitedContainer.parentElement;
+      var targetContainer = dropContainerForTarget(target);
+      if (!ignoreTargetAutoLayout && target && exitedContainer && receivingContainer && isContainerDropTarget(exitedContainer) && !isAutoLayoutElement(receivingContainer) && !unnestPromotedBoardRootTarget && (targetContainer === receivingContainer || target?.anchor === receivingContainer) && (pointHit === receivingContainer || !pointHit || pointHit === document.body || pointHit === document.documentElement)) {
+        target = {
+          ...target,
+          anchor: exitedContainer,
+          placement: "after",
+          axis: parentFlowAxis(receivingContainer),
+          persistenceAnchor: exitedContainer,
+          persistencePlacement: "after",
+          gridCell: void 0,
+          gridPlacement: void 0,
+          gridDisplacement: void 0,
+          gridDisplacementPlacements: void 0,
+          gridDisplacementPrevStyles: void 0,
+          guideRect: void 0,
+          guideMode: void 0,
+          guidePlacement: void 0
         };
       }
       if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
@@ -12718,9 +13073,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           anchor: explicitFrame,
           placement: "inside",
           axis: parentFlowAxis(explicitFrame),
-          // A declared frame is a deliberate nesting target even while it is a
-          // flex item itself. Its normal drop mode joins the frame's content
-          // flow; Ctrl is the explicit request to keep absolute positioning.
           dropMode: "flow-insert"
         };
       }
@@ -12867,16 +13219,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       return screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) || unnestAbsoluteToScreenRoot(el, clientX, clientY);
     }
     function unnestAbsoluteToScreenRoot(el, clientX, clientY) {
-      var parent = el && el.parentElement;
-      if (!parent || parent === document.body || parent === document.documentElement) {
+      var child = el && el.parentElement;
+      var childRect = child && child.getBoundingClientRect();
+      if (!child || child === document.body || child === document.documentElement || !childRect || clientX >= childRect.left && clientX <= childRect.right && clientY >= childRect.top && clientY <= childRect.bottom) {
         return null;
       }
-      var parentRect = parent.getBoundingClientRect();
-      if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
-        return null;
+      var parent = child.parentElement;
+      while (parent && parent !== document.body && parent !== document.documentElement) {
+        var parentRect = parent.getBoundingClientRect();
+        if (clientX >= parentRect.left && clientX <= parentRect.right && clientY >= parentRect.top && clientY <= parentRect.bottom) {
+          return {
+            anchor: child,
+            placement: "after",
+            axis: parentFlowAxis(parent),
+            dropMode: "absolute-container"
+          };
+        }
+        child = parent;
+        parent = parent.parentElement;
       }
       return {
-        anchor: parent,
+        anchor: child,
         placement: "after",
         axis: "y",
         dropMode: "absolute-container"
@@ -13636,14 +13999,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             placement: entry.placement
           };
         }) : void 0,
-        // Present only when this node did not exist in the running app before
-        // the change. The host must NOT tell the coding agent to relocate an
-        // element the source file has never contained.
         insertedHtml: typeof insertedHtml === "string" ? insertedHtml : void 0,
-        // A runtime insert has a separate applied acknowledgement. Its
-        // optimistic visual-structure echo is informational and must not be
-        // rejected independently, or the target bridge removes a successful
-        // cross-screen/canvas insert before the host records it.
         runtimeInsert: runtimeInsert === true ? true : void 0,
         replaced: replaced === true ? true : void 0,
         replacementSnapshotHtml,
@@ -13672,9 +14028,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId,
           selector: getSelector(originalEl),
           sourceId: getSourceId(originalEl),
-          // A free Alt-drag has no resolved insertion target, but the source is
-          // still inserted after its original sibling. Keep that anchor in the
-          // host message so live-source persistence can replay the same relation.
           anchorSelector: getSelector(anchorEl),
           anchorSourceId: getSourceId(anchorEl),
           placement: target && (target.persistencePlacement || target.placement) ? target.persistencePlacement || target.placement : "after",
@@ -15267,16 +15620,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               reorderMetaFreePlacement = false;
             }
           }
-          var outsideOnDrop = (
-            // A ctrl/cmd auto-layout-override or Meta free-placement drag never
-            // arms the host (see onReorderMove above), so the numeric
-            // outside-the-iframe check below must not apply to either path, or
-            // the in-iframe commit below is skipped with nothing to take its
-            // place.
-            !reorderIgnoresAutoLayout && !reorderMetaFreePlacement && (cx < 0 || cy < 0 || cx > vw || cy > vh) || // Claimed by the host: committing here too would write the node
-            // twice, from two different ideas of where it landed.
-            crossScreenClaimedByHost
-          );
+          var outsideOnDrop = !reorderIgnoresAutoLayout && !reorderMetaFreePlacement && (cx < 0 || cy < 0 || cx > vw || cy > vh) || crossScreenClaimedByHost;
           if (!isGroupDrag && !reorderIgnoresAutoLayout && !reorderMetaFreePlacement) {
             postCrossScreenDrag(
               "end",
@@ -15516,10 +15860,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var bridgeMoveController = createCanvasGestureController({
         capabilities: { move: true, resize: true },
         drag: {
-          // Shield drags already crossed the outer threshold before reaching
-          // startMove. Keeping their controller threshold at zero preserves the
-          // first post-shield delta, while direct selection-chrome drags still
-          // need a real threshold before they preview or persist.
           threshold: pointerStartParam ? 0 : DRAG_THRESHOLD,
           duplicateModifier: "alt"
         },
@@ -15538,10 +15878,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        // Shield drags begin here after their threshold-crossing event. For an
-        // alt-drag, the clone must include the movement from the original press;
-        // plain shield drags keep their existing threshold-relative baseline so
-        // cross-screen target resolution is unchanged.
         pointer: bridgeGesturePointer(
           duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
         ),
@@ -15605,10 +15941,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           ctrlKey: !!ev.ctrlKey,
           altKey: !!ev.altKey,
           shiftKey: !!ev.shiftKey,
-          // Capture the modifier state carried by this move. The RAF can run
-          // after the host's keyboard state has changed, so reading only the
-          // bridge globals there can resolve a different gesture than the one
-          // that scheduled the move.
           spaceKeyPressed: Boolean(ev.spaceKeyPressed) || bridgeSpaceKeyPressed,
           ignoreAutoLayoutKeyPressed: Boolean(ev.ignoreAutoLayoutKeyPressed) || bridgeIgnoreAutoLayoutKeyPressed || !isApplePlatformBridge() && String(ev.key).toLowerCase() === "s",
           snapResult: {
@@ -15813,23 +16145,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         var snapBypass = ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev);
         var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
           {
-            // snapCandidateRects are client space; nextLeft/nextTop are
-            // offset-parent CSS space. Convert, or nothing ever matches.
             left: dragElStartRect.left + (nextLeft - originLeft) * dragElOffsetScaleX,
             top: dragElStartRect.top + (nextTop - originTop) * dragElOffsetScaleY,
             width: dragElStartWidth,
             height: dragElStartHeight
           },
           snapCandidateRects,
-          // Convert the screen-space base to content px (1/zoom).
           SNAP_THRESHOLD_PX * chromeLineScale(),
           isGroupDrag,
           ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null
         ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
         if (window.__DND_DEBUG)
           dndLog("snap:tick", {
-            // Ordered so the fields that decide whether snapping ran at all come
-            // first: the console collapses long objects behind an ellipsis.
             bypass: snapBypass,
             duplicated: duplicatedForDrag,
             mods: (ev.metaKey ? "M" : "") + (ev.ctrlKey ? "C" : "") + (ev.altKey ? "A" : "") + (ev.shiftKey ? "S" : "") || "none",
@@ -15967,7 +16294,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) || crossScreenClaimedByHost : false;
         if (ev && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {
-          var sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
           postCrossScreenDrag("end", dragEl, ev, {
             duplicate: duplicatedForDrag,
             modifiers: {
@@ -15986,21 +16312,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           } else {
             restoreSourceDragPosition();
-            if (crossScreenClaimedByHost && sourceDeleteRequestId) {
-              var selector = getSelector(dragEl);
-              var sourceId = getSourceId(dragEl);
-              var selectorCandidates = [selector];
-              if (sourceId) {
-                selectorCandidates.push(
-                  '[data-agent-native-node-id="' + CSS.escape(sourceId) + '"]'
-                );
-              }
-              concealPendingRuntimeDelete(
-                selector,
-                selectorCandidates,
-                sourceDeleteRequestId
-              );
-            }
           }
           return;
         }
@@ -16100,9 +16411,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           });
           armPostCommitCancelGrace(
             moveGestureId,
-            // Real creation time of the mouseup, not of this handler running —
-            // any synchronous work above (auto-layout resolution, DOM writes)
-            // would otherwise inflate the apparent release time.
             performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
             function() {
               memberStates.forEach(function(state) {
@@ -16869,9 +17177,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           originTop: 0,
           originWidth: 0,
           originHeight: 0,
-          // The center is the one point rotation leaves alone: a rotated
-          // member's client rect is its inflated axis-aligned box, so corners
-          // would scale it to the wrong place.
           originCenterX: 0,
           originCenterY: 0
         };
@@ -17682,6 +17987,45 @@ export const editorChromeBridgeScript: string = `"use strict";
     ].forEach(function(type) {
       document.addEventListener(type, stopBlockedLayerInteraction, true);
     });
+    document.addEventListener(
+      "focusin",
+      function(event) {
+        rememberUserFocusedElement(event);
+        reportCanvasFocusState();
+      },
+      true
+    );
+    document.addEventListener("pointerdown", rememberTrustedCanvasInput, true);
+    document.addEventListener("keydown", rememberTrustedCanvasInput, true);
+    document.addEventListener(
+      "focusout",
+      function(event) {
+        var blurred = event.target instanceof Element ? event.target : null;
+        window.setTimeout(function() {
+          if (blurred && userFocusedElement && (blurred === userFocusedElement || userFocusedElement.contains(blurred))) {
+            var active = document.activeElement;
+            var visited = /* @__PURE__ */ new Set();
+            while (active && !visited.has(active)) {
+              visited.add(active);
+              if (active === userFocusedElement || userFocusedElement.contains(active)) {
+                break;
+              }
+              active = active.shadowRoot?.activeElement || null;
+            }
+            if (!active || !visited.has(active)) userFocusedElement = null;
+          }
+          reportCanvasFocusState();
+        }, 0);
+      },
+      true
+    );
+    document.addEventListener(
+      "pointerup",
+      function() {
+        window.setTimeout(reportCanvasFocusState, 0);
+      },
+      true
+    );
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
     shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
     selectionOverlay.addEventListener(
@@ -18105,12 +18449,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var eventTarget = e && e.target && e.target.nodeType === 1 ? e.target : null;
       var programmaticFlag = !!e && e.agentNativeProgrammaticTextEdit === true;
       var rawTargetFallback = programmaticFlag && !isRejectedRawTextEditTarget(eventTarget) ? eventTarget : null;
-      var target = programmaticFlag ? (
-        // Prefer the raw explicit node (rawTargetFallback === eventTarget) over
-        // findTextEditTarget, which climbs UP to the highest inline-editable
-        // ancestor (→ <main>) and would put the whole screen into edit mode.
-        rawTargetFallback || findTextEditTarget(eventTarget)
-      ) : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || rawTargetFallback;
+      var target = programmaticFlag ? rawTargetFallback || findTextEditTarget(eventTarget) : findTextEditTarget(elementFromEditorPoint(e.clientX, e.clientY)) || findTextEditTarget(eventTarget) || rawTargetFallback;
       if (!target || target.nodeType !== 1) {
         if (!programmaticFlag) {
           var descendHit = elementFromEditorPoint(e.clientX, e.clientY);
@@ -18797,6 +19136,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         sendEditorChromeReady();
         return;
       }
+      if (e.data.type === "agent-native:canvas-focus-state-probe") {
+        reportCanvasFocusState(
+          e.data.reason === "route-change" ? "route-change" : void 0
+        );
+        return;
+      }
+      if (e.data.type === "agent-native:canvas-focus-claimed") {
+        userFocusedElement = null;
+        trustedFocusIntent = null;
+        return;
+      }
       if (e.data.type === "resume-text-edit") {
         var resumeScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
         var resumeSelector = typeof e.data.selector === "string" ? e.data.selector : "";
@@ -18854,6 +19204,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-read-only") {
         var nextReadOnly = !!e.data.readOnly;
+        if (nextReadOnly !== readOnly) {
+          userFocusedElement = null;
+          trustedFocusIntent = null;
+        }
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
@@ -18875,6 +19229,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "set-interaction-mode") {
         var nextInteractionMode = e.data.interact === true;
+        if (nextInteractionMode !== interactionMode) {
+          userFocusedElement = null;
+          trustedFocusIntent = null;
+        }
         interactionMode = nextInteractionMode;
         if (interactionMode) {
           var releaseSpacePan = bridgeSpaceKeyPressed;
@@ -18902,6 +19260,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (selectedEl?.isConnected)
             positionOverlay(selectionOverlay, selectedEl);
           scheduleRuntimeLayerSnapshot();
+          window.setTimeout(reportCanvasFocusState, 0);
         }
         return;
       }
@@ -19667,8 +20026,31 @@ export const editorChromeBridgeScript: string = `"use strict";
           requestId: e.data.requestId,
           applied: Boolean(e.data.applied)
         });
+        var cancelRuntimeStructureDelete = e.data.cancelRuntimeStructureDelete;
+        var postRuntimeStructureDeleteCancellationResult = function(sourcePresentOverride) {
+          if (!cancelRuntimeStructureDelete || typeof cancelRuntimeStructureDelete.transactionId !== "string") {
+            return;
+          }
+          var restoredSource = findRuntimeTarget(
+            String(cancelRuntimeStructureDelete.selector || ""),
+            Array.isArray(cancelRuntimeStructureDelete.selectorCandidates) ? cancelRuntimeStructureDelete.selectorCandidates : []
+          );
+          window.parent.postMessage(
+            {
+              type: "runtime-structure-delete-cancelled",
+              requestId: String(e.data.requestId || ""),
+              transactionId: cancelRuntimeStructureDelete.transactionId,
+              routePath: window.location.pathname + window.location.search,
+              sourcePresent: typeof sourcePresentOverride === "boolean" ? sourcePresentOverride : Boolean(restoredSource)
+            },
+            "*"
+          );
+        };
         var move = pendingStructureMoves[e.data.requestId];
-        if (!move) return;
+        if (!move) {
+          postRuntimeStructureDeleteCancellationResult();
+          return;
+        }
         delete pendingStructureMoves[e.data.requestId];
         var moveWasInsert = Boolean(move.origin && "inserted" in move.origin);
         var moveWasRemoval = Boolean(move.origin && "removed" in move.origin);
@@ -19689,6 +20071,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult();
           return;
         }
         if (moveWasRemoval) {
@@ -19706,6 +20089,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
           refreshOverlays();
+          postRuntimeStructureDeleteCancellationResult(
+            Boolean(move.el && move.el.isConnected)
+          );
           return;
         }
         if (e.data.applied) {
@@ -19730,6 +20116,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
             if (hoveredEl === move.el) hoveredEl = null;
             refreshOverlays();
+            postRuntimeStructureDeleteCancellationResult();
             return;
           }
           if (move.el && move.el.isConnected && move.origin && "prevParent" in move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
@@ -19752,6 +20139,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             postElementSelect(selectedEl);
           }
         }
+        postRuntimeStructureDeleteCancellationResult();
         return;
       }
       if (e.data.type === "replace-document-content") {

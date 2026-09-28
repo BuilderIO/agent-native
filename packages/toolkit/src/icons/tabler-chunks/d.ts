@@ -1,4 +1,3 @@
-// Generated from @tabler/icons 3.44.0. Run node packages/toolkit/scripts/generate-tabler-catalog.ts.
 import {
   IconDashboard,
   IconDashboardFilled,

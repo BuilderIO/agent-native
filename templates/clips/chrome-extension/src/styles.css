@@ -233,7 +233,6 @@ svg {
   box-shadow: var(--shadow-sm);
 }
 
-/* Tooltip (shadcn-style, CSS-only to mirror the desktop app's Radix tooltip) */
 [data-tooltip] {
   position: relative;
 }
@@ -1037,8 +1036,6 @@ h1 {
   font-size: 13px;
 }
 
-/* Unsupported-page notice (shown in the popup when the active tab can't host
-   the on-page overlay, e.g. chrome:// / New Tab / Web Store pages). */
 .notice {
   display: flex;
   gap: 10px;
