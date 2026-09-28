@@ -139,6 +139,7 @@ type BackfillState = {
   failedKeys: string[];
   retryCount?: number;
   retryAfterAt?: number;
+  incompleteCoverage?: boolean;
   undoProcessedIds: string[];
   undoFailedKeys: string[];
   snapshots: Record<string, UndoThreadSnapshot>;
@@ -306,6 +307,8 @@ function parseState(raw: string): BackfillState {
       (!Number.isInteger(state.retryCount) || state.retryCount < 0)) ||
     (state.retryAfterAt !== undefined &&
       !Number.isFinite(state.retryAfterAt)) ||
+    (state.incompleteCoverage !== undefined &&
+      typeof state.incompleteCoverage !== "boolean") ||
     !state.snapshots ||
     typeof state.snapshots !== "object"
   ) {
@@ -954,6 +957,7 @@ async function captureCandidates(
       errors,
     );
     if (clients.length === 0) throw error;
+    state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
   }
   return clients.length > 0
@@ -1486,6 +1490,8 @@ function preserveUndoRequestState(
   state.retryCount = current.retryCount;
   if (current.retryAfterAt === undefined) delete state.retryAfterAt;
   else state.retryAfterAt = current.retryAfterAt;
+  if (current.incompleteCoverage === undefined) delete state.incompleteCoverage;
+  else state.incompleteCoverage = current.incompleteCoverage;
   if (current.error === undefined) delete state.error;
   else state.error = current.error;
 }
@@ -1665,7 +1671,7 @@ async function processRunningBatch(
         row.id,
         claimId,
         state,
-        state.error ? "failed" : "completed",
+        state.incompleteCoverage || state.error ? "failed" : "completed",
       );
       return;
     }
@@ -1685,7 +1691,7 @@ async function processRunningBatch(
       row.id,
       claimId,
       state,
-      state.error ? "failed" : "completed",
+      state.incompleteCoverage || state.error ? "failed" : "completed",
     );
     return;
   }
@@ -1697,6 +1703,7 @@ async function processRunningBatch(
       errors,
     );
     if (clients.length === 0) throw error;
+    state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
   }
   const clientsByEmail = new Map(
@@ -1708,6 +1715,18 @@ async function processRunningBatch(
     const candidateMatched = matches.length > 0;
     if (candidateMatched && !state.matchedThreadKeys.includes(candidate.key)) {
       state.matchedThreadKeys.push(candidate.key);
+    }
+    const client = candidate.accountEmail
+      ? clientsByEmail.get(candidate.accountEmail.toLowerCase())
+      : undefined;
+    const candidateSkipped = !!candidate.accountEmail && !client;
+    if (candidateSkipped) {
+      state.incompleteCoverage = true;
+      state.error ??= sanitizeBackfillError(
+        new Error(`Gmail account ${candidate.accountEmail} is unavailable.`),
+      );
+      if (!state.failedKeys.includes(candidate.key))
+        state.failedKeys.push(candidate.key);
     }
     let candidateFailed = false;
     for (const match of matches) {
@@ -1728,6 +1747,7 @@ async function processRunningBatch(
         state.processedIds.push(key);
         continue;
       }
+      if (candidateSkipped) continue;
       const existingSnapshot = state.snapshots[candidate.key];
       const actions: AutomationAction[] =
         disposition === "suggest"
@@ -1767,14 +1787,6 @@ async function processRunningBatch(
         return saved;
       };
       try {
-        const client = candidate.accountEmail
-          ? clientsByEmail.get(candidate.accountEmail.toLowerCase())
-          : undefined;
-        if (candidate.accountEmail && !client) {
-          throw new Error(
-            `Gmail account ${candidate.accountEmail} is unavailable.`,
-          );
-        }
         if (client) {
           const cache =
             labelCaches.get(client.email.toLowerCase()) ??
@@ -1836,9 +1848,10 @@ async function processRunningBatch(
       }
     }
     if (!candidateFailed) {
-      state.failedKeys = state.failedKeys.filter(
-        (key) => key !== candidate.key,
-      );
+      if (!candidateSkipped)
+        state.failedKeys = state.failedKeys.filter(
+          (key) => key !== candidate.key,
+        );
       state.processedThreads += 1;
       state.candidateIndex += 1;
     }
@@ -1852,7 +1865,7 @@ async function processRunningBatch(
       row.id,
       claimId,
       state,
-      state.error ? "failed" : "completed",
+      state.incompleteCoverage || state.error ? "failed" : "completed",
     );
   } else {
     await saveRunState(row.id, claimId, state, "running");
@@ -2097,7 +2110,7 @@ async function claimRun(row: BackfillRow): Promise<ClaimedBackfill | null> {
     if (retryAfterAt !== undefined) {
       const state = parseState(currentRow.stateJson);
       delete state.retryAfterAt;
-      delete state.error;
+      if (!state.incompleteCoverage) delete state.error;
       stateJsonForClaim = JSON.stringify(state);
     }
     const requested = new Set(ruleIdsForBackfillRow(currentRow));
@@ -2344,7 +2357,7 @@ export async function processMailAiFilterBackfills(
         if (retryDelay !== null && retryCount < MAX_BACKFILL_RETRIES) {
           state.retryCount = retryCount + 1;
           state.retryAfterAt = Date.now() + retryDelay;
-          delete state.error;
+          if (!state.incompleteCoverage) delete state.error;
           const activeStatus =
             claimedRow.status === "undoing" ? "undoing" : "running";
           const [scheduled] = await db

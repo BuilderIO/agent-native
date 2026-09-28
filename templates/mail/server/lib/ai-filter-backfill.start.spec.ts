@@ -581,14 +581,42 @@ describe("startMailAiFilterBackfill", () => {
       ],
     });
     const row = runningRow([activeRule]);
+    const state: any = JSON.parse(row.stateJson);
+    state.candidates = [];
+    state.incompleteCoverage = true;
+    state.error = "unavailable@example.test: refresh failed";
+    row.stateJson = JSON.stringify(state);
     database.rows.push(row);
+    mocks.getClientsWithErrors
+      .mockResolvedValueOnce({
+        clients: [],
+        errors: [
+          {
+            email: "account@example.test",
+            error: "temporary refresh failure",
+            retryable: true,
+          },
+        ],
+      })
+      .mockResolvedValue({ clients: [], errors: [] });
 
     await processMailAiFilterBackfills(ownerEmail);
 
     expect(row.status).toBe("queued");
-    const state = JSON.parse(row.stateJson);
-    expect(state.retryCount).toBe(1);
-    expect(state.retryAfterAt).toBeGreaterThan(Date.now());
+    const retried = JSON.parse(row.stateJson);
+    expect(retried.retryCount).toBe(1);
+    expect(retried.retryAfterAt).toBeGreaterThan(Date.now());
+    expect(retried.incompleteCoverage).toBe(true);
+    expect(retried.error).toBe("unavailable@example.test: refresh failed");
+
+    retried.retryAfterAt = Date.now() - 1;
+    row.stateJson = JSON.stringify(retried);
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const recovered = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(recovered.incompleteCoverage).toBe(true);
+    expect(recovered.error).toBe("unavailable@example.test: refresh failed");
   });
 
   it("applies a rule to available Gmail accounts and reports incomplete coverage", async () => {
@@ -654,10 +682,76 @@ describe("startMailAiFilterBackfill", () => {
     expect(saved.candidateIndex).toBe(1);
     expect(saved.processedThreads).toBe(1);
     expect(saved.perRule[0].appliedCount).toBe(1);
+    expect(saved.incompleteCoverage).toBe(true);
     expect(saved.error).toContain("unavailable@example.test: Refresh failed.");
     expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
       "available-token",
       "thread-healthy",
+      ["label-id"],
+      [],
+    );
+  });
+
+  it("skips an unavailable Gmail candidate and continues applying reachable mail", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = backfillState([activeRule]);
+    const template = state.candidates[0];
+    state.candidates = [
+      "unavailable@example.test",
+      "available@example.test",
+    ].map((accountEmail) => ({
+      key: `${accountEmail}:thread-shared`,
+      accountEmail,
+      threadId: "thread-shared",
+      email: {
+        ...template.email,
+        id: "thread-shared",
+        threadId: "thread-shared",
+        accountEmail,
+      },
+      messageIds: ["message-shared"],
+    }));
+    state.evaluations = Object.fromEntries(
+      state.candidates.map((candidate: Record<string, any>) => [
+        candidate.key,
+        [{ ruleId: activeRule.id, confidence: 0.95 }],
+      ]),
+    );
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        { email: "available@example.test", accessToken: "available-token" },
+      ],
+      errors: [{ email: "unavailable@example.test", error: "Refresh failed." }],
+    });
+    mocks.gmailGetThread
+      .mockResolvedValueOnce({
+        messages: [{ id: "message-shared", labelIds: ["INBOX"] }],
+      })
+      .mockResolvedValueOnce({
+        messages: [{ id: "message-shared", labelIds: ["INBOX", "label-id"] }],
+      });
+    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+    mocks.syncInboxLabelDelta.mockResolvedValue(undefined);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.candidateIndex).toBe(2);
+    expect(saved.processedThreads).toBe(2);
+    expect(saved.failedKeys).toEqual([
+      "unavailable@example.test:thread-shared",
+    ]);
+    expect(saved.perRule[0].appliedCount).toBe(1);
+    expect(saved.incompleteCoverage).toBe(true);
+    expect(mocks.gmailModifyThread).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "available-token",
+      "thread-shared",
       ["label-id"],
       [],
     );
