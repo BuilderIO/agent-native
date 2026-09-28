@@ -181,14 +181,7 @@ export function pathFromCommand(cmd: NavigateCommand): string {
     case "recording":
       if (!cmd.recordingId) return "/library";
       const recordingParams = new URLSearchParams();
-      if (cmd.panel === "agent") {
-        recordingParams.set(
-          AGENT_SIDEBAR_QUERY_PARAM,
-          AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-        );
-      } else if (cmd.panel) {
-        recordingParams.set("panel", cmd.panel);
-      }
+      if (cmd.panel) recordingParams.set("panel", cmd.panel);
       if (typeof cmd.atMs === "number" && Number.isFinite(cmd.atMs)) {
         recordingParams.set(
           "at",

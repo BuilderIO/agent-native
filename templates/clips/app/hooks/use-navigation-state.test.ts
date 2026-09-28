@@ -30,7 +30,7 @@ describe("Clips shared navigation", () => {
         panel: "agent",
         atMs: 12_345.6,
       }),
-    ).toBe("/r/recording-1?agentSidebar=open&at=12.346");
+    ).toBe("/r/recording-1?panel=agent&at=12.346");
     expect(stateFromLocation("/r/recording-1", "?agentSidebar=open")).toEqual({
       view: "recording",
       recordingId: "recording-1",
