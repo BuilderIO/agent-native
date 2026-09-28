@@ -279,7 +279,11 @@ function reconcileDurableAssistantText(
   const durableByRun = new Map<string, AgentMessage | null>();
   for (const message of durable) {
     if (message.role !== "assistant") continue;
-    const runId = asRecord(message.metadata)?.runId;
+    const metadata = asRecord(message.metadata);
+    const runId =
+      typeof metadata?.runId === "string"
+        ? metadata.runId
+        : asRecord(metadata?.custom)?.runId;
     if (typeof runId !== "string") continue;
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }

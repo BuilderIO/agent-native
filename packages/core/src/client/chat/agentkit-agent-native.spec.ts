@@ -289,69 +289,78 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("restores the durable reply when the server and AgentKit use different message ids", async () => {
-    const transport = createAgentNativeAgentKitTransport({
-      fetch: vi.fn(async (input: string | URL | Request) =>
-        String(input).includes("/runs/active")
-          ? json({ active: false, status: "complete" })
-          : json({
-              id: "thread-different-ids",
-              threadData: JSON.stringify({
-                messages: [
-                  {
-                    message: {
-                      id: "server-run-1",
-                      role: "assistant",
-                      status: "complete",
-                      content: [
-                        { type: "text", text: "Full answer with final lines" },
-                      ],
-                      metadata: { runId: "run-1" },
-                    },
-                  },
-                ],
-                agentKit: {
+  it.each([
+    { source: "top-level", metadata: { runId: "run-1" } },
+    { source: "nested custom", metadata: { custom: { runId: "run-1" } } },
+  ])(
+    "restores the durable reply with $source run metadata when message ids differ",
+    async ({ metadata }) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active: false, status: "complete" })
+            : json({
+                id: "thread-different-ids",
+                threadData: JSON.stringify({
                   messages: [
                     {
-                      id: "message-1",
-                      role: "assistant",
-                      status: "complete",
-                      parts: [{ type: "text", text: "Full answer" }],
-                    },
-                  ],
-                  events: [
-                    {
-                      id: "event-1",
-                      type: "message.created",
-                      threadId: "thread-different-ids",
-                      runId: "run-1",
-                      sequence: 1,
-                      occurredAt: "2026-09-28T00:00:00.000Z",
                       message: {
-                        id: "message-1",
+                        id: "server-run-1",
                         role: "assistant",
-                        parts: [],
+                        status: "complete",
+                        content: [
+                          {
+                            type: "text",
+                            text: "Full answer with final lines",
+                          },
+                        ],
+                        metadata,
                       },
                     },
                   ],
-                },
+                  agentKit: {
+                    messages: [
+                      {
+                        id: "message-1",
+                        role: "assistant",
+                        status: "complete",
+                        parts: [{ type: "text", text: "Full answer" }],
+                      },
+                    ],
+                    events: [
+                      {
+                        id: "event-1",
+                        type: "message.created",
+                        threadId: "thread-different-ids",
+                        runId: "run-1",
+                        sequence: 1,
+                        occurredAt: "2026-09-28T00:00:00.000Z",
+                        message: {
+                          id: "message-1",
+                          role: "assistant",
+                          parts: [],
+                        },
+                      },
+                    ],
+                  },
+                }),
               }),
-            }),
-      ) as typeof fetch,
-    });
+        ) as typeof fetch,
+      });
 
-    const snapshot = await transport.getThreadSnapshot?.({
-      threadId: "thread-different-ids",
-    });
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-different-ids",
+      });
 
-    expect(snapshot?.messages).toMatchObject([
-      {
-        id: "message-1",
-        parts: [{ type: "text", text: "Full answer with final lines" }],
-      },
-    ]);
-    await transport.dispose();
-  });
+      expect(snapshot?.messages).toMatchObject([
+        {
+          id: "message-1",
+          parts: [{ type: "text", text: "Full answer with final lines" }],
+        },
+      ]);
+      await transport.dispose();
+    },
+  );
 
   it("does not replace unrelated or reordered AgentKit content with durable text", async () => {
     const transport = createAgentNativeAgentKitTransport({
