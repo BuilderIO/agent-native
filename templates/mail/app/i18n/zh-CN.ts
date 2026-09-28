@@ -80,6 +80,7 @@ const messages = {
       aiSetupFindingRecentMail: "正在查找近期邮件…",
       aiSetupRetry: "重试",
       aiSetupGmailStatusFailed: "无法检查 Gmail 连接",
+      aiSetupAutomationSettingsFailed: "无法检查 AI 模型设置",
       aiSetupSortingProgress:
         "正在整理近期邮件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在撤销收件箱更改…",

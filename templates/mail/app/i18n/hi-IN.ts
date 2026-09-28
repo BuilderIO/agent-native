@@ -84,6 +84,7 @@ const messages = {
       aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
       aiSetupRetry: "फिर कोशिश करें",
       aiSetupGmailStatusFailed: "आपका Gmail कनेक्शन जाँचा नहीं जा सका",
+      aiSetupAutomationSettingsFailed: "आपके AI मॉडल की सेटिंग जाँची नहीं जा सकी",
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",

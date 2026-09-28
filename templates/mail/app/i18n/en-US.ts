@@ -87,6 +87,7 @@ const messages = {
       aiSetupFindingRecentMail: "Finding recent mail…",
       aiSetupRetry: "Retry",
       aiSetupGmailStatusFailed: "Couldn't check your Gmail connection",
+      aiSetupAutomationSettingsFailed: "Couldn't check your AI model settings",
       aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
       aiSetupUndoing: "Undoing inbox changes…",
       aiSetupSortingFailed:

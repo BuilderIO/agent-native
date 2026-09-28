@@ -73,6 +73,9 @@ const mocks = vi.hoisted(() => ({
   automationSettings: {
     data: undefined as { engine?: string; model?: string } | undefined,
     isLoading: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
   },
   googleStatus: {
     data: {
@@ -256,6 +259,9 @@ describe("AiInboxSetup", () => {
     mocks.jevAvailability.isFetching = false;
     mocks.automationSettings.data = undefined;
     mocks.automationSettings.isLoading = false;
+    mocks.automationSettings.isError = false;
+    mocks.automationSettings.isFetching = false;
+    mocks.automationSettings.refetch.mockReset();
     mocks.googleStatus.data = {
       accounts: [{ email: "mail-test@example.test" }],
       configured: true,
@@ -861,6 +867,64 @@ describe("AiInboxSetup", () => {
     expect(screen.getByText("Matched 2")).not.toBeNull();
   });
 
+  it("retries backfill status without starting an overlapping run", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 2,
+      failedThreads: 0,
+      perRule: [],
+    };
+    mocks.backfillStatus.isError = true;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    await screen.findByText("mail.sort.aiSetupSortingFailed");
+    const callsBeforeRetry = mocks.startBackfill.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+
+    expect(mocks.backfillStatus.refetch).toHaveBeenCalledOnce();
+    expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry);
+  });
+
+  it("starts a new backfill after the active run reaches a failed state", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [],
+    };
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    await screen.findByText("mail.sort.aiSetupSortingFailed");
+    const callsBeforeRetry = mocks.startBackfill.mock.calls.length;
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry + 1),
+    );
+  });
+
   it("keeps setup hidden behind the Google and Jev loading gates", () => {
     mocks.googleStatus.isLoading = true;
     const firstRender = render(<AiInboxSetup forceOpen />);
@@ -1019,6 +1083,54 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
     );
     expect(mocks.googleStatus.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("retries unknown model settings without prompting for Jev or claiming results", () => {
+    mocks.jevAvailability.data = { configured: false };
+    mocks.automationSettings.isError = true;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByText("mail.sort.aiSetupAutomationSettingsFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupConnectJevHeadline",
+      }),
+    ).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+    expect(screen.queryByText("mail.sort.aiSetupNoMatches")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    expect(mocks.automationSettings.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the settings dialog open when model settings could not be checked", async () => {
+    mocks.jevAvailability.data = { configured: false };
+    mocks.automationSettings.isError = true;
+
+    render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupContinue" }),
+    );
+
+    expect(
+      screen.getByText("mail.sort.aiSetupAutomationSettingsFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+    expect(mocks.createRule).not.toHaveBeenCalled();
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSortInbox" }),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.aiSetupSkip" }),
+    ).toHaveProperty("disabled", true);
   });
 
   it("keeps a cached Gmail connection after a status refetch fails", () => {

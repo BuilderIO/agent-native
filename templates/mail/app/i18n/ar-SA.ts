@@ -86,6 +86,8 @@ const messages = {
       aiSetupFindingRecentMail: "جارٍ العثور على الرسائل الحديثة…",
       aiSetupRetry: "أعِد المحاولة",
       aiSetupGmailStatusFailed: "تعذّر التحقق من اتصال Gmail",
+      aiSetupAutomationSettingsFailed:
+        "تعذّر التحقق من إعدادات نموذج الذكاء الاصطناعي",
       aiSetupSortingProgress:
         "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
       aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",

@@ -92,6 +92,8 @@ const messages = {
       aiSetupRetry: "Erneut versuchen",
       aiSetupGmailStatusFailed:
         "Die Gmail-Verbindung konnte nicht geprüft werden",
+      aiSetupAutomationSettingsFailed:
+        "Die Einstellungen für das KI-Modell konnten nicht geprüft werden",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",

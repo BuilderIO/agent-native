@@ -92,6 +92,8 @@ const messages = {
       aiSetupFindingRecentMail: "Buscando mensajes recientes…",
       aiSetupRetry: "Reintentar",
       aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
+      aiSetupAutomationSettingsFailed:
+        "No se pudo comprobar la configuración del modelo de IA",
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",

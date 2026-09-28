@@ -518,6 +518,8 @@ export function AiInboxSetup({
     !jevAvailability.isError && jevAvailability.data != null;
   const jevConfigured =
     jevAvailabilityResolved && jevAvailability.data?.configured === true;
+  const automationSettingsUnknown =
+    automationSettings.isError && !automationSettings.data && !jevConfigured;
   const canApplyRules =
     jevConfigured ||
     Boolean(automationSettings.data?.engine && automationSettings.data?.model);
@@ -716,7 +718,8 @@ export function AiInboxSetup({
       onComplete?.();
       return;
     }
-    if (rulesLoading) return;
+    if (rulesLoading || (!firstRunPreferences && automationSettingsUnknown))
+      return;
     setSaving(true);
     try {
       const ruleIds: string[] = [];
@@ -833,22 +836,22 @@ export function AiInboxSetup({
           : t("mail.sort.aiSetupSortingDescription");
   const needsSetupToSort =
     firstRunSorting && !onboardingPreview && (!connected || !canApplyRules);
-  const displayHeadline =
-    firstRunSorting && gmailStatusUnknown
-      ? headline
-      : needsSetupToSort
-        ? connected
-          ? t("mail.sort.aiSetupConnectJevHeadline")
-          : t("mail.sort.aiSetupConnectGmailHeadline")
-        : headline;
-  const displayDescription =
-    firstRunSorting && gmailStatusUnknown
-      ? undefined
-      : needsSetupToSort
-        ? connected
-          ? t("mail.sort.aiSetupConnectJevDescription")
-          : t("mail.sort.aiSetupConnectGmailDescription")
-        : description;
+  const sortingStatusUnknown =
+    firstRunSorting && (gmailStatusUnknown || automationSettingsUnknown);
+  const displayHeadline = sortingStatusUnknown
+    ? headline
+    : needsSetupToSort
+      ? connected
+        ? t("mail.sort.aiSetupConnectJevHeadline")
+        : t("mail.sort.aiSetupConnectGmailHeadline")
+      : headline;
+  const displayDescription = sortingStatusUnknown
+    ? undefined
+    : needsSetupToSort
+      ? connected
+        ? t("mail.sort.aiSetupConnectJevDescription")
+        : t("mail.sort.aiSetupConnectGmailDescription")
+      : description;
   const bossSuggestion = t("mail.sort.aiSetupImportantBoss");
   const bossSuggestionLabel = t("mail.sort.aiSetupImportantBossChip");
   const bossSuggestionPrefix = bossSuggestion.trimEnd();
@@ -878,6 +881,14 @@ export function AiInboxSetup({
   const startRetry = () => {
     const ruleIds = pendingRuleIds;
     if (onboardingPreview || ruleIds.length === 0) return;
+    if (
+      backfillRunId &&
+      backfillStatus.isError &&
+      backfillStatus.data?.status !== "failed"
+    ) {
+      void backfillStatus.refetch();
+      return;
+    }
     backfillStarted.current = true;
     setBackfillRunId(null);
     const destinations = Object.fromEntries(
@@ -924,7 +935,12 @@ export function AiInboxSetup({
           size="sm"
           className="text-xs text-muted-foreground hover:text-foreground"
           onClick={skipCurrentStep}
-          disabled={saving || (step === 2 && rulesLoading)}
+          disabled={
+            saving ||
+            (step === 2 &&
+              (rulesLoading ||
+                (!firstRunPreferences && automationSettingsUnknown)))
+          }
         >
           {t("mail.sort.aiSetupSkip")}
         </Button>
@@ -937,7 +953,11 @@ export function AiInboxSetup({
             ? void savePreferences(true)
             : moveToStep((step + 1) as SetupStep)
         }
-        disabled={saving || (step === 0 && customTagIncomplete)}
+        disabled={
+          saving ||
+          (step === 0 && customTagIncomplete) ||
+          (step === 2 && !firstRunPreferences && automationSettingsUnknown)
+        }
         aria-busy={saving}
       >
         {saving ? <IconLoader2 className="size-4 animate-spin" /> : null}
@@ -946,7 +966,7 @@ export function AiInboxSetup({
       </Button>
     </>
   ) : firstRunSorting ? (
-    needsSetupToSort ? (
+    needsSetupToSort || automationSettingsUnknown ? (
       <Button
         type="button"
         variant="ghost"
@@ -1017,7 +1037,12 @@ export function AiInboxSetup({
             variant="ghost"
             size="sm"
             onClick={skipCurrentStep}
-            disabled={saving || (step === 2 && rulesLoading)}
+            disabled={
+              saving ||
+              (step === 2 &&
+                (rulesLoading ||
+                  (!firstRunPreferences && automationSettingsUnknown)))
+            }
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             {t("mail.sort.aiSetupSkip")}
@@ -1037,7 +1062,9 @@ export function AiInboxSetup({
         disabled={
           saving ||
           (step === 0 && customTagIncomplete) ||
-          (step === 2 && rulesLoading)
+          (step === 2 &&
+            (rulesLoading ||
+              (!firstRunPreferences && automationSettingsUnknown)))
         }
         aria-busy={saving}
       >
@@ -1059,6 +1086,24 @@ export function AiInboxSetup({
             onRetry={() => void jevAvailability.refetch()}
             retrying={jevAvailability.isFetching}
           />
+        </div>
+      ) : null}
+      {automationSettingsUnknown &&
+      (firstRunSorting || (!firstRunPreferences && step === 2)) ? (
+        <div className="mb-5 flex items-center gap-3" role="alert">
+          <p className="text-sm text-muted-foreground">
+            {t("mail.sort.aiSetupAutomationSettingsFailed")}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => void automationSettings.refetch()}
+            disabled={automationSettings.isFetching}
+          >
+            {t("mail.sort.aiSetupRetry")}
+          </Button>
         </div>
       ) : null}
 
@@ -1266,7 +1311,9 @@ export function AiInboxSetup({
               );
             })}
           </div>
-          {!firstRunPreferences && !jevConfigured ? (
+          {!firstRunPreferences &&
+          !jevConfigured &&
+          !automationSettingsUnknown ? (
             <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
               <JevConnectionPrompt
                 showHeading={false}
@@ -1310,7 +1357,8 @@ export function AiInboxSetup({
           {!onboardingPreview &&
           firstRunSorting &&
           connected &&
-          !canApplyRules ? (
+          !canApplyRules &&
+          !automationSettingsUnknown ? (
             <JevConnectionPrompt
               showHeading={false}
               onConnected={() => void jevAvailability.refetch()}

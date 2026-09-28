@@ -83,6 +83,7 @@ const messages = {
       aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
       aiSetupRetry: "다시 시도",
       aiSetupGmailStatusFailed: "Gmail 연결을 확인할 수 없어요",
+      aiSetupAutomationSettingsFailed: "AI 모델 설정을 확인할 수 없어요",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",

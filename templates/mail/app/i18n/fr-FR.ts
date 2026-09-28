@@ -93,6 +93,8 @@ const messages = {
       aiSetupFindingRecentMail: "Recherche des e-mails récents…",
       aiSetupRetry: "Réessayer",
       aiSetupGmailStatusFailed: "Impossible de vérifier la connexion à Gmail",
+      aiSetupAutomationSettingsFailed:
+        "Impossible de vérifier les paramètres du modèle d’IA",
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
