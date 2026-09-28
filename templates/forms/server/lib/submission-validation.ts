@@ -1,4 +1,5 @@
 import { isAllowedUploadMimeType } from "@agent-native/core/server";
+import { testUserRegex } from "@agent-native/core/shared";
 
 import type { FormField, FormFileValue } from "../../shared/types.js";
 import {
@@ -12,8 +13,6 @@ import {
   sanitizeFormFileValue,
 } from "./file-upload-policy.js";
 
-// Field value size limits by type. Keep public submissions bounded even when
-// callers bypass the browser renderer and POST directly to /api/submit/:id.
 const MAX_FIELD_LENGTH: Record<string, number> = {
   text: 1000,
   email: 1000,
@@ -84,12 +83,12 @@ function isAbsentSubmissionValue(value: unknown): boolean {
 function validatePattern(field: FormField, value: string): string | null {
   const pattern = field.validation?.pattern;
   if (!pattern) return null;
-  try {
-    if (!new RegExp(pattern).test(value)) {
-      return field.validation?.message || `${fieldLabel(field)} is invalid`;
-    }
-  } catch {
-    return `${fieldLabel(field)} has an invalid validation pattern`;
+  const result = testUserRegex(pattern, value);
+  if (result.status === "unevaluated") {
+    return `${fieldLabel(field)} has a validation pattern that cannot be checked safely: ${result.reason}`;
+  }
+  if (result.status === "no-match") {
+    return field.validation?.message || `${fieldLabel(field)} is invalid`;
   }
   return null;
 }

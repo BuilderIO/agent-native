@@ -236,9 +236,6 @@ describe("useDeleteForm", () => {
       });
     });
 
-    // Match this flow's own requests by URL rather than asserting a global
-    // call count: an unrelated queued request from an earlier test in this file
-    // can land on this stub and made the count assertion flake.
     const flowCalls = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/form-1"),
     ) as Array<[string, RequestInit]>;

@@ -12,6 +12,7 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("list_apps");
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");
+    expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
     expect(dispatchActions).toHaveProperty(
@@ -56,6 +57,12 @@ describe("dispatch action registry", () => {
     );
     expect(dispatchActions["list-connected-agents"].tool.description).toContain(
       "A2A delegation",
+    );
+  });
+
+  it("teaches MCP hosts to route through their existing Dispatch connection", () => {
+    expect(dispatchActions.ask_app.tool.description).toContain(
+      "do not require a separate app MCP connection",
     );
   });
 

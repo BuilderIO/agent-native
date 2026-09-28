@@ -1,12 +1,12 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit";
 import {
   applyOperation,
   assertPatchedSlideAnimationsResolve,
-  assertSourceImportOperationsPreserved,
   assertSourceImportSlidesCovered,
   clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
@@ -17,16 +17,11 @@ import {
 } from "./patch-deck";
 import patchDeckAction from "./patch-deck";
 
-// ---------------------------------------------------------------------------
-// normalizeSlidePadding is a pass-through in tests
-// ---------------------------------------------------------------------------
 vi.mock("../app/lib/normalize-slide-padding.js", () => ({
   normalizeSlidePadding: (html: string) => html,
+  normalizeSlidePaddingForWrite: (_previous: string, html: string) => html,
 }));
 
-// ---------------------------------------------------------------------------
-// run() integration mocks — DB, access, and notify.
-// ---------------------------------------------------------------------------
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
 
@@ -50,7 +45,6 @@ const mockValidateGenerationCreativeContext = vi.fn(
   }),
 );
 
-// Minimal Drizzle query-builder stub — same surface update-slide.test.ts uses.
 const mockDb = {
   select: () => ({
     from: () => ({
@@ -60,9 +54,12 @@ const mockDb = {
     }),
   }),
   update: () => ({
-    set: (fields: { data?: string }) => ({
+    set: (fields: Record<string, unknown>) => ({
       where: async () => {
-        lastUpdatedDeckData = fields.data;
+        if (typeof fields.data === "string") {
+          lastUpdatedDeckData = fields.data;
+        }
+        if (mockDeckRow) mockDeckRow = { ...mockDeckRow, ...fields };
         return { rowsAffected: 1 };
       },
     }),
@@ -79,6 +76,9 @@ vi.mock("../server/db/index.js", () => ({
       title: "decks.title",
       data: "decks.data",
       designSystemId: "decks.designSystemId",
+      lastWriteClientId: "decks.lastWriteClientId",
+      lastWriteClientSequence: "decks.lastWriteClientSequence",
+      lastWriteRevision: "decks.lastWriteRevision",
       updatedAt: "decks.updatedAt",
     },
   },
@@ -125,10 +125,6 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
 
-// ---------------------------------------------------------------------------
-// applyOperation unit tests (pure merge logic, no DB)
-// ---------------------------------------------------------------------------
-
 describe("applyOperation — patch-slide", () => {
   it("updates only the specified fields of a slide", () => {
     const deck = {
@@ -144,8 +140,445 @@ describe("applyOperation — patch-slide", () => {
     };
     applyOperation(deck, op);
     expect(deck.slides[0].content).toBe("<p>New</p>");
-    expect(deck.slides[0].notes).toBe("note"); // unchanged
-    expect(deck.slides[1].content).toBe("<p>Two</p>"); // unchanged
+    expect(deck.slides[0].notes).toBe("note");
+    expect(deck.slides[1].content).toBe("<p>Two</p>");
+  });
+
+  it("refuses content that adds editor-rendered markup", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: '<div class="fmd-slide"><p>Old</p></div>' },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p { color: red; }</style><p contenteditable="true">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+        details: {
+          slideId: "s1",
+          markers: ["scoped-style-selector", "contenteditable"],
+        },
+      }),
+    );
+    expect(deck.slides[0].content).toBe(
+      '<div class="fmd-slide"><p>Old</p></div>',
+    );
+  });
+
+  it("refuses an added slide carrying editor markup but keeps older scoped styles", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>',
+        },
+      ],
+    };
+    expect(() =>
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p data-builder-id="b-4">New</p></div>',
+        },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "render_artifact_in_slide_content",
+      }),
+    );
+    expect(deck.slides).toHaveLength(1);
+    const restored =
+      '<div class="fmd-slide"><style>[data-slide-content-scope="slide-r1"] p{color:red}</style><p>R</p></div>';
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s3",
+      fields: { content: restored },
+    });
+    expect(deck.slides[1].content).toBe(restored);
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s4",
+      fields: { content: deck.slides[0].content },
+    });
+    expect(deck.slides).toHaveLength(3);
+  });
+
+  it("still saves content that already carried rendered markup", () => {
+    const flattened =
+      '<div class="fmd-slide"><p data-builder-id="b-4">Old</p></div>';
+    const deck = { slides: [{ id: "s1", content: flattened }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: flattened.replace("Old", "New") },
+    });
+    expect(deck.slides[0].content).toBe(flattened.replace("Old", "New"));
+  });
+
+  it("rejects a stale per-slide hash without mutating the slide", () => {
+    const source = "<p>Current</p>";
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(
+        deck,
+        {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: "<p>Overwrite</p>" },
+          baseContentHash: "stale-hash",
+        },
+        { sourceContentHashes: new Map([["s1", hashSlideContent(source)]]) },
+      ),
+    ).toThrow(/changed since it was read/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("accepts CSS-only edits through styleOnly and preserves markup", () => {
+    const deck = {
+      slides: [
+        {
+          id: "s1",
+          content:
+            '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>',
+        },
+      ],
+    };
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>Keep this</p></div>';
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(deck.slides[0].content),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
+  it("rejects styleOnly edits that change protected layout CSS", () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>Keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide" style="background:#fff;padding:40px"><p>Keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    ["order", "0", "1"],
+    ["flex-flow", "row", "column"],
+    ["grid-auto-flow", "row", "column"],
+    ["all", "initial", "unset"],
+    ["inset-block-start", "0", "1px"],
+    ["inset-block-end", "0", "1px"],
+    ["inset-inline-start", "0", "1px"],
+    ["inset-inline-end", "0", "1px"],
+    ["border", "1px solid black", "4px solid black"],
+    ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
+    ["border-block-style", "solid", "none"],
+    ["border-block-start-style", "solid", "none"],
+    ["border-block-end-style", "solid", "none"],
+    ["border-inline-style", "solid", "none"],
+    ["border-inline-start-style", "solid", "none"],
+    ["border-inline-end-style", "solid", "none"],
+    ["border-top-style", "solid", "none"],
+    ["border-right-style", "solid", "none"],
+    ["border-bottom-style", "solid", "none"],
+    ["border-left-style", "solid", "none"],
+    ["border-left", "1px solid black", "4px solid black"],
+    ["border-block-start-width", "1px", "4px"],
+    ["font", "16px Arial", "20px Arial"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["text-wrap-mode", "wrap", "nowrap"],
+    ["text-wrap-style", "auto", "pretty"],
+    ["line-break", "auto", "loose"],
+    ["line-clamp", "2", "3"],
+    ["hyphens", "none", "manual"],
+    ["word-spacing", "0", "4px"],
+    ["float", "none", "left"],
+    ["clear", "none", "both"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
+    ["inline-size", "100px", "200px"],
+    ["min-inline-size", "100px", "200px"],
+    ["max-inline-size", "100px", "200px"],
+    ["block-size", "100px", "200px"],
+    ["min-block-size", "100px", "200px"],
+    ["max-block-size", "100px", "200px"],
+    ["grid-area", "title", "body"],
+    ["grid-template-areas", `\"title body\"`, `\"body title\"`],
+    ["place-items", "start", "center"],
+    ["place-self", "start", "center"],
+    ["translate", "none", "10px"],
+    ["transform-origin", "50% 50%", "0 0"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
+    ["columns", "1", "2"],
+    ["column-count", "1", "2"],
+    ["contain", "none", "layout"],
+    ["contain-intrinsic-size", "none", "100px"],
+    ["animation", "none", "move 1s"],
+  ])("rejects styleOnly edits that change %s", (property, before, after) => {
+    const source = `<div class="fmd-slide" style='${property}:${before}'><p>Keep this</p></div>`;
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content: `<div class="fmd-slide" style='${property}:${after}'><p>Keep this</p></div>`,
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each(["inline", "stylesheet"] as const)(
+    "rejects escaped %s properties that alias protected layout properties",
+    (scope) => {
+      const source =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="padding:10px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{padding:10px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const nextContent =
+        scope === "inline"
+          ? '<div class="fmd-slide" style="p\\61 dding:20px"><p>Keep this</p></div>'
+          : '<style>.fmd-slide{p\\61 dding:20px}</style><div class="fmd-slide"><p>Keep this</p></div>';
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
+
+  it.each([
+    [
+      "reorders conflicting inline declarations",
+      '<div class="fmd-slide" style="padding:10px;padding-left:20px"></div>',
+      '<div class="fmd-slide" style="padding-left:20px;padding:10px"></div>',
+    ],
+    [
+      "reorders conflicting stylesheet declarations",
+      '<style>.fmd-slide{padding:10px;padding-left:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding-left:20px;padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "reorders duplicate stylesheet rules",
+      '<style>.fmd-slide{padding:10px}.fmd-slide{padding:20px}</style><div class="fmd-slide"></div>',
+      '<style>.fmd-slide{padding:20px}.fmd-slide{padding:10px}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a media condition",
+      '<style>@media (min-width: 600px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+      '<style>@media (min-width: 800px){.fmd-slide{padding:10px}}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a supports condition",
+      '<style>@supports (display: grid){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+      '<style>@supports (display: flex){.fmd-slide{display:grid}}</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes declaration-free cascade layer order",
+      '<style>@layer base, theme; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+      '<style>@layer theme, base; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes an imported stylesheet",
+      '<style>@import url("layout-a.css");</style><div class="fmd-slide"></div>',
+      '<style>@import url("layout-b.css");</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes escaped cascade layer order",
+      '<style>@l\\61 yer base, theme; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+      '<style>@l\\61 yer theme, base; @layer base { .fmd-slide { padding: 10px; } } @layer theme { .fmd-slide { padding: 20px; } }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a registered custom property's initial value",
+      '<style>@property --space { syntax: "<length>"; inherits: false; initial-value: 10px; } .fmd-slide { padding: var(--space); }</style><div class="fmd-slide"></div>',
+      '<style>@property --space { syntax: "<length>"; inherits: false; initial-value: 100px; } .fmd-slide { padding: var(--space); }</style><div class="fmd-slide"></div>',
+    ],
+    [
+      "changes a font face source",
+      '<style>@font-face { font-family: Deck; src: url("a.woff2"); } .fmd-slide { font-family: Deck; }</style><div class="fmd-slide"></div>',
+      '<style>@font-face { font-family: Deck; src: url("b.woff2"); } .fmd-slide { font-family: Deck; }</style><div class="fmd-slide"></div>',
+    ],
+  ])("rejects styleOnly CSS that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("allows a media-query change around an unprotected color restyle", () => {
+    const source =
+      '<style>@media (min-width:600px){.fmd-slide{background:red}}</style><div class="fmd-slide"></div>';
+    const nextContent = source.replace("min-width:600px", "min-width:800px");
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { content: nextContent },
+      baseContentHash: hashSlideContent(source),
+      styleOnly: true,
+    });
+
+    expect(deck.slides[0].content).toBe(nextContent);
+  });
+
+  it.each([
+    ["font", "16px Arial", "20px Arial"],
+    ["border-width", "1px", "4px"],
+    ["border-style", "solid", "none"],
+    ["text-wrap", "wrap", "nowrap"],
+    ["line-clamp", "2", "3"],
+    ["text-overflow", "clip", "ellipsis"],
+    ["text-transform", "none", "uppercase"],
+    ["transform-origin", "50% 50%", "0 0"],
+    ["zoom", "1", "1.2"],
+    ["table-layout", "auto", "fixed"],
+    ["border-spacing", "0", "4px"],
+    ["border-collapse", "separate", "collapse"],
+    ["line-break", "auto", "loose"],
+    ["translate", "none", "10px"],
+    ["rotate", "0deg", "45deg"],
+    ["scale", "1", "2"],
+    ["columns", "1", "2"],
+    ["contain", "none", "layout"],
+  ])(
+    "rejects stylesheet %s changes in styleOnly edits",
+    (property, before, after) => {
+      const source = `<style>.fmd-slide { ${property}: ${before}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const nextContent = `<style>.fmd-slide { ${property}: ${after}; }</style><div class="fmd-slide"><p>Keep this</p></div>`;
+      const deck = { slides: [{ id: "s1", content: source }] };
+
+      expect(() =>
+        applyOperation(deck, {
+          op: "patch-slide",
+          slideId: "s1",
+          fields: { content: nextContent },
+          baseContentHash: hashSlideContent(source),
+          styleOnly: true,
+        }),
+      ).toThrow(/protected layout CSS/);
+      expect(deck.slides[0].content).toBe(source);
+    },
+  );
+
+  it("rejects activating a stylesheet animation that moves slide content", () => {
+    const source =
+      '<style>@keyframes move { from { top: 0; } to { top: 100px; } } .fmd-slide { position: relative; animation-name: none; }</style><div class="fmd-slide"><p>Keep this</p></div>';
+    const nextContent = source.replace(
+      "animation-name: none",
+      "animation-name: move",
+    );
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it.each([
+    [
+      "changes preformatted whitespace",
+      "<pre>Keep  this</pre>",
+      "<pre>Keep this</pre>",
+    ],
+    [
+      "removes literal style text",
+      '<pre>Visible style="color:red"</pre>',
+      "<pre>Visible</pre>",
+    ],
+  ])("rejects styleOnly edits that %s", (_name, source, nextContent) => {
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: { content: nextContent },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/preserve text, markup, element order, and layout structure/);
+    expect(deck.slides[0].content).toBe(source);
+  });
+
+  it("does not move protected CSS between elements in a styleOnly patch", () => {
+    const source =
+      '<div class="fmd-slide"><p style="padding:1px">Keep this</p><p style="color:red">Also keep this</p></div>';
+    const deck = { slides: [{ id: "s1", content: source }] };
+
+    expect(() =>
+      applyOperation(deck, {
+        op: "patch-slide",
+        slideId: "s1",
+        fields: {
+          content:
+            '<div class="fmd-slide"><p>Keep this</p><p style="padding:1px;color:red">Also keep this</p></div>',
+        },
+        baseContentHash: hashSlideContent(source),
+        styleOnly: true,
+      }),
+    ).toThrow(/protected layout CSS/);
+    expect(deck.slides[0].content).toBe(source);
   });
 
   it("ignores the op when the slide has been concurrently deleted", () => {
@@ -155,7 +588,6 @@ describe("applyOperation — patch-slide", () => {
       slideId: "s1",
       fields: { content: "<p>New</p>" },
     };
-    // Must not throw
     applyOperation(deck, op);
     expect(deck.slides).toHaveLength(1);
   });
@@ -177,7 +609,6 @@ describe("applyOperation — patch-slide", () => {
       slideId: "s2",
       fields: { content: "<p>Updated2</p>" },
     };
-    // Simulate two independent writes applied sequentially (as the lock serialises them)
     applyOperation(deck, op1);
     applyOperation(deck, op2);
     expect(deck.slides[0].content).toBe("<p>Updated1</p>");
@@ -297,7 +728,9 @@ describe("applyOperation — delete-slide", () => {
 
   it("is a no-op when the slide was already deleted (idempotent)", () => {
     const deck = { slides: [{ id: "s2", content: "<p>Two</p>" }] };
-    applyOperation(deck, { op: "delete-slide", slideId: "s1" });
+    expect(applyOperation(deck, { op: "delete-slide", slideId: "s1" })).toBe(
+      false,
+    );
     expect(deck.slides).toHaveLength(1);
   });
 });
@@ -342,10 +775,6 @@ describe("applyOperation — reorder-slides", () => {
   });
 
   it("reorder during concurrent add does not drop the new slide", () => {
-    // Simulate: writer A reorders [s2, s1], writer B concurrently added s3.
-    // The lock means they execute sequentially. Writer A's reorder runs first,
-    // then writer B's add-slide. But even if the reorder ran on the state
-    // BEFORE s3 existed, the "append unknowns" rule saves s3.
     const deckAfterAdd = {
       slides: [
         { id: "s1", content: "1" },
@@ -353,7 +782,6 @@ describe("applyOperation — reorder-slides", () => {
         { id: "s3", content: "3" }, // added by writer B
       ],
     };
-    // Writer A's reorder only knew about s1 and s2
     applyOperation(deckAfterAdd, {
       op: "reorder-slides",
       orderedIds: ["s2", "s1"],
@@ -448,13 +876,44 @@ describe("applyOperation — add-slide", () => {
         { id: "s2", content: "existing" },
       ],
     };
-    applyOperation(deck, {
-      op: "add-slide",
-      slideId: "s2",
-      fields: { content: "<p>New</p>" },
-    });
+    expect(
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: { content: "<p>New</p>" },
+      }),
+    ).toBe(false);
     expect(deck.slides).toHaveLength(2);
-    expect(deck.slides[1].content).toBe("existing"); // not overwritten
+    expect(deck.slides[1].content).toBe("existing");
+  });
+
+  it("keeps source provenance for idempotent structural operations", () => {
+    const sourceImport = { mode: "source-preserving" };
+    const deck = {
+      sourceImport,
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+
+    expect(
+      applyOperation(deck, { op: "delete-slide", slideId: "missing" }),
+    ).toBe(false);
+    expect(
+      applyOperation(deck, {
+        op: "reorder-slides",
+        orderedIds: ["s1", "s2"],
+      }),
+    ).toBe(false);
+    expect(
+      applyOperation(deck, {
+        op: "add-slide",
+        slideId: "s2",
+        fields: { content: "duplicate" },
+      }),
+    ).toBe(false);
+    expect(deck.sourceImport).toBe(sourceImport);
   });
 });
 
@@ -471,7 +930,7 @@ describe("applyOperation — patch-deck-fields", () => {
       fields: { title: "New" },
     });
     expect(deck.title).toBe("New");
-    expect(deck.designSystemId).toBe("ds1"); // unchanged
+    expect(deck.designSystemId).toBe("ds1");
   });
 
   it("allows clearing designSystemId to null", () => {
@@ -535,48 +994,60 @@ describe("applyOperation — patch-deck-fields", () => {
 });
 
 describe("source-imported deck structure", () => {
-  const metadata = buildSourceImportMetadata({
-    format: "pdf",
-    slides: [],
-  });
+  it.each([
+    {
+      name: "adding",
+      operation: {
+        op: "add-slide" as const,
+        slideId: "s3",
+        fields: { content: "New" },
+      },
+    },
+    {
+      name: "deleting",
+      operation: { op: "delete-slide" as const, slideId: "s1" },
+    },
+    {
+      name: "reordering",
+      operation: {
+        op: "reorder-slides" as const,
+        orderedIds: ["s2", "s1"],
+      },
+    },
+  ])(
+    "clears source provenance when $name an imported deck",
+    ({ operation }) => {
+      const deck = {
+        sourceImport: buildSourceImportMetadata({
+          format: "pdf",
+          slides: [
+            {
+              id: "s1",
+              text: "one",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+            {
+              id: "s2",
+              text: "two",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+          ],
+        }),
+        slides: [
+          { id: "s1", content: "One" },
+          { id: "s2", content: "Two" },
+        ],
+      };
 
-  it("rejects structural operations while source preservation is enabled", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(metadata, [
-        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
-      ]),
-    ).toThrow("patch-deck with rewriteSource=true");
-  });
+      applyOperation(deck, operation);
 
-  it("allows structural operations on an editable snapshot", () => {
-    const editableSnapshot = {
-      ...metadata,
-      editableSnapshot: true,
-    };
-    expect(() =>
-      assertSourceImportOperationsPreserved(editableSnapshot, [
-        { op: "add-slide", slideId: "s2", fields: { content: "New" } },
-      ]),
-    ).not.toThrow();
-  });
-
-  it("allows an explicit source rewrite", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(
-        metadata,
-        [{ op: "delete-slide", slideId: "s1" }],
-        true,
-      ),
-    ).not.toThrow();
-  });
-
-  it("allows structural operations for a regular deck", () => {
-    expect(() =>
-      assertSourceImportOperationsPreserved(null, [
-        { op: "delete-slide", slideId: "s1" },
-      ]),
-    ).not.toThrow();
-  });
+      expect(deck.sourceImport).toBeUndefined();
+    },
+  );
 
   it("rejects a partial deck-wide source restyle before writing", () => {
     const metadata = buildSourceImportMetadata({
@@ -972,6 +1443,10 @@ describe("patch-deck agent schema", () => {
     expect(slidePatch.properties.fields.properties.content).toMatchObject({
       type: "string",
     });
+    expect(slidePatch.properties.baseContentHash).toMatchObject({
+      type: "string",
+    });
+    expect(slidePatch.properties.styleOnly).toMatchObject({ type: "boolean" });
     expect(slideDelete.properties.slideId).toMatchObject({ type: "string" });
     expect(slideDelete.properties.allowEmpty).toMatchObject({
       type: "boolean",
@@ -988,8 +1463,26 @@ describe("patch-deck agent schema", () => {
     });
   });
 
-  // An untyped `animations` array sends callers probing a live deck to learn
-  // the shape, and hides that the field is a whole-list replacement.
+  it("requires a content hash and content-only fields for styleOnly patches", () => {
+    const base = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { content: "<div style='color:red'>Slide</div>" },
+      styleOnly: true,
+    };
+    expect(OperationSchema.safeParse(base).success).toBe(false);
+    expect(
+      OperationSchema.safeParse({ ...base, baseContentHash: "abc123" }).success,
+    ).toBe(true);
+    expect(
+      OperationSchema.safeParse({
+        ...base,
+        baseContentHash: "abc123",
+        fields: { ...base.fields, notes: "notes" },
+      }).success,
+    ).toBe(false);
+  });
+
   it("spells out the animation entry shape and its replace semantics", () => {
     const parameters = patchDeckAction.tool.parameters as any;
     const slidePatch = parameters.properties.operations.items.anyOf.find(
@@ -1009,11 +1502,6 @@ describe("patch-deck agent schema", () => {
     expect(animations.items.properties).toHaveProperty("elementPath");
   });
 
-  // Pins the compatibility boundary rather than endorsing it. The editor
-  // re-sends a slide's whole stored array on every animation edit, and
-  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
-  // schema rejects, so a deck holding one can no longer be saved from the
-  // panel. If that gap is ever closed, this expectation is what changes.
   it("rejects stored entries that predate the required id/elementIndex/type", () => {
     const pathOnlyEntry = OperationSchema.safeParse({
       op: "patch-slide",
@@ -1034,10 +1522,6 @@ describe("patch-deck agent schema", () => {
     expect(fullyFormedEntry.success).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// withDeckLock serialisation test
-// ---------------------------------------------------------------------------
 
 describe("withDeckLock", () => {
   beforeEach(() => {
@@ -1083,7 +1567,7 @@ describe("withDeckLock", () => {
       order.push("b-start");
     });
 
-    await b; // deck-b finishes immediately while deck-a is still waiting
+    await b;
     expect(order).toContain("b-start");
     expect(order).not.toContain("a-end");
 
@@ -1092,10 +1576,6 @@ describe("withDeckLock", () => {
     expect(order).toContain("a-end");
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveDeckColumnUpdates — SQL columns must match the deck JSON
-// ---------------------------------------------------------------------------
 
 describe("resolveDeckColumnUpdates", () => {
   const current = { title: "Old", designSystemId: null };
@@ -1106,8 +1586,6 @@ describe("resolveDeckColumnUpdates", () => {
   });
 
   it("takes the last title in a debounced rename burst", () => {
-    // One keystroke per op — the column must land on the final value, or the
-    // deck list shows a truncated name once the JSON and column disagree.
     const burst = ["N", "Ne", "New", "New ", "New Name"].map(renameOp);
     expect(resolveDeckColumnUpdates(current, burst).title).toBe("New Name");
   });
@@ -1153,9 +1631,6 @@ describe("resolveDeckColumnUpdates", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// run() — asynchronous layout fit metadata after a patch-deck write.
-// ---------------------------------------------------------------------------
 describe("run() — asynchronous layout fit metadata", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1220,6 +1695,218 @@ describe("run() — asynchronous layout fit metadata", () => {
       expect(lastUpdatedDeckData).toBeUndefined();
     },
   );
+
+  it("requires a source hash for every slide in an agent content batch", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Updated one</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Updated two</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("requires the contentHash read"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a stale single-slide hash before writing", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>Overwritten</div>" },
+              baseContentHash: "stale-hash",
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("changed since it was read"),
+      statusCode: 409,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
+    const source =
+      '<div class="fmd-slide" style="background:#000;padding:80px"><p>One</p></div>';
+    const nextContent =
+      '<div class="fmd-slide" style="background:#fff;padding:80px"><p>One</p></div>';
+    const animations = [
+      { id: "reveal-1", elementIndex: 0, elementPath: [0], type: "fade" },
+    ];
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source, animations }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0]).toMatchObject({
+      content: nextContent,
+      animations,
+    });
+  });
+
+  it("accepts formatted styleOnly batch input while hashing the raw source", async () => {
+    const source =
+      '<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style><div class="fmd-slide"><p>One</p></div>';
+    const formattedSource = await formatSlideHtml(source);
+    const nextContent = formattedSource.replace(
+      /background:\s*red/,
+      "background: blue",
+    );
+    expect(nextContent).not.toBe(formattedSource);
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toBe(
+      nextContent,
+    );
+  });
+
+  it("formats surrounding HTML without changing preformatted blocks", async () => {
+    const pre = '<pre class="code">  alpha\n    beta   \ngamma  </pre>';
+    const source = `<div class="fmd-slide"><p>Before</p>${pre}<p>After</p></div>`;
+
+    const formatted = await formatSlideHtml(source);
+
+    expect(formatted).not.toBe(source);
+    expect(formatted).toContain(pre);
+  });
+
+  it.each(["pre", "pre-wrap", "break-spaces"])(
+    "preserves text in elements with white-space: %s",
+    async (whiteSpace) => {
+      const text = "  alpha\n    beta   \ngamma  ";
+      const whitespaceOnly = "  \n    ";
+      const element = `<div style="white-space: ${whiteSpace}">${text}<span>${whitespaceOnly}</span>${whitespaceOnly}</div>`;
+      const formatted = await formatSlideHtml(
+        `<section><h1>Title</h1>${element}<p>After</p></section>`,
+      );
+
+      expect(formatted).toContain(element);
+    },
+  );
+
+  it("accepts formatted styleOnly batch CSS after formatter spacing changes", async () => {
+    const pre = "<pre>  alpha\n    beta   \ngamma  </pre>";
+    const whiteSpaceText =
+      '<div style="white-space: pre">  keep  these\n    spaces   </div>';
+    const source =
+      `<style>@media (min-width:600px){.fmd-slide{padding:10px;background:red;}}</style>` +
+      `<div class="fmd-slide">${pre}${whiteSpaceText}</div>`;
+    const formattedSource = await formatSlideHtml(source);
+    const nextContent = formattedSource.replace(
+      /background:\s*red/,
+      "background: blue",
+    );
+    const rawValidationError = (() => {
+      try {
+        applyOperation(
+          { slides: [{ id: "slide-1", content: source }] },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        );
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(rawValidationError).toMatchObject({
+      errorCode: "style_only_slide_structure_changed",
+    });
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: source }],
+    });
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: nextContent },
+            baseContentHash: hashSlideContent(source),
+            styleOnly: true,
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toBe(
+      nextContent,
+    );
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(pre);
+    expect(JSON.parse(lastUpdatedDeckData!).slides[0].content).toContain(
+      whiteSpaceText,
+    );
+  });
 
   it("returns pending hashes for every content-changed slide", async () => {
     const result = (await patchDeckAction.run(
@@ -1568,7 +2255,7 @@ describe("run() — asynchronous layout fit metadata", () => {
     ).toBe(true);
   });
 
-  it("applies an explicit source rewrite before a structural agent edit", async () => {
+  it("allows a structural agent edit without a source rewrite flag", async () => {
     mockDeckRow = {
       ...mockDeckRow,
       data: JSON.stringify({
@@ -1606,7 +2293,6 @@ describe("run() — asynchronous layout fit metadata", () => {
     const result = (await patchDeckAction.run(
       {
         deckId: "deck-1",
-        rewriteSource: true,
         operations: [{ op: "delete-slide", slideId: "slide-1" }],
       },
       { caller: "tool" },
@@ -1614,7 +2300,7 @@ describe("run() — asynchronous layout fit metadata", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      sourceRewritten: true,
+      sourceImportCleared: true,
       updatedSlideIds: [],
       deletedSlideIds: ["slide-1"],
     });
@@ -1623,5 +2309,1053 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(persisted.slides.map((slide: { id: string }) => slide.id)).toEqual([
       "slide-2",
     ]);
+  });
+
+  it("allows imported content and structural edits in one agent patch", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Imported deck",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+        sourceImport: {
+          mode: "source-preserving",
+          format: "pdf",
+          fidelity: "source-faithful",
+          slideCount: 2,
+          slideIds: ["slide-1", "slide-2"],
+          slides: [
+            {
+              id: "slide-1",
+              text: "One",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+            {
+              id: "slide-2",
+              text: "Two",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      ok: true,
+      sourceImportCleared: true,
+      updatedSlideIds: ["slide-1"],
+      deletedSlideIds: ["slide-2"],
+    });
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.sourceImport).toBeUndefined();
+  });
+
+  it("keeps source provenance for an idempotent structural agent request", async () => {
+    const sourceImport = {
+      mode: "source-preserving",
+      format: "pdf",
+      fidelity: "source-faithful",
+      slideCount: 2,
+      slideIds: ["slide-1", "slide-2"],
+      slides: [
+        {
+          id: "slide-1",
+          text: "One",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+        {
+          id: "slide-2",
+          text: "Two",
+          notes: "",
+          imageUrls: [],
+          editableText: true,
+        },
+      ],
+    };
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Imported deck",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+        sourceImport,
+      }),
+    };
+
+    const result = (await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [{ op: "delete-slide", slideId: "missing" }],
+        },
+        { caller: "tool" },
+      )
+      .catch((error: unknown) => error)) as Record<string, unknown>;
+
+    expect(result.message).toContain("Nothing was written");
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(JSON.parse(mockDeckRow!.data as string).sourceImport).toEqual(
+      sourceImport,
+    );
+  });
+});
+
+describe("run() — partial no-op deck restyle", () => {
+  const beautifyDeck = () => ({
+    title: "Deck",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    slides: [
+      { id: "slide-1", content: "<div>One</div>" },
+      { id: "slide-2", content: "<div>Two</div>" },
+      { id: "slide-3", content: "<div>Three</div>" },
+    ],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify(beautifyDeck()),
+    };
+  });
+
+  it("reports only the slides whose content actually changed", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-3",
+            fields: { content: "<div>Three</div>" },
+            baseContentHash: hashSlideContent("<div>Three</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.unchangedSlideIds).toEqual(["slide-2", "slide-3"]);
+    expect(result.partial).toBe(true);
+    expect(result.message).toContain("slide-2");
+    expect(result.message).toContain("do not report");
+  });
+});
+
+describe("run() — all-no-op deck restyle masked by animation clearing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("fails loudly when no slide content changed", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "<div>One</div>" },
+              baseContentHash: hashSlideContent("<div>One</div>"),
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+              baseContentHash: hashSlideContent("<div>Two</div>"),
+            },
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      message: expect.stringContaining("Nothing was written"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+});
+
+describe("run() — no-op content patches leave the slide alone", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            animations: [
+              { id: "a1", elementIndex: 0, elementPath: [0], type: "fade" },
+            ],
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps reveals on a slide whose content was re-sent unchanged", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[0].animations).toHaveLength(1);
+    expect(persisted.slides[0].content).toBe("<div>One</div>");
+  });
+
+  it("drops reveals on a slide whose content really changed", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[0].animations).toBeUndefined();
+  });
+});
+
+describe("run() — deck-wide fit bump does not fake a slide edit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        aspectRatio: "16:9",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps an unchanged slide unchanged when the aspect ratio changes", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "patch-deck-fields", fields: { aspectRatio: "4:3" } },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual([]);
+    expect(result.unchangedSlideIds).toEqual(["slide-1"]);
+  });
+});
+
+describe("run() — slides absent from the final deck are only reported deleted", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("does not report a patched-then-deleted slide as updated", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-1" },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual([]);
+    expect(result.unchangedSlideIds).toBeUndefined();
+    expect(result.deletedSlideIds).toEqual(["slide-1"]);
+  });
+
+  it("does not report an added-then-deleted slide as unchanged", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: { content: "<div>Three</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-3" },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.unchangedSlideIds).toBeUndefined();
+    expect(result.deletedSlideIds).toEqual([]);
+  });
+});
+
+describe("run() — reveals survive a non-content field change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: '<div class="fmd-slide"><h1>One</h1></div>',
+            notes: "old",
+            animations: [
+              { id: "a1", elementIndex: 0, elementPath: [0], type: "fade" },
+            ],
+          },
+        ],
+      }),
+    };
+  });
+
+  it("keeps reveals when identical content ships alongside new notes", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: '<div class="fmd-slide"><h1>One</h1></div>',
+              notes: "new",
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(persisted.slides[0].animations).toHaveLength(1);
+    expect(persisted.slides[0].notes).toBe("new");
+  });
+});
+
+describe("run() — the no-op gate spares real deck-level mutations", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+  });
+
+  it("allows a rewriteSource conversion when slide HTML is unchanged", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+        sourceImport: buildSourceImportMetadata({
+          format: "pptx",
+          slides: [
+            {
+              id: "slide-1",
+              text: "One",
+              notes: "",
+              imageUrls: [],
+              editableText: true,
+            },
+          ],
+        }),
+      }),
+    };
+
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        rewriteSource: true,
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.sourceRewritten).toBe(true);
+    expect(result.updatedSlideIds).toEqual([]);
+    expect(JSON.parse(lastUpdatedDeckData!).sourceImport).toBeUndefined();
+  });
+
+  it("allows a creative-context provenance write when slide HTML is unchanged", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+        creativeContext: {
+          contextPackId: "pack-1",
+          reuseLabels: [
+            {
+              kind: "slide",
+              label: "Reused source slide",
+              dataRole: "untrusted-reference",
+              itemId: "item-1",
+              itemVersionId: "version-1",
+            },
+          ],
+        },
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.ok).toBe(true);
+    expect(result.updatedSlideIds).toEqual([]);
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalled();
+  });
+});
+
+describe("run() — a deleted-then-readded slide is not reported deleted", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("reports a replaced slide as updated only", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "delete-slide", slideId: "slide-1" },
+          {
+            op: "add-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One replaced</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.deletedSlideIds).toEqual([]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(
+      persisted.slides.find((s: { id: string }) => s.id === "slide-1").content,
+    ).toBe("<div>One replaced</div>");
+  });
+});
+
+describe("run() — a content round-trip is not an edit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("does not report a slide patched away and back as updated", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-2"]);
+    expect(result.unchangedSlideIds).toEqual(["slide-1"]);
+  });
+});
+
+describe("run() — derived state and lifecycle around net-zero edits", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutFitRevision: "rev-1",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("keeps derived fit and warning state across a content round-trip", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-2"]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    const slide1 = persisted.slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.layoutFitRevision).toBe("rev-1");
+    expect(slide1.layoutWarningDismissed).toBe(true);
+    const fitSlideIds = (
+      (result.layoutFit as { slides: Array<{ slideId: string }> }).slides ?? []
+    ).map((entry) => entry.slideId);
+    expect(fitSlideIds).toEqual(["slide-2"]);
+  });
+
+  it("still honours an explicit warning dismissal on an unchanged slide", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>One</div>",
+              layoutWarningDismissed: false,
+            },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+            baseContentHash: hashSlideContent("<div>Two</div>"),
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    const slide1 = persisted.slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.layoutWarningDismissed).toBe(false);
+  });
+
+  it("reports an identical delete-and-readd as a replacement", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          { op: "delete-slide", slideId: "slide-1" },
+          {
+            op: "add-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.deletedSlideIds).toEqual([]);
+  });
+
+  it("schedules no layout-fit work for an added-then-deleted slide", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: { content: "<div>Three</div>" },
+          },
+          { op: "delete-slide", slideId: "slide-3" },
+          {
+            op: "patch-slide",
+            slideId: "slide-2",
+            fields: { content: "<div>Two restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    const fitSlideIds = (
+      (result.layoutFit as { slides: Array<{ slideId: string }> }).slides ?? []
+    ).map((entry) => entry.slideId);
+    expect(fitSlideIds).toEqual(["slide-2"]);
+  });
+});
+
+describe("run() — fit state follows the net change, not the replay", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            notes: "old",
+            layoutFitRevision: "rev-1",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  it("persists a warning-dismissal-only patch instead of rejecting it", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layoutWarningDismissed: false },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    const persisted = JSON.parse(lastUpdatedDeckData!);
+    expect(
+      persisted.slides.find((slide: { id: string }) => slide.id === "slide-1")
+        .layoutWarningDismissed,
+    ).toBe(false);
+  });
+
+  it("does not re-measure a slide whose rendered fields net out unchanged", async () => {
+    const result = (await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Interim</div>" },
+          },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One</div>", notes: "new" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as Record<string, unknown>;
+
+    expect(result.updatedSlideIds).toEqual(["slide-1"]);
+    expect(result.layoutFit).toBeUndefined();
+    const slide1 = JSON.parse(lastUpdatedDeckData!).slides.find(
+      (slide: { id: string }) => slide.id === "slide-1",
+    );
+    expect(slide1.notes).toBe("new");
+    expect(slide1.layoutFitRevision).toBe("rev-1");
+    expect(slide1.layoutWarningDismissed).toBe(true);
+  });
+});
+
+describe("run() — explicit dismissal survives a content change", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("keeps a dismissal requested in the same patch as new content", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>One restyled</div>",
+              layoutWarningDismissed: true,
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    const slide1 = JSON.parse(lastUpdatedDeckData!).slides[0];
+    expect(slide1.layoutWarningDismissed).toBe(true);
+    expect(slide1.content).toBe("<div>One restyled</div>");
+  });
+
+  it("still re-arms a stale dismissal when the agent only changes content", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+        ],
+      }),
+    };
+
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        requireAllSourceSlides: false,
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>One restyled</div>" },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+
+    expect(
+      JSON.parse(lastUpdatedDeckData!).slides[0].layoutWarningDismissed,
+    ).toBeUndefined();
+  });
+});
+
+describe("run() — client write ordering", () => {
+  const baseRevision = "2026-01-01T00:00:00.000Z";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: baseRevision,
+      lastWriteClientId: null,
+      lastWriteClientSequence: null,
+      lastWriteRevision: null,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: baseRevision,
+        slides: [{ id: "slide-1", content: "base" }],
+      }),
+    };
+  });
+
+  it("rebases a newer write and rejects an older request that arrives later", async () => {
+    await patchDeckAction.run(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "editor-tab",
+          sequence: 2,
+          expectedUpdatedAt: baseRevision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "newest" },
+          },
+        ],
+      },
+      {},
+    );
+
+    await expect(
+      patchDeckAction.run(
+        {
+          deckId: "deck-1",
+          clientWrite: {
+            clientId: "editor-tab",
+            sequence: 1,
+            expectedUpdatedAt: baseRevision,
+          },
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { content: "older" },
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
+      "newest",
+    );
   });
 });

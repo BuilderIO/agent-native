@@ -29,6 +29,7 @@ interface BulkActionToolbarProps {
   allSelected?: boolean;
   onSelectAll?: () => void;
   onArchive?: () => void;
+  archiveAction?: "archive" | "unarchive";
   onMove?: (folderId: string | null) => void;
   onTrash?: () => void;
   onClear?: () => void;
@@ -42,6 +43,7 @@ export function BulkActionToolbar({
   allSelected = false,
   onSelectAll,
   onArchive,
+  archiveAction = "archive",
   onMove,
   onTrash,
   onClear,
@@ -65,7 +67,7 @@ export function BulkActionToolbar({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+          className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
           onClick={onSelectAll}
           disabled={isPending}
         >
@@ -78,11 +80,16 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+        className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
         onClick={onArchive}
         disabled={isPending}
       >
-        <IconArchive className="h-3.5 w-3.5" /> {t("navigation.archive")}
+        <IconArchive className="h-3.5 w-3.5" />{" "}
+        {t(
+          archiveAction === "unarchive"
+            ? "clipsFinalRaw.unarchive"
+            : "libraryGrid.archiveAction",
+        )}
       </Button>
       {canMove && (
         <DropdownMenu>
@@ -90,7 +97,7 @@ export function BulkActionToolbar({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
+              className="gap-1.5 px-2.5 text-background hover:bg-background/15 hover:text-background dark:text-foreground dark:hover:bg-foreground/10 dark:hover:text-foreground"
               disabled={isPending}
             >
               <IconFolder className="h-3.5 w-3.5" /> {t("clipsFinalRaw.move")}
@@ -136,19 +143,20 @@ export function BulkActionToolbar({
       <Button
         variant="ghost"
         size="sm"
-        className="h-8 gap-1.5 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="gap-1.5 px-2.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
         onClick={onTrash}
         disabled={isPending}
       >
-        <IconTrash className="h-3.5 w-3.5" /> {t("navigation.trash")}
+        <IconTrash className="h-3.5 w-3.5" />{" "}
+        {t("libraryGrid.moveToTrashAction")}
       </Button>
       <div className="mx-1 h-5 w-px bg-background/20 dark:bg-foreground/20" />
       <Button
         type="button"
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         onClick={onClear}
-        className="size-8 text-background/70 hover:bg-background/15 hover:text-background dark:text-foreground/70 dark:hover:bg-foreground/10 dark:hover:text-foreground"
+        className="text-background/70 hover:bg-background/15 hover:text-background dark:text-foreground/70 dark:hover:bg-foreground/10 dark:hover:text-foreground"
         aria-label={t("clipsFinalRaw.clearSelection")}
       >
         <IconX className="h-3.5 w-3.5" />

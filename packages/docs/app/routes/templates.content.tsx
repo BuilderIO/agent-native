@@ -1,53 +1,47 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconCheck,
-  IconMessage,
-  IconPencil,
-  IconUpload,
-} from "@tabler/icons-react";
+import { IconArrowUpRight } from "@tabler/icons-react";
+import type { MouseEvent } from "react";
 
-import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { SectionDivider } from "../components/SectionDivider";
-import {
-  TemplateCapabilityGrid,
-  TemplateComparisonTable,
-  TemplateFinalCta,
-  TemplateHero,
-  TemplateLandingFaq,
-  TemplateLandingShell,
-  TemplateSplitFeature,
-  TemplateStatOrStepsGrid,
-  TemplateStatOrStepsGridItem,
-} from "../components/template-landing";
+import { TemplateHero } from "../components/template-landing";
+import { ContentLandingMock } from "../components/template-landing/ContentLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
+import { AppStatusBadge } from "../components/website-redesign/ds/app-status-badge";
+import { Button } from "../components/website-redesign/ds/button";
+import { ContentCard } from "../components/website-redesign/ds/content-card";
+import { FaqAccordion } from "../components/website-redesign/ds/faq-accordion";
+import { LogoMark } from "../components/website-redesign/ds/logo-mark";
+import {
+  GridInner,
+  PageSection,
+} from "../components/website-redesign/page-grid";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
   withTemplateSocialImage(
     [
       {
-        title: "Agent-Native Content — Open Source Obsidian for MDX",
+        title: "Free AI Workspace for Docs & Tasks | Agent-Native Content",
       },
       {
         name: "description",
         content:
-          "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom MDX blocks, and write with an AI agent that knows your docs.",
+          "Write documents, track tasks, and collect requests with your AI agents. Content is a free and open-source workspace with collaborative editing and databases.",
       },
       {
         property: "og:title",
-        content: "Agent-Native Content — Open Source Obsidian for MDX",
+        content: "Free AI Workspace for Docs & Tasks | Agent-Native Content",
       },
       {
         property: "og:description",
         content:
-          "Local MDX editing, custom interactive blocks, and agent-assisted docs.",
+          "Write documents, track tasks, and collect requests with your AI agents. Content is a free and open-source workspace with collaborative editing and databases.",
       },
       {
         name: "keywords",
         content:
-          "Obsidian for MDX, open source Obsidian alternative, MDX editor, local Markdown editor, AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, agent-native content, AI-powered CMS, AI document editor, custom MDX blocks",
+          "AI workspace, AI document editor, open source Notion alternative, AI task tracker, AI database, agent-native content, collaborative documents, AI writing assistant",
       },
     ],
     "Content",
@@ -55,322 +49,281 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "content")!;
 
+const USE_CASES = [
+  {
+    id: "write-and-review-content",
+    titleKey: "useCase1Title",
+    bodyKey: "useCase1Body",
+    textLeft: true,
+  },
+  {
+    id: "track-work-with-agents",
+    titleKey: "useCase2Title",
+    bodyKey: "useCase2Body",
+    textLeft: false,
+  },
+  {
+    id: "collect-project-requests",
+    titleKey: "useCase3Title",
+    bodyKey: "useCase3Body",
+    textLeft: true,
+  },
+] as const;
+
+const KEY_FEATURES = [
+  {
+    id: "ai-writing-and-review",
+    titleKey: "feature1Title",
+    bodyKey: "feature1Body",
+  },
+  {
+    id: "documents-and-nested-pages",
+    titleKey: "feature2Title",
+    bodyKey: "feature2Body",
+  },
+  {
+    id: "databases-and-views",
+    titleKey: "feature3Title",
+    bodyKey: "feature3Body",
+  },
+  {
+    id: "page-and-field-instructions",
+    titleKey: "feature4Title",
+    bodyKey: "feature4Body",
+  },
+  {
+    id: "connected-ai-agents",
+    titleKey: "feature5Title",
+    bodyKey: "feature5Body",
+  },
+  {
+    id: "team-collaboration",
+    titleKey: "feature6Title",
+    bodyKey: "feature6Body",
+  },
+] as const;
+
+const FAQ_ITEMS = [
+  { id: "what-is-content", question: "question1", answer: "answer1" },
+  { id: "use-own-ai-agent", question: "question2", answer: "answer2" },
+  {
+    id: "review-without-rewriting",
+    question: "question3",
+    answer: "answer3",
+  },
+  {
+    id: "track-tasks-collect-requests",
+    question: "question4",
+    answer: "answer4",
+  },
+  {
+    id: "control-access-restore-version",
+    question: "question5",
+    answer: "answer5",
+  },
+] as const;
+
+const HERO_WRAPPER_CLASS =
+  "template-detail-page mx-auto w-full max-w-site overflow-x-clip";
+
 export default function ContentTemplate() {
   const t = useT();
-  const capabilities = [
-    {
-      title: t("templateLanding.content.s014"),
-      body: t("templateLanding.content.s015"),
-    },
-    {
-      title: t("templateLanding.content.s016"),
-      body: t("templateLanding.content.s017"),
-    },
-    {
-      title: "Notion Import/Export",
-      body: t("templateLanding.content.s018"),
-    },
-    {
-      title: t("templateLanding.content.s019"),
-      body: t("templateLanding.content.s020"),
-    },
-    {
-      title: t("templateLanding.content.s021"),
-      body: t("templateLanding.content.s022"),
-    },
-    {
-      title: t("templateLanding.content.s023"),
-      body: t("templateLanding.content.s024"),
-    },
-    {
-      title: t("templateLanding.content.s025"),
-      body: t("templateLanding.content.s026"),
-    },
-  ];
-  const faqItems = Array.from({ length: 5 }, (_, index) => {
-    const itemNumber = index + 1;
-    return {
-      id: `content-question-${itemNumber}`,
-      question: t(`templateLanding.content.faq.question${itemNumber}`),
-      answer: (
-        <p className="m-0">
-          {t(`templateLanding.content.faq.answer${itemNumber}`)}
-        </p>
-      ),
-    };
-  });
 
   return (
-    <TemplateLandingShell>
-      <TemplateHero
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("common.freeAndOpenSource")}
-          </span>
-        }
-        title={t("templateLanding.content.s003")}
-        customizeTemplate={template}
-        description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
-        headingAction={
-          <a
+    <div className="builder-brand-tokens">
+      {/* Hero */}
+      <div className={HERO_WRAPPER_CLASS}>
+        <TemplateHero
+          title={
+            <span className="block max-w-[560px]">
+              {t("templateLanding.content.heroTitle")}
+            </span>
+          }
+          eyebrow={
+            <span className="inline-flex items-center gap-2 text-[var(--fg)]">
+              <LogoMark className="size-6" />
+              <span className="font-sans text-[20px] font-bold tracking-tight">
+                {t("templateLanding.content.heroEyebrow")}
+              </span>
+              <AppStatusBadge appId="content" />
+            </span>
+          }
+          customizeTemplate={template}
+          headingAction={
+            <a
+              href={firstPartyAppUrl("https://content.agent-native.com")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              style={{ gap: "4px" }}
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "landing_page_hero",
+                });
+              }}
+            >
+              {t("templateLanding.content.heroCta")}
+              <IconArrowUpRight size={16} />
+            </a>
+          }
+          description={<p>{t("templateLanding.content.heroDescription")}</p>}
+          descriptionPlacement="below-title"
+          mediaOverlapsHeader
+          media={
+            <ContentLandingMock
+              label={t("templateLanding.content.s001")}
+              className="h-[360px] sm:h-[520px] lg:h-[640px]"
+            />
+          }
+        />
+      </div>
+
+      {/* Three concrete starting workflows */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-40)] pb-[var(--spacing-20)]">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.content.useCasesHeading")}
+          </h2>
+          <p className="m-0 max-w-[633px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.content.useCasesBody")}
+          </p>
+        </GridInner>
+
+        <GridInner>
+          <div className="flex flex-col border-t border-x border-solid border-[var(--b-border-subtle)]">
+            {USE_CASES.map((useCase) => {
+              const textBlock = (
+                <div
+                  key="text"
+                  className="order-1 flex flex-col justify-center gap-[var(--spacing-3)] p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-4)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
+                    {t(`templateLanding.content.${useCase.titleKey}`)}
+                  </h3>
+                  <p className="m-0 max-w-[420px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+                    {t(`templateLanding.content.${useCase.bodyKey}`)}
+                  </p>
+                </div>
+              );
+              const mediaBlock = (
+                <div
+                  key="media"
+                  className="order-2 flex items-center justify-center p-[var(--spacing-8)] lg:order-none lg:p-[var(--spacing-12)]"
+                >
+                  <ContentLandingMock
+                    variant={useCase.id}
+                    sidebarCollapsed
+                    label={t(`templateLanding.content.${useCase.titleKey}`)}
+                    className="h-[320px] w-full max-w-[620px] lg:h-[380px] lg:max-w-none"
+                  />
+                </div>
+              );
+
+              return (
+                <div
+                  key={useCase.id}
+                  className={`grid border-t border-solid border-[var(--b-border-subtle)] bg-[var(--b-bg-page)] first:border-t-0 ${
+                    useCase.textLeft
+                      ? "lg:grid-cols-[1fr_1.25fr]"
+                      : "lg:grid-cols-[1.25fr_1fr]"
+                  }`}
+                >
+                  {useCase.textLeft ? (
+                    <>
+                      {textBlock}
+                      {mediaBlock}
+                    </>
+                  ) : (
+                    <>
+                      {mediaBlock}
+                      {textBlock}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* Key features — six cards, same layout as builder.io/platform/code
+          and the Slides/Clips key-features grids, so every app reads as one
+          system. */}
+      <PageSection>
+        <GridInner className="flex flex-col gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] pt-[var(--spacing-20)] pb-[var(--spacing-20)]">
+          <p className="m-0 font-[family-name:var(--b-font-mono)] text-[length:var(--b-t-label-1)] font-semibold uppercase tracking-[0.08em] text-[var(--b-text-secondary)]">
+            {t("templateLanding.content.keyFeaturesEyebrow")}
+          </p>
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.content.keyFeaturesHeading")}
+          </h2>
+        </GridInner>
+
+        <GridInner>
+          <div className="grid grid-cols-3 gap-px border border-solid border-[var(--b-border-subtle)] bg-[var(--b-border-subtle)] mobile:grid-cols-2 narrow:grid-cols-1">
+            {KEY_FEATURES.map((feature) => (
+              <ContentCard
+                key={feature.id}
+                title={t(`templateLanding.content.${feature.titleKey}`)}
+                body={t(`templateLanding.content.${feature.bodyKey}`)}
+              />
+            ))}
+          </div>
+        </GridInner>
+      </PageSection>
+
+      {/* FAQs — Clips gets this section's breathing room for free from its
+          "See Clips in action" section in between; Content has no such
+          section, so add the same pt-20 rhythm directly here instead of
+          landing the FAQ flush against the feature grid above it. */}
+      <PageSection>
+        <GridInner className="border-t border-solid border-[var(--b-border-default)] pt-[var(--spacing-20)]">
+          <FaqAccordion
+            idPrefix="content-faq"
+            eyebrow={t("templateLanding.faq.eyebrow")}
+            title={t("templateLanding.faq.title")}
+            items={FAQ_ITEMS.map((item) => ({
+              id: item.id,
+              question: t(`templateLanding.content.faq.${item.question}`),
+              answer: (
+                <p className="m-0">
+                  {t(`templateLanding.content.faq.${item.answer}`)}
+                </p>
+              ),
+            }))}
+          />
+        </GridInner>
+      </PageSection>
+
+      {/* Final CTA */}
+      <PageSection>
+        <GridInner className="flex flex-col items-center gap-[var(--spacing-6)] border-t border-solid border-[var(--b-border-default)] px-[var(--spacing-8)] py-[var(--spacing-40)] text-center">
+          <h2 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-2)] font-medium leading-[1.05] tracking-[-0.02em] text-[var(--b-text-primary)]">
+            {t("templateLanding.content.finalCtaHeading")}
+          </h2>
+          <p className="m-0 max-w-[560px] font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-paragraph-1)] leading-[1.4] text-[var(--b-text-secondary)]">
+            {t("templateLanding.content.finalCtaBody")}
+          </p>
+          <Button
+            variant="cta"
             href={firstPartyAppUrl("https://content.agent-native.com")}
             target="_blank"
             rel="noopener noreferrer"
-            className="primary-button"
-            onClick={(event) => {
+            style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
+            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
               applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("try live demo", {
-                template: "content",
-                location: "landing_page_hero",
+                template: template.slug,
+                location: "landing_page_final_cta",
               });
             }}
           >
-            {t("common.getStarted")}
-          </a>
-        }
-        media={
-          <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68b5bbef2877492486232130fd297ecb"
-            crossOrigin="anonymous"
-            alt={t("templateLanding.content.s001")}
-            loading="lazy"
-            decoding="async"
-            className="h-auto max-h-[640px] w-full object-cover object-top"
-          />
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateStatOrStepsGrid>
-        {[
-          {
-            id: "write",
-            icon: IconPencil,
-            title: t("templateLanding.content.s006"),
-            body: t("templateLanding.content.s007"),
-          },
-          {
-            id: "agent",
-            icon: IconMessage,
-            title: t("templateLanding.content.s008"),
-            body: t("templateLanding.content.s009"),
-          },
-          {
-            id: "publish",
-            icon: IconUpload,
-            title: t("templateLanding.content.s010"),
-            body: t("templateLanding.content.s011"),
-          },
-        ].map((item) => {
-          const Icon = item.icon;
-          return (
-            <TemplateStatOrStepsGridItem key={item.id}>
-              <Icon
-                aria-hidden="true"
-                size={24}
-                stroke={1.5}
-                style={{ color: template.color }}
-              />
-              <h3 className="m-0 text-xl font-medium leading-tight text-[var(--fg)]">
-                {item.title}
-              </h3>
-              <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-                {item.body}
-              </p>
-            </TemplateStatOrStepsGridItem>
-          );
-        })}
-      </TemplateStatOrStepsGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateCapabilityGrid
-        intro={
-          <>
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.content.s012")}
-            </h2>
-            <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.content.s013")}
-            </p>
-          </>
-        }
-      >
-        {capabilities.map((capability, index) => (
-          <div
-            key={capability.title}
-            className={`flex min-h-[180px] flex-col justify-center gap-2 border-b border-[var(--docs-border)] p-6 last:border-b-0 sm:odd:border-e sm:last:col-span-2 sm:last:border-e-0 sm:[&:nth-last-child(-n+2)]:border-b-0 sm:p-8 ${[1, 3, 5].includes(index) ? "!border !border-[var(--docs-border)] sm:!border" : ""}`}
-          >
-            <h3 className="m-0 text-lg font-medium leading-tight text-[var(--fg)]">
-              {capability.title}
-            </h3>
-            <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-              {capability.body}
-            </p>
-          </div>
-        ))}
-      </TemplateCapabilityGrid>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateSplitFeature
-        leading={
-          <div className="flex h-full flex-col gap-4 p-6 sm:p-8 lg:p-10">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-tight text-[var(--fg)]">
-              {t("templateLanding.content.s027")}
-            </h2>
-            <p className="m-0 text-base leading-6 text-[var(--fg-secondary)]">
-              {t("templateLanding.content.s028")}
-            </p>
-            <ul className="m-0 flex list-none flex-col gap-3 p-0 text-base text-[var(--fg-secondary)]">
-              {[
-                "WordPress, Contentful, Builder, or any CMS",
-                t("templateLanding.content.s029"),
-                t("templateLanding.content.s030"),
-                t("templateLanding.content.s031"),
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3">
-                  <IconCheck
-                    aria-hidden="true"
-                    size={18}
-                    className="mt-0.5 shrink-0"
-                    style={{ color: template.color }}
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        }
-        trailing={
-          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="flex w-full flex-col gap-3 border border-[var(--docs-border)] bg-[var(--bg)] p-5 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
-                {"// Agent publishing workflow"}
-              </div>
-              {[
-                t("templateLanding.content.s032"),
-                t("templateLanding.content.s033"),
-                t("templateLanding.content.s034"),
-                t("templateLanding.content.s035"),
-              ].map((step, index) => (
-                <div key={step} className="flex gap-2 text-[var(--fg)]">
-                  <span style={{ color: template.color }}>{index + 1}.</span>
-                  <span>{step}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        }
-      />
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <section className="border-t border-[var(--docs-border)]">
-        <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">
-          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.content.s036")}
-          </h2>
-        </div>
-        <TemplateComparisonTable
-          caption={t("templateLanding.content.s036")}
-          featureHeader={t("templateLanding.content.s036")}
-          columns={[
-            {
-              id: "editors",
-              header: "Obsidian / Notion / Google Docs",
-            },
-            {
-              id: "ai",
-              header: "ChatGPT / Claude",
-            },
-            {
-              id: "content",
-              agentNative: { color: template.color, name: template.name },
-              emphasized: true,
-            },
-          ]}
-          rows={[
-            {
-              id: "file-format",
-              label: t("templateLanding.content.s037"),
-              cells: {
-                editors: t("templateLanding.content.s038"),
-                ai: t("templateLanding.content.s039"),
-                content: t("templateLanding.content.s040"),
-              },
-            },
-            {
-              id: "custom-blocks",
-              label: t("templateLanding.content.s041"),
-              cells: {
-                editors: "None",
-                ai: t("templateLanding.content.s042"),
-                content: t("templateLanding.content.s043"),
-              },
-            },
-            {
-              id: "agent-context",
-              label: t("templateLanding.content.s044"),
-              cells: {
-                editors: t("templateLanding.content.s045"),
-                ai: t("templateLanding.content.s046"),
-                content: t("templateLanding.content.s047"),
-              },
-            },
-            {
-              id: "publishing",
-              label: t("templateLanding.content.s048"),
-              cells: {
-                editors: t("templateLanding.content.s049"),
-                ai: t("templateLanding.content.s046"),
-                content: t("templateLanding.content.s050"),
-              },
-            },
-            {
-              id: "storage",
-              label: t("templateLanding.content.s051"),
-              cells: {
-                editors: t("templateLanding.content.s052"),
-                ai: t("templateLanding.content.s053"),
-                content: t("templateLanding.content.s054"),
-              },
-            },
-            {
-              id: "ownership",
-              label: t("templateLanding.content.s055"),
-              cells: {
-                editors: t("templateLanding.content.s056"),
-                ai: t("templateLanding.content.s057"),
-                content: t("templateLanding.content.s058"),
-              },
-            },
-          ]}
-        />
-      </section>
-
-      <SectionDivider showOnSmallScreens={false} />
-
-      <TemplateFinalCta
-        title={t("templateLanding.content.s059")}
-        template={template}
-      >
-        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
-          {t("templateLanding.content.s060")}
-        </p>
-      </TemplateFinalCta>
-
-      <TemplateLandingFaq
-        idPrefix="content-faq"
-        eyebrow={
-          <span style={{ color: template.color }}>
-            {t("templateLanding.faq.eyebrow")}
-          </span>
-        }
-        title={t("templateLanding.faq.title")}
-        items={faqItems}
-      />
-    </TemplateLandingShell>
+            {t("templateLanding.content.finalCtaButton")}
+          </Button>
+        </GridInner>
+      </PageSection>
+    </div>
   );
 }

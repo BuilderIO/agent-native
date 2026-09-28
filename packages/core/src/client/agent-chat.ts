@@ -1,13 +1,10 @@
-/**
- * Agent Chat Bridge (browser)
- *
- * Sends structured messages to the agent chat from UI interactions.
- * Messages are sent via postMessage to the parent window (or self if top-level).
- * Builder frames are special: code requests go to Builder, but content prompts
- * stay inside the embedded app so its own AgentSidebar can receive them.
- */
-
-import type { AgentChatAttachment, MentionItemMedia } from "../agent/types.js";
+import {
+  normalizeAgentActionScope,
+  tryNormalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatAttachment,
+  type MentionItemMedia,
+} from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -34,117 +31,52 @@ export { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js
 export type AgentChatRequestMode = "act" | "plan";
 
 export interface AgentChatMessage {
-  /** The visible prompt message sent to the chat */
   message: string;
-  /** Hidden context appended to the message (not shown in chat UI) */
   context?: string;
-  /** true = auto-submit, false = prefill only, omit = use project setting */
+  actionScope?: AgentActionScope;
   submit?: boolean;
-  /** Optional project slug for structured context */
   projectSlug?: string;
-  /** Optional preset name for downstream consumers */
   preset?: string;
-  /** Optional reference image paths */
   referenceImagePaths?: string[];
-  /** Optional uploaded reference images */
   uploadedReferenceImages?: string[];
-  /** Optional image data URLs or durable image URLs to include in the submitted chat message */
   images?: string[];
-  /** Optional attachments to show in the submitted chat message. */
   attachments?: AgentChatAttachment[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
-  /**
-   * Message routing type:
-   * - "content" (default): stays in the embedded app agent for content/data operations
-   * - "code": routes to the code editing frame (Agent-Native Desktop or Builder.io)
-   *
-   * When type is "code" and no frame is connected, a dialog is shown.
-   * `requiresCode: true` is treated as `type: "code"` for backward compatibility.
-   */
+  targetTabId?: string;
   type?: "content" | "code";
   /** @deprecated Use `type: "code"` instead. If true, treated as `type: "code"`. */
   requiresCode?: boolean;
-  /** Model preference for this sub-agent (e.g. "claude-haiku-4-5"). Uses default if omitted */
   model?: string;
-  /** Engine preference paired with model for cross-provider switches. */
   engine?: string;
-  /** Effort preference paired with model. */
   effort?: ReasoningEffort;
-  /**
-   * Execution mode for this submitted turn. When omitted, sendToAgentChat
-   * snapshots the current AgentPanel mode from localStorage when available.
-   */
   mode?: AgentChatRequestMode;
   /** @deprecated Use `mode` instead. */
   requestMode?: AgentChatRequestMode;
-  /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
-  /**
-   * Message delivery target. Auto-submitted MCP App messages normally relay to
-   * the host chat; use "local" when a control explicitly targets this app's
-   * own AgentSidebar.
-   */
   chatTarget?: "auto" | "local";
-  /**
-   * Whether to open the agent sidebar if it's currently hidden.
-   * Defaults to true — submitting a chat should make the response visible.
-   * Pass `false` for background/silent sends that shouldn't pop the UI open.
-   */
   openSidebar?: boolean;
-  /**
-   * When true, opens a new chat tab before sending the message.
-   * Use for creation requests (create tool, dashboard, etc.) that deserve
-   * their own isolated thread rather than cluttering an existing conversation.
-   */
   newTab?: boolean;
-  /**
-   * When true with newTab, reuses the active tab only when the receiver knows
-   * it is a new foreground chat with no messages.
-   */
   reuseEmptyTab?: boolean;
-  /**
-   * When true with newTab, creates the tab in the background without
-   * focusing it or opening the sidebar. The message runs silently.
-   */
   background?: boolean;
   /**
    * Stable id used to deduplicate a submit and correlate it with
    * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
    */
   submitMessageId?: string;
-  /**
-   * Names what this turn is FOR, e.g. `"crm:enrich-record"`. Recorded as the
-   * usage row's label and as the run's observability span name
-   * (`agent_run:<label>`), so a turn a feature sent on the user's behalf is
-   * distinguishable from a typed chat message. Omit for ordinary chat.
-   */
   usageLabel?: string;
+  approvedToolCalls?: string[];
 }
 
 export interface AgentChatContextItem {
-  /** Stable key used to replace an existing context nugget. */
   key: string;
-  /** Short label shown in the composer context chip. */
   title: string;
-  /** Hidden context included with the next submitted prompt. */
   context: string;
-  /** Optional host namespace used to keep ambient context local to one surface. */
   contextNamespace?: string;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
-  /**
-   * Whether to open the agent sidebar if it's currently hidden.
-   * Defaults to true so the user can see the staged context.
-   */
   openSidebar?: boolean;
-  /**
-   * Whether to move keyboard focus into the composer when staging the item.
-   * Defaults to true. Pass `false` for context that mirrors ambient UI state
-   * (e.g. a canvas element selection) so staging never steals focus from an
-   * unrelated editor — such as an inline text editor in a design canvas.
-   */
   focus?: boolean;
 }
 
@@ -159,11 +91,7 @@ export interface AgentChatContextState {
 export interface AgentChatOpenThreadRequest {
   threadId: string;
   newThread?: boolean;
-  /**
-   * Open only while this thread is still active (or no thread is active).
-   * This lets transient surfaces restore their own chat without stealing a
-   * thread the user selected in the meantime.
-   */
+  prefill?: string;
   onlyIfActiveThreadId?: string;
   openRequestId?: string;
 }
@@ -190,23 +118,14 @@ export interface AgentComposerReference {
   refType: string;
   refId?: string | null;
   refPath?: string | null;
-  /** Stable composer slot this reference occupies. Slot references replace older values. */
   slotKey?: string;
-  /** Short label shown before the selected value in the composer chip. */
   slotLabel?: string;
-  /** Additional app-defined data used by the client for filtering and grouping. */
   metadata?: Record<string, unknown>;
-  /** Slots to remove when this reference is inserted or removed. */
   clearsSlots?: string[];
-  /** Additional references to insert before this one. */
   relatedReferences?: AgentComposerReference[];
 }
 
 export interface AgentComposerReferenceInsertOptions {
-  /**
-   * Whether to open the agent sidebar before inserting the reference.
-   * Defaults to false so contextual auto-tags can stay quiet.
-   */
   openSidebar?: boolean;
 }
 
@@ -215,15 +134,10 @@ export interface AgentComposerReferenceInsertPayload extends AgentComposerRefere
 }
 
 export interface AgentChatContextMutationOptions {
-  /**
-   * Whether to open the agent sidebar if it's currently hidden.
-   * Defaults to true for set/add and false for remove/clear.
-   */
   openSidebar?: boolean;
 }
 
 export interface AgentChatContextRemoveOptions extends AgentChatContextMutationOptions {
-  /** Stable key of the staged context nugget to remove. */
   key: string;
 }
 
@@ -243,15 +157,6 @@ export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
   "agentNative:insert-composer-reference";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
-/**
- * Fired once a submitted turn's fate is known: `delivered: true` once the
- * receiving AssistantChat has actually committed the turn (added it to the
- * visible thread, independent of whether the agent's response later
- * succeeds), or `delivered: false` when it was rejected before ever
- * appearing — e.g. no LLM/agent engine configured. Callers that must know
- * whether their submit truly landed (rather than fire-and-forget) should use
- * {@link sendToAgentChatAndConfirm} instead of listening for this directly.
- */
 export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
 export const AGENT_CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 
@@ -266,7 +171,6 @@ export interface AgentChatSubmitTarget {
   tabId: string;
 }
 
-/** Report the actual tab selected by the receiving chat surface for a submit. */
 export function reportAgentChatSubmitTarget(
   submitMessageId: string | undefined,
   tabId: string,
@@ -279,9 +183,6 @@ export function reportAgentChatSubmitTarget(
   );
 }
 
-/** Report a submit's definitive outcome so `sendToAgentChatAndConfirm` (or any
- * other correlated listener) can resolve. No-ops without a submitMessageId or
- * a window (SSR). */
 export function reportAgentChatSubmitResult(
   submitMessageId: string | undefined,
   delivered: boolean,
@@ -308,10 +209,6 @@ let agentChatContextState: AgentChatContextState = {
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
 
-/**
- * Listen for chatRunning messages from the frame (postMessage)
- * and re-dispatch as a CustomEvent so hooks like useAgentChatGenerating() work.
- */
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!isTrustedFrameMessage(event) && !isTrustedBuilderMessage(event)) {
@@ -330,20 +227,14 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Generate a unique tab ID */
 export function generateTabId(): string {
   return `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Unique id for one submitted message, used to dedup live + replayed sends. */
 export function generateAgentChatSubmitMessageId(): string {
   return `submit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// Self-submit buffer: same-window sends post to `window` itself, but the
-// receiver is lazy-loaded and may not be listening yet. Buffer each submit so
-// the panel can replay it on mount; claimAgentChatSubmit dedups by id so a
-// submit received both live and replayed is delivered exactly once.
 interface BufferedSelfSubmit {
   id: string;
   data: Record<string, unknown>;
@@ -381,12 +272,6 @@ function bufferSelfSubmit(data: Record<string, unknown>): void {
   bufferedSelfSubmits.push({ id, data, at: now });
 }
 
-/**
- * Permanently tombstone a submit for this page lifetime and remove its
- * cold-start replay. A confirmation timeout must be terminal: callers may
- * retry while preserving their own state, so the original submit cannot be
- * allowed to appear later when a lazy panel or thread ref finally mounts.
- */
 export function cancelAgentChatSubmit(id: string | undefined): void {
   if (!id) return;
   cancelledSubmitIds.add(id);
@@ -398,7 +283,6 @@ export function cancelAgentChatSubmit(id: string | undefined): void {
   }
 }
 
-/** Whether a confirmed-submit timeout has made this delivery terminal. */
 export function isAgentChatSubmitCancelled(id: string | undefined): boolean {
   return Boolean(id && cancelledSubmitIds.has(id));
 }
@@ -429,7 +313,6 @@ function bufferOpenRequest(
   return entry;
 }
 
-/** Unclaimed self-submit payloads, for the panel to replay once it mounts. */
 export function drainBufferedAgentChatSubmits(): Array<
   Record<string, unknown>
 > {
@@ -439,7 +322,6 @@ export function drainBufferedAgentChatSubmits(): Array<
     .map((entry) => entry.data);
 }
 
-/** Claim a submit; false if already handled. Idless submits always pass. */
 export function claimAgentChatSubmit(id: string | undefined): boolean {
   if (!id) return true;
   if (cancelledSubmitIds.has(id)) return false;
@@ -448,7 +330,6 @@ export function claimAgentChatSubmit(id: string | undefined): boolean {
   return true;
 }
 
-/** Unclaimed open-thread/task requests, for the panel to replay once it mounts. */
 export function drainBufferedAgentChatOpenRequests(): BufferedAgentChatOpenRequest[] {
   pruneOpenRequestBuffer(Date.now());
   return bufferedOpenRequests
@@ -456,7 +337,6 @@ export function drainBufferedAgentChatOpenRequests(): BufferedAgentChatOpenReque
     .map(({ id, eventType, detail }) => ({ id, eventType, detail }));
 }
 
-/** Claim an open-thread/task request; false if already handled. Idless events pass. */
 export function claimAgentChatOpenRequest(id: unknown): boolean {
   if (typeof id !== "string" || !id) return true;
   if (claimedOpenRequestIds.has(id)) return false;
@@ -464,7 +344,6 @@ export function claimAgentChatOpenRequest(id: unknown): boolean {
   return true;
 }
 
-/** Test-only: reset the self-submit buffer and claim set. */
 export function _resetAgentChatSubmitBufferForTests(): void {
   bufferedSelfSubmits.length = 0;
   claimedSubmitIds.clear();
@@ -500,11 +379,6 @@ export function normalizeAgentChatContextItem(
   };
 }
 
-/**
- * Keep unscoped context visible everywhere, but hide ambient context owned by
- * a different host surface. This prevents mounted-but-hidden app panes from
- * leaking their resource chips into the active app's composer.
- */
 export function filterAgentChatContextItems(
   items: readonly AgentChatContextItem[],
   contextNamespace?: string | null,
@@ -900,6 +774,7 @@ export function requestAgentChatThreadOpen(
     bufferOpenRequest("agent-chat:open-thread", {
       ...detail,
       threadId: detail.threadId.trim(),
+      ...(detail.prefill?.trim() ? { prefill: detail.prefill } : {}),
     }),
   );
 }
@@ -944,46 +819,46 @@ function normalizeAgentChatRequestMode(
   return value === "act" || value === "plan" ? value : undefined;
 }
 
-/**
- * Composers submit `engine: ""` whenever the engines list failed to load. An
- * empty string is not nullish, so it survives `??` yet reads as falsy — one
- * value meaning both "specified" and "absent". Absent is decided here, once.
- */
 function nonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
 }
 
-/** A normalized `agentNative.submitChat` payload — decode via {@link parseSubmitChatMessage}. */
 export interface ParsedSubmitChat {
-  /** Visible prompt text (non-empty). */
   message: string;
   context?: string;
-  /** Submit (true) or prefill only (false); defaults to true. */
+  actionScope?: AgentActionScope;
   submit: boolean;
   openSidebar?: boolean;
   model?: string;
-  /**
-   * Engine paired with `model`. The receiver cannot re-derive it for an id the
-   * catalog omits, and a model sent without one is normalized to the resolved
-   * engine's default server-side.
-   */
   engine?: string;
-  /** Raw effort hint; the receiver validates it against the model. */
   effort?: unknown;
   newTab?: boolean;
   reuseEmptyTab?: boolean;
   background?: boolean;
   tabId?: string;
+  targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
-  /** Mode as sent; the receiver falls back to its exec mode when undefined. */
   requestMode?: AgentChatRequestMode;
-  /** Id used to dedup the live post against a cold-start replay. */
   submitMessageId?: string;
-  /** See {@link AgentChatMessage.usageLabel}. */
   usageLabel?: string;
+  approvedToolCalls?: string[];
+}
+
+const MAX_SUBMIT_APPROVED_TOOL_CALLS = 200;
+
+function parseSubmitChatApprovedToolCalls(
+  value: unknown,
+): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys = value
+    .filter(
+      (key): key is string => typeof key === "string" && key.trim().length > 0,
+    )
+    .slice(0, MAX_SUBMIT_APPROVED_TOOL_CALLS);
+  return keys.length > 0 ? keys : undefined;
 }
 
 function parseSubmitChatAttachments(
@@ -998,6 +873,10 @@ function parseSubmitChatAttachments(
       const type = typeof item.type === "string" ? item.type : "file";
       const name = typeof item.name === "string" ? item.name : "attachment";
       const attachment: AgentChatAttachment = { type, name };
+      const metadata = normalizeMetadata(item.metadata);
+      if (item.displayOnly === true || metadata?.displayOnly === true) {
+        attachment.displayOnly = true;
+      }
       for (const key of [
         "data",
         "url",
@@ -1009,7 +888,6 @@ function parseSubmitChatAttachments(
         if (typeof item[key] === "string") attachment[key] = item[key];
       }
       for (const key of [
-        "displayOnly",
         "referenceOnly",
         "storageRequired",
         "storageUploadFailed",
@@ -1021,7 +899,6 @@ function parseSubmitChatAttachments(
   return attachments.length > 0 ? attachments : undefined;
 }
 
-/** Decode a `message` event into a submit payload, or null if it isn't one / has no text. */
 export function parseSubmitChatMessage(
   event: MessageEvent,
 ): ParsedSubmitChat | null {
@@ -1049,9 +926,18 @@ export function parseSubmitChatMessage(
   );
   const images =
     imageSources.length > 0 ? [...new Set(imageSources)] : undefined;
+  const hasActionScope = Object.prototype.hasOwnProperty.call(
+    raw,
+    "actionScope",
+  );
+  const actionScope = hasActionScope
+    ? tryNormalizeAgentActionScope(raw.actionScope)
+    : undefined;
+  if (hasActionScope && !actionScope) return null;
   return {
     message,
     context: typeof raw.context === "string" ? raw.context : undefined,
+    ...(actionScope ? { actionScope } : {}),
     submit: raw.submit !== false,
     openSidebar:
       typeof raw.openSidebar === "boolean" ? raw.openSidebar : undefined,
@@ -1064,12 +950,14 @@ export function parseSubmitChatMessage(
     background:
       typeof raw.background === "boolean" ? raw.background : undefined,
     tabId: typeof raw.tabId === "string" ? raw.tabId : undefined,
+    targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
     usageLabel: nonEmptyString(raw.usageLabel),
+    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
   };
 }
 
@@ -1103,14 +991,46 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
   return undefined;
 }
 
-/**
- * Send a message to the agent chat via postMessage.
- * Returns the stable tabId for tracking this chat run.
- */
+function keepsApprovalInAppChat(
+  opts: Pick<AgentChatMessage, "approvedToolCalls">,
+): boolean {
+  if (!opts.approvedToolCalls?.length) return false;
+  return (
+    isInBuilderFrame() ||
+    isMcpAppChatBridgeEnabled() ||
+    isDirectMcpAppEmbedSession()
+  );
+}
+
+export function routesToCodeFrame(
+  opts: Pick<AgentChatMessage, "type" | "requiresCode" | "approvedToolCalls">,
+): boolean {
+  if (opts.type !== "code" && opts.requiresCode !== true) return false;
+  return !keepsApprovalInAppChat(opts);
+}
+
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
-  const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
-  const localChatTarget = opts.chatTarget === "local";
+  const actionScope =
+    opts.actionScope === undefined
+      ? undefined
+      : normalizeAgentActionScope(opts.actionScope);
+  const mcpBridgeEnabled = isMcpAppChatBridgeEnabled();
+  const hasMcpAppLocalPayload =
+    mcpBridgeEnabled &&
+    Boolean(
+      opts.attachments?.length ||
+      opts.images?.length ||
+      opts.referenceImagePaths?.length ||
+      opts.uploadedReferenceImages?.length ||
+      opts.usageLabel ||
+      actionScope,
+    );
+  const isCodeRequest = routesToCodeFrame(opts) && !hasMcpAppLocalPayload;
+  const localChatTarget =
+    opts.chatTarget === "local" ||
+    keepsApprovalInAppChat(opts) ||
+    hasMcpAppLocalPayload;
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -1139,22 +1059,15 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: {
       ...opts,
+      ...(actionScope ? { actionScope } : {}),
       tabId,
       submitMessageId,
       ...(requestMode ? { mode: requestMode, requestMode } : {}),
     },
   };
 
-  if (
-    opts.submit !== false &&
-    !localChatTarget &&
-    isMcpAppChatBridgeEnabled()
-  ) {
-    // MCP host follow-up APIs carry neither attachment descriptors nor a usage
-    // label. Use the normal wrapper transport when either needs to reach the
-    // chat thread — a label silently downgraded to `chat` is exactly the run
-    // the caller named it to be able to find.
-    if (opts.attachments?.length || opts.usageLabel) {
+  if (opts.submit !== false && !localChatTarget && mcpBridgeEnabled) {
+    if (opts.targetTabId) {
       window.parent.postMessage(
         payload,
         getFramePostMessageTargetOrigin() || "*",
@@ -1214,9 +1127,6 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
 
   const postToTarget = () => target.postMessage(payload, targetOrigin);
 
-  // Same-window: defer one tick so a sidebar mounting now can attach its
-  // listener, and buffer the submit so the lazy panel can replay it if it
-  // mounts later. The live post and the replay dedup by submitMessageId.
   if (!isCodeRequest && target === window) {
     bufferSelfSubmit(payload.data);
     setTimeout(postToTarget, 0);
@@ -1226,50 +1136,25 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   return tabId;
 }
 
-// Must exceed SELF_SUBMIT_BUFFER_TTL_MS. Otherwise confirmation can time out
-// while its replay is still eligible to mount and deliver later.
 const DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS = SELF_SUBMIT_BUFFER_TTL_MS + 2000;
 
 export interface SendToAgentChatAndConfirmResult {
   tabId: string;
-  /** True once the message actually became a visible turn in the chat. */
   delivered: boolean;
-  /** Set when `delivered` is false: "missing-engine", "timeout", etc. */
   reason?: string;
 }
 
-/**
- * Like {@link sendToAgentChat}, but resolves once the submit's fate is known
- * instead of firing and forgetting. Use this whenever the caller must decide
- * whether to keep/restore its own state on failure (e.g. a draw/annotate
- * overlay that should not discard the user's work unless the message actually
- * reached the chat) — see the `AGENT_CHAT_SUBMIT_RESULT_EVENT` contract.
- * This acknowledgement is intentionally limited to submitted, non-code
- * messages with `chatTarget: "local"`; parent-frame and MCP host chats use
- * different delivery protocols and return `unsupported-target` here.
- *
- * Resolves `delivered: false` if the receiving chat explicitly rejects the
- * submit (e.g. no LLM/agent engine configured) OR if no result arrives within
- * `timeoutMs` — a silently-stuck submit (panel never mounts, thread never
- * gets a ref, message type not handled by this build) must fail the same way
- * an explicit rejection does, since the caller cannot otherwise tell the
- * difference between "still in flight" and "dropped."
- */
 export function sendToAgentChatAndConfirm(
   opts: Omit<AgentChatMessage, "submitMessageId">,
-  options?: { timeoutMs?: number },
+  options?: { submitMessageId?: string; timeoutMs?: number },
 ): Promise<SendToAgentChatAndConfirmResult> {
   const tabId = opts.tabId ?? generateTabId();
   if (typeof window === "undefined") {
     return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
   }
-  // Confirmation is deliberately a same-window/local-chat contract. Parent
-  // frames, Builder code chat, and MCP host relays have independent protocols
-  // and cannot answer this window-local CustomEvent acknowledgement.
   if (
     opts.chatTarget !== "local" ||
-    opts.type === "code" ||
-    opts.requiresCode === true ||
+    routesToCodeFrame(opts) ||
     opts.submit === false
   ) {
     return Promise.resolve({
@@ -1279,7 +1164,8 @@ export function sendToAgentChatAndConfirm(
     });
   }
 
-  const submitMessageId = generateAgentChatSubmitMessageId();
+  const submitMessageId =
+    options?.submitMessageId ?? generateAgentChatSubmitMessageId();
   const timeoutMs = Math.max(
     0,
     options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,
@@ -1321,10 +1207,6 @@ export function sendToAgentChatAndConfirm(
   });
 }
 
-/**
- * Add or replace a keyed context nugget in the active agent chat composer.
- * The context is not submitted until the user sends the prompt.
- */
 export function setAgentChatContextItem(
   opts: AgentChatContextSetOptions,
 ): void {
@@ -1334,9 +1216,6 @@ export function setAgentChatContextItem(
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),
   );
-  // Forward an explicit `focus: false` so the receiving composer can stage the
-  // chip without stealing focus. Focus stays enabled by default (field omitted)
-  // for every existing caller.
   const messageData = opts.focus === false ? { ...item, focus: false } : item;
   postAgentChatContextMessage(
     AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,

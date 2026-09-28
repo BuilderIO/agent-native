@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createCollabSourceSeeder,
   createCollabPlugin,
   normalizeCollabAccess,
-  selectUnseededCollabRows,
 } from "./collab-plugin.js";
 
 afterEach(() => {
@@ -127,24 +127,46 @@ describe("createCollabPlugin access warning", () => {
   });
 });
 
-describe("selectUnseededCollabRows", () => {
-  it("filters using mapped collab ids and batches duplicate mappings", () => {
-    const rows = [
-      { id: "one", config: "first" },
-      { id: "two", config: "second" },
-      { id: "three", config: "third" },
-    ];
+describe("createCollabPlugin lazy seeding configuration", () => {
+  it("keeps forward-only document id mappings compatible", () => {
+    expect(() =>
+      createCollabPlugin({
+        table: `mapped_collab_${Date.now()}`,
+        resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
+        access: { mode: "all-authenticated" },
+      }),
+    ).not.toThrow();
+  });
+});
 
-    expect(
-      selectUnseededCollabRows(
-        rows,
-        "id",
-        new Set(["dash-one"]),
-        (sourceId) => `dash-${sourceId}`,
-      ),
-    ).toEqual([
-      { row: rows[1], docId: "dash-two" },
-      { row: rows[2], docId: "dash-three" },
-    ]);
+describe("createCollabSourceSeeder", () => {
+  it("coalesces a concurrent first load and preserves an empty source", async () => {
+    let releaseSource!: () => void;
+    const sourceReady = new Promise<void>((resolve) => {
+      releaseSource = resolve;
+    });
+    const hasState = vi.fn(async () => false);
+    const loadSource = vi.fn(async () => {
+      await sourceReady;
+      return "";
+    });
+    const seed = vi.fn(async () => {});
+    const ensureSeeded = createCollabSourceSeeder({
+      hasState,
+      loadSource,
+      seed,
+    });
+
+    const requests = Array.from({ length: 12 }, () =>
+      ensureSeeded("design-file-1"),
+    );
+
+    expect(hasState).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(loadSource).toHaveBeenCalledOnce());
+    releaseSource();
+    await Promise.all(requests);
+
+    expect(seed).toHaveBeenCalledOnce();
+    expect(seed).toHaveBeenCalledWith("design-file-1", "");
   });
 });

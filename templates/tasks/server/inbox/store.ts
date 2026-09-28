@@ -17,7 +17,6 @@ import { type Task, toTask } from "../tasks/store.js";
 
 export { requireUserEmail };
 
-/** Action/UI view of an inbox item (`promotedToTask = false` in storage). */
 export type InboxItem = Omit<StoredItem, "promotedToTask" | "done">;
 
 const NOT_FOUND = "Stored item not found.";

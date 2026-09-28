@@ -25,7 +25,7 @@ prompts and visual tweak controls.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-design --standalone --template design
+npx --yes @agent-native/core@latest create my-design --standalone --template design
 cd my-design
 pnpm install
 pnpm dev

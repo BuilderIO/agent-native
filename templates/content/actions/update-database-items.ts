@@ -25,22 +25,13 @@ const actionSchema = z.intersection(
 
 export default defineAction({
   description:
-    "Set one Content database property on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent.",
+    "Set one Content collection property on multiple selected rows in one action call. Returns a result for every requested row; use this instead of looping set-document-property from the UI or agent.",
   mcpTool: true,
   schema: actionSchema,
   run: async (args) => {
     const { database, rows } = await resolveDatabaseRowsForBatch(args);
     await assertAccess("document", database.documentId, "editor");
 
-    // The property is the same for every row in this batch, so validate it
-    // once here instead of letting all N per-row setDocumentProperty.run
-    // calls independently repeat (and fail on) the identical check. The
-    // per-row mutation itself still goes through setDocumentProperty.run,
-    // one row at a time under bounded concurrency: each row needs its own
-    // locked transaction (natural-key uniqueness is enforced per value, and
-    // a row's own document can carry sharing different from the database's),
-    // so a single blind bulk UPDATE would silently drop that per-row
-    // correctness and the partial-success contract this action returns.
     const [definition] = await getDb()
       .select()
       .from(dbSchema.documentPropertyDefinitions)

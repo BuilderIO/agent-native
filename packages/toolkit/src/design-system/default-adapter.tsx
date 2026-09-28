@@ -61,14 +61,25 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
-import type { DesignSystemComponents, MenuItem } from "./types.js";
+import type {
+  DesignSystemComponents,
+  DesignSystemEmphasis,
+  DesignSystemIntent,
+  MenuItem,
+} from "./types.js";
 
 function buttonVariant(
-  intent: "primary" | "neutral" | "danger" = "neutral",
-  emphasis: "solid" | "outline" | "ghost" = "solid",
+  intent: DesignSystemIntent = "neutral",
+  emphasis: DesignSystemEmphasis = "solid",
+  inset = false,
 ) {
+  if (inset && emphasis === "ghost") return "ghost-inset" as const;
   if (emphasis === "ghost") return "ghost" as const;
-  if (emphasis === "outline") return "outline" as const;
+  if (emphasis === "outline") {
+    return intent === "danger"
+      ? ("outline-destructive" as const)
+      : ("outline" as const);
+  }
   if (intent === "primary") return "default" as const;
   if (intent === "danger") return "destructive" as const;
   return "secondary" as const;
@@ -84,6 +95,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
   children,
   intent,
   emphasis,
+  inset,
   size,
   pending,
   disabled,
@@ -99,7 +111,7 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
     {...props}
     ref={elementRef}
     type={type}
-    variant={buttonVariant(intent, emphasis)}
+    variant={buttonVariant(intent, emphasis, inset)}
     size={buttonSize(size)}
     disabled={disabled || pending}
     onClick={(event) => {
@@ -604,9 +616,11 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
   description,
   children,
   footer,
+  headerAction,
   trigger,
   size = "medium",
   dismissible = true,
+  hideClose,
   closeLabel,
   initialFocusRef,
   restoreFocusRef,
@@ -618,13 +632,16 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
     {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
     <DialogContent
       container={portalContainer}
-      hideClose={!dismissible}
+      hideClose={hideClose || !dismissible}
       closeLabel={closeLabel}
+      {...(!description ? { "aria-describedby": undefined } : {})}
       style={style}
       className={cn(
         size === "small" && "max-w-sm",
         size === "medium" && "max-w-lg",
         size === "large" && "max-w-2xl",
+        size === "viewport" &&
+          "h-[90dvh] max-h-[90dvh] w-[calc(100vw-2rem)] max-w-[96rem] sm:w-[calc(100vw-3rem)]",
         size === "fullscreen" &&
           "inset-0 h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none",
         className,
@@ -647,8 +664,17 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
         if (!dismissible) event.preventDefault();
       }}
     >
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
+      <DialogHeader
+        className={
+          headerAction
+            ? "flex-row items-center justify-between gap-3 space-y-0"
+            : undefined
+        }
+      >
+        <DialogTitle className={headerAction ? "min-w-0" : undefined}>
+          {title}
+        </DialogTitle>
+        {headerAction}
         {description ? (
           <DialogDescription>{description}</DialogDescription>
         ) : null}
@@ -866,22 +892,12 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
   onChange,
   orientation,
   activationMode,
+  headerActions,
   className,
   style,
   ...props
-}) => (
-  <DefaultTabsPrimitive
-    {...props}
-    value={String(value)}
-    onValueChange={(next) => {
-      const item = items.find((candidate) => String(candidate.value) === next);
-      if (item) onChange(item.value);
-    }}
-    orientation={orientation}
-    activationMode={activationMode}
-    className={className}
-    style={style}
-  >
+}) => {
+  const tabList = (
     <TabsList>
       {items.map((item) => (
         <TabsTrigger
@@ -894,13 +910,38 @@ const DefaultTabs: DesignSystemComponents["Tabs"] = ({
         </TabsTrigger>
       ))}
     </TabsList>
-    {items.map((item) => (
-      <TabsContent key={item.value} value={String(item.value)}>
-        {item.content}
-      </TabsContent>
-    ))}
-  </DefaultTabsPrimitive>
-);
+  );
+  return (
+    <DefaultTabsPrimitive
+      {...props}
+      value={String(value)}
+      onValueChange={(next) => {
+        const item = items.find(
+          (candidate) => String(candidate.value) === next,
+        );
+        if (item) onChange(item.value);
+      }}
+      orientation={orientation}
+      activationMode={activationMode}
+      className={className}
+      style={style}
+    >
+      {headerActions ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {tabList}
+          {headerActions}
+        </div>
+      ) : (
+        tabList
+      )}
+      {items.map((item) => (
+        <TabsContent key={item.value} value={String(item.value)}>
+          {item.content}
+        </TabsContent>
+      ))}
+    </DefaultTabsPrimitive>
+  );
+};
 
 export const defaultDesignSystemComponents: DesignSystemComponents = {
   ActionButton: DefaultActionButton,

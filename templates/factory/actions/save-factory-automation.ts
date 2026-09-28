@@ -4,6 +4,7 @@ import {
   resourceGetByPath,
   resourcePutIfCurrent,
 } from "@agent-native/core/resources";
+import { isReasoningEffort } from "@agent-native/core/shared";
 import { z } from "zod";
 
 import {
@@ -17,15 +18,26 @@ import {
   assertAuthorFilter,
   clampInboxLimit,
   clampWorkLimit,
+  normalizeUserPrompt,
+  readConfigSavedAt,
   readFactoryAutomationConfig,
-  replaceUserPrompt,
+  readPromptVersion,
+  replaceAutomationContentWithUserPrompt,
   scheduleCron,
 } from "../server/lib/factory-automation-config.js";
+import {
+  deleteFactoryAutomationVersionRow,
+  insertFactoryAutomationVersionIfChanged,
+  resolvePromptVersionForSnapshot,
+  snapshotFromAutomationResource,
+} from "../server/lib/factory-automation-history.js";
 import { findFactoryAutomationDefinition } from "../server/lib/factory-automation-resources.js";
 import {
   factoryIdSchema,
+  readAutomationDisplayName,
   readAutomationEnabled,
   readAutomationModel,
+  readAutomationReasoningEffort,
   readAutomationSchedule,
   resolveAutomationDisplayName,
   setAutomationFrontmatterField,
@@ -34,6 +46,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { FACTORY_ALIGNMENT_REVISION } from "../server/triage/review-skill-alignment.js";
 
 export default defineAction({
   description:
@@ -45,6 +58,14 @@ export default defineAction({
     displayName: z.string().trim().max(120).optional(),
     prompt: z.string().trim().min(1).max(20_000),
     model: z.string().trim().max(200).optional(),
+    reasoningEffort: z
+      .string()
+      .trim()
+      .max(20)
+      .optional()
+      .refine((value) => !value || isReasoningEffort(value), {
+        message: "Invalid reasoning effort.",
+      }),
     enabled: z.boolean(),
     slackWorkspace: z.enum(["primary", "secondary"]).optional(),
     slackChannelId: z.string().trim().max(128).optional(),
@@ -70,6 +91,14 @@ export default defineAction({
     timezone: z.string().trim().max(80).optional(),
     inboxLimit: z.number().int().min(1).max(FACTORY_INBOX_LIMIT_MAX).optional(),
     workLimit: z.number().int().min(1).max(FACTORY_WORK_LIMIT_MAX).optional(),
+    clearIdentityFields: z
+      .boolean()
+      .optional()
+      .describe(
+        "Required to be true to blank out an already-set displayName, " +
+          "Slack channel, GitHub repository, or authorIds. Omitting a field " +
+          "leaves its current value; this only gates explicitly clearing one.",
+      ),
   }),
   http: { method: "POST" },
   run: async (input, context) => {
@@ -92,7 +121,18 @@ export default defineAction({
       definition.resource.path,
     );
     if (!resource) throw new Error("Factory automation not found.");
+    const storedDisplayName = readAutomationDisplayName(resource.content);
     const current = readFactoryAutomationConfig(resource.content, input.name);
+    if (
+      input.displayName !== undefined &&
+      !input.displayName.trim() &&
+      storedDisplayName &&
+      !input.clearIdentityFields
+    ) {
+      throw new Error(
+        "Refusing to clear display name without clearIdentityFields: true.",
+      );
+    }
     const authorMode = input.authorMode ?? current.authorMode;
     const authorIds = assertAuthorFilter(
       current.source,
@@ -153,6 +193,17 @@ export default defineAction({
         );
       }
     }
+    if (
+      !input.enabled &&
+      input.slackChannelId !== undefined &&
+      !input.slackChannelId.trim() &&
+      current.slackChannelId?.trim() &&
+      !input.clearIdentityFields
+    ) {
+      throw new Error(
+        "Refusing to clear Slack channel without clearIdentityFields: true.",
+      );
+    }
     const config = {
       ...current,
       slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
@@ -188,8 +239,45 @@ export default defineAction({
     if (scheduleOwned && !isValidCron(schedule)) {
       throw new Error(`Invalid cron expression "${schedule}".`);
     }
+    const previousSnapshot = snapshotFromAutomationResource(
+      resource.content,
+      input.name,
+      input.factoryId,
+    );
+    const normalizedPrompt = normalizeUserPrompt(input.prompt);
+    const nextDisplayName =
+      input.displayName !== undefined
+        ? input.displayName.trim() || null
+        : previousSnapshot.displayName;
+    const resolvedPromptVersion = resolvePromptVersionForSnapshot(
+      {
+        userPrompt: normalizedPrompt,
+        displayName: nextDisplayName,
+        config,
+      },
+      previousSnapshot,
+    );
     let content = applyAutomationConfigFrontmatter(resource.content, config);
-    content = replaceUserPrompt(content, input.prompt);
+    content = replaceAutomationContentWithUserPrompt(
+      content,
+      normalizedPrompt,
+      input.name,
+    );
+    content = setAutomationFrontmatterField(
+      content,
+      "promptVersion",
+      String(resolvedPromptVersion),
+    );
+    content = setAutomationFrontmatterField(
+      content,
+      "alignmentRevision",
+      String(FACTORY_ALIGNMENT_REVISION),
+    );
+    content = setAutomationFrontmatterField(
+      content,
+      "configSavedAt",
+      new Date().toISOString(),
+    );
     content = setAutomationFrontmatterField(
       content,
       "enabled",
@@ -208,6 +296,13 @@ export default defineAction({
         input.model.trim() || "",
       );
     }
+    if (input.reasoningEffort !== undefined) {
+      content = setAutomationFrontmatterField(
+        content,
+        "reasoningEffort",
+        input.reasoningEffort.trim() || "",
+      );
+    }
     if (input.displayName !== undefined) {
       content = setAutomationFrontmatterField(
         content,
@@ -223,15 +318,44 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    const updated = await resourcePutIfCurrent({
-      owner: definition.resource.owner,
-      path: definition.resource.path,
-      content,
-      mimeType: "text/markdown",
-      expectedId: resource.id,
-      expectedUpdatedAt: resource.updatedAt,
-      expectedContent: resource.content,
+    const insertedVersion = await insertFactoryAutomationVersionIfChanged({
+      automationId: definition.resource.id,
+      factoryId: input.factoryId,
+      orgId,
+      userEmail,
+      automationName: input.name,
+      previousContent: resource.content,
+      nextContent: content,
+      summary: "Automation save",
+      source: "save",
     });
+    let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
+    let writeError: unknown;
+    try {
+      updated = await resourcePutIfCurrent({
+        owner: definition.resource.owner,
+        path: definition.resource.path,
+        content,
+        mimeType: "text/markdown",
+        expectedId: resource.id,
+        expectedUpdatedAt: resource.updatedAt,
+        expectedContent: resource.content,
+      });
+    } catch (error) {
+      writeError = error;
+    }
+    if (!updated && insertedVersion) {
+      await deleteFactoryAutomationVersionRow({
+        id: insertedVersion.id,
+        orgId,
+      }).catch((cleanupError) => {
+        console.error(
+          `[save-factory-automation] failed to remove orphaned predecessor version ${insertedVersion.id} after a failed save write:`,
+          cleanupError,
+        );
+      });
+    }
+    if (writeError) throw writeError;
     if (!updated) {
       throw new Error(
         "Factory automation changed concurrently. Refresh and try again.",
@@ -242,8 +366,11 @@ export default defineAction({
       id: definition.resource.id,
       name: definition.name,
       displayName: resolveAutomationDisplayName(definition.name, content),
-      prompt: input.prompt,
+      prompt: normalizedPrompt,
+      promptVersion: readPromptVersion(content),
+      configSavedAt: readConfigSavedAt(content),
       model: readAutomationModel(content),
+      reasoningEffort: readAutomationReasoningEffort(content),
       schedule: readAutomationSchedule(content),
       enabled: readAutomationEnabled(content),
       source: config.source,

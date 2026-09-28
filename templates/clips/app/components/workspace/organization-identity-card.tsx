@@ -1,5 +1,6 @@
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import { useMemo } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +10,7 @@ import {
   type RecordingVisibility,
 } from "@/components/workspace/branding-editor";
 import type { MemberRole } from "@/components/workspace/members-list";
+import { organizationLogoUrl } from "@/lib/organization-logo";
 
 interface OrganizationStateResponse {
   organization: {
@@ -22,20 +24,29 @@ interface OrganizationStateResponse {
   members: { email: string; role: MemberRole }[];
 }
 
-/**
- * Organization identity — name, logo, brand color, default recording
- * visibility. It sits directly above membership in the Organization tab
- * because the name and logo are what recipients see in share emails.
- */
 export function OrganizationIdentityCard() {
   const t = useT();
   const { session } = useSession();
   const email = session?.email ?? "";
+  const {
+    data: orgInfo,
+    isLoading: orgLoading,
+    isError: isOrgError,
+    isFetching: isOrgFetching,
+  } = useOrg();
+  // Personal scope owns this surface: the framework Team card below already
+  // renders "create an organization", so an org-scoped branding fetch here
+  // has nothing to read and its failure reads as a broken page. A failed org
+  // lookup also leaves `orgInfo` undefined, so it must stay distinguishable
+  // from a loaded `orgId: null` instead of silently hiding the section.
+  const activeOrgId = orgInfo?.orgId ?? null;
+  const hasActiveOrg = Boolean(activeOrgId);
 
   const { data, isPending, isError } =
     useActionQuery<OrganizationStateResponse>(
       "list-organization-state",
-      undefined,
+      activeOrgId ? { organizationId: activeOrgId } : undefined,
+      { enabled: hasActiveOrg },
     );
 
   const organization = data?.organization ?? null;
@@ -48,20 +59,28 @@ export function OrganizationIdentityCard() {
     return role === "admin" || role === "owner";
   }, [members, email, organization?.ownerEmail]);
 
-  if (isPending) return <Skeleton className="h-64 w-full" />;
-  // A failed load must not look like "this org has no branding".
+  const loadFailed = (
+    <Card>
+      <CardContent className="py-6 text-center text-sm text-muted-foreground">
+        {t("organizationSettings.brandingLoadFailed")}
+      </CardContent>
+    </Card>
+  );
+
+  if (isOrgError) return loadFailed;
   if (isError) {
-    return (
-      <Card>
-        <CardContent className="py-6 text-center text-sm text-muted-foreground">
-          {t("organizationSettings.brandingLoadFailed")}
-        </CardContent>
-      </Card>
-    );
+    return isOrgFetching ? <Skeleton className="h-64 w-full" /> : loadFailed;
   }
+  if (orgLoading) return <Skeleton className="h-64 w-full" />;
+  if (!hasActiveOrg) return null;
+  if (isPending) return <Skeleton className="h-64 w-full" />;
   if (!organization) return null;
 
   if (!isAdmin) {
+    const logoUrl = organizationLogoUrl(
+      organization.brandLogoUrl,
+      organization.id,
+    );
     return (
       <Card>
         <CardHeader>
@@ -71,9 +90,9 @@ export function OrganizationIdentityCard() {
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
-            {organization.brandLogoUrl ? (
+            {logoUrl ? (
               <img
-                src={organization.brandLogoUrl}
+                src={logoUrl}
                 alt=""
                 className="h-10 w-10 rounded object-contain"
               />
@@ -97,6 +116,7 @@ export function OrganizationIdentityCard() {
 
   return (
     <BrandingEditor
+      key={organization.id}
       organizationId={organization.id}
       initialName={organization.name}
       initialBrandColor={organization.brandColor}

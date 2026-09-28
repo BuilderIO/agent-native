@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Base de datos de producción {#production}
 
-Configure `DATABASE_URL` en su archivo `.env` o en el entorno del proveedor de despliegue para conectar una base de datos PostgreSQL alojada:
+Configure `DATABASE_URL` en su archivo `.env` o en el entorno del proveedor de despliegue para conectar una base de datos PostgreSQL alojada. Las opciones administradas habituales incluyen [Neon](/docs/neon), [Supabase](/docs/supabase), [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) y [Azure Database for PostgreSQL](/docs/azure-postgresql). Consulta la guía [Plain Postgres](/docs/postgres) para otros servicios administrados y servidores PostgreSQL autohospedados:
 
 ```bash
 # Neon Postgres
@@ -98,6 +98,8 @@ DATABASE_URL=pglite:./data/pglite
 ```
 
 El marco configura Drizzle para PostgreSQL a partir de `DATABASE_URL`.
+
+El framework limita las conexiones por pool. Los valores predeterminados son 20 para procesos Node.js de larga duración, 2 para funciones serverless en primer plano, 4 en segundo plano y 1 para workers programados con pocas conexiones. `AGENT_NATIVE_DB_POOL_MAX` sustituye el máximo por pool en clientes Neon y PostgreSQL estándar. Calcule el total entre instancias activas o procesos Node.js, aplicaciones y URL de bases de datos. Cada proceso tiene sus propios pools. Mantenga la suma por debajo del límite de la base de datos o del pooler y reserve capacidad para migraciones, administración y otros clientes. Use el endpoint agrupado del proveedor si está disponible. Para PostgreSQL autohospedado con muchos procesos, considere PgBouncer en modo de pooling de transacciones.
 
 ### Base de datos administrada por Builder.io {#builder-managed}
 

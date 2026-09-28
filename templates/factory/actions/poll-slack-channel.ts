@@ -6,7 +6,6 @@ import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
 import { authorMatchesFilter } from "../server/lib/factory-automation-config.js";
-import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   readFactoryPollCursor,
   writeFactoryPollCursor,
@@ -26,6 +25,7 @@ import {
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import type { IngestionEnvelope } from "../server/triage/contracts.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
+import { mergeTriageMetadata } from "../server/triage/metadata.js";
 import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
@@ -52,7 +52,6 @@ export default defineAction({
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
-    await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
     const job = await readCallingFactoryAutomation(context, {
       userEmail,
       orgId,
@@ -178,6 +177,10 @@ export default defineAction({
         const lastSeenAt = sourceChanged
           ? sourceLastSeenAt
           : (existing?.lastSeenAt ?? now);
+        const metadataJson = mergeTriageMetadata(
+          existing?.metadataJson ?? "{}",
+          envelope.metadata ?? {},
+        );
         await tx
           .insert(triageItems)
           .values({
@@ -196,7 +199,7 @@ export default defineAction({
             headSha: envelope.headSha ?? null,
             coverage: envelope.coverage,
             dedupeKey: id,
-            metadataJson: JSON.stringify(envelope.metadata ?? {}),
+            metadataJson,
             lastSeenAt,
             createdAt: now,
             updatedAt,
@@ -213,7 +216,7 @@ export default defineAction({
               channelId: envelope.channelId ?? null,
               threadTs: envelope.threadTs ?? null,
               coverage: envelope.coverage,
-              metadataJson: JSON.stringify(envelope.metadata ?? {}),
+              metadataJson,
               status,
               lastSeenAt,
               updatedAt,

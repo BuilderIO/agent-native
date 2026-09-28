@@ -125,7 +125,7 @@ pnpm action search-notion-pages --query "meeting notes"
 ### list-notion-database-sources
 
 List Notion data sources visible to the current user's OAuth connection before
-attaching one to a Content database:
+attaching one to a Content collection:
 
 ```bash
 pnpm action list-notion-database-sources --query "projects"

@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "إجراءات القالب {{title}}",
+    previewAction: "معاينة",
+    title: "القوالب",
+    browseAll: "استعراض الكل",
+    searchPlaceholder: "البحث عن القوالب…",
+    loading: "جارٍ تحميل القوالب",
+    empty: "لا توجد قوالب تطابق بحثك.",
+    loadFailed: "تعذّر تحميل القوالب.",
+    preview: "معاينة القالب",
+    useTemplate: "استخدام القالب",
+    opening: "جارٍ فتح القالب…",
+    createFailed: "تعذّر إنشاء عرض تقديمي من هذا القالب.",
+    previous: "السابق",
+    next: "التالي",
+    slidePosition: "الشريحة {{current}} من {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
   root: {
     commandPresentations: "العروض التقديمية",
@@ -23,15 +40,24 @@ const messages = {
     brand: "الشرائح",
     decks: "العروض",
     designSystems: "أنظمة التصميم",
-    team: "الفريق",
   },
   settings: {
+    agentObservability: "مراقبة الوكيل",
     title: "الإعدادات",
     description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
+    labs: "المختبرات",
+    labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
+    labLayoutOverflowWarningDescription: "إظهار تحذير تجاوز التخطيط في المحرر.",
     emailNotifications: "إشعارات البريد الإلكتروني",
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
+    notificationsEmail: "البريد الإلكتروني",
+    commentsAndReplies: "التعليقات والردود",
+    commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
+    retry: "إعادة المحاولة",
+    mcpAbout:
+      "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -49,6 +75,7 @@ const messages = {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
     thisSlide: "هذه الشريحة",
     currentSelection: "التحديد الحالي",
+    slideNumber: "الشريحة {{number}}",
     suggestionPitch: "أنشئ عرضا من 10 شرائح من هذا المستند",
     suggestionBrand: "طبّق علامتنا على هذا العرض",
     suggestionHero: "أنشئ صورة رئيسية لهذه الشريحة",
@@ -102,7 +129,7 @@ const messages = {
       "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     sentToAgent: "Enviado ao agente",
     imageUploadGenericError: "Algo deu errado ao enviar esta imagem.",
     uploading: "Enviando…",
@@ -161,8 +188,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "فتح في التطبيق",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
@@ -178,6 +203,12 @@ const messages = {
     emptyTitle: "إعداد هوية علامتك التجارية",
     emptyDescription:
       "أنشئ نظام تصميم بألوان علامتك وخطوطها وشعاراتها. سيتبع كل عرض جديد هويتك البصرية.",
+    tierLimitTitle: "تم الوصول إلى الحد الأقصى لأنظمة التصميم",
+    tierLimitDescription:
+      "لقد وصلت إلى الحد الأقصى لأنظمة التصميم في خطة Builder الخاصة بك. قم بترقية خطة Builder لإنشاء نظام آخر.",
+    tierLimitDescriptionWithCount:
+      "أنت تستخدم {{current}} من {{max}} أنظمة تصميم في خطة Builder {{plan}}. قم بالترقية لإنشاء نظام آخر.",
+    tierLimitUpgrade: "ترقية خطة Builder",
   },
   editorToolbar: {
     layoutTitle: "العنوان",
@@ -208,9 +239,6 @@ const messages = {
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
     viewOnly: "عرض فقط",
-    sourcePreserving: "تحرير محدود",
-    sourcePreservingDescription:
-      "يمكن تعديل النصوص والعناصر. تمت تعطيل إضافة الشرائح أو حذفها أو إعادة ترتيبها في هذا العرض المستورد.",
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
     slideSettings: "إعدادات الشريحة",
@@ -295,6 +323,10 @@ const messages = {
     exportPptx: "تصدير بصيغة PPTX",
     connectGoogle: "توصيل Google",
     openInGoogleSlides: "فتح في Google Slides",
+    googleSlidesUnavailable: "غير متاح",
+    googleSlidesOpenImporter: "فتح استيراد Google Slides",
+    googleSlidesUnavailableHint:
+      "تصدير Google Slides غير متاح حاليًا لأن اتصال Google غير مُهيأ. صدّر الملف بصيغة PPTX واستورده إلى Google Slides بدلاً من ذلك.",
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
@@ -363,8 +395,16 @@ const messages = {
   },
   comments: {
     deleteComment: "حذف التعليق",
+    editComment: "تعديل التعليق",
+    save: "حفظ",
     saveCommentFailed: "تعذر حفظ هذا التعليق.",
+    updateFailed: "تعذر تحديث هذا التعليق.",
+    deleteFailed: "تعذر حذف هذا التعليق.",
+    reactionFailed: "تعذر تحديث هذا التفاعل.",
     addCommentPlaceholder: "إضافة تعليق...",
+    addReaction: "إضافة تفاعل",
+    toggleReaction: "تبديل تفاعل {{emoji}}",
+    reactWith: "التفاعل باستخدام {{emoji}}",
     cancel: "إلغاء",
     saving: "جار الحفظ...",
     comment: "تعليق",
@@ -372,6 +412,7 @@ const messages = {
     replyPlaceholder: "رد...",
     reply: "رد",
     resolveThread: "حل المحادثة",
+    reopenThread: "إعادة فتح المحادثة",
     hideReplies: "إخفاء الردود",
     replyCount: "{{count}} ردود",
     title: "التعليقات",
@@ -384,6 +425,15 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    scope: "نطاق التعليقات",
+    thisSlide: "هذه الشريحة",
+    allComments: "كل الشرائح",
+    audience: "جمهور التعليقات",
+    all: "الكل",
+    forYou: "من أجلك",
+    goToSlide: "الانتقال إلى الشريحة",
+    search: "البحث في التعليقات",
+    searchPlaceholder: "البحث في كل التعليقات...",
   },
   styleInspector: {
     title: "Style",
@@ -471,6 +521,10 @@ const messages = {
     rose: "Rose",
     arrange: "ترتيب",
     order: "الترتيب",
+    group: "تجميع",
+    ungroup: "إلغاء التجميع",
+    bringForward: "إحضار للأمام",
+    sendBackward: "إرسال للخلف",
     bringToFront: "إحضار إلى الأمام",
     sendToBack: "إرسال إلى الخلف",
     copyStyle: "نسخ النمط",
@@ -537,6 +591,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "تم الحفظ" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -607,10 +662,30 @@ const messages = {
     enterFullscreen: "Entrar en pantalla completa",
     clickToEnterFullscreen: "Haz clic para entrar en pantalla completa",
   },
+  deckAccessPage: {
+    errorCode: "خطأ 403",
+    noAccessTitle: "ليس لديك صلاحية الوصول",
+    noAccessDescription: "اطلب الوصول من مالك العرض، أو بدّل إلى الحساب الصحيح.",
+    noteLabel: "أضف ملاحظة للمالك (اختياري)",
+    notePlaceholder: "أراجع هذا العرض",
+    requesting: "جارٍ الطلب",
+    requestFailed: "لم يُرسَل طلبك. يُرجى المحاولة مرة أخرى.",
+    requestSentDescription:
+      "سنرسل إليك بريدًا إلكترونيًا فور موافقة المالك على طلبك.",
+    goHome: "الانتقال إلى الرئيسية",
+    signedInAs: "تم تسجيل الدخول باسم",
+    switchAccount: "تبديل الحساب",
+  },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
+    generationStalled: "تم إيقاف الإنشاء مؤقتًا بعد 5 دقائق دون تقدم",
+    generationStalledDescription:
+      "لا تزال الشرائح المحفوظة موجودة. يمكنك متابعة هذا العرض التقديمي في الدردشة.",
+    continueInChat: "المتابعة في الدردشة",
+    continueGenerationPrompt:
+      "تابع إنشاء الشرائح لهذا العرض التقديمي. افحص الشرائح الحالية وسياق الإنشاء المحفوظ أولًا. احتفظ بالشرائح المكتملة وأضف الشرائح الناقصة فقط.",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
     joinTeamDescription:
@@ -647,6 +722,9 @@ const messages = {
     accessApprovalTitle: "تم منح الوصول",
     accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
     accessApprovalMessage: "يمكن لـ {{email}} فتح هذا العرض الآن.",
+    accessApprovalRequesterEmailed: "أرسلنا إليه بريدًا إلكترونيًا لإعلامه.",
+    accessApprovalRequesterEmailFailed:
+      "تعذّر إرسال بريد إلكتروني إلى {{email}}. أخبره أنه يمكنه فتح العرض الآن.",
     accessApprovalAlreadyMessage:
       "لدى {{email}} صلاحية الوصول إلى هذا العرض بالفعل.",
     accessApprovalErrorTitle: "تعذّر منح الوصول",
@@ -658,14 +736,14 @@ const messages = {
     accessApprovalSignIn: "تسجيل الدخول",
     accessApprovalLoading: "جارٍ منح الوصول...",
     backToDecks: "العودة إلى العروض",
-    tryAgain: "Intentar de nuevo",
+    tryAgain: "إعادة المحاولة",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
-      "وصّل Builder.io من قائمة النموذج في مؤلف الوكيل لتحميل الصور إلى الشرائح. لا يزال بإمكانك إفلات صورة على اللوحة الفارغة لإرسالها إلى الوكيل بدون مزود.",
+      "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
-    deckHasNoSlides: "El deck no tiene diapositivas.",
+    deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
     layoutOverflowWarning: "يتجاوز التخطيط المساحة",
@@ -684,6 +762,10 @@ const messages = {
       "إذا غادرت أو أعدت التحميل الآن، فقد تفقد التغييرات التي لم تُحفظ بعد. هل أنت متأكد من رغبتك في الخروج؟",
     keepEditing: "متابعة التحرير",
     leaveWithoutSaving: "الخروج دون حفظ",
+    editorMarkupNotSaved:
+      "لم يتم حفظ هذا التعديل لأنه كان سيضيف ترميز المحرر إلى الشريحة.",
+    textEditConflictNotSaved:
+      "لم يتم حفظ تعديل النص لأن النص نفسه تم تغييره في مكان آخر في الوقت نفسه.",
   },
   designSystemSetup: {
     importedBrand: "علامة تجارية مستوردة",
@@ -739,6 +821,8 @@ const messages = {
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",
     githubRepository: "ربط الكود: مستودع GitHub",
+    codeIndexingEnterpriseOnly:
+      "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
     githubRef: "الفرع أو الوسم أو الالتزام (اختياري)",
     githubPaths: "الملفات أو المجلدات، مفصولة بفواصل (اختياري)",
     codeFiles: "ربط ملفات الكود",
@@ -766,12 +850,130 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "أنشئ عرضًا تقديميًا لمنتج",
+      roadmap: "أنشئ خارطة طريق لمنتج",
+      explainer: "اشرح موضوعًا في عرض تقديمي",
+    },
+    suggestedPrompts: "الاقتراحات المقترحة",
+    importMenu: {
+      import: "استيراد",
+      options: "خيارات الاستيراد",
+      invalidPdf: "اختر ملف PDF.",
+      invalidPptx: "اختر ملف PPTX.",
+      invalidFile: "اختر ملف PDF أو PPTX.",
+      networkFailed:
+        "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
+      notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      unsupportedFileType: "نوع الملف هذا غير مدعوم. اختر ملفًا مدعومًا.",
+      uploadLimitExceeded:
+        "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
+    },
+    importDeck: "استيراد عرض",
+    context: {
+      websiteReference: "إرفاق موقع ويب",
+      websiteUrlLabel: "عنوان URL لموقع الويب",
+      websiteUrl: "الصق عنوان URL لموقع ويب",
+      figmaUrlLabel: "رابط Figma",
+      invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+      createSystem: "إنشاء نظام تصميم",
+      noSystems:
+        "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+      searchSystems: "البحث في أنظمة التصميم…",
+      searchFrames: "البحث في إطارات Figma…",
+      searchDesigns: "البحث في التصاميم…",
+      searchPresentations: "البحث في العروض التقديمية…",
+      menu: {
+        system: "استخدام نظام تصميم",
+        figma: "إرفاق Figma",
+        design: "الاستعانة بتصميم",
+        deck: "الاستعانة بعرض تقديمي",
+        searchDesign: "البحث في التصميم…",
+      },
+      loadFailed: "تعذر تحميل هذا المرجع. حاول مجددًا.",
+      saveFailed: "تعذر حفظ اختيار السياق.",
+      system: "أنظمة التصميم",
+      figmaUrl: "ألصق رابط Figma",
+      browse: "تصفح الإطارات",
+      empty: "لم يتم العثور على مراجع.",
+      previous: "السابق",
+      next: "التالي",
+      title: "السياق",
+      remove: "إزالة المرجع",
+      deck: "العروض التقديمية",
+      design: "مراجع التصميم",
+      figma: "إطارات Figma",
+      notReady:
+        "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
+      emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      websiteReadFailed:
+        "تعذّرت قراءة هذا الموقع تلقائيًا. انسخ النص ذي الصلة والصقه بدلًا من ذلك.",
+      figmaReadFailed:
+        "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
+      tooMany: "اختر حتى 20 مرجعًا.",
+      search: "البحث عن مراجع",
+      designCategory: "التصميم",
+    },
+    quickStart: {
+      invalidUrl: "أدخل رابط HTTP أو HTTPS صالحًا.",
+      starting: "جارٍ البدء…",
+      generate: "إنشاء",
+      connectionRequired:
+        "اربط موفر ذكاء اصطناعي أعلى حقل الصفحة الرئيسية أو أضف مفتاح الذكاء الاصطناعي الخاص بك، ثم حاول مجددًا.",
+      invalidPdf: "اختر ملف PDF.",
+      notReady: "راجع السياق المعلق أو المتعذر وحالة الاتصال ثم حاول مجددًا.",
+      tooLong: "اجعل نص المصدر أقل من 20,000 حرف.",
+      trends: {
+        label: "إنشاء عرض عن أحدث اتجاهات القطاع",
+        field: "القطاع أو الموضوع",
+        prompt:
+          "ابحث عن أحدث اتجاهات الموضوع المقدم وأنشئ عرضًا بمصادر حديثة. تحقق من المعلومات قبل الإنشاء.",
+      },
+      notes: {
+        label: "تحويل ملاحظات الاجتماع إلى عرض",
+        field: "ملاحظات الاجتماع",
+        prompt:
+          "حوّل ملاحظات الاجتماع المقدمة إلى عرض يتناول النقاط الرئيسية والقرارات والخطوات التالية. استخدم الملاحظات كمادة مصدرية.",
+      },
+      pdf: {
+        label: "تلخيص أهم الأفكار في ملف PDF",
+        field: "ملف PDF",
+        prompt:
+          "اقرأ ملف PDF المرفق وأنشئ عرضًا يلخص أهم أفكاره. أبلغ عن المحتوى غير المقروء بدلًا من التخمين.",
+      },
+      website: {
+        label: "إنشاء عرض من موقع شركتي",
+        field: "رابط موقع الشركة",
+        prompt:
+          "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
+      },
+    },
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
+    recent: "الأخيرة",
+    starters: {
+      pitch: {
+        label: "عرض تقديمي لفكرة",
+        prompt: "أنشئ عرضًا تقديميًا لفكرة حول ",
+      },
+      update: {
+        label: "تحديث المشروع",
+        prompt: "أنشئ تحديثًا يتناول التقدم والنتائج والخطوات التالية لمشروع ",
+      },
+      lesson: {
+        label: "شرح موضوع",
+        prompt: "أنشئ عرضًا تقديميًا يشرح ",
+      },
+    },
     loadFailed: "تعذر تحميل المحتوى",
     loadFailedDescription:
       "لا يزال المحتوى المحفوظ متاحًا. تحقق من الاتصال وأعد المحاولة.",
     retry: "إعادة المحاولة",
+    fileStorageStatusUnavailable:
+      "تعذر التحقق من حالة تخزين الكائنات. أعد المحاولة قبل رفع الملفات.",
+    fileStorageSetupRequired:
+      "لا يوجد تخزين كائنات متصل. اربط Builder.io مجانًا أو أضف مفاتيح تخزين متوافقة مع S3 من إعدادات ← تحميل الملفات.",
     decksTitle: "العروض",
-    newDeck: "عرض جديد",
     deckLengthQuestion: "ما طول هذا العرض؟",
     deckLengthHeader: "طول العرض",
     deckLengthShort: "قصير (3–5 شرائح)",
@@ -796,11 +998,13 @@ const messages = {
     newDeckPromptTitle: "عرض تقديمي جديد",
     newDeckPlaceholder: "صِف العرض التقديمي الذي تريد إنشاءه...",
     skipPrompt: "تخطي المطالبة",
-    firstDeckPromptTitle: "ما نوع العرض التقديمي الذي تريد أن ننشئه؟",
+    firstDeckPromptTitle: "لننشئ عرضك التقديمي الأول",
     firstDeckSkip: "تخطي",
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
     importFrom: "استيراد من",
+    referenceFileStorageUnavailable:
+      "لم يتم إعداد تخزين الملفات. اربط Builder.io أو موفر ملفات آخر لاستيراد الملفات المرجعية.",
     attachedFiles: "المرفقات",
     imported: "تم الاستيراد",
     importedReferenceDeck: "عرض مرجعي مستورد",

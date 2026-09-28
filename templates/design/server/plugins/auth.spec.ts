@@ -28,9 +28,18 @@ describe("design auth plugin", () => {
       expect.objectContaining({
         publicPaths: expect.arrayContaining([
           "/_agent-native/actions/get-design",
+          "/_agent-native/actions/get-design-access-status",
           "/_agent-native/actions/list-design-native-assets",
           "/_agent-native/actions/list-review-comments",
         ]),
+      }),
+    );
+  });
+
+  it("lets a session-less external agent reach the agent-context endpoint", () => {
+    expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publicPaths: expect.arrayContaining(["/api/design-agent-context.json"]),
       }),
     );
   });

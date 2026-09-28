@@ -13,6 +13,7 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Store large file/blob payloads in configured file/blob storage, not SQL:
   persist URLs, ids, or handles instead of base64, media, documents, archives,
   screenshots, thumbnails, or replay chunks.

@@ -43,7 +43,7 @@ A researcher highlights a paragraph on a named Version, writes a private note, l
 
 - Annotations share an anchored-contribution substrate with Comments and revision notes but retain their own purpose and lifecycle.
 - Each records source representation, selector, named Version and exact revision context where available, author, scope, and provenance.
-- Quiet in-content marks open to a searchable, filterable Annotation rail; annotations can project to Databases and Canvas without becoming copies.
+- Quiet in-content marks open to a searchable, filterable Annotation rail; annotations can project to Collections and Canvas without becoming copies.
 - Ordinary edits attempt relocation. Unresolved anchors are explicit orphan/repair states; parallel Versions never silently merge annotation meaning.
 
 ## Boundaries and non-goals

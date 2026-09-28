@@ -51,7 +51,7 @@ An editor moves a callout above a heading while a reviewer comments on it and an
 
 ## Boundaries and non-goals
 
-- Blocks do not own independent Page access, Database membership, or top-level Properties.
+- Blocks do not own independent Page access, Collection membership, or top-level Properties.
 - A Block reference is not automatically a synced editable transclusion.
 - Blocks-field history owns the field revision sequence; this record owns the stable local unit.
 
@@ -67,7 +67,7 @@ Given a Block reference in another Page, when an authorized reader opens it, the
 
 ## Current evidence
 
-Database Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Exact database-row actions list stable Blocks and apply supported insert, update, upsert, delete, and same-parent reorder operations with schema, row, and field conflicts plus durable retry receipts. Deterministic tests cover sibling preservation, operation capabilities, deletion, recovery, reload, and field independence. Reference/comment anchors, actor-aware history, other Blocks-field owners, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Collection Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Exact collection-row actions list stable Blocks and apply supported insert, update, upsert, delete, and same-parent reorder operations with schema, row, and field conflicts plus durable retry receipts. Deterministic tests cover sibling preservation, operation capabilities, deletion, recovery, reload, and field independence. Reference/comment anchors, actor-aware history, other Blocks-field owners, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

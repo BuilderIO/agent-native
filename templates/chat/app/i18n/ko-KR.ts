@@ -32,6 +32,12 @@ const messages = {
     newChat: "새 채팅",
     optionsFor: "옵션 대상",
     pinChat: "채팅 고정",
+    pinned: "고정됨",
+    recents: "최근",
+    retryPreviousRequest:
+      "모델 공급자가 연결되었으니 이전 요청을 다시 시도해 주세요.",
+    retryAttachmentUnavailable:
+      "Chat에서 이 첨부 파일을 다시 열어 재시도할 수 없습니다. 접근 가능한 파일 URL을 추가한 뒤 다시 시도하세요.",
     renameChat: "채팅 이름 바꾸기",
     renameFailed: "이름 변경 실패",
     renameThread: "스레드 이름 바꾸기",
@@ -39,6 +45,7 @@ const messages = {
     suggestionCapabilities: "이 앱은 무엇을 할 수 있나요?",
     suggestionCustomize: "이 앱을 맞춤 설정하도록 도와줘",
     unpinChat: "채팅 고정 해제",
+    untitledChat: "제목 없는 채팅",
   },
   navigation: {
     chat: "채팅",

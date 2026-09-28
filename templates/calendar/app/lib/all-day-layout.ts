@@ -1,5 +1,6 @@
 import type { CalendarEvent } from "@shared/api";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import {
   addCalendarDays,
   dateToCalendarDateKey,
@@ -38,7 +39,6 @@ export function partitionAllDayEvents(events: CalendarEvent[]) {
   return { workingLocations, regularEvents };
 }
 
-/** Determine which visible day columns an all-day event overlaps. */
 export function getAllDaySpan(
   event: CalendarEvent,
   days: Date[],
@@ -72,7 +72,9 @@ export function getAllDaySpan(
 function compareSpans(a: AllDaySpan, b: AllDaySpan): number {
   if (a.startCol !== b.startCol) return a.startCol - b.startCol;
   if (a.endCol !== b.endCol) return b.endCol - a.endCol;
-  return a.event.id.localeCompare(b.event.id);
+  return getCalendarEventRenderKey(a.event).localeCompare(
+    getCalendarEventRenderKey(b.event),
+  );
 }
 
 export function layoutAllDayEvents(
@@ -110,7 +112,6 @@ export function layoutAllDayEvents(
   return { placements, rowCount: rows.length };
 }
 
-/** Group visually adjacent placements while preserving each event's click target. */
 export function groupAdjacentAllDayPlacements(
   placements: AllDayPlacement[],
   getGroupKey: (placement: AllDayPlacement) => string,

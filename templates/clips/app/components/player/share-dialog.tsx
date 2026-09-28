@@ -8,19 +8,20 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  AgentDestinationActions,
+  JoinedShareControl,
+  ShareModeTabs,
+} from "@agent-native/toolkit/sharing";
+import {
   IconArrowLeft,
   IconBrandFacebook,
   IconBrandLinkedin,
   IconBrandX,
-  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
-  IconLink,
   IconMail,
-  IconMessage,
   IconPhoto,
-  IconRefresh,
   IconShare3,
 } from "@tabler/icons-react";
 import {
@@ -34,9 +35,10 @@ import {
 import { toast } from "sonner";
 
 import {
-  PageHeaderActionGroup,
-  PageHeaderPrimaryAction,
-} from "@/components/library/page-header";
+  ClaudeCodeLogo,
+  ClaudeLogo,
+  CodexLogo,
+} from "@/components/agent-destination-logos";
 import {
   CopyButton,
   GeneralAccessSelect,
@@ -65,17 +67,16 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { buildAgentApiUrls } from "../../../shared/agent-context";
 import { buildEmailPreviewMarkup } from "../../../shared/email-preview";
 import { withShareAttribution } from "../../../shared/share-attribution";
 import { preferredThumbnailVariant } from "../../../shared/share-meta";
+import {
+  buildAgentShareDeepLink,
+  type AgentShareDestination,
+} from "../../lib/agent-share";
 import { buildSocialShareUrl } from "../../lib/social-share";
 import { ViewerSwitch } from "./viewer-controls";
 
@@ -103,14 +104,8 @@ export interface ShareRecordingPopoverProps {
   isLoomRecording?: boolean;
   hasPassword?: boolean;
   expiresAt?: string | null;
-  /**
-   * Restricts the dialog to a bare copy-link control for viewers who can
-   * reshare a public/org clip's link but have no edit access: it skips
-   * `list-resource-shares` (which returns every individually-shared
-   * principal's email to any reader) and hides access management entirely.
-   */
   viewerReshareOnly?: boolean;
-  /** Trigger element rendered as the popover anchor (usually the Share button). */
+  pendingRedactions?: number;
   children: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -124,11 +119,6 @@ type ShareRecordingDialogProps = Omit<
   onOpenChange: (open: boolean) => void;
 };
 
-/**
- * Clips share popover — anchored to a trigger button. The default view keeps
- * copy, invite, and access together; secondary destinations replace the body
- * so advanced controls never compete with the primary sharing path.
- */
 export function ShareRecordingPopover({
   recordingId,
   recordingTitle,
@@ -141,14 +131,13 @@ export function ShareRecordingPopover({
   hasPassword,
   expiresAt,
   viewerReshareOnly = false,
+  pendingRedactions = 0,
   children,
   open,
   onOpenChange,
 }: ShareRecordingPopoverProps) {
   const t = useT();
   const { session } = useSession();
-  const [copied, setCopied] = useState(false);
-  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ownerViaId =
     initialRole === "owner" ? (session?.userId ?? undefined) : undefined;
   const shareUrl =
@@ -159,88 +148,78 @@ export function ShareRecordingPopover({
           ownerViaId,
         );
 
-  useEffect(
-    () => () => {
-      if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    },
-    [],
-  );
-
   const copyShareLink = async () => {
+    if (pendingRedactions > 0) {
+      toast.warning(t("shareDialog.redactionsPendingTitle"), {
+        description: t("shareDialog.redactionsPendingBody", {
+          count: pendingRedactions,
+        }),
+      });
+      return false;
+    }
     const didCopy = await writeClipboardText(shareUrl);
-    if (!didCopy) return;
+    if (!didCopy) return false;
     trackEvent("share_link_copied", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recordingId,
       resource_type: "recording",
       resource_id: recordingId,
       link_type: "share",
+      ...(initialVisibility ? { link_scope: initialVisibility } : {}),
     });
-    setCopied(true);
-    if (copyResetTimer.current) clearTimeout(copyResetTimer.current);
-    copyResetTimer.current = setTimeout(() => setCopied(false), 1_400);
+    return true;
   };
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
-        <PageHeaderActionGroup>
-          <PopoverTrigger asChild>{children}</PopoverTrigger>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PageHeaderPrimaryAction
-                type="button"
-                className="w-8 px-0 shadow-none"
-                aria-label={
-                  copied
-                    ? t("recordRoute.linkCopied")
-                    : t("recordRoute.copyLinkAction")
-                }
-                disabled={!shareUrl}
-                onClick={() => void copyShareLink()}
-              >
-                {copied ? (
-                  <IconCheck className="size-4" />
-                ) : (
-                  <IconLink className="size-4" />
-                )}
-              </PageHeaderPrimaryAction>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {copied
-                ? t("recordRoute.linkCopied")
-                : t("recordRoute.copyLinkAction")}
-            </TooltipContent>
-          </Tooltip>
-        </PageHeaderActionGroup>
+        <JoinedShareControl
+          trigger={<PopoverTrigger asChild>{children}</PopoverTrigger>}
+          copyLabel={t("recordRoute.copyLinkAction")}
+          copiedLabel={t("recordRoute.linkCopied")}
+          disabled={!shareUrl}
+          blocked={pendingRedactions > 0}
+          onCopy={copyShareLink}
+        />
       </PopoverAnchor>
       {/* Keep the layer class in app source so Tailwind emits it for Clips. */}
       <PopoverContent
         align="end"
         {...nestedLayerDismissGuards()}
-        className="z-[260] w-[400px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
+        className="z-[260] w-[360px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
-        <ShareRecordingContent
-          recordingId={recordingId}
-          recordingTitle={recordingTitle}
-          initialVisibility={initialVisibility}
-          initialRole={initialRole}
-          videoUrl={videoUrl}
-          thumbnailUrl={thumbnailUrl}
-          animatedThumbnailUrl={animatedThumbnailUrl}
-          isLoomRecording={isLoomRecording}
-          hasPassword={hasPassword}
-          expiresAt={expiresAt}
-          viewerReshareOnly={viewerReshareOnly}
-        />
+        {pendingRedactions > 0 ? (
+          <div className="space-y-2 p-4">
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {t("shareDialog.redactionsPendingTitle")}
+            </p>
+            <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              {t("shareDialog.redactionsPendingBody", {
+                count: pendingRedactions,
+              })}
+            </p>
+          </div>
+        ) : (
+          <ShareRecordingContent
+            recordingId={recordingId}
+            recordingTitle={recordingTitle}
+            initialVisibility={initialVisibility}
+            initialRole={initialRole}
+            videoUrl={videoUrl}
+            thumbnailUrl={thumbnailUrl}
+            animatedThumbnailUrl={animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
+            hasPassword={hasPassword}
+            expiresAt={expiresAt}
+            viewerReshareOnly={viewerReshareOnly}
+          />
+        )}
       </PopoverContent>
     </Popover>
   );
 }
 
-/**
- * Dialog shell for menu-driven Share actions. Radix popovers need a real
- * anchor; opening one from a dropdown item with an invisible trigger can
- * be dismissed by the same click/focus cycle that closes the menu.
- */
 export function ShareRecordingDialog({
   recordingId,
   recordingTitle,
@@ -255,31 +234,45 @@ export function ShareRecordingDialog({
   hasPassword,
   expiresAt,
   viewerReshareOnly = false,
+  pendingRedactions = 0,
 }: ShareRecordingDialogProps) {
   const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden border-border p-0 sm:max-w-[400px]">
+      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden border-border p-0 sm:max-w-[360px] [&>button]:top-1.5">
         <DialogTitle className="sr-only">
           {recordingTitle
             ? t("shareDialog.sharePlainTitle", { title: recordingTitle })
             : t("shareDialog.shareRecording")}
         </DialogTitle>
-        <ShareRecordingContent
-          recordingId={recordingId}
-          recordingTitle={recordingTitle}
-          initialVisibility={initialVisibility}
-          initialRole={initialRole}
-          videoUrl={videoUrl}
-          thumbnailUrl={thumbnailUrl}
-          animatedThumbnailUrl={animatedThumbnailUrl}
-          isLoomRecording={isLoomRecording}
-          hasPassword={hasPassword}
-          expiresAt={expiresAt}
-          viewerReshareOnly={viewerReshareOnly}
-          reserveCloseButton
-          showHeaderCopy
-        />
+        {pendingRedactions > 0 ? (
+          <div className="space-y-2 p-4">
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {t("shareDialog.redactionsPendingTitle")}
+            </p>
+            <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/90">
+              {t("shareDialog.redactionsPendingBody", {
+                count: pendingRedactions,
+              })}
+            </p>
+          </div>
+        ) : (
+          <ShareRecordingContent
+            recordingId={recordingId}
+            recordingTitle={recordingTitle}
+            initialVisibility={initialVisibility}
+            initialRole={initialRole}
+            videoUrl={videoUrl}
+            thumbnailUrl={thumbnailUrl}
+            animatedThumbnailUrl={animatedThumbnailUrl}
+            isLoomRecording={isLoomRecording}
+            hasPassword={hasPassword}
+            expiresAt={expiresAt}
+            viewerReshareOnly={viewerReshareOnly}
+            reserveCloseButton
+            showHeaderCopy
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -314,6 +307,7 @@ function ShareRecordingContent({
 }) {
   const t = useT();
   const [view, setView] = useState<"main" | "social" | "embed">("main");
+  const [shareMode, setShareMode] = useState<"people" | "agents">("people");
   const [passwordProtected, setPasswordProtected] = useState(
     Boolean(hasPassword),
   );
@@ -326,6 +320,11 @@ function ShareRecordingContent({
   useEffect(() => {
     setCurrentExpiry(expiresAt ?? null);
   }, [expiresAt]);
+
+  useEffect(() => {
+    setShareMode("people");
+  }, [recordingId]);
+
   const sharesQuery = useActionQuery<SharesResponse>(
     "list-resource-shares",
     { resourceType: "recording", resourceId: recordingId },
@@ -335,27 +334,14 @@ function ShareRecordingContent({
   const data = viewerReshareOnly ? undefined : sharesQuery.data;
   const role = data?.role ?? initialRole;
   const canManage = role === "owner" || role === "admin";
-  // Editors could always see (read-only) who a clip is shared with; only
-  // gate invite mutations behind canManage. Commenters are
-  // grouped with plain viewers here -- neither can manage shares.
   const canViewShares =
     role === "owner" || role === "admin" || role === "editor";
   const visibility =
     (data?.visibility as Visibility | null | undefined) ??
     initialVisibility ??
     null;
-  // A plain viewer/commenter can't produce a working embed for a non-public
-  // clip (they have no way to make it public), so don't dangle the tab in
-  // front of them only to show an "ask the owner" dead end. Owner/admin/
-  // editor keep it regardless of visibility since they can flip to public
-  // from inside it.
   const canEmbed = canViewShares || visibility === "public";
 
-  // Attribution `via` must be a stable non-PII id, never an email. The only
-  // owner id available client-side is the *current* session's userId, which is
-  // the clip owner only when the viewer is the owner. Anyone else (e.g. a
-  // share-admin) gets an untagged `via` so we never attribute the link to the
-  // wrong person or leak the owner's email.
   const { session } = useSession();
   const ownerViaId =
     data?.role === "owner" ? (session?.userId ?? undefined) : undefined;
@@ -378,65 +364,90 @@ function ShareRecordingContent({
       : view === "embed"
         ? t("shareDialog.embed")
         : t("shareDialog.shareRecording");
+  const peopleTab = (
+    <PeopleTab
+      recordingId={recordingId}
+      sharesQuery={sharesQuery}
+      visibility={visibility}
+      visibilityPending={visibilityPending}
+      onVisibilityChange={setResourceVisibility}
+      canManage={canManage}
+      hasPassword={passwordProtected}
+      expiresAt={currentExpiry}
+      onPasswordChange={setPasswordProtected}
+      onExpiryChange={setCurrentExpiry}
+      canViewShares={canViewShares}
+      viewerReshareOnly={viewerReshareOnly}
+      canEmbed={canEmbed}
+      onOpenSocial={() => setView("social")}
+      onOpenEmbed={() => setView("embed")}
+    />
+  );
 
   return (
     <div className="min-w-0">
-      <div
-        className={cn(
-          "flex h-10 items-center gap-2 border-b border-border px-3",
-          reserveCloseButton && "pe-10",
-        )}
-      >
-        {view === "main" ? (
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {viewTitle}
-          </span>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="-ms-1 h-7 min-w-0 gap-1.5 px-1.5"
-            onClick={() => setView("main")}
-          >
-            <IconArrowLeft className="size-3.5 shrink-0" />
-            <span className="truncate font-semibold">{viewTitle}</span>
-          </Button>
-        )}
-        {view === "main" && showHeaderCopy ? (
-          <CopyButton
-            value={shareUrl}
-            disabled={visibilityPending || !sharesLoaded}
-            variant="ghost"
-            className="h-7 shrink-0 px-2 text-xs text-primary hover:text-primary"
-            resourceType="recording"
-            resourceId={recordingId}
-            linkType="share"
-          >
-            {t("shareUi.copyLink")}
-          </CopyButton>
-        ) : null}
-      </div>
+      {view !== "main" || reserveCloseButton ? (
+        <div
+          className={cn(
+            "flex h-10 items-center gap-2 border-b border-border px-3",
+            reserveCloseButton && "pe-10",
+          )}
+        >
+          {view === "main" ? (
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+              {viewTitle}
+            </span>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-ms-1 h-7 min-w-0 gap-1.5 px-1.5"
+              onClick={() => setView("main")}
+            >
+              <IconArrowLeft className="size-3.5 shrink-0" />
+              <span className="truncate font-semibold">{viewTitle}</span>
+            </Button>
+          )}
+          {view === "main" && showHeaderCopy ? (
+            <CopyButton
+              value={shareUrl}
+              disabled={visibilityPending || !sharesLoaded}
+              variant="ghost"
+              className="h-7 shrink-0 px-2 text-xs text-primary hover:text-primary"
+              resourceType="recording"
+              resourceId={recordingId}
+              linkType="share"
+            >
+              {t("shareUi.copyLink")}
+            </CopyButton>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="px-3 py-2">
         {view === "main" ? (
-          <LinkTab
-            recordingId={recordingId}
-            sharesQuery={sharesQuery}
-            visibility={visibility}
-            visibilityPending={visibilityPending}
-            onVisibilityChange={setResourceVisibility}
-            canManage={canManage}
-            hasPassword={passwordProtected}
-            expiresAt={currentExpiry}
-            onPasswordChange={setPasswordProtected}
-            onExpiryChange={setCurrentExpiry}
-            canViewShares={canViewShares}
-            viewerReshareOnly={viewerReshareOnly}
-            canEmbed={canEmbed}
-            onOpenSocial={() => setView("social")}
-            onOpenEmbed={() => setView("embed")}
-          />
+          viewerReshareOnly && passwordProtected ? (
+            peopleTab
+          ) : (
+            <ShareModeTabs
+              value={shareMode}
+              onValueChange={(value) =>
+                setShareMode(value as "people" | "agents")
+              }
+              peopleLabel={t("shareDialog.people")}
+              agentsLabel={t("shareDialog.agents")}
+              people={peopleTab}
+              agents={
+                <AgentTab
+                  recordingId={recordingId}
+                  visibility={visibility}
+                  hasPassword={passwordProtected}
+                  active={shareMode === "agents"}
+                />
+              }
+            />
+          )
         ) : view === "social" ? (
           <SocialTab
             shareUrl={shareUrl}
@@ -484,11 +495,7 @@ function ShareOptionRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Primary view — invite, access, and progressively disclosed destinations
-// ---------------------------------------------------------------------------
-
-function LinkTab({
+function PeopleTab({
   recordingId,
   sharesQuery,
   visibility,
@@ -525,8 +532,130 @@ function LinkTab({
   onOpenEmbed: () => void;
 }) {
   const t = useT();
+
+  if (viewerReshareOnly) {
+    return (
+      <div className="-mx-1.5 flex flex-col">
+        <ShareOptionRow
+          icon={<IconShare3 className="size-3.5" />}
+          label={t("shareDialog.social")}
+          onClick={onOpenSocial}
+        />
+        {canEmbed ? (
+          <ShareOptionRow
+            icon={<IconExternalLink className="size-3.5" />}
+            label={t("shareDialog.embed")}
+            onClick={onOpenEmbed}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
+        {/* `share-resource` requires owner/admin, so anyone else would only
+              get a rejected submission. */}
+        {canManage ? (
+          <InvitePeopleField
+            resourceType="recording"
+            resourceId={recordingId}
+            resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
+            sharesQuery={sharesQuery}
+            onError={(err) =>
+              toast.error(
+                err instanceof Error
+                  ? err.message
+                  : t("clipsFinalRaw.inviteFailed"),
+              )
+            }
+          />
+        ) : null}
+
+        {canViewShares ? (
+          visibility ? (
+            <div className="flex flex-col gap-1.5">
+              <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
+              <div className="flex flex-col gap-0.5">
+                <PeopleAccessSection
+                  resourceType="recording"
+                  resourceId={recordingId}
+                  sharesQuery={sharesQuery}
+                  canManage={canManage}
+                  roleCopy={{
+                    commenter: {
+                      label: t("shareUi.recordingCommenter.label"),
+                      description: t("shareUi.recordingCommenter.description"),
+                    },
+                  }}
+                  onError={(err, action) =>
+                    toast.error(
+                      err instanceof Error
+                        ? err.message
+                        : action === "permission"
+                          ? t("clipsFinalRaw.permissionUpdateFailed")
+                          : t("clipsFinalRaw.removePersonFailed"),
+                    )
+                  }
+                />
+                <GeneralAccessSelect
+                  visibility={visibility}
+                  canManage={canManage}
+                  isPending={visibilityPending}
+                  onChange={onVisibilityChange}
+                />
+                <RecordingAccessControls
+                  recordingId={recordingId}
+                  hasPassword={Boolean(hasPassword)}
+                  expiresAt={expiresAt}
+                  canEdit={canViewShares}
+                  onPasswordChange={onPasswordChange}
+                  onExpiryChange={onExpiryChange}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5" aria-hidden>
+              <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+              <div className="h-8 w-full animate-pulse rounded bg-muted" />
+              <div className="h-8 w-full animate-pulse rounded bg-muted" />
+            </div>
+          )
+        ) : null}
+      </div>
+
+      <div className="-mx-3 border-t border-border px-1.5 pt-1.5">
+        <ShareOptionRow
+          icon={<IconShare3 className="size-3.5" />}
+          label={t("shareDialog.social")}
+          onClick={onOpenSocial}
+        />
+        {canEmbed ? (
+          <ShareOptionRow
+            icon={<IconExternalLink className="size-3.5" />}
+            label={t("shareDialog.embed")}
+            onClick={onOpenEmbed}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AgentTab({
+  recordingId,
+  visibility,
+  hasPassword,
+  active,
+}: {
+  recordingId: string;
+  visibility: Visibility | null;
+  hasPassword?: boolean;
+  active: boolean;
+}) {
+  const t = useT();
   const isPublic = visibility === "public";
-  const sharesLoaded = visibility !== null;
   const needsScopedAgentContext = !isPublic || hasPassword !== false;
   const publicAgentContextUrl = useMemo(
     () =>
@@ -542,7 +671,6 @@ function LinkTab({
   const agentLinkRequestIdRef = useRef(0);
   const [agentContextUrl, setAgentContextUrl] = useState("");
   const [agentLinkError, setAgentLinkError] = useState(false);
-  const [agentShareOpen, setAgentShareOpen] = useState(false);
 
   useEffect(() => {
     createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
@@ -551,7 +679,6 @@ function LinkTab({
   const loadAgentContextUrl = useCallback(async () => {
     const requestId = agentLinkRequestIdRef.current + 1;
     agentLinkRequestIdRef.current = requestId;
-
     setAgentContextUrl("");
     setAgentLinkError(false);
 
@@ -573,32 +700,27 @@ function LinkTab({
   }, [recordingId]);
 
   useEffect(() => {
+    if (!active) {
+      agentLinkRequestIdRef.current += 1;
+      return;
+    }
+
     setAgentContextUrl("");
     setAgentLinkError(false);
-    if (!sharesLoaded || !agentShareOpen) return;
-
-    if (needsScopedAgentContext) {
+    if (visibility !== null && needsScopedAgentContext) {
       void loadAgentContextUrl();
     }
 
     return () => {
       agentLinkRequestIdRef.current += 1;
     };
-  }, [
-    loadAgentContextUrl,
-    needsScopedAgentContext,
-    agentShareOpen,
-    recordingId,
-    sharesLoaded,
-    visibility,
-  ]);
+  }, [active, loadAgentContextUrl, needsScopedAgentContext, visibility]);
 
   const agentLink = isPublic
     ? publicAgentContextUrl || agentContextUrl
     : agentContextUrl;
   const agentShareDisabled =
-    visibilityPending ||
-    !sharesLoaded ||
+    visibility === null ||
     !agentLink ||
     (needsScopedAgentContext &&
       (createAgentLink.isPending || !agentContextUrl));
@@ -606,151 +728,73 @@ function LinkTab({
     ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
 
-  if (viewerReshareOnly) return null;
+  const openAgentDestination = (destination: AgentShareDestination) => {
+    if (
+      agentShareDisabled ||
+      !agentCopyValue ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    trackEvent("agent_share_opened", {
+      resource_type: "recording",
+      resource_id: recordingId,
+      destination,
+    });
+    window.location.assign(
+      buildAgentShareDeepLink(destination, agentCopyValue),
+    );
+  };
+
+  const copyAgentPrompt = async () => {
+    if (agentShareDisabled || !agentCopyValue) return;
+    const copied = await writeClipboardText(agentCopyValue);
+    if (copied === false) return;
+
+    trackEvent("share_link_copied", {
+      app_name: "clips",
+      template_name: "clips",
+      output_id: recordingId,
+      resource_type: "recording",
+      resource_id: recordingId,
+      link_type: "agent_context",
+      ...(visibility ? { link_scope: visibility } : {}),
+    });
+    toast.success(t("shareUi.copied"));
+  };
+
+  if (agentLinkError) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-9 w-full justify-start px-1.5 text-sm font-normal"
+        onClick={() => void loadAgentContextUrl()}
+        disabled={createAgentLink.isPending}
+      >
+        {t("shareDialog.retryAgentLink")}
+      </Button>
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      {/* `share-resource` requires owner/admin, so anyone else would only get
-          a rejected submission. */}
-      {canManage ? (
-        <InvitePeopleField
-          resourceType="recording"
-          resourceId={recordingId}
-          resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
-          sharesQuery={sharesQuery}
-          onError={(err) =>
-            toast.error(
-              err instanceof Error
-                ? err.message
-                : t("clipsFinalRaw.inviteFailed"),
-            )
-          }
-        />
-      ) : null}
-
-      {canViewShares ? (
-        visibility ? (
-          <div className="space-y-1.5">
-            <ShareSectionLabel>{t("shareUi.whoHasAccess")}</ShareSectionLabel>
-            <div className="flex flex-col gap-0.5">
-              <PeopleAccessSection
-                resourceType="recording"
-                resourceId={recordingId}
-                sharesQuery={sharesQuery}
-                canManage={canManage}
-                roleCopy={{
-                  commenter: {
-                    label: t("shareUi.recordingCommenter.label"),
-                    description: t("shareUi.recordingCommenter.description"),
-                  },
-                }}
-                onError={(err, action) =>
-                  toast.error(
-                    err instanceof Error
-                      ? err.message
-                      : action === "permission"
-                        ? t("clipsFinalRaw.permissionUpdateFailed")
-                        : t("clipsFinalRaw.removePersonFailed"),
-                  )
-                }
-              />
-              <GeneralAccessSelect
-                visibility={visibility}
-                canManage={canManage}
-                isPending={visibilityPending}
-                onChange={onVisibilityChange}
-              />
-              <RecordingAccessControls
-                recordingId={recordingId}
-                hasPassword={Boolean(hasPassword)}
-                expiresAt={expiresAt}
-                canEdit={canViewShares}
-                onPasswordChange={onPasswordChange}
-                onExpiryChange={onExpiryChange}
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-1.5" aria-hidden>
-            <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-            <div className="h-8 w-full animate-pulse rounded bg-muted" />
-            <div className="h-8 w-full animate-pulse rounded bg-muted" />
-          </div>
-        )
-      ) : null}
-
-      <div className="-mx-1.5 border-t border-border pt-1.5">
-        <ShareOptionRow
-          icon={<IconShare3 className="size-3.5" />}
-          label={t("shareDialog.social")}
-          onClick={onOpenSocial}
-        />
-        {canEmbed ? (
-          <ShareOptionRow
-            icon={<IconExternalLink className="size-3.5" />}
-            label={t("shareDialog.embed")}
-            onClick={onOpenEmbed}
-          />
-        ) : null}
-      </div>
-
-      <Collapsible open={agentShareOpen} onOpenChange={setAgentShareOpen}>
-        <CollapsibleTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-8 w-full justify-between px-1.5 text-sm font-normal"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <IconMessage className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">
-                {t("shareDialog.shareWithAgents")}
-              </span>
-            </span>
-            <IconChevronDown
-              className={cn(
-                "size-3.5 text-muted-foreground transition-transform",
-                agentShareOpen && "rotate-180",
-              )}
-            />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="px-1.5 pb-1 pt-1.5">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">
-              {/* A public, unprotected clip hands agents its permanent public
-                  context URL; everything else gets a short-lived scoped token. */}
-              {needsScopedAgentContext
-                ? t("shareDialog.agentTokenDescription")
-                : t("shareDialog.agentPublicDescription")}
-            </p>
-            {agentLinkError ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => void loadAgentContextUrl()}
-                disabled={createAgentLink.isPending}
-              >
-                {t("shareDialog.retryAgentLink")}
-              </Button>
-            ) : (
-              <CopyButton
-                value={agentCopyValue}
-                disabled={agentShareDisabled}
-                className="shrink-0"
-                resourceType="recording"
-                resourceId={recordingId}
-                linkType="agent_context"
-              >
-                {t("shareUi.copy")}
-              </CopyButton>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </div>
+    <AgentDestinationActions
+      labels={{
+        copy: t("shareDialog.copyAgentPrompt"),
+        claude: t("shareDialog.openInClaude"),
+        claudeCode: t("shareDialog.openInClaudeCode"),
+        codex: t("shareDialog.openInCodex"),
+      }}
+      icons={{
+        claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
+        "claude-code": <ClaudeCodeLogo className="size-4" />, // i18n-ignore: destination identifier
+        codex: <CodexLogo className="size-4" />,
+      }}
+      disabled={agentShareDisabled}
+      onCopy={copyAgentPrompt}
+      onOpen={openAgentDestination}
+    />
   );
 }
 
@@ -799,38 +843,25 @@ function RecordingAccessControls({
     <div className="flex flex-col gap-0.5">
       <div className="rounded-md px-1.5 py-1">
         <div className="flex min-h-8 items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <ViewerSwitch
-              id="share-password-required"
-              checked={passwordEnabled}
-              disabled={!canEdit || updateRecording.isPending}
-              onCheckedChange={setPasswordRequired}
-            />
-            <Label
-              htmlFor="share-password-required"
-              className="cursor-pointer text-sm font-normal"
-            >
-              {t("embedRoute.passwordRequired")}
-            </Label>
-          </div>
-          {passwordEnabled && canEdit ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 shrink-0 gap-1.5 px-2 text-xs"
-              onClick={() => setPassword(generateSecurePassword())}
-            >
-              <IconRefresh className="size-3.5" />
-              {t("playerSettings.generatePassword")}
-            </Button>
-          ) : null}
+          <Label
+            htmlFor="share-password-required"
+            className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
+          >
+            {t("embedRoute.passwordRequired")}
+          </Label>
+          <ViewerSwitch
+            id="share-password-required"
+            checked={passwordEnabled}
+            disabled={!canEdit || updateRecording.isPending}
+            onCheckedChange={setPasswordRequired}
+          />
         </div>
 
         {passwordEnabled ? (
           <div className="grid gap-2 pt-2">
             <div className="flex gap-2">
               <Input
+                size="sm"
                 type="text"
                 value={password}
                 disabled={!canEdit}
@@ -841,12 +872,12 @@ function RecordingAccessControls({
                     ? t("playerSettings.passwordSetPlaceholder")
                     : t("playerSettings.passwordInputPlaceholder")
                 }
-                className="h-8 min-w-0"
+                className="min-w-0"
               />
               <Button
                 type="button"
                 size="sm"
-                className="h-8 shrink-0"
+                className="shrink-0"
                 disabled={
                   !canEdit || updateRecording.isPending || !password.trim()
                 }
@@ -898,6 +929,7 @@ function RecordingAccessControls({
         <CollapsibleContent className="px-1 pb-1 pt-2">
           <div className="flex gap-2">
             <Input
+              size="sm"
               type="datetime-local"
               value={toDatetimeLocal(expiryDraft)}
               disabled={!canEdit}
@@ -905,12 +937,12 @@ function RecordingAccessControls({
               onChange={(event) =>
                 setExpiryDraft(fromDatetimeLocal(event.target.value))
               }
-              className="h-8 min-w-0"
+              className="min-w-0"
             />
             <Button
               type="button"
               size="sm"
-              className="h-8 shrink-0"
+              className="shrink-0"
               disabled={!canEdit || updateRecording.isPending}
               onClick={() => {
                 const nextExpiry = expiryDraft || null;
@@ -956,29 +988,6 @@ function formatExpiry(iso: string | null): string {
     timeStyle: "short",
   }).format(date);
 }
-
-export function generateSecurePassword(length = 20): string {
-  const alphabet =
-    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-._~";
-  const limit = Math.floor(256 / alphabet.length) * alphabet.length;
-  const bytes = new Uint8Array(length * 2);
-  let password = "";
-
-  while (password.length < length) {
-    crypto.getRandomValues(bytes);
-    for (const byte of bytes) {
-      if (byte >= limit) continue;
-      password += alphabet[byte % alphabet.length];
-      if (password.length === length) break;
-    }
-  }
-
-  return password;
-}
-
-// ---------------------------------------------------------------------------
-// Social tab — destination-first share intents, no provider account required
-// ---------------------------------------------------------------------------
 
 function SocialTab({
   shareUrl,
@@ -1118,10 +1127,6 @@ function SocialTab({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Embed tab — Clips-specific configurator
-// ---------------------------------------------------------------------------
-
 function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
@@ -1159,7 +1164,6 @@ function ClipsEmbedConfigurator({
     if (autoplay) params.push("autoplay=1");
     if (startMs > 0) params.push(`t=${Math.round(startMs / 1000)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
-    // Keep autoplay/t intact and also self-attribute the embed.
     return withShareAttribution(
       absoluteAppUrl(`/embed/${recordingId}${qs}`),
       ownerViaId,
@@ -1251,7 +1255,7 @@ function ClipsEmbedConfigurator({
               <div className="flex-1">
                 <Label className="text-xs">{t("shareDialog.width")}</Label>
                 <Input
-                  className="h-8"
+                  size="sm"
                   type="number"
                   value={width}
                   onChange={(e) => setWidth(parseInt(e.target.value) || 640)}
@@ -1260,7 +1264,7 @@ function ClipsEmbedConfigurator({
               <div className="flex-1">
                 <Label className="text-xs">{t("shareDialog.height")}</Label>
                 <Input
-                  className="h-8"
+                  size="sm"
                   type="number"
                   value={height}
                   onChange={(e) => setHeight(parseInt(e.target.value) || 360)}
@@ -1277,7 +1281,7 @@ function ClipsEmbedConfigurator({
           <div>
             <Label className="text-xs">{t("shareDialog.startAt")}</Label>
             <Input
-              className="h-8"
+              size="sm"
               type="number"
               min={0}
               value={Math.round(startMs / 1000)}

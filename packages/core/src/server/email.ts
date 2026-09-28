@@ -1,21 +1,10 @@
-/**
- * Email transport for system emails (password resets, invitations, notifications).
- *
- * Providers are selected by scoped secrets:
- *   RESEND_API_KEY    — https://resend.com
- *   SENDGRID_API_KEY  — https://sendgrid.com
- *   EMAIL_FROM        — "Name <addr@domain>" (optional; defaults to Resend's sandbox)
- *
- * With neither provider configured, `sendEmail` logs the message to the console
- * so the reset-password flow still works end-to-end for local development.
- */
-
 import { getAppConfig } from "../app-config/index.js";
 import { FAVICON_PNG_BASE64 } from "../assets/branding/favicon-base64.js";
 import {
   getScopedEmailProviderCategory,
   recordEmailSend,
 } from "../email-catalog/log.js";
+import { redactSensitiveEmailBodyContent } from "../email-catalog/redact-body.js";
 import {
   readDeployCredentialEnv,
   resolveSecret,
@@ -46,42 +35,21 @@ export interface SendEmailArgs {
   subject: string;
   html: string;
   text?: string;
-  /** Keep security-sensitive links out of provider click-tracking redirects. */
   disableClickTracking?: boolean;
-  /** Use deployment credentials for process-owned sends, not request-scoped overrides. */
   useDeploymentCredentials?: boolean;
   from?: string;
-  /**
-   * Display-name-only override. Keeps the configured (domain-verified) sending
-   * address and just changes the name shown to the recipient, e.g.
-   * "Alice via Clips". Ignored when `from` is set. Prefer this over `from` for
-   * per-user senders: putting a user's own address in `From` breaks SPF/DKIM.
-   */
   fromName?: string;
   cc?: string | string[];
   replyTo?: string;
-  /**
-   * Per-app branding for first-party agent-native.com deployments. Applied
-   * only when the configured EMAIL_FROM is already on agent-native.com, so a
-   * self-hosted deployment keeps its own verified sender and support mailbox
-   * instead of sending as an unverified address a provider would reject.
-   * An explicit `from` / `replyTo` always wins.
-   */
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
+  headers?: Record<string, string>;
+  idempotencyKey?: string;
   attachments?: EmailAttachment[];
   timeoutMs?: number;
-  /**
-   * Registered transactional email id (see `defineTransactionalEmail`), e.g.
-   * `calendar.booking-confirmed`. Tags the message at the provider so delivery
-   * and open metrics attribute to one email instead of to the whole account,
-   * and keys the row written to `email_log`. Omit for genuinely one-off sends.
-   */
   templateId?: string;
-  /** App slug that owns the send. Defaults to the running app. */
   app?: string;
-  /** Organization that owns the send. Defaults to the current request org. */
   orgId?: string;
 }
 
@@ -113,6 +81,36 @@ function resolveAttachments(
     return args.attachments;
   }
   return [...(args.attachments ?? []), getAgentNativeLogoAttachment()];
+}
+
+function resolveEmailHeaders(
+  args: SendEmailArgs,
+): Record<string, string> | undefined {
+  const headers: Record<string, string> = {};
+  const setHeader = (name: string, value: string) => {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(value)) {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    const existingName = Object.keys(headers).find(
+      (existing) => existing.toLowerCase() === name.toLowerCase(),
+    );
+    if (existingName) delete headers[existingName];
+    headers[name] = value;
+  };
+
+  for (const [name, value] of Object.entries(args.headers ?? {})) {
+    if (typeof value !== "string") {
+      throw new Error(
+        "Email headers must have valid names and single-line values",
+      );
+    }
+    setHeader(name, value);
+  }
+  if (args.inReplyTo) setHeader("In-Reply-To", args.inReplyTo);
+  if (args.references) setHeader("References", args.references);
+  return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
 interface EmailTransportConfig {
@@ -212,8 +210,6 @@ function getFromAddress(
 }
 
 function defaultFromAddress(config: EmailTransportConfig): string {
-  // Resend lets unverified accounts send from its sandbox domain; SendGrid
-  // does not, so falling back there would cause silent 403s at runtime.
   if (config.provider === "sendgrid") {
     throw new Error(
       "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
@@ -222,11 +218,6 @@ function defaultFromAddress(config: EmailTransportConfig): string {
   return "Agent-Native <onboarding@resend.dev>";
 }
 
-/**
- * Swap the display name while keeping the verified address. The name is
- * sanitized and quoted because it lands in a header: CR/LF would allow header
- * injection, and quotes/angle brackets would break address parsing.
- */
 function withDisplayName(from: string, name: string): string {
   const safe = name
     .replace(/[\r\n"<>\\]/g, " ")
@@ -239,12 +230,6 @@ function withDisplayName(from: string, name: string): string {
 
 const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
 
-/**
- * Resolve the per-app sender address, but only for deployments whose
- * configured sender is already on agent-native.com. Any other (or missing)
- * EMAIL_FROM means we cannot prove the branded address is a verified sender,
- * so the deployment's own configuration is left untouched.
- */
 let warnedAppSenderSuppressed = false;
 
 /**
@@ -290,6 +275,92 @@ function resolveAppSender(
 interface DeliveryOutcome {
   provider: EmailProvider;
   from: string;
+  requestPayload?: string;
+  responseStatus?: number;
+  responseBody?: string;
+}
+
+/**
+ * Thrown when a provider request completed (we got an HTTP response) but the
+ * status was not 2xx. Carries the raw request/response so the audit log can
+ * distinguish "the provider rejected it" from a thrown error that never
+ * reached the provider (network failure, timeout, credential resolution).
+ */
+export class EmailProviderError extends Error {
+  readonly provider: EmailProvider;
+  readonly from: string;
+  readonly requestPayload: string;
+  readonly responseStatus: number;
+  readonly responseBody: string;
+
+  constructor(
+    message: string,
+    details: {
+      provider: EmailProvider;
+      from: string;
+      requestPayload: string;
+      responseStatus: number;
+      responseBody: string;
+    },
+  ) {
+    super(message);
+    this.name = "EmailProviderError";
+    this.provider = details.provider;
+    this.from = details.from;
+    this.requestPayload = details.requestPayload;
+    this.responseStatus = details.responseStatus;
+    this.responseBody = details.responseBody;
+  }
+}
+
+const MAX_LOGGED_TEXT_LENGTH = 8_000;
+
+function truncateForLog(value: string): string {
+  if (value.length <= MAX_LOGGED_TEXT_LENGTH) return value;
+  const omitted = value.length - MAX_LOGGED_TEXT_LENGTH;
+  return `${value.slice(0, MAX_LOGGED_TEXT_LENGTH)}<truncated, ${omitted} more characters>`;
+}
+
+function omittedBodyMarker(value: unknown): unknown {
+  return typeof value === "string" ? `<omitted, ${value.length} chars>` : value;
+}
+
+function redactPayloadForLog(payload: Record<string, unknown>): string {
+  const loggable: Record<string, unknown> = { ...payload };
+  if ("html" in loggable) loggable.html = omittedBodyMarker(loggable.html);
+  if ("text" in loggable) loggable.text = omittedBodyMarker(loggable.text);
+  if (
+    loggable.headers &&
+    typeof loggable.headers === "object" &&
+    !Array.isArray(loggable.headers)
+  ) {
+    const headers = { ...(loggable.headers as Record<string, unknown>) };
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === "list-unsubscribe") {
+        headers[name] = "[REDACTED]";
+      }
+    }
+    loggable.headers = headers;
+  }
+  if (Array.isArray(loggable.content)) {
+    loggable.content = (loggable.content as Record<string, unknown>[]).map(
+      (entry) => ({ ...entry, value: omittedBodyMarker(entry.value) }),
+    );
+  }
+  if (Array.isArray(loggable.attachments) && loggable.attachments.length) {
+    loggable.attachments = (
+      loggable.attachments as Record<string, unknown>[]
+    ).map(({ content: _content, ...rest }) => ({
+      ...rest,
+      contentOmitted: true,
+    }));
+  }
+  return truncateForLog(JSON.stringify(loggable));
+}
+
+function unreadableResponseBody(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return `<response body unreadable: ${message}>`;
 }
 
 async function deliverEmail(
@@ -306,6 +377,7 @@ async function deliverEmail(
       : getFromAddress(config, args.from, args.fromName);
   const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
+  const messageHeaders = resolveEmailHeaders(args);
 
   if (provider === "resend") {
     const payload: Record<string, unknown> = {
@@ -328,25 +400,43 @@ async function deliverEmail(
         content_id: a.contentId,
       }));
     }
-    const headers: Record<string, string> = {};
-    if (args.inReplyTo) headers["In-Reply-To"] = args.inReplyTo;
-    if (args.references) headers["References"] = args.references;
-    if (Object.keys(headers).length) payload.headers = headers;
+    if (messageHeaders) payload.headers = messageHeaders;
 
+    const requestPayload = redactPayloadForLog(payload);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.resendApiKey}`,
         "Content-Type": "application/json",
+        ...(args.idempotencyKey
+          ? { "Idempotency-Key": args.idempotencyKey }
+          : {}),
       },
       body: JSON.stringify(payload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Resend error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `Resend error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
   if (provider === "sendgrid") {
@@ -368,9 +458,6 @@ async function deliverEmail(
       ],
     };
     if (replyTo) sgPayload.reply_to = parseSendGridFrom(replyTo);
-    // Categories are how per-email delivery/open stats are attributed. Without
-    // them every send lands in one undifferentiated account-wide bucket, which
-    // is indistinguishable from an email that never sent.
     const orgId = args.orgId ?? getRequestOrgId();
     const categories = [
       args.templateId,
@@ -385,10 +472,7 @@ async function deliverEmail(
         click_tracking: { enable: false },
       };
     }
-    const sgHeaders: Record<string, string> = {};
-    if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
-    if (args.references) sgHeaders["References"] = args.references;
-    if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;
+    if (messageHeaders) sgPayload.headers = messageHeaders;
     if (attachments?.length) {
       sgPayload.attachments = attachments.map((a) => ({
         filename: a.filename,
@@ -402,6 +486,7 @@ async function deliverEmail(
       }));
     }
 
+    const requestPayload = redactPayloadForLog(sgPayload);
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
@@ -411,16 +496,30 @@ async function deliverEmail(
       body: JSON.stringify(sgPayload),
       signal,
     });
+    const responseBody = truncateForLog(
+      await res.text().catch(unreadableResponseBody),
+    );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`SendGrid error ${res.status}: ${body}`);
+      throw new EmailProviderError(
+        `SendGrid error ${res.status}: ${responseBody}`,
+        {
+          provider,
+          from,
+          requestPayload,
+          responseStatus: res.status,
+          responseBody,
+        },
+      );
     }
-    return { provider, from };
+    return {
+      provider,
+      from,
+      requestPayload,
+      responseStatus: res.status,
+      responseBody,
+    };
   }
 
-  // Dev fallback — no provider configured. Logging the full body exposes
-  // reset tokens, so only do it outside production. In production, refuse
-  // to send rather than silently leaking secrets to logs.
   if (process.env.NODE_ENV === "production") {
     throw new Error(
       "No email provider configured. Save RESEND_API_KEY or SENDGRID_API_KEY in settings.",
@@ -435,44 +534,66 @@ async function deliverEmail(
   return { provider, from };
 }
 
-/**
- * Deliver, then record the attempt. Recording lives here rather than in each
- * provider branch so a new transport cannot be added without being logged.
- */
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<void> {
-  let outcome: DeliveryOutcome | undefined;
-  try {
-    outcome = await deliverEmail(args, signal);
-  } catch (error) {
-    await recordEmailSend({
-      templateId: args.templateId,
-      app: args.app ?? getAppConfig().app.slug ?? "unknown",
-      orgId: args.orgId ?? getRequestOrgId(),
-      recipient: args.to,
-      sender: outcome?.from ?? args.from ?? "unknown",
-      subject: args.subject,
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-      provider: outcome?.provider ?? "unknown",
-    });
-    throw error;
-  }
-  await recordEmailSend({
+  const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
     orgId: args.orgId ?? getRequestOrgId(),
     recipient: args.to,
-    sender: outcome.from,
     subject: args.subject,
+    htmlBody: truncateForLog(redactSensitiveEmailBodyContent(args.html)),
+    textBody: args.text
+      ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
+      : undefined,
+  };
+  let outcome: DeliveryOutcome | undefined;
+  try {
+    outcome = await deliverEmail(args, signal);
+  } catch (error) {
+    // A response was received but the provider rejected it: the error carries
+    // the raw request/response so "provider said no" stays distinguishable
+    // from "we never reached the provider" (network failure, timeout,
+    // credential resolution failure), which sets none of these three fields.
+    const providerError =
+      error instanceof EmailProviderError ? error : undefined;
+    await recordEmailSend({
+      ...baseRecord,
+      sender: providerError?.from ?? args.from ?? "unknown",
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      provider: providerError?.provider ?? "unknown",
+      requestPayload: providerError?.requestPayload,
+      responseStatus: providerError?.responseStatus,
+      responseBody: providerError?.responseBody,
+    });
+    throw error;
+  }
+  await recordEmailSend({
+    ...baseRecord,
+    sender: outcome.from,
     status: "sent",
     provider: outcome.provider,
+    requestPayload: outcome.requestPayload,
+    responseStatus: outcome.responseStatus,
+    responseBody: outcome.responseBody,
   });
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
+  if (
+    args.idempotencyKey !== undefined &&
+    (!args.idempotencyKey ||
+      args.idempotencyKey.length > 256 ||
+      args.idempotencyKey !== args.idempotencyKey.trim() ||
+      /[\r\n]/.test(args.idempotencyKey))
+  ) {
+    throw new Error(
+      "Email idempotency keys must be single-line values up to 256 characters",
+    );
+  }
   const requestedTimeoutMs = Number(args.timeoutMs);
   if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
     return sendEmailWithSignal(args);

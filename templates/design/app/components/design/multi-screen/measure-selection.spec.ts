@@ -2,7 +2,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
-import { requestSelectionMeasurement } from "./measure-selection";
+import {
+  designPreviewWindowsForScreen,
+  requestSelectionMeasurement,
+} from "./measure-selection";
 
 describe("sizeNeedsMeasurement", () => {
   it.each([
@@ -37,7 +40,6 @@ describe("sizeNeedsMeasurement", () => {
 describe("requestSelectionMeasurement", () => {
   const rect = { x: 0, y: 0, width: 101, height: 20 };
 
-  /** A frame that answers the correlated request with `payload`. */
   function frame(payload: unknown, screenId = "screen-1"): Window {
     const target = {
       postMessage: (message: { correlationId: string }) => {
@@ -113,8 +115,6 @@ describe("requestSelectionMeasurement", () => {
   });
 
   it("ignores a positive match from a different screen", async () => {
-    // Breakpoint screens share node ids, so the same selector resolves in
-    // more than one frame.
     const measured = await requestSelectionMeasurement({
       targetWindows: () => [
         frame({ tagName: "div", boundingRect: rect }, "screen-mobile"),
@@ -127,8 +127,6 @@ describe("requestSelectionMeasurement", () => {
   });
 
   it("retries so a frame whose bridge installs late still answers", async () => {
-    // The iframe exposes contentWindow before the bridge listener exists, so
-    // the first post is dropped.
     let installed = false;
     const target = {
       postMessage: (message: { correlationId: string }) => {
@@ -174,5 +172,62 @@ describe("requestSelectionMeasurement", () => {
       retryDelayMs: 40,
     });
     expect(measured?.boundingRect.width).toBe(101);
+  });
+});
+
+describe("designPreviewWindowsForScreen", () => {
+  it("keeps same-node selectors scoped to the requested screen and breakpoint", () => {
+    document.body.innerHTML = `
+      <iframe data-screen-iframe-id="screen-a"></iframe>
+      <iframe data-screen-iframe-id="screen-a::bp-390"></iframe>
+      <iframe data-screen-iframe-id="screen-b"></iframe>
+    `;
+
+    const primary = designPreviewWindowsForScreen("screen-a");
+    const breakpoint = designPreviewWindowsForScreen("screen-a", 390);
+
+    expect(primary).toHaveLength(1);
+    expect(breakpoint).toHaveLength(1);
+    expect(primary[0]).not.toBe(breakpoint[0]);
+    expect(designPreviewWindowsForScreen("screen-b")).toHaveLength(1);
+    expect(designPreviewWindowsForScreen("screen-c")).toHaveLength(0);
+
+    document.body.innerHTML = "";
+  });
+
+  it("resolves the board surface iframe when the board has no screen iframe id", () => {
+    document.body.innerHTML = `
+      <iframe data-screen-iframe-id="board-1"></iframe>
+      <div data-board-surface-layer>
+        <iframe data-design-preview-iframe></iframe>
+      </div>
+    `;
+    const boardIframe = document.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+
+    expect(
+      designPreviewWindowsForScreen("board-1", undefined, "board-1"),
+    ).toEqual([boardIframe?.contentWindow]);
+
+    document.body.innerHTML = "";
+  });
+
+  it("keeps board measurement on the board iframe with an active breakpoint", () => {
+    document.body.innerHTML = `
+      <iframe data-screen-iframe-id="board-1::bp-390"></iframe>
+      <div data-board-surface-layer>
+        <iframe data-design-preview-iframe></iframe>
+      </div>
+    `;
+    const boardIframe = document.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+
+    expect(designPreviewWindowsForScreen("board-1", 390, "board-1")).toEqual([
+      boardIframe?.contentWindow,
+    ]);
+
+    document.body.innerHTML = "";
   });
 });

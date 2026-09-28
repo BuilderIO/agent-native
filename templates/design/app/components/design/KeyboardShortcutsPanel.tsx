@@ -8,7 +8,7 @@ import {
   IconMessage,
   IconPencil,
   IconPointer,
-  IconScale,
+  IconResize,
   IconScribble,
   IconSquare,
   IconX,
@@ -53,7 +53,7 @@ const TOOL_ICON_BY_SHORTCUT: Record<
   "text-tool": IconText,
   "pen-tool": IconPencil,
   "hand-tool": IconHandStop,
-  "scale-tool": IconScale,
+  "scale-tool": IconResize,
   "comment-tool": IconMessage,
   "draw-tool": IconScribble,
   rectangle: IconSquare,
@@ -130,9 +130,6 @@ function KeycapGroup({
 
 function ShortcutBindings({ bindings }: { bindings: readonly string[] }) {
   const t = useT();
-  // Shared with the hotkey matcher: navigator.platform alone is deprecated and
-  // blank in some browsers, which labelled Ctrl on Macs that the hotkey layer
-  // already treated as Apple.
   const applePlatform = isApplePlatform();
   const accessibleBindings = bindings.map((binding) =>
     binding
@@ -246,9 +243,6 @@ export function KeyboardShortcutsPanel({
   );
 
   useEffect(() => {
-    // Radix Menu restores focus to its trigger in its own close frame. Wait
-    // through that frame before moving focus into the newly-opened dock so
-    // menu invocation and the global shortcut share the same focus contract.
     let focusFrame = 0;
     const menuCloseFrame = window.requestAnimationFrame(() => {
       focusFrame = window.requestAnimationFrame(() => {
@@ -266,7 +260,7 @@ export function KeyboardShortcutsPanel({
       data-keyboard-shortcuts-panel
       role="region"
       aria-label={t("designEditor.keyboardShortcuts.title")}
-      className="absolute inset-x-0 bottom-0 z-[60] flex h-[241px] flex-col border-t border-neutral-700 bg-neutral-900 text-neutral-100 shadow-[0_-12px_28px_rgba(0,0,0,0.28)]"
+      className="absolute inset-x-0 bottom-0 z-[80] flex h-[241px] flex-col border-t border-neutral-700 bg-neutral-900 text-neutral-100 shadow-[0_-12px_28px_rgba(0,0,0,0.28)]"
     >
       <Tabs
         value={category}
@@ -280,7 +274,7 @@ export function KeyboardShortcutsPanel({
           <div className="min-w-0 flex-1 overflow-x-auto pl-[124px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabsList
               data-shortcuts-tab-strip
-              className="h-9 w-max justify-start rounded-none bg-transparent p-0"
+              className="w-max justify-start rounded-none bg-transparent p-0"
             >
               {DESIGN_SHORTCUT_CATEGORIES.map((categoryId) => (
                 <TabsTrigger

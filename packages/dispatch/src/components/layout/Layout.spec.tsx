@@ -11,9 +11,11 @@ import {
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
   formatThreadAge,
   isElectronEmbeddedSearch,
+  isRedesignedSettingsPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
+  shouldQueryChatFirstApps,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -21,8 +23,6 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
-  // Stable identity: WorkspaceAppFrame's embed effect depends on this
-  // function, so a fresh mock per render would re-run the effect forever.
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
@@ -54,6 +54,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
   appBasePath: () => "",
+  appMountPath: () => "",
+  appMountedPath: (path: string) => path,
   appPath: (path: string) => path,
 }));
 
@@ -70,6 +72,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
+  useFeatureFlagState: () => ({ status: "ready", enabled: false }),
 }));
 
 vi.mock("next-themes", () => ({
@@ -102,12 +105,17 @@ vi.mock("@agent-native/core/client/navigation", () => ({
   openCommandMenu: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  AgentNativeIcon: (props: React.SVGProps<SVGSVGElement>) => (
-    <svg data-agent-native-icon {...props} />
-  ),
-  FeedbackButton: () => <div>Feedback</div>,
-}));
+vi.mock("@agent-native/core/client/ui", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/ui")>();
+  return {
+    ...actual,
+    AgentNativeIcon: (props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-agent-native-icon {...props} />
+    ),
+    FeedbackButton: () => <div>Feedback</div>,
+  };
+});
 
 vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => null,
@@ -160,6 +168,43 @@ describe("Dispatch workspace app sidebar", () => {
     expect(shouldAutoCollapseDispatchSidebar("/apps/mail/settings")).toBe(true);
     expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
     expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
+  });
+
+  it.each([
+    [false, false, false],
+    [false, true, true],
+    [true, false, true],
+  ])(
+    "queries app data for a chat route or visible chat-first rail",
+    (isChatRoute, chatFirstMode, expected) => {
+      expect(shouldQueryChatFirstApps(isChatRoute, chatFirstMode)).toBe(
+        expected,
+      );
+    },
+  );
+});
+
+describe("Dispatch redesigned Settings frame", () => {
+  const on = { status: "ready", enabled: true } as const;
+  const off = { status: "ready", enabled: false } as const;
+  const loading = { status: "loading", enabled: false } as const;
+
+  it("drops the Dispatch chrome on Settings while the flag is on or loading", () => {
+    expect(isRedesignedSettingsPath("/settings", on)).toBe(true);
+    expect(isRedesignedSettingsPath("/settings/members", on)).toBe(true);
+    expect(isRedesignedSettingsPath("/settings/app", loading)).toBe(true);
+  });
+
+  it("keeps the Dispatch chrome with the flag off and off Settings", () => {
+    expect(isRedesignedSettingsPath("/settings/members", off)).toBe(false);
+    expect(
+      isRedesignedSettingsPath("/settings", {
+        status: "unavailable",
+        enabled: false,
+      }),
+    ).toBe(false);
+    expect(isRedesignedSettingsPath("/admin", on)).toBe(false);
+    expect(isRedesignedSettingsPath("/apps/mail/settings", on)).toBe(false);
   });
 });
 
@@ -258,7 +303,11 @@ describe("Dispatch NavContent", () => {
             initialEntries={[chatFirstMode ? "/chat" : "/overview"]}
           >
             <TooltipProvider>
-              <NavContent chatFirstMode={chatFirstMode} collapsed={collapsed} />
+              <NavContent
+                chatFirstMode={chatFirstMode}
+                collapsed={collapsed}
+                collapsible
+              />
             </TooltipProvider>
           </MemoryRouter>,
         );
@@ -272,8 +321,11 @@ describe("Dispatch NavContent", () => {
       const organization = [...(footer?.querySelectorAll("div") ?? [])].find(
         (element) => element.textContent?.trim() === "Organization",
       );
-      const footerActions = footer?.querySelector(
-        "[data-sidebar-footer-actions]",
+      const feedback = [...(footer?.querySelectorAll("div") ?? [])].find(
+        (element) => element.textContent?.trim() === "Feedback",
+      );
+      const collapse = footer?.querySelector(
+        'button[aria-label="Expand sidebar"], button[aria-label="Collapse sidebar"]',
       );
 
       expect(footer?.className).toContain("mt-auto");
@@ -285,16 +337,18 @@ describe("Dispatch NavContent", () => {
       expect(adminLink).not.toBeNull();
       expect(settingsLink).not.toBeNull();
       expect(organization).toBeDefined();
-      expect(footerActions).not.toBeNull();
+      expect(feedback).toBeDefined();
+      expect(collapse).not.toBeNull();
       expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-      expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      expect(settingsLink!.compareDocumentPosition(feedback!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-      expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+      expect(feedback!.compareDocumentPosition(organization!)).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
+      expect(collapse).not.toBeNull();
     },
   );
 
@@ -414,13 +468,13 @@ describe("Dispatch NavContent", () => {
       );
     });
 
-    const sidebarLabel = container.querySelector(
-      "[data-dispatch-sidebar-label]",
+    const sidebarLabel = [...container.querySelectorAll("span")].find(
+      (element) => element.textContent?.trim() === "Dispatch",
     );
     expect(sidebarLabel?.textContent?.trim()).toBe("Dispatch");
     expect(container.textContent).not.toContain("Agent-Native Dispatch");
     expect(
-      sidebarLabel?.closest('a[data-dispatch-logo][href="/overview"]'),
+      sidebarLabel?.closest('a[href="/overview"], a[href*="/overview"]'),
     ).not.toBeNull();
 
     const settingsLink = container.querySelector('a[href="/settings"]');
@@ -428,23 +482,68 @@ describe("Dispatch NavContent", () => {
     const organization = [...container.querySelectorAll("div")].find(
       (element) => element.textContent?.trim() === "Organization",
     );
-    const footerActions = container.querySelector(
-      "[data-sidebar-footer-actions]",
+    const feedback = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Feedback",
     );
 
     expect(settingsLink).not.toBeNull();
     expect(adminLink).not.toBeNull();
     expect(organization).toBeDefined();
-    expect(footerActions).not.toBeNull();
-    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+    expect(feedback).toBeDefined();
+    expect(settingsLink!.compareDocumentPosition(feedback!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+    expect(feedback!.compareDocumentPosition(organization!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+
+  it("accepts a custom workspace name and icon", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const brandLink = container.querySelector('a[href="/overview"]');
+    expect(brandLink?.getAttribute("aria-label")).toBe("Acme Workspace");
+    expect(brandLink?.textContent?.trim()).toBe("Acme Workspace");
+    expect(brandLink?.querySelector("[data-acme-mark]")).not.toBeNull();
+    expect(brandLink?.querySelector("[data-agent-native-icon]")).toBeNull();
+    expect(container.textContent).not.toContain("Dispatch");
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent
+              collapsed
+              brandName="Acme Workspace"
+              brandIcon={<svg data-acme-mark aria-hidden="true" />}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const collapsedBrandLink = container.querySelector('a[href="/overview"]');
+    expect(collapsedBrandLink?.getAttribute("aria-label")).toBe(
+      "Acme Workspace",
+    );
+    expect(
+      collapsedBrandLink?.querySelector("[data-acme-mark]"),
+    ).not.toBeNull();
+    expect(collapsedBrandLink?.textContent?.trim()).toBe("");
   });
 
   it("keeps Admin above Settings in the chat-first left sidebar", async () => {
@@ -534,11 +633,11 @@ describe("Dispatch NavContent", () => {
     expect(
       container.querySelector("[data-chat-first-app] span[style]"),
     ).not.toBeNull();
+    expect(container.textContent).toContain("Feedback");
     expect(
-      container.querySelector("[data-sidebar-footer-feedback]"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector("[data-sidebar-footer-collapse]"),
+      container.querySelector(
+        'button[aria-label="Expand sidebar"], button[aria-label="Collapse sidebar"]',
+      ),
     ).not.toBeNull();
   });
 
@@ -600,11 +699,11 @@ describe("Dispatch NavContent", () => {
     );
     expect(historyList?.className).toContain("an-chat-history--rail");
     const sidebarLogo = container.querySelector(
-      "a[data-dispatch-logo] svg[data-agent-native-icon]",
+      'a[href="/overview"] svg[data-agent-native-icon], [data-sidebar-header] svg[data-agent-native-icon]',
     );
-    expect(sidebarLogo?.className).toContain("text-foreground");
-    expect(sidebarLogo?.className).toContain("h-[17px]");
-    expect(sidebarLogo?.className).toContain("w-[30px]");
+    expect(sidebarLogo?.className).toContain("text-primary");
+    expect(sidebarLogo?.className).toContain("h-3.5");
+    expect(sidebarLogo?.className).toContain("w-6");
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(
@@ -673,9 +772,6 @@ describe("chat-first surface panel toggle stacking", () => {
       container.querySelector("[data-chat-first-surface-toggle]")?.className ??
       "";
 
-    // Below 768px the panel becomes a full-screen absolute overlay at this
-    // z-index (surface-panel.tsx). The toggle is the only control that can
-    // dismiss it, so it must always paint above that overlay.
     const panelMobileZIndex = readMobileZIndexClass(panelClassName);
     const toggleZIndex = readUnprefixedZIndexClass(toggleClassName);
     expect(panelMobileZIndex).not.toBeNull();
@@ -725,9 +821,6 @@ describe("chat-first app surface tab chat rail", () => {
   it("does not mount a second full-screen chat rail while the mobile surface panel already covers the screen", async () => {
     const { container, root } = await renderAppTab(true);
 
-    // ChatFirstSurfacePanel is already a full-screen overlay below 768px
-    // (surface-panel.tsx). A nested AgentSidebar chat rail here would stack a
-    // second full-screen shell on top of it.
     expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
     expect(
       container.querySelector("[data-chat-first-app-pane]"),

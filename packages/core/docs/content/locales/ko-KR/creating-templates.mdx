@@ -32,13 +32,13 @@ Toolkit과 Templates는 선택 사항입니다. Template 자체가 프레임워�
 프레임워크 배선이 이미 갖춰진 최소한의 앱을 원할 경우 채팅 템플릿을 사용하세요.
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 여러 앱이 있는 작업 영역의 경우 선택기를 실행하고 원하는 도메인 템플릿과 함께 Chat을 포함합니다.
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 Chat은 인증, 내구성 있는 채팅 스레드, PostgreSQL 지원 리소스, 도구, 애플리케이션 상태, actions 및 폴링 동기화를 제공합니다. 도메인 모델과 제품 UI를 추가합니다.
@@ -515,13 +515,13 @@ Templates should fit naturally into [Multi-App Workspaces](/docs/multi-app-works
 커뮤니티 템플릿은 공개 GitHub 저장소에서 직접 설치합니다. Agent-Native 앱을 저장소 루트에 두세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 특정 리비전을 고정하려면 `#branch`, `#tag` 또는 `#commit`을 추가하세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 CLI는 소스만 다운로드하며 종속성을 설치하거나 템플릿 스크립트를 실행하지 않습니다. 커뮤니티 템플릿은 타사 코드이므로 `pnpm install`을 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.

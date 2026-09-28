@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import {
+  ANTHROPIC_MANAGED_AGENTS_METADATA_KEY,
+  createAnthropicManagedAgentsHandler,
+  type AnthropicManagedAgentConfirmation,
+  type AnthropicManagedAgentContinuation,
+} from "../a2a/anthropic-managed-agents.js";
+import {
   A2ATaskTimeoutError,
   MAX_A2A_CALLER_RESPONSE_CHARS,
   callAgent,
@@ -10,9 +16,15 @@ import {
 } from "../a2a/client.js";
 import { MAX_A2A_DELEGATION_HOPS } from "../a2a/correlation.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
+import {
+  RemoteAgentAuthError,
+  RemoteAgentCredentialRejectedError,
+  resolveRemoteAgentToken,
+} from "../a2a/remote-agent-auth.js";
 import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
+  A2AHandlerResult,
   A2ASourceContext,
   A2ASourceContextReference,
   Task,
@@ -26,7 +38,11 @@ import type { ActionTool } from "../agent/types.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
-import { findAgent, discoverAgents } from "../server/agent-discovery.js";
+import {
+  discoverAgents,
+  findAgent,
+  type DiscoveredAgent,
+} from "../server/agent-discovery.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -43,12 +59,13 @@ const INTEGRATION_A2A_TOKEN_TTL = "30m";
 const A2A_INVOCATION_EVENT = "$a2a_invocation";
 
 type A2AInvocationStatus = "success" | "pending" | "error";
+type A2AInvocationMode = "message" | "task_poll" | "direct_action";
 
 function trackA2AInvocation(args: {
   invocationId: string;
   callerApp?: string;
   targetApp: string;
-  mode: "message" | "task_poll" | "direct_action";
+  mode: A2AInvocationMode;
   status: A2AInvocationStatus;
   startedAt: number;
   taskId?: string;
@@ -96,9 +113,6 @@ function buildDelegationCorrelation(
   const inheritedDepth = Number.isInteger(context?.delegationDepth)
     ? Math.max(0, Number(context?.delegationDepth))
     : 0;
-  // The model this turn is actually running on, so a receiver with no model of
-  // its own can match the user's selection instead of its own default. A
-  // preference only — the receiver bounds it to its own engine's catalog.
   const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
@@ -145,13 +159,6 @@ function terminalTaskError(value: unknown): {
   };
 }
 
-/**
- * A delegated failure must be an error at the caller's tool boundary. Returning
- * an `Error: ...` string makes the production agent treat the failed call as a
- * successful tool result, so it can spend the rest of its turn retrying or
- * changing arguments while the real failure remains invisible to the loop
- * breaker.
- */
 class A2AInvocationError extends Error {
   readonly taskId?: string;
   readonly errorCode?: string;
@@ -165,6 +172,51 @@ class A2AInvocationError extends Error {
     this.taskId = options.taskId;
     this.errorCode = options.errorCode;
   }
+}
+
+/**
+ * An unresolvable delegation target used to leave this tool as a plain
+ * `Error: ...` string. The agent loop scores a returned string as a SUCCESSFUL
+ * tool call — no `isError`, no loop-breaker entry — and because the return
+ * happened before the tracked call began, no `$a2a_invocation` row was written
+ * either, so the single most common cross-app failure was invisible in logs and
+ * telemetry at once. Handed a "successful" result that merely contains prose,
+ * the model is free to retell it: in production it retold a target it could not
+ * resolve as "The Plans app is temporarily unavailable", inventing an outage
+ * that never happened. Resolution failure is a caller-side naming or
+ * registration fault and never remote downtime, so say so in the message the
+ * model receives.
+ */
+function unresolvableAgentTargetError(
+  requestedAgent: string,
+  available: Array<{ id: string; name: string }>,
+  callerApp: string | undefined,
+  correlation: A2ACorrelationMetadata,
+  mode: A2AInvocationMode,
+): A2AInvocationError {
+  const connected = available.map((a) => a.id).join(", ");
+  console.error(
+    `[call-agent] Unresolvable delegation target "${requestedAgent}" from ${
+      callerApp || "unknown"
+    }. Connected agents: ${connected || "(none)"}`,
+  );
+  trackA2AInvocation({
+    invocationId: randomUUID(),
+    callerApp,
+    targetApp: normalizeAppHandle(requestedAgent) || "unknown",
+    mode,
+    status: "error",
+    startedAt: Date.now(),
+    terminalCode: "agent_not_found",
+    correlation,
+  });
+  return new A2AInvocationError(
+    `No connected agent matches "${requestedAgent}". This is a target-resolution failure, ` +
+      "not an outage: do not describe the app as unavailable, down, or temporarily broken. " +
+      `Connected agents: ${connected || "(none)"}. ` +
+      `Retry with one of those exact ids, or tell the user that "${requestedAgent}" is not connected to this workspace.`,
+    { errorCode: "agent_not_found" },
+  );
 }
 
 function buildMessageIdempotencyKey(
@@ -202,20 +254,12 @@ function isNetlifyHostedRuntimeForIntegrationCall(): boolean {
   if (hasExplicitNonHostedNetlifyOverride()) return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
 
-  // NETLIFY is a build-time marker, while deployed Netlify Functions expose
-  // SITE_ID at runtime. Recognize the same runtime-only marker used by the
-  // durable background and run-manager gates so the integration caller hands
-  // slow A2A work to durable delivery before its foreground budget expires.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
 function isServerlessHost(): boolean {
   if (hasExplicitNonHostedNetlifyOverride()) return false;
 
-  // Detection mirrors db/migrations.ts:297-301. On Cloudflare Workers/Pages,
-  // `process.env` is shimmed and CF_PAGES isn't reliably populated at runtime —
-  // the canonical signal is the `__cf_env`/`__env__` global injected by the
-  // Cloudflare runtime adapter.
   return (
     isNetlifyHostedRuntimeForIntegrationCall() ||
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -233,10 +277,6 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   );
   if (configured !== undefined) return configured;
 
-  // Netlify's current synchronous function budget is 60s. Keep delegated
-  // calls very short so multi-agent integration requests queue downstream
-  // continuations quickly instead of spending the parent Slack/email processor
-  // budget waiting on separately deployed apps one-by-one.
   if (isNetlifyHostedRuntimeForIntegrationCall()) {
     return NETLIFY_INTEGRATION_A2A_TIMEOUT_MS;
   }
@@ -312,6 +352,249 @@ function formatDownstreamLlmCredentialFailure(
     : null;
 }
 
+function remoteAgentAuthFailure(
+  agentName: string,
+  value: unknown,
+  hostedAuthConfigured = false,
+): { message: string; errorCode: string } | null {
+  if (value instanceof RemoteAgentCredentialRejectedError) {
+    if (!hostedAuthConfigured) {
+      return ordinaryPeerAuthFailure(agentName, value.status);
+    }
+    return {
+      message:
+        `Error: The ${agentName} hosted-agent credential was rejected (HTTP ${value.statusCode}). ` +
+        "Update the configured credential and try again.",
+      errorCode: value.code,
+    };
+  }
+  if (value instanceof RemoteAgentAuthError) {
+    if (!hostedAuthConfigured) return null;
+    return {
+      message: `Error: The ${agentName} hosted-agent authentication failed. ${value.message}`,
+      errorCode: value.code,
+    };
+  }
+  return null;
+}
+
+function hostedAgentCardUrl(agent: { cardUrl?: string }): string | undefined {
+  return agent.cardUrl;
+}
+
+function ordinaryPeerAuthFailure(
+  agentName: string,
+  statusCode: 401 | 403,
+): { message: string; errorCode: string } {
+  return {
+    message:
+      `Error: The ${agentName} agent rejected the caller's A2A authentication (HTTP ${statusCode}). ` +
+      "Check the receiving app's A2A authentication configuration and try again.",
+    errorCode: "a2a_auth_rejected",
+  };
+}
+
+interface ParsedManagedAgentConfirmations {
+  confirmations?: AnthropicManagedAgentConfirmation[];
+  error?: string;
+}
+
+function parseManagedAgentConfirmations(
+  value: unknown,
+): ParsedManagedAgentConfirmations {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) {
+    return {
+      error:
+        "managedAgentConfirmations must be an array of tool confirmation objects.",
+    };
+  }
+  const confirmations: AnthropicManagedAgentConfirmation[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        error:
+          "managedAgentConfirmations must contain only tool confirmation objects.",
+      };
+    }
+    const candidate = item as Record<string, unknown>;
+    const toolUseId = stringifyValue(candidate.toolUseId).trim();
+    const result = stringifyValue(candidate.result).trim();
+    if (!toolUseId || (result !== "allow" && result !== "deny")) {
+      return {
+        error:
+          'Each managed agent confirmation needs a toolUseId and result of "allow" or "deny".',
+      };
+    }
+    const denyMessage = stringifyValue(candidate.denyMessage).trim();
+    confirmations.push({
+      toolUseId,
+      result,
+      ...(denyMessage ? { denyMessage } : {}),
+    });
+  }
+  return { confirmations };
+}
+
+interface ManagedAgentRunResult {
+  responseText: string;
+  continuationToken?: string;
+  taskState?: "input-required";
+}
+
+async function runAnthropicManagedAgent(args: {
+  agent: DiscoveredAgent;
+  message: string;
+  taskId: string;
+  confirmations?: AnthropicManagedAgentConfirmation[];
+  context?: ActionRunContext;
+  agentIdOrName: string;
+}): Promise<ManagedAgentRunResult> {
+  const kind = args.agent.kind;
+  if (kind?.provider !== "anthropic-managed-agents") {
+    throw new Error("Anthropic Managed Agents configuration is missing.");
+  }
+  if (args.confirmations?.length && !args.taskId) {
+    throw new A2AInvocationError(
+      `Error: managedAgentConfirmations requires a managed session taskId for ${args.agent.name}.`,
+      { errorCode: "managed_confirmation_without_session" },
+    );
+  }
+
+  const agentCallId = randomUUID();
+  const startedAt = Date.now();
+  args.context?.send?.({
+    type: "agent_call",
+    agent: args.agent.name,
+    status: "start",
+    agentCallId,
+  });
+
+  let status: "done" | "pending" | "error" = "error";
+  let continuationToken = args.taskId || undefined;
+  try {
+    const handler = createAnthropicManagedAgentsHandler({
+      agentId: kind.agentId,
+      environmentId: kind.environmentId,
+      credentialRef: kind.credentialRef,
+      apiBaseUrl: args.agent.url,
+      onRuntimeEvent: (event) => {
+        const toolCallId = event.toolCallId ?? event.approvalId;
+        args.context?.send?.({
+          type: "approval_required",
+          tool: event.toolName ?? "managed-agent-tool",
+          input: stringifyManagedAgentApprovalInput(event.input),
+          approvalKey: `anthropic-managed-agents:${event.sessionId ?? continuationToken ?? toolCallId}:${toolCallId}`,
+          allowPersistentApproval: false,
+          ...(toolCallId ? { toolCallId } : {}),
+        });
+      },
+    });
+    const metadata = args.taskId
+      ? {
+          [ANTHROPIC_MANAGED_AGENTS_METADATA_KEY]: {
+            continuationToken: args.taskId,
+            ...(args.confirmations?.length
+              ? { confirmations: args.confirmations }
+              : {}),
+          } satisfies AnthropicManagedAgentContinuation & {
+            confirmations?: AnthropicManagedAgentConfirmation[];
+          },
+        }
+      : undefined;
+    const result = (await handler(
+      {
+        role: "user",
+        parts: [{ type: "text", text: args.message }],
+        ...(metadata ? { metadata } : {}),
+      },
+      {
+        taskId: args.context?.turnId ?? randomUUID(),
+        contextId: args.context?.threadId,
+        writeArtifact: (name) => name,
+      },
+    )) as A2AHandlerResult;
+    const resultMetadata =
+      result.message.metadata?.[ANTHROPIC_MANAGED_AGENTS_METADATA_KEY];
+    const continuation = readManagedAgentContinuation(resultMetadata);
+    continuationToken = continuation?.continuationToken ?? args.taskId;
+    const responseText = result.message.parts
+      .filter((part): part is { type: "text"; text: string } => {
+        return part.type === "text";
+      })
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    const taskState = result.taskState;
+    status = taskState === "input-required" ? "pending" : "done";
+    const continuationHint =
+      taskState === "input-required" && continuation?.pendingToolUseIds?.length
+        ? `\n\nThe ${args.agent.name} agent is waiting for approval. After the user decides, call call-agent with agent="${args.agentIdOrName}", taskId="${continuation.continuationToken}", and managedAgentConfirmations containing the exact IDs ${continuation.pendingToolUseIds.map((id) => `"${id}"`).join(", ")} with result "allow" or "deny".`
+        : "";
+    const output = responseText + continuationHint;
+    if (output) {
+      args.context?.send?.({
+        type: "agent_call_text",
+        agent: args.agent.name,
+        text: output,
+        agentCallId,
+      });
+    }
+    return {
+      responseText: output,
+      continuationToken,
+      ...(taskState ? { taskState } : {}),
+    };
+  } catch (error) {
+    status = "error";
+    throw error;
+  } finally {
+    args.context?.send?.({
+      type: "agent_call",
+      agent: args.agent.name,
+      status,
+      agentCallId,
+      ...(continuationToken ? { taskId: continuationToken } : {}),
+      durationMs: Date.now() - startedAt,
+      ...(status === "pending" ? { terminalCode: "input_required" } : {}),
+    });
+  }
+}
+
+function readManagedAgentContinuation(
+  value: unknown,
+): AnthropicManagedAgentContinuation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  const continuationToken = stringifyValue(candidate.continuationToken).trim();
+  if (!continuationToken) return undefined;
+  const pendingToolUseIds = Array.isArray(candidate.pendingToolUseIds)
+    ? candidate.pendingToolUseIds
+        .map((item) => stringifyValue(item).trim())
+        .filter(Boolean)
+    : [];
+  return {
+    continuationToken,
+    ...(pendingToolUseIds.length ? { pendingToolUseIds } : {}),
+  };
+}
+
+function stringifyManagedAgentApprovalInput(
+  input: unknown,
+): Record<string, string> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return { value: stringifyValue(input) };
+  }
+  return Object.fromEntries(
+    Object.entries(input as Record<string, unknown>).map(([key, value]) => [
+      key,
+      stringifyValue(value),
+    ]),
+  );
+}
+
 export const tool: ActionTool = {
   description:
     "Ask a DIFFERENT, separately-deployed app's agent over A2A. Use message by default so the receiving specialist interprets the objective with its own instructions, skills, connected sources, data dictionary, and tools. The receiver owns provider, schema, query, join, and SQL decisions. Use action + input only for an exact, explicitly known, bounded read whose complete input schema is already known. Never put a create, update, delete, send, save, publish, or any other side effect in action; omit action and send the objective as message instead; never expose or call a direct action to work around slow or unreliable delegation, and never guess receiver-owned query logic. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
@@ -320,7 +603,7 @@ export const tool: ActionTool = {
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
     '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck/image but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real. ' +
     "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured. " +
-    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work.",
+    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work. For Anthropic Managed Agents, taskId is an opaque signed continuation token returned after approval is required; pass it back exactly as shown and never substitute a session ID.",
   parameters: {
     type: "object",
     properties: {
@@ -337,7 +620,7 @@ export const tool: ActionTool = {
       taskId: {
         type: "string",
         description:
-          "Existing A2A task ID returned by a timed-out call. Polls that exact task without sending a new message. Never create a fresh check-in message for work that already has a taskId.",
+          "Existing A2A task ID returned by a timed-out call, or the opaque signed continuation token returned by an Anthropic Managed Agents approval. Pass it back exactly without sending a fresh check-in message.",
       },
       action: {
         type: "string",
@@ -363,6 +646,20 @@ export const tool: ActionTool = {
           required: ["tool", "input"],
         },
       },
+      managedAgentConfirmations: {
+        type: "array",
+        description:
+          "Structured approvals for a paused Anthropic Managed Agents session. Use only the exact toolUseId values and allow or deny result returned by the managed agent.",
+        items: {
+          type: "object",
+          properties: {
+            toolUseId: { type: "string" },
+            result: { type: "string", enum: ["allow", "deny"] },
+            denyMessage: { type: "string" },
+          },
+          required: ["toolUseId", "result"],
+        },
+      },
     },
     required: ["agent"],
   },
@@ -381,6 +678,14 @@ export async function run(
   const approvedActions = Array.isArray(args.approvedActions)
     ? (args.approvedActions as A2AApprovedAction[])
     : undefined;
+  const parsedManagedAgentConfirmations = parseManagedAgentConfirmations(
+    args.managedAgentConfirmations,
+  );
+  if (parsedManagedAgentConfirmations.error) {
+    return `Error: ${parsedManagedAgentConfirmations.error}`;
+  }
+  const managedAgentConfirmations =
+    parsedManagedAgentConfirmations.confirmations;
 
   if (!agentIdOrName) return "Error: --agent is required";
   if (!message && !taskId && !action) {
@@ -393,7 +698,6 @@ export async function run(
     return "Error: --input must be an object when --action is provided";
   }
 
-  // Prevent self-calls — the agent must use its own registered tools instead
   if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
     return `Error: You cannot use call-agent to call yourself (${selfAppId}). Use your own registered actions/tools instead. call-agent is only for communicating with OTHER separately-deployed apps.`;
   }
@@ -410,10 +714,13 @@ export async function run(
 
   const agent = await findAgent(agentIdOrName, selfAppId);
   if (!agent) {
-    const available = (await discoverAgents(selfAppId))
-      .map((a) => a.name)
-      .join(", ");
-    return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
+    throw unresolvableAgentTargetError(
+      agentIdOrName,
+      await discoverAgents(selfAppId),
+      selfAppId,
+      buildDelegationCorrelation(context, selfAppId),
+      action ? "direct_action" : taskId ? "task_poll" : "message",
+    );
   }
 
   if (!taskId) {
@@ -452,6 +759,13 @@ export async function run(
       ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
       : undefined;
 
+  if (agent.kind?.provider === "anthropic-managed-agents" && action) {
+    return (
+      `Error: The ${agent.name} managed agent only accepts messages. ` +
+      "Use --message; direct action mode is available only for A2A read-only app actions."
+    );
+  }
+
   if (action) {
     const agentCallId = randomUUID();
     const startedAt = Date.now();
@@ -466,11 +780,20 @@ export async function run(
       });
     }
     try {
+      const hostedAgentToken = agent.auth
+        ? await resolveRemoteAgentToken(agent.auth, {
+            userEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId(),
+          })
+        : undefined;
       const output = await invokeReadOnlyAppAction(
         agent,
         action,
         input as Record<string, unknown>,
         buildDelegationCorrelation(context, selfAppId, randomUUID()),
+        hostedAgentToken,
+        hostedAgentCardUrl(agent),
+        Boolean(agent.auth),
       );
       if (/^Error\b/i.test(output)) {
         terminalStatus = "error";
@@ -487,7 +810,17 @@ export async function run(
       return output;
     } catch (error) {
       terminalStatus = "error";
-      terminalCode = "direct_action_failed";
+      const authFailure = remoteAgentAuthFailure(
+        agent.name,
+        error,
+        Boolean(agent.auth),
+      );
+      terminalCode = authFailure?.errorCode ?? "direct_action_failed";
+      if (authFailure) {
+        throw new A2AInvocationError(authFailure.message, {
+          errorCode: authFailure.errorCode,
+        });
+      }
       throw error;
     } finally {
       trackA2AInvocation({
@@ -513,11 +846,6 @@ export async function run(
     }
   }
 
-  // Append a small cross-app hint to the outgoing message so the receiving
-  // agent (which may be on an older deploy without the receiver-side hint
-  // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
-  // suspenders with the receiver hint — but it works against any current
-  // deployment, no redeploy required.
   const sourceContext = integrationSourceContext();
   const messageWithHint = taskId
     ? ""
@@ -536,15 +864,29 @@ export async function run(
   let invocationTerminalCode: string | undefined;
 
   try {
-    // If we have a send context, use streaming so the UI shows progressive text
+    if (agent.kind?.provider === "anthropic-managed-agents") {
+      const managed = await runAnthropicManagedAgent({
+        agent,
+        message,
+        taskId,
+        confirmations: managedAgentConfirmations,
+        context,
+        agentIdOrName,
+      });
+      invocationStatus =
+        managed.taskState === "input-required" ? "pending" : "success";
+      invocationTaskId = managed.continuationToken;
+      invocationTerminalCode =
+        managed.taskState === "input-required" ? "input_required" : undefined;
+      return managed.responseText;
+    }
+
     if (context?.send) {
       const callerEmail = getRequestUserEmail();
 
-      // Build metadata with identity
       const a2aMetadata: Record<string, unknown> = {};
       if (callerEmail) a2aMetadata.userEmail = callerEmail;
 
-      // Include org domain for cross-app org resolution
       let callerOrgDomain: string | undefined;
       let callerOrgSecret: string | undefined;
       const orgId = getRequestOrgId();
@@ -562,9 +904,12 @@ export async function run(
         } catch {}
       }
 
-      // Sign JWT with identity + org domain for the streaming client
       let apiKey: string | undefined;
-      if (callerEmail && (callerOrgSecret || process.env.A2A_SECRET)) {
+      if (
+        !agent.auth &&
+        callerEmail &&
+        (callerOrgSecret || process.env.A2A_SECRET)
+      ) {
         try {
           apiKey = await signA2AToken(
             callerEmail,
@@ -578,7 +923,7 @@ export async function run(
         } catch {}
       }
 
-      if (process.env.NODE_ENV === "production" && callerEmail) {
+      if (!agent.auth && process.env.NODE_ENV === "production" && callerEmail) {
         try {
           const { listOAuthAccountsByOwner } =
             await import("../oauth-tokens/store.js");
@@ -626,64 +971,7 @@ export async function run(
         responseText = newText;
       };
 
-      // Skip the SSE streaming attempt and go straight to async + poll.
-      // Why: on Netlify (Lambda), the receiving server has no streaming
-      // response support, so message/stream returns a single JSON-RPC error
-      // body in a 200 response that our SSE parser silently consumes — the
-      // `for await` loop yields nothing AND keeps the connection open until
-      // the function timeout, eating the current serverless budget. By the
-      // time we get to the sync fallback, Lambda is dead and the second fetch
-      // errors out as "fetch failed". Async+poll has its own short fetches
-      // with their own budgets, so it works reliably across hosts. The
-      // trade-off is that cross-app activity arrives at the poll cadence rather
-      // than token-by-token. Agent-Native peers attach their current reasoning,
-      // tool status, and response preview to each task checkpoint, and the
-      // receiver's full response still surfaces below.
-      //
-      // That trade-off has a second-order cost: callAgent()'s poll (see
-      // A2AClient.sendAndWait in a2a/client.ts) can legitimately run for
-      // minutes with nothing emitted to the parent between the "start" event
-      // above and "done" below. On the parent run, that silence freezes
-      // `last_progress_at` — shouldBumpProgressForEvent in
-      // agent/run-manager.ts treats a stream of literally nothing as no
-      // progress — which trips the client's stuck-detector
-      // (DEFAULT_STUCK_THRESHOLD_MS = 90_000 in
-      // client/use-run-stuck-detection.ts) and the server's stale-run sweep
-      // (BACKGROUND_RUN_STALE_MS = 90_000 in agent/run-store.ts). In
-      // production this handed users a "still working, no progress" Retry
-      // button that aborted a perfectly healthy call and re-ran the sub-agent
-      // from scratch.
-      //
-      // Fix: surface the REAL remote liveness the poll already gathers. The
-      // A2A poll round-trips to the remote agent every ~2s and gets back a
-      // task with `status.state` (see A2AClient.sendAndWait / `onUpdate`). We
-      // emit an `agent_call_progress` event ONLY from that callback, and ONLY
-      // when a poll actually succeeds AND reports an actively-working state.
-      // Crucially this is NOT a timer: if the remote hangs or dies, the poll
-      // fetch throws, `onUpdate` stops firing, we emit nothing, and the
-      // stuck-detector correctly surfaces its banner. A wall-clock heartbeat
-      // would instead keep a dead sub-agent looking alive forever — trading a
-      // false stuck-positive for a worse false stuck-negative.
-      //
-      // Throttle: the poll runs every ~2s but both thresholds above are 90s,
-      // so emitting per-poll would be ~45 events per stuck-window. We coalesce
-      // to at most one emission per 30s — a 3x margin under 90s, so at least
-      // two land inside either window even with jitter, without flooding.
-      //
-      // Shape: a dedicated `agent_call_progress` event type (see
-      // agent/types.ts), not an extra `agent_call` status. `agent_call`
-      // consumers (production-agent.ts's step summarizer, slack.ts's task
-      // cards) render any status that isn't "start"/"done" as a failure, so a
-      // "progress" status would surface an in-flight tick as an error. A
-      // distinct type is instead ignored gracefully everywhere: the run-event
-      // switches fall to their `default`, the client if-chains fall through,
-      // and sse-event-processor returns `{action:"continue"}`. It still counts
-      // as real progress in shouldBumpProgressForEvent (any non-special event
-      // type does), which is the whole point.
       const PROGRESS_MIN_INTERVAL_MS = 30_000;
-      // Terminal states resolve the poll; "input-required" means the remote is
-      // blocked waiting on us, not making progress. Only actively-working
-      // states count as liveness worth surfacing.
       const ACTIVELY_WORKING_STATES = new Set([
         "working",
         "submitted",
@@ -693,11 +981,6 @@ export async function run(
       let lastProgressEmitAt = callStartedAt;
       let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
-        // Capture the remote task id on every poll, not only on the timeout and
-        // error branches that used to set it. Without this a call that SUCCEEDS
-        // slowly carries no task id, so "why did this one take four minutes?"
-        // cannot be traced into the receiving app's own task record — which is
-        // the question worth asking about a slow cross-app call.
         if (task?.id) invocationTaskId = task.id;
         const state = task?.status?.state;
         const parts = task.status?.message?.parts;
@@ -729,20 +1012,29 @@ export async function run(
       };
 
       try {
-        // Apply a polling cap ONLY for integration-platform callers on
-        // serverless hosts. Normal chat, local Node, self-hosted Node, and
-        // Docker can wait for slow-but-valid answers; integration processors
-        // still need to finish before their current function execution dies.
+        const hostedAgentToken = agent.auth
+          ? await resolveRemoteAgentToken(agent.auth, {
+              userEmail: callerEmail,
+              orgId,
+            })
+          : undefined;
         const callTimeoutMs = getIntegrationCallTimeoutMs();
         const submissionTimeoutMs =
           callTimeoutMs && isNetlifyHostedRuntimeForIntegrationCall()
             ? NETLIFY_INTEGRATION_A2A_SUBMISSION_TIMEOUT_MS
             : undefined;
         responseText = await callAgent(agent.url, messageWithHint, {
-          apiKey,
-          userEmail: callerEmail,
-          orgDomain: callerOrgDomain,
-          orgSecret: callerOrgSecret,
+          apiKey: agent.auth ? hostedAgentToken : apiKey,
+          ...(agent.auth
+            ? {}
+            : {
+                userEmail: callerEmail,
+                orgDomain: callerOrgDomain,
+                orgSecret: callerOrgSecret,
+              }),
+          ...(hostedAgentCardUrl(agent)
+            ? { cardUrl: hostedAgentCardUrl(agent) }
+            : {}),
           approvedActions,
           ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
           contextId: context.threadId,
@@ -761,12 +1053,7 @@ export async function run(
         responseText =
           formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
           responseText;
-        // Some agents reply with relative paths (e.g. slides emits
-        // "/deck/abc"). Those resolve against the caller's host, not the
-        // receiver's, so they're broken for the user. Expand any leading-slash
-        // URL into a fully-qualified one rooted at the receiving agent's host.
         responseText = expandRelativeUrls(responseText, agent.url);
-        // Mirror the response into the streaming UI so the user sees it.
         if (responseText) emitNewText(responseText);
       } catch (pollErr: any) {
         const timeoutTaskId = getA2ATaskTimeoutTaskId(pollErr);
@@ -786,12 +1073,6 @@ export async function run(
               `The ${agent.name} agent accepted this delegated subtask and will post its own final result to the originating integration thread automatically. ` +
               `Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting its result separately.`;
           } else {
-            // The normal integration path must preserve the timeout task id so
-            // it can enqueue a durable continuation. If that enqueue fails,
-            // do not hide receiver-verified artifacts that were already
-            // returned with the last poll; this mirrors callAgent's default
-            // timeout behavior without treating arbitrary remote status text
-            // as a completed response.
             const recoverableArtifactText =
               extractRecoverableTimeoutArtifactText(pollErr);
             if (recoverableArtifactText) {
@@ -833,9 +1114,15 @@ export async function run(
             (detail ? `: ${detail}` : "");
         } else {
           terminalStatus = "error";
-          invocationTerminalCode = "call_failed";
+          const authFailure = remoteAgentAuthFailure(
+            agent.name,
+            pollErr,
+            Boolean(agent.auth),
+          );
+          invocationTerminalCode = authFailure?.errorCode ?? "call_failed";
           const reason = pollErr?.message ?? "unknown error";
           responseText =
+            authFailure?.message ??
             formatDownstreamLlmCredentialFailure(agent.name, pollErr) ??
             `Error: The ${agent.name} agent call failed. (${reason})`;
         }
@@ -886,8 +1173,6 @@ export async function run(
       );
     }
 
-    // No context — use the async + poll call so we don't get cut off at the
-    // serverless gateway's ~30s timeout. callAgent defaults to async:true.
     const email = getRequestUserEmail();
     let domain: string | undefined;
     let orgSecret: string | undefined;
@@ -900,10 +1185,18 @@ export async function run(
         orgSecret = (await getOrgA2ASecret(currentOrgId)) ?? undefined;
       } catch {}
     }
+    const hostedAgentToken = agent.auth
+      ? await resolveRemoteAgentToken(agent.auth, {
+          userEmail: email,
+          orgId: currentOrgId,
+        })
+      : undefined;
     const response = await callAgent(agent.url, messageWithHint, {
-      userEmail: email,
-      orgDomain: domain,
-      orgSecret,
+      apiKey: hostedAgentToken,
+      ...(agent.auth ? {} : { userEmail: email, orgDomain: domain, orgSecret }),
+      ...(hostedAgentCardUrl(agent)
+        ? { cardUrl: hostedAgentCardUrl(agent) }
+        : {}),
       approvedActions,
       ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
       contextId: context?.threadId,
@@ -932,6 +1225,18 @@ export async function run(
     return expanded;
   } catch (err: any) {
     if (err instanceof A2AInvocationError) throw err;
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      err,
+      Boolean(agent.auth || agent.kind),
+    );
+    if (authFailure) {
+      invocationStatus = "error";
+      invocationTerminalCode = authFailure.errorCode;
+      throw new A2AInvocationError(authFailure.message, {
+        errorCode: authFailure.errorCode,
+      });
+    }
     const msg = err?.message ?? String(err);
     const credentialMessage = formatDownstreamLlmCredentialFailure(
       agent.name,
@@ -975,8 +1280,6 @@ export async function run(
         agentIdOrName,
       );
     }
-    // Friendlier message for the common timeout case so the calling agent can
-    // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
       invocationStatus = "error";
       invocationTerminalCode = "timeout_without_task";
@@ -1010,6 +1313,9 @@ async function invokeReadOnlyAppAction(
   action: string,
   input: Record<string, unknown>,
   correlation: A2ACorrelationMetadata,
+  hostedAgentToken?: string,
+  cardUrl?: string,
+  hostedAuthConfigured = false,
 ): Promise<string> {
   const callerEmail = getRequestUserEmail();
   if (!callerEmail) {
@@ -1028,7 +1334,7 @@ async function invokeReadOnlyAppAction(
     } catch {}
   }
 
-  if (!callerOrgSecret && !process.env.A2A_SECRET) {
+  if (!hostedAgentToken && !callerOrgSecret && !process.env.A2A_SECRET) {
     return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
   }
 
@@ -1037,15 +1343,30 @@ async function invokeReadOnlyAppAction(
       target: agent.url,
       action,
       input,
-      userEmail: callerEmail,
-      orgDomain: callerOrgDomain,
-      orgSecret: callerOrgSecret,
+      ...(hostedAgentToken
+        ? { apiKey: hostedAgentToken }
+        : {
+            userEmail: callerEmail,
+            orgDomain: callerOrgDomain,
+            orgSecret: callerOrgSecret,
+          }),
       correlation,
+      ...(cardUrl ? { cardUrl } : {}),
     });
     return invocation.result.status === "completed"
       ? invocation.result.output
       : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
   } catch (error) {
+    const authFailure = remoteAgentAuthFailure(
+      agent.name,
+      error,
+      hostedAuthConfigured,
+    );
+    if (authFailure) {
+      throw new A2AInvocationError(authFailure.message, {
+        errorCode: authFailure.errorCode,
+      });
+    }
     return `Error calling ${agent.name} action ${action}: ${
       error instanceof Error ? error.message : stringifyValue(error)
     }`;
@@ -1131,10 +1452,6 @@ async function enqueueIntegrationContinuationIfPossible(
   }
 }
 
-// Pull a short human-readable detail from a polled A2A task's status message,
-// when the remote includes one, so the progress event can surface a real
-// signal (e.g. "Generating hero image…") instead of a bare elapsed counter.
-// Bounded so a chatty remote can't push a large payload through the event.
 const MAX_PROGRESS_DETAIL_CHARS = 200;
 function extractRemoteProgressDetail(task: Task): string | undefined {
   const parts = task.status?.message?.parts;
@@ -1170,12 +1487,6 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
   return match?.[1] ?? null;
 }
 
-/**
- * Mirrors the A2A client's default timeout recovery for the exceptional case
- * where an integration cannot enqueue a durable continuation. Only an
- * explicitly receiver-marked task message is safe to surface as a completed
- * partial result; ordinary working-state text remains a timeout failure.
- */
 function extractRecoverableTimeoutArtifactText(err: unknown): string {
   const candidate = err as
     | { lastTask?: unknown; name?: unknown }
@@ -1242,17 +1553,9 @@ function getIntegrationContinuationDedupeKey(message: string): string {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
-// Expand bare leading-slash paths (e.g. "/deck/abc") into fully-qualified URLs
-// rooted at the receiving agent's host. The receiver doesn't always know it's
-// being called cross-app, so it may emit relative paths that resolve against
-// the caller's host (broken). Match a path that starts at a word boundary,
-// begins with `/`, and has at least one path segment after that. Skip if it
-// already looks like a fully-qualified URL.
 export function expandRelativeUrls(text: string, agentUrl: string): string {
   if (!text || !agentUrl) return text;
   const base = agentUrl.replace(/\/$/, "");
-  // Path must start at boundary (start, whitespace, or punctuation that isn't
-  // ':' — to avoid mangling `https://example.com/foo` or markdown link bodies).
   return text.replace(
     /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,

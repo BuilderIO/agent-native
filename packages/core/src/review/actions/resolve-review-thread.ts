@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { defineAction } from "../../action.js";
+import { defineAction, fail } from "../../action.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
   getReviewCommentById,
@@ -9,19 +9,32 @@ import {
 } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
 
-const schema = z.object({
-  resourceType: z.string().min(1),
-  resourceId: z.string().min(1),
-  threadId: z.string().optional(),
-  commentId: z.string().optional(),
-  resolutionNote: z.string().trim().min(1).max(2_000).optional(),
-});
+const schema = z
+  .object({
+    resourceType: z.string().min(1),
+    resourceId: z.string().min(1),
+    threadId: z.string().optional(),
+    commentId: z.string().optional(),
+    status: z
+      .enum(["resolved", "open"])
+      .default("resolved")
+      .describe('New thread status. "resolved" closes it; "open" reopens it.'),
+    resolutionNote: z.string().trim().min(1).max(2_000).optional(),
+  })
+  .refine(
+    (args) => args.status === "resolved" || args.resolutionNote === undefined,
+    {
+      path: ["resolutionNote"],
+      message: "Resolution notes are only supported when resolving",
+    },
+  );
 
 export default defineAction({
   description:
-    "Resolve an inline comment or review thread. An optional resolution note supports inline Markdown without headings.",
+    "Resolve or reopen an inline comment or review thread. Resolution notes support inline Markdown without headings and are only valid when resolving.",
   schema,
   run: async (args, ctx) => {
+    const status = args.status ?? "resolved";
     const actionCtx = ctx as ReviewResourceContext | undefined;
     await assertReviewableResourceAccess(
       args.resourceType,
@@ -44,12 +57,17 @@ export default defineAction({
         comment.resourceType !== args.resourceType ||
         comment.resourceId !== args.resourceId
       ) {
-        throw new Error("Review comment not found");
+        fail("Review comment not found", {
+          statusCode: 404,
+          errorCode: "not_found",
+        });
       }
       threadId = comment.threadId;
     }
     if (!threadId) {
-      throw new Error("Provide threadId or commentId");
+      fail("Provide threadId or commentId", {
+        errorCode: "invalid_input",
+      });
     }
     const updatedCount = await resolveReviewThread(
       threadId,
@@ -59,9 +77,13 @@ export default defineAction({
         resourceId: args.resourceId,
       },
       args.resolutionNote,
+      status,
     );
     if (updatedCount < 1) {
-      throw new Error("Review thread not found");
+      fail("Review thread not found", {
+        statusCode: 404,
+        errorCode: "not_found",
+      });
     }
     const comment = await getReviewThreadRoot(
       threadId,
@@ -76,13 +98,18 @@ export default defineAction({
       { bypassScope: true },
     );
     if (!comment) {
-      throw new Error("Resolved review thread could not be verified");
+      fail("Review thread status could not be verified", {
+        statusCode: 500,
+        errorCode: "verification_failed",
+      });
     }
     return {
       threadId,
-      resolved: true as const,
+      status,
+      resolved: status === "resolved",
       updatedCount,
-      resolutionNote: comment.resolutionNote ?? null,
+      resolutionNote:
+        status === "resolved" ? (comment.resolutionNote ?? null) : null,
       comment,
     };
   },

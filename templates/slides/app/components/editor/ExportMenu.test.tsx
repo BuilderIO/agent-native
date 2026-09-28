@@ -1,10 +1,12 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef, type Ref } from "react";
 const requestString = (value: unknown) =>
   typeof value === "string"
     ? value
@@ -13,6 +15,7 @@ const requestString = (value: unknown) =>
       : value instanceof Request
         ? value.url
         : (JSON.stringify(value) ?? "");
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -42,6 +45,12 @@ vi.mock("@agent-native/core/client/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 
+vi.mock("@/lib/google-slides-export-availability-client", () => ({
+  useGoogleSlidesExportAvailability: () => ({ available: true }),
+  fetchGoogleSlidesExportAvailability: async () => ({ available: true }),
+  invalidateGoogleSlidesExportAvailability: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
@@ -59,6 +68,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "editorExport.exportPptx": "Export as PPTX",
         "editorExport.exporting": "Exporting...",
         "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesOpenImporter": "Open Google Slides import",
         "editorExport.googleSlidesImportHint":
           "Import the downloaded PPTX into Google Slides.",
         "editorExport.pptxFailed": "PPTX export failed",
@@ -79,20 +89,21 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 
-import { canExportPptxFromServer, ExportMenu } from "./ExportMenu";
+import {
+  canExportPptxFromServer,
+  ExportMenu,
+  type ExportMenuHandle,
+} from "./ExportMenu";
 
 const PPTX_MIME =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 
-/** The exact wrapper server/handlers/import/html-converter.ts writes per PPTX slide. */
 const importedSlide = (body: string) =>
   `<div class="fmd-slide fmd-imported-pptx" data-imported-pptx="true" data-slide-width-emu="12192125" data-slide-height-emu="6858000" style="position: relative; background: #013445;">${body}</div>`;
 
-/** An object carried over from the source file: geometry came from the XML. */
 const importedShape =
   '<div class="fmd-pptx-shape" data-pptx-element-kind="shape" data-slide-object-id="108" style="position: absolute; left: 40px; top: 60px; width: 320px; height: 180px;"></div>';
 
-/** An object the editor positioned by measuring the browser's own layout. */
 const editorTextBox =
   '<div class="fmd-text-box" data-slide-object-id="0c6f2a1e-9d3b-4d64-8f2a-2b7f0f6d1a55" style="position:absolute;left:120px;top:80px;width:320px">Added in the editor</div>';
 
@@ -125,19 +136,28 @@ function captureDownloadNames() {
   return names;
 }
 
-function renderMenu(overrides: Partial<Parameters<typeof ExportMenu>[0]> = {}) {
+let queryClient: QueryClient;
+
+function renderMenu(
+  overrides: Partial<Parameters<typeof ExportMenu>[0]> = {},
+  ref?: Ref<ExportMenuHandle>,
+) {
   return render(
-    <ExportMenu
-      deckId="deck-1"
-      deckTitle="Quarterly Review"
-      onDuplicate={vi.fn()}
-      onExportPdf={vi.fn()}
-      onExportPptx={vi.fn()}
-      onExportGoogleSlides={vi.fn().mockResolvedValue({
-        url: "https://docs.google.com/presentation/d/new-deck/edit",
-      })}
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ExportMenu
+        ref={ref}
+        hasSlides
+        deckId="deck-1"
+        deckTitle="Quarterly Review"
+        onDuplicate={vi.fn()}
+        onExportPdf={vi.fn()}
+        onExportPptx={vi.fn()}
+        onExportGoogleSlides={vi.fn().mockResolvedValue({
+          url: "https://docs.google.com/presentation/d/new-deck/edit",
+        })}
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
 }
 
@@ -148,7 +168,9 @@ function openExportMenu() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Editor-authored by default: only imported decks leave the browser path.
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   getDeckMock.mockReturnValue(undefined);
   flushDeckSaveMock.mockResolvedValue(undefined);
   globalThis.fetch = vi.fn(async () => new Response()) as typeof fetch;
@@ -187,9 +209,41 @@ describe("<ExportMenu>", () => {
     expect(window.open).not.toHaveBeenCalled();
   });
 
+  it("disables export actions and ignores direct exports when the deck is empty", async () => {
+    const ref = createRef<ExportMenuHandle>();
+    const onExportPdf = vi.fn();
+    const onExportPptx = vi.fn();
+    const onExportGoogleSlides = vi.fn();
+    renderMenu(
+      {
+        hasSlides: false,
+        onExportPdf,
+        onExportPptx,
+        onExportGoogleSlides,
+      },
+      ref,
+    );
+
+    expect(
+      screen
+        .getByRole("button", { name: /^export$/i })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+
+    await act(async () => {
+      await ref.current?.exportHtml();
+      await ref.current?.exportPdf();
+      await ref.current?.exportPptx();
+      await ref.current?.exportGoogleSlides();
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onExportPdf).not.toHaveBeenCalled();
+    expect(onExportPptx).not.toHaveBeenCalled();
+    expect(onExportGoogleSlides).not.toHaveBeenCalled();
+  });
+
   it("exports an imported deck through the vector-capable server path", async () => {
-    // dom-to-pptx has no custGeom and rasterizes every shape, so a deck whose
-    // geometry came from the source XML must not go out through the browser.
     getDeckMock.mockReturnValue(
       importedDeck([importedSlide(importedShape), importedSlide("")]),
     );
@@ -209,7 +263,6 @@ describe("<ExportMenu>", () => {
         body: JSON.stringify({ deckId: "deck-1" }),
       }),
     );
-    // Unflushed edits would be missing from the file the server builds.
     expect(flushDeckSaveMock).toHaveBeenCalledWith("deck-1");
     expect(onExportPptx).not.toHaveBeenCalled();
   });
@@ -268,8 +321,6 @@ describe("<ExportMenu>", () => {
         ...imported,
         slides: [
           ...imported.slides,
-          // An agent-written slide has no source geometry to preserve, and the
-          // server would render it without the browser's measurements.
           { content: '<div class="fmd-slide"><h1>Added</h1></div>' },
         ],
       }),
@@ -287,7 +338,7 @@ describe("<ExportMenu>", () => {
       }),
     ).toBe(false);
     expect(canExportPptxFromServer({ ...imported, sourceImport: null })).toBe(
-      false,
+      true,
     );
     expect(canExportPptxFromServer(undefined)).toBe(false);
   });
@@ -295,18 +346,21 @@ describe("<ExportMenu>", () => {
   it("renders export actions inline inside a parent menu", async () => {
     const onExportPptx = vi.fn().mockResolvedValue(undefined);
     render(
-      <DropdownMenu open>
-        <DropdownMenuContent>
-          <ExportMenu
-            inline
-            deckId="deck-1"
-            deckTitle="Quarterly Review"
-            onDuplicate={vi.fn()}
-            onExportPdf={vi.fn()}
-            onExportPptx={onExportPptx}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>,
+      <QueryClientProvider client={queryClient}>
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <ExportMenu
+              inline
+              hasSlides
+              deckId="deck-1"
+              deckTitle="Quarterly Review"
+              onDuplicate={vi.fn()}
+              onExportPdf={vi.fn()}
+              onExportPptx={onExportPptx}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </QueryClientProvider>,
     );
 
     expect(screen.queryByRole("button", { name: /^export$/i })).toBeNull();
@@ -427,8 +481,11 @@ describe("<ExportMenu>", () => {
       "Import the downloaded PPTX into Google Slides.",
     );
     expect(window.open).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Export to Google Slides" }),
+    ).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Export to Google Slides" }),
+      screen.getByRole("button", { name: "Open Google Slides import" }),
     );
     expect(window.open).toHaveBeenCalledWith(
       "https://docs.google.com/presentation/u/0/?usp=import",
@@ -477,10 +534,6 @@ describe("<ExportMenu>", () => {
   });
 
   it("downloads HTML via the streamed POST endpoint, not the broken filename GET", async () => {
-    // Regression test for the bug Josh hit: the old flow POSTed to the
-    // action endpoint, got back a filename, then redirected to
-    // /api/exports/:filename — that GET returns 404 on serverless because
-    // the file was written to a different Lambda's /tmp.
     globalThis.fetch = vi.fn(async () => {
       return new Response(
         new Blob(["<html><body>deck</body></html>"], { type: "text/html" }),

@@ -177,12 +177,13 @@ export function renderInlineMarkdown(markdown: string): string {
   );
 
   text = text.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g,
     (_match, label: string, url: string) => store.put(anchorHtml(url, label)),
   );
 
-  text = text.replace(/<((?:https?:\/\/)[^<>\s]+)>/g, (_match, url: string) =>
-    store.put(anchorHtml(url)),
+  text = text.replace(
+    /<((?:https?:\/\/|mailto:)[^<>\s]+)>/g,
+    (_match, url: string) => store.put(anchorHtml(url)),
   );
 
   text = text.replace(
@@ -201,7 +202,6 @@ export function renderInlineMarkdown(markdown: string): string {
   return store.restore(escaped);
 }
 
-/** Linkify plain-text email bodies without interpreting their other characters as Markdown. */
 export function renderPlainTextLinks(text: string): string {
   const ranges = findPlainTextLinkRanges(text);
   if (ranges.length === 0) return escapeHtml(text);

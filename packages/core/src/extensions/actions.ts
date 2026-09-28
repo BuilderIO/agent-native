@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { and, eq, inArray, or, sql } from "drizzle-orm";
+
 import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
 import {
   AgentActionStopError,
@@ -10,6 +12,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import { getDbExec } from "../db/client.js";
+import { createGetDb } from "../db/create-get-db.js";
 import { readResource } from "../resources/script-helpers.js";
 import {
   getRequestOrgId,
@@ -17,7 +20,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
-import { roleSatisfies } from "../sharing/schema.js";
+import { ROLE_RANK, roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
@@ -34,6 +37,7 @@ import {
   type LocalExtensionRow,
 } from "./local.js";
 import { extensionPath } from "./path.js";
+import { extensions, extensionShares } from "./schema.js";
 import {
   addExtensionSlotTarget,
   installExtensionSlot,
@@ -64,12 +68,99 @@ import {
   type ExtensionRow,
 } from "./store.js";
 
-// A 200k extension body containing JSON-sensitive HTML/JS characters (quotes,
-// backslashes, and newlines) expands to about 400k characters when pretty-JSON
-// serialized by the agent loop. A history detail can carry the current and
-// previous bodies plus both bodies again in its line diff (about 1.6M chars in
-// the same worst-common-case fixture). These caps add roughly 25% headroom for
-// the surrounding metadata and indentation while still bounding tool context.
+const getExtensionsAccessDb = createGetDb({
+  extensions,
+  extensionShares,
+});
+
+async function resolveExtensionAccessRoles(
+  rows: Array<Pick<ExtensionRow, "id" | "ownerEmail" | "visibility" | "orgId">>,
+): Promise<Map<string, ShareRole | "owner">> {
+  const roles = new Map<string, ShareRole | "owner">();
+  if (rows.length === 0) return roles;
+
+  const userEmail = getRequestUserEmail()?.trim().toLowerCase() || null;
+  const orgId = getRequestOrgId();
+  const pending: typeof rows = [];
+
+  for (const row of rows) {
+    if (userEmail && row.ownerEmail.trim().toLowerCase() === userEmail) {
+      roles.set(row.id, "owner");
+    } else {
+      pending.push(row);
+    }
+  }
+
+  if (pending.length === 0) return roles;
+
+  const pendingIds = pending.map((row) => row.id);
+  const principalClauses = [];
+  if (userEmail) {
+    principalClauses.push(
+      and(
+        eq(extensionShares.principalType, "user"),
+        sql`lower(${extensionShares.principalId}) = ${userEmail}`,
+      ),
+    );
+  }
+  if (orgId) {
+    principalClauses.push(
+      and(
+        eq(extensionShares.principalType, "org"),
+        eq(extensionShares.principalId, orgId),
+      ),
+    );
+  }
+
+  let batched = false;
+  if (principalClauses.length > 0) {
+    try {
+      await ensureExtensionsTables();
+      const db = getExtensionsAccessDb();
+      const shareRows = (await db
+        .select({
+          resourceId: extensionShares.resourceId,
+          role: extensionShares.role,
+        })
+        .from(extensionShares)
+        .where(
+          and(
+            inArray(extensionShares.resourceId, pendingIds),
+            or(...principalClauses),
+          ),
+        )) as Array<{ resourceId: string; role: ShareRole }>;
+
+      for (const share of shareRows) {
+        const prev = roles.get(share.resourceId);
+        if (!prev || ROLE_RANK[share.role] > ROLE_RANK[prev]) {
+          roles.set(share.resourceId, share.role);
+        }
+      }
+      batched = true;
+    } catch {
+      batched = false;
+    }
+  }
+
+  if (!batched) {
+    await Promise.all(
+      pending.map(async (row) => {
+        const access = await resolveAccess("extension", row.id).catch(
+          () => null,
+        );
+        roles.set(row.id, access?.role ?? "viewer");
+      }),
+    );
+    return roles;
+  }
+
+  for (const row of pending) {
+    if (!roles.has(row.id)) roles.set(row.id, "viewer");
+  }
+
+  return roles;
+}
+
 const GET_EXTENSION_MAX_RESULT_CHARS = 500_000;
 const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
 const LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS = 60_000;
@@ -129,6 +220,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           await listExtensions({
             includeHidden,
             includeGloballyHidden,
+            ...(includeContent ? { includeContent: true } : {}),
           });
         const localRows = await listLocalExtensions();
         const allRows: Array<ExtensionRow | LocalExtensionRow> = [
@@ -147,8 +239,13 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         }
 
         rows = rows.slice(0, limit);
+        const roleById = await resolveExtensionAccessRoles(
+          rows.filter((row): row is ExtensionRow => !isLocalExtensionRow(row)),
+        );
         const extensions = await Promise.all(
-          rows.map((row) => summarizeExtension(row, hiddenIds, includeContent)),
+          rows.map((row) =>
+            summarizeExtension(row, hiddenIds, includeContent, roleById),
+          ),
         );
         return {
           ok: true,
@@ -236,8 +333,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
-      // Result is JSON including the full Alpine content; account for JSON
-      // escaping and envelope metadata instead of matching the source cap.
       maxResultChars: GET_EXTENSION_MAX_RESULT_CHARS,
       readOnly: true,
     },
@@ -330,8 +425,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
-      // With includeContent, history can contain current + previous source and
-      // repeat both in the diff, so it needs more headroom than get-extension.
       maxResultChars: GET_EXTENSION_HISTORY_MAX_RESULT_CHARS,
       readOnly: true,
     },
@@ -466,13 +559,20 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           if (match) {
             id = match.id;
           } else {
+            const roleById = await resolveExtensionAccessRoles(
+              rows.filter(
+                (row): row is ExtensionRow => !isLocalExtensionRow(row),
+              ),
+            );
             return {
               ok: false,
               error: `No extension matched "${args?.search}".`,
               available: await Promise.all(
                 rows
                   .slice(0, 10)
-                  .map((row) => summarizeExtension(row, hiddenIds, false)),
+                  .map((row) =>
+                    summarizeExtension(row, hiddenIds, false, roleById),
+                  ),
               ),
             };
           }
@@ -575,13 +675,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const description = String(args?.description ?? "").trim();
         const icon = args?.icon ? String(args.icon) : undefined;
 
-        // Idempotency: if an identical extension was created in the last 5
-        // minutes (e.g. a connection drop caused the agent to retry this tool
-        // call), return the existing one instead of creating a duplicate.
-        // Keyed on the FULL create inputs (name + content + description + icon),
-        // so two creates that differ in ANY of them are treated as distinct
-        // rather than silently collapsed — only a byte-identical re-create (the
-        // retry case) recovers the existing row.
         const existing = await findRecentDuplicateExtension({
           name,
           content,
@@ -603,8 +696,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
           return {
             ok: true,
-            // Compact summary (contentLength + contentHash, no full body). Echoing
-            // the whole HTML back is pure token waste — the agent just supplied it.
             extension: await summarizeExtension(existing, hiddenIds, false),
             path: existingPath,
             next: `Extension was already created in this session (recovered from a connection retry). The user is being navigated to it — no further navigation tool calls needed.`,
@@ -619,16 +710,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         });
         const path = extensionPath(extension.id, extension.name);
 
-        // Auto-navigate so the user lands on the new extension instead of
-        // having to read the JSON response and click a link. Writes a
-        // one-shot `navigate` app-state command the UI consumes and clears.
         try {
           await writeAppState("navigate", {
             view: "extensions",
             extensionId: extension.id,
             path,
-            // Unique-per-write token so the UI's `use-navigation-state` hook
-            // can dedup race-driven re-reads of the same command.
             _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           });
         } catch {
@@ -638,8 +724,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
         return {
           ok: true,
-          // Compact summary (contentLength + contentHash, no full body). Echoing
-          // the whole HTML back is pure token waste — the agent just supplied it.
           extension: await summarizeExtension(extension, hiddenIds, false),
           path,
           next: `Created. The user is being navigated to the new extension automatically — no further navigation tool calls needed.`,
@@ -734,12 +818,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           throw new ExtensionContentEditError(message);
         }
 
-        // Full-replacement content can come inline (`content`) or by reference
-        // (`contentFromAttachment`) so the model never has to re-type a large
-        // pasted file. Inline wins only when NON-EMPTY — the docstring tells
-        // callers to leave `content` empty when using `contentFromAttachment`,
-        // so an empty/blank `content` must fall through to the attachment
-        // instead of blanking the extension (mirrors resolveExtensionContent).
         let replacementContent =
           typeof args?.content === "string" && args.content.trim().length > 0
             ? args.content
@@ -781,13 +859,6 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             const message =
               `The extension edit was not applied: ${error.message} ` +
               "Do not retry the same arguments. Read the current extension and submit one focused patch or edit with an exact target.";
-            // A text/marker mismatch is not terminal like a missing credential
-            // or a policy block — the model can read the error (which now
-            // carries closest-match candidates or the ambiguous locations) and
-            // retarget. Report it as a normal action failure so it reaches the
-            // model as a retryable tool error, bounded by the identical-error
-            // breaker (3 tries) and the across-arguments breaker (6); an
-            // AgentActionStopError here would end the turn on the first miss.
             fail(message, { errorCode: "extension_content_edit_failed" });
           }
         }
@@ -1388,11 +1459,24 @@ async function summarizeExtension(
   row: ExtensionRow | LocalExtensionRow,
   hiddenIds: Set<string>,
   includeContent: boolean,
+  roleById?: Map<string, ShareRole | "owner">,
 ) {
   const local = isLocalExtensionRow(row);
-  const access = local
-    ? ({ role: "viewer" } as const)
-    : await resolveAccess("extension", row.id).catch(() => null);
+  let role: ShareRole | "owner" | null;
+  if (local) {
+    role = "viewer";
+  } else if (roleById) {
+    role = roleById.get(row.id) ?? null;
+  } else {
+    // coercion-ok: unit mocks and offline runs may lack database tables, falling back to null access role
+    const access = await resolveAccess("extension", row.id).catch(() => null);
+    role = access?.role ?? null;
+  }
+  const contentLength =
+    typeof row.contentLength === "number"
+      ? row.contentLength
+      : row.content.length;
+  const contentLoaded = row.content.length > 0 || contentLength === 0;
   return {
     id: row.id,
     name: row.name,
@@ -1401,21 +1485,19 @@ async function summarizeExtension(
     icon: row.icon,
     ownerEmail: row.ownerEmail,
     visibility: row.visibility,
-    role: access?.role ?? null,
-    canEdit: access
-      ? ["owner", "admin", "editor"].includes(access.role)
-      : false,
-    canDelete: access ? ["owner", "admin"].includes(access.role) : false,
+    role,
+    canEdit: role ? ["owner", "admin", "editor"].includes(role) : false,
+    canDelete: role ? ["owner", "admin"].includes(role) : false,
     hidden: hiddenIds.has(row.id),
     globallyHidden: row.hiddenAt != null,
     hiddenAt: row.hiddenAt,
     hiddenBy: row.hiddenBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    contentLength: row.content.length,
-    contentHash: contentFingerprint(row.content),
+    contentLength,
+    ...(contentLoaded ? { contentHash: contentFingerprint(row.content) } : {}),
     ...(local ? { source: row.source } : {}),
-    ...(includeContent ? { content: row.content } : {}),
+    ...(includeContent && contentLoaded ? { content: row.content } : {}),
   };
 }
 
@@ -1431,9 +1513,6 @@ async function summarizeExtensionForAgentRead(
 
   if (contentQuery) {
     const summary = await summarizeExtension(row, hiddenIds, false);
-    // The whole-body read below is deduped per run, but this branch returned
-    // above it, so a repeated excerpt request re-sent bytes already in context.
-    // One production turn spent 48 of 110 reads re-fetching the same spans.
     const excerptCtx = getRequestRunContext();
     const excerpts = excerptCtx
       ? (excerptCtx.extensionExcerptReads ??= {})
@@ -1636,15 +1715,8 @@ function summarizeDeletedExtension(row: ExtensionRow) {
   };
 }
 
-/**
- * Filename prefix the composer stamps on a "Pasted text" attachment chip
- * (`createPastedTextFile` in `client/composer/pasted-text.ts`). The agent sees
- * these as `<attachment name="pasted-text-…">` blocks, so a model hosting a
- * pasted file can reference it by that name via `contentFromAttachment`.
- */
 const PASTED_TEXT_ATTACHMENT_PREFIX = "pasted-text-";
 
-/** Keyword refs that mean "use the most recent pasted block above". */
 const LATEST_ATTACHMENT_KEYWORDS = new Set([
   "latest",
   "last",
@@ -1655,23 +1727,11 @@ const LATEST_ATTACHMENT_KEYWORDS = new Set([
   "above",
 ]);
 
-/** Strip the `<attachment …>\n…\n</attachment>` wrapper if one is present. */
 function unwrapAttachmentEnvelope(text: string): string {
   const match = text.match(/^<attachment\b[^>]*>\n([\s\S]*)\n<\/attachment>$/);
   return match ? match[1] : text;
 }
 
-/**
- * Resolve the HTML body for create/update-extension from either the inline
- * `content` argument or a `contentFromAttachment` handle pointing at a pasted /
- * uploaded text attachment on the current turn. The by-reference path lets the
- * model host a large pasted file without re-emitting it as a tool argument —
- * which frequently gets cut off mid-stream and triggers a continuation loop.
- *
- * Resolution is forgiving: an exact attachment-name match wins, then a keyword
- * ("latest"/"pasted"/…) or a near-miss name falls back to the most recent
- * pasted-text attachment (or the only text attachment).
- */
 function resolveExtensionContent(
   args: Record<string, string> | undefined,
   ctx: ActionRunContext | undefined,
@@ -1731,12 +1791,6 @@ function resolveExtensionContent(
   }
 
   const resolved = unwrapAttachmentEnvelope(match.text);
-  // Fail fast instead of hosting corrupted content. The client caps an
-  // outbound attachment at MAX_OUTBOUND_ATTACHMENT_CHARS (200k) and appends a
-  // trailing notice ending "...omitted from the submitted attachment.]" (see
-  // truncateOutboundAttachment in agent-chat-adapter.ts). Hosting that verbatim
-  // would bake a half file + the notice into the extension body; reject it with
-  // an actionable message so the user shrinks/splits the file instead.
   if (/omitted from the submitted attachment\.\]\s*$/.test(resolved)) {
     return {
       error:
@@ -1746,12 +1800,6 @@ function resolveExtensionContent(
   return { content: resolved };
 }
 
-/**
- * Resolve the workspace-files bridge scope exactly the way run-code's
- * workspaceRead/workspaceWrite do: org-preferred (org → shared owner) with the
- * requesting user's email as the solo fallback. Kept in lockstep with
- * `resolveScope` in `workspace-files/tool.ts`.
- */
 function workspaceFilesBridgeScope(): WorkspaceFilesScope | null {
   const orgId = getRequestOrgId();
   if (orgId) return { scope: "org", scopeId: orgId };
@@ -1780,7 +1828,6 @@ function workspaceFilesBridgeScope(): WorkspaceFilesScope | null {
 async function readWorkspaceFileContent(path: string): Promise<string | null> {
   const trimmed = path.trim();
   if (!trimmed) return null;
-  // 1) Bridge parity — resolve exactly the file workspaceRead/workspaceWrite see.
   const bridgeScope = workspaceFilesBridgeScope();
   if (bridgeScope) {
     let bridgeFile: Awaited<ReturnType<typeof readWorkspaceFile>>;
@@ -1793,13 +1840,10 @@ async function readWorkspaceFileContent(path: string): Promise<string | null> {
       // inspected. A retry re-runs this read cleanly.
       return null;
     }
-    // A null result means the file genuinely does not exist in the bridge scope;
-    // fall through to user-managed Resources for pre-built resource-panel files.
     if (bridgeFile && typeof bridgeFile.content === "string") {
       return bridgeFile.content;
     }
   }
-  // 2) Fallback — user-managed Resources by scope precedence.
   for (const scope of ["personal", "shared", "workspace"] as const) {
     try {
       const content = await readResource(trimmed, { scope });
@@ -1813,16 +1857,6 @@ async function readWorkspaceFileContent(path: string): Promise<string | null> {
   return null;
 }
 
-/**
- * Resolve the extension HTML body from (in priority order) inline `content`, a
- * `contentFromWorkspaceFile` resource path, or a `contentFromAttachment` handle.
- *
- * The workspace-file path exists because a large extension body frequently lives
- * as a workspace resource (not a chat attachment). Without it the model has no
- * viable route — inline is too large to shuttle reliably, contentFromAttachment
- * only sees chat attachments, and mutating actions cannot run from run-code — so
- * it loops and the run aborts with no_progress.
- */
 async function resolveExtensionContentAsync(
   args: Record<string, string> | undefined,
   ctx: ActionRunContext | undefined,

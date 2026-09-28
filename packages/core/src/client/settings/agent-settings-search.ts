@@ -1,6 +1,8 @@
-import { MCP_SETTINGS_MESSAGES } from "../../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../../localization/mcp-settings-messages.js";
 import type { LocaleCode } from "../../localization/shared.js";
+import { resolveSettingsSectionRedirect } from "../../navigation/settings-redirects.js";
 import type { SettingsSearchEntry } from "./SettingsTabsPage.js";
+import type { SettingsPageSearchEntry } from "./shell/registry.js";
 
 export type SettingsSectionId =
   | "account"
@@ -75,9 +77,7 @@ export const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 
 export const INTEGRATION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
   "integrations",
-  "secrets",
   "email",
-  "browser",
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
@@ -95,7 +95,7 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   account: {
     label: "Account",
     keywords:
-      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock",
+      "profile photo avatar identity signed in email name timezone time zone schedule scheduling clock privacy personal data rights GDPR CCPA delete deletion export access",
   },
   llm: {
     label: "LLM",
@@ -168,6 +168,64 @@ const SETTINGS_SECTION_SEARCH_META: Record<
   },
 };
 
+/**
+ * True for a search entry today's core tabs build from the section catalog
+ * (`section:llm`). The Settings shell indexes those sections itself, with
+ * translated labels on the page each now lives on.
+ */
+export function isCoreSectionSearchEntryId(id: string): boolean {
+  return (
+    id.startsWith("section:") &&
+    SETTINGS_SECTION_IDS.has(id.slice("section:".length) as SettingsSectionId)
+  );
+}
+
+// Labels are the new pages' row names. Sections that are a whole page
+// (automations, secrets, integrations, usage) are found by the page itself,
+// and so are rows a page declares in its own `searchEntries` (voice is in
+// Preferences' entries; llm, limits, and the bridged background are in the
+// Model page's).
+const SHELL_SECTION_SEARCH_LABELS: Partial<Record<SettingsSectionId, string>> =
+  {
+    "app-models": "agentChat.settingsShell.search.appDefaultModel",
+    "demo-mode": "agentChat.settingsShell.search.demoMode",
+    auth: "agentChat.settingsShell.search.signInMethods",
+    email: "agentChat.settingsShell.search.email",
+    browser: "agentChat.settingsShell.search.browserAutomation",
+    a2a: "agentChat.settingsShell.search.connectedAgents",
+  };
+
+/**
+ * Core's section search rows for the Settings shell, keyed by the page the
+ * redirect table sends each section to. Keywords stay English (with the old
+ * English label) so English terms still match in every locale.
+ */
+export function getCoreSettingsSearchEntries(): ReadonlyMap<
+  string,
+  readonly SettingsPageSearchEntry[]
+> {
+  const byPage = new Map<string, SettingsPageSearchEntry[]>();
+  const add = (page: string, entry: SettingsPageSearchEntry) => {
+    const entries = byPage.get(page);
+    if (entries) entries.push(entry);
+    else byPage.set(page, [entry]);
+  };
+  for (const section of ALL_SETTINGS_SECTIONS) {
+    const labelKey = SHELL_SECTION_SEARCH_LABELS[section];
+    if (!labelKey) continue;
+    const target = resolveSettingsSectionRedirect(section);
+    const meta = SETTINGS_SECTION_SEARCH_META[section];
+    add(target.page, {
+      id: `section:${section}`,
+      labelKey,
+      keywords: `${meta.label} ${meta.keywords}`,
+      sub: target.sub,
+      anchor: target.anchor,
+    });
+  }
+  return byPage;
+}
+
 export function buildSectionSearchEntries(
   sections: readonly SettingsSectionId[],
 ): SettingsSearchEntry[] {
@@ -193,7 +251,7 @@ export interface AgentSettingsSearchTab {
 export function getAgentSettingsSearchTabs(
   locale: LocaleCode = "en-US",
 ): AgentSettingsSearchTab[] {
-  const mcpMessages = MCP_SETTINGS_MESSAGES[locale];
+  const mcpMessages = mcpSettingsMessagesForLocale(locale);
   return [
     {
       id: "agent",
@@ -207,7 +265,23 @@ export function getAgentSettingsSearchTabs(
       label: "Integrations",
       keywords:
         "integrations agent integrations connections secrets email browser tools",
-      searchEntries: buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+      searchEntries: [
+        ...buildSectionSearchEntries(INTEGRATION_SETTINGS_SECTIONS),
+        {
+          id: "section:browser",
+          label: "Browser Automation",
+          keywords: "browser automation playwright chrome headless builder",
+          hash: "browser",
+          description: "Comes with Builder.io",
+        },
+      ],
+    },
+    {
+      id: "keys",
+      label: "API keys",
+      keywords:
+        "api keys secrets credentials tokens environment variables openai anthropic github vault",
+      searchEntries: buildSectionSearchEntries(["secrets"]),
     },
     {
       id: "mcp",

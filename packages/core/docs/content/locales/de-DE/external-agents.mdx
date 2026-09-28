@@ -99,10 +99,10 @@ Jede Agent-Native-App stellt eine kanonische MCP-URL bereit:
 https://<your-app>.agent-native.com/mcp
 ```
 
-Öffnen Sie in der App **Settings → Integrations** und suchen Sie nach dem Ihnen
+Öffnen Sie in der App **Settings → Connections → Integrations** und suchen Sie nach dem Ihnen
 bekannten Hostnamen: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT,
 OpenAI, Codex, Grok oder xAI. Das einzige Ergebnis für externe Hosts öffnet
-**Settings → MCP** und wählt die passendste Anleitung aus. Kopieren Sie die
+**Settings → MCP server** und wählt die passendste Anleitung aus. Kopieren Sie die
 **MCP server URL** und fügen Sie sie in den KI-Host ein. Die URL ist die
 Basis-URL der bereitgestellten App plus `/mcp`.
 
@@ -128,14 +128,24 @@ Jede gehostete App verfügt auch über eine Hilfsseite unter
 `https://&lt;app&gt;/mcp/connect` mit dem kopierbaren URL und
 hostspezifische Registerkarten für Claude, ChatGPT, Cursor, Claude Code, Codex, Grok und Andere.
 
+## Private Content-Links {#private-content-links}
+
+Ein privater Content-Freigabelink kann das Dokument identifizieren, ohne seinen Inhalt offenzulegen. Fügen Sie die `/mcp`-URL derselben Content-Instanz als entfernten MCP-Server in Ihrem Agenten hinzu, authentifizieren Sie sich mit Ihrem Agent-Native-Konto, aktivieren Sie die Verbindung oder ihre Tools und wiederholen Sie die ursprüngliche Dokumentanfrage. Die Seite `/mcp/connect` bietet Einrichtungsoptionen, installiert durch bloßes Öffnen aber keine Verbindung.
+
+Dieser Ablauf funktioniert mit jedem MCP-fähigen Host, darunter Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode und GitHub Copilot / VS Code. Konfiguration und Authentifizierung unterscheiden sich je nach Host. Antigravity verwaltet entfernte Server unter **Settings → Customizations → Installed MCP Servers** oder in seiner MCP-Konfiguration; der Agent-Native-Befehl `connect` konfiguriert Antigravity derzeit nicht.
+
+Die Authentifizierung identifiziert das verbundene Konto und erweitert dessen Dokumentberechtigungen nicht. Öffentliche Dokumente bleiben über ihren Freigabelink lesbar. Private Dokumente sind über MCP nur lesbar, wenn das verbundene Konto bereits Zugriff hat. Gibt `get-document` nach der Verbindung „nicht gefunden“ zurück, unterscheidet die Antwort nicht zwischen fehlender Berechtigung und einer veralteten, gelöschten oder ungültigen Dokument-ID. Prüfen Sie den Link und den Zugriff des verbundenen Kontos, bevor Sie Berechtigungen ändern.
+
+Eine Neuinstallation der Verbindung oder eine Änderung des öffentlichen Freigabelinks behebt keine bestätigte Berechtigungsverweigerung für das verbundene Konto.
+
 <a id="access-tab"></a>
 
 ### Die In-App-MCP-Einstellung {#mcp-settings}
 
-Die Standard-App-Einstellungen enthalten neben **Integrations** einen **MCP**-Tab.
+Die Einstellungen enthalten in der Gruppe der App eine Seite **MCP server**.
 Er zeigt die kanonische MCP-URL der App, bei Verfügbarkeit eine A2A-Agent-Card
 und dieselben Einrichtungsanleitungen wie die vollständige Verbindungsseite.
-Verwenden Sie **Settings → MCP** als Startpunkt in der App oder öffnen Sie
+Verwenden Sie **Settings → MCP server** als Startpunkt in der App oder öffnen Sie
 `/mcp/connect` direkt für den vollständigen Ablauf und den Token-Fallback.
 
 ### Claude und ChatGPT OAuth {#oauth}

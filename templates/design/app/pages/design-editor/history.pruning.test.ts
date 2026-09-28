@@ -7,7 +7,7 @@ import {
   pruneGeometryHistoryEntryForDeletedFiles,
   remapFileDeletionHistoryEntryIds,
   restoreFileContentHistoryOrderToken,
-} from "./history";
+} from "@/pages/design-editor/history";
 
 describe("geometry history selection pruning", () => {
   it("does not restore selection to a screen deleted after the gesture", () => {

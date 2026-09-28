@@ -58,5 +58,5 @@ export async function finalizeClaimedAgentChatProcessRunFailure(
     runId,
     CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
   ).catch(() => {});
-  return true;
+  return statusUpdated;
 }

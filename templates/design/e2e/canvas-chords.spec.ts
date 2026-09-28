@@ -8,11 +8,6 @@ import {
 import { e2eBaseURL } from "./base-url";
 import { designFrame, gotoEditor } from "./helpers";
 
-/**
- * Absolutely-positioned rectangles placed well away from the frame origin, so
- * a wrapper that loses its own left/top shows up as a jump to 0,0 rather than
- * as a few pixels of drift.
- */
 const CHORDS_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -41,9 +36,6 @@ const TEXT_HTML = `<!doctype html>
   </body>
 </html>`;
 
-/** The replace target sits inside an offset frame, so its document-space
- *  coordinate (frame origin + own offset) differs from its authored left/top.
- *  A flat body-level fixture makes the two identical and hides the bug. */
 const NESTED_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -60,9 +52,6 @@ const NESTED_HTML = `<!doctype html>
   </body>
 </html>`;
 
-/** A text layer whose content is wrapped in an id-less inline span, inside a
- *  frame — the exact shape from the report's [dnd:shield:down] log, where the
- *  click hit `div[...] > span` while the frame was the selected layer. */
 const INLINE_CHILD_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -78,10 +67,6 @@ const INLINE_CHILD_HTML = `<!doctype html>
   </body>
 </html>`;
 
-/** A real board file: absolute children of a transparent, position:relative
- *  body. The board surface renders its content offset by thousands of pixels
- *  inside an 8192 iframe, which is why a plain screen fixture cannot stand in
- *  for it. */
 const BOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -231,6 +216,13 @@ function openTagContaining(html: string, needle: string): string | undefined {
   return tags.find((tag) => tag.includes(needle));
 }
 
+function tagStyleValue(tag: string, prop: string): string | undefined {
+  const style = /style="([^"]*)"/.exec(tag)?.[1] ?? "";
+  return new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`)
+    .exec(style)?.[1]
+    ?.trim();
+}
+
 function inlineOffset(html: string, nodeId: string) {
   const open = new RegExp(
     `<[a-z]+[^>]*data-agent-native-node-id="${nodeId}"[^>]*>`,
@@ -273,9 +265,17 @@ test.describe("canvas chords", () => {
     await expectFileContent(request, baseURL, designId, (html) => {
       const wrapper = openTagContaining(html, "display: flex");
       expect(wrapper, "no auto-layout wrapper was created").toBeTruthy();
-      expect(wrapper).toContain("position: absolute");
-      expect(wrapper).toContain("left: 240px");
-      expect(wrapper).toContain("top: 180px");
+      const wrapperId = /data-agent-native-node-id="([^"]+)"/.exec(
+        wrapper!,
+      )?.[1];
+      expect(wrapperId, "wrapper has no node id").toBeTruthy();
+      expect(wrapperId).not.toBe("ch-alpha");
+      expect(html.indexOf('"ch-alpha"')).toBeGreaterThan(
+        html.indexOf(wrapper!),
+      );
+      expect(tagStyleValue(wrapper!, "position")).toBe("absolute");
+      expect(tagStyleValue(wrapper!, "left")).toBe("240px");
+      expect(tagStyleValue(wrapper!, "top")).toBe("180px");
     });
   });
 
@@ -291,7 +291,10 @@ test.describe("canvas chords", () => {
     await pressEditorKey(page, `${PRIMARY}+G`);
 
     await expectFileContent(request, baseURL, designId, (html) => {
-      const wrapper = openTagContaining(html, 'layer-name="Group');
+      const wrapper = openTagContaining(
+        html,
+        'data-agent-native-layer-name="Group',
+      );
       expect(wrapper, "no group wrapper was created").toBeTruthy();
       expect(wrapper).toContain("left: 240px");
       expect(wrapper).toContain("top: 340px");
@@ -331,9 +334,6 @@ test.describe("canvas chords", () => {
     await gotoEditor(page, designId);
 
     await selectLayerRow(page, "Charlie");
-    // Clicking a layer leaves focus on the panel; the reported failure is the
-    // one where focus is in the canvas iframe, which is where it lands the
-    // moment you click a frame.
     await page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -364,8 +364,6 @@ test.describe("canvas chords", () => {
     const box = await label.boundingBox();
     if (!box) throw new Error("no bounding box for the text layer");
 
-    // Double-click is the gesture that opens a real contenteditable session —
-    // the state the reported bug needs, and the one Enter-to-drill-in misses.
     await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
     await expect(
       designFrame(page).locator("[data-agent-native-text-editing]"),
@@ -375,8 +373,6 @@ test.describe("canvas chords", () => {
     await page.keyboard.press(`${PRIMARY}+U`);
     await page.keyboard.press("Escape");
 
-    // Nudging afterwards is what surfaced the duplication in the report: the
-    // layer now has a child, and the next commit round-trips through it.
     await selectLayerRow(page, "Label");
     await pressEditorKey(page, "ArrowRight");
     await page.waitForTimeout(600);
@@ -387,10 +383,7 @@ test.describe("canvas chords", () => {
           html,
         )?.[0];
       expect(tag, "tx-label not found").toBeDefined();
-      // The visible text must survive exactly once.
       expect((tag!.match(/klsajfk/g) ?? []).length).toBe(1);
-      // Underline must be a style, not a stray <u> element that shows up as
-      // its own layer in the tree.
       expect(tag).not.toMatch(/<u[\s>]/i);
       expect(tag).toMatch(/underline/i);
     });
@@ -419,13 +412,10 @@ test.describe("canvas chords", () => {
     await pressEditorKey(page, `${PRIMARY}+Shift+R`);
 
     await expectFileContent(request, baseURL, designId, (html) => {
-      // The target is gone and exactly one copy replaced it.
       expect(html).not.toContain('data-agent-native-node-id="nz-target"');
       const copyTag =
         /<div[^>]*data-agent-native-node-id="copy-[^"]*"[^>]*>/.exec(html)?.[0];
       expect(copyTag, `no copy node in:\n${html}`).toBeDefined();
-      // Authored, parent-relative offsets — not the 320+60 / 260+50 document
-      // coordinate, and certainly not a board-space ~4000.
       expect(copyTag).toMatch(/left:\s*60px/);
       expect(copyTag).toMatch(/top:\s*50px/);
     });
@@ -443,8 +433,6 @@ test.describe("canvas chords", () => {
     );
     await gotoEditor(page, designId);
 
-    // Select the enclosing frame first: selected-layer drag priority is what
-    // retargets the pointerdown, and it is present in the reported log.
     await selectLayerRow(page, "Holder");
 
     const span = designFrame(page)
@@ -499,8 +487,6 @@ test.describe("canvas chords", () => {
 
     await selectLayerRow(page, "Holder");
 
-    // The board surface is the preview iframe that deliberately carries no
-    // data-screen-iframe-id (see DesignCanvas boardSurface).
     const span = page
       .locator(
         "iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
@@ -567,8 +553,6 @@ test.describe("canvas chords", () => {
     await selectLayerRow(page, "Holder");
     await pressEditorKey(page, `${PRIMARY}+C`);
 
-    // Clicking underlined text selects the inline span, not the text layer —
-    // that is the selection paste-to-replace then acts on.
     const span = designFrame(page)
       .locator('[data-agent-native-node-id="ic-text"] span')
       .first();
@@ -584,7 +568,6 @@ test.describe("canvas chords", () => {
           html,
         )?.[0];
       expect(tag, "ic-text not found").toBeDefined();
-      // A layer clone must never end up nested inside a text layer.
       expect(tag).not.toContain("data-agent-native-preserve-styles");
       expect((tag!.match(/klsajfk/g) ?? []).length).toBe(1);
     });

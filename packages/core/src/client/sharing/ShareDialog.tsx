@@ -33,22 +33,11 @@ export interface ShareDialogProps {
   onClose: () => void;
   resourceType: string;
   resourceId: string;
+  title?: string;
   resourceTitle?: string;
-  /**
-   * When provided, enables the "Link" tab with a copy-link field.
-   * Pass the user-facing share URL (e.g. `https://…/share/<id>`).
-   */
   shareUrl?: string;
-  /**
-   * When provided, enables the "Embed" tab with a default iframe snippet.
-   * For richer per-resource controls (autoplay, start time, responsive /
-   * fixed size), pass `embedTabContent` instead (or in addition) — it
-   * replaces the default embed body.
-   */
   embedUrl?: string;
-  /** Advanced: fully custom Embed tab body. Requires `embedUrl` to enable the tab. */
   embedTabContent?: ReactNode;
-  /** Extra content appended to the bottom of the Link tab (e.g. download buttons). */
   linkTabExtras?: ReactNode;
 }
 
@@ -69,18 +58,12 @@ const VIS_ICONS: Record<ShareVisibility, typeof IconLock> = {
   public: IconWorld,
 };
 
-/**
- * Framework share dialog. Drop into any template via
- * `<ShareDialog open onClose resourceType resourceId />`. Passing `shareUrl`
- * lights up a Link tab with a copy field; passing `embedUrl` lights up an
- * Embed tab. People access stays on the primary sharing surface so the same
- * Google-Docs-style flow works whether or not a link or embed is available.
- */
 export function ShareDialog({
   open,
   onClose,
   resourceType,
   resourceId,
+  title,
   resourceTitle,
   shareUrl,
   embedUrl,
@@ -97,6 +80,9 @@ export function ShareDialog({
     embedUrl,
   });
   if (!open) return null;
+  const dialogTitle = title ?? controller.title;
+  const showTabList =
+    controller.tabs.length > 1 || controller.tabs[0]?.value !== "link";
 
   return (
     <DesignSystemDialog
@@ -104,20 +90,16 @@ export function ShareDialog({
       onOpenChange={controller.onOpenChange}
       title={
         <span
-          className={cn(
-            controller.tabsEnabled
-              ? "sr-only"
-              : "truncate !text-base !leading-normal !tracking-normal !text-inherit",
-          )}
-          title={controller.title}
+          className="block truncate px-5 pt-4 !text-base !leading-normal !tracking-normal !text-inherit"
+          title={dialogTitle}
         >
-          {controller.title}
+          {dialogTitle}
         </span>
       }
       closeLabel={controller.labels.close}
       size="large"
       className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
-      aria-label={controller.title}
+      aria-label={dialogTitle}
     >
       {!controller.tabsEnabled && controller.ownerLabel ? (
         <div className="px-5 pt-0 pb-3">
@@ -127,11 +109,11 @@ export function ShareDialog({
         </div>
       ) : null}
 
-      {controller.tabsEnabled ? (
+      {controller.tabsEnabled && showTabList ? (
         <div
           role="tablist"
           aria-label={controller.labels.shareOptions}
-          className="mx-5 mt-1 flex gap-1 rounded-xl bg-muted/70 p-1"
+          className="mx-5 mt-10 flex gap-1 rounded-xl bg-muted/70 p-1"
         >
           {controller.tabs.map((tab) => {
             return (

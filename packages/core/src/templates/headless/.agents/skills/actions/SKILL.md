@@ -26,6 +26,8 @@ When a workflow is research, analysis, generation, recommendation, or synthesis 
 
 ## How to Create an Action
 
+**One action per file, default-exported. The filename is the action name** (kebab-case): `actions/list-meals.ts` is the `list-meals` action. Don't put several `defineAction`s as named exports in one file — the registry keys actions by filename and only the default export is registered, so extra named exports never become callable and won't match `.generated/action-types.d.ts`.
+
 ```ts
 // actions/list-meals.ts
 import { z } from "zod";
@@ -97,6 +99,11 @@ A create/update result is read by more than the caller. These keys are well-know
 - `message`/`summary` — the one-line status external callers read; everything else stays in the structured result.
 - `designSystem` — when a record can link a brand or design system, expose it as `designSystem: AgentDesignSystemContext | null` via `loadAgentDesignSystemContext(id, getDesignSystemAction)` from core's shared `design-system-agent-context`. Reads get the bounded summary (`scope: "summary"`, with a `next` line naming the full read); only the create action and `get-design-system` itself pass `{ full: true }`. `status: "unavailable"` is not `null`: keep the id and the message. Print it in text results with `formatAgentDesignSystemContext`; do not name the field anything else.
 
+For actions that attach a `chatUI` renderer, use `chatUI.projectResult` to return
+only the small structured fields the renderer needs. `chatUI.when` is evaluated
+against the full successful result first; the projection is used live and saved
+for interrupted-run recovery.
+
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. The full external contract (link builders, `mcpApp`, `publicAgent`, payload limits, the author rule) is the `external-agents` skill.
 
 Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
@@ -144,7 +151,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 
 ## Troubleshooting
 
-- **Action not found** — filename must match the command (`pnpm action foo-bar` → `actions/foo-bar.ts`).
+- **Action not found / type mismatch** — filename must match the command (`pnpm action foo-bar` → `actions/foo-bar.ts`), and the action must be the file's **default** export. Multiple `defineAction` named exports in one file register only the default; split them into one file each.
 - **Args not parsing** — use `--key value` / `--key=value`; boolean flags are `--flag` (sets `"true"`).
 - **Frontend 405** — `http.method` doesn't match the hook (`useActionQuery` for GET, `useActionMutation` for POST/PUT/DELETE).
 - **Frontend gets undefined** — action must return structured data, not `JSON.stringify()`.

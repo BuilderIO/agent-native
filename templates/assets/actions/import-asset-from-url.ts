@@ -32,8 +32,6 @@ const IMPORTABLE_REFERENCE_ROLES = [
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_REDIRECTS = 3;
 
-// Mirrors the upload route's category↔role mapping so imported references
-// appear in the same category-filtered views as uploaded equivalents.
 const DEFAULT_CATEGORY_BY_ROLE: Record<
   (typeof IMPORTABLE_REFERENCE_ROLES)[number],
   ImageCategory
@@ -94,9 +92,6 @@ function validateHttpsUrl(url: string) {
   }
 }
 
-// Query params that carry bearer credentials (S3/GCS presigning, Azure SAS,
-// generic tokens). Provenance drops the query when one is present so signed
-// URLs do not become durable asset metadata; the fetch still uses the full URL.
 const CREDENTIAL_QUERY_PARAM_RE =
   /^(x-amz-|x-goog-)|^(sig|signature|token|access[-_]?token|auth|authorization|expires|policy|credential|apikey|api[-_]?key|key|secret|session|sv|se|sp|st|spr|sr|skoid)$/i;
 
@@ -114,7 +109,6 @@ function sanitizeProvenanceUrl(url: string): string {
   return parsed.toString();
 }
 
-/** Release an unread response body so its connection is not held until GC. */
 async function discardResponseBody(response: Response) {
   await response.body?.cancel().catch(() => {});
 }
@@ -193,12 +187,6 @@ async function fetchImageBytes(url: string): Promise<{
   return { buffer, mimeType };
 }
 
-/**
- * Same dedupe scope as the upload route: reference assets in this library
- * with the same role. Returns the existing asset when the fetched bytes are
- * already stored, so repeat imports are idempotent instead of duplicating
- * the asset row and blob.
- */
 async function findDuplicateReferenceAsset(input: {
   libraryId: string;
   role: (typeof IMPORTABLE_REFERENCE_ROLES)[number];
@@ -274,8 +262,6 @@ export default defineAction({
   }),
   run: async (args) => {
     const { libraryId, url, role, category, title, description } = args;
-    // An empty-string id means "unassigned", never a real row — normalize to
-    // null so it can't skip membership validation yet still land in the row.
     const collectionId = args.collectionId || null;
     const folderId = args.folderId || null;
     await assertCanApprove(libraryId, "Importing an asset");

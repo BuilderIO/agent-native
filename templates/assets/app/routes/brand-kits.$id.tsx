@@ -12,8 +12,12 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import {
   IconCheck,
   IconClipboard,
@@ -67,6 +71,10 @@ import {
   AssetPreviewDialog,
   type PreviewAsset,
 } from "@/components/asset/AssetPreviewDialog";
+import {
+  FileUploadStorageGate,
+  getFileUploadStorageState,
+} from "@/components/FileUploadStorageGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -127,6 +135,7 @@ import {
 
 import {
   canApproveWithRole,
+  MAX_ASSET_UPLOAD_BATCH_BYTES,
   type AssetVariantState,
   type ImageRole,
 } from "../../shared/api";
@@ -344,6 +353,9 @@ export function BrandKitDetailRoute({
   headerMode?: "full" | "actions";
 } = {}) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageState = getFileUploadStorageState(fileUploadStatus);
+  const canUploadFiles = fileStorageState === "configured";
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -371,6 +383,7 @@ export function BrandKitDetailRoute({
   const queryClient = useQueryClient();
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
@@ -401,6 +414,7 @@ export function BrandKitDetailRoute({
   );
   const [search, setSearch] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingStorageUploadRef = useRef<File[] | null>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
@@ -437,11 +451,7 @@ export function BrandKitDetailRoute({
   }, [headerMode, libraryId]);
 
   const library = data?.library;
-  // Generating a candidate only needs read access; saving one into the kit
-  // needs editor. Drop the save affordances rather than letting them 403.
   const canApprove = canApproveWithRole(library?.accessRole);
-  // Rerunning reuses a run's prompt and settings and refreshing mutates its
-  // row, so both stay with the run's author unless the caller can approve.
   const canRerunRun = (run: { ownerEmail?: string | null }) => {
     if (canApprove) return true;
     const mine = session?.email?.trim().toLowerCase();
@@ -821,9 +831,21 @@ export function BrandKitDetailRoute({
       );
   }
 
-  async function upload(files: FileList | null, category = "style-only") {
-    if (!files?.length || uploading) return;
+  async function upload(
+    files: FileList | File[] | null,
+    category = "style-only",
+  ) {
+    if (!canUploadFiles || !files?.length || uploading) return;
     const selectedFiles = Array.from(files);
+    const oversizedFile = selectedFiles.find(
+      (file) => file.size > MAX_ASSET_UPLOAD_BATCH_BYTES,
+    );
+    if (oversizedFile) {
+      toast.error(
+        `${t("library.uploadFailed")}: ${oversizedFile.name} (${(oversizedFile.size / 1024 / 1024).toFixed(1)} MB > ${MAX_ASSET_UPLOAD_BATCH_BYTES / 1024 / 1024} MB)`,
+      );
+      return;
+    }
     const uploadChunks = chunkAssetUploads(selectedFiles);
     const selectedFolderId =
       activeFolderId && activeFolderId !== "all" ? activeFolderId : null;
@@ -965,6 +987,28 @@ export function BrandKitDetailRoute({
     }
   }
 
+  function requestUpload(files: FileList | null = null) {
+    if (uploading) return;
+    if (canUploadFiles) {
+      if (files?.length) void upload(files);
+      else fileInputRef.current?.click();
+      return;
+    }
+    const selectedFiles = Array.from(files ?? []);
+    if (selectedFiles.length > 0) {
+      pendingStorageUploadRef.current = selectedFiles;
+    }
+    setStorageSetupOpen(true);
+  }
+
+  useEffect(() => {
+    if (!canUploadFiles) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingStorageUploadRef.current;
+    pendingStorageUploadRef.current = null;
+    if (pendingFiles) void upload(pendingFiles);
+  }, [canUploadFiles, upload]);
+
   async function archiveCurrentLibrary() {
     if (!library || archiveLibrary.isPending) return;
     try {
@@ -1097,7 +1141,7 @@ export function BrandKitDetailRoute({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={t("library.searchAssets")}
-              className="h-9 w-full pl-8 pr-8 sm:w-64"
+              className="w-full pl-8 pr-8 sm:w-64"
             />
             {search && (
               <button
@@ -1116,7 +1160,7 @@ export function BrandKitDetailRoute({
               setMediaFilter(value as "all" | "image" | "video")
             }
           >
-            <SelectTrigger className="h-9 w-full sm:w-32">
+            <SelectTrigger className="w-full sm:w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1148,8 +1192,8 @@ export function BrandKitDetailRoute({
       pendingUploads={uploads}
       folders={folders}
       promotingReferenceKeys={promotingReferenceKeys}
-      onUploadClick={() => fileInputRef.current?.click()}
-      onDrop={(files) => void upload(files)}
+      onUploadClick={() => requestUpload()}
+      onDrop={(files) => requestUpload(files)}
       onMoveToReferences={(asset, slot) => {
         void handleMoveToReferences(asset, slot);
       }}
@@ -1166,7 +1210,7 @@ export function BrandKitDetailRoute({
     <Button
       variant="outline"
       className="gap-2"
-      onClick={() => fileInputRef.current?.click()}
+      onClick={() => requestUpload()}
       disabled={uploading}
     >
       {uploading ? (
@@ -1280,8 +1324,8 @@ export function BrandKitDetailRoute({
                 <Badge variant="outline">{library.visibility}</Badge>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground"
                   asChild
                   aria-label={t("library.editBrandKit")}
                 >
@@ -1305,7 +1349,11 @@ export function BrandKitDetailRoute({
         accept="image/png,image/jpeg,image/webp,image/avif,video/mp4,video/quicktime,video/x-m4v,video/webm"
         multiple
         className="hidden"
-        onChange={(event) => upload(event.target.files)}
+        disabled={!canUploadFiles}
+        onChange={(event) => {
+          requestUpload(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
       />
 
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
@@ -1371,10 +1419,19 @@ export function BrandKitDetailRoute({
           e.preventDefault();
           dragCounterRef.current = 0;
           setIsDragOver(false);
-          void upload(e.dataTransfer.files);
+          requestUpload(e.dataTransfer.files);
         }}
       >
-        {isDragOver && (
+        <FileUploadStorageGate
+          state={fileStorageState}
+          open={storageSetupOpen}
+          onOpenChange={setStorageSetupOpen}
+          onDismiss={() => {
+            pendingStorageUploadRef.current = null;
+          }}
+          onRetry={() => void fileUploadStatus.refetch()}
+        />
+        {canUploadFiles && isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-primary bg-primary/5 backdrop-blur-[1px]">
             <IconUpload className="h-10 w-10 text-primary" />
             <span className="text-base font-semibold text-primary">
@@ -1570,7 +1627,6 @@ function RunCard({
 }: {
   run: any;
   assetById?: Map<string, any>;
-  /** Omitted when this caller may not rerun or refresh someone else's run. */
   onRerun?: () => void;
   onCreateHandoff: () => void;
   rerunning?: boolean;
@@ -1838,9 +1894,6 @@ function assetDisplayTitle(asset: any): string {
   );
 }
 
-// Content-only references are images attached as subject/content for a single
-// request. They are not part of the curated brand kit, so they are kept out of
-// the References grid (matching how list-libraries excludes them from counts).
 function isContentOnlyReference(asset: any): boolean {
   return (
     asset?.role === "subject_reference" || asset?.metadata?.intent === "subject"
@@ -2139,8 +2192,8 @@ function AssetSwimlaneBoard({
   pendingUploads: PendingUpload[];
   folders: any[];
   promotingReferenceKeys: Set<string>;
-  onUploadClick: () => void;
-  onDrop: (files: FileList) => void;
+  onUploadClick?: () => void;
+  onDrop?: (files: FileList) => void;
   onMoveToReferences: (asset: any, slot?: any) => void;
   onRemoveFromReferences: (asset: any) => void;
   selectedIds: Set<string>;
@@ -2149,6 +2202,7 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const [previewAsset, setPreviewAsset] = useState<any>(null);
   const deleteAsset = useActionMutation("delete-asset");
@@ -2444,7 +2498,7 @@ function AssetSwimlaneBoard({
             {onSave ? (
               <Button
                 size="sm"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={onSave}
                 disabled={busy}
               >
@@ -2532,6 +2586,8 @@ function AssetSwimlaneBoard({
     }
     return (
       <button
+        type="button"
+        disabled={!onUploadClick || !onDrop}
         onClick={onUploadClick}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -2539,7 +2595,7 @@ function AssetSwimlaneBoard({
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onDrop(e.dataTransfer.files);
+          onDrop?.(e.dataTransfer.files);
         }}
         className="flex min-h-90 w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center"
       >
@@ -2703,17 +2759,19 @@ function AssetSwimlaneBoard({
                   {t("brandKitDetail.removeFromReferences")}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setBulkContextOpen(true)}
-                disabled={deleting || changingReference}
-              >
-                <IconLink className="h-4 w-4" />
-                Add to context
-                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-              </Button>
+              {creativeContextEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBulkContextOpen(true)}
+                  disabled={deleting || changingReference}
+                >
+                  <IconLink className="h-4 w-4" />
+                  Add to context
+                  {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -2742,18 +2800,20 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
-      <CreativeContextShareSheet
-        open={bulkContextOpen}
-        onOpenChange={setBulkContextOpen}
-        resources={selectedAssets.map((asset) => ({
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document" as const, label: "Asset" },
-        }))}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={bulkContextOpen}
+          onOpenChange={setBulkContextOpen}
+          resources={selectedAssets.map((asset) => ({
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document" as const, label: "Asset" },
+          }))}
+        />
+      ) : null}
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -2771,9 +2831,11 @@ function AssetSwimlaneBoard({
           }
           items={visibleGalleryItems}
           action={
-            <Button variant="outline" size="sm" onClick={onUploadClick}>
-              {t("library.add")}
-            </Button>
+            onUploadClick ? (
+              <Button variant="outline" size="sm" onClick={onUploadClick}>
+                {t("library.add")}
+              </Button>
+            ) : undefined
           }
           empty={
             scope === "references" && assets.length > 0 ? (
@@ -3023,9 +3085,9 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          size="icon"
+                          size="icon-sm"
                           variant="secondary"
-                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          className="border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
                           onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
@@ -3298,12 +3360,13 @@ function LaneDropTarget({
 }: {
   title: string;
   body: string;
-  onClick: () => void;
-  onDrop: (files: FileList) => void;
+  onClick?: () => void;
+  onDrop?: (files: FileList) => void;
 }) {
   return (
     <button
       type="button"
+      disabled={!onClick || !onDrop}
       onClick={onClick}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) e.preventDefault();
@@ -3311,7 +3374,7 @@ function LaneDropTarget({
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onDrop(e.dataTransfer.files);
+        onDrop?.(e.dataTransfer.files);
       }}
       className="flex h-full min-h-37 w-full items-center justify-center rounded-md px-4 text-center transition hover:bg-muted/25"
     >
@@ -3394,6 +3457,7 @@ function AssetActionsMenu({
   onOpenPreview?: () => void;
 }) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const [contextOpen, setContextOpen] = useState(false);
   return (
     <>
@@ -3402,8 +3466,8 @@ function AssetActionsMenu({
           <Button
             type="button"
             variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
+            size="icon-sm"
+            className="shadow-sm"
             aria-label={t("library.assetActions")}
             disabled={busy}
           >
@@ -3429,16 +3493,18 @@ function AssetActionsMenu({
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setContextOpen(true);
-            }}
-          >
-            <IconLink className="mr-2 h-4 w-4 shrink-0" />
-            Add to context
-            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
-          </DropdownMenuItem>
+          {creativeContextEnabled ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+            </DropdownMenuItem>
+          ) : null}
           {onMoveToReferences ? (
             <DropdownMenuItem
               onSelect={(event) => {
@@ -3502,18 +3568,20 @@ function AssetActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "assets",
-          resourceType: "asset",
-          resourceId: asset.id,
-          title: assetDisplayTitle(asset),
-          updatedAt: asset.updatedAt,
-          preview: { kind: "document", label: "Asset" },
-        }}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          resource={{
+            appId: "assets",
+            resourceType: "asset",
+            resourceId: asset.id,
+            title: assetDisplayTitle(asset),
+            updatedAt: asset.updatedAt,
+            preview: { kind: "document", label: "Asset" },
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -3543,11 +3611,6 @@ export function LiveCandidatesStage({
   allowCreateFolder?: boolean;
   savingSlotId: string | null;
   promotingReferenceKeys: Set<string>;
-  /**
-   * Approving is per kit: this stage can list candidates from several kits, and
-   * the caller may be an editor in one and a viewer in the next. Omit it when
-   * every candidate on screen belongs to one kit the handlers already cover.
-   */
   canApproveLibrary?: (libraryId?: string | null) => boolean;
   onSave?: (slot: VariantSlot, folderId: string | null) => void;
   onSaveDraft?: (asset: any, folderId: string | null) => void;
@@ -3557,8 +3620,6 @@ export function LiveCandidatesStage({
   onUseDraft?: (asset: any) => void;
 }) {
   const t = useT();
-  // No predicate means every candidate on screen belongs to a kit the passed
-  // handlers already cover; live slots always belong to the stage's own kit.
   const mayApproveIn = (candidateLibraryId?: string | null) =>
     canApproveLibrary
       ? canApproveLibrary(candidateLibraryId ?? libraryId)
@@ -3645,9 +3706,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="w-full justify-center px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3660,7 +3721,7 @@ export function LiveCandidatesStage({
         {onUseCandidate ? (
           <Button
             size="sm"
-            className="h-8 min-w-0 justify-center px-2 text-xs"
+            className="min-w-0 justify-center px-2 text-xs"
             onClick={onUseCandidate}
             disabled={busy}
           >
@@ -3682,7 +3743,7 @@ export function LiveCandidatesStage({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 min-w-0 px-2 text-xs"
+              className="min-w-0 px-2 text-xs"
               onClick={onAddToReferences}
               disabled={busy}
             >
@@ -3697,7 +3758,7 @@ export function LiveCandidatesStage({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          className="min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -3734,9 +3795,9 @@ export function LiveCandidatesStage({
     if (!canUseCandidate) {
       return (
         <Button
-          variant="outline"
+          variant="outline-destructive"
           size="sm"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-7 px-2 text-xs"
           onClick={onDismiss}
           disabled={busy}
         >
@@ -4223,7 +4284,7 @@ function CandidateSaveMenu({
         <DropdownMenuTrigger asChild>
           <Button
             size="sm"
-            className="h-8 min-w-0 px-2 text-xs"
+            className="min-w-0 px-2 text-xs"
             disabled={disabled}
           >
             {pending ? (
@@ -4461,8 +4522,7 @@ function LiveCandidatesActions({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             aria-label={t("library.candidateActions")}
             title={t("library.candidateActions")}
             disabled={isClearing}

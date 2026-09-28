@@ -1,0 +1,32 @@
+---
+title: バージョンと安定性
+description: nightly と stable のリリース、1.0 前の互換性、移行、テンプレートの固定バージョンについて説明します。
+---
+
+# バージョンと安定性
+
+Agent-Native パッケージは 1.0 前です。リリースでは nightly スナップショット、stable リリース、移行ツール、doctor 検査を提供します。alpha や beta は本番サポートの保証ではありません。
+
+## リリースチャネル
+
+`main` へのマージで npm の `nightly` タグにスナップショットが公開されます。`latest` タグは変わりません。stable リリースは Changesets で調整されます。定期実行では、太平洋時間の月曜から木曜の正午に patch リリースを準備します。毎回リリースされるとは限りません。
+
+## 1.0 前の互換性
+
+patch はバグ修正と互換性のある改善を目的とします。minor では機能追加に加え、alpha または beta の API や動作が変わる場合があります。major は広範な破壊的変更用です。アップグレード前にリリースノートと移行手順を確認してください。
+
+対応する移行がある場合、`migration-manifest.json` に移動した import と名前変更が記録されます。まず codemod をプレビューして差分を確認し、適用します。
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+削除されたパスは移行方法を示す tombstone モジュールとして一時的に残る場合があります。保持期間は固定されていません。
+
+## テンプレートのバージョンと目標
+
+CLI はテンプレートを作成した `@agent-native/core` の正確なバージョンに固定します。`latest` を手動指定する代わりに移行ツールで更新してください。
+
+現在の目標は 2026 年 10 月中旬までの beta、2026 年末までの 1.0 です。確約ではありません。再現可能な問題はパッケージ版、DB プロバイダー、移行ログとともに報告してください。

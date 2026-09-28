@@ -1,9 +1,18 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
+import { afterEach, describe, expect, it } from "vitest";
+
+import {
+  listFileUploadProviders,
+  unregisterFileUploadProvider,
+} from "../file-upload/index.js";
 import {
   createHeadlessBuiltinActions,
   parseAgentArgs,
   formatAgentUsage,
+  runAgent,
 } from "./agent.js";
 
 describe("agent CLI", () => {
@@ -70,5 +79,44 @@ describe("agent CLI", () => {
 
     expect(entry.readOnly).toBe(true);
     expect(entry.tool.description).toContain("Core");
+  });
+});
+
+describe("agent CLI bootstrap", () => {
+  const originalCwd = process.cwd();
+  let tmpDir: string | null = null;
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    unregisterFileUploadProvider("s3");
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+    tmpDir = null;
+  });
+
+  it("loads the app's CLI bootstrap before running", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-agent-boot-"));
+    fs.mkdirSync(path.join(tmpDir, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "_cli-bootstrap.mjs"),
+      `
+        const { registerFileUploadProvider } = await import(${JSON.stringify(
+          new URL("../file-upload/index.ts", import.meta.url).href,
+        )});
+        registerFileUploadProvider({
+          id: "s3",
+          name: "Fixture app storage",
+          isConfigured: () => true,
+          upload: async () => ({ url: "https://app.example/a", provider: "s3" }),
+        });
+      `,
+    );
+    process.chdir(tmpDir);
+
+    const code = await runAgent([], { stderr: () => {}, stdout: () => {} });
+
+    expect(code).not.toBe(0);
+    expect(
+      listFileUploadProviders().map((provider) => provider.name),
+    ).toStrictEqual(["Fixture app storage"]);
   });
 });

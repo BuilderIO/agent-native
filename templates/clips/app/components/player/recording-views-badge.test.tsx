@@ -8,7 +8,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildAnalyticsHandoff } from "./connect-analytics-dialog";
-import { RecordingViewsBadge, ViewerAvatar } from "./recording-views-badge";
+import {
+  AgentViewerAvatar,
+  RecordingViewsBadge,
+  ViewerAvatar,
+} from "./recording-views-badge";
 
 const queryMocks = vi.hoisted(() => ({
   calls: [] as string[],
@@ -61,6 +65,15 @@ vi.mock("@/components/ui/avatar", () => ({
     ...props
   }: React.HTMLAttributes<HTMLSpanElement>) => (
     <span {...props}>{children}</span>
+  ),
+}));
+
+vi.mock("@/components/agent-destination-logos", () => ({
+  ClaudeLogo: (props: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-agent-logo="claude" {...props} />
+  ),
+  CodexLogo: (props: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span data-agent-logo="codex" {...props} />
   ),
 }));
 
@@ -145,13 +158,44 @@ describe("RecordingViewsBadge", () => {
     expect(queryMocks.calls).toEqual(["list-viewers"]);
   });
 
-  it("splits viewers and insights into tabs without splitting human and agent lists", () => {
+  it("shows human and agent views as one total badge count", () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={2}
+        agentViewCount={1}
+        canViewDetails
+      />,
+    );
+
+    expect(container.textContent).toContain("recordingInsights.viewsCount");
+    expect(container.textContent).toContain("3");
+    expect(
+      container.querySelector('[aria-label*="agentViewsCount"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector("button")?.getAttribute("aria-label"),
+    ).toContain("recordingInsights.viewsCount");
+    expect(
+      container.querySelector("button")?.getAttribute("aria-label"),
+    ).not.toContain("recordingInsights.agentViewsCount");
+  });
+
+  it("shows the human and agent breakdown inside the Views tab", () => {
     const source = readFileSync(
       resolve(process.cwd(), "app/components/player/recording-views-badge.tsx"),
       "utf8",
     );
     const chartSource = readFileSync(
       resolve(process.cwd(), "app/components/player/insights-chart.tsx"),
+      "utf8",
+    );
+    const agentViewCountSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/agent-view-count.tsx"),
+      "utf8",
+    );
+    const controlsSource = readFileSync(
+      resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
     );
 
@@ -163,7 +207,11 @@ describe("RecordingViewsBadge", () => {
     expect(source).not.toContain("<TabsTrigger");
     expect(source).toContain('value="views"');
     expect(source).toContain('value="insights"');
-    expect(source).toContain("<InsightsChart");
+    expect(source).toContain("<LazyInsightsChart");
+    expect(source).toContain('import("./insights-chart")');
+    expect(source).toContain("onPointerEnter={preloadInsightsChart}");
+    expect(source).toContain("onFocus={preloadInsightsChart}");
+    expect(source).not.toContain('from "./insights-chart"');
     expect(chartSource).toContain("<ChartContainer");
     expect(chartSource).toContain("<RadialBarChart");
     expect(chartSource).toContain("<PolarAngleAxis");
@@ -180,10 +228,59 @@ describe("RecordingViewsBadge", () => {
     expect(chartSource).toContain('indicatorClassName="bg-highlight"');
     expect(chartSource).not.toContain("dropOff");
     expect(source).not.toContain("<ResponsiveContainer");
+    expect(controlsSource).toContain(
+      "overflow-x-auto overflow-y-hidden rounded-none",
+    );
+    expect(source).toContain('<ViewerTabsList className="overflow-visible">');
     expect(source).not.toContain("onOpenInsights");
-    expect(source).not.toContain('t("recordingInsights.humanViews")');
-    expect(source).not.toContain("agentViewCount");
-    expect(source).not.toContain('t("recordingInsights.agentViews")');
+    expect(source).toContain("<ViewerSection");
+    expect(source).toContain("agentViewCount");
+    expect(source).not.toContain("<AgentViewCount");
+    expect(agentViewCountSource).toContain("<ClaudeLogo");
+    expect(agentViewCountSource).toContain("<CodexLogo");
+  });
+
+  it("loads the Insights chart only after opening its tab", async () => {
+    render(
+      <RecordingViewsBadge
+        recordingId="recording-1"
+        viewCount={12}
+        canViewDetails
+      />,
+    );
+
+    act(() => container.querySelector("button")?.click());
+    const insightTab = Array.from(
+      document.body.querySelectorAll('[role="tab"]'),
+    ).find((tab) => tab.textContent === "recordingInsights.insightsTab");
+
+    expect(insightTab).not.toBeUndefined();
+    expect(document.body.querySelector("dd")).toBeNull();
+
+    await act(async () => {
+      (insightTab as HTMLElement).focus();
+      for (
+        let attempt = 0;
+        attempt < 100 && !document.body.querySelector("dd");
+        attempt++
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    });
+    expect(insightTab?.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.querySelector("dd")).not.toBeNull();
+  });
+
+  it("keeps library cards on the lightweight agent-view module", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/components/library/recording-card.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('from "@/components/player/agent-view-count"');
+    expect(source).not.toContain(
+      'from "@/components/player/recording-views-badge"',
+    );
   });
 
   it("parks the Analytics handoff outside the visible insights experience", () => {
@@ -253,6 +350,43 @@ describe("RecordingViewsBadge", () => {
     );
   });
 
+  it("renders no completion percentage when there is no human playback sample", async () => {
+    const { InsightsChart } = await import("./insights-chart");
+    render(
+      <InsightsChart
+        views={8}
+        uniqueViewers={0}
+        reactions={0}
+        completionRate={null}
+        ctaConversionRate={null}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("—");
+    expect(rates).not.toContain("0%");
+  });
+
+  it("still renders a real zero completion percentage", async () => {
+    const { InsightsChart } = await import("./insights-chart");
+    render(
+      <InsightsChart
+        views={3}
+        uniqueViewers={3}
+        reactions={0}
+        completionRate={0}
+        ctaConversionRate={0}
+      />,
+    );
+
+    const rates = Array.from(container.querySelectorAll("dd")).map(
+      (node) => node.textContent,
+    );
+    expect(rates).toContain("0%");
+  });
+
   it("resolves the stored profile image for an identified viewer", () => {
     queryMocks.avatarUrl = "data:image/jpeg;base64,avatar";
 
@@ -269,5 +403,17 @@ describe("RecordingViewsBadge", () => {
     const image = container.querySelector("img");
     expect(image?.getAttribute("src")).toBe(queryMocks.avatarUrl);
     expect(image?.getAttribute("alt")).toBe("Viewer Name");
+  });
+
+  it("uses provider logos for identified agent viewers", () => {
+    render(<AgentViewerAvatar agentLabel="Claude" />);
+
+    expect(
+      container.querySelector('[data-agent-logo="claude"]'),
+    ).not.toBeNull();
+
+    render(<AgentViewerAvatar agentLabel="ChatGPT" />);
+
+    expect(container.querySelector('[data-agent-logo="codex"]')).not.toBeNull();
   });
 });

@@ -44,8 +44,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// `fetchOrgApps` reuses resolveA2ACallerAuth() for the bearer. Mock it so the
-// directory-fetch behavior is testable without a request context / DB.
 vi.mock("../a2a/caller-auth.js", () => ({
   resolveA2ACallerAuth: vi.fn(async () => ({
     apiKey: "signed-org-jwt",
@@ -146,7 +144,6 @@ describe("fetchOrgApps", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const apps = await fetchOrgApps({ selfId: "mail" });
-    // mail is the current app → stripped; bogus entry → dropped.
     expect(apps).toEqual([
       {
         id: "calendar",
@@ -156,6 +153,22 @@ describe("fetchOrgApps", () => {
         capabilities: ["events"],
       },
     ]);
+  });
+
+  it("passes the Vercel protection bypass to the configured directory", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_URL = "dispatch.acme.com";
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "test-vercel-bypass";
+    const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("x-vercel-protection-bypass")).toBe(
+        "test-vercel-bypass",
+      );
+      return new Response(JSON.stringify({ apps: [] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
   it("requests the directory app only when explicitly enabled", async () => {

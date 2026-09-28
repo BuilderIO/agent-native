@@ -30,6 +30,23 @@ describe("record route lifecycle shell", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the shared classifier and sanitized body for dropped-file uploads", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const uploadStart = source.indexOf("const uploadFile = useCallback");
+    const uploadEnd = source.indexOf("const doStop = useCallback", uploadStart);
+    const uploadFlow = source.slice(uploadStart, uploadEnd);
+
+    expect(uploadStart).toBeGreaterThan(-1);
+    expect(uploadEnd).toBeGreaterThan(uploadStart);
+    expect(uploadFlow).toContain("classifyUploadResponseError");
+    expect(uploadFlow).toContain("responseError.responseText");
+    expect(uploadFlow).toContain("failureCode: responseError.failureCode");
+    expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
+  });
+
   it("announces real progress without including action controls", () => {
     act(() => {
       root.render(
@@ -147,9 +164,9 @@ describe("record route lifecycle shell", () => {
       'className="mx-auto grid w-full max-w-[420px] gap-2"',
     );
     expect(callout).toContain('variant="ghost"');
-    expect(callout).toContain("text-xs font-normal text-muted-foreground");
-    expect(callout).not.toContain("border-border");
-    expect(callout).not.toContain("bg-muted");
+    expect(callout).toContain("pt-3");
+    expect(callout).toContain("CaptureInstallMenu");
+    expect(callout).toContain("text-sm font-medium");
     expect(source).not.toContain("xl:grid-cols-[288px_320px_288px]");
     expect(source).not.toContain("xl:absolute");
     expect(source).not.toMatch(
@@ -177,5 +194,31 @@ describe("record route lifecycle shell", () => {
     expect(source).not.toContain("onUpload={uploadFile}");
     expect(source).not.toContain("importLoomHref=");
     expect(source).not.toContain("autoOpenUpload=");
+  });
+
+  it("clears the saving toolbar state before showing the saved recording", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+    const start = source.indexOf("const finishSavedRecording");
+    const end = source.indexOf("const doStop = useCallback", start);
+    const finish = source.slice(start, end);
+
+    expect(finish.indexOf("setSavingKind(null);")).toBeGreaterThanOrEqual(0);
+    expect(finish.indexOf("setSavingKind(null);")).toBeLessThan(
+      finish.indexOf('setUiState("complete");'),
+    );
+  });
+
+  it("keeps the browser route free of server-only app-state imports", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "app/routes/record.tsx"),
+      "utf8",
+    );
+
+    expect(source).not.toContain('from "@agent-native/core/application-state"');
+    expect(source).toContain("async function writeAppState");
+    expect(source).toContain("/_agent-native/application-state/");
   });
 });

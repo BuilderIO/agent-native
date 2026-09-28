@@ -1,13 +1,14 @@
 import { Buffer } from "node:buffer";
 
 import { emit } from "@agent-native/core/event-bus";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   assertAccess,
   ForbiddenError,
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -65,6 +66,14 @@ export const planCommentResolutionTargetSchema = z.enum(
 );
 export const planAuthorSchema = z.enum(PLAN_AUTHORS);
 
+function trackPlanEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  const actorEmail = getRequestContext()?.userEmail;
+  track(name, properties, actorEmail ? { userId: actorEmail } : undefined);
+}
+
 export const sectionInputSchema = z.object({
   id: z.string().optional(),
   type: planSectionTypeSchema.optional().default("custom"),
@@ -103,8 +112,6 @@ export const commentInputSchema = z.object({
 export type PlanCommentInput = z.infer<typeof commentInputSchema>;
 
 export function newId(prefix: string): string {
-  // Plans and recaps both use a `-` separator (plan-…, recap-…) so the id reads
-  // cleanly in the URL; other prefixes keep the legacy `_` separator.
   const separator = prefix === "plan" || prefix === "recap" ? "-" : "_";
   return `${prefix}${separator}${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 }
@@ -434,8 +441,6 @@ export function buildUpdatedPlanCommentRows(input: {
   return rows;
 }
 
-// Chunk size for batched comment inserts keeps each statement bounded even for
-// a wide comment row shape.
 const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
 
 export async function insertInitialPlanComments(input: {
@@ -567,15 +572,12 @@ export async function writeEvent(input: {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Event-bus helpers — fire-and-forget; failures must never block callers
-// ---------------------------------------------------------------------------
-
 export function emitPlanCreated(input: {
   planId: string;
   title: string;
   kind: PlanKind;
   status: string;
+  blockCount?: number;
   ownerEmail?: string | null;
 }) {
   try {
@@ -591,6 +593,14 @@ export function emitPlanCreated(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    trackPlanEvent("plan_created", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      block_count: input.blockCount ?? 0,
+      status: input.status,
+    });
   } catch {
     // best-effort — never block plan creation
   }
@@ -611,7 +621,6 @@ export function emitPlanCommented(input: {
 }) {
   if (input.comments.length === 0) return;
   try {
-    // Derive the dominant resolutionTarget (prefer "agent" if any comment targets agent)
     const resolutionTarget =
       input.comments.find((c) => c.resolutionTarget === "agent")
         ?.resolutionTarget ??
@@ -639,6 +648,17 @@ export function emitPlanCommented(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    trackPlanEvent("comment_added", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      comment_count: input.comments.length,
+      resolution_target:
+        resolutionTarget === "agent" || resolutionTarget === "human"
+          ? resolutionTarget
+          : null,
+    });
   } catch {
     // best-effort — never block comment writes
   }
@@ -666,6 +686,14 @@ export function emitPlanPublished(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    trackPlanEvent("share_link_created", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      visibility: input.requestedVisibility,
+      share_type: "hosted_plan",
+    });
   } catch {
     // best-effort — never block publish
   }
@@ -680,6 +708,7 @@ export function emitPlanStatusChanged(input: {
   changedBy?: string | null;
   ownerEmail?: string | null;
 }) {
+  if (input.oldStatus === input.newStatus) return;
   try {
     emit(
       "plan.status.changed",
@@ -694,6 +723,14 @@ export function emitPlanStatusChanged(input: {
       },
       { owner: input.ownerEmail ?? undefined },
     );
+    trackPlanEvent("plan_status_changed", {
+      app_name: "plan",
+      template_name: "plan",
+      output_id: input.planId,
+      output_type: input.kind,
+      old_status: input.oldStatus,
+      new_status: input.newStatus,
+    });
   } catch {
     // best-effort — never block status changes
   }
@@ -709,13 +746,6 @@ export async function assertPlanEditor(planId: string) {
     return access;
   } catch (error) {
     if (!(error instanceof ForbiddenError)) throw error;
-    // The caller failed the editor gate. If they can still READ the resource
-    // (viewer on an org/public plan or recap), replace core's bare role error
-    // ("Requires editor role on plan X (have viewer)") with a teaching error
-    // that names the resource kind and the sanctioned next step. Agents retry
-    // bare role errors verbatim in a loop; they act on errors that say what to
-    // do instead. Callers with no read access (or a deleted plan) keep the
-    // original non-leaking error.
     const readable = await resolveAccess("plan", planId, ctx).catch(() => null);
     const resource = readable?.resource as
       | typeof schema.plans.$inferSelect
@@ -844,12 +874,6 @@ async function loadPlanBundleForAuthorizedPlan(
   };
 }
 
-/**
- * Full append-only event log for a plan, ascending. `loadPlanBundle` caps its
- * events at the most recent 50 because it sits on a 3s poll; durable receipts
- * (export-visual-plan) call this instead so the exported history stays
- * complete. Callers must have already resolved access to the plan.
- */
 export async function loadFullPlanEvents(planId: string): Promise<PlanEvent[]> {
   const db = getDb();
   const rows = await db
@@ -906,10 +930,6 @@ export async function summarizePlans(
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
   const db = getDb();
-  // Project only the columns summarizePlan() actually uses — `type` for
-  // section counts and `status` for open/total comment counts. A bare
-  // `.select()` would pull every column including large html/body/anchor blobs
-  // for all comments across all listed plans, which is pure waste here.
   const [sectionRows, commentRows] = await Promise.all([
     db
       .select({
@@ -932,7 +952,6 @@ export async function summarizePlans(
       ),
   ]);
   return plans.map((plan) => {
-    // summarizePlan only needs type (sections) and status (comments).
     const sections = sectionRows
       .filter((section) => section.planId === plan.id)
       .map((row) => ({ type: row.type }) as PlanSection);
@@ -1085,9 +1104,6 @@ function normalizeStoredHtml(value: unknown): string {
     raw = Buffer.from(value).toString("utf8");
   else if (value == null) raw = "";
   else raw = String(value);
-  // Sanitize at the render/export choke point so every consumer of the legacy
-  // `html` escape-hatch — and any row written before write-time sanitization —
-  // is stripped of script execution before it reaches an iframe.
   return raw ? sanitizeStoredPlanHtml(raw) : raw;
 }
 

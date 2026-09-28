@@ -1,9 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 
-// GCS resumable uploads require every chunk except the last to be a multiple
-// of 256 KiB. 16 MiB is the recommended default and keeps very large `.fig`
-// files off a single request body (the serverless host caps bodies well below
-// Figma export sizes).
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
 
@@ -28,6 +24,21 @@ async function readJson(res: Response): Promise<any> {
     return await res.json();
   } catch {
     return null;
+  }
+}
+
+export class BuilderIndexRequestError extends Error {
+  readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    options: { errorCode?: string; details?: Record<string, unknown> } = {},
+  ) {
+    super(message);
+    this.name = "BuilderIndexRequestError";
+    this.errorCode = options.errorCode;
+    this.details = options.details;
   }
 }
 
@@ -65,8 +76,6 @@ async function initiateResumableSession(
     method: "POST",
     headers: {
       "x-goog-resumable": "start",
-      // The signed URL commits to the exact declared size; echo it back
-      // byte-for-byte or GCS rejects the session.
       "x-goog-content-length-range": `0,${fileSize}`,
       "Content-Type": mimetype,
     },
@@ -81,7 +90,6 @@ async function initiateResumableSession(
   return sessionUri;
 }
 
-// GCS reports the highest committed byte in a `Range: bytes=0-<end>` header.
 function committedOffsetFromRange(response: Response): number | null {
   const match = response.headers.get("Range")?.match(/bytes=0-(\d+)/);
   return match ? parseInt(match[1], 10) + 1 : null;
@@ -188,11 +196,6 @@ export interface UploadAndIndexOptions {
   onProgress?: (fraction: number) => void;
 }
 
-/**
- * Streams `.fig`/design files straight to storage in resumable chunks, then
- * finalizes Builder DSI indexing with the resulting upload tokens. No file
- * bytes pass through the app server, so arbitrarily large Figma files work.
- */
 export async function uploadAndIndexFigmaFiles(
   files: File[],
   options: UploadAndIndexOptions = {},
@@ -221,7 +224,10 @@ export async function uploadAndIndexFigmaFiles(
   });
   const json = await readJson(res);
   if (!res.ok || json?.error) {
-    throw new Error(json?.error || `Indexing failed (${res.status})`);
+    throw new BuilderIndexRequestError(
+      json?.error || `Indexing failed (${res.status})`,
+      { errorCode: json?.errorCode, details: json?.details },
+    );
   }
   return json as BuilderIndexResult;
 }
@@ -235,19 +241,13 @@ export interface DecodeJobStatus {
 }
 
 const DECODE_JOB_POLL_INTERVAL_MS = 5_000;
-const DECODE_JOB_MAX_POLLS = 120; // ~10 min at 5s, so a stuck job can't loop forever
+const DECODE_JOB_MAX_POLLS = 120;
 
 export interface PollDecodeJobOptions {
   signal?: AbortSignal;
   onUpdate?: (status: DecodeJobStatus) => void;
 }
 
-/**
- * After indexing returns a jobId, the `.fig` decode job is still `pending` with
- * no branchUrl. Poll until the branch appears or the job reaches a terminal
- * state. A job that reports `status: "error"` resolves so the caller can read
- * `status.error`; network failures, timeouts, and aborts reject.
- */
 export async function pollDecodeJobStatus(
   jobId: string,
   options: PollDecodeJobOptions = {},

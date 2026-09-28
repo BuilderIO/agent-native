@@ -31,3 +31,23 @@ test("nothing-selected inspector addresses the canvas surround, never a screen's
   await expect(page.locator(sectionTitle("Screen"))).toHaveCount(0);
   await cdpScreenshot(page, testInfo.outputPath("panel-interact.png"));
 });
+
+test("Interact dimensions stay clear of the absolute left panel", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await gotoEditor(page, await readSeedDesignId());
+  await enterInteractView(page);
+
+  const leftShell = page.locator('[data-design-chrome-region="left-shell"]');
+  const leftShellBox = await leftShell.boundingBox();
+  const heightInput = page.getByRole("spinbutton", { name: "Height" });
+  const heightInputBox = await heightInput.boundingBox();
+
+  expect(leftShellBox).not.toBeNull();
+  expect(heightInputBox).not.toBeNull();
+  expect(heightInputBox!.x).toBeGreaterThanOrEqual(
+    leftShellBox!.x + leftShellBox!.width,
+  );
+  expect(heightInputBox!.x + heightInputBox!.width).toBeLessThanOrEqual(1440);
+});

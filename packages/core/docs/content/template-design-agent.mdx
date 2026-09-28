@@ -1,0 +1,96 @@
+---
+title: "Design: Talk to the Agent"
+description: "What the agent sees when you're in Design, and prompts organized by task, from generating a first draft to exporting the result."
+---
+
+# Talk to the Agent
+
+Everything in Design is available to the agent through the same actions the UI uses, so anything you can click, you can also ask for in plain English. This page covers how the agent sees your screen, then useful prompts by task. See [Design](/docs/template-design) for the overview.
+
+## How the agent sees your screen
+
+Before doing anything, the agent checks what you're looking at: which design or template is open, which view you're on (the designs list, Templates, the editor, Design Systems, or a public present view), which screen and element you have selected, which inspector tab is active (Design, Comments, or Code & Measurements), and which left-rail panel is open (File, Agent, Assets, Import, Tools, or Tokens). That's why "make this denser" or "fix the contrast on this button" resolves correctly without you naming the screen or element. The agent already knows what "this" refers to.
+
+A few situations change what the agent does next:
+
+- **A vague prompt.** If your request doesn't give the agent enough to go on, it shows a full-canvas overlay of clarifying questions instead of guessing, and waits for your answer in chat before generating anything.
+- **A design made from a template.** The agent already knows the template's locked dimensions and fonts, and refines the existing screens in place rather than regenerating or resizing them.
+- **A variant you're mid-comparison on.** If you're choosing between a few proposed tweaks, the agent knows which ones are still pending and which you've already picked, so "use the second one" resolves correctly.
+- **Open review comments.** The agent knows how many open comments exist on the current screen and which ones are already in its queue to act on, so it won't lose track of feedback you've left.
+
+## Useful prompts by task
+
+Every prompt below becomes a real action against your actual design, the same one the UI reads and writes. Here's one worked example:
+
+<Comparison>
+
+### :blue: You ask
+
+"Are there any open comments on this screen?"
+
+### :green: What happens
+
+This is a read-only question. The agent checks the real comment thread
+count for the screen you're on and answers directly in chat, for example
+"2 open comments, 1 already in my queue." Nothing on your screen changes,
+since nothing was created or edited.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Generate and refine
+
+- **"Create three landing-page directions for a technical analytics product."** A few genuinely different variants appear to compare and pick from.
+- **"Make this dashboard denser and easier to scan for an operations team."** The chosen screen updates live.
+- **"Turn this repeated card into a reusable component."** Future edits to one instance stay separate from the others, unless you ask to update them all.
+- **"Add a hover animation to this button."** A motion track is created without opening the Motion dock yourself.
+- **"Add a wave shader to the hero background."** Applies the effect directly, without going through the Effects menu's picker.
+
+### Check quality
+
+- **"Run an accessibility audit on this screen."** The agent checks it and reports what it found.
+- **"Fix the contrast issue you just found."** The fix applies directly to the design.
+
+### Bring in outside content
+
+- **"Import this Figma frame: [link]."** The frame appears as a new, editable screen.
+- **"Paste in this HTML as a new screen."** Adds it without opening the Import panel yourself.
+- **"Bring in our pricing page from Figma and match it exactly."** Pixel-accurate import, with a fidelity report on anything that couldn't come across structurally.
+
+### Brand and design systems
+
+- **"Apply our saved design system and simplify the mobile layout."** Every generation after this stays on-brand.
+- **"Start a design system from our GitHub repo."** Indexes your real, deployed tokens instead of guessing.
+- **"Create a design system based on Material 3."** Starts from a real, maintained public system instead of a lookalike.
+
+### Templates
+
+- **"Start a new design from the landing page template."** Copies its files, dimensions, and locked layers into a new design.
+- **"Save this as a template called 'Product launch.'"** Available from Templates next time, for you or anyone you share it with.
+
+### Navigate and organize
+
+- **"Switch to the overview canvas."** Jumps out of the single-screen view.
+- **"Open the comments tab."** Focuses that tab in the inspector.
+- **"Rename this design to 'Q3 launch page.'"** Updates immediately, wherever the design is listed.
+
+### Export and history
+
+- **"Export this as a ZIP."** Downloads without opening the project menu yourself.
+- **"Copy a coding handoff prompt for this screen."** Ready to paste into an external coding agent.
+- **"Restore the version from an hour ago."** Brings the design back to that exact saved state.
+
+</Cards>
+
+## Extensions
+
+Design supports Extensions: small sandboxed widgets you or the agent can build and drop into the editor. The inspector's left rail exposes a slot where an extension can render, with the open design's id and title, the active screen's filename and content, the current view mode and zoom, the selected screen and element, and the active tool already available to it. The asset library, shader fill picker, brand token auditor, and motion presets you see in the editor today are all built on this same slot. See [Extensions](/docs/extensions) for how to build one.
+
+## What's next
+
+- [**Design**](/docs/template-design) — the overview and getting-started steps
+- [**Features**](/docs/template-design-features) — Designs, Edit a Design, Templates, and Design Systems, with setup steps for each
+- [**Design in a Multi-App Workspace**](/docs/template-design-integrations) — connecting to Dispatch and calling Design over MCP
+- [**Developer Guide**](/docs/template-design-developers) — every action, the data model, and how to extend the app
+- [**Extensions**](/docs/extensions) — building a widget for the editor's inspector slot

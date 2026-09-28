@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import { buildCodeLayerProjection } from "../shared/code-layer.js";
+import {
+  COMPONENT_ID_ATTR,
+  COMPONENT_REF_ATTR,
+} from "../shared/component-model.js";
 import action, {
   findOpenTagEnd,
+  isSwapSourceCandidate,
   mergeComponentSwapOverrides,
   reassignCopiedDescendantNodeIds,
   setAttributeOnMarkup,
 } from "./swap-component-instance.js";
-
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
 
 describe("swap-component-instance schema", () => {
   const base = { designId: "design_1", nodeId: "node_1" };
@@ -40,10 +42,6 @@ describe("swap-component-instance schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// findOpenTagEnd
-// ---------------------------------------------------------------------------
-
 describe("findOpenTagEnd", () => {
   it("finds the end of a simple opening tag", () => {
     const markup = '<button class="a">Save</button>';
@@ -61,10 +59,6 @@ describe("findOpenTagEnd", () => {
     expect(findOpenTagEnd(markup)).toBe(markup.length);
   });
 });
-
-// ---------------------------------------------------------------------------
-// setAttributeOnMarkup
-// ---------------------------------------------------------------------------
 
 describe("setAttributeOnMarkup", () => {
   it("replaces an existing attribute value", () => {
@@ -105,10 +99,6 @@ describe("setAttributeOnMarkup", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// mergeComponentSwapOverrides
-// ---------------------------------------------------------------------------
-
 describe("mergeComponentSwapOverrides", () => {
   it("carries over overrides for prop names both components share", () => {
     const targetMarkup =
@@ -132,13 +122,9 @@ describe("mergeComponentSwapOverrides", () => {
       "btn1",
     );
 
-    // "variant" was overridden onto the new markup.
     expect(result.markup).toContain('data-agent-native-prop-variant="solid"');
-    // "size" was not overridden by the caller — keeps the target's default.
     expect(result.markup).toContain('data-agent-native-prop-size="md"');
-    // The selected instance's stable node id is stamped onto the result.
     expect(result.markup).toContain('data-agent-native-node-id="btn1"');
-    // The target's own x-data is left untouched (not merged).
     expect(result.markup).toContain(
       "x-data=\"{ variant: 'outline', size: 'md' }\"",
     );
@@ -187,5 +173,25 @@ describe("mergeComponentSwapOverrides", () => {
     expect(result.markup).not.toContain(
       'data-agent-native-node-id="source-root"',
     );
+  });
+});
+
+describe("swap source identity", () => {
+  it("skips canonical mains so their ids cannot be copied into a second root", () => {
+    const projection = buildCodeLayerProjection(
+      `<body>
+        <div data-agent-native-node-id="main" data-agent-native-component="Card" ${COMPONENT_ID_ATTR}="cmp-card">Main</div>
+        <div data-agent-native-node-id="ref" data-agent-native-component="Card" ${COMPONENT_REF_ATTR}="cmp-card">Reference</div>
+      </body>`,
+    );
+    const main = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "main",
+    )!;
+    const reference = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "ref",
+    )!;
+
+    expect(isSwapSourceCandidate(main, "Card")).toBe(false);
+    expect(isSwapSourceCandidate(reference, "Card")).toBe(true);
   });
 });

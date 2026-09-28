@@ -8,24 +8,30 @@ import {
   loadAgentDesignSystemContext,
 } from "@agent-native/core/shared";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
+import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
+import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 import {
   hashSlideContent,
   slideFitMeasurementMatchesSlide,
   type DeckFitState,
 } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+import getDeckTemplate from "./get-deck-template.js";
 import getDesignSystem from "./get-design-system.js";
+import listDeckTemplates from "./list-deck-templates.js";
 
 type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
   slideId: string;
 };
+
+const CURRENT_SLIDE_COMMENT_LIMIT = 100;
 
 function getCurrentSlideFitMeasurement(
   value: unknown,
@@ -96,13 +102,15 @@ function getCurrentSlideFitMeasurement(
 export default defineAction({
   title: "Inspect current Slides screen",
   description:
-    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1; do not load the full deck for that path.",
+    "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
   schema: z.object({}),
   http: false,
   run: async (_args) => {
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: string;
       deckId?: string;
+      templateId?: string;
+      search?: string;
       deckFilter?: "all" | "created-by-me";
       slideNumber?: number;
       slideIndex?: number;
@@ -125,9 +133,40 @@ export default defineAction({
             navigation?.deckId === scopedDeckId ? navigation.slideIndex : 0,
         }
       : navigation;
+    if (
+      !scopedDeckId &&
+      (navigation?.view === "templates" || navigation?.templateId)
+    ) {
+      const result = await listDeckTemplates.run({
+        search: navigation.search,
+        page: 1,
+        pageSize: 6,
+        includePreview: "false",
+      });
+      const selected = navigation.templateId
+        ? await getDeckTemplate.run({ id: navigation.templateId })
+        : null;
+      return [
+        "## Current Screen",
+        `view: ${navigation.view ?? "list"}`,
+        `templateSearch: ${navigation.search ?? ""}`,
+        ...(selected
+          ? [
+              `templateId: ${selected.id}`,
+              `templateTitle: ${selected.title}`,
+              `slideCount: ${selected.slideCount}`,
+            ]
+          : []),
+        "### Templates",
+        ...result.templates.map(
+          (template) =>
+            `- id=${template.id} title=${JSON.stringify(template.title)} slides=${template.slideCount}`,
+        ),
+        "Use get-deck-template to inspect a template, then create-deck-from-template to save an editable copy without AI generation.",
+      ].join("\n");
+    }
     const db = getDb();
 
-    // ─── Editor view: user has a specific deck open ─────────────────────
     if (effectiveNavigation?.deckId) {
       const rows = await db
         .select()
@@ -168,9 +207,6 @@ export default defineAction({
       const slideNumber = slideIndex + 1;
       const currentSlide = slides[slideIndex] ?? null;
 
-      // Emit a compact, scannable format with IDs at the top. The agent
-      // should be able to grab what it needs at a glance without parsing
-      // nested JSON.
       const lines: string[] = [];
       lines.push(`## Current Screen`);
       lines.push(``);
@@ -223,9 +259,6 @@ export default defineAction({
           );
         }
       }
-      // The slide being edited is one of many; without the deck's shared
-      // vocabulary an agent asked to restyle it invents a palette that only
-      // that slide uses. Summarize the siblings so the edit can match them.
       const { deckStyle, representativeSlideIndex } = summarizeDeckStyle(
         slides,
         slideIndex,
@@ -234,9 +267,6 @@ export default defineAction({
         resolveDeckDesignSystemId(rows[0], deck),
         getDesignSystem,
       );
-      // Counts show the palette, not the composition; one real sibling
-      // shows spacing, element order, and sizes to mirror. A class-styled
-      // deck tallies nothing, and still has a sibling worth reading.
       if (deckStyle.length > 0 || representativeSlideIndex !== null) {
         lines.push(``);
         lines.push(`### Deck style (shared across slides)`);
@@ -261,8 +291,70 @@ export default defineAction({
         lines.push("```");
       }
 
-      // No global fallback: with a tab id in context, another tab's selection
-      // must never become this tab's edit target.
+      const fetchedCommentRows = currentSlide
+        ? await db
+            .select({
+              id: schema.slideComments.id,
+              slideId: schema.slideComments.slideId,
+              threadId: schema.slideComments.threadId,
+              parentId: schema.slideComments.parentId,
+              content: schema.slideComments.content,
+              quotedText: schema.slideComments.quotedText,
+              anchor: schema.slideComments.anchor,
+              emojiReactionsJson: schema.slideComments.emojiReactionsJson,
+              authorEmail: schema.slideComments.authorEmail,
+              resolved: schema.slideComments.resolved,
+              createdAt: schema.slideComments.createdAt,
+            })
+            .from(schema.slideComments)
+            .where(
+              and(
+                eq(schema.slideComments.deckId, rows[0].id),
+                eq(schema.slideComments.slideId, currentSlide.id),
+              ),
+            )
+            .orderBy(asc(schema.slideComments.createdAt))
+            .limit(CURRENT_SLIDE_COMMENT_LIMIT + 1)
+        : [];
+      const commentsTruncated =
+        fetchedCommentRows.length > CURRENT_SLIDE_COMMENT_LIMIT;
+      const commentRows = commentsTruncated
+        ? fetchedCommentRows.slice(0, CURRENT_SLIDE_COMMENT_LIMIT)
+        : fetchedCommentRows;
+      lines.push(``);
+      lines.push(
+        `### Comments on current slide (${commentRows.length}${commentsTruncated ? "; more available" : ""})`,
+      );
+      if (commentsTruncated) {
+        lines.push(
+          `commentsStatus: truncated; showing the first ${CURRENT_SLIDE_COMMENT_LIMIT}. Use list-slide-comments with { deckId: "${rows[0].id}", slideId: "${currentSlide?.id}", limit: ${CURRENT_SLIDE_COMMENT_LIMIT}, offset: ${CURRENT_SLIDE_COMMENT_LIMIT} } to continue.`,
+        );
+      }
+      if (commentRows.length === 0) {
+        lines.push(`(no comments)`);
+      } else {
+        for (const comment of commentRows) {
+          const anchor = parseSlideCommentAnchor(comment.anchor);
+          const reactions = summarizeSlideCommentReactions(
+            comment.emojiReactionsJson,
+            getRequestUserEmail(),
+          );
+          lines.push(
+            `commentId: ${comment.id}  threadId: ${comment.threadId}  parentId: ${comment.parentId ?? "(root)"}`,
+          );
+          lines.push(
+            `author: ${comment.authorEmail}  resolved: ${comment.resolved ? "true" : "false"}  createdAt: ${comment.createdAt}`,
+          );
+          lines.push(`content: ${comment.content}`);
+          if (comment.quotedText)
+            lines.push(`quotedText: ${comment.quotedText}`);
+          if (anchor) lines.push(`anchor: ${JSON.stringify(anchor)}`);
+          if (reactions.length > 0) {
+            lines.push(`reactions: ${JSON.stringify(reactions)}`);
+          }
+        }
+      }
+
       const selection = (await readAppStateForCurrentTab("slides-selection", {
         fallbackToGlobal: false,
       })) as {
@@ -283,13 +375,6 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
-      // Match the selection to its OWN recorded slide instead of requiring it
-      // to equal `currentSlide`: `navigation` and `slides-selection` are two
-      // independent app-state reads, and a caller with no tab id in request
-      // context gets each one's last global write, not necessarily from the
-      // same tab. The selection record names its own deck/slide at write
-      // time (SlideEditor's syncSelectionToAppState), so that identity is
-      // authoritative even when the `navigation` read resolves a stale slide.
       const selectionSlide =
         selection?.slideId &&
         (selection.deckId ? selection.deckId === rows[0].id : true)
@@ -299,19 +384,34 @@ export default defineAction({
         lines.push(``);
         lines.push(`### Current visual selection`);
         lines.push(
+          `editorCurrentSlideId: ${selectionSlide.id}   ← authoritative slide recorded by the editor; use this for the next focused edit`,
+        );
+        lines.push(
           `selectionSlideId: ${selection.slideId}` +
             (selectionSlide.id === currentSlide?.id
               ? `   (matches currentSlideId)`
               : `   (differs from currentSlideId ${currentSlide?.id ?? "(none)"} — use selectionSlideId, the slide this selection was made on)`),
         );
+        if (selectionSlide.id !== currentSlide?.id) {
+          lines.push(
+            `selectionSlideContentHash: ${hashSlideContent(String(selectionSlide.content ?? ""))}   ← use as baseContentHash with selectionSlideId`,
+          );
+        }
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
           for (const [index, item] of selection.items.entries()) {
+            const isImageSelection =
+              item.kind === "image" || item.tagName?.toLowerCase() === "img";
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
-            if (item.objectId) lines.push(`objectId: ${item.objectId}`);
+            if (item.objectId && !isImageSelection) {
+              lines.push(`objectId: ${item.objectId}`);
+              lines.push(
+                "objectIdStatus: stable selected-element target; use it with one update-slide replace edit when selectedText is unavailable",
+              );
+            }
             if (item.runtimeSelector) {
               lines.push(`runtimeSelector: ${item.runtimeSelector}`);
             }
@@ -321,15 +421,21 @@ export default defineAction({
                 "selectedTextStatus: exact browser range; use verbatim as edits.find with expectedMatches: 1",
               );
             }
-            if (item.text) {
+            if (isImageSelection) {
+              lines.push(
+                "imageStatus: image selection has no editable text content; use the targeted image/markup workflow",
+              );
+            } else if (item.text) {
               lines.push(`text: ${item.text}`);
               if (!item.selectedText) {
                 lines.push(
-                  item.textTruncated === true
-                    ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
-                    : item.textTruncated === false
-                      ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
-                      : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
+                  item.objectId
+                    ? "textStatus: element preview is not an exact browser-range selection; use objectId with update-slide for an element-only replacement"
+                    : item.textTruncated === true
+                      ? `textStatus: element preview may be truncated; use get-deck with slideId=${selectionSlide.id} before editing`
+                      : item.textTruncated === false
+                        ? `textStatus: element text is complete but is not an exact browser-range selection; use get-deck with slideId=${selectionSlide.id} before editing`
+                        : `textStatus: element preview status unknown; use get-deck with slideId=${selectionSlide.id} before editing`,
                 );
               } else {
                 lines.push(
@@ -347,11 +453,6 @@ export default defineAction({
         }
       }
 
-      // ─── Layout-fit measurement ──────────────────────────────────────────
-      // The editor measures the rendered slide and reports vertical overflow
-      // here whenever the natural content bounds exceed the canvas content
-      // area. If this block is present, the current slide's HTML needs to be
-      // rewritten to fit the canvas.
       const currentSlideMeasurement = getCurrentSlideFitMeasurement(
         await readAppStateForCurrentTab("slide-fit-check"),
         currentSlide,
@@ -450,11 +551,6 @@ export default defineAction({
       return lines.join("\n");
     }
 
-    // ─── List view: user is on the deck list ─────────────────────────────
-    // Project only the columns this summary reads. `decks.data` holds each
-    // deck's entire slide JSON and can be large — never select it for a
-    // plain list. Mirrors the light-mode projection in list-decks.ts; call
-    // list-decks or open a specific deck for slide counts / content.
     const rows = await db
       .select({
         id: schema.decks.id,

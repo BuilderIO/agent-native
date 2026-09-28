@@ -31,8 +31,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon, contentIconValue } from "../icons/ContentIcon";
 import { documentSidebarActionAvailability } from "./document-sidebar-actions";
 
 interface DocumentTreeItemProps {
@@ -58,7 +60,7 @@ export function getDocumentSidebarIconKind(
   ) {
     return "folder";
   }
-  if (document.icon?.trim()) return "custom";
+  if (contentIconValue(document.icon)) return "custom";
   if (document.database) return "database";
   return "page";
 }
@@ -70,7 +72,9 @@ export function DocumentSidebarIcon({
 }) {
   const iconKind = getDocumentSidebarIconKind(document);
 
-  if (iconKind === "custom") return <>{document.icon}</>;
+  if (iconKind === "custom") {
+    return <ContentIcon value={document.icon} size={14} />;
+  }
   if (iconKind === "database") {
     return <IconDatabase size={14} className="text-muted-foreground" />;
   }
@@ -102,6 +106,7 @@ export function DocumentTreeItem({
   const { canEdit, canManage, canFavorite, hasMenuActions } =
     documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
+  const creativeContextEnabled = useCreativeContextLab();
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
@@ -240,7 +245,7 @@ export function DocumentTreeItem({
                   </DropdownMenuItem>
                 )}
                 {canFavorite && canManage && <DropdownMenuSeparator />}
-                {canEdit && !isLocalFileNode && (
+                {canEdit && !isLocalFileNode && creativeContextEnabled && (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -305,7 +310,7 @@ export function DocumentTreeItem({
                   }}
                 >
                   <IconDatabase className="me-2 size-4" />
-                  {t("sidebar.database")}
+                  {t("sidebar.collection")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -325,20 +330,22 @@ export function DocumentTreeItem({
         </div>
       </div>
 
-      <CreativeContextShareSheet
-        open={contextSheetOpen}
-        onOpenChange={setContextSheetOpen}
-        resource={{
-          appId: "content",
-          resourceType: "document",
-          resourceId: node.id,
-          title: node.title || "Untitled",
-          updatedAt: node.updatedAt,
-          visibility: node.visibility,
-          preview: { kind: "document", label: "Document" },
-        }}
-        canManage={canManage}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextSheetOpen}
+          onOpenChange={setContextSheetOpen}
+          resource={{
+            appId: "content",
+            resourceType: "document",
+            resourceId: node.id,
+            title: node.title || "Untitled",
+            updatedAt: node.updatedAt,
+            visibility: node.visibility,
+            preview: { kind: "document", label: "Document" },
+          }}
+          canManage={canManage}
+        />
+      ) : null}
 
       {hasChildren && expanded && (
         <SortableContext

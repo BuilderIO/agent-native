@@ -7,9 +7,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  creativeContextLabEnabled: { value: false },
   closeAutoFocus: null as
     | ((event: { preventDefault: () => void }) => void)
     | null,
@@ -21,7 +22,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/creative-context/client", () => ({
-  CreativeContextShareSheet: () => null,
+  CreativeContextShareSheet: ({ open }: { open: boolean }) => (
+    <div data-testid="creative-context-share-sheet" data-open={String(open)} />
+  ),
+  useCreativeContextLab: () => mocks.creativeContextLabEnabled.value,
 }));
 
 vi.mock("@agent-native/toolkit/sharing", () => ({
@@ -117,6 +121,10 @@ const deck: Deck = {
   ],
 };
 
+beforeEach(() => {
+  mocks.creativeContextLabEnabled.value = false;
+});
+
 afterEach(() => {
   cleanup();
   mocks.closeAutoFocus = null;
@@ -125,6 +133,46 @@ afterEach(() => {
 });
 
 describe("DeckCard delete flow", () => {
+  it("hides Creative Context controls while its lab is off", () => {
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "creativeContext.addToContext" }),
+    ).toBeNull();
+    expect(screen.queryByTestId("creative-context-share-sheet")).toBeNull();
+  });
+
+  it("opens the Creative Context sheet when its lab is on", () => {
+    mocks.creativeContextLabEnabled.value = true;
+    render(
+      <DeckCard
+        deck={deck}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onDuplicate={vi.fn()}
+        onToggleStar={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "creativeContext.addToContext" }),
+    );
+
+    expect(
+      screen
+        .getByTestId("creative-context-share-sheet")
+        .getAttribute("data-open"),
+    ).toBe("true");
+  });
+
   it("waits for the menu close lifecycle before requesting deletion", async () => {
     const onDelete = vi.fn();
 

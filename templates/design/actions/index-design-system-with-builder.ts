@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import {
+  assertBuilderDesignSystemCodeIndexingAllowed,
   buildBuilderDesignSystemIndexFiles,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
@@ -10,6 +11,7 @@ import {
 import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
@@ -107,12 +109,13 @@ export default defineAction({
     codeFiles,
     designMd,
   }) => {
+    await assertDesignSystemWorkflowsEnabled();
+    if (githubRepoUrl || githubSources?.length || codeFiles?.length) {
+      await assertBuilderDesignSystemCodeIndexingAllowed();
+    }
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
-      // Agent action payloads intentionally stay at the core 2 MB inline
-      // budget. Fail loudly instead of silently dropping a larger `.fig`;
-      // the setup screen's guarded multipart route supports up to 200 MB.
       overflowBehavior: "throw",
     });
     const result = await startBuilderDesignSystemIndex({

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
 import {
   findMovedCodeLayerNodeInProjection,
   parseInlineStyleAttribute,
+  remapLegacyCodeLayerNodeId,
   refreshElementInfoFromContent,
   refreshSelectedLayerIdsFromContent,
   renameFilenamePreservingExtension,
@@ -85,6 +87,7 @@ import {
   getSidebarCodeLayerSelectionState,
   isScreenRootElementInfo,
   resolveAvailableActiveFileId,
+  resolveMarqueeAdditive,
   getSelectedScreenIdsForEditorState,
   getSelectedScreenGeometryForInspector,
   shouldLimitEditorChromeUntilContentReady,
@@ -247,6 +250,11 @@ describe("DesignEditor selected screen inspector geometry", () => {
       y: 48,
       width: 360,
       height: 225,
+      heightMode: undefined,
+      sizeConstraints: {
+        width: { min: null, max: null },
+        height: { min: null, max: null },
+      },
     });
   });
 
@@ -379,8 +387,6 @@ describe("DesignEditor PF12 scrub/color-drag preview throttling", () => {
   });
 
   it("never skips the commit for a multi-layer selection, even mid-gesture", () => {
-    // No cheap multi-element preview channel exists yet — conservatively
-    // keep committing every tick, same as before PF12.
     expect(
       shouldSkipVisualStyleCommitForPreview({
         phase: "preview",
@@ -835,8 +841,6 @@ describe("DesignEditor pending visual style edits", () => {
         screenSourceTypes: new Map([["generated-home", "inline"]]),
       }),
     ).toBe(false);
-    // A fusion screen is a running app: its markup lives in source, so the
-    // handoff is the only way an edit can land.
     expect(
       shouldShowPendingVisualStyleApply({
         edits,
@@ -1237,12 +1241,6 @@ describe("createSinglePageRasterPdf (real non-web artifact export)", () => {
     expect(pdf.size).toBeGreaterThan(500);
   });
 
-  // US Letter at 96dpi (816x1056px) must produce an 8.5in x 11in physical
-  // page (612pt x 792pt) — this is the "px -> pt" conversion
-  // createSinglePageRasterPdf relies on the jsPDF `px_scaling` hotfix for; a
-  // regression here would silently ship wrong-sized print PDFs. Parse the
-  // page's /MediaBox directly from the raw PDF bytes rather than adding a
-  // parser dependency for one assertion.
   it("maps 96dpi US Letter pixel dimensions to an exact 612x792pt page", async () => {
     const letterPdf = await createSinglePageRasterPdf({
       dataUrl: onePixelPng,
@@ -1334,8 +1332,6 @@ describe("getExportCompositeBounds (multi-screen image export)", () => {
 });
 
 describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
-  // These markers are the editor-chrome overlays editor-chrome.bridge.ts appends
-  // inside the preview iframe; image exports must strip them.
   it.each([
     "data-agent-native-edit-overlay",
     "data-agent-native-edit-handle",
@@ -1351,8 +1347,6 @@ describe("EDITOR_CHROME_OVERLAY_SELECTOR (kept out of image exports)", () => {
     expect(EDITOR_CHROME_OVERLAY_SELECTOR).toContain(`[${marker}]`);
   });
 
-  // Content markers live on the design's real DOM; stripping them would delete
-  // actual content, so they must never appear in the overlay selector.
   it.each([
     "data-agent-native-node-id",
     "data-agent-native-layer-name",
@@ -1520,8 +1514,18 @@ describe("DesignEditor URL state", () => {
         mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
+      "?design_host=builder&editorView=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
+  });
+
+  it("drops a conflicting legacy view when serializing the canonical editor view", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?editorView=overview&view=single&screen=old",
+        viewMode: "overview",
+        screenId: "screen-123",
+      }),
+    ).toBe("?editorView=overview&screen=screen-123");
   });
 
   it("removes stale selection aliases when no element is selected", () => {
@@ -1534,7 +1538,7 @@ describe("DesignEditor URL state", () => {
         selectionId: null,
         zoom: 33.3333,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=33.33");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=33.33");
   });
 
   it("drops gated Code panel state from the editor URL", () => {
@@ -1548,7 +1552,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
@@ -1559,7 +1563,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "pen",
       }),
-    ).toBe("?view=single&screen=screen-123&tool=pen&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&tool=pen&mode=interact");
 
     expect(
       getDesignEditorStateUrlSearch({
@@ -1568,7 +1572,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "move",
       }),
-    ).toBe("?view=single&screen=screen-123&mode=interact");
+    ).toBe("?editorView=single&screen=screen-123&mode=interact");
   });
 
   it("removes stale Interact mode after returning to the overview", () => {
@@ -1580,7 +1584,7 @@ describe("DesignEditor URL state", () => {
         mode: "edit",
         zoom: 100,
       }),
-    ).toBe("?view=overview&screen=screen-123&zoom=100");
+    ).toBe("?editorView=overview&screen=screen-123&zoom=100");
   });
 });
 
@@ -1608,6 +1612,15 @@ describe("DesignEditor localhost route source", () => {
 
 describe("DesignEditor layer move source snapshots", () => {
   it("prefers the latest local active content snapshot during rapid edits", () => {
+    expect(
+      getFreshActiveFileContent({
+        activeContent: "stale react content",
+        pendingContent: "fresh pending source publication",
+        latestContent: "stale active-file ref",
+        lastLocalContent: "older local content",
+      }),
+    ).toBe("fresh pending source publication");
+
     expect(
       getFreshActiveFileContent({
         activeContent: "stale react content",
@@ -1960,6 +1973,84 @@ describe("DesignEditor initial generation chrome", () => {
 });
 
 describe("DesignEditor element canonicalization", () => {
+  it("remaps a legacy selection id only into the requested Screen namespace", () => {
+    const html = `<main><button data-agent-native-node-id="shared" style="width: 100px">Action</button></main>`;
+    const legacyProjection = buildCodeLayerProjection(html);
+    const screenAProjection = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-a" },
+    });
+    const screenBProjection = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-b" },
+    });
+    const legacyNode = legacyProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    const screenANode = screenAProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    const screenBNode = screenBProjection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+
+    expect(legacyNode).toBeDefined();
+    expect(screenANode).toBeDefined();
+    expect(screenBNode).toBeDefined();
+    expect(screenANode!.id).not.toBe(screenBNode!.id);
+    expect(
+      remapLegacyCodeLayerNodeId(
+        legacyProjection,
+        screenAProjection,
+        legacyNode!.id,
+      ),
+    ).toBe(screenANode!.id);
+    expect(
+      remapLegacyCodeLayerNodeId(
+        legacyProjection,
+        screenBProjection,
+        legacyNode!.id,
+      ),
+    ).toBe(screenBNode!.id);
+  });
+
+  it("refreshes a selected layer in its Screen namespace only", () => {
+    const source = { kind: "design-file" as const, fileId: "screen-a" };
+    const before = `<main><button data-agent-native-node-id="shared" style="width: 100px">Action</button></main>`;
+    const after = `<main><button data-agent-native-node-id="shared" style="width: 140px">Action</button></main>`;
+    const projection = buildCodeLayerProjection(before, { source });
+    const node = projection.nodes.find(
+      (candidate) =>
+        candidate.dataAttributes["data-agent-native-node-id"] === "shared",
+    );
+    expect(node).toBeDefined();
+
+    const previous = {
+      tagName: "button",
+      selector: node!.selector,
+      sourceId: "shared",
+      id: node!.id,
+      sourceLayerIdentity: { screenId: "screen-a", nodeId: node!.id },
+      classes: [],
+      computedStyles: { width: "100px" },
+      inlineStyles: { width: "100px" },
+      boundingRect: { x: 0, y: 0, width: 100, height: 48 },
+      textContent: "Action",
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(after, previous, source);
+    expect(refreshed?.sourceLayerIdentity).toEqual(
+      previous.sourceLayerIdentity,
+    );
+    expect(refreshed?.computedStyles.width).toBe("140px");
+    expect(
+      refreshElementInfoFromContent(after, previous, {
+        kind: "design-file",
+        fileId: "screen-b",
+      }),
+    ).toBe(previous);
+  });
+
   it("resolves stale runtime positional selectors by source-backed element details", () => {
     const projection = buildCodeLayerProjection(
       `<main><div class="tile">Alpha</div><div class="tile">Beta</div></main>`,
@@ -2019,11 +2110,6 @@ describe("DesignEditor element canonicalization", () => {
   });
 
   it("does not resolve a runtime-only chrome element that has no source signal", () => {
-    // The editor injects overlay <div>s (selection/highlight/measurement/etc.)
-    // directly into the iframe body. If one leaks into a selection, its payload
-    // has no text, no design classes, and a body-rooted positional selector. It
-    // must resolve to null (runtime-only) so the editor fails softly instead of
-    // silently editing an unrelated source node.
     const projection = buildCodeLayerProjection(
       `<main><section class="hero"><div class="copy">Headline</div></section></main>`,
     );
@@ -2049,21 +2135,72 @@ describe("DesignEditor element canonicalization", () => {
       selector: '[data-agent-native-node-id="hero"]',
       sourceId: "hero",
       classes: [],
-      computedStyles: { color: "red" },
-      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      computedStyles: {
+        color: "red",
+        width: "100px",
+        backgroundColor: "yellow",
+      },
+      inlineStyles: {
+        color: "red",
+        width: "100px",
+        backgroundColor: "yellow",
+        borderRadius: "4px",
+      },
+      boundingRect: { x: 7, y: 9, width: 100, height: 12 },
+      runtimeSelector: "body > section[data-agent-native-node-id=hero]",
+      runtimeSourceId: "bridge-hero",
       textContent: "Hero",
       isFlexChild: false,
       isFlexContainer: false,
     };
 
     const refreshed = refreshElementInfoFromContent(
-      `<main><section data-agent-native-node-id="hero" style="color: blue; background-color: yellow">Hero</section></main>`,
+      `<main><section data-agent-native-node-id="hero" style="color: blue; width: 140px">Hero</section></main>`,
       previous,
     );
 
     expect(refreshed?.computedStyles.color).toBe("blue");
-    expect(refreshed?.computedStyles["background-color"]).toBe("yellow");
-    expect(refreshed?.computedStyles.backgroundColor).toBe("yellow");
+    expect(refreshed?.inlineStyles).toEqual({
+      color: "blue",
+      width: "140px",
+    });
+    expect(refreshed?.boundingRect).toEqual({
+      x: 7,
+      y: 9,
+      width: 140,
+      height: 12,
+    });
+    expect(refreshed?.runtimeSelector).toBe(previous.runtimeSelector);
+    expect(refreshed?.runtimeSourceId).toBe(previous.runtimeSourceId);
+  });
+
+  it("refreshes authored inline styles through the DOM fallback", () => {
+    const previous = {
+      tagName: "script",
+      selector: "#script-target",
+      classes: [],
+      computedStyles: { color: "red", width: "100px" },
+      inlineStyles: { color: "red", width: "100px", opacity: "0.5" },
+      boundingRect: { x: 3, y: 5, width: 100, height: 10 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    const refreshed = refreshElementInfoFromContent(
+      `<script id="script-target" style="color: blue; width: 140px"></script>`,
+      previous,
+    );
+
+    expect(refreshed?.inlineStyles).toEqual({
+      color: "blue",
+      width: "140px",
+    });
+    expect(refreshed?.boundingRect).toEqual({
+      x: 3,
+      y: 5,
+      width: 140,
+      height: 10,
+    });
   });
 
   it("does not retain stale computed styles after the source style is removed", () => {
@@ -2247,11 +2384,9 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
     const projection = buildCodeLayerProjection(html);
     const idSet = buildActiveFileNodeIdSet(projection);
 
-    // Projection ids (internal) should be present.
     for (const n of projection.nodes) {
       expect(idSet.has(n.id)).toBe(true);
     }
-    // data-agent-native-node-id attr values should be present.
     expect(idSet.has("node-a")).toBe(true);
     expect(idSet.has("node-b")).toBe(true);
   });
@@ -2264,10 +2399,8 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
     const activeProjection = buildCodeLayerProjection(activeHtml);
     const activeNodeIdSet = buildActiveFileNodeIdSet(activeProjection);
 
-    // Ids from a second (non-active) file are NOT in the active set.
     expect(activeNodeIdSet.has("other-file-node")).toBe(false);
 
-    // simulated selectedLayerIdsState that mixes active + stale ids
     const files = [{ id: "file-a" }, { id: "file-b" }];
     const fileIds = new Set(files.map((f) => f.id));
     const allLayerIds = [
@@ -2282,7 +2415,6 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
         !id.startsWith("__") && !fileIds.has(id) && activeNodeIdSet.has(id),
     );
 
-    // Only the two active-file node attr ids pass through.
     expect(filteredNodeIds).toEqual(["active-node-1", "active-node-2"]);
   });
 
@@ -2293,7 +2425,6 @@ describe("buildActiveFileNodeIdSet (group/ungroup stale-id filter)", () => {
     const projection = buildCodeLayerProjection(html);
     const idSet = buildActiveFileNodeIdSet(projection);
 
-    // At least one projection id is present.
     expect(idSet.size).toBeGreaterThan(0);
     for (const n of projection.nodes) {
       expect(idSet.has(n.id)).toBe(true);
@@ -2310,8 +2441,6 @@ describe("U2: geometry history pruning on screen deletion", () => {
     expect(
       geometryHistoryEntryTouchesFrameIds(entry, new Set(["screen-a"])),
     ).toBe(true);
-    // Deleting screen-b (untouched by this entry's actual change) must not
-    // discard screen-a's still-undoable move.
     const pruned = pruneGeometryHistoryEntryForDeletedFiles(
       entry,
       new Set(["screen-b"]),
@@ -2397,9 +2526,6 @@ describe("U11: geometry undo/redo merges a per-frame diff onto the live map", ()
       before: { "screen-a": { x: 0, y: 0 } },
       after: { "screen-a": { x: 100, y: 100 } },
     };
-    // screen-b was created after this move was committed, so it has no key
-    // in either snapshot — a naive whole-map replace with entry.before would
-    // silently drop it.
     const currentGeometry = {
       "screen-a": { x: 100, y: 100 },
       "screen-b": { x: 500, y: 500 },
@@ -2464,7 +2590,6 @@ describe("U14: orphaned motion-track cleanup on delete", () => {
     );
 
     expect(ids).toEqual(new Set(["card", "card-title", "card-cta"]));
-    // The unrelated sibling is not included.
     expect(ids.has("footer")).toBe(false);
   });
 
@@ -2510,6 +2635,18 @@ describe("U18: undo/redo refreshes stale layer selection", () => {
     expect(refreshSelectedLayerIdsFromContent(html, [keptNode!.id])).toEqual([
       keptNode!.id,
     ]);
+  });
+
+  it("refreshes namespaced layer ids without replacing them with legacy ids", () => {
+    const source = { kind: "design-file" as const, fileId: "screen-a" };
+    const projection = buildCodeLayerProjection(html, { source });
+    const keptNode = projection.nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "kept",
+    );
+    expect(keptNode).toBeDefined();
+    const ids = [keptNode!.id];
+
+    expect(refreshSelectedLayerIdsFromContent(html, ids, source)).toBe(ids);
   });
 });
 
@@ -2572,9 +2709,6 @@ describe("U3: local content history fallback mirror", () => {
   });
 
   it("does NOT coalesce a user-edit mirror across an agent checkpoint (isCheckpoint guard)", () => {
-    // Repro for: AI creates design → user edits → Cmd+Z wipes all AI work.
-    // The agent checkpoint must remain as a distinct undo entry so the first
-    // Cmd+Z reverts only the user edit and a second Cmd+Z reverts the AI work.
     const checkpoint = {
       fileId: "a",
       before: "",
@@ -2598,10 +2732,6 @@ describe("U3: local content history fallback mirror", () => {
   });
 
   it("does NOT coalesce an incoming agent checkpoint into a preceding user edit (reverse ordering)", () => {
-    // Mirror of the case above: a user edit is already on the stack when the
-    // agent edits the same file. The incoming checkpoint is contiguous
-    // (agent.before === user.after) so the one-sided guard used to merge it
-    // backward and drop isCheckpoint — one Cmd+Z then wiped both.
     const userEdit = {
       fileId: "a",
       before: "<design/>",
@@ -2620,10 +2750,6 @@ describe("U3: local content history fallback mirror", () => {
   });
 });
 
-// L11: screen rename must preserve the file extension instead of writing the
-// raw typed display name (which never itself has a valid extension — the
-// panel edits prettyScreenName's stripped/reformatted display text) straight
-// into the filename column.
 describe("renameFilenamePreservingExtension", () => {
   it("appends the current extension when the typed name has none", () => {
     expect(renameFilenamePreservingExtension("index.html", "Dashboard")).toBe(
@@ -2828,14 +2954,6 @@ describe("applyRelativeDeltaToStyleValue", () => {
 });
 
 describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
-  // B5-1: clicking empty infinite-canvas space while an element INSIDE a
-  // screen is selected must deselect it too, not just an overview screen
-  // frame. handleLayerMarqueeSelectionChange already clears the host-side
-  // selectedElement state whenever the marquee/hit-test resolves to zero
-  // elements and the gesture isn't additive; this helper is the same
-  // decision, extracted so the "also tell the bridge/iframe overlays to
-  // clear their own selection highlight" branch (overviewClearSelectionRequest)
-  // is covered without needing to render the full DesignEditor component.
   it("clears when an empty-space click resolves to zero elements", () => {
     expect(
       shouldClearBridgeSelectionOnEmptyMarquee({
@@ -2873,15 +2991,27 @@ describe("shouldClearBridgeSelectionOnEmptyMarquee", () => {
   });
 });
 
+describe("resolveMarqueeAdditive", () => {
+  it("is additive on shift", () => {
+    expect(resolveMarqueeAdditive({ shiftKey: true })).toBe(true);
+  });
+
+  it("is additive on an explicit additive/range intent", () => {
+    expect(resolveMarqueeAdditive({ additive: true })).toBe(true);
+    expect(resolveMarqueeAdditive({ range: true })).toBe(true);
+  });
+
+  it("is NOT additive on Cmd or Ctrl alone", () => {
+    expect(resolveMarqueeAdditive({ metaKey: true })).toBe(false);
+    expect(resolveMarqueeAdditive({ ctrlKey: true })).toBe(false);
+  });
+
+  it("is not additive with no intent at all", () => {
+    expect(resolveMarqueeAdditive(undefined)).toBe(false);
+  });
+});
+
 describe("computeOverviewScreenPickSelectionIds", () => {
-  // PICK-RACE: MultiScreenCanvas's onPick prop is `(id: string) => void` —
-  // no modifier info — even though a shift-click there already toggled a
-  // full multi-id array internally before calling onPick with just the
-  // resulting primary id. handleOverviewScreenPick used to always clobber
-  // selectedLayerIdsState down to [pickedId], which is wrong for both
-  // shift-click cases below; the fix defers entirely to the
-  // onScreenSelectionChange-reported overviewSelectedScreenIds while shift
-  // is held instead of guessing a (necessarily wrong) merged array.
   it("replaces the selection with the singleton pick when shift is not held", () => {
     expect(
       computeOverviewScreenPickSelectionIds({
@@ -2893,11 +3023,6 @@ describe("computeOverviewScreenPickSelectionIds", () => {
   });
 
   it("does not clobber a multi-screen selection on a shift-click ADD", () => {
-    // handleFrameClick already added "screen-b" to ITS OWN selectedIds and
-    // reported "screen-b" as the new primary via onPick; DesignEditor's
-    // selectedLayerIdsState still shows only ["screen-a"] until the
-    // onScreenSelectionChange effect lands ["screen-a", "screen-b"] a render
-    // later. The fix must not overwrite it with a wrong singleton meanwhile.
     expect(
       computeOverviewScreenPickSelectionIds({
         pickedId: "screen-b",
@@ -2908,10 +3033,6 @@ describe("computeOverviewScreenPickSelectionIds", () => {
   });
 
   it("does not clobber the remaining selection on a shift-click REMOVE", () => {
-    // Selection was [A, B, C]; shift-clicking B toggles it off, and
-    // handleFrameClick reports the new primary (the last remaining id, "C")
-    // through onPick — NOT the full remaining array. A naive
-    // [pickedId] === ["C"] clobber would incorrectly drop "A" too.
     expect(
       computeOverviewScreenPickSelectionIds({
         pickedId: "screen-c",

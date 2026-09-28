@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { useEffect, useState } from "react";
@@ -15,10 +15,6 @@ export default function Presentation() {
   const t = useT();
   const { getDeck, loading } = useDecks();
   const [fallbackDeck, setFallbackDeck] = useState<Deck | null>(null);
-  // "missing" is the server saying this deck does not exist; "failed" is not
-  // being able to ask. Collapsing them sent every timed-out or 5xx load back to
-  // the index as if the deck were gone — the failure local dev hits most, since
-  // a request can sit queued behind the origin's held streams.
   const [fallbackState, setFallbackState] = useState<
     "idle" | "loading" | "missing" | "failed"
   >("idle");
@@ -50,7 +46,7 @@ export default function Presentation() {
 
     let cancelled = false;
     setFallbackState("loading");
-    callAction<Deck>("get-deck", { id }, { method: "GET" })
+    callActionWithRetry<Deck>("get-deck", { id }, { method: "GET" })
       .then((data) => {
         if (!cancelled) {
           setFallbackDeck(data);
@@ -70,8 +66,6 @@ export default function Presentation() {
 
   if (!id) return <Navigate to="/" replace />;
   if (!deck && fallbackState === "failed") {
-    // The presentation viewport is black in both themes; these share it with
-    // the loading state below rather than flashing a themed panel first.
     const viewport =
       "flex h-screen flex-col items-center justify-center gap-4 bg-black text-white"; // guard:allow-raw-color — deliberate presentation surface
     const retry =
@@ -92,9 +86,6 @@ export default function Presentation() {
       </div>
     );
   }
-  // "Not fetched yet" is not "not found": on a cold load of this URL the deck
-  // context is empty and the fallback fetch has not run, so redirecting on a
-  // falsy deck bounced every direct/presenter/share link back to the index.
   if (!deck && fallbackState !== "missing") {
     return <div className="h-screen bg-black" />;
   }

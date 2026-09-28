@@ -1,10 +1,3 @@
-/**
- * Update the text of a comment.
- *
- * Usage:
- *   pnpm action update-comment --id=<id> --content="Updated text"
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -14,7 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpired } from "../server/lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 import {
   displayCommentMentions,
@@ -58,15 +51,16 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    // Any signed-in viewer with access to the recording may edit their own
-    // comment, matching add-comment's top-level comment gate.
     const access = await assertAccess(
       "recording",
       existing.recordingId,
       "viewer",
     );
     if (
-      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
     ) {
       throw new ForbiddenError("Recording has expired");
     }

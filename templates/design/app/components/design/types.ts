@@ -1,4 +1,7 @@
-import type { ElementProvenance } from "@shared/source-mode";
+import type {
+  ElementProvenance,
+  RuntimeComponentIdentity,
+} from "@shared/source-mode";
 
 export interface PortableStyleSnapshotNode {
   sourceId?: string;
@@ -12,32 +15,108 @@ export interface PortableStyleSnapshot {
   nodes: PortableStyleSnapshotNode[];
 }
 
-export interface RuntimeStructureMoveRequest {
-  requestId: number;
+export interface RuntimeStructureMove {
   subject: { selector: string; sourceId?: string | null };
   anchor: { selector: string; sourceId?: string | null };
   placement: "before" | "after" | "inside";
+  transactionId?: string;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements?: Array<{
+    sourceId?: string;
+    selector?: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
 }
 
-/**
- * Insert NEW markup into a live screen's running DOM. Unlike
- * RuntimeStructureMoveRequest there is no subject in the running app yet —
- * the html is the subject, already positioned by the host.
- */
+export interface RuntimeStructureMoveRequest extends RuntimeStructureMove {
+  requestId: number;
+  moves?: RuntimeStructureMove[];
+}
+
+export interface GridGroupStructureMove {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  sourceId: string;
+  anchorSelector: string;
+  anchorSourceId: string;
+  placement?: "before" | "after" | "inside";
+  persistenceAnchorSelector?: string;
+  persistenceAnchorSourceId?: string;
+  persistencePlacement?: "before" | "after" | "inside";
+  gridPlacement: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
+  gridDisplacements: Array<{
+    sourceId: string;
+    selector: string;
+    placement: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+  }>;
+}
+
 export interface RuntimeStructureInsertRequest {
   requestId: number;
+  transactionId?: string;
+  screenId?: string;
+  sourceScreenId?: string;
+  remintCollidingNodeIds?: boolean;
   html: string;
-  /** Additional clipboard roots inserted by the same paste gesture. */
   additionalHtml?: string[];
-  /** Replace the resolved anchor instead of inserting beside/inside it. */
   replaceAnchor?: boolean;
   anchor: {
     selector: string;
     sourceId?: string | null;
-    /** Hit-test-minted id, live-DOM only. The only handle on an id-less anchor. */
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+}
+
+export interface RuntimeStructureDeleteRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  selectorCandidates?: string[];
+  waitForInsertTransaction?: boolean;
+  rollbackScreenId?: string;
+  rollbackSelector?: string;
+  rollbackSourceId?: string;
+  cancelRequested?: boolean;
+  cancellationRetryCount?: number;
+}
+
+export interface RuntimeStructureRollbackRequest {
+  requestId: string;
+  transactionId?: string;
+  selector: string;
+  sourceId?: string;
+  idempotent?: boolean;
+  retryCount?: number;
+}
+
+export interface RuntimeLayerRenameRequest {
+  requestId: number;
+  selector: string;
+  sourceId?: string | null;
+  routePath?: string;
+  name: string;
 }
 
 export interface RuntimeVerificationRequest {
@@ -47,83 +126,49 @@ export interface RuntimeVerificationRequest {
 export interface ElementInfo {
   tagName: string;
   componentName?: string;
+  componentAnnotation?: string;
+  runtimeComponent?: RuntimeComponentIdentity;
   id?: string;
   sourceId?: string;
-  /**
-   * Source location reported by the canvas bridge. React development builds
-   * derive this from jsxDEV/Fiber debug frames; instrumented runtimes may emit
-   * the equivalent data-source-* attributes. This is provenance only, not a
-   * stable source identity: callers must still verify the file contents and
-   * location before any write.
-   */
   provenance?: ElementProvenance;
-  /**
-   * Node-id integrity (id-on-demand): a durable candidate id the bridge minted
-   * for this element because it has no stable `data-agent-native-node-id`
-   * (or other stable source id) at all — common on AI-generated screens,
-   * where every id-keyed host operation (move/reorder, style commits that
-   * resolve a targetNode, motion tracks, scrub) otherwise silently no-ops or
-   * throws `Node with data-agent-native-node-id="" not found in sourceHtml`.
-   * Only present when `sourceId` is absent/empty. The host should persist
-   * this value into the source as the element's real
-   * `data-agent-native-node-id` the moment it sees one (see
-   * DesignEditor.tsx's selection handlers), through the same guarded write
-   * path every other edit uses — after that every subsequent id-keyed op
-   * against this element resolves normally via `sourceId`.
-   */
   pendingNodeId?: string;
+  repeat?: {
+    sourceSelector: string;
+    instanceCount: number;
+    instanceIndex: number;
+    xFor: string;
+    itemIndex: number;
+    textBinding: string;
+    keyExpression: string;
+    itemKey: string;
+  };
   selector?: string;
-  /**
-   * The `selector` / `sourceId` the canvas bridge originally reported, kept
-   * verbatim when the host canonicalizes the selection onto its own source
-   * projection (canonicalElementInfoForCodeLayerNode). For a live/localhost
-   * screen the two are DIFFERENT node-id namespaces — the running document
-   * carries the ids the bridge assigned there, the fetched source snapshot
-   * carries the ones ensureCodeLayerNodeIdsInHtml stamped — so the canonical
-   * selector cannot address the live DOM. Any host-initiated mutation of the
-   * running document (currently only delete) must target these instead.
-   */
+  hasOwnText?: boolean;
+  wholeTextStyleRoot?: boolean;
   runtimeSelector?: string;
   runtimeSourceId?: string;
+  sourceLayerIdentity?: { screenId: string; nodeId: string };
   classes: string[];
   computedStyles: Record<string, string>;
-  /**
-   * Raw authored `el.style` values (not computed) for a bounded set of
-   * layout-relevant properties: position, left, right, top, bottom, width,
-   * height, transform, whiteSpace. Populated on SELECTION payloads only
-   * (not hover). Optional because older/hover payloads omit it — callers
-   * must fall back to computedStyles-based inference when absent.
-   */
   inlineStyles?: Record<string, string>;
-  /**
-   * Value of the element's `data-an-primitive` attribute (e.g. "text",
-   * "rectangle", "frame", "ellipse") when present. Canvas-drawn primitives —
-   * including T-tool text, which is a plain `div` — carry this marker so the
-   * inspector can identify them without relying on tagName alone. Optional
-   * because older payloads and non-primitive/source-backed elements omit it.
-   */
+  authoredSizeStyles?: Partial<Record<"width" | "height", string>>;
   primitiveKind?: string;
+  isGroup?: boolean;
+  vectorStrokeCanAlign?: boolean;
   portableStyleSnapshot?: PortableStyleSnapshot;
+  styleSnapshotCaptureFailed?: boolean;
   boundingRect: { x: number; y: number; width: number; height: number };
-  /** Exact bounds of the selected element's direct parent in the same
-   * document coordinate space as `boundingRect`. Constraint edits use this
-   * to preserve edge gaps, center offsets, and proportional Scale geometry. */
   parentBoundingRect?: {
     x: number;
     y: number;
     width: number;
     height: number;
   };
-  /** Capped at 200 chars by the editor-chrome bridge. `apply-visual-edit`
-   *  kind:"textContent" replaces the element's whole text, so writing this
-   *  value back when `textContentTruncated` is true destroys everything past
-   *  the cap. Read the full text before any textContent overwrite. */
   textContent?: string;
   textContentTruncated?: boolean;
-  /** Capped at 4000 chars; same overwrite hazard as `textContent`. */
   htmlContent?: string;
   htmlContentTruncated?: boolean;
-  /** Direct element children; text nodes are ignored. */
+  imageSource?: string;
   childElementCount?: number;
   isFlexChild: boolean;
   isFlexContainer: boolean;
@@ -141,6 +186,7 @@ export interface ElementInfo {
     alignItems?: string;
     justifyContent?: string;
     gap?: string;
+    gridAutoFlow?: string;
     gridTemplateColumns?: string;
     gridTemplateRows?: string;
     position?: string;
@@ -158,10 +204,25 @@ export interface ElementInfo {
   confidence?: number;
 }
 
+export interface TextEditingState {
+  active: boolean;
+  selector?: string;
+  sourceId?: string;
+  hasRange?: boolean;
+  computedStyles?: Record<string, string>;
+  inlineStyles?: Record<string, string>;
+  rect?: { width: number; height: number };
+  screenId?: string;
+}
+
 export interface ElementSelectionIntent {
   additive?: boolean;
   range?: boolean;
   source?: "pointer" | "keyboard" | "marquee";
+  final?: boolean;
+  cancelled?: boolean;
+  restoreHostSelection?: boolean;
+  resetHistory?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
   ctrlKey?: boolean;
@@ -198,16 +259,10 @@ export type ZoomPreset = (typeof ZOOM_PRESETS)[number];
 export interface DrawAnnotation {
   id: string;
   type: "path" | "text";
-  /** SVG path data for freehand strokes */
   pathData?: string;
-  /** Text content for text annotations */
   text?: string;
-  /** Position on the canvas */
   position: { x: number; y: number };
-  /** Stroke color */
   color: string;
-  /** Stroke width */
   lineWidth: number;
-  /** Bounding rect of the element being annotated, if any */
   elementContext?: ElementInfo;
 }

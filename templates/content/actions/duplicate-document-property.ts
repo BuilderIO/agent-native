@@ -32,7 +32,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Database ID that owns the property; omit only for context-free entry points",
+        "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID to duplicate"),
   }),
@@ -105,8 +105,6 @@ export default defineAction({
           const isBlocks = isBlocksPropertyType(
             lockedDefinition.type as DocumentPropertyType,
           );
-          // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
-          // primary (only one field backs the body) and with no copied content.
           const optionsJson = isBlocks
             ? serializePropertyOptions({ blocks: { primary: false } })
             : lockedDefinition.optionsJson;
@@ -140,8 +138,6 @@ export default defineAction({
             updatedAt: now,
           });
 
-          // Blocks fields don't use document_property_values; a duplicate
-          // starts empty.
           if (!isBlocks) {
             const values = await tx
               .select()

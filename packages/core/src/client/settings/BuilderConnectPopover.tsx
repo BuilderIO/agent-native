@@ -1,4 +1,6 @@
-import { IconArrowRight, IconLoader2 } from "@tabler/icons-react";
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { IconArrowRight } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 
 import {
@@ -7,27 +9,28 @@ import {
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { useT } from "../i18n.js";
-import { cn } from "../utils.js";
 import type { BuilderConnectFlow } from "./useBuilderStatus.js";
 
 type BuilderConnectTrigger = React.ReactElement<{
   onClick?: React.MouseEventHandler<HTMLElement>;
-  "aria-disabled"?: boolean;
+  "aria-busy"?: boolean;
+  disabled?: boolean;
 }>;
 
 export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
+    cancel?: BuilderConnectFlow["cancel"];
     agentNativeProvisioningEnabled?: boolean;
     accountExists?: boolean;
-    /** Retry the status request without bypassing provisioning consent. */
-    retry?: () => void;
+    retry?: () => boolean | void;
     statusResolved?: boolean;
+    statusReadSettledCount?: number;
+    canConnect?: BuilderConnectFlow["canConnect"];
   };
   children: BuilderConnectTrigger;
-  /** Preserve a surface-specific tracking source or callback when choosing a path. */
   onConnect?: (provisionAccount: boolean) => void;
-  /** Preserve parent-row click behavior for compact setup controls. */
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
+  defaultProvisionAccount?: boolean;
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
@@ -38,6 +41,7 @@ export function BuilderConnectPopover({
   children,
   onConnect,
   onTriggerClick,
+  defaultProvisionAccount = false,
   contentTestId,
   primaryTestId,
   secondaryTestId,
@@ -46,9 +50,14 @@ export function BuilderConnectPopover({
   const [open, setOpen] = useState(false);
   const capabilityResolved = flow.statusResolved === true;
   const showPopover =
-    capabilityResolved && flow.agentNativeProvisioningEnabled === true;
-  const accountExists = showPopover && flow.accountExists;
+    (defaultProvisionAccount && !capabilityResolved) ||
+    (capabilityResolved && flow.agentNativeProvisioningEnabled === true);
+  const accountExists = capabilityResolved && flow.accountExists;
   const initiatedByThisTriggerRef = useRef(false);
+  const [queuedClick, setQueuedClick] = useState<{ settledAt: number } | null>(
+    null,
+  );
+  const settledCount = flow.statusReadSettledCount ?? 0;
 
   useEffect(() => {
     if (accountExists && initiatedByThisTriggerRef.current) {
@@ -67,13 +76,40 @@ export function BuilderConnectPopover({
     flow.start({ provisionAccount });
   };
 
+  const openQueuedPopoverRef = useRef<() => void>(() => {});
+  openQueuedPopoverRef.current = () => {
+    setQueuedClick(null);
+    if (showPopover) setOpen(true);
+  };
+
+  useEffect(() => {
+    if (!queuedClick) return;
+    if (capabilityResolved) {
+      openQueuedPopoverRef.current();
+      return;
+    }
+    if (settledCount !== queuedClick.settledAt) setQueuedClick(null);
+  }, [queuedClick, capabilityResolved, settledCount]);
+
   const trigger = React.cloneElement(children, {
-    "aria-disabled": capabilityResolved ? undefined : true,
+    "aria-busy": queuedClick ? true : undefined,
     onClick: (event) => {
+      if (flow.connecting) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!capabilityResolved) {
         event.preventDefault();
         event.stopPropagation();
-        flow.retry?.();
+        if (defaultProvisionAccount) {
+          setOpen(true);
+          return;
+        }
+        if (queuedClick) return;
+        if (flow.retry?.() === true) {
+          setQueuedClick({ settledAt: settledCount });
+        }
         return;
       }
       children.props.onClick?.(event);
@@ -82,9 +118,31 @@ export function BuilderConnectPopover({
     },
   });
 
-  if (!showPopover) return trigger;
+  const cancelAction =
+    flow.connecting && flow.cancel ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="shrink-0"
+        onClick={flow.cancel}
+      >
+        {t("common.cancel")}
+      </Button>
+    ) : null;
 
-  return (
+  if (!showPopover) {
+    return cancelAction ? (
+      <span className="inline-flex max-w-full items-center gap-2">
+        {trigger}
+        {cancelAction}
+      </span>
+    ) : (
+      trigger
+    );
+  }
+
+  const popover = (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
@@ -93,7 +151,7 @@ export function BuilderConnectPopover({
         sideOffset={-40}
         aria-labelledby="builder-connect-popover-title"
         data-testid={contentTestId}
-        className="z-[110] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
+        className="z-[330] w-80 max-w-[calc(100vw-2rem)] p-3 text-left"
       >
         <div className="space-y-2.5">
           <h2
@@ -107,29 +165,27 @@ export function BuilderConnectPopover({
           <p className="text-xs leading-5 text-muted-foreground">
             {accountExists
               ? t("agentChat.onboarding.builderAccountExistsDescription")
-              : t("agentChat.onboarding.builderActivationDescription")}
+              : flow.canConnect?.org
+                ? t("agentChat.onboarding.builderOrgActivationDescription")
+                : t("agentChat.onboarding.builderActivationDescription")}
           </p>
-          <button
+          <Button
             type="button"
             data-testid={primaryTestId}
-            className={cn(
-              "inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-lg bg-foreground px-4 text-xs font-medium text-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60",
-            )}
+            className="w-full"
             onClick={() => start(accountExists ? false : true)}
             disabled={flow.connecting}
           >
-            {flow.connecting ? (
-              <IconLoader2 size={14} className="animate-spin" />
-            ) : null}
+            {flow.connecting ? <Spinner aria-hidden /> : null}
             {accountExists
               ? t("agentChat.auth.logIn")
               : flow.connecting
                 ? t("agentChat.onboarding.builderActivating")
                 : t("agentChat.onboarding.builderCreateAndActivate")}
             {!accountExists && !flow.connecting ? (
-              <IconArrowRight size={15} />
+              <IconArrowRight aria-hidden />
             ) : null}
-          </button>
+          </Button>
           {!accountExists && (
             <>
               <p className="text-[11px] leading-4 text-muted-foreground">
@@ -153,19 +209,29 @@ export function BuilderConnectPopover({
                 </a>
                 .
               </p>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 data-testid={secondaryTestId}
-                className="inline-flex min-h-9 w-full items-center justify-center rounded-lg px-4 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+                className="w-full"
                 onClick={() => start(false)}
                 disabled={flow.connecting}
               >
                 {t("agentChat.onboarding.builderExistingAccount")}
-              </button>
+              </Button>
             </>
           )}
         </div>
       </PopoverContent>
     </Popover>
+  );
+
+  return cancelAction ? (
+    <span className="inline-flex max-w-full items-center gap-2">
+      {popover}
+      {cancelAction}
+    </span>
+  ) : (
+    popover
   );
 }

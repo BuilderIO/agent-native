@@ -57,6 +57,18 @@ describe("workspaceAppDirectHref", () => {
     ).toBe("https://workspace.example.test/atlas/emails?status=failed#latest");
   });
 
+  it("preserves hosted URL search and hash when the target omits them", () => {
+    expect(
+      workspaceAppDirectHref(
+        {
+          path: "/atlas",
+          url: "https://workspace.example.test/atlas?tenant=acme#shell",
+        },
+        "/home",
+      ),
+    ).toBe("https://workspace.example.test/atlas/home?tenant=acme#shell");
+  });
+
   it("does not duplicate a mount path already present in the target", () => {
     expect(
       workspaceAppDirectHref(

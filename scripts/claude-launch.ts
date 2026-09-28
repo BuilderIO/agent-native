@@ -26,7 +26,7 @@ const packageName = readPackageName(packagePath);
 const appName = env.APP_NAME ?? packageName ?? path.basename(resolvedAppDir);
 const appPrefix = appName.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
 const scratchDir = mkdtempSync(path.join(os.tmpdir(), "agent-native-claude-"));
-const databaseUrl = `pglite:${scratchDir}`;
+const databaseUrl = env.DATABASE_URL ?? `pglite:${scratchDir}`;
 const childEnv: Environment = {
   ...process.env,
   ...env,

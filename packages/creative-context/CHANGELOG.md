@@ -1,5 +1,147 @@
 # @agent-native/creative-context
 
+## 0.8.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- a20f0b4: `CreativeContextPanel` and `createCreativeContextAgentTab` accept `variant: "settings"`, which drops the panel's own title, description, and page padding when the redesigned Settings page already shows them.
+
+## 0.8.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.8.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.2
+
+### Patch Changes
+
+- 421910f: Return deterministic client errors for disabled Creative Context and preserve the singular app-role setter for existing integrations.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.0
+
+### Minor Changes
+
+- 24ed917: Add a default-off Creative Context lab and keep What's new in its own settings group.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.25
+
+### Patch Changes
+
+- fba0dbc: Let a host declare the role that recording generation provenance requires, so drafting in a resource you can only read no longer fails on its own provenance write.
+- Release all public npm packages with a patch version bump.
+- bd3e96e: Use the shared serverless Chromium runtime for Design exports and copy it for apps that declare Playwright directly.
+
+## 0.7.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.7.23
+
+### Patch Changes
+
+- a53a789: Clean up and streamline the Creative Context share tab interface.
+- Release all public npm packages with a patch version bump.
+
+## 0.7.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.7.21
 
 ### Patch Changes

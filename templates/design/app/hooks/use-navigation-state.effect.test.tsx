@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const coreClientMocks = vi.hoisted(() => ({
@@ -34,7 +34,13 @@ async function renderProbe(pathname: string, enabled = true) {
   await act(async () => {
     root.render(
       <MemoryRouter initialEntries={[pathname]}>
-        <Probe enabled={enabled} />
+        <Routes>
+          <Route
+            path="/visual-edit/:id"
+            element={<Probe enabled={enabled} />}
+          />
+          <Route path="*" element={<Probe enabled={enabled} />} />
+        </Routes>
       </MemoryRouter>,
     );
   });
@@ -64,6 +70,69 @@ describe("useNavigationState selection cleanup", () => {
     await renderProbe("/design/design-123");
 
     expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("keeps editor selection and navigation state on canonical visual-edit routes", async () => {
+    await renderProbe("/visual-edit/design-123?editorView=overview");
+
+    expect(coreClientMocks.setClientAppState).not.toHaveBeenCalled();
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?editorView=overview",
+      }),
+    ).toEqual({
+      view: "editor",
+      designId: "design-123",
+      editorView: "overview",
+    });
+  });
+
+  it("accepts the legacy view query on persisted editor routes", async () => {
+    await renderProbe("/visual-edit/design-123?view=overview");
+
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?view=overview",
+      }),
+    ).toMatchObject({ editorView: "overview" });
+  });
+
+  it("keeps the canonical editor view when a legacy query conflicts after reload", async () => {
+    await renderProbe(
+      "/visual-edit/design-123?editorView=overview&view=single",
+    );
+
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/design-123",
+        search: "?editorView=overview&view=single",
+      }),
+    ).toMatchObject({ editorView: "overview" });
+  });
+
+  it("keeps the Builder shell out of persisted editor navigation state", async () => {
+    await renderProbe("/visual-edit/shell?view=overview");
+
+    expect(coreClientMocks.setClientAppState).toHaveBeenCalledWith(
+      "design-selection:tab-123",
+      null,
+    );
+    const routeStateCalls = coreClientMocks.useAgentRouteState.mock.calls;
+    const config = routeStateCalls[routeStateCalls.length - 1]?.[0];
+    expect(
+      config.getNavigationState({
+        pathname: "/visual-edit/shell",
+        search: "?view=overview",
+      }),
+    ).toEqual({ view: "list" });
   });
 
   it("does not clear selection while route sync is disabled", async () => {

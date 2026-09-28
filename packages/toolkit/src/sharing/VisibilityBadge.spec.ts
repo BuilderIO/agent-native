@@ -4,14 +4,6 @@ import { describe, expect, it } from "vitest";
 
 import { VisibilityBadge } from "./VisibilityBadge.js";
 
-/**
- * VisibilityBadge is a plain function component with no hooks or DOM access,
- * so we can call it directly (no render, no jsdom) and inspect the React
- * element object the JSX runtime builds. This locks down the visibility ->
- * icon/label mapping and the derived-size math without needing a DOM
- * environment.
- */
-
 interface SpanStyle {
   display: string;
   alignItems: string;

@@ -1,10 +1,13 @@
-import { table, text, integer } from "@agent-native/core/db/schema";
+import {
+  bigint,
+  index,
+  integer,
+  sql,
+  table,
+  text,
+  uniqueIndex,
+} from "@agent-native/core/db/schema";
 
-/**
- * Short-lived, owner-scoped continuation state for the external Mail
- * inventory. It intentionally contains compact metadata only; credentials,
- * bodies, HTML and attachments never enter this table.
- */
 export const mailInventoryCursors = table("mail_inventory_cursors", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
@@ -59,6 +62,59 @@ export const automationRules = table("automation_rules", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const aiFilterRuleUndo = table(
+  "mail_ai_filter_rule_undo",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    rulesJson: text("rules_json").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_rule_undo_owner_expiry_idx").on(
+      t.ownerEmail,
+      t.expiresAt,
+    ),
+    index("mail_ai_filter_rule_undo_expires_idx").on(t.expiresAt),
+  ],
+);
+
+export const aiFilterBackfills = table(
+  "mail_ai_filter_backfills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    ruleSetKey: text("rule_set_key"),
+    status: text("status", {
+      enum: ["queued", "running", "completed", "failed", "undoing", "undone"],
+    }).notNull(),
+    stateJson: text("state_json").notNull(),
+    undoToken: text("undo_token"),
+    undoExpiresAt: bigint("undo_expires_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    claimId: text("claim_id"),
+    claimedAt: bigint("claimed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_backfills_owner_created_idx").on(
+      t.ownerEmail,
+      t.createdAt,
+    ),
+    index("mail_ai_filter_backfills_status_updated_idx").on(
+      t.status,
+      t.updatedAt,
+    ),
+    index("mail_ai_filter_backfills_expires_idx").on(t.expiresAt),
+    uniqueIndex("mail_ai_filter_backfills_owner_rule_set_active_idx")
+      .on(t.ownerEmail, t.ruleSetKey)
+      .where(
+        sql`${t.ruleSetKey} IS NOT NULL AND ${t.status} IN ('queued', 'running', 'undoing')`,
+      ),
+  ],
+);
+
 export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),
   messageId: text("message_id").notNull(),
@@ -87,6 +143,103 @@ export const snippets = table("snippets", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const mailSyncAccounts = table(
+  "mail_sync_accounts",
+  {
+    id: text("id").primaryKey(), // `${owner}:${account}` lowercased
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    historyId: text("history_id"),
+    fullSyncPageToken: text("full_sync_page_token"),
+    fullSyncHistoryId: text("full_sync_history_id"),
+    fullSyncStartedAt: integer("full_sync_started_at"),
+    status: text("status", {
+      enum: ["idle", "syncing", "error", "needs_reauth"],
+    })
+      .notNull()
+      .default("idle"),
+    lastError: text("last_error"),
+    lastSyncedAt: integer("last_synced_at"),
+    lastPushGeneration: bigint("last_push_generation", { mode: "number" })
+      .notNull()
+      .default(0),
+    syncClaimId: text("sync_claim_id"),
+    syncClaimedAt: integer("sync_claimed_at"),
+    lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),
+    lastWatchAttemptedAt: bigint("last_watch_attempted_at", { mode: "number" }),
+    lastAutomationAttemptedAt: bigint("last_automation_attempted_at", {
+      mode: "number",
+    }),
+    watchRenewClaimId: text("watch_renew_claim_id"),
+    watchRenewClaimedAt: bigint("watch_renew_claimed_at", { mode: "number" }),
+    labelsJson: text("labels_json"),
+    labelsUpdatedAt: integer("labels_updated_at"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
+);
+
+export const mailInboxPushInvalidations = table(
+  "mail_inbox_push_invalidations",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    generation: bigint("generation", { mode: "number" }).notNull().default(1),
+  },
+  (t) => [
+    index("mail_inbox_push_invalidations_owner_account_idx").on(
+      t.ownerEmail,
+      t.accountEmail,
+    ),
+  ],
+);
+
+export const mailInboxThreads = table(
+  "mail_inbox_threads",
+  {
+    id: text("id").primaryKey(), // `${owner}:${account}:${threadId}` lowercased owner/account
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    threadId: text("thread_id").notNull(),
+    historyId: text("history_id"),
+    inInbox: integer("in_inbox").notNull(),
+    isUnread: integer("is_unread"),
+    isStarred: integer("is_starred"),
+    isImportant: integer("is_important"),
+    isAutomated: integer("is_automated"),
+    latestDate: integer("latest_date").notNull(),
+    latestMessageId: text("latest_message_id"),
+    subject: text("subject"),
+    snippet: text("snippet"),
+    fromName: text("from_name"),
+    fromEmail: text("from_email"),
+    toJson: text("to_json"), // JSON [{name,email}] of the classified message
+    labelIdsJson: text("label_ids_json").notNull(), // JSON string[] union across non-draft messages
+    messageIdsJson: text("message_ids_json").notNull(), // JSON string[] all message ids
+    messageCount: integer("message_count"),
+    unreadCount: integer("unread_count"),
+    hasAttachments: integer("has_attachments"),
+    syncedAt: integer("synced_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    localMutationAt: integer("local_mutation_at"),
+    localMutationHistoryId: text("local_mutation_history_id"),
+    localMutationFields: integer("local_mutation_fields"),
+  },
+  (t) => [
+    index("mail_inbox_threads_owner_inbox_date_idx").on(
+      t.ownerEmail,
+      t.inInbox,
+      t.latestDate,
+    ),
+    index("mail_inbox_threads_owner_account_idx").on(
+      t.ownerEmail,
+      t.accountEmail,
+    ),
+  ],
+);
 
 export const queuedEmailDrafts = table("queued_email_drafts", {
   id: text("id").primaryKey(),

@@ -1,3 +1,7 @@
+import {
+  getRequestContext,
+  runWithRequestContext,
+} from "@agent-native/core/server/request-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uploadFile = vi.hoisted(() => vi.fn());
@@ -25,9 +29,15 @@ describe("storeMediaUpload", () => {
   });
 
   it("persists provider metadata and verifies it before returning a handle", async () => {
-    uploadFile.mockResolvedValue({
-      url: "https://files.example.com/report.pdf",
-      provider: "test-provider",
+    uploadFile.mockImplementation(async () => {
+      expect(getRequestContext()).toMatchObject({
+        userEmail: "owner@example.com",
+        orgId: "org-1",
+      });
+      return {
+        url: "https://files.example.com/report.pdf",
+        provider: "test-provider",
+      };
     });
     uploadStore.get.mockResolvedValue({
       filename: "upload-1.pdf",
@@ -35,12 +45,16 @@ describe("storeMediaUpload", () => {
     });
     const { storeMediaUpload } = await import("./media-upload.js");
 
-    const result = await storeMediaUpload({
-      ownerEmail: "owner@example.com",
-      data: new Uint8Array([1, 2, 3]),
-      filename: "upload-1.pdf",
-      originalName: "report.pdf",
-    });
+    const result = await runWithRequestContext(
+      { userEmail: "request@example.com", orgId: "org-1" },
+      () =>
+        storeMediaUpload({
+          ownerEmail: "owner@example.com",
+          data: new Uint8Array([1, 2, 3]),
+          filename: "upload-1.pdf",
+          originalName: "report.pdf",
+        }),
+    );
 
     expect(uploadFile).toHaveBeenCalledWith(
       expect.objectContaining({

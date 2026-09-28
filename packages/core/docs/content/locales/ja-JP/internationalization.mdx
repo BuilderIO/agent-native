@@ -57,9 +57,12 @@ export const i18nCatalog = createAgentNativeI18nCatalog({
 
 `messages` は `en-US` を直接バンドルするため、どのロケールが読み込まれる前でも常に利用できます。`localeLoaders` は他のすべてのカタログを動的インポートするため、ユーザーはアクティブなロケールだけをダウンロードします。サポートされているロケールコードは `en-US`、`zh-CN`、`zh-TW`、`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN`、`ar-SA` です。
 
-このリストはフレームワークによって固定されています。この例がたまたまバンドルしているものだけではありません。`LocaleCode` はこれらのコードのみからなる TypeScript のユニオン型であり、`set-localization-preference` は実行時にそれ以外の値を拒否します。各ロケールには、右横書き言語のテキスト方向のような、フレームワークが整備したメタデータも必要です。新しいロケールを追加することは、アプリにカタログファイルを追加することではなく、フレームワーク自体を拡張することを意味します。
+フレームワークには組み込みロケールがあります。アプリは、現地語名・英語名・
+テキスト方向などの独自メタデータを持つ、追加の正規 BCP-47 ロケールを登録
+できます。任意のフレームワーク翻訳には `coreMessageOverrides` を使い、欠落
+したキーは英語にフォールバックします。
 
-`createAgentNativeI18nCatalog` は、デフォルトで `en-US` となる省略可能な `sourceLocale` と、省略可能な `supportedLocales` 配列も受け取ります。アプリがフレームワークの 10 個のロケールすべてではなく一部だけの翻訳を提供する場合は `supportedLocales` を設定します。デフォルトではフレームワークがサポートするすべてのロケールになります。`LanguagePicker` はこのセット内のロケールのみを一覧表示し、検出または要求されたロケールがこのセットの外にある場合は `sourceLocale` にフォールバックします。
+`createAgentNativeI18nCatalog` は、デフォルトで `en-US` となる省略可能な `sourceLocale` と、省略可能な `supportedLocales` 配列も受け取ります。アプリがフレームワークの 10 個のロケールすべてではなく一部だけの翻訳を提供する場合は `supportedLocales` を設定します。デフォルトではフレームワークがサポートするすべてのロケールになります。`LanguagePicker` はこのセット内のロケールのみを一覧表示し、検出または要求されたロケールがこのセットの外にある場合は `sourceLocale` にフォールバックします。`supportedLocales` で組み込みロケールを制限している場合でも、`locales` に登録されたロケールはこの一覧に追加されます。`agent-native.json` の `translations.locales` はアプリの明示的な許可リストであり、カタログ登録より優先されます。
 
 ## UI
 
@@ -76,7 +79,7 @@ function Greeting({ name }: { name: string }) {
 
 日付、数値、相対時間、リストには `useFormatters()` を使用します。翻訳文字列の中にロケール依存の日付や数値の書式設定を組み込まないでください。
 
-アプリがユーザーに言語を変更させる場所には `<LanguagePicker />` を配置します。標準の設定ページのパターンについては、[ツールキット: 設定](/docs/toolkit-settings) を参照してください。`openAgentSettings()` がどこに位置づけられるかもそこに記載されています。
+Settings には Account › Preferences に **Interface language** の行がすでにあり、そこでの変更はすべてのアプリに適用されます。そのため、アプリ独自の Settings ページに 2 つ目の選択肢は追加しません。`settings-redesign` フラグがオフの場合は、タブ付きページの General タブに選択肢を置きます。ヘッダーのショートカットなど、アプリがユーザーに言語を変更させるそれ以外の場所には `<LanguagePicker />` を配置します。Settings ページの規約については [ツールキット: 設定](/docs/toolkit-settings) を参照してください。
 
 ## Actions と永続性
 
@@ -85,7 +88,7 @@ function Greeting({ name }: { name: string }) {
 - `get-localization-preference` — 現在のユーザーの `{ locale, timezone }` を読み取ります
 - `set-localization-preference` — `locale` および/または `timezone` を設定します（それぞれ省略可能）
 
-`locale` は `"system"` またはサポートされている BCP-47 ロケールです。`timezone` は `"system"` または `America/New_York` のような IANA タイムゾーンです。これは、スケジュールされた処理やオートメーションが、ホストのタイムゾーンではなくユーザーのタイムゾーンで実行されるようにするために存在します。`set-localization-preference` は既存の保存値を上書きするのではなくマージするため、片方のフィールドだけを設定すると、もう一方は変更されないまま残ります。
+`locale` は `"system"` またはアプリが登録した有効な BCP-47 ロケールです。`timezone` は `"system"` または `America/New_York` のような IANA タイムゾーンです。これは、スケジュールされた処理やオートメーションが、ホストのタイムゾーンではなくユーザーのタイムゾーンで実行されるようにするために存在します。`set-localization-preference` は既存の保存値を上書きするのではなくマージするため、片方のフィールドだけを設定すると、もう一方は変更されないまま残ります。
 
 永続的な値は、`localization` 配下のユーザースコープの SQL 設定に保存されます。`localStorage` はハイドレーション前と匿名ユーザーのフォールバックにのみ使用されます。アクティブなロケールはアンビエントコンテキストとしてアプリケーションステートにミラーリングされるため、エージェントは現在のインターフェース言語を把握できます。
 
@@ -112,5 +115,5 @@ action 名、ルート、enum 値、アプリステートのキー、データ�
 ## 次のステップ
 
 - [**概要**](/docs/client-overview#app-shell) — i18n が基盤とする `AppProviders` ラッパーやその他のブラウザフック
-- [**ツールキット: 設定**](/docs/toolkit-settings) — 標準の設定ページに `<LanguagePicker>` を配置する方法
+- [**ツールキット: 設定**](/docs/toolkit-settings) — Account › Preferences がインターフェースの言語を持つ Settings ページの規約
 - [**はじめに**](/docs/getting-started) — すでにローカライズされたカタログを提供しているテンプレートで最初のアプリを構築する

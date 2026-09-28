@@ -1,12 +1,3 @@
-/**
- * Email notifications for document comments, replies, and mentions.
- *
- * Recipient resolution, preference filtering, and delivery reporting come from
- * `@agent-native/core/server`; this module owns only the Documents rows and the
- * email copy. Share invites are not routed through the `emailNotifications`
- * preference — they have their own delivery path.
- */
-
 import {
   emailStrong,
   getAppProductionUrl,
@@ -19,6 +10,7 @@ import {
 import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 
+import { commentAttributionMessagesByLocale } from "../../shared/comment-attribution-messages.js";
 import { CONTENT_USER_PREFS_KEY } from "../../shared/content-user-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -30,6 +22,15 @@ export type DocumentCommentNotificationResult = ActivityNotificationResult;
 
 const LOG_LABEL = "[content] comment notification";
 const EXCERPT_LIMIT = 240;
+
+function escapeEmailText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function excerpt(content: string): string {
   const collapsed = content.replace(/\s+/g, " ").trim();
@@ -61,14 +62,13 @@ async function threadParticipants(
 
 export interface DocumentCommentNotificationInput {
   documentId: string;
-  /** Read from the access-checked resource by the caller, never re-queried. */
   documentTitle: string;
-  /** The document's org, so `org` visibility resolves for its members. */
   orgId?: string | null;
   threadId: string;
   ownerEmail: string;
   authorEmail: string;
   authorName?: string | null;
+  submissionSource?: string | null;
   content: string;
   mentions: { email: string; name: string }[];
   isReply: boolean;
@@ -81,6 +81,7 @@ export function renderDocumentCommentEmail({
   content,
   isReply,
   wasMentioned,
+  submissionSource,
 }: {
   actor: string;
   title: string;
@@ -88,27 +89,44 @@ export function renderDocumentCommentEmail({
   content: string;
   isReply: boolean;
   wasMentioned: boolean;
+  submissionSource?: string | null;
 }) {
+  const attribution =
+    submissionSource === "mcp" || submissionSource === "agent"
+      ? commentAttributionMessagesByLocale["en-US"].aiAttribution.replace(
+          "{{name}}",
+          () => actor,
+        )
+      : null;
   const lead = wasMentioned
     ? `${emailStrong(actor)} mentioned you in a comment on ${emailStrong(title)}.`
     : isReply
       ? `${emailStrong(actor)} replied in a comment thread on ${emailStrong(title)}.`
       : `${emailStrong(actor)} commented on ${emailStrong(title)}.`;
+  const subject = wasMentioned
+    ? `${actor} mentioned you on "${title}"`
+    : isReply
+      ? `${actor} replied to a comment on "${title}"`
+      : `${actor} commented on "${title}"`;
 
   return {
-    subject: wasMentioned
-      ? `${actor} mentioned you on "${title}"`
-      : isReply
-        ? `${actor} replied to a comment on "${title}"`
-        : `${actor} commented on "${title}"`,
+    subject: attribution
+      ? `${subject} · ${commentAttributionMessagesByLocale["en-US"].aiBadge}`
+      : subject,
     ...renderEmail({
-      preheader: `${actor} commented on ${title}.`,
+      preheader: attribution ?? `${actor} commented on ${title}.`,
       heading: wasMentioned
         ? "You were mentioned"
         : isReply
           ? "New reply on your document"
           : "New comment",
-      paragraphs: [lead, `"${excerpt(content)}"`],
+      paragraphs: attribution
+        ? [
+            escapeEmailText(attribution),
+            lead,
+            `"${escapeEmailText(excerpt(content))}"`,
+          ]
+        : [lead, `"${escapeEmailText(excerpt(content))}"`],
       cta: { label: "Open document", url },
       footer:
         "You received this because you own, were mentioned in, or participated in this thread. Turn these off in Documents settings.",
@@ -139,8 +157,6 @@ async function deliverDocumentCommentEmails(
     );
   }
 
-  // Mentions are caller-supplied and thread rows are historical; re-check both
-  // against the document's live ACL before mailing anyone its contents.
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "document",
     resourceId: input.documentId,
@@ -166,6 +182,7 @@ async function deliverDocumentCommentEmails(
           content: input.content,
           isReply: input.isReply,
           wasMentioned,
+          submissionSource: input.submissionSource,
         }),
         to,
         templateId: wasMentioned

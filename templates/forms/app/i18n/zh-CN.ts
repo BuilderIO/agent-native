@@ -41,6 +41,8 @@ const messages = {
     suggestionSurvey: "创建客户反馈调查",
     suggestionSubmissions: "按天显示提交",
     suggestionExport: "将回复导出为 CSV",
+    topSignal: "主要信号",
+    draftFollowUp: "起草后续问题",
   },
   sidebar: {
     collapseSidebar: "折叠侧边栏",
@@ -326,6 +328,9 @@ const messages = {
     responseSubmitted: "回复已提交",
     noFields: "此表单还没有字段。",
     failedSubmit: "提交表单失败",
+    uncheckablePattern:
+      "此表单中“{label}”的规则无法校验。请联系表单所有者修复。",
+    patternTooLong: "字段“{label}”的值过长，无法使用此表单规则校验。",
   },
   responseInsights: {
     unavailable: "洞察不可用",

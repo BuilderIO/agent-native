@@ -1,48 +1,38 @@
-/**
- * <SecretsSection /> — renders the registered secrets from the framework
- * secrets registry. Configured keys stay compact; adding or editing one
- * progressively discloses its controls.
- */
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
-import {
-  Button as ToolkitButton,
-  ButtonBase as ToolkitButtonBase,
-} from "@agent-native/toolkit/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
-} from "@agent-native/toolkit/ui/command";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconLock,
   IconPlugConnected,
-  IconPlus,
   IconTrash,
   IconRefresh,
 } from "@tabler/icons-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
+import {
+  listRegisteredSecrets,
+  type SecretSource,
+  type SecretStatus,
+} from "../secrets.js";
 import { cn } from "../utils.js";
+import { KeyProviderTile } from "./KeyProviderTile.js";
+import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
+import { SettingsCrossLinkHint } from "./SettingsCrossLinkHint.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 const Button = React.forwardRef<
@@ -53,7 +43,8 @@ const Button = React.forwardRef<
     ref={ref}
     variant="ghost"
     className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      "h-auto p-0 hover:bg-transparent active:scale-100 [&_svg]:!size-auto",
+      props.emphasis === "solid" ? null : "hover:text-inherit",
       className,
     )}
     {...props}
@@ -61,23 +52,20 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-interface SecretStatus {
-  key: string;
-  label: string;
-  description?: string;
-  docsUrl?: string;
-  scope: "user" | "workspace";
-  kind: "api-key" | "oauth";
-  required: boolean;
-  status: "set" | "unset" | "invalid";
-  last4?: string;
-  updatedAt?: number;
-  oauthProvider?: string;
-  oauthConnectUrl?: string;
-  error?: string;
-}
+const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
+  vault: "secrets.sourceVault",
+  workspace: "secrets.sourceWorkspace",
+};
+
+const OUTLINE_LINK_CLASSNAME =
+  "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
+
+function hasValueInEffect(secret: SecretStatus): boolean {
+  return secret.status === "set" || secret.status === "invalid";
+}
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -89,53 +77,84 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
-  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [openSecretKey, setOpenSecretKey] = useState<string | null>(
     focusKey ?? null,
   );
-  const [customKeyOpen, setCustomKeyOpen] = useState(false);
+  const [customKeyOpen, setCustomKeyOpen] = useState<{
+    open: boolean;
+    initialName?: string;
+  }>({ open: false });
+  const { isWorkspace, dispatchVaultHref } = useOrgSwitcherAppLinks(true);
+  const vaultHref = isWorkspace ? dispatchVaultHref : null;
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = listRegisteredSecrets({
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Secrets request timed out after 15 seconds"));
+        controller?.abort();
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const retry = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
-      setCustomKeyOpen(false);
+      setCustomKeyOpen({ open: false });
       setOpenSecretKey(focusKey);
     }
   }, [focusKey]);
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={retry}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {
@@ -144,11 +163,17 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   if (secrets.length === 0) {
     return (
       <div className="space-y-3">
-        <KeysHeader onCustomKey={() => setCustomKeyOpen(true)} />
+        <KeysHeader
+          onCustomKey={(initialName) =>
+            setCustomKeyOpen({ open: true, initialName })
+          }
+        />
         <AdHocKeysSection
-          showForm={customKeyOpen}
-          onShowFormChange={setCustomKeyOpen}
+          showForm={customKeyOpen.open}
+          initialName={customKeyOpen.initialName}
+          onShowFormChange={(open) => setCustomKeyOpen({ open })}
           showEmptyState
+          vaultHref={vaultHref}
         />
       </div>
     );
@@ -160,18 +185,22 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
+  const hasOwnKey = visibleSecrets.some(
+    (secret) => hasValueInEffect(secret) && secret.managedHere !== false,
+  );
+  const showProviderEmptyState = !hasOwnKey && !customKeyOpen.open;
 
   return (
     <div className="space-y-3">
       <KeysHeader
         availableSecrets={availableSecrets}
         onSecret={(key) => {
-          setCustomKeyOpen(false);
+          setCustomKeyOpen({ open: false });
           setOpenSecretKey(key);
         }}
-        onCustomKey={() => {
+        onCustomKey={(initialName) => {
           setOpenSecretKey(null);
-          setCustomKeyOpen(true);
+          setCustomKeyOpen({ open: true, initialName });
         }}
       />
       {visibleSecrets.length > 0 && (
@@ -181,9 +210,10 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
               key={secret.key}
               secret={secret}
               onChanged={reload}
+              vaultHref={vaultHref}
               open={openSecretKey === secret.key}
               onOpenChange={(open) => {
-                if (open) setCustomKeyOpen(false);
+                if (open) setCustomKeyOpen({ open: false });
                 setOpenSecretKey(open ? secret.key : null);
               }}
               focusInput={openSecretKey === secret.key}
@@ -191,11 +221,90 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
           ))}
         </div>
       )}
+      {showProviderEmptyState && (
+        <KeysEmptyState
+          availableSecrets={availableSecrets}
+          showTitle={visibleSecrets.length === 0}
+          onPick={(key) => {
+            setCustomKeyOpen({ open: false });
+            setOpenSecretKey(key);
+          }}
+        />
+      )}
       <AdHocKeysSection
-        showForm={customKeyOpen}
-        onShowFormChange={setCustomKeyOpen}
-        showEmptyState={visibleSecrets.length === 0}
+        showForm={customKeyOpen.open}
+        initialName={customKeyOpen.initialName}
+        onShowFormChange={(open) => setCustomKeyOpen({ open })}
+        showEmptyState={visibleSecrets.length === 0 && !showProviderEmptyState}
+        vaultHref={vaultHref}
       />
+    </div>
+  );
+}
+
+const TILE_PRIORITY = [
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "JEV_API_KEY",
+  "OPENROUTER_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GITHUB_TOKEN",
+  "FIGMA_ACCESS_TOKEN",
+];
+
+function tilePriority(key: string): number {
+  const idx = TILE_PRIORITY.indexOf(key);
+  if (idx !== -1) return idx;
+  if (key.startsWith("NOTION_")) return TILE_PRIORITY.length;
+  if (key.startsWith("SLACK_")) return TILE_PRIORITY.length + 1;
+  return Infinity;
+}
+
+const MAX_EMPTY_STATE_TILES = 8;
+
+function KeysEmptyState({
+  availableSecrets,
+  showTitle,
+  onPick,
+}: {
+  availableSecrets: SecretStatus[];
+  showTitle: boolean;
+  onPick: (key: string) => void;
+}) {
+  const t = useT();
+  const tiles = availableSecrets
+    .filter(
+      (secret) =>
+        secret.kind !== "oauth" && !/_CLIENT_(ID|SECRET)$/.test(secret.key),
+    )
+    .sort((a, b) => {
+      const rank = tilePriority(a.key) - tilePriority(b.key);
+      return rank !== 0 ? rank : a.label.localeCompare(b.label);
+    });
+  const shown = tiles.slice(0, MAX_EMPTY_STATE_TILES);
+  const remaining = tiles.length - shown.length;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">
+        {showTitle && `${t("secrets.emptyTitle")} `}
+        {t("secrets.emptyHint")}
+      </p>
+      <div className="grid grid-cols-4 gap-2 max-[360px]:grid-cols-3">
+        {shown.map((secret) => (
+          <KeyProviderTile
+            key={secret.key}
+            label={secret.label}
+            secretKey={secret.key}
+            onClick={() => onPick(secret.key)}
+          />
+        ))}
+      </div>
+      {remaining > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          {t("secrets.emptyMore", { count: remaining })}
+        </p>
+      )}
     </div>
   );
 }
@@ -207,78 +316,24 @@ function KeysHeader({
 }: {
   availableSecrets?: SecretStatus[];
   onSecret?: (key: string) => void;
-  onCustomKey: () => void;
+  onCustomKey: (initialName?: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
+  const t = useT();
   return (
     <div className="flex items-center justify-between gap-3">
-      <p className="text-[11px] font-medium text-foreground">Keys</p>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <ToolkitButtonBase
-            type="button"
-            variant="outline"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-          >
-            <IconPlus size={11} />
-            New
-          </ToolkitButtonBase>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-60 p-0">
-          <Command
-            // cmdk's default scorer matches loose subsequences, so "logo"
-            // also surfaces every "G-o-o-g-l-e ... " key.
-            filter={(value, search) =>
-              value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
-            }
-          >
-            {availableSecrets.length > 0 && (
-              <CommandInput placeholder="Search keys..." />
-            )}
-            <CommandList>
-              <CommandEmpty>No keys found.</CommandEmpty>
-              {availableSecrets.length > 0 && (
-                <>
-                  <CommandGroup heading="Choose a key">
-                    {availableSecrets.map((secret) => (
-                      <CommandItem
-                        key={secret.key}
-                        value={`${secret.label} ${secret.key}`}
-                        onSelect={() => {
-                          setOpen(false);
-                          onSecret?.(secret.key);
-                        }}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <span className="truncate">{secret.label}</span>
-                        {secret.required && (
-                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                            Required
-                          </span>
-                        )}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                  <CommandSeparator />
-                </>
-              )}
-              <CommandGroup>
-                <CommandItem
-                  value="custom key"
-                  onSelect={() => {
-                    setOpen(false);
-                    onCustomKey();
-                  }}
-                >
-                  <IconPlus size={14} />
-                  Custom
-                </CommandItem>
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+      <SettingsCrossLinkHint
+        text={t("integrations.lookingForProviders")}
+        linkText={t("integrations.goToIntegrations")}
+        href={appMountedPath(
+          buildSettingsRoute("integrations"),
+          STANDARD_APP_ROUTES.settings,
+        )}
+      />
+      <NewKeyMenu
+        options={availableSecrets}
+        onPick={(option) => onSecret?.(option.key)}
+        onCustom={onCustomKey}
+      />
     </div>
   );
 }
@@ -286,6 +341,7 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
+  vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   focusInput?: boolean;
@@ -294,6 +350,7 @@ interface SecretCardProps {
 function SecretCard({
   secret,
   onChanged,
+  vaultHref,
   open,
   onOpenChange,
   focusInput,
@@ -422,12 +479,40 @@ function SecretCard({
     }
   };
 
+  const isManagedSet = hasValueInEffect(secret) && secret.managedHere !== false;
+  const isShadowedSet =
+    hasValueInEffect(secret) && secret.managedHere === false;
+
   const pill = useMemo(() => {
     if (secret.status === "set") {
+      const sourceLabel =
+        !isManagedSet && secret.source && secret.source !== "personal"
+          ? t(SOURCE_LABEL_KEY[secret.source])
+          : null;
       return (
         <span className="flex items-center gap-1 text-[10px] text-green-500">
           <IconCheck size={10} />
-          Set
+          {sourceLabel ? `Set · ${sourceLabel}` : "Set"}
+        </span>
+      );
+    }
+    if (secret.status === "invalid") {
+      return (
+        <span
+          className="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-destructive"
+          title={secret.error}
+        >
+          {t("secrets.invalid")}
+        </span>
+      );
+    }
+    if (secret.status === "unknown") {
+      return (
+        <span
+          className="rounded-full bg-accent/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground"
+          title={secret.error}
+        >
+          {t("secrets.statusUnavailable")}
         </span>
       );
     }
@@ -443,10 +528,18 @@ function SecretCard({
         Optional
       </span>
     );
-  }, [secret.status, secret.required]);
+  }, [
+    isManagedSet,
+    secret.status,
+    secret.required,
+    secret.source,
+    secret.error,
+    t,
+  ]);
 
   const isOAuth = secret.kind === "oauth";
-  const showRotationForm = secret.status !== "set" || isRotating;
+  const showRotationForm =
+    (!hasValueInEffect(secret) && secret.status !== "unknown") || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -465,7 +558,7 @@ function SecretCard({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
           {secret.label}
         </span>
-        {secret.status === "set" && secret.last4 && (
+        {hasValueInEffect(secret) && secret.last4 && (
           <code className="text-[10px] text-muted-foreground">
             ••••{secret.last4}
           </code>
@@ -497,16 +590,18 @@ function SecretCard({
                   href={secret.docsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
+                  className={OUTLINE_LINK_CLASSNAME}
                 >
                   Docs
                   <IconExternalLink size={10} />
                 </a>
               )}
             </div>
+          ) : secret.status === "unknown" ? (
+            <p className="mt-2 text-[10px] text-destructive">{secret.error}</p>
           ) : (
             <div className="mt-2 space-y-2">
-              {secret.status === "set" && (
+              {isManagedSet && (
                 <>
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                     <span>Stored value ending in</span>
@@ -514,6 +609,15 @@ function SecretCard({
                       {secret.last4}
                     </code>
                   </div>
+                  {secret.overrides && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {t(
+                        secret.overrides === "vault"
+                          ? "secrets.overridesVault"
+                          : "secrets.overridesWorkspace",
+                      )}
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       type="button"
@@ -556,6 +660,54 @@ function SecretCard({
                   </div>
                 </>
               )}
+              {isShadowedSet && (
+                <>
+                  <p className="text-[10px] text-muted-foreground">
+                    {secret.source === "vault"
+                      ? t("secrets.managedInVault")
+                      : t("secrets.setForWorkspace")}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      intent="neutral"
+                      emphasis="outline"
+                      onClick={() => handleTest()}
+                      disabled={busy !== null}
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    >
+                      {busy === "test" ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        t("secrets.testStoredValue")
+                      )}
+                    </Button>
+                    {secret.source === "vault" && vaultHref && (
+                      <a
+                        href={vaultHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={OUTLINE_LINK_CLASSNAME}
+                      >
+                        {t("secrets.openVault")}
+                        <IconExternalLink size={10} />
+                      </a>
+                    )}
+                    {secret.scope === "user" && (
+                      <Button
+                        type="button"
+                        intent="neutral"
+                        emphasis="outline"
+                        onClick={() => setIsRotating(true)}
+                        disabled={busy !== null}
+                        className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      >
+                        {t("secrets.usePersonalKey")}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
               {showRotationForm && (
                 <div className="space-y-1.5">
                   <hr className="my-4" />
@@ -569,12 +721,17 @@ function SecretCard({
                       if (event.key === "Enter") void handleSave();
                     }}
                     placeholder={
-                      secret.status === "set"
+                      hasValueInEffect(secret)
                         ? "Enter new value to rotate"
                         : "Paste key"
                     }
                     className="w-full text-[11px]"
                   />
+                  {isShadowedSet && secret.source === "vault" && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {t("secrets.scopePersonalDescription")}
+                    </p>
+                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       type="button"
@@ -595,13 +752,13 @@ function SecretCard({
                         href={secret.docsUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
+                        className={OUTLINE_LINK_CLASSNAME}
                       >
                         Get key
                         <IconExternalLink size={10} />
                       </a>
                     )}
-                    {secret.status === "set" && (
+                    {isRotating && (
                       <Button
                         type="button"
                         intent="neutral"
@@ -683,28 +840,38 @@ function SecretCard({
   );
 }
 
-// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
-
 interface AdHocKey {
   name: string;
-  scope: "user" | "workspace";
+  scope: "user" | "workspace" | "org";
   scopeId: string;
+  source: "personal" | "workspace" | "vault";
   description: string | null;
   last4: string;
   createdAt: number;
   updatedAt: number;
+  /** Present when another Settings surface owns this key. */
+  managedBy?: { id: string; owner: string; route: string };
 }
 
 const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
 
+/** One name can be listed once per scope, so rows are told apart by both. */
+function adHocKeyId(key: AdHocKey): string {
+  return `${key.scope}-${key.name}`;
+}
+
 function AdHocKeysSection({
   showForm,
+  initialName,
   onShowFormChange,
   showEmptyState,
+  vaultHref,
 }: {
   showForm: boolean;
+  initialName?: string;
   onShowFormChange: (show: boolean) => void;
   showEmptyState: boolean;
+  vaultHref: string | null;
 }) {
   const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
@@ -716,10 +883,8 @@ function AdHocKeysSection({
   const [formScope, setFormScope] = useState<"user" | "workspace">("user");
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(
-    null,
-  );
-  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -734,6 +899,10 @@ function AdHocKeysSection({
   );
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+
+  useEffect(() => {
+    if (showForm && initialName) setFormName(initialName);
+  }, [showForm, initialName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -815,26 +984,36 @@ function AdHocKeysSection({
   ]);
 
   const handleDelete = useCallback(
-    async (name: string) => {
-      setDeletingName(name);
+    async (key: AdHocKey) => {
+      setDeletingId(adHocKeyId(key));
       try {
         const res = await fetch(
-          `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
+          `${ADHOC_ENDPOINT}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
           },
         );
         if (!res.ok) {
+          const err = await res
+            .json()
+            .then((j: { error?: string }) => j.error)
+            // coercion-ok: the error body is optional; the toast still reports the failure.
+            .catch(() => null);
+          showToast("err", err ?? "Failed to delete key");
+          return;
+        }
+        const body = (await res.json()) as { removed?: boolean };
+        if (!body.removed) {
           showToast("err", "Failed to delete key");
           return;
         }
         showToast("ok", "Key deleted");
-        setConfirmDeleteName(null);
+        setConfirmDeleteId(null);
         notifySecretsChanged();
         reload();
       } finally {
-        setDeletingName(null);
+        setDeletingId(null);
       }
     },
     [showToast, reload],
@@ -846,9 +1025,7 @@ function AdHocKeysSection({
         <div className="rounded-md border border-border px-2.5 py-2 bg-accent/30 space-y-1.5">
           <TextField
             value={formName}
-            onChange={(value) =>
-              setFormName(value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))
-            }
+            onChange={(value) => setFormName(normalizeKeyName(value))}
             className="w-full text-[11px]"
             aria-label="Key name"
             placeholder="KEY_NAME"
@@ -926,7 +1103,7 @@ function AdHocKeysSection({
         <div className="overflow-hidden rounded-md border border-border">
           {keys.map((key) => (
             <div
-              key={`${key.scope}-${key.name}`}
+              key={adHocKeyId(key)}
               className="border-b border-border px-2.5 py-2 last:border-b-0"
             >
               <div className="flex items-center justify-between gap-2">
@@ -936,13 +1113,20 @@ function AdHocKeysSection({
                       {key.name}
                     </span>
                     <span
-                      className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                        key.scope === "workspace"
-                          ? "bg-blue-500/15 text-blue-500"
-                          : "bg-accent/60 text-muted-foreground"
-                      }`}
+                      className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                        key.source === "vault"
+                          ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                          : key.source === "workspace"
+                            ? "bg-primary/15 text-primary"
+                            : "bg-accent/60 text-muted-foreground",
+                      )}
                     >
-                      {key.scope === "workspace" ? "workspace" : "personal"}
+                      {key.source === "vault"
+                        ? t("secrets.sourceVault")
+                        : key.source === "workspace"
+                          ? "workspace"
+                          : "personal"}
                     </span>
                   </div>
                   {key.description && (
@@ -960,17 +1144,51 @@ function AdHocKeysSection({
                   </div>
                 </div>
                 <div className="shrink-0">
-                  {confirmDeleteName === key.name ? (
+                  {/* Org rows are written by the Vault or Builder Connect;
+                      the ad-hoc delete route never touches them. */}
+                  {key.scope === "org" ? (
+                    key.source === "vault" &&
+                    vaultHref && (
+                      <a
+                        href={vaultHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={OUTLINE_LINK_CLASSNAME}
+                      >
+                        {t("secrets.openVault")}
+                        <IconExternalLink size={10} />
+                      </a>
+                    )
+                  ) : key.managedBy ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          aria-label={t("secrets.managedByOwner", {
+                            owner: key.managedBy.owner,
+                          })}
+                          className="inline-flex p-1 text-muted-foreground"
+                        >
+                          <IconLock size={12} />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("secrets.managedByOwner", {
+                          owner: key.managedBy.owner,
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : confirmDeleteId === adHocKeyId(key) ? (
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         intent="danger"
                         emphasis="solid"
-                        onClick={() => handleDelete(key.name)}
-                        disabled={deletingName === key.name}
+                        onClick={() => handleDelete(key)}
+                        disabled={deletingId === adHocKeyId(key)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
                       >
-                        {deletingName === key.name ? (
+                        {deletingId === adHocKeyId(key) ? (
                           <IconLoader2 size={10} className="animate-spin" />
                         ) : (
                           "Confirm"
@@ -980,7 +1198,7 @@ function AdHocKeysSection({
                         type="button"
                         intent="neutral"
                         emphasis="solid"
-                        onClick={() => setConfirmDeleteName(null)}
+                        onClick={() => setConfirmDeleteId(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
                         Cancel
@@ -993,7 +1211,7 @@ function AdHocKeysSection({
                           type="button"
                           intent="danger"
                           emphasis="ghost"
-                          onClick={() => setConfirmDeleteName(key.name)}
+                          onClick={() => setConfirmDeleteId(adHocKeyId(key))}
                           className="text-muted-foreground hover:text-red-500"
                         >
                           <IconTrash size={12} />

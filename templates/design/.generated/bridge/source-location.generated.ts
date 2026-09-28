@@ -17,30 +17,43 @@ export const sourceLocationBridgeScript: string = `"use strict";
       dist: true,
       build: true,
       ".next": true,
-      public: true
+      public: true,
+      ".vite": true
     };
-    function isNoisePath(path) {
+    var REACT_RUNTIME_MODULE_RE = /^(?:react|(?:react[-_])?jsx(?:-dev)?-runtime)(?:\\.development|\\.production(?:\\.min)?)?\\.(?:m?js|cjs)$/;
+    var VITE_DEPS_SEGMENT_RE = /^deps(?:_|$)/;
+    function isNoisePath(path, localServedOutput) {
       var segments = path.split("/");
+      for (var i = 0; i < segments.length - 1; i += 1) {
+        if (VITE_DEPS_SEGMENT_RE.test(segments[i]) && REACT_RUNTIME_MODULE_RE.test(segments[i + 1])) {
+          return true;
+        }
+      }
       for (var i = 0; i < segments.length; i += 1) {
-        if (NOISE_SEGMENTS[segments[i]]) return true;
-        if (segments[i] === "_next" && segments[i + 1] === "static") return true;
+        var segment = segments[i];
+        if (localServedOutput && (segment === "dist" || segment === "build")) {
+          continue;
+        }
+        if (NOISE_SEGMENTS[segment]) return true;
+        if (segment === "_next" && segments[i + 1] === "static") return true;
       }
       return false;
     }
     function resolveFrameUrl(rawUrl) {
       if (rawUrl.indexOf("webpack-internal:///") === 0) {
         var wPath = rawUrl.slice("webpack-internal:///".length).replace(/^\\.\\//, "");
-        return wPath || null;
+        return wPath ? { sourceFile: wPath, localServedOutput: false } : null;
       }
       try {
         var url = new URL(rawUrl);
         var path = decodeURIComponent(url.pathname);
+        var localServedOutput = path.indexOf("/@fs/") === 0;
         if (path.indexOf("/@fs/") === 0) {
           path = path.slice("/@fs".length);
         } else if (url.protocol !== "file:") {
           path = path.replace(/^\\/+/, "");
         }
-        return path || null;
+        return path ? { sourceFile: path, localServedOutput } : null;
       } catch (_err) {
         return null;
       }
@@ -51,13 +64,16 @@ export const sourceLocationBridgeScript: string = `"use strict";
       if (!match) return null;
       var functionName = match[1];
       var rawUrl = match[2];
-      var sourceFile = resolveFrameUrl(rawUrl);
-      if (!sourceFile || isNoisePath(sourceFile)) return null;
+      var resolved = resolveFrameUrl(rawUrl);
+      if (!resolved) return null;
+      if (isNoisePath(resolved.sourceFile, resolved.localServedOutput)) {
+        return null;
+      }
       var lineNumber = Number(match[3]);
       var column = Number(match[4]);
       if (!isFinite(lineNumber) || !isFinite(column)) return null;
       return {
-        sourceFile,
+        sourceFile: resolved.sourceFile,
         line: lineNumber,
         column,
         functionName: functionName || void 0
@@ -79,17 +95,6 @@ export const sourceLocationBridgeScript: string = `"use strict";
             return node[keys[i]];
           }
         }
-      }
-      return null;
-    }
-    function findNearestFiber(el) {
-      var node = el;
-      var attempts = 0;
-      while (node && attempts < 8) {
-        var fiber = getFiberFromDom(node);
-        if (fiber) return fiber;
-        node = node.parentElement;
-        attempts += 1;
       }
       return null;
     }
@@ -159,26 +164,18 @@ export const sourceLocationBridgeScript: string = `"use strict";
       };
     }
     function resolveFromFiber(el) {
-      var leafFiber = findNearestFiber(el);
+      var leafFiber = getFiberFromDom(el);
       if (!leafFiber) return { status: "unavailable", reason: "not-framework" };
-      var elementSource = null;
-      var elementMethod = null;
+      var elementSource = debugSourceOf(leafFiber);
+      var elementMethod = elementSource ? hasStructuredDebugSource(leafFiber) ? "debug-source" : "debug-stack" : null;
       var componentFiber = null;
-      var current = leafFiber;
+      var current = leafFiber.return || leafFiber.parent || leafFiber._debugOwner || null;
       var depth = 0;
       while (current && depth < 12) {
-        if (!elementSource) {
-          var hasStructured = hasStructuredDebugSource(current);
-          var found = debugSourceOf(current);
-          if (found) {
-            elementSource = found;
-            elementMethod = hasStructured ? "debug-source" : "debug-stack";
-          }
-        }
-        if (!componentFiber && current !== leafFiber && isComponentFiber(current)) {
+        if (!componentFiber && isComponentFiber(current)) {
           componentFiber = current;
         }
-        if (elementSource && componentFiber) break;
+        if (componentFiber) break;
         current = current.return || current.parent || current._debugOwner;
         depth += 1;
       }

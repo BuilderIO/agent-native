@@ -6,21 +6,8 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { gotoEditor } from "./helpers";
+import { childNodeIds, gotoEditor } from "./helpers";
 
-/**
- * Keyboard nudge in NORMAL BLOCK FLOW.
- *
- * The auto-layout spec covers a parent with an inline `display:flex`, which the
- * authored-style parser can read directly. This covers the case it cannot: a
- * plain block stack whose layout comes from a STYLESHEET, which is what a real
- * running app (fusion/localhost screen) looks like.
- *
- * Before the fix, `describeFlowContainer` recognised only flex and grid, so this
- * parent resolved to `kind: "none"` and arrow keys wrote `left`/`top` onto the
- * child. Under `position: static` that does nothing at all — the user-visible
- * symptom was "arrows just do px movements" with nothing moving.
- */
 const BLOCK_FLOW_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -67,8 +54,6 @@ test.describe("block flow keyboard nudge", () => {
     );
     await gotoEditor(page, designId);
 
-    // Down the block axis: DOM order is visual order, so the child moves past
-    // its sibling rather than receiving a `top` that static positioning ignores.
     await selectLayerRow(page, "BlockAlpha");
     await pressEditorKey(page, "ArrowDown");
     await expectFileContent(request, baseURL, designId, (html) => {
@@ -77,14 +62,11 @@ test.describe("block flow keyboard nudge", () => {
       expect(html).not.toMatch(/bf-alpha[^>]*top:\s*1px/);
     });
 
-    // And back up.
     await pressEditorKey(page, "ArrowUp");
     await expectFileContent(request, baseURL, designId, (html) => {
       expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
     });
 
-    // Cross axis of a non-wrapping stack has nowhere to go, and must not fall
-    // back to a positional offset.
     await pressEditorKey(page, "ArrowRight");
     await expectFileContent(request, baseURL, designId, (html) => {
       expect(flowOrder(html)).toEqual(["bf-alpha", "bf-beta", "bf-gamma"]);
@@ -113,32 +95,8 @@ test.describe("block flow keyboard nudge", () => {
   });
 });
 
-/** DOM order of the stack's children, by node id. */
 function flowOrder(html: string): string[] {
-  const inner = elementInner(html, "bf-stack");
-  return Array.from(
-    inner.matchAll(/data-agent-native-node-id="([^"]+)"/g),
-    (match) => match[1]!,
-  );
-}
-
-/** Inner markup of one node, matched by walking tag depth from its open tag. */
-function elementInner(html: string, nodeId: string): string {
-  const openIndex = html.indexOf(`data-agent-native-node-id="${nodeId}"`);
-  if (openIndex < 0) throw new Error(`node ${nodeId} not found`);
-  const tagStart = html.lastIndexOf("<", openIndex);
-  const tag = /^<([a-zA-Z0-9-]+)/.exec(html.slice(tagStart))?.[1];
-  if (!tag) throw new Error(`no tag for ${nodeId}`);
-  const contentStart = html.indexOf(">", openIndex) + 1;
-  const pattern = new RegExp(`</?${tag}\\b`, "g");
-  pattern.lastIndex = contentStart;
-  let depth = 1;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html))) {
-    depth += match[0].startsWith("</") ? -1 : 1;
-    if (depth === 0) return html.slice(contentStart, match.index);
-  }
-  throw new Error(`unbalanced ${tag} for ${nodeId}`);
+  return childNodeIds(html, "bf-stack");
 }
 
 async function createBlockFlowDesign(

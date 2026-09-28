@@ -33,7 +33,7 @@ const tmpRoot = fs.mkdtempSync(
 );
 const port = Number(process.env.DISPATCH_AUTOMATIONS_SMOKE_PORT || 9331);
 const runId = Date.now().toString(36);
-const qaEmail = "qa-dispatch-automations-smoke@example.test";
+const qaEmail = "qa-dispatch-automations-smoke+autoz@example.test";
 const qaPassword = "local-dev-account";
 const jobName = `qa-automation-${runId}`;
 const jobPath = `jobs/${jobName}.md`;

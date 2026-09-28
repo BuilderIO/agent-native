@@ -5,9 +5,24 @@ description: "A GitHub Action that runs your repo's visual-recap skill on every 
 
 # PR Visual Recap
 
-PR Visual Recap is a GitHub Action that turns every pull request into a **visual code review**. On each push, an LLM coding agent runs the latest bundled [`visual-recap`](/docs/template-plan) skill (or your repo's committed copy when `VISUAL_RECAP_SKILL_SOURCE=repo`) against the PR diff, publishes a structured recap plan to the hosted Plans app, shows an informational `Visual Recap` check while it runs, and upserts **one sticky PR comment** that links to the interactive plan with an **inline screenshot** embedded right in the comment.
+PR Visual Recap is a GitHub Action that turns every pull request into a
+**visual code review**, with no one having to remember to run a command by
+hand. This page is for anyone installing, configuring, or securing that
+Action. On each push, an LLM coding agent runs the latest bundled
+[`visual-recap`](/docs/template-plan) skill (or your repo's committed copy
+when `VISUAL_RECAP_SKILL_SOURCE=repo`) against the PR diff, publishes a
+structured recap plan to the hosted Plans app, shows an informational
+`Visual Recap` check while it runs, and upserts **one sticky PR comment**
+that links to the interactive plan with an **inline screenshot** embedded
+right in the comment.
 
-This is not a deterministic diff renderer. The action invokes a real coding agent (Claude Code CLI by default, OpenAI Codex CLI, or Agent-Native Code with an OpenAI-compatible provider) that reads the change, decides what matters, and authors the recap by calling the Plans MCP tool `create-visual-recap` — the same tool the `/visual-recap` slash command uses. You get a high-altitude, schema/API/before-after view of the change instead of a wall of raw diff.
+This is not a deterministic diff renderer. The action invokes a real coding
+agent (Claude Code CLI by default, OpenAI Codex CLI, or Agent-Native Code
+with an OpenAI-compatible provider) that reads the change, decides what
+matters, and authors the recap by calling the Plans MCP tool
+`create-visual-recap` — the same tool the `/visual-recap` slash command
+uses. You get a high-altitude, schema/API/before-after view of the change
+instead of a wall of raw diff.
 
 The recap is **informational and non-blocking**. It creates a check row so reviewers can see that generation is in progress, but it is not a required check, it never blocks the PR, and it never replaces reading the actual diff. The sticky comment is a review aid, not a sign-off.
 
@@ -214,7 +229,7 @@ To reduce cost:
 
 Every run records what it actually spent: the workflow's `recap usage` step attaches token and cost usage to the published plan, so you can look at real spend per run instead of guessing.
 
-## Secrets and variables
+## Secrets and variables {#secrets-and-variables}
 
 Set these in your repository's **Settings → Secrets and variables → Actions**.
 
@@ -558,7 +573,7 @@ Both variants write the workflow to `.github/workflows/pr-visual-recap.yml`. If 
 
 After writing, run `npx @agent-native/recap-cli@latest recap doctor` as usual to confirm secrets are configured.
 
-### Version pinning
+### Version pinning {#version-pinning}
 
 By default the caller references `@main`, which always uses the latest published version of the reusable workflow. For production repos that need reproducible CI, pin to a tag or SHA:
 

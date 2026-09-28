@@ -8,6 +8,7 @@ import { splitMarkdownBlocks } from "../../shared/markdown-block-split.js";
 import {
   loadMarkdown,
   markdownComponents,
+  messageMatchesActiveTextStream,
   onMarkdownReady,
   shouldAnimateMarkdownText,
   SmoothMarkdownText,
@@ -36,6 +37,44 @@ function MarkdownTableProbe() {
     </Table>
   );
 }
+
+describe("markdown links", () => {
+  it("opens external links in a new tab without granting opener access", () => {
+    const link = markdownComponents.a({
+      href: "https://example.com",
+      children: "Open link",
+    });
+
+    expect(link).toMatchObject({
+      type: "a",
+      props: {
+        href: "https://example.com",
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
+    });
+  });
+
+  it("keeps relative and same-origin links in the current tab", () => {
+    const relative = markdownComponents.a({
+      href: "/brain/sources",
+      children: "Brain sources",
+    });
+    const sameOrigin = markdownComponents.a({
+      href: `${window.location.origin}/brain/sources`,
+      children: "Brain sources",
+    });
+
+    expect(relative).toMatchObject({
+      type: "a",
+      props: { href: "/brain/sources", target: undefined },
+    });
+    expect(sameOrigin).toMatchObject({
+      type: "a",
+      props: { target: undefined, rel: undefined },
+    });
+  });
+});
 
 describe("shouldAnimateMarkdownText", () => {
   it("does not replay a completed last response when chat starts another run", () => {
@@ -67,6 +106,36 @@ describe("shouldAnimateMarkdownText", () => {
         externalStreaming: true,
       }),
     ).toBe(true);
+  });
+
+  it("animates a complete text part that belongs to the active AgentKit turn", () => {
+    expect(
+      shouldAnimateMarkdownText({
+        textStreaming: false,
+        isLastAssistantMessage: true,
+        statusType: "complete",
+        activeMessageStreaming: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("matches active turns before continuation run ids", () => {
+    expect(
+      messageMatchesActiveTextStream(
+        {
+          metadata: {
+            custom: { runId: "run-2", turnId: "turn-current" },
+          },
+        },
+        { runId: "run-1", turnId: "turn-current" },
+      ),
+    ).toBe(true);
+    expect(
+      messageMatchesActiveTextStream(
+        { metadata: { runId: "run-current", turnId: "turn-previous" } },
+        { runId: "run-current", turnId: "turn-current" },
+      ),
+    ).toBe(false);
   });
 });
 
@@ -127,6 +196,33 @@ describe("useSmoothStreamingText", () => {
     expect(
       container.querySelector("[data-testid='visible-text']")?.textContent,
     ).toBe(firstVisibleText);
+  });
+
+  it("starts a new message from its own cursor when the message key changes", () => {
+    const firstText = "The first response is still being revealed.";
+    const nextText = "The first response is replaced by a follow-up.";
+
+    act(() => {
+      root.render(<Probe text={firstText} resetKey="message-1" />);
+    });
+
+    act(() => {
+      const callback = frameCallbacks.shift();
+      callback?.(40);
+    });
+    expect(
+      container.querySelector("[data-testid='visible-text']")?.textContent,
+    ).not.toBe(firstText);
+
+    act(() => {
+      root.render(<Probe text={nextText} resetKey="message-2" />);
+    });
+
+    const visibleText = container.querySelector(
+      "[data-testid='visible-text']",
+    )?.textContent;
+    expect(visibleText).not.toContain(firstText.slice(0, 12));
+    expect(nextText.startsWith(visibleText ?? "")).toBe(true);
   });
 
   it("keeps wide markdown tables inside a scrollable wrapper", () => {

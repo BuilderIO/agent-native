@@ -145,13 +145,13 @@ export function useShareDialogController({
     query: sharesQuery,
     queryKey: shareQueryKey,
     queryClient,
-  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId);
+  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId, open);
   const {
     share: shareMutation,
     unshare: unshareMutation,
     setVisibility: visibilityMutation,
   } = useShareMutations();
-  const memberSearch = useShareOrgMemberSearch("", true, {
+  const memberSearch = useShareOrgMemberSearch("", open, {
     limit: undefined,
     debounceMs: 0,
   });

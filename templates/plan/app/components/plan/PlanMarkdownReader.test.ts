@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,24 @@ import {
   buildPlanMarkdownSectionCopyUrl,
 } from "./PlanMarkdownReader";
 import { detectPlanTextDirection } from "./planTextDirection";
+
+function RerenderHarness() {
+  const [version, setVersion] = useState(0);
+
+  return createElement(
+    "div",
+    null,
+    createElement(
+      "button",
+      { type: "button", onClick: () => setVersion((current) => current + 1) },
+      version,
+    ),
+    createElement(PlanMarkdownReader, {
+      blockId: "intro",
+      markdown: "## Heading\n\n```ts\nconst value = 1;\n```",
+    }),
+  );
+}
 
 describe("PlanMarkdownReader RTL rendering", () => {
   let container: HTMLDivElement;
@@ -50,6 +68,27 @@ describe("PlanMarkdownReader RTL rendering", () => {
     expect(prose?.getAttribute("dir")).toBe("rtl");
     expect(inlineCode?.getAttribute("dir")).toBe("ltr");
     expect(inlineCode?.textContent).toBe("Option::get($id)");
+  });
+
+  it("keeps markdown and code surfaces mounted across unrelated parent renders", () => {
+    act(() => {
+      root.render(createElement(RerenderHarness));
+    });
+
+    const heading = container.querySelector("h2");
+    const codeSurface = container.querySelector(".plan-code-surface");
+    const button = container.querySelector<HTMLButtonElement>("button");
+
+    expect(heading).not.toBeNull();
+    expect(codeSurface).not.toBeNull();
+    expect(button).not.toBeNull();
+
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("h2")).toBe(heading);
+    expect(container.querySelector(".plan-code-surface")).toBe(codeSurface);
   });
 });
 

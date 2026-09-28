@@ -4,6 +4,10 @@ import { readCreativeContextState } from "@agent-native/creative-context/client"
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import {
+  formatComposerContext,
+  hasComposerSystemContext,
+} from "@/lib/composer-context";
+import {
   isPendingGenerationStale,
   patchPendingGeneration,
   readPendingGeneration,
@@ -33,6 +37,9 @@ export interface ResumePendingGenerationArgs {
     options?: Omit<AgentChatMessage, "message" | "context">,
   ) => string;
   clearGenerationCompleteTimer: () => void;
+  creativeContextEnabled: boolean;
+  creativeContextLabLoading: boolean;
+  creativeContextLabError: string | null;
   design: DesignData | null;
   files: DesignFile[];
   generationModelRef: RefObject<{
@@ -51,6 +58,9 @@ export interface ResumePendingGenerationArgs {
 export function runResumePendingGeneration({
   agentSubmit,
   clearGenerationCompleteTimer,
+  creativeContextEnabled,
+  creativeContextLabLoading,
+  creativeContextLabError,
   design,
   files,
   generationModelRef,
@@ -62,6 +72,7 @@ export function runResumePendingGeneration({
   trackAgentGeneration,
 }: ResumePendingGenerationArgs) {
   if (!id || !design) return;
+  if (creativeContextLabLoading) return;
 
   const pending = readPendingGeneration(id);
   if (!pending) {
@@ -83,6 +94,17 @@ export function runResumePendingGeneration({
     return;
   }
 
+  if (pending.autoGenerate === false) {
+    setGenerationIssue(null);
+    setHasPendingGeneration(true);
+    return;
+  }
+  if (creativeContextLabError) {
+    setGenerationIssue(creativeContextLabError);
+    setHasPendingGeneration(true);
+    return;
+  }
+
   const prompt =
     pending.prompt && pending.prompt.trim().length > 0
       ? pending.prompt
@@ -98,18 +120,9 @@ export function runResumePendingGeneration({
       ? design.designSystemId
       : pending.designSystemId;
 
-  if (pending.autoGenerate === false) {
-    setGenerationIssue(null);
-    setHasPendingGeneration(true);
-    return;
-  }
-
   let cancelled = false;
   void (async () => {
     const shouldExploreVariants = promptRequestsVariantExploration(prompt);
-    // A reference screenshot already answers the questions the intake flow
-    // asks. Spending the one turn that can see the image on a questionnaire
-    // means the turn that writes HTML never sees it.
     const hasReferenceImages = images.length > 0;
     const explicitSkip =
       pending.skipQuestions === true ||
@@ -117,10 +130,15 @@ export function runResumePendingGeneration({
       hasReferenceImages;
     const usesTemplate = Boolean(pending.templateId);
     const [designSystemContext, intake] = await Promise.all([
-      loadDesignSystemGenerationContext(pendingDesignSystemId),
-      usesTemplate || shouldExploreVariants
+      hasComposerSystemContext(pending.contextItems)
+        ? ""
+        : loadDesignSystemGenerationContext(pendingDesignSystemId),
+      usesTemplate || shouldExploreVariants || !creativeContextEnabled
         ? Promise.resolve(null)
-        : loadIntakeContextFromAppState(readCreativeContextState),
+        : loadIntakeContextFromAppState(
+            readCreativeContextState,
+            creativeContextEnabled,
+          ),
     ]);
     if (cancelled) return;
     const shouldSkipQuestions =
@@ -135,6 +153,7 @@ export function runResumePendingGeneration({
         ? `Design system id: "${pendingDesignSystemId}"`
         : "",
       designSystemContext,
+      formatComposerContext(pending.contextItems),
       fileContext,
       "",
       ...(pending.templateId

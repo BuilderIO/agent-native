@@ -2,19 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 
-const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialsDetailedMock = vi.hoisted(() => vi.fn());
-const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
+const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/builder-api-auth.js", () => ({
   resolveBuilderApiAuthorization: resolveBuilderApiAuthorizationMock,
+  resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
 }));
 
 vi.mock("../server/credential-provider.js", () => ({
-  resolveBuilderCredentials: resolveBuilderCredentialsMock,
   resolveBuilderCredentialsDetailed: resolveBuilderCredentialsDetailedMock,
-  resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 
 function jsonResponse(body: unknown, init?: { status?: number }): Response {
@@ -48,16 +46,17 @@ describe("builderFileUploadProvider", () => {
     delete process.env.BUILDER_PUBLIC_APP_HOST;
     vi.clearAllMocks();
     vi.useFakeTimers();
-    resolveBuilderCredentialsMock.mockResolvedValue({
-      privateKey: "bpk-secret",
-      publicKey: "public-key",
-    });
     resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "bpk-secret",
       publicKey: "public-key",
     });
-    resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
     resolveBuilderApiAuthorizationMock.mockResolvedValue("Bearer bpk-secret");
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "bpk-secret",
+      authorization: "Bearer bpk-secret",
+      source: "legacy",
+      legacyPublicKey: "public-key",
+    });
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -95,6 +94,33 @@ describe("builderFileUploadProvider", () => {
     expect(init).toMatchObject({
       method: "DELETE",
       headers: { Authorization: "Bearer bpk-secret" },
+    });
+  });
+
+  it("deletes Builder assets with OAuth without legacy API key fields", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+      oauthScope: "user",
+    });
+    fetchMock.mockResolvedValue(jsonResponse({}));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fprivate.bin?token=x",
+      }),
+    ).resolves.toBe(true);
+
+    expect(resolveBuilderRequestAuthorizationMock).toHaveBeenCalledWith({
+      requiredScope: "builder:assets:write",
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(url.toString());
+    expect(parsed.searchParams.has("apiKey")).toBe(false);
+    expect(init).toMatchObject({
+      method: "DELETE",
+      headers: { Authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>" },
     });
   });
 
@@ -236,10 +262,6 @@ describe("builderFileUploadProvider", () => {
     resolveBuilderApiAuthorizationMock.mockResolvedValue(
       "Bearer btk-agent-native",
     );
-    resolveBuilderCredentialsMock.mockResolvedValue({
-      privateKey: "btk-agent-native",
-      publicKey: "space-agent-native",
-    });
     resolveBuilderCredentialsDetailedMock.mockResolvedValue({
       privateKey: "btk-agent-native",
       publicKey: "space-agent-native",
@@ -409,7 +431,6 @@ describe("builderFileUploadProvider", () => {
     await builderFileUploadProvider.upload({ data: new Uint8Array([1]) });
 
     const [url, init] = fetchMock.mock.calls[0];
-    // No filename -> no name search param.
     expect(new URL(url.toString()).searchParams.has("name")).toBe(false);
     expect(init.headers["Content-Type"]).toBe("application/octet-stream");
   });
@@ -434,7 +455,6 @@ describe("builderFileUploadProvider", () => {
     const promise = builderFileUploadProvider.upload({
       data: new Uint8Array([1]),
     });
-    // Advance past the first backoff delay (600ms) so the retry fires.
     await vi.advanceTimersByTimeAsync(600);
     const result = await promise;
 
@@ -467,11 +487,9 @@ describe("builderFileUploadProvider", () => {
       data: new Uint8Array([1]),
     });
     const expectation = expect(promise).rejects.toThrow(/\(503\): Unavailable/);
-    // Two backoff windows: 600ms then 1800ms.
     await vi.advanceTimersByTimeAsync(600);
     await vi.advanceTimersByTimeAsync(1800);
     await expectation;
-    // 1 initial + 2 retries = 3 attempts.
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

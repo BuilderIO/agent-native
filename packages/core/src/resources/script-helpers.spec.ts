@@ -129,6 +129,20 @@ describe("resources script-helpers", () => {
         "context/brand.md",
       );
     });
+
+    it("passes the active organization to workspace reads", async () => {
+      mockResourceGetByPath.mockResolvedValue(null);
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => readResource("context/brand.md", { scope: "workspace" }),
+      );
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "__workspace__",
+        "context/brand.md",
+        { orgId: "org-1" },
+      );
+    });
   });
 
   describe("readResource", () => {
@@ -379,6 +393,22 @@ describe("resources script-helpers", () => {
 
       await listResources(undefined, { scope: "workspace" });
       expect(mockResourceList).toHaveBeenCalledWith("__workspace__", undefined);
+    });
+
+    it("scopes workspace listings to the active organization", async () => {
+      mockResourceList.mockResolvedValue([]);
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", orgId: "org-1" },
+        () => listResources("context/", { scope: "workspace" }),
+      );
+      expect(mockResourceList).toHaveBeenCalledWith(
+        "__workspace__",
+        "context/",
+        {
+          orgId: "org-1",
+        },
+      );
     });
 
     it("can include agent scratch resources", async () => {

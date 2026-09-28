@@ -3,17 +3,21 @@ import {
   AgentToggleButton,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLab } from "@agent-native/core/client/labs";
 import {
   InvitationBanner,
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
 import {
-  AgentNativeIcon,
-  EnvironmentBadge,
+  AppSidebarFooter,
+  AppSidebarHeader,
 } from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,
   IconArchive,
@@ -23,24 +27,22 @@ import {
   IconUsersGroup,
   IconBrandChrome,
   IconDownload,
+  IconChevronDown,
   IconMenu2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconLayoutSidebarRight,
   IconShare,
   IconDots,
   IconEdit,
 } from "@tabler/icons-react";
-import {
-  Fragment,
-  ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router";
 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -76,15 +78,30 @@ import { cn } from "@/lib/utils";
 
 import { FolderTree, type FolderNode } from "./folder-tree";
 import { PageHeaderSlotProvider } from "./page-header";
+import { SidebarFeedbackButton } from "./sidebar-feedback-button";
 import { SpaceDialogs } from "./space-dialogs";
 
 interface LibraryLayoutProps {
   children: ReactNode;
-  /** Disable the workspace Agent rail when a route embeds Agent in its own panel. */
-  showAgentSidebar?: boolean;
 }
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = "clips:left-sidebar-collapsed";
+type SidebarGroupKey = "library" | "spaces";
+
+function isSidebarGroupActive(
+  pathname: string,
+  group: SidebarGroupKey,
+  matchesRoute: boolean,
+) {
+  if (!matchesRoute) return false;
+  if (group === "library" && pathname.startsWith("/library/folder/")) {
+    return false;
+  }
+  if (group === "spaces" && pathname.startsWith("/spaces/")) {
+    return false;
+  }
+  return true;
+}
 
 function readSidebarCollapsedPreference() {
   if (typeof window === "undefined") return false;
@@ -99,26 +116,88 @@ function readSidebarCollapsedPreference() {
 }
 
 function ClipsAgentToggleButton() {
+  return <AgentToggleButton showWhenOpen />;
+}
+
+interface ExpandedSidebarNavGroupProps {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  active: boolean;
+  count?: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}
+
+function ExpandedSidebarNavGroup({
+  to,
+  label,
+  icon: Icon,
+  active,
+  count,
+  open,
+  onOpenChange,
+  children,
+}: ExpandedSidebarNavGroupProps) {
+  const t = useT();
+
   return (
-    <AgentToggleButton
-      showWhenOpen
-      icon={<IconLayoutSidebarRight className="size-5" aria-hidden />}
-    />
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="group/sidebar-nav"
+    >
+      <div
+        className={cn(
+          "group flex items-center rounded",
+          active
+            ? "bg-primary/10 font-medium text-primary"
+            : "text-primary hover:bg-accent/60",
+        )}
+      >
+        <NavLink
+          to={to}
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
+        >
+          <Icon className="size-4 shrink-0 text-primary" />
+          <span className="flex-1 truncate text-primary">{label}</span>
+          {count !== undefined && count > 0 && (
+            <span className="shrink-0 tabular-nums text-[11px] text-primary/80">
+              {count}
+            </span>
+          )}
+        </NavLink>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${t(open ? "settings.collapse" : "settings.expand")}: ${label}`}
+            className="me-1 flex size-7 shrink-0 items-center justify-center rounded text-primary hover:bg-accent hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <IconChevronDown
+              className={cn(
+                "size-3.5 transition-transform motion-reduce:transition-none",
+                open && "rotate-180",
+              )}
+            />
+          </button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="clips-collapsible-content">
+        <div className="ms-3.5 border-s border-border/70 ps-2">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
-export function LibraryLayout({
-  children,
-  showAgentSidebar = true,
-}: LibraryLayoutProps) {
+export function LibraryLayout({ children }: LibraryLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  // Bind chat to the currently-open recording (`/r/:id`). Library, spaces,
-  // meetings, dictate, and settings stay unscoped — those are list-y views
-  // where deck-style "this recording" framing doesn't apply.
+  const meetingsLabEnabled = useLab(CLIPS_MEETINGS);
+  const wisprFlowLabEnabled = useLab(CLIPS_WISPRFLOW);
   const recordingScope = useMemo(() => {
-    const match = location.pathname.match(/^\/r\/([^/]+)/);
+    const match = location.pathname.match(/^\/(?:r|share)\/([^/]+)/);
     const recordingId = match?.[1];
     if (!recordingId) return null;
     return { type: "recording" as const, id: recordingId };
@@ -152,8 +231,6 @@ export function LibraryLayout({
     { enabled: hasActiveOrg && Boolean(currentOrganizationId) },
   );
 
-  // Clip count for the "Library" nav item — count-only, no row payload or
-  // title polling across the app shell.
   const { data: libraryCount } = useRecordingsCount({ view: "library" });
   const { data: sharedCount } = useRecordingsCount({ view: "shared" });
 
@@ -166,9 +243,26 @@ export function LibraryLayout({
           parentId: f.parentId ?? null,
           spaceId: f.spaceId ?? null,
           name: f.name,
+          recordingCount: Number(f.recordingCount ?? 0),
         })),
     [libFolders],
   );
+  const spaceFolderLists = useMemo(() => {
+    const foldersBySpace = new Map<string, FolderNode[]>();
+    for (const folder of libFolders?.folders ?? []) {
+      if (!folder.spaceId) continue;
+      const folders = foldersBySpace.get(folder.spaceId) ?? [];
+      folders.push({
+        id: folder.id,
+        parentId: folder.parentId ?? null,
+        spaceId: folder.spaceId,
+        name: folder.name,
+        recordingCount: Number(folder.recordingCount ?? 0),
+      });
+      foldersBySpace.set(folder.spaceId, folders);
+    }
+    return foldersBySpace;
+  }, [libFolders]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const mobileSidebarRef = useRef<HTMLElement | null>(null);
@@ -176,6 +270,15 @@ export function LibraryLayout({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     readSidebarCollapsedPreference,
   );
+  const [expandedSidebarGroups, setExpandedSidebarGroups] = useState<
+    Record<SidebarGroupKey, boolean>
+  >(() => ({
+    library:
+      location.pathname.startsWith("/library") ||
+      location.pathname.startsWith("/r/") ||
+      location.pathname.startsWith("/share/"),
+    spaces: location.pathname.startsWith("/spaces"),
+  }));
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
   const workspaceUtilityLinks = [
@@ -211,7 +314,7 @@ export function LibraryLayout({
               ? t("navigation.expandSidebar")
               : t("navigation.collapseSidebar")
           }
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary"
           onClick={() => setSidebarCollapsed((value) => !value)}
         >
           {showCollapsedSidebar ? (
@@ -228,13 +331,29 @@ export function LibraryLayout({
       </TooltipContent>
     </Tooltip>
   ) : null;
-  // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
-  // + AgentSidebar, but skips its own header so there's no double-header.
   const pageOwnsToolbar =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // The redesigned Settings shell brings its own navigation, header, and
+  // agent toggle. While the flag loads, Settings shows the shell's skeleton,
+  // so the app chrome stays out then too instead of appearing and vanishing.
+  const settingsOwnsChrome =
+    (location.pathname === "/settings" ||
+      location.pathname.startsWith("/settings/")) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading");
   useEffect(() => {
     setSidebarOpen(false);
+  }, [location.pathname]);
+  useEffect(() => {
+    setExpandedSidebarGroups((groups) => ({
+      library:
+        groups.library ||
+        location.pathname.startsWith("/library") ||
+        location.pathname.startsWith("/r/") ||
+        location.pathname.startsWith("/share/"),
+      spaces: groups.spaces || location.pathname.startsWith("/spaces"),
+    }));
   }, [location.pathname]);
   useEffect(() => {
     if (!isMobile || !sidebarOpen) return;
@@ -308,7 +427,11 @@ export function LibraryLayout({
       to: "/library",
       label: t("navigation.library"),
       icon: IconInbox,
-      match: (p) => p.startsWith("/library") || p.startsWith("/r/"),
+      match: (p) =>
+        p === "/home" ||
+        p.startsWith("/library") ||
+        p.startsWith("/r/") ||
+        p.startsWith("/share/"),
       count: libraryCount,
     },
     {
@@ -322,20 +445,28 @@ export function LibraryLayout({
       to: "/spaces",
       label: t("navigation.spaces"),
       icon: IconUsersGroup,
-      match: (p) => p.startsWith("/spaces"),
+      match: (p) => p === "/spaces" || p.startsWith("/spaces/"),
     },
-    {
-      to: "/meetings",
-      label: t("navigation.meetings"),
-      icon: IconCalendar,
-      match: (p) => p.startsWith("/meetings"),
-    },
-    {
-      to: "/dictate",
-      label: t("navigation.dictate"),
-      icon: IconMicrophone2,
-      match: (p) => p.startsWith("/dictate"),
-    },
+    ...(meetingsLabEnabled
+      ? [
+          {
+            to: "/meetings",
+            label: t("navigation.meetings"),
+            icon: IconCalendar,
+            match: (p: string) => p.startsWith("/meetings"),
+          },
+        ]
+      : []),
+    ...(wisprFlowLabEnabled
+      ? [
+          {
+            to: "/dictate",
+            label: t("navigation.dictate"),
+            icon: IconMicrophone2,
+            match: (p: string) => p.startsWith("/dictate"),
+          },
+        ]
+      : []),
     {
       to: "/archive",
       label: t("navigation.archive"),
@@ -373,20 +504,20 @@ export function LibraryLayout({
           "group flex items-center rounded",
           active
             ? "bg-primary/10 font-medium text-primary"
-            : "text-foreground hover:bg-accent/60",
+            : "text-primary hover:bg-accent/60",
         )}
       >
         <NavLink
           to={to}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs"
+          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
         >
-          <Icon className="size-4 shrink-0" />
-          <span className="flex-1 truncate">{label}</span>
+          <Icon className="size-4 shrink-0 text-primary" />
+          <span className="flex-1 truncate text-primary">{label}</span>
           {count !== undefined && count > 0 && (
             <span
               className={cn(
                 "shrink-0 tabular-nums text-[11px]",
-                active ? "text-primary/80" : "text-muted-foreground",
+                "text-primary/80",
               )}
             >
               {count}
@@ -412,18 +543,43 @@ export function LibraryLayout({
             to={to}
             aria-label={label}
             className={cn(
-              "flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              "flex size-9 items-center justify-center rounded-md text-primary hover:bg-accent/60 hover:text-primary",
               active &&
                 "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
             )}
           >
-            <Icon className="size-4" />
+            <Icon className="size-4 text-primary" />
           </NavLink>
         </TooltipTrigger>
         <TooltipContent side="right">{label}</TooltipContent>
       </Tooltip>
     );
   };
+
+  const renderExpandedNavGroup = (
+    item: (typeof navItems)[number],
+    group: SidebarGroupKey,
+    children: ReactNode,
+  ) => (
+    <ExpandedSidebarNavGroup
+      key={item.to}
+      to={item.to}
+      label={item.label}
+      icon={item.icon}
+      active={isSidebarGroupActive(
+        location.pathname,
+        group,
+        item.match(location.pathname),
+      )}
+      count={item.count}
+      open={expandedSidebarGroups[group]}
+      onOpenChange={(open) =>
+        setExpandedSidebarGroups((groups) => ({ ...groups, [group]: open }))
+      }
+    >
+      {children}
+    </ExpandedSidebarNavGroup>
+  );
 
   const pageContent = (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -463,36 +619,15 @@ export function LibraryLayout({
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full rtl:translate-x-full md:translate-x-0",
+          settingsOwnsChrome && "hidden",
         )}
       >
-        <div
-          className={cn(
-            "flex h-14 shrink-0 items-center border-b border-border",
-            showCollapsedSidebar
-              ? "flex-col justify-center gap-0.5 px-2"
-              : "gap-2 px-4",
-          )}
-        >
-          <NavLink
-            to="/library"
-            aria-label={t("navigation.brand")}
-            className={cn(
-              "flex min-w-0 translate-y-0.5 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              showCollapsedSidebar ? "size-8 justify-center" : "shrink-0",
-            )}
-          >
-            <AgentNativeIcon
-              aria-hidden="true"
-              className="h-3.5 w-6 shrink-0 text-foreground"
-            />
-            {!showCollapsedSidebar && (
-              <span className="truncate text-sm font-semibold text-foreground">
-                {t("navigation.brand")}
-              </span>
-            )}
-          </NavLink>
-          <EnvironmentBadge placement="inline" />
-        </div>
+        <AppSidebarHeader
+          brandName={t("navigation.brand")}
+          appId="clips"
+          brandHref="/library"
+          collapsed={showCollapsedSidebar}
+        />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {showCollapsedSidebar ? (
             <nav className="flex flex-col items-center gap-1 px-2 py-3">
@@ -503,143 +638,168 @@ export function LibraryLayout({
             </nav>
           ) : (
             <nav className="space-y-0.5 px-2 py-3">
-              {primaryNavItems.map((item) => (
-                <Fragment key={item.to}>
-                  {renderExpandedNavItem(item)}
-                  {item.to === "/library" && libFolderList.length > 0 && (
-                    <div className="ms-4 border-s border-border/70 ps-1">
-                      <FolderTree
-                        folders={libFolderList}
-                        organizationId={currentOrganizationId}
-                        spaceId={null}
-                        buildPath={(id) => `/library/folder/${id}`}
-                        activeFolderId={folderId ?? null}
-                      />
-                    </div>
-                  )}
-                  {item.to === "/spaces" &&
-                    (spaces?.spaces ?? []).length > 0 && (
-                      <ul className="ms-4 space-y-0.5 border-s border-border/70 ps-1">
-                        {(spaces?.spaces ?? []).map((s: any) => {
-                          const active = spaceId === s.id;
-                          return (
-                            <li key={s.id}>
-                              <ContextMenu>
-                                <ContextMenuTrigger asChild>
-                                  <div
-                                    className={cn(
-                                      "group flex items-center gap-2 rounded px-2 py-1 text-xs",
-                                      active
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-foreground hover:bg-accent/60",
-                                    )}
-                                  >
-                                    <NavLink
-                                      to={`/spaces/${s.id}`}
-                                      className="flex min-w-0 flex-1 items-center gap-2"
-                                    >
-                                      <div
-                                        className="flex size-4 shrink-0 items-center justify-center rounded text-[10px]"
-                                        style={{
-                                          background:
-                                            s.color ?? "hsl(var(--primary))",
-                                          color:
-                                            "hsl(var(--primary-foreground))",
-                                        }}
-                                      >
-                                        {s.iconEmoji ??
-                                          s.name.slice(0, 1).toUpperCase()}
-                                      </div>
-                                      <span className="truncate">{s.name}</span>
-                                    </NavLink>
-                                    {canManageOrg && (
-                                      <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                          <button
-                                            type="button"
-                                            aria-label={`${s.name}: ${t("root.commandActions")}`}
-                                            title={`${s.name}: ${t("root.commandActions")}`}
-                                            className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                                          >
-                                            <IconDots className="size-3.5" />
-                                          </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent
-                                          align="start"
-                                          side="right"
-                                        >
-                                          <DropdownMenuItem
-                                            onSelect={() => {
-                                              setTimeout(() => {
-                                                setRenameSpaceValue(s.name);
-                                                setRenameSpaceId(s.id);
-                                              }, 0);
-                                            }}
-                                          >
-                                            <IconEdit className="me-2 size-3.5" />
-                                            {t("spaceDialog.renameSpace")}
-                                          </DropdownMenuItem>
-                                          <DropdownMenuItem
-                                            onSelect={() => {
-                                              setTimeout(() => {
-                                                setDeleteSpaceId(s.id);
-                                                setDeleteSpaceName(s.name);
-                                              }, 0);
-                                            }}
-                                            className="text-destructive"
-                                          >
-                                            <IconTrash className="me-2 size-3.5" />
-                                            {t("spaceDialog.deleteSpace")}
-                                          </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                      </DropdownMenu>
-                                    )}
-                                  </div>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent>
-                                  <ContextMenuItem asChild>
-                                    <NavLink to={`/spaces/${s.id}`}>
-                                      <IconUsersGroup className="me-2 size-3.5" />
-                                      {t("clipsFinalRaw.view")}
-                                    </NavLink>
-                                  </ContextMenuItem>
-                                  {canManageOrg && (
-                                    <>
-                                      <ContextMenuSeparator />
-                                      <ContextMenuItem
-                                        onSelect={() => {
-                                          setTimeout(() => {
-                                            setRenameSpaceValue(s.name);
-                                            setRenameSpaceId(s.id);
-                                          }, 0);
-                                        }}
-                                      >
-                                        <IconEdit className="me-2 size-3.5" />
-                                        {t("spaceDialog.renameSpace")}
-                                      </ContextMenuItem>
-                                      <ContextMenuItem
-                                        onSelect={() => {
-                                          setTimeout(() => {
-                                            setDeleteSpaceId(s.id);
-                                            setDeleteSpaceName(s.name);
-                                          }, 0);
-                                        }}
-                                        className="text-destructive focus:text-destructive"
-                                      >
-                                        <IconTrash className="me-2 size-3.5" />
-                                        {t("spaceDialog.deleteSpace")}
-                                      </ContextMenuItem>
-                                    </>
+              {primaryNavItems.map((item) => {
+                if (item.to === "/library" && libFolderList.length > 0) {
+                  return renderExpandedNavGroup(
+                    item,
+                    "library",
+                    <FolderTree
+                      compact
+                      folders={libFolderList}
+                      organizationId={currentOrganizationId}
+                      spaceId={null}
+                      buildPath={(id) => `/library/folder/${id}`}
+                      activeFolderId={folderId ?? null}
+                    />,
+                  );
+                }
+
+                if (
+                  item.to === "/spaces" &&
+                  (spaces?.spaces ?? []).length > 0
+                ) {
+                  return renderExpandedNavGroup(
+                    item,
+                    "spaces",
+                    <ul className="space-y-0.5">
+                      {(spaces?.spaces ?? []).map((s: any) => {
+                        const active = spaceId === s.id;
+                        const spaceFolders = spaceFolderLists.get(s.id) ?? [];
+                        return (
+                          <li key={s.id}>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div
+                                  className={cn(
+                                    "group flex items-center gap-2 rounded px-1.5 py-1 text-xs",
+                                    active
+                                      ? "bg-primary/10 text-primary"
+                                      : "text-primary hover:bg-accent/60",
                                   )}
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                </Fragment>
-              ))}
+                                >
+                                  <NavLink
+                                    to={`/spaces/${s.id}`}
+                                    className="flex min-w-0 flex-1 items-center gap-2 text-primary"
+                                  >
+                                    <div
+                                      className="flex size-4 shrink-0 items-center justify-center rounded text-[10px]"
+                                      style={{
+                                        background:
+                                          s.color ?? "hsl(var(--primary))",
+                                        color: "hsl(var(--primary-foreground))",
+                                      }}
+                                    >
+                                      {s.iconEmoji ??
+                                        s.name.slice(0, 1).toUpperCase()}
+                                    </div>
+                                    <span className="truncate text-primary">
+                                      {s.name}
+                                    </span>
+                                  </NavLink>
+                                  {canManageOrg && (
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          aria-label={`${s.name}: ${t("root.commandActions")}`}
+                                          title={`${s.name}: ${t("root.commandActions")}`}
+                                          className="rounded p-0.5 text-primary opacity-0 transition-opacity hover:bg-accent hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                                        >
+                                          <IconDots className="size-3.5" />
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent
+                                        align="start"
+                                        side="right"
+                                      >
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setTimeout(() => {
+                                              setRenameSpaceValue(s.name);
+                                              setRenameSpaceId(s.id);
+                                            }, 0);
+                                          }}
+                                        >
+                                          <IconEdit className="me-2 size-3.5" />
+                                          {t("spaceDialog.renameSpace")}
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setTimeout(() => {
+                                              setDeleteSpaceId(s.id);
+                                              setDeleteSpaceName(s.name);
+                                            }, 0);
+                                          }}
+                                          className="text-destructive"
+                                        >
+                                          <IconTrash className="me-2 size-3.5" />
+                                          {t("spaceDialog.deleteSpace")}
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  )}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem asChild>
+                                  <NavLink to={`/spaces/${s.id}`}>
+                                    <IconUsersGroup className="me-2 size-3.5" />
+                                    {t("clipsFinalRaw.view")}
+                                  </NavLink>
+                                </ContextMenuItem>
+                                {canManageOrg && (
+                                  <>
+                                    <ContextMenuSeparator />
+                                    <ContextMenuItem
+                                      onSelect={() => {
+                                        setTimeout(() => {
+                                          setRenameSpaceValue(s.name);
+                                          setRenameSpaceId(s.id);
+                                        }, 0);
+                                      }}
+                                    >
+                                      <IconEdit className="me-2 size-3.5" />
+                                      {t("spaceDialog.renameSpace")}
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      onSelect={() => {
+                                        setTimeout(() => {
+                                          setDeleteSpaceId(s.id);
+                                          setDeleteSpaceName(s.name);
+                                        }, 0);
+                                      }}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <IconTrash className="me-2 size-3.5" />
+                                      {t("spaceDialog.deleteSpace")}
+                                    </ContextMenuItem>
+                                  </>
+                                )}
+                              </ContextMenuContent>
+                            </ContextMenu>
+                            {spaceFolders.length > 0 && (
+                              <div className="ms-3 border-s border-border/70 ps-2">
+                                <FolderTree
+                                  compact
+                                  folders={spaceFolders}
+                                  organizationId={currentOrganizationId}
+                                  spaceId={s.id}
+                                  buildPath={(id) =>
+                                    `/spaces/${s.id}/folder/${id}`
+                                  }
+                                  activeFolderId={folderId ?? null}
+                                />
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>,
+                  );
+                }
+
+                return renderExpandedNavItem(item);
+              })}
 
               <div className="mt-3 space-y-0.5 border-t border-border/70 pt-3">
                 {lifecycleNavItems.map(renderExpandedNavItem)}
@@ -648,30 +808,29 @@ export function LibraryLayout({
           )}
         </div>
 
-        <div
-          className={cn(
-            "shrink-0 border-t border-border p-2 empty:hidden",
-            showCollapsedSidebar
-              ? "flex flex-col items-center gap-1"
-              : "flex items-center gap-0.5",
-          )}
-        >
-          <OrgSwitcher
-            compact={showCollapsedSidebar}
-            className={cn(
-              "bg-transparent hover:bg-accent/60",
-              !showCollapsedSidebar && "min-w-0 flex-1",
-            )}
-            settingsPath="/settings/organization"
-            currentAppId="clips"
-            utilityLinks={workspaceUtilityLinks}
-          />
-          {collapseButton}
-        </div>
+        <AppSidebarFooter
+          collapsed={showCollapsedSidebar}
+          collapsible={false}
+          feedback={<SidebarFeedbackButton collapsed={showCollapsedSidebar} />}
+          orgSwitcher={
+            <OrgSwitcher
+              compact={showCollapsedSidebar}
+              className={cn(
+                "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+                showCollapsedSidebar
+                  ? "!size-9 !p-0 [&>svg]:!size-4"
+                  : "min-w-0 flex-1",
+              )}
+              currentAppId="clips"
+              utilityLinks={workspaceUtilityLinks}
+            />
+          }
+          footerExtras={collapseButton}
+        />
       </aside>
 
       <div className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col">
-        {!pageOwnsToolbar && (
+        {!pageOwnsToolbar && !settingsOwnsChrome && (
           <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
             <button
               ref={mobileMenuTriggerRef}
@@ -688,34 +847,44 @@ export function LibraryLayout({
               ref={setHeaderSlot}
               className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
             />
-            {showAgentSidebar ? (
-              <div className="ms-1 flex items-center border-s border-border ps-2">
-                <ClipsAgentToggleButton />
-              </div>
-            ) : null}
+            <div className="ms-1 flex items-center border-s border-border ps-2">
+              <ClipsAgentToggleButton />
+            </div>
           </header>
         )}
-        <div className="flex min-h-0 flex-1 overflow-hidden [&>.agent-sidebar-shell]:h-full [&>.agent-sidebar-shell]:min-h-0">
-          {showAgentSidebar ? (
-            <AgentSidebar
-              position="right"
-              defaultOpen={false}
-              showCollapseButton={isMobile}
-              emptyStateText={t("navigation.agentEmptyState")}
-              suggestions={[
-                t("navigation.agentSuggestionSummary"),
-                t("navigation.agentSuggestionPricing"),
-                t("navigation.agentSuggestionFiller"),
-              ]}
-              agentPageHref="/settings/agent"
-              scope={recordingScope}
-              browserTabId={getBrowserTabId()}
-            >
-              {pageContent}
-            </AgentSidebar>
-          ) : (
-            pageContent
-          )}
+        <div className="flex min-h-0 flex-1 overflow-hidden [--agent-native-viewport-height:100%]">
+          {/* Open the rail atomically so dense recording grids do not reflow
+              through intermediate column widths while the panel animates. */}
+          <AgentSidebar
+            position="right"
+            defaultOpen={false}
+            animateDesktop={false}
+            showCollapseButton={isMobile}
+            emptyStateText={
+              recordingScope
+                ? t("recordingPage.askAboutClip")
+                : t("navigation.agentEmptyState")
+            }
+            suggestions={
+              recordingScope
+                ? [
+                    t("recordingPage.summarizeClip"),
+                    t("recordingPage.findKeyMoments"),
+                    t("recordingPage.listFollowUpActions"),
+                    t("recordingPage.draftQuestions"),
+                  ]
+                : [
+                    t("navigation.agentSuggestionSummary"),
+                    t("navigation.agentSuggestionPricing"),
+                    t("navigation.agentSuggestionFiller"),
+                  ]
+            }
+            agentPageHref="/settings/agent"
+            scope={recordingScope}
+            browserTabId={getBrowserTabId()}
+          >
+            {pageContent}
+          </AgentSidebar>
         </div>
       </div>
 

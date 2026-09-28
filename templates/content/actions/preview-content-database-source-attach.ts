@@ -15,7 +15,7 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export default defineAction({
   description:
-    "Preview the first projected Builder rows for a database source attachment without writing local or provider data.",
+    "Preview the first projected Builder rows for a collection source attachment without writing local or provider data.",
   schema: z.object({
     databaseId: z.string().optional(),
     documentId: z.string().optional(),

@@ -22,5 +22,6 @@
     "oxfmt": "catalog:",
     "tsx": "^4.20.3",
     "typescript-7": "catalog:"
-  }
+  },
+  "packageManager": "pnpm@10.29.1"
 }

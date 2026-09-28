@@ -398,7 +398,7 @@ await callAction(
   returns={{ type: "void" }}
 />
 
-此掛鉤旨在讓 UI 與發生在您自己的 actions 之外的資料庫變更保持同步，例如代理的寫入、webhook，或來自另一個瀏覽器分頁的變更。它透過伺服器傳送事件監聽變更，並在伺服器傳送事件不可用時回退為輪詢。
+此掛鉤旨在讓 UI 與發生在您自己的 actions 之外的資料庫變更保持同步，例如代理的寫入、webhook，或來自另一個瀏覽器分頁的變更。它透過伺服器傳送事件監聽變更，並在伺服器傳送事件不可用時回退為輪詢。在正式環境無伺服器部署上，應用程式自身的 `/_agent-native/events` 串流依設計不可用——伺服器會立即回應 204，而不是讓函式實例保持開啟——因此該環境下所有同步都以相同節奏交由輪詢負責，除非應用程式已啟用[託管即時同步閘道](/docs/real-time-collaboration#hosted-gateway)。
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";

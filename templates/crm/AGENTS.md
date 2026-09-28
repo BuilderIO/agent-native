@@ -10,6 +10,7 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 ## Core model
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - **Typed attributes**, 17 types, two of them system-only (interaction and
   personal-name). Call `list-crm-attributes` first; never guess a slug or type.
 - **Managed options.** A status/select value must already exist as an option;
@@ -56,7 +57,7 @@ HubSpot/Salesforce lens; UI and agent share actions.
 |`list-crm-lists` / `create-crm-list` / `update-crm-list` / `list-crm-list-entries` / `add-crm-record-to-list` / `update-crm-list-entry` / `remove-crm-list-entry`|Lists and pipelines; a stage move is `update-crm-list-entry`.|
 |`list-crm-saved-views` / `save-crm-saved-view` / `delete-crm-saved-view` / `run-crm-saved-view-program`|Saved table/board views and a view's data program.|
 |`list-crm-proposals` / `apply-crm-proposals`|Review a pending provider change and record the handoff.|
-|`find-crm-duplicates` / `merge-crm-records`|Scored duplicate candidates with reasons; merge into a survivor.|
+|`find-crm-duplicates` / `merge-crm-records`|Scored duplicate candidates with reasons; optional explicit Jev review of one record; merge into a survivor.|
 |`list-crm-enrichment-slots` / `estimate-crm-enrichment` / `run-crm-enrichment`|Slot credential state; cost estimate; the gated verify/spend run.|
 |`run-crm-attribute-fill`|Manual fill: get the brief, reason, call again with values.|
 |`list-crm-tasks` / `manage-crm-task`|Read and manage follow-up tasks.|

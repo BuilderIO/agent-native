@@ -22,36 +22,37 @@ Read the relevant skill before deeper work:
 | --- | --- |
 | `view-screen` | Read the active deck, slide, and selection when unclear |
 | `navigate` | Move the UI to a deck, slide, or view |
-| `create-deck` | Create a deck, optionally pre-populated with slides |
+| `create-deck` | Create a deck for generation |
 | `add-slide` | Append one slide to a deck |
+| `add-slide-comment` / `list-slide-comments` / `update-slide-comment` / `delete-slide-comment` / `toggle-slide-comment-reaction` | Manage comments |
 | `update-slide` | Edit one slide's content or style |
 | `patch-deck` | Delete, reorder, or patch multiple slides in one call |
 | `delete-deck` | Delete a deck and its saved versions |
 | `duplicate-deck` | Duplicate a deck, minting new slide ids |
 | `get-deck` | Read a deck or one targeted slide's full HTML |
 | `list-decks` | List decks with metadata, paged |
-| `apply-design-system` | Link a design system's colors and typography to a deck |
-| `export-pptx` | Export a deck as a PowerPoint file |
-| `export-html` | Export a deck as a standalone HTML file |
-| `export-google-slides` | Export a deck as a Google-Slides-importable PPTX |
+| `list-deck-templates` / `get-deck-template` | Browse template HTML |
+| `generate-home-suggestions` | Personalized home prompts |
+| `create-deck-from-template` | Copy a template without AI |
+| `read-composer-source` | Read bounded Slides, Design, or Figma references |
+| `apply-design-system` | Link design system to deck |
+| `export-pptx` / `export-html` / `export-google-slides` | Export decks |
 | `generate-image-api` | Generate a slide image via the Assets app |
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep large files/blobs in configured file storage, not SQL, settings, or
   resources; persist only URLs, ids, or handles.
 - Never hardcode secrets or private/customer data; use vault/OAuth/runtime
   configuration and fake placeholders in examples.
 - For external integrations, inspect the workspace/provider connection catalog first.
-- Use actions (table above) for every deck/slide write; never write rows
-  directly. Read the schema if a parameter is unclear.
-- Use `view-screen` before editing when the active deck, selected slide, or
-  current layout is unclear.
-- Preserve deck structure and visual consistency. Prefer focused slide edits over
-  regenerating whole decks unless requested.
-- New-deck attachments are reference context. Import into a deck only after an
-  explicit request or Import control; explicit imports follow `sourceImport`
-  and preserve structure.
+- Use listed actions for every deck/slide write; never write rows directly.
+- Use `view-screen` when the active deck, slide, or layout is unclear.
+- Preserve requested structure; imported decks still support structural edits.
+- New-deck attachments arrive pre-read; import only on explicit request or the
+  Import control. `sourceImport` preserves provenance; structural edits clear it
+  so subsequent exports use the edited deck.
 - A source import with `fidelity: partial` or `imagesSkipped` is not safe to
   restyle automatically; report the exact warning instead of silently
   replacing content.
@@ -60,24 +61,20 @@ Read the relevant skill before deeper work:
   `slide-editing`).
 - Freeform dragging snaps within tolerance (Cmd/Ctrl bypasses); align via the
   contextual toolbar with 2+ selected objects, distribute with 3+.
-- Follow linked design-system tokens.
 - Import/export actions are shortcuts, not capability limits. For exact Google
   Drive API needs, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request`; auth comes from the user's Google Docs OAuth.
 - `import-google-slides-reference` accepts a Picker `fileId` or
   `presentationUrl`; pasted URLs may need a one-time Google reconnect. Preserve
   imported PPTX timing metadata, including by-paragraph reveals.
-- For per-click reveals, follow `slide-editing`'s click-to-reveal rules.
-- For images, use `generate-image-api` with provenance; show results as
-  `![alt](url)`.
-- For focused selected-text edits follow the `update-slide` / `get-deck` /
-  `patch-deck` contract in `slide-editing` (one literal replacement,
-  `expectedMatches: 1`, `baseContentHash` from `view-screen`); the same rule
-  reaches external callers through this app's `mcp.instructions`.
+- For focused edits, prefer `view-screen`'s exact `selectedText` with `find`,
+  `expectedMatches: 1`, and `baseContentHash`; without it, use `objectId` with
+  `replace` and the same hash, else exact `find` and `expectedMatches: 1` (see
+  `slide-editing` and `mcp.instructions`).
 - For data requests, follow `analytics-data-for-decks`; delegate via Analytics
   over A2A, never write SQL or call providers directly.
-- When the user names no reference deck or design system, call
-  `get-workspace-defaults` first (see `create-deck`).
+- For generation without a reference deck or design system, call `get-workspace-defaults`
+  first (see `create-deck`).
 - Before generation, follow `creative-context` for source order, `contextMode`,
   and governed-context submission via `manage-context-membership`.
 ## Persistence Model
@@ -112,5 +109,5 @@ Deck data lives in SQL and all writes go through server-side actions. Read
 
 ## Source Changes
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Before building common workspace or agent UI, read `agent-native-toolkit`; see
+`customizing-agent-native`.

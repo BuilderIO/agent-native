@@ -364,4 +364,26 @@ describe("list-designs", () => {
     expect(JSON.stringify(mocks.fileWhereCalls[0])).toContain("design-3");
     expect(JSON.stringify(mocks.fileWhereCalls[0])).not.toContain("design-1");
   });
+
+  it("does not use the reserved board file as a preview fallback", async () => {
+    mocks.designRows = [design("design-1", "Canvas")];
+    mocks.fileRows = [
+      {
+        designId: "design-1",
+        filename: "__board__.html",
+        content: "<main>Board</main>",
+        fileType: "html",
+      },
+      {
+        designId: "design-1",
+        filename: "home.html",
+        content: "<main>Visible screen</main>",
+        fileType: "html",
+      },
+    ];
+
+    const result = await action.run({ includePreview: "true" });
+
+    expect(result.designs[0]?.previewHtml).toBe("<main>Visible screen</main>");
+  });
 });

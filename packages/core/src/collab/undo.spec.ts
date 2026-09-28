@@ -78,8 +78,6 @@ describe("createLocalOpUndoController", () => {
     > | null = null;
     const controller = createLocalOpUndoController<Op>({
       apply: () => {
-        // A naive integration records mutations from its normal path — the
-        // controller must ignore pushes caused by its own undo application.
         controllerRef!.push({ undo: [{ op: "echo", path: "x" }], redo: [] });
       },
     });
@@ -88,7 +86,6 @@ describe("createLocalOpUndoController", () => {
     controller.push({ undo: [{ op: "real", path: "1" }], redo: [] });
     await controller.undo();
 
-    // The echo push was swallowed; nothing new to undo.
     expect(controller.canUndo()).toBe(false);
   });
 
@@ -111,7 +108,6 @@ describe("createLocalOpUndoController", () => {
       coalesceKey: "slide-1:content",
     });
 
-    // One coalesced entry: undo restores v0 (first), redo re-applies v2 (last).
     await controller.undo();
     expect(applied[0].ops[0].value).toBe("v0");
     expect(controller.canUndo()).toBe(false);
@@ -151,13 +147,12 @@ describe("createLocalOpUndoController", () => {
     const { controller } = makeController({ now: () => time, coalesceMs: 800 });
 
     controller.push({ undo: [], redo: [], coalesceKey: "k1" });
-    time = 900; // beyond window
+    time = 900;
     controller.push({ undo: [], redo: [], coalesceKey: "k1" });
     controller.push({ undo: [], redo: [], coalesceKey: "k2" });
 
     expect(controller.canUndo()).toBe(true);
     expect(controller.peekUndoLabel()).toBeUndefined();
-    // Three distinct entries: undo three times.
     return (async () => {
       expect(await controller.undo()).toBe(true);
       expect(await controller.undo()).toBe(true);
@@ -187,13 +182,11 @@ describe("createLocalOpUndoController", () => {
 
 describe("Y.UndoManager local-origin scoping (contract check)", () => {
   it("undoes only transactions tagged with the tracked origin", () => {
-    // Two docs simulating two participants sharing state via updates.
     const docA = new Y.Doc();
     const docB = new Y.Doc();
     const textA = docA.getText("t");
     const textB = docB.getText("t");
 
-    // Relay updates in both directions with a "remote" origin.
     docA.on("update", (u: Uint8Array, origin: unknown) => {
       if (origin !== "remote") Y.applyUpdate(docB, u, "remote");
     });
@@ -213,7 +206,6 @@ describe("Y.UndoManager local-origin scoping (contract check)", () => {
     expect(textA.toString()).toBe("mine theirs");
 
     undoManager.undo();
-    // Only the local user's edit is reverted; the peer's edit survives.
     expect(textA.toString()).toBe("theirs");
     expect(textB.toString()).toBe("theirs");
 

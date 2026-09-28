@@ -14,6 +14,7 @@ and graph versions.
 
 ## Core rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep app state in SQL via Drizzle, scope reads/writes by org and member, and
   use actions as the UI, agent, CLI, MCP, and A2A surface.
 - A missing callback, partial thread, unreadable provider response, or missed
@@ -23,6 +24,7 @@ and graph versions.
 - Slack clear bugs go through `dispatch-factory-item`; never post Slack
   messages or `@handles`. GitHub issues and Sentry tag `@builderio-bot`
   on a GitHub issue. Read `review-latest-feedback` for thread evidence.
+  Also needs `risk`/`confidence`.
 - PR governance follows `review-prs`: verify membership and evidence; skip
   drafts and external authors; apply the verified `liamdebeasi` exception for
   ordinary gates; keep ultra-scary risks manual; never auto-merge.
@@ -55,9 +57,9 @@ and graph versions.
 | `list-triage-rules` / `save-triage-rule` | Tune rules and guards. |
 | `evaluate-triage-item` | Append a decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
-| `dispatch-factory-item` | Tag Builder or record a skip. Optional `reaction` marks the source if that provider can. |
+| `dispatch-factory-item` | Tag Builder or record a skip; requires `risk`/`confidence`. Optional `reaction` marks the source if that provider can. |
 | `govern-factory-pull-request` | Apply PR evidence and ownership gates. |
-| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Post the bot PR poke, or propose babysit status without writing. |
+| `babysit-factory-pull-request` / `propose-pr-babysit-status` | Ping a bot PR after a decision, or read the briefing. |
 | `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | List, create, edit, or run jobs. Factories start empty. Hosted jobs need a workspace connection or vault token. Author filters use Slack `U`/`W` or GitHub numeric ids. Limits are action-enforced. |
 | `list-factory-audit` | Inspect inbox additions, worked items, and actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |

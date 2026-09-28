@@ -251,10 +251,6 @@ function previewNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/**
- * Accept only the compact structured preview contract. Native payloads and
- * arbitrary item metadata deliberately never cross into the shared client.
- */
 export function parseCreativeContextSafePreview(
   value: unknown,
 ): CreativeContextSafePreview | null {
@@ -832,10 +828,14 @@ export function useCreativeContextSources(
   );
 }
 
-export function useCreativeContexts(params: ListCreativeContextsParams = {}) {
+export function useCreativeContexts(
+  params: ListCreativeContextsParams = {},
+  options?: { enabled?: boolean },
+) {
   return useActionQuery<ListCreativeContextsResult>(
     CREATIVE_CONTEXT_ACTIONS.listContexts,
     { limit: 50, ...params },
+    options,
   );
 }
 

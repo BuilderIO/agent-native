@@ -1,42 +1,12 @@
 #!/usr/bin/env node
-/**
- * Quarantine budget for the Design E2E suite.
- *
- * A `test.fixme` is a bug someone chose not to fix yet. That is legitimate —
- * once. What is not legitimate is the count drifting upward unnoticed: this
- * suite ran post-merge only for weeks, and 63 specs rotted because nothing
- * could fail a pull request. Two rules, both mechanical:
- *
- *   1. The count never grows without the ceiling moving in the same diff, so
- *      a reviewer sees the trade.
- *   2. Every quarantined test carries a `//` reason directly above it. A
- *      parked test with no symptom recorded is indistinguishable from a test
- *      someone silenced to get a green run.
- *
- * Lower CEILING whenever the real count drops — that is the whole point.
- */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/** Directory -> max quarantined tests. Freeze current size; never grant room. */
 const CEILINGS = {
   "templates/design/e2e": 16,
 };
 
-/**
- * Directory -> max runtime `test.skip(cond, ...)` sites.
- *
- * A conditional skip is the invisible cousin of `test.fixme`: it is not in the
- * quarantine count, it prints as a dash rather than a failure, and if its
- * condition fires on every run the test guards nothing while still being
- * counted among the suite's totals. Two were doing exactly that — a Scale
- * constraint test whose locator never opened the axis Select, and a resize
- * anchoring test reading the host's board chrome instead of the in-iframe
- * element handles. Both had passed for months as "skipped".
- */
 const SKIP_CEILINGS = {
-  // One of these sites is dead code inside a parked test, kept as evidence
-  // for the rewrite; six are live.
   "templates/design/e2e": 7,
 };
 
@@ -49,9 +19,6 @@ for (const [dir, ceiling] of Object.entries(CEILINGS)) {
   try {
     files = readdirSync(dir).filter((name) => name.endsWith(".spec.ts"));
   } catch (error) {
-    // A budgeted directory that cannot be read is never "0 quarantined,
-    // passing": it was renamed, or the checkout is broken. Either way this is
-    // a failure to inspect, not a clean result.
     console.error(
       `guard:e2e-quarantine: cannot read ${dir} — ${error.message}`,
     );
@@ -69,9 +36,6 @@ for (const [dir, ceiling] of Object.entries(CEILINGS)) {
   for (const name of files) {
     const lines = readFileSync(join(dir, name), "utf8").split("\n");
     lines.forEach((line, index) => {
-      // Playwright parks a whole suite with `test.describe.fixme(...)` and
-      // `test.describe.skip(...)`. Matching only the per-test forms let an
-      // entire file be quarantined without moving either counter.
       if (/test\.(?:describe\.)?skip\(/.test(line)) skipCount += 1;
       if (!/test\.(?:describe\.)?fixme\(/.test(line)) return;
       count += 1;

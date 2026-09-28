@@ -10,7 +10,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/theme";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -57,7 +57,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="utf-8" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content"
         />
         <script
           suppressHydrationWarning
@@ -118,14 +118,31 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
+  const location = useLocation();
+  const isChatThread = location.pathname.startsWith("/chat/");
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        chatStorageKey="chat"
+      >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+          {isChatThread ? (
+            <CommandMenu.Item
+              onSelect={() =>
+                window.dispatchEvent(new Event("agent-chat:new-chat"))
+              }
+            >
+              {t("chat.newChat")}
+            </CommandMenu.Item>
+          ) : null}
+          {!isChatThread && location.pathname !== "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.chat")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -154,26 +171,18 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
+        skeletonLayout="assistant"
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <>
-            <DbSyncSetup />
-            <AppContent />
-          </>
-        )}
+        <DbSyncSetup />
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client/ui";
+export { ErrorBoundary } from "@agent-native/core/client/error-boundary";

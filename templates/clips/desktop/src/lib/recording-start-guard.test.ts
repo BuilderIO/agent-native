@@ -8,6 +8,38 @@ import {
 } from "./recording-start-guard";
 
 describe("guardRecordingStart", () => {
+  it("disposes work dispatched before an already-aborted signal is checked", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const onLateResolve = vi.fn();
+    await expect(
+      guardRecordingStart(Promise.resolve("lease"), {
+        signal: controller.signal,
+        onLateResolve,
+      }),
+    ).rejects.toBeInstanceOf(RecordingStartCancelledError);
+    expect(onLateResolve).toHaveBeenCalledWith("lease");
+  });
+
+  it("preserves timeout failure when cancellation aborts the same signal", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const result = guardRecordingStart(new Promise(() => {}), {
+        signal: controller.signal,
+        timeoutMs: 100,
+        onCancel: () => controller.abort(),
+      });
+      const rejection = expect(result).rejects.toBeInstanceOf(
+        RecordingStartTimeoutError,
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves a start that finishes before the timeout", async () => {
     await expect(
       guardRecordingStart(Promise.resolve("started"), { timeoutMs: 100 }),
@@ -82,12 +114,6 @@ describe("boundedCleanup", () => {
     ).resolves.toBeUndefined();
   });
 
-  // Regression: a "recovery" block that unconditionally awaits a native
-  // cleanup invoke (e.g. hide_recording_chrome, show_popover) with only
-  // `.catch(() => {})` hangs forever if that invoke never settles — turning
-  // one stuck native call into a permanently frozen UI that only an app
-  // restart clears. boundedCleanup must give up after its timeout regardless
-  // of whether the underlying operation ever resolves.
   it("gives up on a cleanup invoke that never settles", async () => {
     vi.useFakeTimers();
     try {

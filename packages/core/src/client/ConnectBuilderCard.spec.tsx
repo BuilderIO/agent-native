@@ -18,6 +18,17 @@ vi.mock("./settings/useBuilderStatus.js", () => ({
 vi.mock("./clipboard.js", () => ({
   writeClipboardText: mocks.writeClipboardText,
 }));
+vi.mock("./i18n.js", () => ({
+  useT: () => (key: string) =>
+    ({
+      "onboarding.builderReadyWithCodeChanges":
+        "AI credits and cloud code changes are ready to use.",
+      "onboarding.builderReadyCreditsOnly":
+        "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
+      "onboarding.openBackgroundAgentSettings":
+        "Open Background Agent settings",
+    })[key] ?? key,
+}));
 
 describe("ConnectBuilderCard", () => {
   let container: HTMLDivElement;
@@ -257,7 +268,29 @@ describe("ConnectBuilderCard", () => {
 
     expect(container.textContent).toContain("Builder.io connected");
     expect(container.textContent).not.toContain("Send to Builder");
-    expect(container.textContent).toContain("This requires a code change");
+    expect(container.textContent).toContain(
+      "Cloud code edits require a Builder project in Background Agent settings.",
+    );
+
+    let section = "";
+    const handleOpenSettings = (event: Event) => {
+      section =
+        (event as CustomEvent<{ section?: string }>).detail?.section ?? "";
+    };
+    window.addEventListener("agent-panel:open-settings", handleOpenSettings);
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) =>
+      button.textContent?.includes("Open Background Agent settings"),
+    );
+    expect(settingsButton).toBeTruthy();
+    act(() => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(section).toBe("background");
+    window.removeEventListener("agent-panel:open-settings", handleOpenSettings);
   });
 
   it("keeps cloud code-change send when OAuth and legacy keys both exist", () => {

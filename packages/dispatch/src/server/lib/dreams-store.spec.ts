@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   currentOwnerEmail: vi.fn(() => "owner@example.test"),
   currentOrgId: vi.fn(() => null),
+  authorizeDispatchAdmin: vi.fn(),
   getApprovalPolicy: vi.fn(),
   createApprovalRequest: vi.fn(),
   recordAudit: vi.fn(),
@@ -42,6 +43,10 @@ vi.mock("./dispatch-store.js", () => ({
   recordAudit: mocks.recordAudit,
 }));
 
+vi.mock("./app-roles.js", () => ({
+  authorizeDispatchAdmin: mocks.authorizeDispatchAdmin,
+}));
+
 vi.mock("./thread-debug-store.js", () => ({
   searchAgentThreads: mocks.searchAgentThreads,
   getAgentThreadDebug: mocks.getAgentThreadDebug,
@@ -72,6 +77,7 @@ import { schema } from "../../db/index.js";
 import {
   applyApprovedDreamProposal,
   applyDreamProposal,
+  authorizeDreamProposalMutation,
   buildProposalInputs,
   ensureDreamJob,
   getDreamSettings,
@@ -299,6 +305,78 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe("authorizeDreamProposalMutation", () => {
+  it("allows an owner to change a personal-memory proposal", async () => {
+    mocks.getDb.mockReturnValue(createDbMock(pendingProposal()));
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: null,
+          userEmail: "owner@example.test",
+        },
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.authorizeDispatchAdmin).not.toHaveBeenCalled();
+  });
+
+  it("requires Dispatch admin authorization for shared proposals", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          orgId: "org-1",
+          targetType: "shared-learnings",
+          targetPath: "LEARNINGS.md",
+        }),
+      ),
+    );
+    mocks.authorizeDispatchAdmin.mockResolvedValue(undefined);
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: "org-1",
+          userEmail: "member@example.test",
+        },
+      ),
+    ).resolves.toBeUndefined();
+    expect(mocks.authorizeDispatchAdmin).toHaveBeenCalledWith(
+      { id: "proposal-1" },
+      expect.objectContaining({
+        orgId: "org-1",
+        userEmail: "member@example.test",
+      }),
+    );
+  });
+
+  it("does not let an organization member change another user's personal proposal", async () => {
+    mocks.getDb.mockReturnValue(
+      createDbMock(
+        pendingProposal({
+          ownerEmail: "other@example.test",
+          orgId: "org-1",
+        }),
+      ),
+    );
+
+    await expect(
+      authorizeDreamProposalMutation(
+        { id: "proposal-1" },
+        {
+          caller: "http",
+          orgId: "org-1",
+          userEmail: "member@example.test",
+        },
+      ),
+    ).rejects.toThrow("can only be changed by their owner");
+    expect(mocks.authorizeDispatchAdmin).not.toHaveBeenCalled();
+  });
 });
 
 describe("listDreamCandidates", () => {

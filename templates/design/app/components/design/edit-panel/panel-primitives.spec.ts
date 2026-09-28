@@ -127,10 +127,14 @@ describe("InspectorGrid", () => {
       createElement(InspectorGrid, {
         layout: "pair-flow",
         children: [
-          createElement(InspectorGridCell, { span: 14, key: "first" }, "First"),
           createElement(
             InspectorGridCell,
-            { span: 14, key: "second" },
+            { span: INSPECTOR_GRID_PAIR_SPAN, key: "first" },
+            "First",
+          ),
+          createElement(
+            InspectorGridCell,
+            { span: INSPECTOR_GRID_PAIR_SPAN, key: "second" },
             "Second",
           ),
         ],
@@ -138,7 +142,11 @@ describe("InspectorGrid", () => {
     );
 
     expect(markup).toContain('data-inspector-layout="pair-flow"');
-    expect(markup.match(/data-inspector-span="14"/g)).toHaveLength(2);
+    expect(
+      markup.match(
+        new RegExp(`data-inspector-span="${INSPECTOR_GRID_PAIR_SPAN}"`, "g"),
+      ),
+    ).toHaveLength(2);
   });
 
   it("pins every paint and effect row to fixed 32px action slots", () => {
@@ -214,9 +222,6 @@ describe("normalizeLengthValue", () => {
   });
 
   it("appends the default unit to a leading-decimal value with no integer part", () => {
-    // Regression: "0.5" was accepted but the numerically identical ".5" was
-    // rejected (and the field silently reverted instead of committing
-    // ".5px") because the old regex required a digit before the dot.
     expect(normalizeLengthValue(".5", "px")).toBe(".5px");
     expect(normalizeLengthValue("-.5", "px")).toBe("-.5px");
   });
@@ -234,10 +239,6 @@ describe("normalizeLengthValue", () => {
   });
 
   it("reverts (returns null) for garbage input", () => {
-    // This template's vitest environment has no DOM, so `CSS.supports` is
-    // normally unavailable and normalizeLengthValue intentionally falls back
-    // to accepting the raw value (see its own comment). Stub a minimal
-    // CSS.supports so this test exercises the real browser revert path.
     const originalCss = (globalThis as { CSS?: unknown }).CSS;
     (globalThis as { CSS?: unknown }).CSS = { supports: () => false };
     try {
@@ -254,10 +255,6 @@ describe("normalizeLengthValue", () => {
 
 describe("propInputKeyRequiresBlurGuard", () => {
   it("requires the blur guard for Enter", () => {
-    // Regression: Enter previously didn't arm skipNextBlurCommitRef, so the
-    // blur triggered by Enter's own `.blur()` call re-ran commit() a second
-    // time in the same tick and double-invoked onChange with the identical
-    // value.
     expect(propInputKeyRequiresBlurGuard("Enter")).toBe(true);
   });
 
@@ -274,11 +271,6 @@ describe("propInputKeyRequiresBlurGuard", () => {
 
 describe("resolveSpacingSideValue", () => {
   it("preserves one decimal place instead of flooring to a whole pixel", () => {
-    // Regression: DesignSpacingControl's setSide used Math.round, silently
-    // discarding the 0.5px precision the four per-side ScrubInput fields
-    // advertise via precision={1} (every other ScrubInput commit site in
-    // this panel — position X/Y, stroke weight, font size — uses
-    // roundToOneDecimal instead of Math.round).
     expect(resolveSpacingSideValue(12.5)).toBe("12.5px");
   });
 

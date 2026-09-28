@@ -1,3 +1,4 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -9,13 +10,16 @@ import {
   readBody as readH3Body,
 } from "h3";
 
+import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import {
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  validateActionArgs,
 } from "../action.js";
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
@@ -54,9 +58,17 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
-import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import {
+  getHttpRequestTelemetryId,
+  registerHttpRequestTelemetryActionRoute,
+  setHttpRequestTelemetryActionName,
+} from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
-import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
+import { hasUiActionCapability } from "./ui-action-capability.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -77,15 +89,15 @@ function currentBuildId(): string {
   return configured?.trim() || "unknown";
 }
 
-/**
- * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
- *
- * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
- * defineAction to expose as GET. Use `http: false` to mark as agent-only.
- */
 import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
-import { runWithRequestContext } from "./request-context.js";
+import {
+  getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
+  hasExplicitPersonalOrgScope,
+  markExplicitPersonalOrgScope,
+  runWithRequestContext,
+} from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
@@ -152,8 +164,6 @@ function appendActionParam(
   value: any,
 ) {
   const isArrayKey = rawKey.endsWith("[]");
-  // The core client serializes arrays as `key[]=value` so even a single
-  // value can validate against z.array() action schemas.
   const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
   const current = params[key];
   if (current === undefined) {
@@ -165,11 +175,6 @@ function appendActionParam(
   }
 }
 
-/**
- * Read the caller's IANA timezone from the `x-user-timezone` header. The core
- * client sends this on every action request so server-side "today" fallbacks
- * can honor the user's local day.
- */
 function readTimezoneHeader(event: any): string | undefined {
   try {
     const raw = getHeader(event, "x-user-timezone");
@@ -181,13 +186,6 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-/**
- * True when the request originated from the browser action client
- * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
- * call with `X-Agent-Native-Frontend: 1`. Used to set `ctx.caller` to
- * `"frontend"` vs a bare programmatic `"http"` POST. The header carries no
- * auth weight — it only narrows the caller tag for tracking/branching.
- */
 function isFrontendActionRequest(event: any): boolean {
   try {
     return getHeader(event, "x-agent-native-frontend") === "1";
@@ -257,14 +255,6 @@ function handleOptionsRequest(event: any): string {
   return "";
 }
 
-/**
- * Declarative auth adapter for the HTTP action route. Its `resolveCaller` runs
- * BEFORE the framework's `getOwnerFromEvent` / `getSession` chain, letting an
- * app accept caller identities `getSession` doesn't understand (e.g. an A2A
- * JWT) without reaching into request context from a Nitro `request` hook.
- *
- * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
- */
 export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
   /**
    * Org to scope the request to, verified from the same credential as the
@@ -278,7 +268,6 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * context.
    */
   orgId?: string | null;
-  /** Verified A2A correlation and issuer metadata for the audit row. */
   delegationJti?: string;
   delegationIssuer?: string;
 };
@@ -308,31 +297,23 @@ export interface ActionRouteAuthAdapter {
 }
 
 export interface MountActionRoutesOptions {
-  /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
-  /** Hosting app/template id used for app-owned action resources. */
+  getAuthUserIdFromEvent?: (
+    event: any,
+  ) => string | undefined | Promise<string | undefined>;
   appId?: string;
-  /** Resolve display name from the H3 event, when available. */
   getUserNameFromEvent?: (
     event: any,
   ) => string | undefined | Promise<string | undefined>;
-  /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Optional caller resolver that runs before the `getOwnerFromEvent` /
-   * `getSession` chain. Lets apps accept A2A JWTs (or other bearer schemes) on
-   * the action route declaratively. See {@link ActionRouteAuthAdapter}.
-   */
   actionRouteAuth?: ActionRouteAuthAdapter;
 }
 
-/** Public HTTP discovery metadata for agents that do not run a browser. */
 export interface WebMcpManifestOptions {
   name: string;
   description: string;
   title?: string;
   instructions?: string;
-  /** Key tools to name in the instructions; see `MCPConfig.keyToolNames`. */
   keyToolNames?: readonly string[];
   version?: string;
   websiteUrl?: string;
@@ -345,9 +326,7 @@ export interface WebMcpManifestOptions {
 }
 
 export interface MountWebMcpActionRoutesOptions extends MountActionRoutesOptions {
-  /** Optional branding included in `/.well-known/mcp.json`. */
   manifest?: WebMcpManifestOptions;
-  /** Resolve the owner context so anonymous template identities stay scoped. */
   getOwnerContextFromEvent?: (
     event: any,
   ) => AgentRunOwnerContext | Promise<AgentRunOwnerContext>;
@@ -375,16 +354,6 @@ function isFirstBootMissingOrgTableError(error: unknown): boolean {
   );
 }
 
-/**
- * The user's stored active org, for a request whose own org resolution came
- * back empty. An empty `orgId` is not "this user has no org": it silently
- * narrows every scoped read to rows with a null `org_id`, so a session minted
- * before org selection — or one whose membership read failed — stops seeing
- * the user's own org-scoped dashboards, credentials, and resources. This
- * honors an explicit Personal selection by returning undefined, so it can
- * never promote a user into an org they left. A transient database failure is
- * not an answer and propagates.
- */
 async function storedActiveOrgId(email: string): Promise<string | undefined> {
   try {
     return normalizeOrgId(await resolveOrgIdForEmail(email));
@@ -431,6 +400,35 @@ function isPublicWebMcpAction(entry: ActionEntry): boolean {
   );
 }
 
+function allowsWebMcpCapability(
+  entry: ActionEntry,
+  authCapability: string | undefined,
+): boolean {
+  if (!authCapability || !Array.isArray(entry.capabilityScopes)) return false;
+  return entry.capabilityScopes.some(
+    (scope) =>
+      typeof scope === "string" &&
+      scope.length > 0 &&
+      authCapability.startsWith(`capability:${scope}:`),
+  );
+}
+
+function allowsWebMcpCapabilityResource(
+  authCapability: string | undefined,
+  params: Record<string, unknown>,
+): boolean {
+  const prefix = "capability:visual-edit:";
+  if (!authCapability?.startsWith(prefix)) return true;
+  const match = /^design:([^:]+)$/.exec(authCapability.slice(prefix.length));
+  if (!match || typeof params.designId !== "string") return false;
+  try {
+    return decodeURIComponent(match[1]) === params.designId;
+  } catch {
+    // coercion-ok: malformed capability scope is invalid and must fail closed.
+    return false;
+  }
+}
+
 async function resolveRequestAuthCapability(
   event: any,
 ): Promise<string | undefined> {
@@ -444,12 +442,6 @@ async function resolveRequestAuthCapability(
   }
 }
 
-/**
- * Mount discovered actions as HTTP endpoints.
- *
- * Only actions from `autoDiscoverActions` (template actions) are mounted.
- * Built-in actions (resource-*, chat-*, shell, etc.) are NOT passed here.
- */
 function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -459,18 +451,29 @@ function mountActionRoutesInternal(
   const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
-    // Skip agent-only actions
     if (entry.http === false && !options?.includeAgentOnly) continue;
 
     const http = entry.http || undefined;
     const method = options?.forcePost ? "POST" : (http?.method ?? "POST");
     const path = options?.forcePost ? name : (http?.path ?? name);
-    const routePath = `${options?.routePrefix ?? ROUTE_PREFIX}/${path}`;
+    const routePrefix = options?.routePrefix ?? ROUTE_PREFIX;
+    const routePath = `${routePrefix}/${path}`;
+    const routeTemplate =
+      !options?.forcePost && http?.path ? routePath : `${routePrefix}/:action`;
+    registerHttpRequestTelemetryActionRoute(
+      routePath,
+      name,
+      routeTemplate,
+      nitroApp,
+    );
 
-    // These two actions authenticate with a scoped A2A bearer rather than a
-    // browser session. Let that verifier see the request before the cookie
-    // auth guard rejects it; the action route still fails closed on invalid
-    // or missing credentials.
+    if (
+      (entry.requiresAuth === false && !options?.caller) ||
+      (Array.isArray(entry.capabilityScopes) && entry.capabilityScopes.length)
+    ) {
+      registerAuthPublicPaths([routePath], app);
+    }
+
     if (
       !options?.caller &&
       (name === "list-feature-flags" || name === "set-feature-flag")
@@ -481,6 +484,8 @@ function mountActionRoutesInternal(
     app.use(
       routePath,
       defineEventHandler(async (event) => {
+        const requestAuthenticationStartedAtMs = Date.now();
+        setHttpRequestTelemetryActionName(event, name, routeTemplate);
         const reqMethod = getMethod(event);
         const effectiveMethod =
           reqMethod === "HEAD" && method === "GET" ? "GET" : reqMethod;
@@ -493,12 +498,9 @@ function mountActionRoutesInternal(
         setResponseHeader(
           event,
           "Access-Control-Expose-Headers",
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After",
         );
 
-        // Browser action calls are RPCs over the framework transport. The
-        // action's HTTP method remains authoritative for direct HTTP callers,
-        // but frontend callers must not have to duplicate it in every hook.
         const isFrontendMutation =
           isFrontendActionRequest(event) &&
           FRONTEND_MUTATION_METHODS.has(method) &&
@@ -533,18 +535,6 @@ function mountActionRoutesInternal(
           }
         }
 
-        // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
-        // bridge. The bridge tags every outbound action call with
-        // X-Agent-Native-Tool-Bridge: 1. When that header is present and the
-        // action declares `toolCallable: false`, we 403 — used by the
-        // framework's share-resource / unshare-resource /
-        // set-resource-visibility for defense-in-depth on auth-adjacent
-        // operations. Undefined defaults to allow: tools are intra-org and
-        // typically authored by trusted teammates, so the default is to
-        // trust the org-level access controls.
-        // The header is set by the parent (the React host), not by the
-        // iframe's user-authored content; sanitizeToolRequestOptions strips
-        // iframe attempts to spoof it.
         const fromToolBridge =
           getHeader(event, "x-agent-native-tool-bridge") === "1";
         if (fromToolBridge && entry.toolCallable === false) {
@@ -554,9 +544,9 @@ function mountActionRoutesInternal(
           };
         }
 
-        // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
+        let authUserId: string | undefined;
         const authCapability = await resolveRequestAuthCapability(event);
         // An app-supplied auth adapter runs first: it can accept caller
         // identities the framework's getSession chain doesn't understand (e.g.
@@ -572,6 +562,9 @@ function mountActionRoutesInternal(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
+        const capabilityAllowed =
+          (options?.caller === "webmcp" || isFrontendActionRequest(event)) &&
+          allowsWebMcpCapability(entry, authCapability);
         if (options?.allowDelegatedCaller !== false) {
           let caller: ActionRouteResolvedCaller | null;
           try {
@@ -587,6 +580,7 @@ function mountActionRoutesInternal(
             });
           }
           if (caller) {
+            if (caller.orgId === null) markExplicitPersonalOrgScope(event);
             seedAgentRunOwnerContext(event, {
               owner: caller.owner,
               anonymous: caller.anonymous,
@@ -606,7 +600,11 @@ function mountActionRoutesInternal(
           ownerContextResolved = true;
           try {
             const ownerContext = await options.getOwnerContextFromEvent(event);
-            if (ownerContext.anonymous && !isPublicWebMcpAction(entry)) {
+            if (
+              ownerContext.anonymous &&
+              !isPublicWebMcpAction(entry) &&
+              !capabilityAllowed
+            ) {
               throw createError({
                 statusCode: 401,
                 statusMessage: "Unauthorized",
@@ -615,12 +613,13 @@ function mountActionRoutesInternal(
             if (!ownerContext.anonymous) {
               userEmail = ownerContext.owner;
               userName = ownerContext.name;
+              authUserId = ownerContext.authUserId;
             }
           } catch (error) {
             if (
-              entry.requiresAuth === false &&
               isAuthResolutionFailure(error) &&
-              isPublicWebMcpAction(entry)
+              (capabilityAllowed ||
+                (entry.requiresAuth === false && isPublicWebMcpAction(entry)))
             ) {
               userEmail = undefined;
               userName = undefined;
@@ -641,15 +640,26 @@ function mountActionRoutesInternal(
               : undefined;
           } catch (error) {
             if (
-              entry.requiresAuth === false &&
               isAuthResolutionFailure(error) &&
-              (options?.caller !== "webmcp" || isPublicWebMcpAction(entry))
+              (capabilityAllowed ||
+                (entry.requiresAuth === false &&
+                  (options?.caller !== "webmcp" ||
+                    isPublicWebMcpAction(entry))))
             ) {
               userEmail = undefined;
               userName = undefined;
             } else {
               throw error;
             }
+          }
+        }
+        if (userEmail && !resolvedCaller && options?.getAuthUserIdFromEvent) {
+          try {
+            authUserId = await options.getAuthUserIdFromEvent(event);
+          } catch {
+            console.warn(
+              "[agent-actions] Could not resolve canonical tracking identity; continuing without auth_user_id.",
+            );
           }
         }
         // Org scoping. For adapter-resolved callers the org must come
@@ -673,39 +683,80 @@ function mountActionRoutesInternal(
           ) {
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
-        } else {
+        } else if (!capabilityAllowed || userEmail) {
           orgId = options?.resolveOrgId
             ? ((await options.resolveOrgId(event)) ?? undefined)
             : undefined;
-          if (!orgId && userEmail) orgId = await storedActiveOrgId(userEmail);
+          if (!hasExplicitPersonalOrgScope(event) && !orgId && userEmail) {
+            orgId = await storedActiveOrgId(userEmail);
+          }
+        }
+        const frontendCaller =
+          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        if (
+          entry.uiOnly === true &&
+          (!frontendCaller ||
+            !userEmail ||
+            !isSameOriginRequest(event) ||
+            !hasUiActionCapability(event, userEmail))
+        ) {
+          setResponseStatus(event, 403);
+          return {
+            error: "This action can only be called from the signed-in app UI.",
+            errorCode: "ui_capability_required",
+          };
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
         const isSyntheticTraffic = readSyntheticTrafficHeader(event);
         const browserTabId = readBrowserTabIdHeader(event);
+        const requestWaitUntil =
+          typeof event.req?.waitUntil === "function"
+            ? event.req.waitUntil.bind(event.req)
+            : undefined;
+        const identityAuthenticatedAtMs = userEmail
+          ? (getRequestIdentityAuthenticatedAtMs(event, userEmail) ??
+            requestAuthenticationStartedAtMs)
+          : undefined;
+        const identitySessionToken = userEmail
+          ? getRequestIdentitySessionToken(event, userEmail)
+          : undefined;
 
         return runWithRequestContext(
           {
             userEmail,
+            ...(identityAuthenticatedAtMs !== undefined
+              ? { identityAuthenticatedAtMs }
+              : {}),
+            ...(identitySessionToken ? { identitySessionToken } : {}),
+            ...(authUserId ? { authUserId } : {}),
             userName,
             orgId,
+            ...(hasExplicitPersonalOrgScope(event)
+              ? { orgScope: "personal" as const }
+              : {}),
             authCapability,
             timezone,
             browserSessionId,
             clientPlatform,
-            ...(browserTabId ? { run: { browserTabId } } : {}),
+            ...(browserTabId || requestWaitUntil
+              ? {
+                  run: {
+                    ...(browserTabId ? { browserTabId } : {}),
+                    ...(requestWaitUntil
+                      ? { waitUntil: requestWaitUntil }
+                      : {}),
+                  },
+                }
+              : {}),
             ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}),
             requestOrigin: getForwardedRequestOrigin(event),
             federationMembershipValidated:
               isFederationMembershipValidatedForEvent(event, userEmail, orgId),
-            // Captured here because this is the last layer that still holds
-            // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
-            // Reject oversize bodies from Content-Length before parsing, so a
-            // public no-auth POST can't force parse work on a huge request.
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {
               const clRaw = getHeader(event, "content-length");
               if (clRaw) {
@@ -718,15 +769,10 @@ function mountActionRoutesInternal(
                 }
               }
             }
-            // Parse params based on method. On web-standard runtimes (Netlify
-            // Functions, CF Workers), event.req IS the web Request — use .json()
-            // directly. H3's readBody fails on those runtimes because it expects
-            // a Node.js stream on event.node.req.
             let params: Record<string, any>;
             let paramsError: string | undefined;
             try {
               if (method === "GET") {
-                // H3 v2: prefer web Request URL, fallback to getQuery
                 const webReq = (event as any).req;
                 if (webReq?.url) {
                   const url = new URL(webReq.url);
@@ -739,10 +785,8 @@ function mountActionRoutesInternal(
               } else {
                 const webReq = (event as any).req;
                 if (webReq && typeof webReq.json === "function") {
-                  // H3 v2: event.req is the web Request — use .json() directly
                   params = await webReq.json();
                 } else {
-                  // Fallback: H3's readBody (Node.js dev)
                   params = (await readH3Body(event)) as Record<string, any>;
                 }
                 if (
@@ -758,16 +802,21 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
-            // Run the action. Tag the caller: browser calls (useActionQuery /
-            // useActionMutation / callAction) send X-Agent-Native-Frontend: 1,
-            // so they become "frontend"; bare programmatic POSTs are "http".
-            // userEmail / orgId mirror the request context resolved above (do
-            // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
+                });
+              }
+              if (
+                capabilityAllowed &&
+                !userEmail &&
+                !allowsWebMcpCapabilityResource(authCapability, params)
+              ) {
+                throw createError({
+                  statusCode: 401,
+                  statusMessage: "Unauthorized",
                 });
               }
               const caller =
@@ -777,7 +826,7 @@ function mountActionRoutesInternal(
                   : isFrontendActionRequest(event)
                     ? "frontend"
                     : "http");
-              const result = await entry.run(params, {
+              const runContext: ActionRunContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -786,24 +835,50 @@ function mountActionRoutesInternal(
                 actionName: name,
                 ...(resolvedCaller?.delegationJti
                   ? {
-                      networkProtocol: "a2a",
+                      networkProtocol: "a2a" as const,
                       networkId: resolvedCaller.delegationJti,
                       networkPeer: resolvedCaller.delegationIssuer,
                     }
                   : {}),
-              });
+              };
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                if (
+                  entry.schema &&
+                  typeof entry.schema === "object" &&
+                  "~standard" in entry.schema
+                ) {
+                  params = await validateActionArgs(
+                    entry.schema as StandardSchemaV1,
+                    params,
+                    entry.tool.parameters,
+                    runContext,
+                  );
+                }
+                let mustApprove = false;
+                try {
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(params, {
+                            userEmail,
+                            orgId: orgId ?? null,
+                            appId: options?.appId,
+                            caller,
+                          }),
+                        )
+                      : entry.needsApproval === true;
+                } catch {
+                  mustApprove = true;
+                }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
+                  );
+                }
+              }
+              const result = await entry.run(params, runContext);
 
-              // Auto-refresh the UI after a successful mutating action. GET
-              // actions and actions explicitly flagged readOnly are skipped.
-              // Other tabs' useDbSync will see source:"action" and invalidate
-              // their action queries. The calling tab already refetches via
-              // useActionMutation's onSuccess, so this is mainly cross-tab
-              // sync (and parity with the agent's tool-call path).
-              // A per-call Plan-mode effect wins over entry.readOnly, which
-              // wins (true OR false) over the method heuristic. defineAction
-              // already auto-infers GET → readOnly=true, so for actions
-              // registered through that path entry.readOnly is always set and
-              // the fallback just guards legacy wrap paths.
               const isReadOnly = actionCallIsReadOnly(
                 entry,
                 params,
@@ -828,10 +903,6 @@ function mountActionRoutesInternal(
                 }
               }
 
-              // If the action returned a string, try to parse as JSON for a
-              // clean response. Plain strings still need to go over the HTTP
-              // action transport as JSON, otherwise H3 sends text/plain and the
-              // browser action client rejects the successful 2xx response.
               if (typeof result === "string") {
                 try {
                   return JSON.parse(result);
@@ -851,10 +922,28 @@ function mountActionRoutesInternal(
                 typeof err?.statusCode === "number"
                   ? err.statusCode
                   : undefined;
-              // Return 400 for validation errors, the explicit statusCode if
-              // set, otherwise 500.
               const status = isValidationError ? 400 : (explicitStatus ?? 500);
               setResponseStatus(event, status);
+
+              const errorDetails =
+                err?.details &&
+                typeof err.details === "object" &&
+                !Array.isArray(err.details)
+                  ? err.details
+                  : undefined;
+              const retryAfterSeconds = errorDetails?.retryAfterSeconds;
+              if (
+                status === 429 &&
+                typeof retryAfterSeconds === "number" &&
+                Number.isInteger(retryAfterSeconds) &&
+                retryAfterSeconds > 0
+              ) {
+                setResponseHeader(
+                  event,
+                  "Retry-After",
+                  String(Math.min(retryAfterSeconds, 300)),
+                );
+              }
 
               // Only echo the raw message for known-safe cases:
               //  - validation errors (deterministic, parameter-shape only)
@@ -882,7 +971,18 @@ function mountActionRoutesInternal(
                         ? {}
                         : { details: err.details }),
                     }
-                  : { error: msg };
+                  : {
+                      error: msg,
+                      ...(typeof err?.errorCode === "string"
+                        ? { errorCode: err.errorCode }
+                        : {}),
+                      ...(status === 429 &&
+                      typeof retryAfterSeconds === "number" &&
+                      Number.isInteger(retryAfterSeconds) &&
+                      retryAfterSeconds > 0
+                        ? { details: { retryAfterSeconds } }
+                        : {}),
+                    };
               }
               const requestId = getHttpRequestTelemetryId(event);
               const captureId = captureError(err, {
@@ -910,7 +1010,7 @@ function mountActionRoutesInternal(
               return { error: "Internal server error" };
             }
           },
-        ); // end runWithRequestContext
+        );
       }),
     );
 
@@ -957,9 +1057,6 @@ function buildWebMcpCompatibilityManifest(
     };
   });
 
-  // Only name tools this manifest actually lists: `options.keyToolNames`
-  // carries the app's full initialToolNames default, which can include
-  // actions this (possibly filtered) `actions` map doesn't serve.
   const servedKeyToolNames = options?.keyToolNames?.filter(
     (name) => name in actions,
   );
@@ -1001,12 +1098,16 @@ export function mountWebMcpActionRoutes(
       ([name, entry]) =>
         /^[A-Za-z0-9_.-]{1,128}$/.test(name) &&
         isActionExposedToExternalAgents(entry) &&
-        entry.agentTool !== false &&
-        entry.needsApproval === undefined,
+        entry.uiOnly !== true,
     ),
   );
   const publicEligible = Object.fromEntries(
     Object.entries(eligible).filter(([, entry]) => isPublicWebMcpAction(entry)),
+  );
+  const capabilityEligible = Object.fromEntries(
+    Object.entries(eligible).filter(([, entry]) =>
+      Array.isArray(entry.capabilityScopes),
+    ),
   );
 
   const app = getH3App(nitroApp);
@@ -1016,9 +1117,6 @@ export function mountWebMcpActionRoutes(
       (name) => `${routePrefix}/${encodeURIComponent(name)}`,
     ),
   );
-  // These routes own their auth decision: the compatibility manifest is public
-  // metadata, while the page-local manifest returns only explicitly public
-  // read-only actions when no browser session is present.
   registerAuthPublicPaths(
     ["/_agent-native/webmcp/manifest", ...actionRoutePaths],
     app,
@@ -1065,11 +1163,25 @@ export function mountWebMcpActionRoutes(
           if (!isAuthResolutionFailure(error)) throw error;
         }
       }
-      if (!authenticated && Object.keys(publicEligible).length === 0) {
+      const authCapability = await resolveRequestAuthCapability(event);
+      const visibleCapabilityActions = authCapability
+        ? Object.fromEntries(
+            Object.entries(capabilityEligible).filter(([, entry]) =>
+              allowsWebMcpCapability(entry, authCapability),
+            ),
+          )
+        : {};
+      if (
+        !authenticated &&
+        Object.keys(publicEligible).length === 0 &&
+        Object.keys(visibleCapabilityActions).length === 0
+      ) {
         throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
       }
       setResponseHeader(event, "Cache-Control", "no-store");
-      const visible = authenticated ? eligible : publicEligible;
+      const visible = authenticated
+        ? eligible
+        : { ...publicEligible, ...visibleCapabilityActions };
       return Object.entries(visible).map(([name, entry]) => ({
         name,
         title: agentNativeToolTitle(name, entry.tool.title),

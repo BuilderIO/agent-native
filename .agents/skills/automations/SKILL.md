@@ -35,7 +35,7 @@ Event triggers can optionally include a `condition` -- a natural-language string
 
 ## How It Works
 
-1. User asks the agent to create an automation (or uses the settings UI).
+1. User asks the agent to create an automation (or uses the app's Automations page in Settings, `/settings/automations`; open it with `open-settings-page` page `automations`).
 2. Agent calls `manage-automations` with `action=list-events` to discover available events.
 3. Agent calls `manage-automations` with `action=define` to write a `jobs/<name>.md` resource.
 4. The trigger dispatcher subscribes to the event on the bus.
@@ -82,6 +82,7 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `condition`   | `string?`                      | Natural-language condition evaluated before dispatch   |
 | `mode`        | `"agentic"`                    | Full agent loop (only supported mode; `"deterministic"` was removed — never implemented, rejected at define time) |
 | `model`       | `string?`                      | Override the model for this trigger's agent loop       |
+| `reasoningEffort` | `string?`                   | Override reasoning effort for this trigger's model; omitted uses the model's default |
 | `domain`      | `string?`                      | Grouping tag (mail, calendar, clips, etc.)             |
 | `createdBy`   | `string?`                      | Creator email; required for organization event automations |
 | `orgId`       | `string?`                      | Organization scope                                     |
@@ -108,10 +109,10 @@ All automation operations are accessed through a single `manage-automations` too
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
 
 `manage-automations` accepts personal or organization scope and supports
-`model` and `mcpTools` on define/update. An MCP allowlist is enforced, not
-advisory: every named tool must resolve in the creator's request context or the
-run fails clearly, and the runner never widens access beyond the configured
-names.
+`model`, `reasoning_effort`, and `mcpTools` on define/update. An MCP allowlist
+is enforced, not advisory: every named tool must resolve in the creator's
+request context or the run fails clearly, and the runner never widens access
+beyond the configured names.
 
 ## Organization Event Automations
 
@@ -188,7 +189,7 @@ When an automation has a `condition`, the dispatcher calls the configured fast/c
 
 Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NAME}` placeholders in the URL, headers, and body. These are resolved server-side after the agent emits the tool call -- the raw secret value never enters the agent's context.
 
-- Keys are ad-hoc secrets created by the user via the settings UI or the `/_agent-native/secrets/adhoc` API.
+- Keys are ad-hoc secrets created by the user on Settings › API keys or through the `/_agent-native/secrets/adhoc` API.
 - Each key can have a URL allowlist that restricts which origins the key can be sent to.
 - `resolveKeyReferences()` resolves placeholders, falling back from user scope to workspace scope.
 - `validateUrlAllowlist()` checks the resolved URL against per-key allowlists (origin-level matching).

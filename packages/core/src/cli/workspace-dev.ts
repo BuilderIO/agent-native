@@ -1,5 +1,5 @@
 #!/usr/bin/env tsx
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -12,16 +12,22 @@ import * as Sentry from "@sentry/node";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
+  normalizeWorkspaceAppHomePath,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
 import {
   attachGatewaySocketErrorSink,
   normalizeOrigin,
   rewriteRedirectLocation,
   escapeHtml,
 } from "./gateway-helpers.js";
+import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 
 export interface WorkspaceApp {
   id: string;
@@ -30,6 +36,7 @@ export interface WorkspaceApp {
   audience: WorkspaceAppAudience;
   publicPaths: string[];
   protectedPaths: string[];
+  homePath: string;
   dir: string;
   port: number;
   process?: ChildProcess;
@@ -46,11 +53,6 @@ export interface WorkspaceApp {
   outputTail?: string;
   installing?: boolean;
   installAttempted?: boolean;
-  /**
-   * Set true once we've successfully connected to the upstream. After that we
-   * skip the readiness probe on every request; the child server stays
-   * listening for the rest of the dev session.
-   */
   ready?: boolean;
   readinessProbe?: Promise<void>;
 }
@@ -78,6 +80,7 @@ const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 8080;
 const DEFAULT_APP_PORT_START = 8100;
 const PROXY_READY_RETRY_DELAY_MS = 250;
+export const DEFAULT_PROXY_READY_TIMEOUT_MS = 60_000;
 const APP_RESTART_MAX_DELAY_MS = 10_000;
 const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
@@ -90,6 +93,20 @@ const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   pragma: "no-cache",
   expires: "0",
 };
+
+export function workspaceGatewayUrl(host: string, port: number): string {
+  const bindHost =
+    host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  const advertisedHost =
+    bindHost === "0.0.0.0"
+      ? "127.0.0.1"
+      : bindHost === "::"
+        ? "[::1]"
+        : bindHost.includes(":")
+          ? `[${bindHost}]`
+          : bindHost;
+  return `http://${advertisedHost}:${port}`;
+}
 
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
@@ -121,19 +138,6 @@ export function shouldEagerStartWorkspaceApps(
   );
 }
 
-/**
- * Whether the gateway should spawn the rest of the apps in the background
- * after the default app boots. Lazy spawn already covers correctness — this
- * is purely a UX optimization so the second/third/Nth app the user clicks
- * into is already warm instead of paying the Vite + esbuild prebundle cost
- * on demand.
- *
- * Defaults to OFF in lazy mode because each Vite app creates its own
- * dependency-optimization cache and prewarming every app can exhaust a small
- * workspace volume before the user opens those apps. Opt in with --prewarm /
- * WORKSPACE_PREWARM=1. WORKSPACE_NO_PREWARM remains an explicit opt-out, and
- * eager mode already starts every app up front.
- */
 export function shouldPrewarmWorkspaceApps(
   args: string[] = [],
   env: NodeJS.ProcessEnv = process.env,
@@ -142,7 +146,6 @@ export function shouldPrewarmWorkspaceApps(
   if (env.WORKSPACE_NO_PREWARM === "1" || env.WORKSPACE_NO_PREWARM === "true") {
     return false;
   }
-  // Eager mode starts every app immediately; prewarm has nothing to do.
   if (shouldEagerStartWorkspaceApps(args, env)) return false;
   return (
     args.includes("--prewarm") ||
@@ -151,13 +154,6 @@ export function shouldPrewarmWorkspaceApps(
   );
 }
 
-/**
- * How many apps to prewarm in parallel. Each Vite spawn briefly maxes out a
- * CPU core during esbuild prebundling, so booting all 9 templates at once on
- * a 4-core laptop just produces a thundering herd. Default 2 — gentle on
- * laptops, fast enough that all apps finish within a few cold-spawn windows.
- * Override via --prewarm-concurrency=N or WORKSPACE_PREWARM_CONCURRENCY=N.
- */
 export function workspacePrewarmConcurrency(
   args: string[] = [],
   env: NodeJS.ProcessEnv = process.env,
@@ -172,11 +168,6 @@ export function workspacePrewarmConcurrency(
   return Math.floor(parsed);
 }
 
-/**
- * How long the prewarm queue waits after the gateway is ready before kicking
- * off background spawns. Lets the default app's prebundle get first dibs on
- * CPU. Override via WORKSPACE_PREWARM_DELAY_MS (mostly for tests).
- */
 export function workspacePrewarmDelayMs(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
@@ -200,13 +191,6 @@ export type PollingFileWatcherMode =
   | "disable-explicit"
   | "disable-default";
 
-/**
- * Three-way classification of the polling-watcher decision so callers can
- * tell apart "the user explicitly turned this off" (where we want to override
- * any inherited chokidar/TSC env vars from the parent shell) from "we just
- * didn't auto-detect a Builder/Codespaces/Gitpod container" (where the user's
- * own watcher vars should pass through untouched).
- */
 export function pollingFileWatcherMode(
   env: NodeJS.ProcessEnv = process.env,
   root = process.cwd(),
@@ -255,11 +239,6 @@ function devWatcherEnv(
     };
   }
   if (mode === "disable-explicit") {
-    // The user explicitly turned polling off (AGENT_NATIVE_DEV_USE_POLLING=0
-    // / WORKSPACE_USE_POLLING_WATCHER=0 / CHOKIDAR_USEPOLLING=0). Strip the
-    // watcher vars from the child env so an inherited parent-shell
-    // CHOKIDAR_USEPOLLING=1 (or stale TSC_WATCH* override) can't silently
-    // re-enable polling against the user's explicit wish.
     const {
       CHOKIDAR_USEPOLLING: _polling,
       CHOKIDAR_INTERVAL: _interval,
@@ -269,9 +248,6 @@ function devWatcherEnv(
     } = env;
     return rest;
   }
-  // mode === "disable-default": no explicit signal either way. Pass the env
-  // through unchanged so legitimate user overrides like
-  // TSC_WATCHFILE=UseFsEventsWithFallbackDynamicPolling survive.
   return env;
 }
 
@@ -311,10 +287,11 @@ function shouldCaptureDiscoverAppsReadFailure(
   return code !== "EACCES" && code !== "EPERM";
 }
 
-function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
+async function discoverApps(
+  appsDir: string,
+  appPortStart: number,
+): Promise<WorkspaceApp[]> {
   if (!fs.existsSync(appsDir)) return [];
-  // existsSync -> readdirSync is a TOCTOU race. Treat ENOENT as "no apps
-  // right now" and let the polling sync recover.
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(appsDir, { withFileTypes: true });
@@ -334,27 +311,40 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
     }
     return [];
   }
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => {
-      const dir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(dir, "package.json"));
-      if (!pkg) return null;
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      return {
-        id: entry.name,
-        name: pkg.displayName || pkg.name || entry.name,
-        description: typeof pkg.description === "string" ? pkg.description : "",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths ?? [],
-        protectedPaths: routeAccess.protectedPaths ?? [],
-        dir,
-        port: appPortStart,
-      } satisfies WorkspaceApp;
-    })
-    .filter((app): app is WorkspaceApp => !!app)
+  const apps: WorkspaceApp[] = [];
+  for (const entry of entries.filter((entry) => entry.isDirectory())) {
+    const dir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(dir, "package.json"));
+    if (!pkg) continue;
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let homePath: string;
+    try {
+      homePath = normalizeWorkspaceAppHomePath(
+        (await readConfiguredWorkspaceAppHomePath(dir)) ??
+          inferWorkspaceAppRootHomePath(dir),
+      );
+    } catch (error) {
+      console.warn(
+        `[workspace] Could not discover app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
+    apps.push({
+      id: entry.name,
+      name: pkg.displayName || pkg.name || entry.name,
+      description: typeof pkg.description === "string" ? pkg.description : "",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths ?? [],
+      protectedPaths: routeAccess.protectedPaths ?? [],
+      homePath,
+      dir,
+      port: appPortStart,
+    });
+  }
+  return apps
     .sort(compareApps)
     .map((app, index) => ({ ...app, port: appPortStart + index }));
 }
@@ -443,6 +433,45 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
     socket.once("timeout", () => finish(false));
     socket.connect(port, "127.0.0.1");
   });
+}
+
+function killChildProcessTree(
+  child: ChildProcess | undefined,
+  signal: NodeJS.Signals,
+): void {
+  if (!child?.pid) {
+    child?.kill(signal);
+    return;
+  }
+  try {
+    if (process.platform === "win32") {
+      const result = spawnSync(
+        "taskkill",
+        [
+          "/pid",
+          String(child.pid),
+          "/T",
+          ...(signal === "SIGKILL" ? ["/F"] : []),
+        ],
+        { stdio: "ignore" },
+      );
+      if (result.status === 0) return;
+      if (signal !== "SIGKILL") {
+        const forcedResult = spawnSync(
+          "taskkill",
+          ["/pid", String(child.pid), "/T", "/F"],
+          { stdio: "ignore" },
+        );
+        if (forcedResult.status === 0) return;
+      }
+    } else {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // coercion-ok: an unavailable platform tree-kill falls back to the direct child.
+  }
+  child.kill(signal);
 }
 
 function probeHttpReady(
@@ -625,7 +654,7 @@ export async function runWorkspaceDev(
   const pollingMode = pollingFileWatcherMode(env, root);
   const usePollingFileWatcher = pollingMode === "enable";
   const proxyReadyTimeoutMs = Number(
-    env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? 30_000,
+    env.WORKSPACE_PROXY_READY_TIMEOUT_MS ?? DEFAULT_PROXY_READY_TIMEOUT_MS,
   );
   const proxyResponseTimeoutMs = Number(
     env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
@@ -636,18 +665,13 @@ export async function runWorkspaceDev(
       env.WORKSPACE_PROXY_RESPONSE_TIMEOUT_MS ??
       DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS,
   );
-  let gatewayUrl = `http://${gatewayHost}:${requestedPort}`;
+  let gatewayUrl = workspaceGatewayUrl(gatewayHost, requestedPort);
 
-  const apps = discoverApps(appsDir, appPortStart);
+  const apps = await discoverApps(appsDir, appPortStart);
   if (apps.length === 0) {
     throw new Error("[workspace] No apps found under ./apps");
   }
 
-  // Probe each app's proposed port to see if something else on the host
-  // already owns it. Vite is spawned with `--strictPort` (so the gateway can
-  // route /<appId> to a known port), which fails hard on EADDRINUSE — without
-  // this probe a single conflicting process on 8100/8101/... kills the
-  // workspace before the dev server prints anything useful.
   function probePortAvailable(port: number): Promise<boolean> {
     return new Promise((resolve) => {
       const probe = net.createServer();
@@ -697,6 +721,7 @@ export async function runWorkspaceDev(
   const redirectRootToDefault = Boolean(explicitDefaultApp || hasDispatch);
 
   let syncTimer: NodeJS.Timeout | undefined;
+  let syncInFlight: Promise<void> | undefined;
   let shuttingDown = false;
   let workspaceStarted = false;
 
@@ -722,31 +747,42 @@ export async function runWorkspaceDev(
         audience: workspaceApp.audience,
         publicPaths: workspaceApp.publicPaths,
         protectedPaths: workspaceApp.protectedPaths,
+        homePath: workspaceApp.homePath,
       })),
     );
   }
 
   async function syncApps(): Promise<void> {
-    const discovered = discoverApps(appsDir, appPortStart);
-    for (const app of discovered) {
-      const existing = appById.get(app.id);
-      if (existing) {
-        existing.name = app.name;
-        existing.description = app.description;
-        existing.audience = app.audience;
-        existing.publicPaths = app.publicPaths;
-        existing.protectedPaths = app.protectedPaths;
-        existing.dir = app.dir;
-        continue;
+    if (syncInFlight) return syncInFlight;
+    const run = (async () => {
+      const discovered = await discoverApps(appsDir, appPortStart);
+      for (const app of discovered) {
+        const existing = appById.get(app.id);
+        if (existing) {
+          existing.name = app.name;
+          existing.description = app.description;
+          existing.audience = app.audience;
+          existing.publicPaths = app.publicPaths;
+          existing.protectedPaths = app.protectedPaths;
+          existing.homePath = app.homePath;
+          existing.dir = app.dir;
+          continue;
+        }
+        const usedPorts = new Set(apps.map((existingApp) => existingApp.port));
+        const port = await reserveAppPort(appPortStart, usedPorts);
+        reservedAppPorts.add(port);
+        const next = { ...app, port };
+        apps.push(next);
+        apps.sort(compareApps);
+        appById.set(next.id, next);
+        stdout.write(`[workspace] Detected new app: /${next.id}\n`);
       }
-      const usedPorts = new Set(apps.map((existingApp) => existingApp.port));
-      const port = await reserveAppPort(appPortStart, usedPorts);
-      reservedAppPorts.add(port);
-      const next = { ...app, port };
-      apps.push(next);
-      apps.sort(compareApps);
-      appById.set(next.id, next);
-      stdout.write(`[workspace] Detected new app: /${next.id}\n`);
+    })();
+    syncInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (syncInFlight === run) syncInFlight = undefined;
     }
   }
 
@@ -816,10 +852,12 @@ export async function runWorkspaceDev(
     const child = spawnProcess("pnpm", childArgs, {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
       env: devWatcherEnv(
         {
           ...env,
           APP_NAME: app.id,
+          [DEV_SERVER_SUPERVISOR_ENV]: "1",
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
@@ -830,6 +868,7 @@ export async function runWorkspaceDev(
           AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: JSON.stringify(
             app.protectedPaths,
           ),
+          APP_URL: gatewayUrl,
           APP_BASE_PATH: basePath,
           VITE_AGENT_NATIVE_WORKSPACE: "1",
           VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
@@ -950,7 +989,7 @@ export async function runWorkspaceDev(
       output,
       logMessage: message,
     });
-    app.process?.kill("SIGTERM");
+    killChildProcessTree(app.process, "SIGTERM");
   }
 
   function forwardedProto(req: http.IncomingMessage): string {
@@ -1124,15 +1163,11 @@ export async function runWorkspaceDev(
       req.pipe(proxyReq);
     };
 
-    // Fast path: the upstream has accepted at least one request before, so
-    // it's listening. Skip the probe so steady-state requests stay zero-latency.
     if (app.ready && !cold) {
       dispatch();
       return;
     }
 
-    // Cold path: hold non-HTML requests open while the child server boots.
-    // Node keeps the request body paused until pipe() attaches.
     void waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
@@ -1257,16 +1292,6 @@ export async function runWorkspaceDev(
     }, 2_000).unref();
   }
 
-  /**
-   * Background-spawn every app that wasn't started by `startWorkspaceProcesses`.
-   * The lazy proxy still handles correctness (an on-demand request always
-   * starts its target app); this is purely so the first navigation into a
-   * non-default app doesn't pay the cold Vite + esbuild prebundle cost.
-   *
-   * Fires after a short delay so the default app's prebundle gets first dibs
-   * on CPU. Concurrency-limited to avoid hammering a small dev machine —
-   * each Vite spawn briefly maxes out a core during prebundling.
-   */
   async function prewarmRemainingApps(): Promise<void> {
     const concurrency = workspacePrewarmConcurrency(args, env);
     const delayMs = workspacePrewarmDelayMs(env);
@@ -1294,15 +1319,9 @@ export async function runWorkspaceDev(
         const id = queue[next++];
         const app = appById.get(id);
         if (!app) continue;
-        // Another path (a real request, a restart, etc.) may have started
-        // this app already — skip without consuming a worker slot needlessly.
         if (app.process && !app.process.killed) continue;
         startApp(app);
         ensureReadinessProbe(app);
-        // Wait for the upstream to answer HTTP before pulling the next
-        // app off the queue. This is what actually limits *concurrent
-        // prebundling* (not just concurrent spawning) and keeps CPU pressure
-        // sane. proxyReadyTimeoutMs caps any single stuck app.
         await waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs).catch(
           () => false,
         );
@@ -1370,6 +1389,7 @@ export async function runWorkspaceDev(
             audience: app.audience,
             publicPaths: app.publicPaths,
             protectedPaths: app.protectedPaths,
+            homePath: app.homePath,
             port: app.port,
             running: Boolean(app.process && !app.process.killed),
           })),
@@ -1413,7 +1433,13 @@ export async function runWorkspaceDev(
       const address = server.address();
       const actualPort =
         typeof address === "object" && address ? address.port : port;
-      gatewayUrl = `http://${gatewayHost}:${actualPort}`;
+      gatewayUrl = workspaceGatewayUrl(gatewayHost, actualPort);
+      stdout.write(`[workspace] Root: ${root}\n`);
+      if (requestedPort > 0 && actualPort !== requestedPort) {
+        stdout.write(
+          `[workspace] Gateway port ${requestedPort} was in use; listening on ${actualPort} instead — the URLs below are the real ones.\n`,
+        );
+      }
       stdout.write(
         `[workspace] Default: ${redirectRootToDefault ? `${gatewayUrl}/${defaultApp}` : gatewayUrl}\n`,
       );
@@ -1426,7 +1452,7 @@ export async function runWorkspaceDev(
       );
       for (const app of apps) {
         stdout.write(
-          `[workspace] ${app.id}: /${app.id} -> 127.0.0.1:${app.port}\n`,
+          `[workspace] ${app.id}: ${gatewayUrl}/${app.id} (upstream 127.0.0.1:${app.port})\n`,
         );
       }
       startWorkspaceProcesses();
@@ -1451,7 +1477,11 @@ export async function runWorkspaceDev(
     shuttingDown = true;
     server.close();
     for (const app of apps) {
-      app.process?.kill("SIGTERM");
+      if (app.restartTimer) {
+        clearTimeout(app.restartTimer);
+        app.restartTimer = undefined;
+      }
+      killChildProcessTree(app.process, "SIGTERM");
     }
     if (syncTimer) clearTimeout(syncTimer);
     process.off("SIGINT", handleSigint);

@@ -10,7 +10,7 @@ import {
 
 export default defineAction({
   description:
-    "Create a private Content workspace with its own canonical Files database.",
+    "Create a private Content workspace with its own canonical Files collection.",
   schema: z.object({
     name: z.string().trim().min(1).max(200),
     requestId: z.string().trim().min(1).max(200),

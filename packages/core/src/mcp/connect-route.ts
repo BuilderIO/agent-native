@@ -1,32 +1,3 @@
-/**
- * `/mcp/connect` — frictionless external-agent connection. The legacy
- * `/_agent-native/mcp/connect` alias is mounted by the core route plugin.
- *
- * A logged-in user on a deployed agent-native app (e.g. mail.agent-native.com)
- * mints a per-user, scoped, revocable MCP bearer token WITHOUT ever copying a
- * shared deployment secret. Two surfaces:
- *
- *   1. Browser  — `GET /mcp/connect` renders a minimal in-app page (same inline
- *      HTML approach as the auth pages). The Authorize button POSTs to
- *      `/connect/token`, then shows the ready-to-paste `.mcp.json` entry, the
- *      `agent-native connect <origin>` one-liner, and the user's existing
- *      tokens with Revoke buttons.
- *   2. CLI      — an OAuth-2.0-device-authorization-style flow:
- *        POST /mcp/connect/device/start      (unauth)  → device_code + user_code
- *        GET  /mcp/connect?user_code=…       (browser) → user signs in & approves
- *        POST /mcp/connect/device/authorize  (session) → binds user to the code
- *        POST /mcp/connect/device/poll       (unauth)  → mints + returns the token
- *
- * When A2A_SECRET exists, the minted token reuses the existing A2A signer
- * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
- * it can be revoked. Deployments without A2A_SECRET mint the same standard MCP
- * OAuth access-token format used by remote MCP OAuth, signed with the auth
- * secret fallback and bound to the exact MCP resource URL.
- *
- * Node-only (crypto + the A2A signer), bundled alongside the other framework
- * PostgreSQL SQL lives in `connect-store.ts`.
- */
-
 import { randomUUID } from "node:crypto";
 
 import type { H3Event } from "h3";
@@ -34,7 +5,7 @@ import { getMethod, getHeader } from "h3";
 
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
-import { MCP_SETTINGS_MESSAGES } from "../localization/mcp-settings-messages.js";
+import { mcpSettingsMessagesForLocale } from "../localization/mcp-settings-messages.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import {
   localeDirection,
@@ -65,6 +36,7 @@ import {
   serviceIdentityEmail,
   createDeviceCode,
   getDeviceCode,
+  getDeviceCodeByUserCode,
   approveDeviceCode,
   consumeDeviceCode,
   claimDeviceCodeForMint,
@@ -84,18 +56,13 @@ import {
 } from "./oauth-token.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
-/** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
 
-// Human-typable user code: 8 base32 chars, dashed XXXX-XXXX.
 const USER_CODE_RE = /^[A-Z2-7]{4}-[A-Z2-7]{4}$/;
 
 export interface McpConnectRouteOptions {
-  /** App id (directory under apps/, e.g. `mail`). Used for the server name. */
   appId?: string;
-  /** Human app name shown on the connect page. */
   appName?: string;
-  /** Explicit MCP server id to return in copyable config/device-flow grants. */
   serverName?: string;
 }
 
@@ -113,8 +80,6 @@ function html(body: string, status = 200): Response {
   });
 }
 
-/** Derive the running app's origin from request headers (same logic mountMCP
- *  uses) — `https` in prod / for non-loopback hosts, `http` for localhost. */
 function deriveOrigin(event: H3Event): string {
   const forwardedProto = getHeader(event, "x-forwarded-proto");
   const host = getHeader(event, "x-forwarded-host") || getHeader(event, "host");
@@ -158,16 +123,6 @@ function joinAppPath(basePath: string, path: string): string {
   return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-/**
- * Which app this deployment is, for naming its MCP server.
- *
- * The hostname is the LAST resort, not the first: every beta deployment is
- * `beta.<app>.agent-native.com`, so the leading label is `beta` for all of
- * them and every beta app advertised itself as `agent-native-beta`. A client
- * keys its config by that name, so connecting a second beta app overwrote the
- * first. Declared identity comes first now, and `app.slug` covers every
- * first-party template with no configuration at all.
- */
 function appLabel(origin: string, options: McpConnectRouteOptions): string {
   const app = getAppConfig().app;
   const declared = options.appId ?? app.id ?? app.template ?? app.slug;
@@ -209,11 +164,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * Resolve the org domain for a session. Used as the JWT `org_domain` claim so
- * the receiving MCP endpoint can map it back to an org id (same as A2A). Best
- * effort — a missing org just yields a user-scoped (no-org) token.
- */
 async function resolveOrgDomain(
   orgId: string | undefined,
 ): Promise<string | undefined> {
@@ -245,9 +195,6 @@ async function mintConnectToken(params: {
   label: string | null;
   ttlDays: number;
   appUrl: string;
-  /** When `"full"`, embed `catalog_scope: "full"` in the JWT so this token
-   *  bypasses the compact/connector-catalog tier (active by default whenever a
-   *  `connectorCatalog` is declared) and gets the complete action surface. */
   catalogScope?: "full";
 }): Promise<{ token: string; jti: string }> {
   const orgDomain = await resolveOrgDomain(params.orgId);
@@ -277,20 +224,7 @@ async function signConnectToken(params: {
   appUrl: string;
   expiresIn: string;
   jti: string;
-  /**
-   * When true, embed the org id directly as an `org_id` claim on the
-   * A2A-signed path (the OAuth-signed path already carries `params.orgId`).
-   * Used for org SERVICE tokens, whose synthetic identity must resolve to the
-   * org even when the org has no domain mapping. Personal tokens keep the
-   * original domain-based resolution — behavior unchanged.
-   */
   includeOrgIdClaim?: boolean;
-  /**
-   * When `"full"`, embed a `catalog_scope: "full"` claim so this token
-   * bypasses the compact/connector-catalog tier filter (active by default
-   * whenever a `connectorCatalog` is declared) and gets the complete action
-   * surface. Minted when the user connects with `agent-native connect --full-catalog`.
-   */
   catalogScope?: "full";
 }): Promise<string> {
   if (process.env.A2A_SECRET?.trim()) {
@@ -339,15 +273,11 @@ async function signConnectToken(params: {
  * owner/admin before calling it.
  */
 export async function mintOrgServiceToken(params: {
-  /** Human-readable service principal name, e.g. "ci" or "pr-recap". */
   serviceName: string;
-  /** Org the service token acts for; becomes the resolved session orgId. */
   orgId: string;
   /** The human minting the token — stored for audit, never used as identity. */
   createdBy: string;
-  /** 1–365 days; clamped. Defaults to DEFAULT_TOKEN_TTL_DAYS. */
   ttlDays?: number;
-  /** App origin used for OAuth-signed tokens (resource/issuer binding). */
   appUrl: string;
 }): Promise<{
   token: string;
@@ -386,7 +316,11 @@ export async function mintOrgServiceToken(params: {
 function mcpResultPayload(
   appUrl: string,
   options: McpConnectRouteOptions,
-  auth: { token?: string; ownerEmail?: string },
+  auth: {
+    token?: string;
+    ownerEmail?: string;
+    catalogScope?: "full" | null;
+  },
 ) {
   const mcpUrl = mcpResourceUrl(appUrl);
   const name = serverName(appUrl, options);
@@ -394,12 +328,10 @@ function mcpResultPayload(
   if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
   if (!auth.token && auth.ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = auth.ownerEmail;
+    if (auth.catalogScope === "full") {
+      headers["X-Agent-Native-MCP-Full-Catalog"] = "1";
+    }
   }
-  // Intentionally do NOT inject the full-catalog header here. Every connector
-  // used to receive it, which silently forced the ~105-tool full catalog on
-  // every client. Full-catalog intent now lives durably in the token itself
-  // (`catalog_scope: "full"`, minted only by `connect --full-catalog`), so a
-  // normal connection defaults to the compact/connector catalog + tool-search.
   return {
     token: auth.token ?? "",
     mcpUrl,
@@ -417,10 +349,6 @@ function mcpResourceUrl(appUrl: string): string {
   return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
 
-// ---------------------------------------------------------------------------
-// Connect page (server-rendered HTML string)
-// ---------------------------------------------------------------------------
-
 function agentNativeMarkSvg(className: string, gradientId: string): string {
   return `<svg class="${className}" width="114" height="66" viewBox="0 0 114 66" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
   <path d="M24.5537 65.7695H0L15.0859 39.4619L37.708 0L60.4912 39.4619H39.6396L24.5537 65.7695Z" fill="white"/>
@@ -431,6 +359,14 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
       <stop offset="1" stop-color="#48FFE4"/>
     </linearGradient>
   </defs>
+</svg>`;
+}
+
+function tablerTerminalSvg(className: string): string {
+  return `<svg class="${className}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+  <path d="M5 7l5 5l-5 5"/>
+  <path d="M12 19l7 0"/>
 </svg>`;
 }
 
@@ -479,6 +415,7 @@ function renderConnectPage(params: {
   appUrl: string;
   serverId: string;
   userCode: string | null;
+  catalogScope: "full" | null;
   locale: LocaleCode;
   requestedGuide: string | null;
 }): string {
@@ -489,11 +426,12 @@ function renderConnectPage(params: {
     appUrl,
     serverId,
     userCode,
+    catalogScope,
     locale,
     requestedGuide,
   } = params;
   const direction = localeDirection(locale);
-  const messages = MCP_SETTINGS_MESSAGES[locale];
+  const messages = mcpSettingsMessagesForLocale(locale);
   const connectMessages = messages.mcpConnect;
   const guides = getMcpConnectGuides(locale);
   const staticTokenFallback = getMcpStaticTokenFallback(locale);
@@ -512,6 +450,7 @@ function renderConnectPage(params: {
     "flow-mark",
     "agent-native-connect-flow-gradient",
   );
+  const flowTerminalSvg = tablerTerminalSvg("flow-terminal");
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
   const resolvedGuideId = resolveMcpConnectGuideId(requestedGuide);
@@ -623,10 +562,7 @@ function renderConnectPage(params: {
     color: var(--text); flex-shrink: 0;
   }
   .flow-mark { width: 26px; height: auto; display: block; }
-  .flow .agent-symbol {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.95rem; font-weight: 700; letter-spacing: -0.04em;
-  }
+  .flow-terminal { width: 22px; height: 22px; display: block; }
   .flow .conn {
     width: 30px; height: 1px; flex-shrink: 0;
     background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
@@ -656,6 +592,11 @@ function renderConnectPage(params: {
     font-size: 0.78rem; font-weight: 650;
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     letter-spacing: 0.08em; color: var(--muted);
+  }
+  .scope-notice {
+    margin: 0 0 0.9rem; padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    color: var(--muted); font-size: 0.8rem; line-height: 1.4;
   }
   button {
     cursor: pointer; font: inherit; font-weight: 600; border: none;
@@ -911,7 +852,7 @@ function renderConnectPage(params: {
       </span>
       <span class="conn" aria-hidden="true"></span>
       <span class="tile" aria-hidden="true">
-        <span class="agent-symbol">&lt;/&gt;</span>
+        ${flowTerminalSvg}
       </span>
     </div>
 
@@ -926,17 +867,27 @@ function renderConnectPage(params: {
     <span class="value" id="userCodeValue">${safeUserCode}</span>
   </div>
 
+  ${safeUserCode && catalogScope === "full" ? `<p class="scope-notice">${localize(connectMessages.fullCatalogRequested)}</p>` : ""}
+
   ${setupHtml}
 
-  <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
+  ${
+    safeUserCode
+      ? `<div id="staticTokenMint">
+    <div id="msg" class="msg" role="status" aria-live="polite"></div>
+    <div id="mintForm">
+      <button id="authorizeBtn" class="primary">${localize(connectMessages.authorizeDevice)}</button>
+    </div>
+  </div>`
+      : `<details id="staticTokenMint" class="connections static-token-mint">
     <summary>
-      <span class="connections-title">${safeUserCode ? localize(connectMessages.authorizeDevice) : escapeHtml(staticTokenFallback.title)}</span>
+      <span class="connections-title">${escapeHtml(staticTokenFallback.title)}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
       <div id="msg" class="msg" role="status" aria-live="polite"></div>
       <div id="mintForm">
-        <button id="authorizeBtn" class="primary">${safeUserCode ? localize(connectMessages.authorizeDevice) : localize(connectMessages.createToken)}</button>
+        <button id="authorizeBtn" class="primary">${localize(connectMessages.createToken)}</button>
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
@@ -955,7 +906,8 @@ function renderConnectPage(params: {
         </details>
       </div>
     </div>
-  </details>
+  </details>`
+  }
 
   <details id="connections" class="connections">
     <summary>
@@ -1221,17 +1173,6 @@ function renderConnectPage(params: {
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Handler — single entry point; core-routes-plugin dispatches the subpath.
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a `/mcp/connect[...]` request. The legacy
- * `/_agent-native/mcp/connect` alias is mounted too. `subpath` is the part
- * after `/connect` (empty string = the page itself, otherwise e.g. `/token`,
- * `/device/start`). The core-routes-plugin computes it from the stripped event
- * path so this module stays mount-agnostic.
- */
 export async function handleMcpConnect(
   event: H3Event,
   subpath: string,
@@ -1262,18 +1203,14 @@ export async function handleMcpConnect(
     "",
   );
 
-  // ---- The connect page (GET) ------------------------------------------
   if (sub === "") {
     if (method !== "GET" && method !== "HEAD") {
       return json({ error: "Method not allowed" }, 405);
     }
     const session = await getSession(event);
     if (!session?.email) {
-      // Serve the SAME login form the guard would, at this same URL — the
-      // login form reloads window.location so we re-enter here authed.
       const loginHtml = getConfiguredLoginHtml(event);
       if (loginHtml) return html(loginHtml, 200);
-      // Fully-open app (no auth guard): nothing to scope a mint to.
       return html(
         renderConnectPage({
           connectBasePath: basePath,
@@ -1282,6 +1219,7 @@ export async function handleMcpConnect(
           appUrl,
           serverId: serverName(appUrl, options),
           userCode: null,
+          catalogScope: null,
           locale,
           requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
         }),
@@ -1290,6 +1228,15 @@ export async function handleMcpConnect(
     let userCode: string | null = null;
     const raw = requestUrl?.searchParams.get("user_code");
     if (raw && USER_CODE_RE.test(raw)) userCode = raw;
+    const deviceCode = userCode
+      ? await getDeviceCodeByUserCode(userCode)
+      : null;
+    const catalogScope =
+      deviceCode?.status === "pending" &&
+      deviceCode.expiresAt != null &&
+      deviceCode.expiresAt >= Date.now()
+        ? deviceCode.catalogScope
+        : null;
     return html(
       renderConnectPage({
         connectBasePath: basePath,
@@ -1298,13 +1245,13 @@ export async function handleMcpConnect(
         appUrl,
         serverId: serverName(appUrl, options),
         userCode,
+        catalogScope,
         locale,
         requestedGuide: requestUrl?.searchParams.get("guide") ?? null,
       }),
     );
   }
 
-  // ---- POST /token  (session-required) ---------------------------------
   if (sub === "/token") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1343,11 +1290,31 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- POST /device/start  (UNAUTH) ------------------------------------
   if (sub === "/device/start") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
-      const row = await createDeviceCode();
+      let parsedBody: unknown;
+      try {
+        parsedBody = await readBody(event);
+      } catch {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      if (
+        parsedBody != null &&
+        (typeof parsedBody !== "object" || Array.isArray(parsedBody))
+      ) {
+        return json({ error: "Invalid request body." }, 400);
+      }
+      const body = (parsedBody ?? {}) as { fullCatalog?: unknown };
+      if (
+        body.fullCatalog !== undefined &&
+        typeof body.fullCatalog !== "boolean"
+      ) {
+        return json({ error: "fullCatalog must be a boolean." }, 400);
+      }
+      const row = await createDeviceCode(
+        body.fullCatalog === true ? "full" : null,
+      );
       const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
@@ -1365,7 +1332,6 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- POST /device/authorize  (session-required) ----------------------
   if (sub === "/device/authorize") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1395,7 +1361,6 @@ export async function handleMcpConnect(
     return json({ status: "approved" });
   }
 
-  // ---- POST /device/poll  (UNAUTH) -------------------------------------
   if (sub === "/device/poll") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -1421,7 +1386,6 @@ export async function handleMcpConnect(
     ) {
       return json({ status: "pending" });
     }
-    // status === "approved" && ownerEmail bound → mint exactly once.
     if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
       const consumed = await consumeDeviceCode(
         deviceCode,
@@ -1436,13 +1400,12 @@ export async function handleMcpConnect(
         status: "approved",
         ...mcpResultPayload(appUrl, options, {
           ownerEmail: row.ownerEmail,
+          catalogScope: row.catalogScope,
         }),
       });
     }
     try {
       const jti = randomUUID();
-      // Claim a retryable minting state first. If signing or recording fails,
-      // release the row back to approved so the CLI can poll again.
       const claimed = await claimDeviceCodeForMint(deviceCode, jti);
       if (!claimed) {
         const fresh = await getDeviceCode(deviceCode);
@@ -1459,6 +1422,9 @@ export async function handleMcpConnect(
           appUrl,
           expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
           jti,
+          ...(claimed.catalogScope
+            ? { catalogScope: claimed.catalogScope }
+            : {}),
         });
         await recordMintedToken({
           jti,
@@ -1482,7 +1448,6 @@ export async function handleMcpConnect(
     }
   }
 
-  // ---- GET /tokens  (session-required) ---------------------------------
   if (sub === "/tokens") {
     if (method !== "GET") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
@@ -1499,7 +1464,6 @@ export async function handleMcpConnect(
     });
   }
 
-  // ---- POST /tokens/revoke  (session-required) -------------------------
   if (sub === "/tokens/revoke") {
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);

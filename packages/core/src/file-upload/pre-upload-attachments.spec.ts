@@ -333,9 +333,12 @@ describe("preUploadAttachments", () => {
     });
 
     expect(result.providerMissing).toBe(true);
-    expect(result.injectedText).toContain("durable object storage");
-    expect(result.injectedText).toContain("connect-file-storage");
+    expect(result.injectedText).toContain("no durable storage URL");
     expect(att.storageRequired).toBe(true);
+    expect(result.readableWithoutStorage).toEqual(["photo.png"]);
+    expect(result.injectedText).not.toContain(
+      "Call `connect-file-storage` to render",
+    );
   });
 
   it("marks file attachments as needing storage when no provider is configured", async () => {
@@ -351,7 +354,8 @@ describe("preUploadAttachments", () => {
     expect(result.providerMissing).toBe(true);
     expect(result.uploadedFiles).toHaveLength(0);
     expect(att.storageRequired).toBe(true);
-    expect(result.injectedText).toContain("images or files");
+    expect(result.injectedText).toContain("no durable storage URL");
+    expect(result.readableWithoutStorage).toEqual(["report.pdf"]);
   });
 
   it("uploads decoded text attachments so their URL survives the thread", async () => {
@@ -398,12 +402,71 @@ describe("preUploadAttachments", () => {
     expect(result.providerMissing).toBe(false);
     expect(result.uploadFailed).toBe(true);
     expect(result.uploadError).toBe("network error");
-    expect(result.injectedText).toContain("configured storage provider failed");
-    expect(result.injectedText).not.toContain("Call `connect-file-storage`");
-    // The attachment should still be in the list so the model can see base64.
+    expect(result.injectedText).toContain(
+      "object-storage provider failed to upload",
+    );
+    expect(result.injectedText).not.toContain("Call `connect-file-storage` to");
     expect(result.attachments).toContain(att);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("does not describe a readable photo as too large when storage is unconfigured", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const att = makeImageAtt({ name: "camera_photo.jpg" });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+    });
+
+    expect(result.readableWithoutStorage).toEqual(["camera_photo.jpg"]);
+    expect(result.injectedText).toContain("you can read them right now");
+    expect(result.injectedText).toContain(
+      "Do not tell the user an attachment is unreadable, missing, or too large",
+    );
+    expect(result.injectedText).not.toMatch(/could not read/i);
+  });
+
+  it("asks for the storage card only when an attachment is genuinely unreadable", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const att = makeFileAtt({
+      name: "scan.pdf",
+      data: `data:application/pdf;base64,${"A".repeat(1_000_001)}`,
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toEqual([]);
+    expect(result.injectedText).toContain("could not read the contents");
+    expect(result.injectedText).toContain("over the 0.7 MB inline limit");
+    expect(result.injectedText).toContain("Do not invent a size limit");
+    expect(result.injectedText).toContain(
+      "would NOT make their contents readable",
+    );
+  });
+
+  it("does not promise that a small DOCX is readable without storage", async () => {
+    uploadFileMock.mockResolvedValue(null);
+
+    const att = makeFileAtt({
+      name: "notes.docx",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      data: "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,UEsDBA==",
+    });
+    const result = await preUploadAttachments({
+      attachments: [att],
+      ownerEmail: "user@example.com",
+      includeFiles: true,
+    });
+
+    expect(result.readableWithoutStorage).toEqual([]);
+    expect(result.injectedText).toContain("not a document format");
   });
 
   it("handles an empty attachment list gracefully", async () => {
@@ -439,10 +502,8 @@ describe("preUploadImageAttachments (legacy shim)", () => {
       ownerEmail: "user@example.com",
     });
 
-    // Image should be uploaded, file should not.
     expect(result.uploaded).toHaveLength(1);
     expect(result.uploadedFiles).toHaveLength(0);
-    // uploadFile was called only for the image.
     expect(uploadFileMock).toHaveBeenCalledTimes(1);
   });
 });

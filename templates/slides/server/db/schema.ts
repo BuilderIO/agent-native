@@ -1,4 +1,5 @@
 import {
+  index,
   table,
   text,
   integer,
@@ -13,6 +14,9 @@ export const decks = table("decks", {
   title: text("title").notNull(),
   data: text("data").notNull(), // Full deck JSON
   designSystemId: text("design_system_id"),
+  lastWriteClientId: text("last_write_client_id"),
+  lastWriteClientSequence: integer("last_write_client_sequence"),
+  lastWriteRevision: text("last_write_revision"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
   ...ownableColumns(),
@@ -47,9 +51,6 @@ export const designSystems = table("design_systems", {
 
 export const designSystemShares = createSharesTable("design_system_shares");
 
-// Persisted public share-link snapshots (token → deck snapshot).
-// Replaces the old in-memory Map so links survive server restarts and
-// work across multiple serverless instances.
 export const deckShareLinks = table("deck_share_links", {
   token: text("token").primaryKey(),
   title: text("title").notNull(),
@@ -70,21 +71,36 @@ export const uploadedAssets = table("uploaded_assets", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-export const slideComments = table("slide_comments", {
-  id: text("id").primaryKey(),
-  deckId: text("deck_id").notNull(),
-  slideId: text("slide_id").notNull(),
-  threadId: text("thread_id").notNull(),
-  parentId: text("parent_id"),
-  content: text("content").notNull(),
-  quotedText: text("quoted_text"),
-  anchor: text("anchor"),
-  authorEmail: text("author_email").notNull(),
-  authorName: text("author_name"),
-  resolved: boolean("resolved").notNull().default(false),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const slideComments = table(
+  "slide_comments",
+  {
+    id: text("id").primaryKey(),
+    deckId: text("deck_id").notNull(),
+    slideId: text("slide_id").notNull(),
+    threadId: text("thread_id").notNull(),
+    parentId: text("parent_id"),
+    content: text("content").notNull(),
+    quotedText: text("quoted_text"),
+    anchor: text("anchor"),
+    emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
+    authorEmail: text("author_email").notNull(),
+    authorName: text("author_name"),
+    resolved: boolean("resolved").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (comment) => ({
+    deckCreatedIdx: index("slide_comments_deck_created_idx").on(
+      comment.deckId,
+      comment.createdAt,
+    ),
+    deckSlideCreatedIdx: index("slide_comments_deck_slide_created_idx").on(
+      comment.deckId,
+      comment.slideId,
+      comment.createdAt,
+    ),
+  }),
+);
 
 export const deckEvents = table("deck_events", {
   id: text("id").primaryKey(),
@@ -96,8 +112,6 @@ export const deckEvents = table("deck_events", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
-// One durable bucket per deck keeps anonymous access-request throttling
-// consistent across serverless instances and cold starts.
 export const deckAccessRequestLimits = table("deck_access_request_limits", {
   deckId: text("deck_id").primaryKey(),
   windowStartedAt: text("window_started_at").notNull(),

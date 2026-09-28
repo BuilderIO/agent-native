@@ -1,6 +1,13 @@
 import enUS from "./en-US";
 
 const zhCN = {
+  agentChat: {
+    setup: {
+      checkingProvider: "正在检查 AI 连接…",
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+    common: { retry: "重试" },
+  },
   language: {
     label: "语言",
     system: "系统",
@@ -57,6 +64,9 @@ const zhCN = {
     next: "下一页",
     draftLabel: "草稿",
     draftDescription: "此页面仍在编写中。内容在发布前可能不完整或有所变动。",
+    translationLabel: "机器翻译",
+    translationDescription: "此页面为自动翻译，内容可能不完全准确。",
+    translationViewOriginal: "查看英文原文",
   },
   search: {
     dialogLabel: "搜索文档",
@@ -431,18 +441,18 @@ const zhCN = {
   },
   homepage: {
     hero: {
-      title: "面向 agentic 应用的框架。",
-      bodyLine1: "一个面向带有 UI 和 agent 的应用的开源 TypeScript 框架。",
-      bodyLine2: "只需定义一次每个 Action，即可从任何地方调用。",
+      title: "面向 agentic 应用的框架",
+      bodyLine1: "构建配备直观 UI 的自主型 agent。",
+      bodyLine2: "使用你自己的 LLM，随处部署。",
       tryAnApp: "试用应用",
     },
     install: {
       copyCommand: "复制安装命令",
     },
     actions: {
-      title: "从任何地方调用一个 Action。",
-      bodyLine1: "使用 defineAction() 定义一项能力。",
-      bodyLine2: "你的 React UI、agent、HTTP 客户端和集成都会调用同一份代码。",
+      title: "一个 Action 驱动所有能力面",
+      bodyLine1: "使用 defineAction() 一次定义一项能力。",
+      bodyLine2: "你的 agent、React UI、HTTP 客户端和集成都调用同一份代码。",
       diagramAlt: "一个 Action 驱动 UI、MCP、Agent 对话、A2A、HTTP API 和 CLI",
     },
     builtIn: {
@@ -534,7 +544,7 @@ const zhCN = {
       stepTwoTitle: "开始输入提示",
       stepTwoBody: "用自然语言描述你想构建的内容，智能体会为你创建。",
       stepThreeTitle: "部署",
-      stepThreeBody: "准备好后，在 Builder 中一键部署你的应用。",
+      stepThreeBody: "准备好后，在 Builder 中一键部署你的 agent 及其 UI。",
     },
   },
   templatesPage: {
@@ -558,6 +568,7 @@ const zhCN = {
     tryCommunityDemo: "体验演示",
     customizeDescription: "以这个应用为起点。",
     customizeOnline: "在线",
+    customizeOnlineBadge: "加入等候名单",
     customizeLocally: "本地",
     communityNew: "新应用",
     communityComingSoon: "即将推出",
@@ -608,6 +619,16 @@ const zhCN = {
     buildOnline: "在线构建",
     popoverTitle: "在浏览器中构建",
     popoverBody: "使用 Builder.io 在云端快速生成 agent-native 应用。",
+    waitlistBody:
+      "Builder.io 可以在云端启动并自定义 agent-native 应用 — 包含 actions、auth、SQL 状态和 agent chat。加入候补名单以获取早期访问权限。",
+    emailLabel: "邮箱",
+    emailPlaceholder: "you@company.com",
+    joinWaitlist: "加入候补名单",
+    joining: "正在加入…",
+    joined: "你已加入候补名单。在线构建访问开放后我们会发送邮件通知你。",
+    invalidEmail: "请输入有效的邮箱地址。",
+    submitError: "无法加入候补名单。请重试。",
+    waitlistUnavailable: "此环境暂不支持加入候补名单。请改用托管的文档网站。",
     launchBuilder: "启动 Builder",
   },
   templateCard: {
@@ -755,25 +776,106 @@ const zhCN = {
       s062: "从模板开始，连接数据，开始构建仪表板。",
       s063: "阅读文档",
       s064: "查看所有模板",
+      heroEyebrow: "Analytics",
+      heroTitle: "问一个问题。获取图表、查询和上下文。",
+      heroDescription:
+        "将仓库、产品和收入数据整合在一起。代理检查您的指标定义，编写 SQL，并将答案转换为可重用的仪表板。",
+      heroCta: "探索你的数据",
+      useCasesHeading: "跟踪从指标到会话的信号",
+      useCasesBody:
+        "将推理放在每个结果旁边，然后将图表放入仪表板或会话调查中。",
+      useCase1Title: "解释激活的变化",
+      useCase1Body:
+        "比较对话中的群组和频道。代理使用您记录的指标定义、编写查询并显示更改背后的证据。",
+      useCase2Title: "建立生活收入审查",
+      useCase2Body:
+        "要求代理将计费、CRM 或仓库指标合并到仪表板中。过滤器和面板将保留供您下次查看。",
+      useCase3Title: "跟踪真实会话的指标",
+      useCase3Body:
+        "从峰值或错误转移到其背后的会话。检查控制台和网络活动，然后与代理共享临时诊断上下文。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "查询、可视化和探索所需的一切",
+      feature1Title: "跨连接数据询问",
+      feature1Body:
+        "询问仓库、产品和收入来源的问题。代理将答案转化为图表并支持后续细分。",
+      feature2Title: "客服人员可以编辑的仪表板",
+      feature2Body:
+        "让代理添加或重塑面板、过滤器和故障。更改保留在您的团队可以共享的可重复使用的仪表板中。",
+      feature3Title: "可见的 SQL 和指标上下文",
+      feature3Body:
+        "检查结果背后的查询以及用于写入结果的指标定义。当您需要更多控制时优化 SQL。",
+      feature4Title: "数据源的一个工作区",
+      feature4Body:
+        "连接 BigQuery、GA4、产品分析、HubSpot 和 Stripe，然后从同一应用探索其允许的数据。",
+      feature5Title: "代理遵循的定义",
+      feature5Body:
+        "记录度量规则、联接、示例和已知问题。分析在编写查询时向代理提供该上下文。",
+      feature6Title: "带诊断功能的会话重播",
+      feature6Body:
+        "从错误跳转到记录，并查看控制台和网络事件。共享临时诊断链接以进行代理协助调查。",
+      finalCtaHeading: "从一个关于数据的问题开始",
+      finalCtaBody: "连接一个数据源，让你的 AI 智能体生成第一张图表。",
+      finalCtaButton: "探索你的数据",
       faq: {
-        question1: "我可以用自然语言询问分析问题吗？",
+        question1: "什么是 Agent-Native Analytics？",
         answer1:
-          "可以。提出问题后，代理会编写 SQL，在 BigQuery 中运行查询并生成图表。查询会保留历史记录、行数和可共享 URL。",
-        question2: "Analytics 与 Amplitude 或 Mixpanel 有什么不同？",
+          "Agent-Native Analytics 是一款免费开源的 AI 分析工具。向 AI 智能体询问关于已连接数据的问题，检查查询，并构建可复用的仪表板。它还包括会话回放、错误跟踪和正常运行时间监控。",
+        question2: "使用 Analytics 需要会 SQL 吗？",
         answer2:
-          "Amplitude 和 Mixpanel 按席位和事件计费，而且界面由它们决定。Analytics 免费且开源，代理还能按需扩展应用本身，例如添加新图表和新连接器。",
-        question3: "可以连接哪些数据源？",
+          "你可以用自然语言提问，让你的 AI 智能体编写查询。对于 BigQuery，你也可以在 Explorer 中通过选择数据表、指标和筛选条件来构建图表。SQL 始终可供查看，熟悉你数据的人可能需要帮忙连接数据源和定义指标。",
+        question3: "我可以连接哪些数据源？",
         answer3:
-          "内置十多种连接器，包括 HubSpot、Stripe、GitHub、Jira、Sentry、Slack、Gong、Notion、Google Cloud 等。如果缺少你需要的连接器，代理可以构建它。",
-        question4: "我需要会 SQL 吗？",
+          "支持的数据源包括 BigQuery、Google Analytics 4、Amplitude、Mixpanel、PostHog、HubSpot 和 Stripe。每个数据源都需要相应的凭据，或授予 Analytics 的共享工作区连接。可获得的答案取决于你连接的数据和权限。",
+        question4: "我可以使用自己的指标定义吗？",
         answer4:
-          "不需要，自然语言就是操作界面。不过，当你需要时，SQL 资源管理器就在旁边，可直接访问 BigQuery 并查看完整查询历史。",
-        question5: "Analytics 免费吗？",
-        answer5: "免费且开源，不按事件计费。你的数据会留在自己的数据仓库中。",
+          "可以。使用数据字典记录定义、表和列名、查询示例，以及排除内部账号等例外情况。你的 AI 智能体在编写查询时可以使用这些定义。在核对业务指标时，请查看 SQL 和结果。",
+        question5: "我可以共享仪表板并安排报告吗？",
+        answer5:
+          "可以。以查看者、编辑者或管理员权限与团队成员或组织共享仪表板。你还可以安排包含当前仪表板结果的邮件报告，或为需要跟踪的条件配置提醒。",
       },
     },
     calendar: {
       s001: "Calendar 模板屏幕截图",
+      heroEyebrow: "Calendar",
+      heroTitle: "找到时间、预订会议并与代理一起调整您的一天",
+      heroDescription:
+        "日历将您的 Google 日历和空闲规则结合在一起，以便客服人员可以找到共享空缺职位、准备预订并帮助更新活动。",
+      heroCta: "开始安排日程",
+      useCasesHeading: "让代理处理调度细节",
+      useCasesBody:
+        "检查跨日历的实际可用性，然后在创建或移动会议之前查看明确的提案。",
+      useCase1Title: "将预订链接变成准备好的会议",
+      useCase1Body:
+        "仅提供尊重工作时间、通知和缓冲的时间。收集您需要的详细信息，然后在访客预订时添加视频链接。",
+      useCase2Title: "找到一个人人都可以制作的老虎机",
+      useCase2Body:
+        "要求客服人员比较与会者的空闲/忙碌时间和日历叠加。它返回共享的空缺及其检查的日历。",
+      useCase3Title: "重新安排而不丢失线程",
+      useCase3Body:
+        "要求稍后安排时间，让客服人员检查来宾、保留会议详细信息并准备更新的邀请供您审核。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "安排、预订和改期所需的一切",
+      feature1Title: "自然语言调度",
+      feature1Body:
+        "要求代理检查可用性、提议时间并创建或移动活动及其嘉宾和会议详细信息。",
+      feature2Title: "跨帐户的可用性",
+      feature2Body:
+        "一起查看连接的 Google 日历，并将只读源作为日程上下文包含在内。",
+      feature3Title: "预订页面包含摄入量",
+      feature3Body:
+        "为不同会议类型创建链接，设置持续时间和预订问题，并让客人选择可用时段。",
+      feature4Title: "塑造每个老虎机的规则",
+      feature4Body:
+        "设置工作时间、缓冲时间、通知、时区和预订范围，以便建议时间和公共时间适合您的日程安排。",
+      feature5Title: "真正的多主机检查",
+      feature5Body:
+        "添加所需的共同主持人并在提供时间之前检查他们的空闲/忙碌状态。配置后，日历还会考虑共享工作时间叠加。",
+      feature6Title: "座席管理的会议跟进",
+      feature6Body:
+        "当代理准备活动变更和更新邀请时，请附上 Google Meet 或 Zoom 详细信息。",
+      finalCtaHeading: "把你的下一场会议加入日历",
+      finalCtaBody: "用你的 AI 代理找到时间，或发送一个预约链接。",
+      finalCtaButton: "开始安排日程",
       s002: "Calendar 观看次数",
       s003: "代理动作",
       s004: "预订链接类型",
@@ -833,37 +935,132 @@ const zhCN = {
       s057: "托管演示说明",
       s058: "双向同步",
       faq: {
-        question1: "AI 能帮我安排会议吗？",
+        question1: "Agent-Native Calendar 是什么？",
         answer1:
-          "可以。让代理查找时段、创建事件、检查空闲时间或重新安排即可；它会在你的真实日历中操作，并尊重现有事件。",
-        question2: "Calendar 能像 Calendly 一样提供预约链接吗？",
+          "Agent-Native Calendar 是一款免费开源的 AI 日程助手，可连接到 Google Calendar。使用 AI 代理管理事件、查找会议时间，或分享预约链接让他人可以与你预约。",
+        question2: "我可以连接哪些日历？",
         answer2:
-          "可以。它提供可自定义的预约页面，支持按类型设置空闲时间、收集访客信息、发送确认以及使用自定义域名。",
-        question3: "它能与 Google Calendar 同步吗？",
+          "连接多个 Google 账户，即可一起查看它们的事件。新建和更新的事件会写入所选账户的主日历。你还可以显示只读的 ICS 或 webcal 订阅；这些不是与 Outlook 或 Apple 日历的双向集成。共享的 Google 日历仅供查看，不会阻挡预约的可用性。",
+        question3: "AI 代理能对我的日历做什么？",
         answer3:
-          "可以。它通过 OAuth 同步，支持多个账户和自动刷新令牌，并可直接在 Google 上创建、更新和删除事件。",
-        question4: "Calendar 免费吗？",
-        answer4: "免费且开源，预约页面也包含在内。",
+          "你的 AI 代理可以查看你的日程、查找可用的会议时间，并创建或改期事件。当你让它查找时间时，它会检查你的可用性规则和现有事件，在可访问的情况下还会检查指定参与者的忙闲信息。会议被预订前，由你来选择建议的时间。",
+        question4: "别人预约我的会议需要账户吗？",
+        answer4:
+          "不需要。任何拥有你公开预约链接的人都可以在不登录的情况下选择可用时间并回答你的预约问题。预约完成后，对方会收到一个私密链接，用于改期或取消会议。",
+        question5: "预约链接能检查多个主持人的可用性吗？",
+        answer5:
+          "可以。添加必需的联合主持人后，Calendar 会在提供时间之前检查他们的忙闲信息。若要同时遵守每位联合主持人设置的工作时间，你和该联合主持人需要将彼此的日历添加为叠加层。若没有这种相互共享，Calendar 只会检查他们的忙闲信息。",
       },
     },
     assets: {
       faq: {
-        question1: "AI 能生成符合品牌的图片吗？",
+        question1: "什么是 Agent-Native Assets？",
         answer1:
-          "可以。生成会以你上传的品牌素材库和参考资料为依据，而不是依赖通用模型的审美。代理会实际读取规则，据此生成符合品牌的图片和视频。",
-        question2: "Assets 与 DAM 有什么不同？",
+          "Agent-Native Assets 是一款免费开源的品牌素材库，具备 AI 图片和视频生成能力。你可以整理现有媒体、提供品牌参考资料，并与 AI 智能体协作，在多个项目中生成、编辑和复用素材。",
+        question2: "Assets 如何使用我的品牌规范？",
         answer2:
-          "DAM 存储经过批准的文件，供人搜索。Assets 不仅能做到这一点，还会让品牌信息变得机器可读，使代理默认就能生成并选择符合品牌的媒体。",
-        question3: "我的其他应用可以使用它吗？",
+          "把你的标志、参考图片、颜色和风格说明添加到品牌套件中。可复用模板会针对特定内容类型提供生成指示。你的 AI 智能体会依据这些上下文来指导生成过程，你也可以在保存前查看并完善结果。",
+        question3: "我可以上传并整理现有的图片和视频吗？",
         answer3:
-          "可以。任何 Agent-Native 应用都能通过 A2A 调用 Assets，或将其嵌入为选择器，因此 Slides、Design 等应用可使用同一个经过批准的素材库。",
-        question4: "Assets 免费吗？",
+          "可以。上传现有媒体，或通过 URL 导入素材，然后将其与生成内容一起归入素材库和文件夹中。你可以浏览、搜索素材库，把素材当作参考再次使用，或将其导出用于其他项目。",
+        question4: "我的 AI 智能体可以从其他应用调用 Assets 吗？",
         answer4:
-          "免费且开源。运行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就属于你。",
+          "可以。通过 Assets 的 MCP 集成连接受支持的智能体，即可在聊天中搜索、生成和选择媒体。Agent-Native 应用也可以请求素材或嵌入选择器。具体的可用体验取决于宿主应用及其与 Assets 的连接方式。",
+        question5: "Assets 能在生成的图片中使用我的真实标志吗？",
+        answer5:
+          "可以。在品牌套件中设置一个标准标志，并在生成时启用标志合成。Assets 会在生成完成后把原始标志置入图片，因此图像模型不会重新绘制它。使用前请检查标志的位置以及周围图像的效果。",
       },
+      s001: "Assets 应用截图",
+      imageCredits: "图片署名",
+      heroEyebrow: "Assets",
+      heroTitle: "在对话中生成品牌形象",
+      heroDescription:
+        "描述您的需求，为您的代理提供品牌套件或参考，并在对话过程中比较生成的变化。",
+      heroCta: "生成一张图片",
+      useCasesHeading: "用 Assets 能做什么？",
+      useCasesBody:
+        "创建活动图片，为新项目调整素材，或为团队和 AI 智能体提供一个共享的品牌素材库。",
+      useCase1Title: "创建营销活动素材",
+      useCase1Body:
+        "让你的 AI 智能体根据品牌参考资料生成博客配图、社交媒体图片或上线宣传素材。比较不同选项，再完善你选中的那一个。",
+      useCase2Title: "为新项目调整图片",
+      useCase2Body:
+        "把一张现有图片交给你的 AI 智能体，说明你需要的改动，比如更换背景，或为标题预留空间。",
+      useCase3Title: "在各项工作中共享品牌素材",
+      useCase3Body:
+        "把标志、产品图片和品牌参考资料集中存放，让团队成员和已连接的 AI 智能体都能找到用于演示文稿、网站和其他项目的媒体。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "生成、完善和复用所需的一切",
+      feature1Title: "品牌素材库",
+      feature1Body:
+        "在素材库和文件夹中整理上传和生成的媒体。添加标志、参考图片和风格说明，供你的 AI 智能体使用。",
+      feature2Title: "AI 图片与视频生成",
+      feature2Body:
+        "描述你需要的媒体，选择你的品牌参考资料。生成多个图片方案或短视频，保存前先查看结果。",
+      feature3Title: "图片编辑",
+      feature3Body:
+        "让你的 AI 智能体编辑或重新设计一张图片。以现有素材为参考，通过反馈不断完善。",
+      feature4Title: "可复用模板",
+      feature4Body:
+        "为博客封面、社交媒体图片等常见任务保存生成指令。将模板关联到品牌套件，以复用其参考资料。",
+      feature5Title: "原始标志置入",
+      feature5Body:
+        "在品牌套件中设置你的标志，并将其添加到生成的图片中。标志合成会直接置入原始文件，而不是重新生成一份。",
+      feature6Title: "智能体接入",
+      feature6Body:
+        "连接你的 AI 智能体即可搜索素材库、生成媒体，并在聊天中选择素材。受支持的应用还可以嵌入素材选择器。",
+      finalCtaHeading: "创建你的下一份品牌素材",
+      finalCtaBody: "选好参考资料，告诉你的 AI 智能体你需要什么。",
+      finalCtaButton: "生成一张图片",
     },
     clips: {
       s001: "Clips 模板屏幕截图",
+      heroEyebrow: "Clips",
+      heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
+      heroDescription:
+        "Clips 是一款免费开源的屏幕录制工具,方便你与 AI 智能体分享错误报告、反馈和操作演示。",
+      heroCta: "录制一段 Clip",
+      useCasesHeading: "用 Clips 能做什么?",
+      useCasesBody:
+        "从一段你自己录制的 Clip,或别人分享给你的 Clip 开始。把上下文交给你的 AI 智能体,告诉它你需要什么。",
+      useCase1Title: "根据录制的反馈采取行动",
+      useCase1Body:
+        "把录制的反馈交给你的 AI 智能体,让它整理成计划或帮你实现所需的改动。",
+      useCase2Title: "调查一个被报告的 bug",
+      useCase2Body:
+        "把 bug 录制内容分享给你的 AI 智能体,让它调查出问题所在并梳理下一步该怎么做。",
+      useCase3Title: "根据录制的需求说明进行创作",
+      useCase3Body:
+        "用录制的需求说明来指导你的 AI 智能体创作演示文稿、设计稿、内容或应用改动。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "录制、转录、分享,一应俱全",
+      feature1Title: "AI 智能体可读的录制内容",
+      feature1Body:
+        "通过一个智能体可读的链接,把 Clip 的文字记录和带时间戳的图片分享给你的 AI 智能体。",
+      feature2Title: "自动转录",
+      feature2Body:
+        "获取录制、会议和口述内容的文字记录。点击文字记录的任意一行即可跳转回放到对应时刻。",
+      feature3Title: "浏览器调试日志",
+      feature3Body:
+        "使用 Clips 的 Chrome 扩展,在录制的同时捕获控制台错误和失败的请求。",
+      feature4Title: "内置 AI 智能体",
+      feature4Body:
+        "向内置 AI 智能体询问某段 Clip 或整个资料库的问题,并让它在聊天中编辑文字记录。",
+      feature5Title: "可搜索的录制资料库",
+      feature5Body:
+        "通过搜索文字记录来查找 Clip。用文件夹、标签和团队空间整理你的录制内容。",
+      feature6Title: "按键说话式口述输入",
+      feature6Body:
+        "在桌面应用中按住 Fn 键,即可向其他应用口述输入。在历史记录中可以回看文字记录和整理后的文本。",
+      teammatesLine: "你的团队成员可以在播放器中观看同一段录制内容。",
+      teammatesLinkLabel: "阅读智能体分享指南",
+      seeInActionHeading: "看看 Clips 的实际效果",
+      seeInActionBody:
+        "看看 Clips 的实际使用场景,从录制浏览器操作流程到向 AI 智能体演示如何完成一项任务。",
+      watchClipLabel: "观看这段 Clip",
+      finalCtaHeading: "让你的下一段 Clip 发挥作用",
+      finalCtaBody: "录制一段说明,或把一段分享的 Clip 交给你的 AI 智能体。",
+      finalCtaButton: "录制一段 Clip",
       s002: "屏幕录制",
       s003: "浏览器调试日志",
       s004: "口授",
@@ -926,26 +1123,23 @@ const zhCN = {
       s058: "免费和开源",
       s059: "立即开始",
       s060: "选择要捕获的内容，然后在 Clips 中开始录制。",
-      s061: "查看更多应用",
       s062: "查看所有模板",
       faq: {
-        question1: "Clips 免费吗？",
-        answer1: "是的。Clips 免费且开源。",
-        question2: "AI 能读取屏幕录制吗？",
+        question1: "什么是 Agent-Native Clips?",
+        answer1:
+          "Agent-Native Clips 是一款免费开源的屏幕录制工具,用于向 AI 智能体分享错误、反馈和操作演示。它会为你的 AI 智能体提供一份录制内容的文字记录和带时间戳的图片,而人们也可以观看同一段录制内容。",
+        question2: "我可以把录制内容分享给 Claude、ChatGPT 或 Cursor 吗?",
         answer2:
-          "可以。每个剪辑都包含转录文本、摘要和带时间戳的画面，代理可以直接读取这些内容。",
-        question3: "Clips 与 Loom 有什么不同？",
+          "Clips 会提供一个 AI 智能体可读的链接,其中包含文字记录和带时间戳的图片。你的智能体需要能够打开链接内容并读取图片才能同时用到两者。部分聊天模式可以读取文字记录,但需要你单独上传图片。",
+        question3: "录制屏幕需要用到 Chrome 扩展吗?",
         answer3:
-          "Clips 开源，数据归你所有；每个共享链接不仅人能读取，AI 代理也能读取。",
-        question4: "屏幕录制能捕获控制台错误吗？",
+          "不需要。你可以直接在 Clips 网页应用中录制。如果还想获取所演示标签页的控制台消息和网络诊断信息,再使用 Chrome 扩展即可。",
+        question4: "AI 智能体可以观看我的屏幕录制内容吗?",
         answer4:
-          "可以。Clips 会在录制过程中同时捕获浏览器控制台错误和失败的网络请求。它们会与转录文本和画面一起附加到同一个共享链接中。代理可以根据剪辑进行调试，而不只是观看。",
-        question5: "Clips 支持 Claude、ChatGPT 或 Cursor 吗？",
+          "在 Clips 中,兼容的 AI 智能体可以通过文字记录和带时间戳的图片来理解你的录制内容。它们使用的是文本和图片,而不是播放视频,因此你可以就发生的事情提问,或让 AI 智能体基于录制内容执行任务。",
+        question5: "谁可以访问一段分享的录制内容?",
         answer5:
-          "支持！无需插件或 API 密钥。将 Clips 共享链接粘贴到任意代理中，它就能直接读取转录文本、摘要和画面。",
-        question6: "我的录制内容存储在哪里？",
-        answer6:
-          "存储在你的部署位置。自托管 Clips 会将视频、转录文本和分析数据保存在你自己的基础设施中。",
+          "除非你的组织更改了设置,否则录制内容默认使用公开链接,任何拿到链接的人都可以访问。系统也提供私密和组织内访问选项,私密的 Clip 可以通过临时链接分享给智能体,而无需将录制内容公开。",
       },
       quickStart: {
         recordingMode: "录制模式",
@@ -965,6 +1159,46 @@ const zhCN = {
     },
     content: {
       s001: "Content 模板屏幕截图",
+      heroEyebrow: "Content",
+      heroTitle: "和你的 AI 智能体一起创建和整理工作",
+      heroDescription:
+        "Content 是一款免费开源的工作空间，用于文档、任务列表和数据库，你和你的 AI 智能体可以一起阅读和更新。",
+      heroCta: "整理你的工作",
+      useCasesHeading: "用 Content 能做什么？",
+      useCasesBody:
+        "处理一份草稿，跟踪待办事项，或收集一项新请求所需的详细信息。",
+      useCase1Title: "撰写和审阅内容",
+      useCase1Body:
+        "让你的 AI 智能体起草一个页面、修改一段文字，或在你的写作上留下评论。你可以选择希望它如何帮忙。",
+      useCase2Title: "和智能体一起跟踪工作",
+      useCase2Body:
+        "把任务、状态和下一步都记录在一张共享表格里。在推进项目的过程中，让连接的 AI 智能体帮你更新它。",
+      useCase3Title: "收集项目请求",
+      useCase3Body:
+        "为设计需求或其他团队工作建一张表格。为每个字段写明说明，这样你的 AI 智能体就能询问缺失的细节。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "写作、整理和协作所需的一切",
+      feature1Title: "AI 写作与审阅",
+      feature1Body:
+        "获取初稿，为选中的文字请求修改，或请求评论。你的 AI 智能体直接在文档中工作。",
+      feature2Title: "文档与嵌套页面",
+      feature2Body:
+        "用标题、表格、图片和代码块撰写页面。把相关文档归入同一个项目，并通过标题和内容进行搜索来查找它们。",
+      feature3Title: "数据库与视图",
+      feature3Body:
+        "以表格、看板或日历的方式整理工作。为负责人、日期和状态添加字段，每一行背后都是一份完整的文档。",
+      feature4Title: "页面与字段说明",
+      feature4Body:
+        "描述一个页面或数据库字段应该包含什么内容，为你的 AI 智能体提供关于所需信息和格式的指引。",
+      feature5Title: "连接的 AI 智能体",
+      feature5Body:
+        "连接来自 Claude Code、Codex 或 Cursor 等工具的智能体，让它们与内置智能体一起读取和更新你的文档与数据库。",
+      feature6Title: "团队协作",
+      feature6Body:
+        "一起编辑页面，在段落上留下评论，并在讨论串中回复。与特定的人或你的组织共享，并选择他们的访问权限。",
+      finalCtaHeading: "把你的下一个项目带进 Content",
+      finalCtaBody: "从一份文档、一个任务列表，或你团队已经在用的表格开始。",
+      finalCtaButton: "整理你的工作",
       s002: "所有模板",
       s003: "为 MDX 开源 Obsidian",
       s004: "编辑本地 Markdown/MDX 文件（如 Obsidian），生成丰富的交互式自定义块，并使用了解您文档的 AI 代理进行编写。",
@@ -1027,31 +1261,71 @@ const zhCN = {
       s061: "阅读文档",
       s062: "查看所有模板",
       faq: {
-        question1: "AI 代理无需导出或 API 就能编辑我的文档吗？",
+        question1: "什么是 Agent-Native Content？",
         answer1:
-          "可以。Content 直接处理本地 Markdown/MDX 文件，也就是仓库中的同一批文件。代理已经可以在磁盘上访问它们，无需 API、同步或导出步骤。",
-        question2: "Content 与 Notion 或 Obsidian 有什么不同？",
+          "Agent-Native Content 是一款免费开源的文档、任务和数据库工作空间。它将 AI 文档编辑器与结构化表格和共享页面结合在一起，让你和连接的 AI 智能体可以一起阅读和更新内容。",
+        question2: "我可以在 Content 中使用自己的 AI 智能体吗？",
         answer2:
-          "Notion 将文档保存在自己的数据库中，并通过 API 访问。Content 像 Obsidian 一样使用本地文件，同时提供富文本编辑器，以及能按你的风格起草、重写和发布的代理。",
-        question3: "AI 能用我的风格写作吗？",
+          "可以。Content 为 Claude Code、Codex、Cursor 等受支持的工具提供 MCP 连接。连接并授权访问后，你的智能体就可以处理它能访问的文档和数据库。你也可以使用 Content 内置的智能体。",
+        question3: "我可以让 AI 审阅我的文字而不重写它吗？",
         answer3:
-          "可以。代理会学习你的表达方式、风格指南和语气，让草稿听起来像你；你也可以对任何选区执行重写、扩写、总结或改变语气。",
-        question4: "我可以发布到自己的 CMS 吗？",
+          "可以。让你的 AI 智能体在文档或段落上留下评论。你可以阅读反馈并自己修改，也可以让智能体来编辑文字。只请求评论并不需要把写作工作交出去。",
+        question4: "Content 能跟踪任务并收集团队请求吗？",
         answer4:
-          "可以。通过脚本连接任意无头 CMS。支持 WordPress、Contentful 和 Builder，Notion 可双向同步，代理还能自主运行发布脚本。",
-        question5: "Content 免费吗？",
+          "可以。创建一个数据库，添加负责人、状态、交付日期、下一步等字段，并为每个字段写明应填写的内容。这些说明会在创建或更新条目时指导你的 AI 智能体，包括让它询问缺失的信息。",
+        question5: "我可以控制谁能编辑我的内容，并恢复到较早的版本吗？",
         answer5:
-          "免费且开源。由于文档就是普通的本地文件，即使以后离开，也没有任何内容需要导出。",
+          "可以。新文档默认是私密的。你可以以查看者、编辑者或管理员权限进行共享，并使用页面版本历史恢复到较早的快照。恢复快照会替换页面当前的内容。",
       },
     },
     design: {
       s001: "Design 模板屏幕截图",
+      heroEyebrow: "Design",
+      heroTitle: "用你的 AI 智能体设计交互式原型",
+      heroDescription:
+        "Design 是一款免费开源的 AI 设计与原型工具，可以创建符合品牌风格的页面和产品界面，并且你可以自己编辑设计。",
+      heroCta: "免费设计",
+      useCasesHeading: "用 Design 能做什么？",
+      useCasesBody:
+        "在动手搭建之前，先探索一个新页面、产品流程或界面。把简报和重要细节告诉你的 AI 智能体。",
+      useCase1Title: "探索落地页创意",
+      useCase1Body:
+        "把营销活动或产品简报变成落地页原型。和团队一起审阅信息、布局和行动号召。",
+      useCase2Title: "梳理产品流程",
+      useCase2Body:
+        "构建引导流程、注册流程或结账流程的原型。逐步走查每个环节，在确定实现方案前完善体验。",
+      useCase3Title: "设计仪表盘与内部工具",
+      useCase3Body:
+        "把工作流程需求变成仪表盘或管理界面。探索用户将如何查找信息并完成日常任务。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "设计、制作原型和分享所需的一切",
+      feature1Title: "交互式原型",
+      feature1Body:
+        "描述你需要的页面或流程。你的 AI 智能体会创建带有交互效果的 HTML 原型，供你在预览中试用。",
+      feature2Title: "AI 与可视化编辑",
+      feature2Body:
+        "使用可视化控制调整文字、间距和样式，或让你的 AI 智能体修改布局和交互。",
+      feature3Title: "并排比较的设计变体",
+      feature3Body:
+        "让你的 AI 智能体提供不同的设计方向。在画布上进行比较，选定一种方案并持续完善。",
+      feature4Title: "可复用的品牌样式",
+      feature4Body:
+        "关联包含你的颜色、排版和样式的设计系统。用它来指导整个项目中的新设计与修订。",
+      feature5Title: "设计评审评论",
+      feature5Body:
+        "将反馈固定在特定元素上，让背景信息保持清晰。发送评论给你的 AI 智能体，一起处理这项更改。",
+      feature6Title: "HTML 导出与代码交接",
+      feature6Body:
+        "导出设计文件的 HTML 或 ZIP。把原型和背景信息交给开发者或编程智能体，让他们继续实现。",
+      finalCtaHeading: "开始你的下一个设计",
+      finalCtaBody: "带来一份简报。探索各种可能性。完善细节。",
+      finalCtaButton: "免费设计",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
       s006: "开源 AI HTML 原型工作室",
-      s007: "根据提示生成交互式 Alpine/Tailwind 原型，比较变体，使用调整控件进行优化，并导出您拥有的真实文件。",
+      s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1105,26 +1379,67 @@ const zhCN = {
       s058: "从模板开始，并开始使用编辑源的代理生成交互式原型。",
       s059: "阅读文档",
       s060: "查看所有模板",
+      s061: "100% 免费、开源且可自定义。",
       faq: {
-        question1: "AI 能生成真正的代码设计，而不只是模型图吗？",
+        question1: "什么是 Agent-Native Design？",
         answer1:
-          "可以。Design 会输出完整、独立的 HTML，并使用 Tailwind 设置样式、使用 Alpine 实现交互。原型本身就是实现，不需要再交接给别人重建。",
-        question2: "Design 与 Figma 有什么不同？",
+          "Agent-Native Design 是一款免费开源的 AI 设计与原型工具。用 AI 智能体创建交互式 HTML 原型，应用你的品牌风格，并通过可视化控制或聊天来完善设计。分享成果以获取反馈，或导出用于开发。",
+        question2: "AI 生成设计之后，我可以编辑吗？",
         answer2:
-          "Figma 面向在像素层面工作的设计团队，输出的是需要他人重新实现的画面。Design 从提示开始，以可直接发布或继续迭代的 HTML/CSS/JS 结束。",
-        question3: "它能遵循我的设计系统吗？",
+          "可以。使用可视化控制调整文字、间距和样式，或让 AI 智能体修改设计。你可以比较不同方向，并持续完善你选定的方案。",
+        question3: "我能使用自己的设计系统吗？",
         answer3:
-          "可以。保存可复用的设计系统偏好，然后可视化调整常用变量，同时让代理处理结构和文案变化，例如“使用更温暖的配色”或“让标题更醒目”。",
-        question4: "导出时会得到什么？",
+          "可以。关联一个设计系统来指导颜色、排版、样式和品牌规范。你可以在多个设计中复用它，并将其作为 AI 智能体进行修改时的参考背景。",
+        question4: "我能处理来自 Figma 的设计吗？",
         answer4:
-          "得到的是真正的成品：可导出为文件、ZIP 或 PDF 的完整 HTML/CSS/JS。内容完全独立，不使用专有格式，可以发布到任何地方。",
-        question5: "Design 免费吗？",
+          "可以。Design 支持 Figma 导入工作流，并提供专门面向 Figma 的 SVG 导出功能。转移设计后，请检查字体、布局和可编辑元素，因为兼容性取决于来源和导出格式。",
+        question5: "我能导出什么，这是一个完成的应用吗？",
         answer5:
-          "免费且开源；相比之下，许多设计工具按席位每月收费，或按点数计量。",
+          "可以导出设计文件的 HTML 或 ZIP，或为编程智能体准备交接内容。原型为开发提供了一个起点；应用逻辑、集成、测试和部署仍需要实现与审查。HTML 导出文件可能会使用外部运行时资源。",
       },
     },
     dispatch: {
       s001: "Dispatch 模板屏幕截图",
+      heroEyebrow: "Dispatch",
+      heroTitle: "在一个地方协调你的 AI 代理",
+      heroDescription:
+        "Dispatch 是一款免费的开源 AI 代理编排应用，用于将工作委派给已连接的 Agent-Native 应用、安排周期性任务，并管理共享连接。",
+      heroCta: "委派一项任务",
+      useCasesHeading: "你能用 Dispatch 做什么？",
+      useCasesBody:
+        "向已连接的应用寻求帮助，设置定期更新，或调查需要关注的代理运行情况。",
+      useCase1Title: "在一次对话中委派工作",
+      useCase1Body:
+        "请求获取指标摘要或草拟回复。Dispatch 会将请求转发给已连接的 Analytics 或 Mail 代理，并返回结果。",
+      useCase2Title: "设置周期性团队更新",
+      useCase2Body:
+        "为已连接的应用安排每日指标摘要或每周汇总。选择结果应发送到的已配置频道或收件箱。",
+      useCase3Title: "调查代理活动",
+      useCase3Body:
+        "查看某个任务的最近一次运行情况及任何错误。借助可用的对话串和监控详情，调查工作流出现问题时发生了什么。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "委派、调度和监控所需的一切",
+      feature1Title: "跨应用委派",
+      feature1Body:
+        "将请求发送给能处理该工作的已连接应用。每个应用都使用自己的代理、操作和数据来响应。",
+      feature2Title: "消息连接",
+      feature2Body:
+        "连接 Slack 或 Telegram 等渠道以发送请求和接收回复。关联身份，让 Dispatch 知道是哪位工作区用户在提问。",
+      feature3Title: "计划任务",
+      feature3Body:
+        "为周期性工作设置计划。查看任务是否启用、上次运行时间、下次运行时间以及任何记录的错误。",
+      feature4Title: "已保存的投递目的地",
+      feature4Body:
+        "将 Slack 频道、Telegram 聊天或电子邮件地址保存为投递目标。可复用于计划结果，并检查投递状态。",
+      feature5Title: "共享集成",
+      feature5Body:
+        "配置一次服务商连接，并授予需要它的应用访问权限。在 Dispatch 中管理共享连接和应用访问权限。",
+      feature6Title: "工作区变更审批",
+      feature6Body:
+        "要求另一位管理员审核 Dispatch 对共享资源和设置所做的更改。在团队工作区中审核待处理请求并批准或拒绝。",
+      finalCtaHeading: "从一个已连接的任务开始",
+      finalCtaBody: "选择你需要的应用，让 Dispatch 协调这项工作。",
+      finalCtaButton: "委派一项任务",
       s002: "+ Telegram 支持",
       s003: "代理间",
       s004: "内存",
@@ -1179,27 +1494,65 @@ const zhCN = {
       s053: "阅读文档",
       s054: "查看所有模板",
       faq: {
-        question1: "如何同时运行多个 AI 代理，而不必逐个盯着它们？",
+        question1: "什么是 Agent-Native Dispatch？",
         answer1:
-          "Dispatch 是统一控制中心：从 Slack 或 Telegram 给它发消息，它会通过 A2A 将工作路由到 Mail、Slides、Design 等其他代理，并在一个地方管理审批和日程。",
-        question2: "我可以从 Slack 与代理对话吗？",
+          "Agent-Native Dispatch 是一款面向 Agent-Native 工作区的免费开源 AI 代理编排应用。它可以协调跨已连接应用的请求，接收来自受支持渠道的消息，安排周期性任务，并管理共享集成。",
+        question2: "Dispatch 可以与哪些应用配合使用？",
         answer2:
-          "可以。Slack 和 Telegram 都支持带对话串上下文和内联审批的双向消息，代理的结果会回到同一段对话中。",
-        question3: "代理可以按计划运行吗？",
+          "Dispatch 会将工作委派给已连接且在你工作区中可用的应用，例如 Analytics 或 Mail。每个应用负责处理自己的任务和数据。在让 Dispatch 使用这些应用之前，请先配置好相关连接和授权。",
+        question3: "我可以通过 Slack 或 Telegram 使用 Dispatch 吗？",
         answer3:
-          "可以。它支持基于 cron 的任务，例如每日站会、每周摘要和每小时检查。结果会发送到你的消息工具，而不是留在一个需要你记得打开的仪表板中。",
-        question4: "它会记住以前的对话吗？",
+          "可以。根据需要配置消息渠道，并将你的身份关联到工作区账户。Dispatch 可以通过该渠道接收请求并返回结果。连接某个渠道并不会自动让每个发送者都获得对每个应用的访问权限。",
+        question4: "代理可以按计划运行任务吗？",
         answer4:
-          "会。每次对话中的经验都会自动捕获，并可按用户、组织或全局限定范围。记忆可查看、可编辑，不是黑箱。",
-        question5: "如果我不希望它自行采取行动怎么办？",
+          "可以。设置一个周期性任务，并在需要时为其结果设置投递目的地。Dispatch 会显示任务的上次运行、下次运行和错误状态，方便你检查任务是否成功运行。",
+        question5: "Dispatch 的审批是否涵盖代理所做的一切？",
         answer5:
-          "内置审批工作流：发送邮件、发布更新或运行自动化等敏感操作，会等待 Slack 中的一键批准。你可以配置哪些操作需要签字确认。",
-        question6: "Dispatch 免费吗？",
-        answer6: "免费且开源；相比之下，许多代理平台按席位每月收费。",
+          "不是。在团队工作区中，Dispatch 可以要求审核其对共享资源和设置所做的更改。已连接应用内部的操作（例如发送电子邮件）遵循这些应用自身的控制机制。Dispatch 的审批队列并不是针对每一次代理操作的通用关卡。",
       },
     },
     forms: {
       s001: "Forms 模板屏幕截图",
+      heroEyebrow: "Forms",
+      heroTitle: "用你的 AI 智能体创建表单",
+      heroDescription:
+        "Forms 是一款免费开源的 AI 表单构建工具，可用于创建问卷、报名表和申请表，问题可以自己编辑，回复也可以让 AI 智能体帮你分析。",
+      heroCta: "创建表单",
+      useCasesHeading: "用 Forms 能做什么？",
+      useCasesBody:
+        "收集客户反馈、为活动登记参与者，或收集团队处理请求所需的信息。",
+      useCase1Title: "收集客户反馈",
+      useCase1Body:
+        "用评分、单选/多选题和文字回答了解客户体验，让 AI 智能体帮你总结收到的反馈。",
+      useCase2Title: "收集报名和注册信息",
+      useCase2Body:
+        "为网络研讨会、活动或产品候补名单创建表单，收集联系方式和偏好，之后查看或导出提交内容。",
+      useCase3Title: "收集项目需求",
+      useCase3Body:
+        "为设计需求、项目简述或内部支持提供表单，询问截止日期、要求等团队所需的细节。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "创建、分享和审阅所需的一切",
+      feature1Title: "AI 表单生成",
+      feature1Body:
+        "描述你想收集的内容，AI 智能体就会构建表单。也可以让它添加问题或修改已有字段。",
+      feature2Title: "可视化字段编辑",
+      feature2Body:
+        "自行编辑标签、选项、必填字段和问题顺序，选择文本、邮箱、多选、日期、评分、量表等字段类型。",
+      feature3Title: "条件问题",
+      feature3Body:
+        "当之前的回答符合某条规则时显示后续问题，例如有人选择“其他”时询问更多细节。",
+      feature4Title: "公开表单链接",
+      feature4Body:
+        "发布表单并分享链接。设置完成提示或跳转地址，在停止接受回复时关闭表单。",
+      feature5Title: "回复洞察与导出",
+      feature5Body:
+        "在表格中查看提交内容，或让 AI 智能体总结趋势。也可以将回复表格下载为 CSV。",
+      feature6Title: "提交集成",
+      feature6Body:
+        "配置将结果发送到 Slack、Discord、Google Sheets 或 Webhook。新回复会发送到你为该表单设置的目的地。",
+      finalCtaHeading: "创建你的下一个表单",
+      finalCtaBody: "告诉你的 AI 智能体你想收集什么。",
+      finalCtaButton: "创建表单",
       s002: "描述",
       s003: "生成",
       s004: "路线",
@@ -1260,25 +1613,82 @@ const zhCN = {
       s058: "阅读文档",
       s059: "查看所有模板",
       faq: {
-        question1: "AI 能帮我创建表单吗？",
+        question1: "什么是 Agent-Native Forms？",
         answer1:
-          "可以。描述需求后，完整表单就会出现；你可以用对话继续调整，例如“添加必填的经验级别下拉框”，也可以在带实时预览和撤销功能的可视化编辑器中拖动字段。",
-        question2: "有人提交表单后会发生什么？",
+          "Agent-Native Forms 是一款免费开源的 AI 表单构建工具。用 AI 智能体创建表单和问卷，以可视化方式编辑字段，发布公开链接，并在同一个应用中查看或分析回复。",
+        question2: "AI 生成表单后我还能编辑吗？",
         answer2:
-          "提交内容会以结构化形式进入你自己的 SQL 数据库，并在到达时路由到 Slack、Discord、Google Sheets 或 Webhook。提交会进入代理可以采取行动的地方，而不是无人查看的导出文件。",
-        question3: "Forms 与 Typeform 有什么不同？",
+          "可以。你可以在可视化编辑器中修改问题、标签、选项、必填字段和字段顺序，也可以让 AI 智能体帮你修改。两种方式更新的都是同一个表单。你还可以根据之前的回答添加条件问题。",
+        question3: "填写我的表单需要账号吗？",
         answer3:
-          "Typeform 专注于美化填写体验。Forms 更关注提交之后：回复保存在你自己的数据库中并路由到你的工具，不按回复计费，表单本身也能通过提示持续迭代。",
-        question4: "Forms 免费吗？有回复数量限制吗？",
+          "不需要。任何拥有已发布表单公开链接的人都可以在没有账号的情况下提交回复。草稿状态的表单不会公开，已关闭的表单不再接受新回复。",
+        question4: "我可以收集匿名反馈吗？",
         answer4:
-          "免费且开源，不按回复收费，也没有数量上限。数据在你的数据库中，因此限制取决于你的数据库。",
-        question5: "我可以把表单放在自己的网站上吗？",
+          "可以。开启匿名模式后会省略提交者身份和来源元数据。如果希望回复完全匿名，也可以不设置询问姓名、邮箱等可识别身份信息的问题。",
+        question5: "我可以把回复发送到 Google Sheets 或 Slack 吗？",
         answer5:
-          "可以。可嵌入任何网站，也可托管在自定义域名上。每个表单还会获得自己的 SEO 友好公开 URL。",
+          "可以，为表单配置好目标后即可。Slack 和 Discord 使用 Webhook URL。Google Sheets 需要一个已部署、能接收提交内容的 Google Apps Script 端点；仅有表格链接是无法工作的。你也可以使用 Webhook，或将回复导出为 CSV。智能体导出全部回复为 CSV 或 JSON 需要连接文件存储。",
       },
     },
     mail: {
+      faq: {
+        question1: "什么是 Agent-Native Mail？",
+        answer1:
+          "Agent-Native Mail 是一款面向 Gmail 的免费开源邮件客户端，内置 AI 邮件助手。你可以阅读和搜索邮件、总结对话、起草回复，并通过收件箱或你的 AI 智能体整理邮件。",
+        question2: "Mail 能配合我现有的 Gmail 账号使用吗？",
+        answer2:
+          "可以。连接你现有的 Gmail 账号，即可通过 Mail 收发邮件。你可以连接多个 Gmail 账号并同时搜索所有账号。Mail 不会提供新的邮箱地址，目前也只支持 Gmail，暂不支持 Outlook 或其他邮件服务商。",
+        question3: "AI 智能体会在未经我同意的情况下发送邮件吗？",
+        answer3:
+          "当你在对话中要求 AI 智能体发送邮件时，需要你的批准。由自动化触发的发送同样需要批准，除非你在 Mail 设置中明确启用自动发送。发送前你都可以查看并编辑草稿。",
+        question4: "AI 能自动整理我的收件箱吗？",
+        answer4:
+          "可以。用自然语言创建规则，为收到的邮件添加标签、归档、加星标或标记为已读。Mail 还支持基于发件人或主题等条件的原生 Gmail 过滤器。Gmail 过滤器在 Gmail 中运行，即使关闭 Mail 也会继续生效。",
+        question5: "同事能替我准备一封邮件供我审核吗？",
+        answer5:
+          "可以。同事可以请求生成一份草稿，出现在你的审核队列中。打开它、编辑内容，准备好后再发送。请求方无法代替你发送；由草稿的所有者或组织管理员来控制发送。",
+      },
       s001: "Mail 模板屏幕截图",
+      heroEyebrow: "Mail",
+      heroTitle: "用 Jev 掌控你的收件箱",
+      heroDescription:
+        "用日常语言告诉 Jev 哪些邮件重要。它会保留真人撰写的 GitHub 评论，将经理的邮件置顶，清理机器人通知，并根据你的纠正持续学习。",
+      heroCta: "管理你的收件箱",
+      mobileArchiveToast: "已归档 1,167 条机器人通知 · 保留 4 条 PR 评论",
+      useCasesHeading: "由 Jev 驱动的智能收件箱",
+      useCasesBody:
+        "用日常语言设置规则。Jev 会优先处理重要联系人和对话，应用合适的标签，并在重复邮件到达时自动归档。",
+      useCase1Title: "保留真人回复，归档机器人通知",
+      useCase1Body:
+        "告诉 Jev 什么最重要：将 GitHub 人工 PR 评论保留在 Product，归档机器人通知，并把经理的邮件移到 Important。用提示词调整规则，也能通过反馈优化垃圾邮件过滤。",
+      useCase2Title: "为每封邮件自动添加合适标签",
+      useCase2Body:
+        "Jev 根据对话含义而不只是关键词来分类，让客户备注、收据和研究邮件都进入合适的位置。",
+      useCase3Title: "自动化日常工作",
+      useCase3Body:
+        "设置规则以在后台标记或存档新邮件，然后随时查看运行历史记录。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "阅读、撰写和整理邮件所需的一切",
+      feature1Title: "优先排序",
+      feature1Body:
+        "按紧急程度和上下文对传入线程进行排名，以便截止日期和等待回复的人员排在首位。",
+      feature2Title: "上下文 AI 标签",
+      feature2Body:
+        "根据对话内容对邮件进行分类，然后在收到类似邮件时对其进行分组。",
+      feature3Title: "代理驱动的收件箱",
+      feature3Body:
+        "要求客服人员从您正在查看的收件箱中搜索、总结、标记、存档、加注星标或准备回复。",
+      feature4Title: "后台自动化",
+      feature4Body: "对传入邮件应用简单语言规则并检查邮件已采取的操作。",
+      feature5Title: "发送前检查",
+      feature5Body:
+        "让客服人员起草或修改回复，然后在回复离开您的收件箱之前对其进行审核和编辑。",
+      feature6Title: "越用越聪明的垃圾邮件过滤",
+      feature6Body:
+        "将误过滤的邮件标记为需要，或举报不想要的邮件。Jev 会从每次纠正中学习，并将规则应用到类似邮件。",
+      finalCtaHeading: "从下一封邮件开始",
+      finalCtaBody: "打开一段对话，让你的 AI 智能体给你一份摘要或回复草稿。",
+      finalCtaButton: "管理你的收件箱",
       s002: "键盘优先",
       s003: "收件箱分类",
       s004: "意见",
@@ -1339,128 +1749,117 @@ const zhCN = {
       s058: "阅读文档",
       s059: "查看所有模板",
       s060: "托管演示说明",
-      faq: {
-        question1: "AI 能帮我整理收件箱吗？",
-        answer1:
-          "可以。代理会读取收件箱、突出显示优先事项、添加标签并分类、起草回复、设置自动归档规则，还会汇总未读邮件并提取行动项。",
-        question2: "Mail 与 Superhuman 有什么不同？",
-        answer2:
-          "键盘优先的速度只是基础：撰写、归档和回复都支持快捷键。不同之处在于，这里有一个真正处理收件箱的代理，没有订阅费，而且代码归你所有。",
-        question3: "Mail 支持 Gmail 吗？",
-        answer3: "支持 Gmail，并支持多个账户。",
-        question4: "我的邮件是私密的吗？",
-        answer4:
-          "Mail 开源并在本地运行，因此邮件留在你的基础设施中，你可以查看处理邮件的每一行代码。",
-        question5: "Mail 免费吗？",
-        answer5: "免费且开源，没有订阅费，也不会被供应商锁定。",
-      },
     },
     plan: {
-      s001: "计划模板截图",
-      s002: "块类型",
-      s003: "代理集成",
-      s004: "可分享的链接",
-      s005: "原型跑步者",
-      s006: "添加技能",
-      s007: "一个命令可将计划技能安装到 Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code 和类似代理项目中。无需部署单独的应用程序。",
-      s008: "代理打开计划",
-      s009: "请您的代理规划一项功能。它调用 /visual-plan 并在浏览器或 VS Code 中打开该计划 - 结构化块，而不是 Markdown 墙。",
-      s010: "评论与评论",
-      s011: "Pin 对任何块的注释。提出问题、标记疑虑或批准部分 - 代理可以看到所有反馈。",
-      s012: "代理迭代",
-      s013: "代理会阅读您的评论并就地更新计划。差异准确地显示了发生了什么变化以及原因。",
-      s014: "所有模板",
-      s015Primary: "Codex、",
-      s015Secondary: "Claude Code 和编码代理的视觉计划",
-      s016: "通过一个命令进行安装。您的代理使用线框图、图表、带注释的代码和可共享的审阅链接打开结构化计划，而不是在终端中倾倒大量的降价内容。",
-      s017: "试用",
-      s018: "代理可以做什么",
-      s019: "每个块类型都是一等公民 - 结构化数据，而不是原始 HTML，因此代理可以随着工作的进展读取和更新计划。",
-      s020: "线框图",
-      s021: "粗略的 UI 模型基于您的真实产品 - 而不是通用的桌面占位符。",
-      s022: "图表",
-      s023: "内嵌呈现的架构流程图、数据模型和序列图。",
-      s024: "带注释的代码",
-      s025: "带有每行注释、差异和更改理由的真实源文件——而不是原始代码转储。",
-      s026: "可分享的链接",
-      s027: "每个计划都有一个公共 URL。与团队成员共享以进行异步审阅、评论和批准。",
-      s028: "桌面文件同步",
-      s029: "将托管计划从 Agent-Native Desktop 镜像到本地 MDX 文件，无需克隆应用程序或运行 CLI。",
-      s030: "，因此审查位于代码旁边。",
-      s031: "它是如何运作的",
-      s032: "规划存在于共享应用程序中 - 您和代理都可以在功能的整个生命周期中读取和更新它。",
-      s033: "丰富的块库",
-      s034: "计划由结构化块组成，而不是自由格式的 HTML。代理知道每个块的模式，并且可以精确地创建、更新和推理它们。",
-      s035: "带注释的代码",
-      s036: "插入前验证所有者",
-      s037: "发出自动化事件",
-      s038: "添加",
-      s039: "比较如何",
-      s040: "终端中的 Markdown",
-      s041: "视觉渲染",
-      s042: "No",
-      s043: "基础",
-      s044: "丰富的块、线框图、图表",
-      s045: "代理可以读取和更新",
-      s046: "是的，原始文本",
-      s047: "有限公司",
-      s048: "是的，结构化模式",
-      s049: "可分享的链接",
-      s050: "是",
-      s051: "是的，有评论",
-      s052: "实时 Alpine.js 沙箱",
-      s053: "适用于 Codex / Claude Code / Pi",
-      s054: "是的，一命令安装",
-      s055: "开源",
-      s056: "是的，MIT 已获得许可",
-      s057: "几秒钟内即可开始",
-      s058: "一个命令可为 Claude Code、Codex、Pi、Cursor、OpenCode、GitHub Copilot / VS Code 和类似代理项目添加视觉规划。无需单独部署。",
-      s059: "阅读文档",
-      s060: "查看所有模板",
-      s061: "VS Code 交接",
-      s062: "使用以下扩展在 VS Code 侧边面板中打开计划链接：",
-      s063: "Agent-Native Plans 扩展",
-      s064: "线框图 — 带组件插槽的草图式 UI 模型",
-      s065: "带注释的代码 — 带逐行注释的源文件",
-      s066: "图表 — 流程图、序列图或架构图",
-      s067: "原型 — iframe 中的实时 Alpine.js 沙箱",
-      s068: "决策 — 带理由的已确定选择",
-      s069: "API 端点 — 方法、路径和请求/响应类型",
-      s070: "数据模型 — 带字段注释的架构",
-      s071: "文件树 — 带路径注释的项目结构",
-      s072: "// 示例计划块",
-      s073: "ChatGPT Canvas 与 Notion",
-      s074: "不适用",
       faq: {
-        question1: "我可以在 AI 编码代理写代码前审阅它的计划吗？",
+        question1: "什么是 Agent-Native Plans？",
         answer1:
-          "可以。Plans 会把代理的意图转成线框图、图表和带注释的代码，并生成可共享 URL。团队发表评论，代理据此修订，然后才开始写代码；审阅发生在代码出现之前，而不是之后。",
-        question2: "Plans 支持 Claude Code、Codex 和 Cursor 吗？",
+          "Agent-Native Plans 是一款面向 AI 编码代理的免费开源可视化规划工具。通过图表、线框图、带注释的代码和评论来审阅实现计划，或为已完成的改动生成可视化回顾。",
+        question2: "如何在我的编码代理中使用 Plans？",
         answer2:
-          "支持，还包括 GitHub Copilot、OpenCode 和其他编码代理。只需一条命令即可将其添加为技能：`npx @agent-native/core@latest skills add visual-plan`。无需部署单独的应用。",
-        question3: "整个团队都能审阅计划，而不只是我一个人吗？",
+          "使用 `npx @agent-native/core@latest skills add visual-plan` 安装规划技能和连接器，然后为你的客户端完成身份验证步骤。安装指南涵盖了包括 Claude Code 和 Codex 在内的多种客户端。使用 `/visual-plan` 让你的代理生成一份可视化的实现计划。",
+        question3: "我的代理可以根据我的评论修改计划吗？",
         answer3:
-          "每份计划都会获得一个内置评论功能的公开 URL。团队成员可以异步审阅线框图和带注释的差异，无需使用终端；代理会读取反馈并修订计划。",
-        question4: "这与 Claude Code 的 plan mode 有什么不同？",
+          "可以。在文本上留下评论，或将评论固定到某个可视化元素上，然后让你的代理阅读并处理这些反馈。它可以更新计划并回复评审讨论串。这有助于你的审阅流程；但并不会自动阻止代理修改代码。",
+        question4: "我可以用 Plans 来审阅已经写好的代码吗？",
         answer4:
-          "plan mode 是终端中的文字，只对一个人可见，批准后就会消失。Plans 是可视化的，包含线框图、图表和带注释的差异；它可共享、可持久保存，代理能在功能的整个生命周期中创建、读取和更新计划。",
-        question5: "我可以在代码旁边查看计划吗？",
+          "可以。对某个 pull request、提交、分支或 diff 使用 `/visual-recap`，即可获得该改动的可视化说明。用这份回顾来指导你对实际代码和测试的审阅。",
+        question5: "计划保存在哪里，我可以分享它们吗？",
         answer5:
-          "可以。VS Code 扩展会在侧边面板打开计划，Agent-Native Desktop 还会把托管计划镜像为本地 MDX 文件。",
-        question6: "Plans 免费吗？",
-        answer6:
-          "免费、开源，并采用 MIT 许可证。Plans 提供托管的分享链接，你也可以把所有内容镜像到本地文件。",
+          "默认安装会将你的代理连接到托管的 Plans 应用。新创建的托管计划在你分享之前都是私密的。团队成员可以在浏览器中查看已分享的计划；发表评论需要账号。安装指南中也提供了本地工作流程的说明。",
       },
+      s001: "Plans 模板屏幕截图",
+      heroEyebrow: "Plans",
+      heroTitle: "看清你的 AI 编码代理打算构建什么",
+      heroDescription:
+        "Plans 是一款免费开源的可视化规划工具，通过图表、线框图和带注释的代码，帮助你审阅编码代理的方案、给出反馈并理解代码改动。",
+      heroCta: "可视化规划",
+      heroSecondaryCta: "打开 Plans",
+      useCasesHeading: "用 Plans 能做什么？",
+      useCasesBody:
+        "和你的 AI 编码代理一起审阅实现方案、梳理界面细节，或理解一次已完成的改动。",
+      useCase1Title: "在动手实现前审阅架构",
+      useCase1Body:
+        "让你的编码代理为提议的功能或重构画出架构图，在它开始改代码之前，检查数据流、依赖关系和失败路径。",
+      useCase2Title: "梳理界面改动",
+      useCase2Body:
+        "和你的编码代理一起审阅提议的界面和用户流程，指出缺失的状态或交互，并让它修改计划。",
+      useCase3Title: "理解已完成的代码改动",
+      useCase3Body:
+        "让你的编码代理为某个 pull request、提交或分支生成可视化回顾，审阅行为变化和受影响的文件。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "可视化、审阅和讨论所需的一切",
+      feature1Title: "架构图",
+      feature1Body:
+        "在计划中展示请求流程、系统关系和数据模型。当方案发生变化时，让你的 AI 编码代理更新这些图表。",
+      feature2Title: "线框图与原型",
+      feature2Body:
+        "在实现计划旁边审阅界面布局和可交互的原型选项。在让你的代理动手实现之前，先对提议的界面给出反馈。",
+      feature3Title: "带注释的代码讲解",
+      feature3Body:
+        "阅读带有逐行注释和改动说明的源文件。通过文件树查看提议的改动在代码库中的位置。",
+      feature4Title: "评论与注释",
+      feature4Body:
+        "在文本上发表评论，或将反馈固定到可视化元素的具体位置。向你的代理或团队成员提出问题。",
+      feature5Title: "可视化代码回顾",
+      feature5Body:
+        "使用 `/visual-recap` 把已有的 pull request、提交、分支或 diff 变成一份带图表和改动说明的讲解。",
+      feature6Title: "分享与导出",
+      feature6Body:
+        "分享一份计划，让团队成员在浏览器中查看。需要单独保存副本时，可导出为 HTML、Markdown、JSON 或 MDX。",
+      finalCtaHeading: "以可视化方式审阅你的下一个编码任务",
+      finalCtaBody: "让你的代理生成一份计划，然后一起梳理细节。",
+      finalCtaButton: "可视化规划",
     },
     slides: {
       s001: "Slides 模板屏幕截图",
+      heroEyebrow: "Slides",
+      heroTitle: "用你的 AI 智能体创建演示文稿",
+      heroDescription:
+        "Slides 是一款免费开源的 AI 演示文稿制作工具，可以根据你的想法和素材创建符合品牌风格的演示文稿，并且你可以自己编辑幻灯片。",
+      heroCta: "创建一份 PPT",
+      useCasesHeading: "用 Slides 能做什么？",
+      useCasesBody:
+        "准备一次路演，展示一份计划，或分享一次业务更新。把素材和目标受众告诉你的 AI 智能体。",
+      useCase1Title: "创建销售和路演文稿",
+      useCase1Body:
+        "把你的产品简介变成一份面向潜在客户或投资人的演示文稿。根据受众调整叙述方式。",
+      useCase2Title: "展示计划与策略",
+      useCase2Body:
+        "把策略简报或启动计划交给你的 AI 智能体，让它整理成能说明方向和后续步骤的幻灯片。",
+      useCase3Title: "分享业务更新",
+      useCase3Body:
+        "把项目记录或业绩报告变成一份演示文稿，展示进展、解释结果并突出需要关注的事项。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "创建、编辑和演示所需的一切",
+      feature1Title: "AI 演示文稿生成",
+      feature1Body:
+        "从一段提示词、一份文档或一份参考文稿开始。把主题和受众告诉你的 AI 智能体，让它围绕这些构建演示文稿。",
+      feature2Title: "AI 与可视化编辑",
+      feature2Body:
+        "选中文字让你的 AI 智能体修改，或者直接在幻灯片上自己编辑文字、布局和样式。",
+      feature3Title: "可复用的品牌样式",
+      feature3Body:
+        "把你的颜色、字体和标志保存到一个设计系统中。将其应用到多份文稿中，保持演示文稿始终符合你的品牌。",
+      feature4Title: "图片与标志",
+      feature4Body:
+        "让你的 AI 智能体生成图片、查找照片，或搜索公司标志，用在你的幻灯片中。",
+      feature5Title: "团队协作",
+      feature5Body:
+        "与团队成员一起制作文稿，在特定幻灯片上留下评论，并在需要时恢复到早期版本。",
+      feature6Title: "演示与导出",
+      feature6Body:
+        "全屏演示并显示演讲者备注，分享一个查看链接，或将文稿导出为 PowerPoint 文件。",
+      finalCtaHeading: "开始你的下一份演示文稿",
+      finalCtaBody: "带来一个想法、一份简报，或一份已有的文稿。",
+      finalCtaButton: "创建一份 PPT",
       s002: "描述",
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
       s006Primary: "由你的 AI 代理生成的幻灯片。",
       s006Secondary: "契合品牌，可自由编辑",
-      s007: "使用 AI 代理生成符合品牌风格的幻灯片演示文稿，随时手动修改，并可导出到任何地方。",
+      s007: "用你的 AI 智能体生成符合品牌风格的演示文稿，然后自己编辑幻灯片并导出到任何地方。",
       s008: "试用",
       s009: "它是如何运作的",
       s010: "你需要的一切",
@@ -1513,20 +1912,21 @@ const zhCN = {
       s057: "阅读文档",
       s058: "查看所有模板",
       faq: {
-        question1: "我可以从 Claude 或 ChatGPT 创建演示文稿吗？",
+        question1: "什么是 Agent-Native Slides？",
         answer1:
-          "可以。让 Claude 或 ChatGPT 制作一份演示文稿，成品会直接进入 Slides，已经符合品牌、可编辑、可导出，无需你在演示网站里从头再做。",
-        question2: "AI 做错的地方可以修改吗？",
+          "Agent-Native Slides 是一款免费开源的 AI 演示文稿制作工具。用 AI 智能体根据你的想法和素材创建符合品牌风格的演示文稿，然后自己编辑幻灯片、进行演示，或导出为 PowerPoint。",
+        question2: "AI 生成后我还能编辑幻灯片吗？",
         answer2:
-          "有三种方式：通过提示修改、手动修改（单击任意元素，双击任意文字），或直接编辑代码。你永远不会被困在反复重新生成、只能碰运气的流程中。",
-        question3: "演示文稿如何保持品牌一致？",
+          "可以。直接在可视化编辑器中编辑文字、布局和样式，或者让 AI 智能体修改选中的幻灯片。你可以在第一版之后持续完善这份演示文稿。",
+        question3: "我可以根据已有的文稿或文档创建演示文稿吗？",
         answer3:
-          "将你满意的演示文稿标为星标。每份新演示文稿都会继承它的版式、标题、视觉风格和品牌令牌。一次性生成器只做出一份演示文稿，而这里建立的是可持续复用的演示体系。",
-        question4: "Slides 与 Gamma 有什么不同？",
+          "可以。把一份文稿或文档作为参考素材，附加到新的演示文稿中。如果要在已有文稿上直接操作，需要显式导入它。请检查导入后的幻灯片是否有布局变化或图片缺失。",
+        question4: "我可以使用自己的品牌颜色、字体和标志吗？",
         answer4:
-          "Gamma 能快速一次性生成一份不错的演示文稿，但之后你会受限于它的画布和订阅，并在结果只有 85% 正确时不断重新生成。Slides 免费、开源、继承你的品牌，而且任何内容都可以编辑。",
-        question5: "Slides 免费吗？",
-        answer5: "免费且开源，没有订阅费、点数计量或按演示文稿收费。",
+          "可以。应用一个包含你品牌颜色、排版和标志的设计系统，并在多份文稿中复用它。你也可以提供一份参考文稿，来指导 AI 智能体的设计选择。",
+        question5: "我可以在 PowerPoint 或 Google 幻灯片中使用我的演示文稿吗？",
+        answer5:
+          "导出一个 PPTX 文件，即可在 PowerPoint 中打开。要在 Google 幻灯片中使用该演示文稿，请在那里导入这个文件。导出后请检查字体和布局，因为不同编辑器之间的渲染效果可能不同。",
       },
       howItWorksDescribe:
         "描述你的主题、受众和语气。附上参考演示文稿。从 UI 或你自己的 AI 工作流开始。",
@@ -1607,16 +2007,60 @@ const zhCN = {
     },
     chat: {
       faq: {
-        question1: "Chat 模板是什么？",
+        question1: "Agent-Native Chat 是什么？",
         answer1:
-          "这是一个面向自有代理的极简 ChatGPT 风格脚手架，提供持久对话串、认证、actions、实时同步和标准侧边栏，并能清晰地扩展新页面或接入你的后端。",
-        question2: "它与 ChatGPT 有什么不同？",
+          "Agent-Native Chat 是一款面向开发者的免费开源 AI 聊天应用脚手架，提供已保存的对话串、agent 聊天界面、认证、共享 actions 和实时同步。你可以为自己的应用添加特定领域的数据和行为。",
+        question2: "Chat 是一个成品 AI 助手吗？",
         answer2:
-          "ChatGPT 是 OpenAI 围绕自家模型打造的应用。这个模板属于你：使用你的代理后端、你的数据和你的页面；它是可扩展的起点，而不是租用的产品。",
-        question3: "它可以直接用于生产环境吗？",
+          "Chat 提供一个可用的对话界面以及背后的框架。它包含一个示例 action，但业务工作流和第三方服务集成需要你自己实现和配置。",
+        question3: "我可以在聊天界面之外添加页面吗？",
         answer3:
-          "它是一个刻意保持极简的脚手架，是聊天应用诚实的起点，而不是完整成品。如果需要完成度更高的产品，请从其他应用之一开始。",
+          "可以。为你工作流所需的列表、队列、编辑器或其他视图添加路由和组件，并将它们连接到 agent 使用的同一套 actions 和应用数据上。",
+        question4: "Chat 是否包含与我业务工具的连接？",
+        answer4:
+          "这个极简模板不包含特定领域的服务集成。请为你的应用添加所需的连接和访问规则。如果已有某个 Agent-Native 应用正好匹配你的工作流，它的模板可能是更合适的起点。",
+        question5: "我可以自定义并部署自己的版本吗？",
+        answer5:
+          "可以。用 CLI 创建一份副本，添加你的 actions、数据和界面，然后部署你的应用。为你的环境配置认证和服务访问权限，并在与用户分享之前测试你新增的工作流。",
       },
+      s001: "Chat 应用截图",
+      heroEyebrow: "Chat",
+      heroTitle: "打造属于你自己的 AI 聊天应用",
+      heroDescription:
+        "一个免费的开源聊天启动器，具有持久的线程、身份验证、共享操作以及可以使用自己的工具和屏幕扩展的代理。",
+      heroCta: "构建你的聊天应用",
+      heroSecondaryCta: "打开 Chat",
+      useCasesHeading: "将对话变成工作助手",
+      useCasesBody: "添加操作、数据和屏幕，让您的代理回答问题并推进工作。",
+      useCase1Title: "根据您团队的背景回答问题",
+      useCase1Body:
+        "通过操作连接您的应用程序所需的来源，然后让代理将注释、文件和项目详细信息放入一份回复中。",
+      useCase2Title: "为您的代理提供行动工具",
+      useCase2Body:
+        "在聊天中构建工作流程原型，调用您定义的操作，并优化代理处理每个步骤的方式。",
+      useCase3Title: "使结果可用",
+      useCase3Body:
+        "在队列、表或编辑器中开放代理工作，以便人们可以检查并继续使用相同的共享数据。",
+      keyFeaturesEyebrow: "核心功能",
+      keyFeaturesHeading: "为你的 agent 及其界面提供的起点",
+      feature1Title: "持久的对话",
+      feature1Body:
+        "从包含的历史记录侧边栏创建、重新打开、重命名、固定和存档线程。",
+      feature2Title: "全页代理聊天",
+      feature2Body:
+        "从聊天界面和运行时开始，为您自己的指令、工具和工作流程做好准备。",
+      feature3Title: "连接您自己的服务",
+      feature3Body:
+        "为 Granola、Linear、Drive 或 Notion 等工具添加提供程序操作和连接流；初学者将这些集成留给您的应用程序。",
+      feature4Title: "共同行动",
+      feature4Body: "将代理工具和界面操作保持在同一操作界面上。",
+      feature5Title: "实时工作区状态",
+      feature5Body: "使用户和客服人员的当前导航和所选工作保持同步。",
+      feature6Title: "定制屏幕",
+      feature6Body: "当对话需要队列、编辑器或其他域界面时添加焦点视图。",
+      finalCtaHeading: "构建你的第一个 agent 工作流",
+      finalCtaBody: "创建你的副本，并添加用户需要的第一个 action。",
+      finalCtaButton: "构建你的聊天应用",
     },
   },
   skillsPage: {
@@ -2007,7 +2451,6 @@ const zhCN = {
     usingYourAgent: "使用你的 Agent",
     agentResources: "代理资源",
     integrations: "集成",
-    buildApps: "构建应用",
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
@@ -2039,6 +2482,7 @@ const zhCN = {
     capabilityPackages: "能力包",
     capabilityPackagesOverview: "概览",
     packageLifecycle: "包生命周期",
+    versioningAndStability: "版本与稳定性",
     templatesOverview: "模板",
     pureAgentApps: "自动化优先应用",
     faq: "常见问题",
@@ -2068,6 +2512,9 @@ const zhCN = {
     databaseProviders: "数据库提供商",
     databaseNeon: "Neon Postgres",
     databaseSupabase: "Supabase Postgres",
+    databaseAwsRds: "Amazon RDS for PostgreSQL",
+    databaseCloudSql: "Cloud SQL for PostgreSQL",
+    databaseAzurePostgres: "Azure Database for PostgreSQL",
     databasePostgres: "Plain Postgres",
     internationalization: "国际化",
     localFileMode: "本地文件模式",
@@ -2097,6 +2544,7 @@ const zhCN = {
     authentication: "认证",
     multiTenancy: "多租户",
     organizationsTeamsPermissions: "组织、团队与权限",
+    administeredDeployments: "管理式部署",
     securityDataScoping: "安全与数据作用域",
     sharingPrivacy: "共享与隐私",
     trackingAnalytics: "跟踪与分析",
@@ -2112,6 +2560,7 @@ const zhCN = {
     dropInAgent: "嵌入式 Agent",
     componentApi: "组件 API",
     nativeChatUi: "原生聊天 UI",
+    agentkit: "AgentKit",
     generativeUi: "生成式 UI",
     realTimeCollaboration: "实时协作",
     agentResourcesOverview: "代理资源概览",
@@ -2145,7 +2594,6 @@ const zhCN = {
     syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
-    frames: "Frames",
     agentNativeCodeUi: "Agent-Native 代码 UI",
     harnessAgents: "Harness 代理",
     adapters: "适配器",
@@ -2167,7 +2615,7 @@ const zhCN = {
     content: "内容",
     contentOverview: "概览",
     contentEditing: "写作与整理",
-    contentDatabases: "数据库与表单",
+    contentDatabases: "集合与表单",
     contentSync: "本地文件与同步",
     contentDevelopers: "开发者指南",
     plans: "Plans",
@@ -2180,9 +2628,9 @@ const zhCN = {
     planPluginMarketplace: "Plan 插件与市场",
     slides: "幻灯片",
     slidesOverview: "概览",
+    slidesFeatures: "功能",
     slidesAgent: "与 Agent 对话",
-    slidesEditing: "生成与编辑幻灯片",
-    slidesDesignAndMedia: "设计系统与素材",
+    slidesIntegrations: "跨应用使用",
     slidesDevelopers: "开发者指南",
     analytics: "分析",
     analyticsOverview: "概览",
@@ -2198,27 +2646,29 @@ const zhCN = {
     mailDevelopers: "开发者指南",
     clips: "剪辑",
     clipsOverview: "概览",
-    clipsCaptureEverywhere: "随处录制",
-    clipsAiAndEditing: "AI 与编辑",
-    clipsSharingAndTeams: "共享与团队",
+    clipsFeatures: "功能",
+    clipsAgent: "与 Agent 对话",
+    clipsIntegrations: "跨应用使用",
     clipsDevelopers: "开发者指南",
+    clipsEmbed: "嵌入 Clips",
     assets: "资产",
     assetsOverview: "概览",
     assetsGeneration: "生成与优化",
     assetsPresets: "预设",
     assetsIntegrations: "跨应用使用",
     assetsDevelopers: "开发者指南",
-    design: "设计",
+    design: "Design",
     designOverview: "概览",
-    designQualityAndComponents: "质量与组件",
-    designBrandAndFigma: "品牌与 Figma",
-    designCollaborationAndFullApps: "审阅与交接",
+    designFeatures: "功能",
+    designAgent: "与 Agent 对话",
+    designIntegrations: "跨应用使用",
     designDevelopers: "开发者指南",
     dispatchOverview: "概览",
-    dispatchMessagingRouting: "消息与路由",
-    dispatchOperations: "操作控制台",
-    dispatchVaultIntegrations: "密钥与集成",
+    dispatchFeatures: "功能",
+    dispatchAgent: "与 Agent 对话",
+    dispatchIntegrations: "跨应用使用",
     dispatchDevelopers: "开发者指南",
+    dispatchReference: "操作与数据参考",
     forms: "表单",
     formsOverview: "概览",
     formsFeatures: "功能",

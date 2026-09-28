@@ -9,6 +9,10 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  designSourceMutationLockKey,
+  lockDesignFilesTable,
+} from "../server/source-workspace.js";
 import { isProbablyHtmlDocumentContent } from "../shared/html-content.js";
 import {
   renameFilenamePreservingExtension,
@@ -180,15 +184,10 @@ export default defineAction({
       for (let attempt = 0; attempt < MAX_RENAME_ATTEMPTS; attempt += 1) {
         try {
           return await db.transaction(async (tx) => {
-            {
-              await (
-                tx as unknown as {
-                  execute: (query: unknown) => Promise<unknown>;
-                }
-              ).execute(
-                sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`,
-              );
-            }
+            await tx.execute(
+              sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(scopedFile.designId)}, 0::bigint))`,
+            );
+            await lockDesignFilesTable(tx);
 
             const [design] = await tx
               .select({ updatedAt: schema.designs.updatedAt })
@@ -209,7 +208,8 @@ export default defineAction({
                 updatedAt: schema.designFiles.updatedAt,
               })
               .from(schema.designFiles)
-              .where(eq(schema.designFiles.designId, scopedFile.designId));
+              .where(eq(schema.designFiles.designId, scopedFile.designId))
+              .for("update");
             const target = currentFiles.find((file) => file.id === id);
             if (!target) throw new Error(`Screen not found: ${id}`);
             if (target.fileType !== "html") {
@@ -295,9 +295,6 @@ export default defineAction({
               if (filenameChanged) updates.filename = nextFilename;
               if (contentChanged) {
                 updates.content = nextContent;
-                // This atomic server write starts a new content lineage. A
-                // late browser save may not use pre-rename revision metadata
-                // as proof that no intervening writer changed the document.
                 updates.contentOperationSource = null;
                 updates.contentOperationRevision = null;
                 updates.contentOperationResultHash = null;
@@ -380,13 +377,6 @@ export default defineAction({
       );
     });
 
-    // SQL is the atomic durable source of truth. Reconcile the same committed
-    // snapshots through the existing diff-based Yjs primitive after commit so
-    // open peers update without replacing their document or undoing unrelated
-    // CRDT operations. If that transport is unavailable, the file/design
-    // updatedAt bump and normal get-design invalidation remain the durable
-    // reconciliation fallback; never report the committed transaction as a
-    // rollback after it has succeeded.
     const collabReconcilePending: string[] = [];
     await Promise.all(
       result.files

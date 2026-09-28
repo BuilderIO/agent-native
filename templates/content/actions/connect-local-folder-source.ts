@@ -30,7 +30,7 @@ const truthPolicySchema = z
 
 export default defineAction({
   description:
-    "Connect an opaque trusted local-folder handle to a canonical Files database. The browser or Desktop bridge keeps the real handle/path; Content stores only safe connection metadata.",
+    "Connect an opaque trusted local-folder handle to a canonical Files collection. The browser or Desktop bridge keeps the real handle/path; Content stores only safe connection metadata.",
   schema: z.object({
     connectionId: localFolderOpaqueIdentitySchema.describe(
       "Stable opaque ID from the trusted browser/Desktop registry",
@@ -45,12 +45,12 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing Content space whose Files database receives the source",
+        "Existing Content space whose Files collection receives the source",
       ),
     databaseId: z
       .string()
       .optional()
-      .describe("Existing canonical Files database receiving the source"),
+      .describe("Existing canonical Files collection receiving the source"),
     createSourceBackedSpace: z
       .boolean()
       .optional()

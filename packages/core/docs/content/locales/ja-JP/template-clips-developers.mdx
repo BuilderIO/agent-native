@@ -1,0 +1,399 @@
+---
+title: "クリップ: 開発者ガイド"
+description: "クイックスタート、完全な action 一覧、データモデル、ルート、そしてクリップ テンプレートを拡張する方法。"
+---
+
+# 開発者ガイド
+
+このページは、クリップ テンプレートをカスタマイズしたり拡張したりする人のためのものです。クイックスタート、すべての action、データモデル、ルート サーフェス、そしてそれらを拡張する方法を説明します。アプリが何をするかについては [クリップ](/docs/template-clips) を参照してください。
+
+## クイックスタート
+
+<Steps>
+
+### アプリを作成する
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+```
+
+これには、先に [Node.js](https://nodejs.org) 22.22 以降と [pnpm](https://pnpm.io) をインストールしておく必要があります。まだどちらもインストールしていない場合や、LLM 接続 (Builder.io、Anthropic/OpenAI のキー、またはローカルの Ollama) を設定していない場合は、[はじめに](/docs/getting-started) を参照してください。
+
+### 開発サーバーを起動する
+
+```bash
+pnpm dev
+```
+
+アプリはブラウザで自動的に開きます。ブラウザまたはデスクトップ アプリがローカルでキャプチャするため、録画には追加の設定は不要です。ファイル ストレージや AI クレジットのどちらかが未設定のうちは、それを必要とする action でのみエラーになります。
+
+</Steps>
+
+<Callout tone="info">
+
+録画、文字起こし、AI によるタイトル/概要が最初から最後まで機能するには、ファイル ストレージと AI クレジットの設定が必要です。**設定** から Builder.io を接続すると両方を一度に用意できます (無料プランにはマネージド AI クレジットが含まれます)。あるいは、S3 互換ストレージを別途接続し、文字起こし用に自分の Groq キーを持ち込むこともできます。[文字起こしと AI メタデータ](/docs/template-clips-features#transcription-and-ai-metadata) を参照してください。
+
+</Callout>
+
+## アクション一覧
+
+すべての操作は `templates/clips/actions/` にある TypeScript ファイルで、`POST /_agent-native/actions/:name` に自動マウントされます。
+
+### ライブラリと録画
+
+| Action                                                                                    | 内容                                                         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `list-recordings`、`search-recordings`                                                    | ライブラリ、共有されたもの、ゴミ箱、スペース単位での一覧表示 |
+| `create-recording`、`finalize-recording`                                                  | 行の作成、アップロードの完了                                 |
+| `import-loom-recording`                                                                   | Loom の動画、または直接の MP4/WebM URL をインポート          |
+| `update-recording`                                                                        | タイトル、説明、パスワード、有効期限、公開範囲               |
+| `move-recording`                                                                          | 1 件または複数の録画をフォルダやルートに移動                 |
+| `archive-recording`、`trash-recording`、`restore-recording`、`delete-recording-permanent` | ライフサイクル: 隠す、ソフト削除、取り消し、完全に削除       |
+| `reprocess-recording`                                                                     | シークできない、またはフリーズしたメディアの修復             |
+| `generate-filmstrip`                                                                      | エディターのタイムライン フレーム スプライト                 |
+| `tag-recording`、`set-thumbnail`                                                          | タグ付けと、手動で選んだサムネイル フレーム                  |
+
+### フォルダとスペース
+
+| Action                                            | 内容                                                     |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| `create-folder`、`rename-folder`、`delete-folder` | 入れ子フォルダ。削除すると中身は上位に移動               |
+| `create-space`、`rename-space`、`delete-space`    | 組織単位の、トピックベースの録画コンテナ                 |
+| `add-recording-to-space`                          | スペースへの録画の追加・削除 (多対多)                    |
+| `add-space-member`、`remove-space-member`         | スペース単位の閲覧者、コントリビューター、管理者のロール |
+
+### 編集
+
+| Action                                   | 内容                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| `trim-recording`、`split-recording`      | カットの指示を重ねる。元のメディアには一切触れない                       |
+| `remove-silences`、`remove-filler-words` | エージェントが実行: トランスクリプトを読み取り、代わりにトリムを適用する |
+| `stitch-recordings`                      | 複数の録画を順番どおりに 1 つに結合する                                  |
+| `undo-edit`、`clear-edits`               | 直前の編集を取り消す、または元の状態にリセットする                       |
+
+### 文字起こしと AI メタデータ
+
+| Action                                                                          | 内容                                                    |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `request-transcript`、`cleanup-transcript`                                      | 文字起こしを行う。`force`/`regenerate` で新規にやり直す |
+| `regenerate-title`、`regenerate-summary`、`regenerate-chapters`、`set-chapters` | AI メタデータの生成、またはチャプターを手動で設定       |
+| `get-builder-credit-status`                                                     | Builder.io の AI クレジットが一時停止しているかどうか   |
+
+### コメントとリアクション
+
+| Action                                                                                   | 内容                                            |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `add-comment`、`update-comment`、`delete-comment`、`reply-to-comment`、`resolve-comment` | スレッド化された、タイムスタンプ付きのコメント  |
+| `react-to-comment`、`react-to-recording`                                                 | 絵文字リアクション                              |
+| `list-comments`、`list-recording-mention-members`                                        | コメントの読み取り、@メンション可能な相手の確認 |
+
+### スクリーンメモリ (Rewind)
+
+| Action                                                                                                                          | 内容                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | ローカルの Rewind バッファを読み取る                        |
+| `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | Rewind の履歴をクリップに追加するための、確認と承認のフロー |
+| `apply-rewind-extension`、`make-recording-private-for-rewind`                                                                   | 承認された拡張の適用。先にクリップを非公開にする            |
+
+### クロスアプリとインサイト
+
+| Action                                                                       | 内容                                                                                      |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `export-to-brain`                                                            | バックフィルと再開可能なカーソルを使って、準備の整ったトランスクリプトを Brain に送信する |
+| `prepare-crm-call-evidence`                                                  | CRM の自動化向けに、不透明なクリップ ID と確かな `/r/<id>` リンクを用意する               |
+| `create-recording-agent-link`                                                | 1 件の録画に対する、スコープ付きで期限のある `agent_access` リンクを発行する              |
+| `get-recording-insights`、`get-organization-insights`、`export-insights-csv` | 視聴回数、エンゲージメント、組織全体の CSV エクスポート                                   |
+| `list-viewers`、`list-clip-views`                                            | 誰が、いつ視聴したか                                                                      |
+
+### 組織
+
+| Action                                                                                  | 内容                                                           |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `create-organization`、`invite-member`、`accept-invite`、`decline-invite`、`get-invite` | 組織の作成と招待                                               |
+| `remove-member`、`update-member-role`                                                   | メンバーシップとロールの管理                                   |
+| `set-organization-branding`、`list-organization-state`                                  | ブランド カラー/ロゴ、デフォルトの公開範囲、組織全体の読み取り |
+
+### ナビゲーション、埋め込み、バグ報告
+
+| Action                                                                                | 内容                                                                                        |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `view-screen`、`navigate`、`refresh-list`                                             | コンテキストの読み取り、UI の移動                                                           |
+| `get-playback-position`、`save-playback-position`、`get-recording-player-data`        | 再生の再開、フルトランスクリプトと診断情報                                                  |
+| `create-recording-intake-link`、`create-intake-recording`、`create-intake-agent-link` | 匿名のサードパーティ埋め込みフロー。[クリップを埋め込む](/docs/template-clips-embed) を参照 |
+| `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript`      | 埋め込みバグ報告ランチャーと Chrome 拡張機能の診断情報                                      |
+
+## データモデル
+
+`templates/clips/server/db/schema.ts` で定義されています。
+
+<Callout tone="warning">
+
+チーム、メンバー、招待の行は、クリップ専用のテーブルではなく、フレームワーク自身の `organizations`、`org_members`、`org_invitations` テーブルにあります。`organization_settings` はクリップ独自のサイドカーで、ブランド カラー、ロゴ、デフォルトの公開範囲を組織ごとに 1 行で保持します。古い `workspaces`/`workspace_members` の組は、既存のデプロイでフレームワークのテーブルを 1 回限りの起動時マイグレーションでバックフィルできるようにするためだけに残っています。これらに対して新しい機能を組み立てないでください。
+
+</Callout>
+
+<DataModel
+  id="doc-block-clips-data-model"
+  title="クリップ データモデル"
+  summary={
+    "録画がコア リソースです。録画は 1 つのフォルダ (またはフォルダなし) に属しますが、同時にいくつでもスペースに含まれます。コメントと共有はどちらも録画 id をキーにします。"
+  }
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "コア リソース（所有可能）",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "folderId", type: "id", nullable: true },
+        {
+          name: "spaceIds",
+          type: "json",
+          note: "スペース id の JSON 配列、多対多",
+        },
+        { name: "title", type: "string" },
+        {
+          name: "status",
+          type: "enum",
+          note: "uploading | processing | ready | failed",
+        },
+        { name: "durationMs", type: "int" },
+        { name: "videoUrl", type: "string", nullable: true },
+        {
+          name: "editsJson",
+          type: "json",
+          note: "階層化された非破壊の編集指示",
+        },
+        { name: "chaptersJson", type: "json" },
+        { name: "password", type: "string", nullable: true },
+        { name: "expiresAt", type: "datetime", nullable: true },
+        { name: "archivedAt", type: "datetime", nullable: true },
+        { name: "trashedAt", type: "datetime", nullable: true },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "入れ子のフォルダ",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        {
+          name: "spaceId",
+          type: "id",
+          nullable: true,
+          note: "null = 個人のライブラリ",
+        },
+        { name: "ownerEmail", type: "string" },
+        { name: "name", type: "string" },
+      ],
+    },
+    {
+      id: "spaces",
+      name: "spaces",
+      note: "トピック単位の、組織内サブコンテナ",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "organizationId", type: "id" },
+        { name: "name", type: "string" },
+        { name: "isAllCompany", type: "bool" },
+      ],
+    },
+    {
+      id: "space_members",
+      name: "space_members",
+      note: "スペースごとのロール",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "spaceId", type: "id", fk: "spaces.id" },
+        { name: "email", type: "string" },
+        { name: "role", type: "enum", note: "viewer | contributor | admin" },
+      ],
+    },
+    {
+      id: "recording_comments",
+      name: "recording_comments",
+      note: "スレッド化された、タイムスタンプ付きのコメント",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "threadId", type: "id" },
+        { name: "parentId", type: "id", nullable: true },
+        { name: "authorEmail", type: "string" },
+        { name: "content", type: "string" },
+        { name: "videoTimestampMs", type: "int" },
+        { name: "resolved", type: "bool" },
+      ],
+    },
+    {
+      id: "recording_shares",
+      name: "recording_shares",
+      note: "共有フレームワークの共有プリミティブによる共有権限",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "recordingId", type: "id", fk: "recordings.id" },
+        { name: "principal", type: "string", note: "ユーザーまたは組織" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    { from: "folders", to: "recordings", kind: "1-n", label: "含む" },
+    {
+      from: "spaces",
+      to: "recordings",
+      kind: "n-n",
+      label: "録画はいくつでもスペースに参加できる",
+    },
+    {
+      from: "spaces",
+      to: "space_members",
+      kind: "1-n",
+      label: "メンバーを持つ",
+    },
+    {
+      from: "recordings",
+      to: "recording_comments",
+      kind: "1-n",
+      label: "コメントを持つ",
+    },
+    {
+      from: "recordings",
+      to: "recording_shares",
+      kind: "1-n",
+      label: "共有権限を持つ",
+    },
+  ]}
+/>
+
+## action を読み解く
+
+`create-recording-agent-link` は、スコープ付きの認証情報を発行するどの action にも再利用する価値のあるパターンを示しています。何かを渡す前にリソースの実際の状態を確認すること、実際のトークン発行を自前で作るのではなく共有フレームワークのヘルパーに委譲すること、そして呼び出し元が必要とするすべての URL をその 1 つの grant から導出することです。
+
+<AnnotatedCode
+  id="doc-block-clips-agent-link"
+  title="スコープ付き agent-access リンクの発行"
+  filename="templates/clips/actions/create-recording-agent-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport {\n  buildAgentAccessUrl,\n  createScopedAgentAccessGrant,\n  getRequestContext,\n  getRequestUserEmail,\n} from "@agent-native/core/server";\nimport { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";\nimport { z } from "zod";\n\nimport {\n  CLIPS_AGENT_ACCESS_TTL_SECONDS,\n  getServerAppBasePath,\n} from "../server/lib/public-agent-context.js";\nimport {\n  buildAgentApiUrls,\n  CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n} from "../shared/agent-context.js";\nimport { BUG_REPORT_AGENT_ACCESS_TTL_SECONDS } from "../shared/bug-report.js";\n\nfunction appOrigin(): string {\n  const origin =\n    getRequestContext()?.requestOrigin ||\n    process.env.APP_URL ||\n    process.env.BETTER_AUTH_URL ||\n    "http://localhost:3000";\n  try {\n    return new URL(origin).origin;\n  } catch {\n    return "http://localhost:3000";\n  }\n}\n\nexport default defineAction({\n  description:\n    "Create a temporary private agent-readable link for one Clips recording. The URL is scoped to that recording and expires after two hours.",\n  schema: z.object({\n    recordingId: z.string().describe("Recording ID"),\n    agentLabel: z\n      .string()\n      .trim()\n      .min(1)\n      .max(60)\n      .optional()\n      .describe(\n        "Name of the agent that will read this link (e.g. \'Fusion\', \'Claude Code\'). Recorded against every read the link produces, so the owner sees a name instead of an unidentified agent.",\n      ),\n    ttlSeconds: z\n      .number()\n      .int()\n      .positive()\n      .max(BUG_REPORT_AGENT_ACCESS_TTL_SECONDS)\n      .optional()\n      .describe(\n        "Optional scoped-link lifetime in seconds, capped at seven days. Defaults to two hours.",\n      ),\n  }),\n  readOnly: true,\n  run: async (args) => {\n    const access = await resolveAccess("recording", args.recordingId);\n    if (!access) {\n      throw new ForbiddenError(`No access to recording ${args.recordingId}`);\n    }\n\n    const recording = access.resource as {\n      id: string;\n      archivedAt?: string | null;\n      trashedAt?: string | null;\n    };\n    if (recording.archivedAt || recording.trashedAt) {\n      throw new ForbiddenError(\n        `Recording ${args.recordingId} is not shareable`,\n      );\n    }\n\n    const grant = createScopedAgentAccessGrant({\n      resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,\n      resourceId: recording.id,\n      viewerEmail: getRequestUserEmail() || undefined,\n      agentLabel: args.agentLabel,\n      ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,\n    });\n    const origin = appOrigin();\n    const basePath = getServerAppBasePath();\n    const pageUrl = buildAgentAccessUrl({\n      path: `/share/${encodeURIComponent(recording.id)}`,\n      origin,\n      basePath,\n      token: grant.token,\n    });\n    const api = buildAgentApiUrls(recording.id, {\n      origin,\n      basePath,\n      token: grant.token,\n    });\n\n    return {\n      recordingId: recording.id,\n      url: pageUrl,\n      contextUrl: api.contextUrl,\n      expiresAt: grant.expiresAt,\n      ttlSeconds: grant.ttlSeconds,\n    };\n  },\n});\n'
+  }
+  annotations={[
+    {
+      lines: "60-74",
+      label: "何かを発行する前にリソースの状態を確認する",
+      note: "resolveAccess() は、呼び出し元がそもそもこの録画を見られるかどうかを確認します。続く明示的な archivedAt/trashedAt のチェックは、技術的にはまだアクセス権を持っている人に対してさえ、もう共有できるべきではないクリップのリンクを渡すことを拒否します。",
+    },
+    {
+      lines: "76-82",
+      label: "トークンの発行は自前で作らず、委譲する",
+      note: "createScopedAgentAccessGrant() は共有フレームワークのヘルパーなので、クリップはトークン署名のロジックを一切持ちません。TTL は zod スキーマによって上限が設けられ、マジックナンバーではなく名前付きの定数がデフォルトになります。",
+    },
+    {
+      lines: "83-95",
+      label: "呼び出し元が必要とするすべての URL は、同じ grant から得られる",
+      note: "共有ページの URL と 3 つのエージェント API の URL (buildAgentApiUrls) は、すべて 1 つのトークンから導出されます。そのため、grant を誤って漏らしたり再利用したりしうる箇所は、3 か所ではなく正確に 1 か所しかありません。",
+    },
+    {
+      lines: "79",
+      label: "リンクは、誰がそれを求めたかを記録する",
+      note: "viewerEmail と agentLabel は grant に対して記録されるため、録画の所有者は、匿名のアクセス ログの記録ではなく、どの人物とどのエージェントがそれを読み取ったかを確認できます。",
+    },
+  ]}
+/>
+
+## ルート リファレンス
+
+<FileTree
+  id="doc-block-clips-routes"
+  title="クリップ テンプレートのレイアウト"
+  entries={[
+    {
+      path: "actions/",
+      note: "エージェントから呼び出せるすべての action — 録画、フォルダ、スペース、コメント、共有、インサイト",
+    },
+    {
+      path: "app/routes/_app.library._index.tsx",
+      note: "ライブラリのグリッド。_app.library.folder.$folderId.tsx は 1 つのフォルダ",
+    },
+    { path: "app/routes/_app.shared.tsx", note: "共有されたもの" },
+    {
+      path: "app/routes/_app.spaces._index.tsx",
+      note: "スペースの一覧。_app.spaces.$spaceId.tsx は 1 つのスペース",
+    },
+    {
+      path: "app/routes/_app.r.$recordingId.tsx",
+      note: "録画の詳細ページとエディター",
+    },
+    {
+      path: "app/routes/_app.agent.tsx",
+      note: "全画面のエージェント チャット タブ",
+    },
+    {
+      path: "app/routes/_app.settings._index.tsx",
+      note: "設定 (Labs タブを含む)",
+    },
+    { path: "app/routes/record.tsx", note: "レコーダー" },
+    {
+      path: "app/routes/share.$shareId.tsx",
+      note: "公開共有ページ。embed.$shareId.tsx は iframe 埋め込み版",
+    },
+    {
+      path: "app/routes/download.tsx",
+      note: "デスクトップ アプリのダウンロード ページ",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle のテーブル — 録画、フォルダ、スペース、コメント",
+    },
+    {
+      path: "server/routes/api/agent-context.json.get.ts",
+      note: "エージェントが読み取れるエンドポイント。agent-transcript.json と agent-frame.jpg も含む",
+    },
+    {
+      path: "server/lib/google-calendar-client.ts",
+      note: "Google Calendar API クライアント",
+    },
+    {
+      path: "shared/api.ts",
+      note: "サーバーとクライアントで使われる共有 TypeScript 型",
+    },
+    {
+      path: "desktop/",
+      note: "Tauri デスクトップ アプリ (画面/システム オーディオのキャプチャ、Rewind)",
+    },
+    {
+      path: "chrome-extension/",
+      note: "Chrome 拡張機能 (録画とブラウザ診断)",
+    },
+  ]}
+/>
+
+## カスタマイズする
+
+アプリのあらゆる部分が編集可能なソースです。ここから始めましょう。
+
+- `templates/clips/actions/` — `defineAction` を使って新しいファイルを追加すると、エージェントとフロントエンドの両方に新しい機能を公開できます。
+- `templates/clips/app/routes/` — UI。上に一覧があります。
+- `templates/clips/server/db/schema.ts` — Drizzle でカラムやテーブルを追加します。テンプレートがローカルの PGlite とホスト型 Postgres の両方で動作するように、スキーマは PostgreSQL 互換に保ってください。
+- `templates/clips/server/lib/` — プロバイダー連携: `google-calendar-client.ts`、`s3-upload-provider.ts`、`slack-oauth.ts`、`video-remux.ts`、`video-filmstrip-sprite.ts`。
+- `templates/clips/AGENTS.md` — エージェントへの指示。エージェントに新しい機能や規約を教えるときは、これを更新してください。
+- `templates/clips/.agents/skills/` — エージェントが従う詳細なパターン。関連する skills: `recording`、`ai-video-tools`、`video-editing`、`video-sharing`、`screen-memory`。
+- `templates/clips/shared/api.ts` — サーバーとクライアントの両方で使われる共有 TypeScript 型。
+- `templates/clips/desktop/` と `templates/clips/chrome-extension/` — ネイティブ キャプチャ サーフェス用の独立したパッケージで、それぞれ独自の `package.json` とビルドを持ちます。
+
+機能を追加するときは、4 つの領域すべてを更新することを忘れないでください: UI、action、skill または AGENTS.md の項目、そしてエージェントが見る必要のあるアプリケーション状態です。これが、エージェントと UI を対等に保つ方法です。
+
+## 次は何ですか
+
+- [**クリップ**](/docs/template-clips) — 概要と、それが置き換えるもの
+- [**機能**](/docs/template-clips-features) — これらの action とデータモデルが支える、ユーザー向けの動作
+- [**Agent との対話**](/docs/template-clips-agent) — エージェントがこれらの action とあまり一般的でない action をどう使い分けるか
+- [**マルチアプリ ワークスペースでのクリップのクロスアプリ利用**](/docs/template-clips-integrations) — エージェントが読み取れるエンドポイントと `clip.created` イベントが他のアプリからどう使われるか
+- [**クリップを埋め込む**](/docs/template-clips-embed) — 匿名のサードパーティ録画受付フロー
+- [**Actions**](/docs/actions-overview) — このテンプレートが基盤とする action システム
+- [**共有**](/docs/sharing) — `recording_shares` が使う共有権限モデル

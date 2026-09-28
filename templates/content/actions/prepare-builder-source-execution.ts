@@ -22,8 +22,8 @@ export default defineAction({
   description:
     "Prepare a local Builder CMS execution gate for an approved change set. This records the write plan and idempotency key, but never calls Builder APIs.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z
       .string()
       .optional()
@@ -143,8 +143,6 @@ export default defineAction({
           }
         });
       } catch (error) {
-        // A concurrent prepare may win the unique (source, key) race after our
-        // initial SELECT. Reuse that durable gate; rethrow unrelated failures.
         const [winner] = await db
           .select({ id: schema.contentDatabaseSourceExecutions.id })
           .from(schema.contentDatabaseSourceExecutions)

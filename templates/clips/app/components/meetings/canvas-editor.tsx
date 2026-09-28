@@ -5,23 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface CanvasEditorProps {
-  /** Which content this canvas renders. */
   view: "user" | "ai";
-  /** User's own notes (renders bold black). Required for the "user" view. */
   userNotesMd?: string;
-  /** Save user notes. Called on blur after edit. */
   onUserNotesChange?: (next: string) => void;
-  /** AI-generated summary (renders muted-gray). For the "ai" view. */
   summaryMd?: string;
-  /** AI-generated bullets (renders muted-gray). For the "ai" view. */
   bullets?: string[];
-  /** Save AI summary when the user edits the summary section. */
   onSummaryChange?: (next: string) => void;
-  /** Render bullets with magnifier (BulletLink) wrappers. */
   renderBullet?: (bullet: string, index: number) => React.ReactNode;
-  /** When true, notes render as read-only (viewer-role access). */
   readOnly?: boolean;
-  /** Optional layout classes for embedding the canvas in another panel. */
   className?: string;
 }
 
@@ -76,8 +67,6 @@ export function CanvasEditor({
   );
 }
 
-/* -------------------------------------------------------------------------- */
-
 function UserNotesBlock({
   value,
   onChange,
@@ -108,8 +97,6 @@ function UserNotesBlock({
     />
   );
 }
-
-/* -------------------------------------------------------------------------- */
 
 function AiSummaryBlock({
   value,
@@ -156,9 +143,6 @@ function RichContentBlock({
   const draftRef = useRef(value);
   const focusedRef = useRef(false);
 
-  // Polling can replace the parent value while a meeting is live. Keep the
-  // editor's local draft authoritative while focused, then accept the latest
-  // server value once the user leaves it.
   useEffect(() => {
     if (focusedRef.current) return;
     draftRef.current = value;
@@ -175,9 +159,6 @@ function RichContentBlock({
     <SharedRichEditor
       value={draft}
       onChange={(next) => {
-        // Keep Tiptap updates local while typing. The parent only commits the
-        // latest markdown on blur, so one editing session cannot enqueue one
-        // database write per keystroke.
         focusedRef.current = true;
         draftRef.current = next;
         setDraft(next);
@@ -193,8 +174,6 @@ function RichContentBlock({
     />
   );
 }
-
-/* -------------------------------------------------------------------------- */
 
 function AiBulletsBlock({
   bullets,
@@ -220,8 +199,6 @@ function AiBulletsBlock({
     </div>
   );
 }
-
-/* -------------------------------------------------------------------------- */
 
 function AiTabIndicator() {
   return null;

@@ -51,6 +51,8 @@ interface AddCalendarDialogProps {
   onOpenChange: (open: boolean) => void;
   defaultTab?: "people" | "url" | "google";
   visibleTabs?: Array<"people" | "url" | "google">;
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  prefillPersonEmail?: string;
 }
 
 export function AddCalendarDialog({
@@ -58,13 +60,14 @@ export function AddCalendarDialog({
   onOpenChange,
   defaultTab = "people",
   visibleTabs = ["people", "url", "google"],
+  onPersonAdded,
+  prefillPersonEmail,
 }: AddCalendarDialogProps) {
   const t = useT();
   const [activeTab, setActiveTab] = useState<"people" | "url" | "google">(
     defaultTab,
   );
 
-  // Sync default tab when dialog opens
   useEffect(() => {
     if (open) setActiveTab(defaultTab);
   }, [open, defaultTab]);
@@ -105,7 +108,11 @@ export function AddCalendarDialog({
 
           {visibleTabs.includes("people") && (
             <TabsContent value="people" className="mt-0">
-              <PeopleTab open={open} />
+              <PeopleTab
+                open={open}
+                onPersonAdded={onPersonAdded}
+                prefillPersonEmail={prefillPersonEmail}
+              />
             </TabsContent>
           )}
 
@@ -166,9 +173,15 @@ function GoogleTab() {
   );
 }
 
-// ─── People tab ──────────────────────────────────────────────────────────────
-
-function PeopleTab({ open }: { open: boolean }) {
+function PeopleTab({
+  open,
+  onPersonAdded,
+  prefillPersonEmail,
+}: {
+  open: boolean;
+  onPersonAdded?: (person: { email: string; name?: string }) => void;
+  prefillPersonEmail?: string;
+}) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,9 +241,10 @@ function PeopleTab({ open }: { open: boolean }) {
 
   useEffect(() => {
     if (!open) return;
-    setQuery("");
-    setSearchQuery("");
+    setQuery(prefillPersonEmail ?? "");
+    setSearchQuery(prefillPersonEmail ?? "");
     setActiveIndex(-1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run on open, not on every prefill change
   }, [open]);
 
   useEffect(() => {
@@ -247,7 +261,10 @@ function PeopleTab({ open }: { open: boolean }) {
   }, [activeIndex]);
 
   function handleAdd(email: string, name?: string) {
-    addPerson.mutate({ email, name });
+    addPerson.mutate(
+      { email, name },
+      { onSuccess: () => onPersonAdded?.({ email, name }) },
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -399,8 +416,6 @@ function PeopleTab({ open }: { open: boolean }) {
     </>
   );
 }
-
-// ─── URL / ICS tab ───────────────────────────────────────────────────────────
 
 function UrlTab({ onClose }: { onClose: () => void }) {
   const t = useT();

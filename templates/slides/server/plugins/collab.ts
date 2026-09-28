@@ -9,8 +9,6 @@ import { createCollabPlugin } from "@agent-native/core/server";
 export function resolveDeckIdFromCollabDocId(docId: string): string {
   if (!docId.startsWith("deck-")) return docId;
   const withoutPrefix = docId.slice("deck-".length);
-  // Agent-created slide ids start with `slide-`, giving us an unambiguous
-  // marker even when a legacy deck id itself contains `-slide-`.
   const generatedSlideMarker = withoutPrefix.lastIndexOf("-slide-slide-");
   const slideMarker =
     generatedSlideMarker >= 0
@@ -23,6 +21,7 @@ export default createCollabPlugin({
   table: "decks",
   contentColumn: "data",
   idColumn: "id",
+  autoSeed: false,
   access: {
     mode: "resource",
     resourceType: "deck",

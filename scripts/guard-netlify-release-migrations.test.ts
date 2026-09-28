@@ -12,6 +12,7 @@ import {
   validateManagedDrizzleMigrationOwnership,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
+  validateReleaseMigrationLoadsEnv,
 } from "./guard-netlify-release-migrations.ts";
 
 describe("Netlify release migration guard", () => {
@@ -153,7 +154,10 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
   it("rejects any release entrypoint beyond the framework migration", () => {
     const frameworkOnly = `
 import { closeDbExec, withMigrationRuntime } from "@agent-native/core/db";
+import { loadEnv } from "@agent-native/core/scripts";
 import { runFrameworkReleaseMigrations } from "@agent-native/core/server";
+
+loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
@@ -187,6 +191,21 @@ try {
         "migrate-production.ts",
       ),
       [],
+    );
+  });
+
+  it("requires release entrypoints to load workspace environment", () => {
+    const file = "templates/example/scripts/migrate-production.ts";
+    assert.deepEqual(
+      validateReleaseMigrationLoadsEnv(
+        'import { loadEnv } from "@agent-native/core/scripts";\nloadEnv();\n',
+        file,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      validateReleaseMigrationLoadsEnv("await migrate();", file),
+      [`${file}: must load app and workspace environment before migrating`],
     );
   });
 

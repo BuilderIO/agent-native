@@ -1,8 +1,3 @@
-// Integration tests for the DB-enforced single-primary Blocks invariant and the
-// independent block-field content store. Boots a real PGlite database, runs the
-// actual versioned migrations, then drives the store-layer
-// functions directly — the seam where review findings 1, 4, 5, and 7 live.
-
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,8 +19,6 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
-// A unique on-disk PGlite directory in the OS temp dir, removed after the run.
-// It is isolated from the process-wide getDbExec singleton other test files share.
 const TEST_DB_PATH = join(
   tmpdir(),
   `blocks-seeding-test-${process.pid}-${Date.now()}.pglite`,
@@ -38,8 +31,10 @@ let propertyUtils: typeof import("./_property-utils.js");
 let identityUtils: typeof import("./_blocks-field-identity.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
+let rollbackCreatedSlashDocumentAction: typeof import("./rollback-created-slash-document.js").default;
 let updateDocumentAction: typeof import("./update-document.js").default;
 let editDocumentAction: typeof import("./edit-document.js").default;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
 let createContentDatabaseAction: typeof import("./create-content-database.js").default;
 let createContentDatabaseModule: typeof import("./create-content-database.js");
@@ -63,8 +58,12 @@ beforeAll(async () => {
   createInlineContentDatabaseAction = (
     await import("./create-inline-content-database.js")
   ).default;
+  rollbackCreatedSlashDocumentAction = (
+    await import("./rollback-created-slash-document.js")
+  ).default;
   updateDocumentAction = (await import("./update-document.js")).default;
   editDocumentAction = (await import("./edit-document.js")).default;
+  ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
   setDocumentPropertyAction = (await import("./set-document-property.js"))
     .default;
   createContentDatabaseModule = await import("./create-content-database.js");
@@ -82,7 +81,10 @@ beforeAll(async () => {
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
-}, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
+  const { scheduleStartupMaintenance } =
+    await import("../server/lib/startup-maintenance.js");
+  await scheduleStartupMaintenance();
+}, 60000);
 
 afterAll(() => {
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
@@ -387,9 +389,7 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
       ),
     );
 
-    // Every concurrent caller resolves to the SAME primary id...
     expect(new Set(ids).size).toBe(1);
-    // ...and there is exactly one primary Blocks definition in the DB.
     const defs = await blocksDefinitions(databaseId);
     expect(defs).toHaveLength(1);
     expect(propertyUtils).toBeDefined();
@@ -401,6 +401,8 @@ describe("create-inline-content-database", () => {
     const db = getDb();
     const now = new Date().toISOString();
     const hostDocumentId = `host_inline_${++counter}`;
+    const newDocumentId = `inline_document_${counter}`;
+    const ownerBlockId = `inline-database-${counter}`;
     await db.insert(schema.documents).values({
       id: hostDocumentId,
       ownerEmail: OWNER,
@@ -414,13 +416,16 @@ describe("create-inline-content-database", () => {
       createInlineContentDatabaseAction.run({
         hostDocumentId,
         title: "Inline tasks",
+        newDocumentId,
+        ownerBlockId,
       }),
     );
 
     expect(result.database.title).toBe("Inline tasks");
     expect(result.block.databaseId).toBe(result.database.id);
     expect(result.block.databaseDocumentId).toBe(result.database.documentId);
-    expect(result.block.ownerBlockId).toMatch(/^inline-database-/);
+    expect(result.block.databaseDocumentId).toBe(newDocumentId);
+    expect(result.block.ownerBlockId).toBe(ownerBlockId);
 
     const [database] = await db
       .select()
@@ -434,6 +439,27 @@ describe("create-inline-content-database", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, result.database.documentId));
     expect(databaseDocument.parentId).toBe(hostDocumentId);
+
+    const rolledBack = await runWithRequestContext({ userEmail: OWNER }, () =>
+      rollbackCreatedSlashDocumentAction.run({
+        id: newDocumentId,
+        parentId: hostDocumentId,
+      }),
+    );
+    expect(rolledBack.disposition).toBe("trashed");
+    const [trashedDocument] = await db
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, newDocumentId));
+    expect(trashedDocument.trashedAt).not.toBeNull();
+
+    const absent = await runWithRequestContext({ userEmail: OWNER }, () =>
+      rollbackCreatedSlashDocumentAction.run({
+        id: `missing_inline_${counter}`,
+        parentId: hostDocumentId,
+      }),
+    );
+    expect(absent.disposition).toBe("absent");
   });
 });
 
@@ -448,7 +474,6 @@ describe("read paths do not mutate (finding 2)", () => {
       .select()
       .from(schema.contentDatabases)
       .where(eq(schema.contentDatabases.id, databaseId));
-    // Pure read: never flips blocksSeeded or creates a primary.
     expect(database.blocksSeeded).toBe(0);
     expect(database.primaryBlocksPropertyId).toBeNull();
     expect(await blocksDefinitions(databaseId)).toHaveLength(0);
@@ -530,7 +555,6 @@ describe("repairUnseededBlocksFields — one-time startup repair (finding 2)", (
     expect(firstRun).toBeGreaterThanOrEqual(1);
     expect(await blocksDefinitions(databaseId)).toHaveLength(1);
 
-    // Re-running is a no-op for this already-seeded database.
     await propertyUtils.repairUnseededBlocksFields();
     expect(await blocksDefinitions(databaseId)).toHaveLength(1);
   });
@@ -541,9 +565,6 @@ describe("legacy adoption — existing primary is not duplicated (findings 1, 2)
     const { databaseId } = await createDatabaseRow();
     const db = getDb();
     const now = new Date().toISOString();
-    // Simulate a database seeded by the OLD read-path safety net: a primary
-    // "Content" definition exists but the new column is still NULL and
-    // blocks_seeded is 0 (the v52 backfill "didn't run" for it).
     const legacyId = `legacy_primary_${databaseId}`;
     await db.insert(schema.documentPropertyDefinitions).values({
       id: legacyId,
@@ -566,7 +587,6 @@ describe("legacy adoption — existing primary is not duplicated (findings 1, 2)
     });
 
     expect(adopted).toBe(legacyId);
-    // No duplicate primary was created.
     expect(await blocksDefinitions(databaseId)).toHaveLength(1);
     const [database] = await db
       .select()
@@ -589,7 +609,6 @@ describe("intentionally-deleted primary is never reseeded (finding 5)", () => {
     });
 
     const db = getDb();
-    // Simulate delete-document-property removing the only primary:
     await db
       .delete(schema.documentPropertyDefinitions)
       .where(eq(schema.documentPropertyDefinitions.id, primaryId));
@@ -598,8 +617,6 @@ describe("intentionally-deleted primary is never reseeded (finding 5)", () => {
       .set({ primaryBlocksPropertyId: null })
       .where(eq(schema.contentDatabases.id, databaseId));
 
-    // Neither a re-seed nor the startup repair recreates it (blocks_seeded
-    // stays 1, so the row genuinely has ZERO Blocks fields).
     const reseededId = await propertyUtils.seedDefaultBlocksField({
       databaseId,
       ownerEmail: OWNER,
@@ -636,7 +653,6 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
       }),
     ]);
 
-    // No duplicate-key throw — both writes resolve.
     expect(results.every((r) => r.status === "fulfilled")).toBe(true);
 
     const db = getDb();
@@ -649,7 +665,6 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
           eq(schema.documentBlockFieldContents.propertyId, propertyId),
         ),
       );
-    // Exactly one row (the unique index held); content is one of the two.
     expect(rows).toHaveLength(1);
     expect(["first", "second"]).toContain(rows[0].content);
   });
@@ -679,6 +694,106 @@ describe("writeBlockFieldContent — upsert race (finding 4)", () => {
 });
 
 describe("database Blocks field identity sidecar", () => {
+  it("initializes an empty collection row without changing its membership or properties", async () => {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const primaryPropertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const rowDocumentId = `empty_row_${++counter}`;
+    const itemId = `empty_item_${counter}`;
+    const textPropertyId = `status_${counter}`;
+    await db.insert(schema.documents).values({
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      title: "Empty collection row",
+      content: "",
+      description: "Preserve this description",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: rowDocumentId,
+      position: 7,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: textPropertyId,
+      ownerEmail: OWNER,
+      databaseId,
+      name: "Status",
+      type: "text",
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.documentPropertyValues).values({
+      id: `value_${counter}`,
+      ownerEmail: OWNER,
+      documentId: rowDocumentId,
+      propertyId: textPropertyId,
+      valueJson: JSON.stringify("Keep me"),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      editDocumentAction.run(
+        {
+          id: rowDocumentId,
+          baseRevision: documentRevisionToken(0, ""),
+          idempotencyKey: `initialize-row-${counter}`,
+          initializeContent: "Row body\n",
+        },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    const [membership] = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, itemId));
+    const [propertyValue] = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.documentId, rowDocumentId));
+    const [blocksField] = await db
+      .select()
+      .from(schema.documentBlockFields)
+      .where(
+        and(
+          eq(schema.documentBlockFields.documentId, rowDocumentId),
+          eq(schema.documentBlockFields.propertyId, primaryPropertyId),
+        ),
+      );
+
+    expect(document).toMatchObject({
+      title: "Empty collection row",
+      description: "Preserve this description",
+      content: "Row body\n",
+      bodyRevision: 1,
+    });
+    expect(membership).toMatchObject({
+      databaseId,
+      documentId: rowDocumentId,
+      position: 7,
+    });
+    expect(propertyValue.valueJson).toBe(JSON.stringify("Keep me"));
+    expect(blocksField.revision).toBe(1);
+  });
+
   it("preserves ordered IDs, independent revisions, and bounded recovery", async () => {
     const { documentId } = await createDatabaseRow();
     const db = getDb();
@@ -1091,8 +1206,6 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
     const { databaseId } = await createDatabaseRow();
     const db = getDb();
     const now = new Date().toISOString();
-    // A ROW document (a database item), distinct from the database PAGE doc —
-    // this is the path delete-document deletes through.
     const rowDocumentId = `rowdoc_${databaseId}`;
     await db.insert(schema.documents).values({
       id: rowDocumentId,
@@ -1181,7 +1294,6 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
       now,
     });
 
-    // documentId is the database PAGE document → hits the database-delete branch.
     await databaseUtils.deleteDatabaseDataForDocument(documentId, OWNER);
 
     const remaining = await db
@@ -1213,8 +1325,6 @@ describe("primary Blocks value reflects the body, never the title (finding: word
       now,
     });
 
-    // A brand-new row page: has a TITLE but an EMPTY body. The primary "Content"
-    // Blocks field is backed by documents.content — it must NOT leak the title.
     const db = getDb();
     const rowDocumentId = `rowdoc_wc_${databaseId}`;
     await db.insert(schema.documents).values({
@@ -1250,7 +1360,6 @@ describe("primary Blocks value reflects the body, never the title (finding: word
         isPrimaryBlocksField(p.definition.options),
     );
 
-    // The primary Blocks value is the (empty) body, never the "Test page" title.
     expect(primary?.value).toBe("");
     expect(countWords(primary?.value)).toBe(0);
     expect(formatWordCount(primary?.value)).toBe("Empty");
@@ -1288,9 +1397,6 @@ describe("primary Blocks value reflects the body, never the title (finding: word
       updatedAt: now,
     });
 
-    // Write three words to the body (primary → document body).
-    // writePrimaryBlocksContent now asserts editor access on the document, so
-    // run it in the owner's request context (assertAccess reads currentAccess()).
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       await propertyUtils.writePrimaryBlocksContent({
         documentId: rowDocumentId,
@@ -1309,7 +1415,6 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     );
     const primary = properties.find((p: any) => p.definition.id === primaryId);
 
-    // Word count reflects ONLY the 3 body words — not the 5-word title.
     expect(primary?.value).toBe("one two three");
     expect(countWords(primary?.value)).toBe(3);
     expect(formatWordCount(primary?.value)).toBe("3 words");

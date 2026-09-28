@@ -9,7 +9,7 @@ description: "建立一個呼叫動作並顯示其結果的 React 路由。"
 
 ## 建立路由 {#add-a-page}
 
-開發伺服器會在啟動時讀取路由檔案。建立 `app/routes/text-analyses.tsx`；如果 `pnpm dev` 已在執行，請建立檔案後重新啟動。路由會在 `http://localhost:8080/text-analyses` 提供服務。
+開發伺服器會在啟動時讀取路由檔案。建立 `app/routes/text-analyses.tsx`；如果 `pnpm dev` 已在執行，請建立檔案後重新啟動。開啟 `pnpm dev` 顯示的本機 URL，並在結尾加上 `/text-analyses`；如果 8080 已被使用，連接埠可能會變更。
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -54,7 +54,7 @@ export default function TextAnalysesRoute() {
 
 `useActionQuery` 會呼叫代理使用的相同唯讀動作。頁面暫時不需要自訂 API 路由、第二個資料層或 SQL。
 
-開啟 `http://localhost:8080/text-analyses`，或詢問代理：
+開啟顯示的本機 URL 並在結尾加上 `/text-analyses`，或詢問代理：
 
 > Navigate to `/text-analyses`.
 

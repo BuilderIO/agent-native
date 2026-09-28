@@ -36,6 +36,9 @@ interface DrawState {
   pointerId: number;
   id: string;
   start: Point;
+  previousRects: RegionGuideRect[];
+  previousSelectedId: string | null;
+  dirtyBefore: boolean;
 }
 
 interface MoveState {
@@ -44,6 +47,7 @@ interface MoveState {
   id: string;
   start: Point;
   origin: RegionGuideRect;
+  dirtyBefore: boolean;
 }
 
 interface ResizeState {
@@ -53,6 +57,7 @@ interface ResizeState {
   corner: ResizeCorner;
   origin: RegionGuideRect;
   aspectRatio: number;
+  dirtyBefore: boolean;
 }
 
 type InteractionState = DrawState | MoveState | ResizeState;
@@ -311,8 +316,7 @@ export function RegionGuideEditor({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (interactionRef.current) {
-          interactionRef.current = null;
-          setDraft(null);
+          cancelInteraction();
           return;
         }
         closeEditor();
@@ -325,7 +329,7 @@ export function RegionGuideEditor({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, [selectedId]);
 
   function updateRect(nextRect: RegionGuideRect | null) {
     if (!nextRect) return;
@@ -416,6 +420,40 @@ export function RegionGuideEditor({
       .catch(() => {});
   }
 
+  function releasePointerCapture(pointerId: number) {
+    try {
+      const surface = surfaceRef.current;
+      if (surface?.hasPointerCapture(pointerId)) {
+        surface.releasePointerCapture(pointerId);
+      }
+    } catch {
+      // coercion-ok: pointer capture release is best-effort during cancellation.
+      // ignore — pointer capture is best-effort here.
+    }
+  }
+
+  function cancelInteraction() {
+    const interaction = interactionRef.current;
+    if (!interaction) return;
+
+    interactionRef.current = null;
+    if (interaction.kind === "draw") {
+      setRects(interaction.previousRects);
+      setSelectedId(interaction.previousSelectedId);
+      setDirty(interaction.dirtyBefore);
+    } else {
+      setRects((current) =>
+        current.map((rect) =>
+          rect.id === interaction.id ? interaction.origin : rect,
+        ),
+      );
+      setDirty(interaction.dirtyBefore);
+    }
+    setDraft(null);
+    setMessage(null);
+    releasePointerCapture(interaction.pointerId);
+  }
+
   function startDrawing(event: React.PointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
@@ -432,7 +470,11 @@ export function RegionGuideEditor({
       pointerId: event.pointerId,
       id,
       start: point,
+      previousRects: rects,
+      previousSelectedId: selectedId,
+      dirtyBefore: dirty,
     };
+    event.preventDefault();
     setSelectedId(null);
     setMessage(null);
     if (captureMode) {
@@ -457,6 +499,7 @@ export function RegionGuideEditor({
       id: rect.id,
       start: point,
       origin: rect,
+      dirtyBefore: dirty,
     };
     setSelectedId(rect.id);
     setMessage(null);
@@ -478,6 +521,7 @@ export function RegionGuideEditor({
       corner,
       origin: rect,
       aspectRatio: visualAspectRatio(rect, surfaceSize(surfaceRef.current)),
+      dirtyBefore: dirty,
     };
     setSelectedId(rect.id);
     setMessage(null);
@@ -548,15 +592,15 @@ export function RegionGuideEditor({
     }
     interactionRef.current = null;
     setDraft(null);
-    try {
-      const surface = surfaceRef.current;
-      if (surface?.hasPointerCapture(event.pointerId)) {
-        surface.releasePointerCapture(event.pointerId);
-      }
-    } catch {
-      // ignore — pointer capture is best-effort here.
-    }
+    releasePointerCapture(event.pointerId);
   }
+
+  const captureSelection = captureMode
+    ? (draft ??
+      (selectedId ? rects.find((rect) => rect.id === selectedId) : null) ??
+      rects[0] ??
+      null)
+    : null;
 
   return (
     <div
@@ -578,15 +622,17 @@ export function RegionGuideEditor({
           </span>
         </div>
         <div className="region-guide-editor-actions">
-          <button
-            type="button"
-            className="region-guide-editor-button"
-            onClick={deleteSelected}
-            disabled={!selectedId}
-          >
-            <IconTrash size={15} stroke={1.9} />
-            Delete
-          </button>
+          {!captureMode ? (
+            <button
+              type="button"
+              className="region-guide-editor-button"
+              onClick={deleteSelected}
+              disabled={!selectedId}
+            >
+              <IconTrash size={15} stroke={1.9} />
+              Delete
+            </button>
+          ) : null}
           <button
             type="button"
             className="region-guide-editor-button"
@@ -615,18 +661,29 @@ export function RegionGuideEditor({
             <IconX size={17} stroke={1.9} />
           </button>
         </div>
-        {message ? (
-          <div className="region-guide-editor-message" aria-live="polite">
-            {message}
-          </div>
-        ) : null}
+        <div
+          className={`region-guide-editor-message ${
+            message ? "is-visible" : ""
+          }`}
+          aria-live="polite"
+        >
+          {message ?? ""}
+        </div>
       </div>
 
       <div className="region-guide-editor-hint" data-region-toolbar>
         {captureMode
-          ? "Draw the area to record. Drag the box to move it, or pull a corner to resize."
-          : "Square guides. Corners resize. Drag a box to move."}
+          ? "Drag to select · Move to reposition · Corners to resize · Esc to cancel"
+          : "Square guides · Move a box · Drag a corner to resize"}
       </div>
+
+      {captureSelection ? (
+        <div
+          className="region-guide-selection-mask"
+          style={rectStyle(captureSelection)}
+          aria-hidden
+        />
+      ) : null}
 
       {rects.map((rect) => (
         <div

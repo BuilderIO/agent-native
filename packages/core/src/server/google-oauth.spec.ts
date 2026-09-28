@@ -1,20 +1,21 @@
 import crypto from "node:crypto";
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   decodeOAuthState,
+  decodeNetlifyPreviewGoogleOAuthRelayState,
   encodeOAuthState,
+  encodeNetlifyPreviewGoogleOAuthRelayState,
+  AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
   getOAuthStateSigningKey,
+  isNetlifyPreviewGoogleOAuthCallbackUrl,
+  NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX,
   logOAuthStateDecodeFailure,
 } from "./google-oauth.js";
 
 const FALLBACK_URI = "https://app.example.com/_agent-native/google/callback";
 
-/** Sign an arbitrary base64url data segment the same way encodeOAuthState
- *  does, without requiring the payload to be well-formed JSON — the only way
- *  to reach the "malformed-payload" branch, since a tampered payload fails
- *  signature verification first. */
 function signRawState(data: string): string {
   const sig = crypto
     .createHmac("sha256", getOAuthStateSigningKey())
@@ -46,6 +47,22 @@ describe("decodeOAuthState", () => {
     });
   });
 
+  it("round-trips signed state without relay metadata", () => {
+    const signed = encodeOAuthState({
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+    });
+
+    const result = decodeOAuthState(signed, FALLBACK_URI);
+
+    expect(result).toMatchObject({
+      ok: true,
+      redirectUri:
+        "https://beta.dispatch.agent-native.com/_agent-native/google/callback",
+    });
+    expect((result as Record<string, unknown>).relayTarget).toBeUndefined();
+  });
+
   it("rejects a state param with no HMAC delimiter", () => {
     const result = decodeOAuthState("not-a-signed-state", FALLBACK_URI);
 
@@ -63,8 +80,6 @@ describe("decodeOAuthState", () => {
     });
     const dotIdx = signed.lastIndexOf(".");
     const data = signed.slice(0, dotIdx);
-    // Same payload, wrong signature — simulates a forged/tampered state or a
-    // state signed under a rotated OAUTH_STATE_SECRET / BETTER_AUTH_SECRET.
     const tampered = `${data}.${"0".repeat(43)}`;
 
     const result = decodeOAuthState(tampered, FALLBACK_URI);
@@ -109,7 +124,6 @@ describe("decodeOAuthState", () => {
   });
 
   it("rejects corrupted base64 that decodes to invalid JSON", () => {
-    // Not valid base64url padding/alphabet-safe JSON once decoded.
     const result = decodeOAuthState(
       signRawState("%%%not-base64%%%"),
       FALLBACK_URI,
@@ -152,13 +166,114 @@ describe("decodeOAuthState", () => {
 
     for (const result of failures) {
       expect(result.ok).toBe(false);
-      // A caller destructuring `owner`/`desktop`/`orgId` off a failed decode
-      // must get `undefined`, never a value smuggled through as if this were
-      // a legitimate plain sign-in.
       expect((result as Record<string, unknown>).owner).toBeUndefined();
       expect((result as Record<string, unknown>).desktop).toBeUndefined();
       expect((result as Record<string, unknown>).orgId).toBeUndefined();
     }
+  });
+});
+
+describe("Netlify preview Google OAuth relay state", () => {
+  const callbackUri =
+    "https://0123456789abcdef01234567--agent-native-mail.netlify.app/_agent-native/google/callback";
+
+  beforeEach(() => {
+    vi.stubEnv(
+      AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV,
+      "shared-netlify-google-oauth-relay-secret-32",
+    );
+  });
+
+  it("wraps a signed app state for the fixed beta callback", () => {
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri,
+      state: "signed-preview-state",
+    });
+  });
+
+  it("rejects expired, mutable, and unregistered callback targets", () => {
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(
+        encodeNetlifyPreviewGoogleOAuthRelayState(
+          "signed-preview-state",
+          callbackUri,
+          1_000,
+        ),
+        601_001,
+      ),
+    ).toBeNull();
+    expect(
+      isNetlifyPreviewGoogleOAuthCallbackUrl(
+        "https://deploy-preview-42--agent-native-mail.netlify.app/_agent-native/google/callback",
+      ),
+    ).toBe(false);
+    expect(() =>
+      encodeNetlifyPreviewGoogleOAuthRelayState(
+        "signed-preview-state",
+        "https://example.com/_agent-native/google/callback",
+      ),
+    ).toThrow("Invalid Netlify preview Google OAuth relay state");
+  });
+
+  it("rejects an edited expiry without the original HMAC", () => {
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+    const envelope = state.slice(
+      NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX.length,
+    );
+    const delimiter = envelope.lastIndexOf(".");
+    const encodedPayload = envelope.slice(0, delimiter);
+    const signature = envelope.slice(delimiter + 1);
+    const payload = JSON.parse(
+      Buffer.from(encodedPayload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    payload.e = 999_999_999;
+    const editedPayload = Buffer.from(JSON.stringify(payload)).toString(
+      "base64url",
+    );
+
+    expect(
+      decodeNetlifyPreviewGoogleOAuthRelayState(
+        `${NETLIFY_PREVIEW_GOOGLE_OAUTH_RELAY_STATE_PREFIX}${editedPayload}.${signature}`,
+        601_001,
+      ),
+    ).toBeNull();
+  });
+
+  it("uses the shared relay key when deployment auth secrets differ", () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "preview-auth-secret");
+    const state = encodeNetlifyPreviewGoogleOAuthRelayState(
+      "signed-preview-state",
+      callbackUri,
+      1_000,
+    );
+
+    vi.stubEnv("BETTER_AUTH_SECRET", "beta-auth-secret");
+
+    expect(decodeNetlifyPreviewGoogleOAuthRelayState(state, 1_000)).toEqual({
+      callbackUri,
+      state: "signed-preview-state",
+    });
+  });
+
+  it("fails closed when the shared relay key is not provisioned", () => {
+    delete process.env[AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV];
+
+    expect(() =>
+      encodeNetlifyPreviewGoogleOAuthRelayState(
+        "signed-preview-state",
+        callbackUri,
+      ),
+    ).toThrow(`${AGENT_NATIVE_GOOGLE_OAUTH_RELAY_SECRET_ENV} is required`);
   });
 });
 

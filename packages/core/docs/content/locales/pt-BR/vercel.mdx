@@ -14,8 +14,13 @@ export default defineConfig({
 Implante via Vercel CLI ou git push:
 
 ```bash
-vercel deploy
+npx vercel deploy
 ```
+
+Para criar uma prévia descartável sem entrar no Vercel, execute
+`npx vercel deploy --temporary`. Implantações temporárias não preservam as
+variáveis de ambiente do projeto. Passe o banco de dados e os segredos com
+`--env` e `--build-env` quando precisar de mais que uma prévia da interface.
 
 Para um espaço de trabalho, compile todos os apps em um único pacote da Vercel Build Output API:
 

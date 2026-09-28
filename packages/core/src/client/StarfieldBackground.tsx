@@ -7,10 +7,6 @@ void main() {
 }
 `;
 
-// Gentle travelling waves of light, domain-warped with hash noise, attenuated
-// by a radial falloff around the focus point and resolved through a Ben-Day
-// halftone dot grid. Keep this in the shared component so public app pages can
-// use the same WebGL field as the docs homepage.
 const fragmentShader = `
 precision highp float;
 
@@ -131,8 +127,6 @@ export function StarfieldBackground({
     const canvasRaw = canvasRef.current;
     const containerRaw = containerRef.current;
     if (!canvasRaw || !containerRaw) return;
-    // Non-null assertions: null branches exited above and these are
-    // referenced inside closures where TypeScript loses the narrowing.
     const canvas: HTMLCanvasElement = canvasRaw;
     const container: HTMLElement = containerRaw;
 
@@ -217,7 +211,12 @@ export function StarfieldBackground({
       const root = document.documentElement;
       if (root.classList.contains("dark")) return true;
       if (root.classList.contains("light")) return false;
-      return root.getAttribute("data-theme") === "dark";
+      const dataTheme = root.getAttribute("data-theme");
+      if (dataTheme === "dark") return true;
+      if (dataTheme === "light") return false;
+      return (
+        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false
+      );
     }
 
     function readTheme() {
@@ -401,6 +400,7 @@ export function StarfieldBackground({
       aria-hidden="true"
       className={className}
       style={{ width: "100%", height: "100%", pointerEvents: "none" }}
+      data-agent-native-starfield
     >
       <canvas
         ref={canvasRef}

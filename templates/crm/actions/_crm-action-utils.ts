@@ -5,11 +5,6 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-/**
- * A boolean flag that survives a query string. `z.boolean()` rejects "true" and
- * `z.coerce.boolean()` reads "false" as true, so neither can carry a flag on a
- * `http: { method: "GET" }` action.
- */
 export const queryFlag = z
   .union([z.boolean(), z.enum(["true", "false", "1", "0"])])
   .transform((value) => value === true || value === "true" || value === "1")
@@ -38,7 +33,8 @@ export function crmInitiatedBy(ctx?: ActionRunContext) {
   if (ctx?.caller === "automation") return "automation" as const;
   return ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
-    ctx?.caller === "a2a"
+    ctx?.caller === "a2a" ||
+    ctx?.caller === "webmcp"
     ? ("agent" as const)
     : ("human" as const);
 }

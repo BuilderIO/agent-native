@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
-
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockGetRequestRunContext = vi.fn(() => ({
@@ -11,6 +9,7 @@ const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
 const mockRecordGenerationCreativeContext = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
 const mockValidateGenerationCreativeContext = vi.fn(
   async (input: {
     contextPackId?: string;
@@ -43,14 +42,10 @@ let titleQueryRows: Array<{ id: string }> = [];
 let insertedRow: Record<string, unknown> | undefined = undefined;
 let updatedFields: Record<string, unknown> | undefined = undefined;
 
-// db.select().from(...).where(...).limit(...)
 const limitFn = vi.fn(async () => (existingDeckRow ? [existingDeckRow] : []));
 const defaultDesignSystemLimitFn = vi.fn(async () =>
   defaultDesignSystemId ? [{ id: defaultDesignSystemId }] : [],
 );
-// resolveDesignSystemIdByTitle has no `.limit()` — it awaits `.where(...)`
-// directly, so its clause is distinguished by the accessFilter sentinel that
-// leads its `and(...)` conditions rather than by a subsequent chained call.
 const titleWhereFn = vi.fn(async () => titleQueryRows);
 const whereSelectFn = vi.fn((condition: unknown, table?: unknown) => {
   const clauses = (condition as { and?: unknown[] } | undefined)?.and;
@@ -72,13 +67,11 @@ const fromFn = vi.fn((table: unknown) => ({
 }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
-// db.insert().values(...)
 const valuesFn = vi.fn(async (row: Record<string, unknown>) => {
   insertedRow = row;
 });
 const insertFn = vi.fn(() => ({ values: valuesFn }));
 
-// db.update().set(...).where(...)
 const whereUpdateFn = vi.fn(async () => ({ rowsAffected: 1 }));
 const setFn = vi.fn((fields: Record<string, unknown>) => {
   updatedFields = fields;
@@ -110,6 +103,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
+
 vi.mock("@agent-native/creative-context/server", () => ({
   recordGenerationCreativeContext: (...args: unknown[]) =>
     mockRecordGenerationCreativeContext(...args),
@@ -126,6 +123,7 @@ vi.mock("../server/lib/deck-versions.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => mockGetUserEmail(),
   getRequestOrgId: () => mockGetOrgId(),
   getRequestRunContext: () => mockGetRequestRunContext(),
@@ -160,8 +158,131 @@ beforeEach(() => {
   titleQueryRows = [];
   insertedRow = undefined;
   updatedFields = undefined;
+  mockTrack.mockClear();
   mockGetUserEmail.mockReturnValue("owner@example.com");
   mockGetOrgId.mockReturnValue(null);
+});
+
+describe("create-deck chat result", () => {
+  it("projects at most three sanitized slide previews without notes or design context", () => {
+    const chatUI = action.chatUI;
+    const projected = chatUI?.projectResult?.(
+      {},
+      {
+        id: "deck-1",
+        title: "D".repeat(240),
+        slideCount: 4,
+        slides: [
+          {
+            id: "slide-1",
+            layout: "title",
+            content: "<div><h1>One</h1><script>untrusted</script></div>",
+            notes: "presenter only",
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+          { id: "slide-3", content: "<div>Three</div>" },
+          { id: "slide-4", content: "<div>Four</div>" },
+        ],
+        designSystem: { agentContext: "private context" },
+      },
+    );
+
+    expect(chatUI?.renderer).toBe("slides.deck-result");
+    expect(projected).toMatchObject({
+      id: "deck-1",
+      title: "D".repeat(180),
+      slideCount: 4,
+      previews: [
+        { id: "slide-1", layout: "title" },
+        { id: "slide-2", layout: "content" },
+        { id: "slide-3", layout: "content" },
+      ],
+    });
+    const previewJson = JSON.stringify(projected?.previews);
+    expect(projected?.previews).toHaveLength(3);
+    expect(projected?.previews[0].content).toContain("<h1>One</h1>");
+    expect(previewJson).not.toContain("<script");
+    expect(previewJson).not.toContain("presenter only");
+    expect(JSON.stringify(projected)).not.toContain("private context");
+    expect(chatUI?.when?.({}, projected)).toBe(true);
+    expect(chatUI?.when?.({}, { error: "Create failed" })).toBe(false);
+    expect(chatUI?.projectResult?.({}, projected)).toEqual(projected);
+    expect(
+      chatUI?.projectResult?.({}, { id: "deck-1", title: "T", slideCount: -1 }),
+    ).toBeNull();
+  });
+
+  it("skips slide previews larger than the per-slide limit", () => {
+    const projected = action.chatUI?.projectResult?.(
+      {},
+      {
+        id: "deck-1",
+        title: "T",
+        slideCount: 2,
+        slides: [
+          { id: "oversized", content: "x".repeat(12_001) },
+          { id: "small", content: "<div>Small</div>" },
+        ],
+      },
+    );
+
+    expect(projected?.previews).toHaveLength(1);
+    expect(projected?.previews[0]).toMatchObject({
+      id: "small",
+      layout: "content",
+    });
+    expect(projected?.previews[0].content).toContain("Small");
+  });
+});
+
+describe("create-deck — save boundary", () => {
+  it("refuses slides that carry rendered editor markup", async () => {
+    await expect(
+      action.run({
+        title: "T",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><p data-builder-id="b-1">Hi</p></div>',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(insertedRow).toBeUndefined();
+  });
+
+  it("lets a replacement keep a stored slide's markers but not add new ones", async () => {
+    const legacy =
+      '<div class="fmd-slide"><p data-builder-id="b-1">Legacy</p></div>';
+    existingDeckRow = {
+      id: "deck-existing",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [{ id: "slide-1", content: legacy }],
+      }),
+    };
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [{ id: "slide-1", content: legacy.replace("Legacy", "Kept") }],
+      }),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run({
+        title: "T",
+        deckId: "deck-existing",
+        slides: [
+          {
+            id: "slide-1",
+            content: `${legacy}<p contenteditable="true">x</p>`,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+  });
 });
 
 describe("create-deck — aspectRatio", () => {
@@ -187,6 +308,50 @@ describe("create-deck — aspectRatio", () => {
         view: "editor",
         deckId: result.id,
         _writeId: expect.any(String),
+      }),
+    );
+  });
+
+  it("returns a persisted deck when post-insert work fails", async () => {
+    mockNotifyClients.mockRejectedValueOnce(
+      new Error("notification failed with private details"),
+    );
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(insertedRow).toBeDefined();
+    expect(result).toMatchObject({
+      id: expect.any(String),
+      postProcessStatus: "failed",
+    });
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactType: "deck",
+        artifactId: result.id,
+      }),
+    );
+    const unresolved = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_outcome_unresolved",
+    );
+    expect(unresolved?.[1]).toMatchObject({
+      output_id: result.id,
+      outcome: "unresolved",
+      reason: "postprocess_failed",
+      persisted_output: true,
+      error_type: "Error",
+    });
+  });
+
+  it("records provenance before a failing app-state write", async () => {
+    mockWriteAppState.mockRejectedValueOnce(new Error("state write failed"));
+
+    const result = await action.run({ title: "T", slides: [] });
+
+    expect(result.postProcessStatus).toBe("failed");
+    expect(mockRecordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactType: "deck",
+        artifactId: result.id,
       }),
     );
   });
@@ -477,4 +642,377 @@ describe("create-deck — aspectRatio", () => {
       ids[1],
     );
   });
+});
+
+describe("create-deck — generation lifecycle tracking", () => {
+  function trackedEvents() {
+    return mockTrack.mock.calls.map(([name, properties]) => ({
+      name,
+      properties: properties as Record<string, unknown>,
+    }));
+  }
+
+  it("accepts only bounded URL-safe browser generation attempt IDs", () => {
+    const base = { title: "T", slides: [], deckId: "deck-1" };
+
+    expect(
+      action.schema.safeParse({
+        ...base,
+        generationAttemptId: "browser_attempt-123",
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({ ...base, generationAttemptId: "bad id" })
+        .success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        ...base,
+        generationAttemptId: "a".repeat(65),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("does not report bulk generation complete when post-processing fails", async () => {
+    mockNotifyClients.mockRejectedValueOnce(new Error("notification failed"));
+
+    const result = await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div>Slide</div>" }],
+    });
+    const events = trackedEvents();
+
+    expect(result.postProcessStatus).toBe("failed");
+    expect(events.some((event) => event.name === "generation_completed")).toBe(
+      false,
+    );
+    expect(
+      events.find((event) => event.name === "generation_outcome_unresolved")
+        ?.properties,
+    ).toMatchObject({
+      output_id: result.id,
+      outcome: "unresolved",
+      reason: "postprocess_failed",
+      persisted_output: true,
+    });
+  });
+
+  it.each([
+    [
+      "client notification",
+      () =>
+        mockNotifyClients.mockRejectedValueOnce(
+          new Error("notification failed"),
+        ),
+    ],
+    [
+      "app-state update",
+      () => mockWriteAppState.mockRejectedValueOnce(new Error("state failed")),
+    ],
+    [
+      "provenance write",
+      () =>
+        mockRecordGenerationCreativeContext.mockRejectedValueOnce(
+          new Error("provenance failed"),
+        ),
+    ],
+  ] as const)(
+    "returns the persisted replacement when %s post-processing fails",
+    async (_step, failPostProcess) => {
+      existingDeckRow = {
+        id: "deck-1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        data: JSON.stringify({
+          title: "T",
+          slides: [],
+          designSystemId: "ds-linked",
+        }),
+      };
+      failPostProcess();
+
+      const result = await action.run({
+        title: "T2",
+        slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+        deckId: "deck-1",
+      });
+      const events = trackedEvents();
+
+      expect(updatedFields).toBeDefined();
+      expect(JSON.parse(updatedFields!.data as string).slides).toHaveLength(1);
+      expect(result).toMatchObject({
+        id: "deck-1",
+        postProcessStatus: "failed",
+      });
+      expect(
+        events.some((event) => event.name === "generation_completed"),
+      ).toBe(false);
+      expect(events.some((event) => event.name === "generation_failed")).toBe(
+        false,
+      );
+      expect(
+        events.find((event) => event.name === "generation_outcome_unresolved")
+          ?.properties,
+      ).toMatchObject({
+        output_id: "deck-1",
+        outcome: "unresolved",
+        reason: "postprocess_failed",
+        persisted_output: true,
+      });
+    },
+  );
+
+  it("joins generation start and completion with one opaque attempt id", async () => {
+    const result = await action.run({
+      title: "T",
+      slides: [{ id: "s1", content: "<div>Slide</div>" }],
+    });
+
+    const events = trackedEvents();
+    const started = events.find((event) => event.name === "generation_started");
+    const completed = events.find(
+      (event) => event.name === "generation_completed",
+    );
+
+    expect(started?.properties.generation_attempt_id).toEqual(
+      completed?.properties.generation_attempt_id,
+    );
+    expect(started?.properties.generation_attempt_id).toEqual(
+      expect.any(String),
+    );
+    expect(JSON.parse(insertedRow!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(result.id).toBe(completed?.properties.output_id);
+    expect(started?.properties).not.toHaveProperty("title");
+    expect(started?.properties).not.toHaveProperty("prompt");
+    expect(completed?.properties).toMatchObject({
+      output_type: "deck",
+      slide_count: 1,
+      duration_ms: expect.any(Number),
+    });
+  });
+
+  it("clears prior incremental context when an action-owned bulk attempt replaces a deck", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: {
+          generationAttemptId: "previous-attempt",
+          generationMode: "action",
+        },
+      }),
+    };
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "s1", content: "<div>Replacement</div>" }],
+      deckId: "deck-1",
+    });
+
+    const started = trackedEvents().find(
+      (event) => event.name === "generation_started",
+    );
+    expect(JSON.parse(updatedFields!.data as string)).not.toHaveProperty(
+      "generationContext",
+    );
+    expect(started?.properties.generation_attempt_id).not.toBe(
+      "previous-attempt",
+    );
+  });
+
+  it.each(["new deck", "replacement deck"] as const)(
+    "reports completion when the slides persist but the design system is unavailable for a %s",
+    async (mode) => {
+      mockGetDesignSystemRun.mockResolvedValueOnce({
+        title: "Design system",
+        agentContext: "",
+      });
+      const args = {
+        title: "T",
+        slides: [{ id: "s1", content: "<div>Slide</div>" }],
+        designSystemId: "ds-linked",
+        ...(mode === "replacement deck" ? { deckId: "deck-1" } : {}),
+      };
+      if (mode === "replacement deck") {
+        existingDeckRow = {
+          id: "deck-1",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          data: JSON.stringify({ title: "T", slides: [] }),
+        };
+      }
+
+      const result = await action.run(args);
+      const completed = trackedEvents().find(
+        (event) => event.name === "generation_completed",
+      );
+
+      expect(result.postProcessStatus).toBe("completed");
+      expect(completed?.properties).toMatchObject({
+        output_id: result.id,
+        slide_count: 1,
+        design_system_status: "unavailable",
+      });
+      expect(
+        trackedEvents().some(
+          (event) => event.name === "generation_outcome_unresolved",
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("joins the browser-owned attempt without duplicating its lifecycle events", async () => {
+    const generationAttemptId = "browser_attempt_123";
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: { generationAttemptId },
+      }),
+    };
+    mockTrack("generation_started", {
+      generation_attempt_id: generationAttemptId,
+      source: "new_deck_prompt",
+    });
+
+    await action.run({
+      title: "T2",
+      slides: [{ id: "s1", content: "<div>Slide</div>" }],
+      deckId: "deck-1",
+      generationAttemptId,
+    });
+
+    const events = trackedEvents();
+    expect(
+      events.filter((event) => event.name === "generation_started"),
+    ).toHaveLength(1);
+    expect(
+      events.filter((event) => event.name === "generation_completed"),
+    ).toHaveLength(0);
+    expect(
+      events.find((event) => event.name === "deck_edited")?.properties,
+    ).toMatchObject({ generation_attempt_id: generationAttemptId });
+  });
+
+  it("does not emit a terminal lifecycle event when the browser owns a failing attempt", async () => {
+    const generationAttemptId = "browser_attempt_123";
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: { generationAttemptId },
+      }),
+    };
+    mockValidateGenerationCreativeContext.mockRejectedValueOnce(
+      new Error("generation failed"),
+    );
+
+    await expect(
+      action.run({
+        title: "T2",
+        slides: [{ id: "s1", content: "<div>Slide</div>" }],
+        deckId: "deck-1",
+        generationAttemptId,
+      }),
+    ).rejects.toThrow("generation failed");
+
+    expect(
+      trackedEvents().some((event) =>
+        [
+          "generation_completed",
+          "generation_failed",
+          "generation_stuck",
+          "generation_cancelled",
+        ].includes(event.name),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects a browser attempt ID that does not match the deck context without lifecycle events", async () => {
+    existingDeckRow = {
+      id: "deck-1",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "T",
+        slides: [],
+        generationContext: { generationAttemptId: "browser_attempt_other" },
+      }),
+    };
+
+    await expect(
+      action.run({
+        title: "T2",
+        slides: [{ id: "s1", content: "<div>Slide</div>" }],
+        deckId: "deck-1",
+        generationAttemptId: "browser_attempt_123",
+      }),
+    ).rejects.toThrow("does not match");
+
+    expect(trackedEvents()).toEqual([]);
+  });
+
+  it("keeps incremental empty-deck generation open for later add-slide calls", async () => {
+    const result = await action.run({ title: "T", slides: [] });
+
+    const events = trackedEvents();
+    expect(events.map((event) => event.name)).toEqual([
+      "generation_started",
+      "generation_request_accepted",
+      "deck_created",
+    ]);
+    expect(events[1]?.properties).toMatchObject({
+      generation_mode: "incremental",
+      slide_count: 0,
+    });
+    expect(events[1]?.properties).not.toHaveProperty("prompt");
+    expect(JSON.parse(insertedRow!.data as string).generationContext).toEqual({
+      generationAttemptId: events[0]?.properties.generation_attempt_id,
+      generationMode: "action",
+    });
+    expect(result.slideCount).toBe(0);
+  });
+
+  it.each([
+    ["generation_failed", undefined, "failed", "action_error"],
+    ["generation_stuck", "no_progress", "stuck", "stuck"],
+    ["generation_cancelled", "user_stuck_cancel", "cancelled", "cancelled"],
+  ] as const)(
+    "emits %s with the attempt id and bounded failure fields",
+    async (eventName, abortReason, outcome, failureCode) => {
+      const controller = new AbortController();
+      if (abortReason) controller.abort(abortReason);
+      mockValidateGenerationCreativeContext.mockRejectedValueOnce(
+        new Error("generation failed with private details"),
+      );
+
+      await expect(
+        action.run(
+          { title: "T", slides: [] },
+          { caller: "tool", signal: controller.signal },
+        ),
+      ).rejects.toThrow("generation failed");
+
+      const events = trackedEvents();
+      const started = events.find(
+        (event) => event.name === "generation_started",
+      );
+      const terminal = events.find((event) => event.name === eventName);
+
+      expect(terminal?.properties.generation_attempt_id).toBe(
+        started?.properties.generation_attempt_id,
+      );
+      expect(terminal?.properties).toMatchObject({
+        outcome,
+        failure_code: failureCode,
+        error_type: "Error",
+      });
+      expect(terminal?.properties).not.toHaveProperty("error_message");
+    },
+  );
 });

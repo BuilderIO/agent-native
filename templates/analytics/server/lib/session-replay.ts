@@ -259,14 +259,26 @@ const DEFAULT_REPLAY_RETENTION_DAYS = 30;
 const DEFAULT_ABANDONED_REPLAY_MINUTES = 30;
 const DEFAULT_REPLAY_MAX_BYTES_PER_DAY = 100 * 1024 * 1024;
 const DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE = 120;
+const REPLAY_NEW_RECORDING_ADMISSION_RATIO = 0.85;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 const REPLAY_PRIVATE_BLOB_REF_KIND = "agent-native.session-replay.private-blob";
 const REPLAY_PRIVATE_BLOB_REF_VERSION = 1;
 let inlineReplayFallbackWarned = false;
 
-function replayError(message: string, statusCode: number): Error {
-  return Object.assign(new Error(message), { statusCode });
+function replayError(
+  message: string,
+  statusCode: number,
+  retryAfterSeconds?: number,
+): Error {
+  return Object.assign(
+    new Error(message),
+    { statusCode },
+    retryAfterSeconds === undefined ? {} : { retryAfterSeconds },
+  );
 }
+
+const REPLAY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
+const REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS = 24 * 60 * 60;
 
 function replayNowIso(): string {
   return new Date().toISOString();
@@ -840,13 +852,6 @@ function sameRageClickTarget(
   );
 }
 
-/**
- * Rage-click counter over rrweb click events: `RAGE_CLICK_MIN_CLICKS` clicks on
- * the same target (or within a small radius) with no more than
- * `RAGE_CLICK_WINDOW_MS` between consecutive clicks counts as one rage click.
- * Chunks arrive in separate ingest requests and are merged with `max`, so this
- * is a per-batch lower bound, not a session total.
- */
 function countRageClicks(events: unknown[]): number {
   let rageClicks = 0;
   let cluster: ReplayClickPoint | null = null;
@@ -905,8 +910,6 @@ function deriveReplaySignals({
 
     const tagged = replayDiagnosticsTag(event);
     if (tagged) {
-      // Tagged diagnostics are the real signal; never let the substring
-      // heuristic below double-count these same events.
       hasTaggedDiagnostics = true;
       if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
         if (replayString(tagged.payload.level) === "error") {
@@ -933,9 +936,6 @@ function deriveReplaySignals({
     }
   }
 
-  // The substring heuristic predates tagged console/network capture. Once any
-  // tagged diagnostics event is present the recorder is diagnostics-aware, so
-  // the tagged counts are authoritative and the heuristic stays off.
   const detectedErrors = hasTaggedDiagnostics
     ? taggedConsoleErrors
     : heuristicErrors;
@@ -1100,6 +1100,44 @@ export interface SessionReplayIngestContext {
   origin?: string | null;
   requestBytes?: number | null;
   now?: Date;
+  isNewRecording?: boolean;
+}
+
+export async function assertReplayDailyByteBudget(
+  key: { id: string; replayMaxBytesPerDay?: number | null },
+  context: SessionReplayIngestContext,
+  maxBytesPerDay = positiveReplayLimit(
+    key.replayMaxBytesPerDay,
+    DEFAULT_REPLAY_MAX_BYTES_PER_DAY,
+  ),
+): Promise<void> {
+  const requestBytes = Math.max(0, context.requestBytes ?? 0);
+  const sinceDay = isoBefore(context.now ?? new Date(), 24 * 60 * 60_000);
+  const db = getDb() as any;
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
+  const [dailyUsage] = await db
+    .select({
+      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
+    })
+    .from(schema.sessionReplayIngests)
+    .where(
+      and(
+        eq(schema.sessionReplayIngests.publicKeyId, key.id),
+        gte(schema.sessionReplayIngests.createdAt, sinceDay),
+      ),
+    );
+
+  const bytesToday = Number(dailyUsage?.bytes ?? 0);
+  const admissionCeiling = context.isNewRecording
+    ? Math.floor(maxBytesPerDay * REPLAY_NEW_RECORDING_ADMISSION_RATIO)
+    : maxBytesPerDay;
+  if (bytesToday + requestBytes > admissionCeiling) {
+    throw replayError(
+      "Replay ingest byte quota exceeded for this public key",
+      429,
+      REPLAY_BYTE_QUOTA_RETRY_AFTER_SECONDS,
+    );
+  }
 }
 
 export async function assertReplayKeyBudget(
@@ -1138,35 +1176,15 @@ export async function assertReplayKeyBudget(
     );
   }
 
+  await assertReplayDailyByteBudget(key, context, maxBytesPerDay);
+
   const maxRequestsPerMinute = positiveReplayLimit(
     key.replayMaxRequestsPerMinute,
     DEFAULT_REPLAY_MAX_REQUESTS_PER_MINUTE,
   );
   const now = context.now ?? new Date();
-  const sinceDay = isoBefore(now, 24 * 60 * 60_000);
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
-  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
-  const [dailyUsage] = await db
-    .select({
-      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
-    })
-    .from(schema.sessionReplayIngests)
-    .where(
-      and(
-        eq(schema.sessionReplayIngests.publicKeyId, key.id),
-        gte(schema.sessionReplayIngests.createdAt, sinceDay),
-      ),
-    );
-
-  const bytesToday = Number(dailyUsage?.bytes ?? 0);
-  if (bytesToday + requestBytes > maxBytesPerDay) {
-    throw replayError(
-      "Replay ingest byte quota exceeded for this public key",
-      429,
-    );
-  }
-
   // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
   const [minuteUsage] = await db
     .select({
@@ -1185,17 +1203,18 @@ export async function assertReplayKeyBudget(
     throw replayError(
       "Replay ingest rate limit exceeded for this public key",
       429,
+      REPLAY_RATE_LIMIT_RETRY_AFTER_SECONDS,
     );
   }
 }
 
-async function resolveReplayPublicKey(
-  publicKey: string,
-  context: SessionReplayIngestContext = {},
-): Promise<{
+async function resolveReplayPublicKey(publicKey: string): Promise<{
   id: string;
   ownerEmail: string;
   orgId: string | null;
+  replayAllowedOrigins?: string | null;
+  replayMaxBytesPerDay?: number | null;
+  replayMaxRequestsPerMinute?: number | null;
 }> {
   const db = getDb() as any;
   // guard:allow-unscoped -- public replay ingestion must resolve the owning tenant from the submitted write key before it can scope inserts.
@@ -1210,11 +1229,13 @@ async function resolveReplayPublicKey(
     )
     .limit(1);
   if (!key) throw replayError("Invalid analytics public key", 401);
-  await assertReplayKeyBudget(key, context);
   return {
     id: key.id,
     ownerEmail: key.ownerEmail,
     orgId: key.orgId ?? null,
+    replayAllowedOrigins: key.replayAllowedOrigins,
+    replayMaxBytesPerDay: key.replayMaxBytesPerDay,
+    replayMaxRequestsPerMinute: key.replayMaxRequestsPerMinute,
   };
 }
 
@@ -1274,9 +1295,6 @@ function rowToSessionRecordingSummary(
 }
 
 function hasVisibleSessionRecordingIdentity(row: any): boolean {
-  // /sessions intentionally lists signed-in, email-backed recordings only (see
-  // analytics CLAUDE.md + the "rejects anonymous recordings" spec). Keep this in
-  // sync with replayVisibleIdentityCondition().
   return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
 }
 
@@ -1339,8 +1357,6 @@ function replayTextContains(column: unknown, query: string) {
 }
 
 function replayVisibleIdentityCondition() {
-  // Email-backed identity only — /sessions lists signed-in recordings (see
-  // analytics CLAUDE.md). Mirror of hasVisibleSessionRecordingIdentity().
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
     replayTextContains(schema.sessionRecordings.userKey, "@"),
@@ -1385,7 +1401,8 @@ export async function recordSessionReplayChunks(
   eventCount: number;
   totalBytes: number;
 }> {
-  const key = await resolveReplayPublicKey(input.publicKey, context);
+  const key = await resolveReplayPublicKey(input.publicKey);
+  await assertReplayKeyBudget(key, context);
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1403,6 +1420,13 @@ export async function recordSessionReplayChunks(
       ),
     )
     .limit(1);
+
+  if (!recording) {
+    await assertReplayDailyByteBudget(key, {
+      ...context,
+      isNewRecording: true,
+    });
+  }
 
   if (!recording) {
     const newRecordingId = replayId("sr");
@@ -1436,11 +1460,6 @@ export async function recordSessionReplayChunks(
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
         orgId: key.orgId,
-        // Session replay is an org-analytics surface: a recording captured under
-        // an org-scoped analytics key must be visible to everyone in that org
-        // (via accessFilter's "org" branch), not only the key owner. Without an
-        // org we fall back to owner-private. This is what makes /sessions show
-        // recordings to teammates instead of only the single key owner.
         visibility: key.orgId ? "org" : "private",
       })
       .onConflictDoNothing();
@@ -1483,7 +1502,18 @@ export async function recordSessionReplayChunks(
     Number(recording.eventCount ?? 0) === 0 &&
     existingChunks.length === 0;
 
+  const ingestId = replayId("sri");
   try {
+    await db.insert(schema.sessionReplayIngests).values({
+      id: ingestId,
+      publicKeyId: key.id,
+      recordingId: recording.id,
+      byteLength: replayIngestByteLength(clampedInput, context),
+      createdAt: ingestedAt,
+      ownerEmail: key.ownerEmail,
+      orgId: key.orgId,
+    });
+
     for (const rawChunk of clampedInput.chunks) {
       const existing = existingBySeq.get(rawChunk.seq);
       if (existing) {
@@ -1505,13 +1535,6 @@ export async function recordSessionReplayChunks(
           413,
         );
       }
-      // Replay ingest is anonymous + cross-origin (no session), so blob storage
-      // would otherwise have no request context and `resolveBuilderPrivateKey()`
-      // (and any S3 provider's scoped-secret lookup) would resolve nothing —
-      // every chunk upload then 503s and recordings persist as empty shells.
-      // Run the upload in the public key owner's user/org scope so the org's
-      // connected Builder (or S3) credential in `app_secrets` resolves. Mirrors
-      // the resources upload precedent (core resources/handlers.ts).
       const chunk = await runWithRequestContext(
         { userEmail: key.ownerEmail, orgId: key.orgId ?? undefined },
         () =>
@@ -1549,6 +1572,15 @@ export async function recordSessionReplayChunks(
     uploadedBlobHandles.length = 0;
   } catch (error) {
     await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.id, ingestId))
+      .catch((releaseError: unknown) => {
+        console.error(
+          "[session-replay] failed to release replay usage reservation",
+          { ingestId, publicKeyId: key.id, error: releaseError },
+        );
+      });
     if (wasEmptyRecording) {
       await deleteEmptyReplayRecordingPlaceholder(db, {
         id: recording.id,
@@ -1558,16 +1590,6 @@ export async function recordSessionReplayChunks(
     }
     throw error;
   }
-
-  await db.insert(schema.sessionReplayIngests).values({
-    id: replayId("sri"),
-    publicKeyId: key.id,
-    recordingId: recording.id,
-    byteLength: replayIngestByteLength(clampedInput, context),
-    createdAt: ingestedAt,
-    ownerEmail: key.ownerEmail,
-    orgId: key.orgId,
-  });
 
   const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
     clampReplayChunkTiming(chunk, ingestedAt),
@@ -1827,8 +1849,6 @@ export async function getSessionReplayTokenizedSummary(
   recordingId: string,
   viewerEmail: string,
 ): Promise<SessionRecordingSummary> {
-  // Tokenized reads often run without an authenticated request session. The
-  // viewer identity is still required by the signed, recording-scoped grant.
   const db = getDb() as any;
   // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
   const [row] = await db
@@ -1956,7 +1976,6 @@ export async function readSessionReplayChunkBytes(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
@@ -1971,7 +1990,6 @@ export async function readSessionReplayTokenizedChunkBytes(
   recording: AgentSessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const recording = await getSessionReplayTokenizedSummary(
@@ -1992,7 +2010,6 @@ async function readSessionReplayChunkBytesForRecording(
   recording: SessionRecordingSummary;
   seq: number;
   checksum: string;
-  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
   json: string;
 }> {
   const db = getDb() as any;
@@ -2009,12 +2026,6 @@ async function readSessionReplayChunkBytesForRecording(
     .limit(1);
   if (!row) throw replayError("Session replay chunk not found", 404);
 
-  // Return decompressed JSON and let normal Accept-Encoding negotiation handle
-  // wire compression. We intentionally do NOT hand back a pre-gzipped body with
-  // a manual `Content-Encoding: gzip` header: serverless hosts (Netlify) mangle
-  // binary function bodies and re-negotiate compression, which corrupted replay
-  // chunk downloads in production and left the player blank. Storing gzip at
-  // rest is unchanged — we just gunzip before serving.
   if (row.storageKind === "blob" && row.storageRef) {
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)

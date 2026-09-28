@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,13 +12,8 @@ import { openCliHandoff } from "./runner.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
+const fileUploadIndex = path.resolve(__dirname, "../file-upload/index.ts");
 
-// `tsx` is a transitive (not declared) dependency, so the hoisted
-// `node_modules/.bin/tsx` shim exists under a local non-strict install but
-// NOT under CI's `pnpm install --frozen-lockfile` strict layout — spawning
-// the missing shim returns `status: null` (ENOENT). Resolve the real CLI
-// entry from the pnpm virtual store (always present when tsx is locked) and
-// run it through `process.execPath` so the spec is layout-independent.
 function resolveTsxCli(): string {
   const binCandidates = [
     path.join(repoRoot, "node_modules", ".bin", "tsx"),
@@ -49,8 +45,6 @@ function resolveTsxCli(): string {
 }
 
 const tsxCli = resolveTsxCli();
-// A `.bin` shim is directly executable; a resolved `cli.mjs` must be run via
-// node. Normalize both into a (command, leadingArgs) pair.
 const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
 const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
 const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
@@ -62,6 +56,21 @@ describe("runScript package actions", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-runner-"));
     fs.mkdirSync(path.join(tmpDir, "actions"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "_cli-bootstrap.ts"),
+      `
+        import { registerFileUploadProvider } from ${JSON.stringify(pathToFileURL(fileUploadIndex).href)};
+
+        if (process.env.FIXTURE_APP_UPLOAD_PROVIDER) {
+          registerFileUploadProvider({
+            id: "s3",
+            name: "Fixture app storage",
+            isConfigured: () => true,
+            upload: async () => ({ url: "https://app.example/a", provider: "s3" }),
+          });
+        }
+      `,
+    );
     fs.writeFileSync(
       path.join(tmpDir, "actions", "run.ts"),
       `
@@ -97,6 +106,26 @@ describe("runScript package actions", () => {
                   }),
                 );
                 return "context-ok";
+              },
+            },
+            "package-upload": {
+              tool: {
+                description: "Fixture package action upload",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async () => {
+                const { getActiveFileUploadProviderForRequest } = await import(
+                  ${JSON.stringify(pathToFileURL(fileUploadIndex).href)}
+                );
+                const provider = await getActiveFileUploadProviderForRequest();
+                writeFileSync(
+                  "package-upload.json",
+                  JSON.stringify({
+                    name: provider?.name ?? null,
+                    provider: provider?.id ?? null,
+                  }),
+                );
+                return "upload-ok";
               },
             },
             "package-handoff": {
@@ -151,6 +180,114 @@ describe("runScript package actions", () => {
     expect(result.stdout).toContain("package-action");
   }, 40_000);
 
+  it("short-circuits named action help before dev dispatch or imports", () => {
+    const databaseUrl = `pglite:${path.join(tmpDir, "session-db")}`;
+    const marker = (name: string) => path.join(tmpDir, name);
+    const writeMarker = (name: string, content: string) =>
+      `writeFileSync(${JSON.stringify(marker(name))}, ${JSON.stringify(content)});`;
+
+    fs.mkdirSync(path.join(tmpDir, "server", "plugins"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "server", "plugins", "db.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        ${writeMarker("plugin-import.marker", "imported")}
+        export default async function () {
+          ${writeMarker("plugin-run.marker", "ran")}
+        }
+      `,
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "mutating-action.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        ${writeMarker("action-import.marker", "imported")}
+        export default async function () {
+          ${writeMarker("action-run.marker", "ran")}
+        }
+      `,
+    );
+    fs.mkdirSync(path.join(tmpDir, ".agent-native"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, ".agent-native", "dev-server.json"),
+      JSON.stringify({
+        origin: "http://127.0.0.1:9488",
+        pid: process.pid,
+        token: "fixture-token",
+        databaseKey: createHash("sha256").update(databaseUrl).digest("hex"),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "run.ts"),
+      `
+        import { writeFileSync } from "node:fs";
+        import { runScript } from ${JSON.stringify(pathToFileURL(runnerSource).href)};
+
+        globalThis.fetch = async () => {
+          ${writeMarker("forward.marker", "called")}
+          return {
+            status: 200,
+            json: async () => ({ ok: true, result: "forwarded fixture" }),
+          } as Response;
+        };
+        runScript();
+      `,
+    );
+
+    const env = { ...process.env };
+    for (const key of [
+      "AGENT_USER_EMAIL",
+      "AGENT_ORG_ID",
+      "APP_NAME",
+      "AUTH_MODE",
+      "DATABASE_URL_UNPOOLED",
+      "NETLIFY_DATABASE_URL",
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "NODE_ENV",
+    ]) {
+      delete env[key];
+    }
+    env.DATABASE_URL = databaseUrl;
+    env.NODE_ENV = "development";
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "mutating-action", "--help"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Usage: pnpm action");
+    expect(result.stdout).not.toContain(
+      "Run any action with --help for usage details.",
+    );
+    for (const name of [
+      "forward.marker",
+      "plugin-import.marker",
+      "plugin-run.marker",
+      "action-import.marker",
+      "action-run.marker",
+    ]) {
+      expect(fs.existsSync(marker(name))).toBe(false);
+    }
+    expect(fs.existsSync(path.join(tmpDir, "session-db"))).toBe(false);
+
+    const forwarded = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "mutating-action"],
+      { cwd: tmpDir, encoding: "utf8", env, timeout: spawnTimeoutMs },
+    );
+    expect(forwarded.status).toBe(0);
+    expect(forwarded.stdout).toContain("forwarded fixture");
+    expect(fs.existsSync(marker("forward.marker"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, "session-db"))).toBe(false);
+  }, 40_000);
+
   it("runs a package action when no local action exists", () => {
     const result = spawnSync(
       tsxCommand,
@@ -192,6 +329,61 @@ describe("runScript package actions", () => {
     });
   }, 40_000);
 
+  it("resolves the built-in S3 provider with no server plugins mounted", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-upload"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+          S3_ENDPOINT: "https://s3.example.com",
+          S3_BUCKET: "uploads-example",
+          S3_ACCESS_KEY_ID: "access-example",
+          S3_SECRET_ACCESS_KEY: "secret-example",
+          S3_REGION: "us-east-1",
+          S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.stdout).toContain("upload-ok");
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-upload.json"), "utf8"),
+      ),
+    ).toEqual({ name: "S3-compatible object storage", provider: "s3" });
+  }, 40_000);
+
+  it("loads the app's CLI bootstrap and keeps its provider", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-upload"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+          FIXTURE_APP_UPLOAD_PROVIDER: "1",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.stdout).toContain("upload-ok");
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-upload.json"), "utf8"),
+      ),
+    ).toEqual({ name: "Fixture app storage", provider: "s3" });
+  }, 40_000);
+
   it("marks a signed-out local action invocation as CLI without inventing an account user", () => {
     const env = { ...process.env };
     delete env.AGENT_USER_EMAIL;
@@ -222,6 +414,45 @@ describe("runScript package actions", () => {
       orgId: null,
       appId: "fixture-app",
     });
+  }, 40_000);
+
+  it("registers action authorization before dispatching a CLI action", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "actions", "guarded-action.ts"),
+      `
+        import { defineAction } from ${JSON.stringify(pathToFileURL(path.resolve(__dirname, "../action.ts")).href)};
+
+        export default defineAction({
+          description: "Fixture action with an app access policy",
+          parameters: {},
+          access: { scope: "app" },
+          run: async () => "should-not-run",
+        });
+      `,
+    );
+
+    const env = { ...process.env };
+    delete env.AGENT_USER_EMAIL;
+    delete env.AGENT_ORG_ID;
+    env.AGENT_NATIVE_APP_ID = "fixture-app";
+    env.NODE_ENV = "production";
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "guarded-action"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("An authenticated user is required.");
+    expect(result.stderr).not.toContain(
+      "Action authorization runtime is not available.",
+    );
   }, 40_000);
 
   it("fails safely when browser handoff is disabled without printing its credential", () => {
@@ -349,6 +580,57 @@ describe("runScript package actions", () => {
         command: "open",
         args: [
           "http://localhost:8140/_agent-native/embed/start?ticket=trusted-only",
+        ],
+      },
+    ]);
+  });
+
+  it("uses a verified discovery origin for a relative handoff", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=discovered",
+      {
+        env: {},
+        baseUrl: "http://127.0.0.1:8141",
+        platform: "darwin",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "open",
+        args: [
+          "http://127.0.0.1:8141/_agent-native/embed/start?ticket=discovered",
+        ],
+      },
+    ]);
+  });
+
+  it("uses the supported gateway fallback for relative handoffs", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=gateway-fallback",
+      {
+        env: { WORKSPACE_GATEWAY_URL: "http://127.0.0.1:8140" },
+        platform: "linux",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "xdg-open",
+        args: [
+          "http://127.0.0.1:8140/_agent-native/embed/start?ticket=gateway-fallback",
         ],
       },
     ]);

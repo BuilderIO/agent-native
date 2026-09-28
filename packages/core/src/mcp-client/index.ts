@@ -1,10 +1,3 @@
-/**
- * MCP client module — symmetric counterpart to `@agent-native/core/mcp`
- * (the MCP server). Connects to local MCP servers configured in
- * `mcp.config.json` or the `MCP_SERVERS` env var and exposes their tools
- * to the agent-chat tool-use loop.
- */
-
 export {
   loadMcpConfig,
   autoDetectMcpConfig,
@@ -39,6 +32,12 @@ export {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+
+export {
+  findConnectedMcpServersForProvider,
+  type ConnectedMcpProviderResult,
+  type ConnectedMcpProviderServer,
+} from "./provider-connections.js";
 
 export {
   finishMcpOAuthAuthorization,
@@ -150,11 +149,6 @@ import {
 
 import { MCP_APP_MIME_TYPE } from "../action.js";
 import type { EngineToolResultImagePart } from "../agent/engine/types.js";
-/**
- * Convert MCP tools into `ActionEntry` values suitable for registration in
- * the agent's action registry. Each tool is marked `http: false` so it's
- * never auto-mounted as an HTTP endpoint — MCP tools are agent-only.
- */
 import type { ActionEntry } from "../agent/production-agent.js";
 import { normalizeToolResultImages } from "../agent/tool-result-images.js";
 import {
@@ -172,9 +166,7 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
-  /** Restrict the generated entries to an explicit background capability set. */
   toolNames?: readonly string[];
-  /** Add app-owned approval metadata without replacing the MCP runtime wrapper. */
   resolveActionEntry?: (
     tool: McpTool,
   ) =>
@@ -197,15 +189,6 @@ export function mcpToolsToActionEntries(
   return entries;
 }
 
-/**
- * Mutate a target action dict in place so it matches the current MCP tool set:
- * - adds new `mcp__*` keys that aren't in target,
- * - removes `mcp__*` keys that no longer exist in the manager,
- * - leaves non-MCP keys untouched.
- *
- * Used by the agent-chat plugin to keep its `prodActions` / `devActions`
- * registries in sync after `McpClientManager.reconfigure()` runs.
- */
 export function syncMcpActionEntries(
   manager: McpClientManager,
   target: Record<string, ActionEntry>,
@@ -344,13 +327,6 @@ function hasStructuredContent(result: unknown): boolean {
   );
 }
 
-/**
- * Extract vision images from a raw MCP tool result so the model can SEE
- * screenshots/previews returned by external MCP tools instead of only the
- * `[image: <mime>]` placeholder that `flattenMcpToolResult` leaves in the
- * text. Shares the per-result caps with `_agentImages` (max count, max base64
- * size); over-cap or unsupported images stay placeholder-only. Never throws.
- */
 export function extractMcpToolResultImages(
   result: unknown,
 ): EngineToolResultImagePart[] {

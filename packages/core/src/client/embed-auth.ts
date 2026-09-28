@@ -6,10 +6,12 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   SIGN_IN_ENTRY_PATH,
   SIGN_IN_LEGACY_ENTRY_PATH,
 } from "../shared/sign-in-journey.js";
+import { frameworkRoutePrefix } from "./api-path.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -125,7 +127,6 @@ export function isEmbedMcpChatBridgeActive(): boolean {
   if (mcpChatBridgeActive) {
     if (scope == null) return true;
     if (mcpChatBridgeScope == null || mcpChatBridgeScope === scope) {
-      // Capture the scope now that we have one; future calls can compare.
       mcpChatBridgeScope = scope;
       return true;
     }
@@ -137,8 +138,6 @@ export function isEmbedMcpChatBridgeActive(): boolean {
       MCP_CHAT_BRIDGE_STORAGE_KEY,
     );
     if (storedScope && (scope == null || storedScope === scope)) {
-      // Promote the persisted enrollment into in-memory state so subsequent
-      // reads survive sessionStorage becoming unavailable later in the session.
       mcpChatBridgeActive = true;
       mcpChatBridgeScope = storedScope;
       return true;
@@ -269,9 +268,6 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
   };
   pendingMcpChatBridgeViewportNotification = nextPending;
   const notifyIfCurrent = () => {
-    // Some hosts expose requestAnimationFrame/timers from a different clock
-    // than the one used by clearTimeout. The identity guard keeps a superseded
-    // setup from notifying even when cancellation cannot reach that clock.
     if (pendingMcpChatBridgeViewportNotification !== nextPending) return;
     notify();
   };
@@ -288,7 +284,6 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
   }
 }
 
-/** Internal test helper. Do not use in app code. */
 export function _resetEmbedAuthForTests(): void {
   if (pendingMcpChatBridgeViewportNotification) {
     const pending = pendingMcpChatBridgeViewportNotification;
@@ -322,7 +317,6 @@ function isOpaqueOriginFrame(win: Window): boolean {
   try {
     return win.location.origin === "null";
   } catch {
-    // A thrown access is itself a signal of an opaque/cross-origin context.
     return true;
   }
 }
@@ -382,10 +376,11 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
 }
 
 function isAgentNativeRuntimePath(pathname: string): boolean {
-  return (
-    pathname === "/_agent-native" ||
-    pathname.endsWith("/_agent-native") ||
-    pathname.includes("/_agent-native/")
+  return [FRAMEWORK_INTERNAL_ROUTE_PREFIX, frameworkRoutePrefix()].some(
+    (prefix) =>
+      pathname === prefix ||
+      pathname.endsWith(prefix) ||
+      pathname.includes(`${prefix}/`),
   );
 }
 
@@ -408,9 +403,6 @@ function isAuthFailureStatus(status: number): boolean {
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
-  // Suffix, not equality: an app mounted under a base path serves
-  // `/<app>/sign-in` (or the legacy framework path), which an exact match
-  // would miss.
   if (
     url.pathname.endsWith(SIGN_IN_ENTRY_PATH) ||
     url.pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH)
@@ -570,10 +562,11 @@ export function ensureEmbedAuthFetchInterceptor(): void {
 
   if (installed) return;
   if (typeof win.fetch !== "function") return;
-  installed = true;
-
   const originalFetch = win.fetch.bind(win);
-  win.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const patchedFetch = (async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
     const request = requestUrlAndKey(input, init, win);
     const embedMode = isEmbedAuthActive();
     if (request?.shouldGuard) {
@@ -596,4 +589,18 @@ export function ensureEmbedAuthFetchInterceptor(): void {
     }
     return response;
   }) as typeof fetch;
+  try {
+    win.fetch = patchedFetch;
+  } catch {
+    try {
+      Object.defineProperty(win, "fetch", {
+        configurable: true,
+        value: patchedFetch,
+        writable: true,
+      });
+    } catch {
+      return;
+    }
+  }
+  installed = true;
 }

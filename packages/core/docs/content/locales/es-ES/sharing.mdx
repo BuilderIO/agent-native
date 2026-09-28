@@ -86,6 +86,10 @@ Cuando compartes con un usuario u organización específica, eliges una función
 
 `admin` cambia de propietario en NOT; todavía hay exactamente un propietario por recurso, distinto de las concesiones de acciones.
 
+### Concesiones a grupos {#group-grants}
+
+Algunos recursos permiten compartir con grupos. El grupo debe pertenecer a la organización del recurso, y cada miembro actual recibe el rol elegido para ese recurso. Consulta [Organizaciones, equipos y permisos → Grupos de usuarios](/docs/organizations-teams-permissions#user-groups) para saber qué abarcan los grupos y qué no.
+
 ## Qué está cubierto {#covered}
 
 Cada plantilla que almacena trabajos escritos por usuarios utiliza este modelo. En concreto:
@@ -106,7 +110,7 @@ Cada uno de estos utiliza el mismo asistente de esquema `ownableColumns()`, la m
 
 Algunas áreas están intencionalmente fuera del sistema de intercambio:
 
-- **Aplicaciones de datos personales** (correo, macros): diseñadas para el usuario. No existe el concepto de "compartir mi bandeja de entrada".
+- **Aplicaciones de datos personales** como el correo: diseñadas para el usuario. No existe el concepto de "compartir mi bandeja de entrada".
 - **Aplicaciones externas de fuente confiable**: el control de acceso reside en el sistema ascendente, no en la aplicación nativa del agente.
 - **URL públicos anónimos**: los slugs de publicación de formularios y los slugs de enlaces de reserva que exponen un URL a usuarios desconectados son un eje separado. Viven junto al sistema de intercambio, no encima de él.
 

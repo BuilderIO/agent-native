@@ -24,4 +24,13 @@ describe("Design editor pending generation hydration", () => {
     );
     expect(reconciliationEffect).toContain("sessionResolved,");
   });
+
+  it("clears the generating indicator when confirmed output is present", () => {
+    const outputEffect = editorSource.match(
+      /useEffect\(\(\) => \{\n    if \(!id\) return;\n    const pending = readPendingGeneration\(id\);[\s\S]*?hasPendingGenerationOutput\(pending, files\)[\s\S]*?\n  \}, \[[\s\S]*?\n  \]\);/,
+    )?.[0];
+
+    expect(outputEffect).toContain("resetAgentGenerating();");
+    expect(outputEffect).toContain("resetAgentGenerating");
+  });
 });

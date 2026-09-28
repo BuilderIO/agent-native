@@ -126,6 +126,9 @@ describe("DocsSidebar", () => {
     expect(databaseGroup?.children?.map((item) => item.id)).toEqual([
       "database-neon",
       "database-supabase",
+      "database-aws-rds",
+      "database-cloud-sql",
+      "database-azure-postgres",
       "database-postgres",
     ]);
     const productionGroup = deployment?.items.find(
@@ -155,6 +158,30 @@ describe("DocsSidebar", () => {
       "core-architecture",
       "apps",
     ]);
+
+    const apps = sections.find((section) => section.id === "apps");
+    expect(apps?.items.slice(0, 4).map((item) => item.id)).toEqual([
+      "cloneable-saas",
+      "creating-templates",
+      "syncing-template-changes",
+      "pure-agent-apps",
+    ]);
+    expect(sectionIds).not.toContain("build-apps");
+
+    const usingYourAgent = sections.find(
+      (section) => section.id === "using-your-agent",
+    );
+    expect(usingYourAgent?.items.map((item) => item.id)).toContain(
+      "embedding-sdk",
+    );
+
+    const agentResources = sections.find(
+      (section) => section.id === "agent-resources",
+    );
+    expect(agentResources?.items.map((item) => item.id)).toContain(
+      "writing-agent-instructions",
+    );
+    expect(getDocsNavItems().map((item) => item.id)).not.toContain("frames");
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {
@@ -186,11 +213,9 @@ describe("DocsSidebar", () => {
   it("renders the Plans group as a chevron-only toggle with nested sub-items", () => {
     const html = renderSidebar("/docs/template-plan");
 
-    // "Plans" is a chevron-only group trigger, not a link.
     expect(html).toContain("sidebar-group-trigger");
     expect(html).not.toContain('href="/docs/visual-plans/"');
 
-    // The main Plans doc is the first child, plus the two satellites.
     expect(html).toContain("docs-sidebar-subitems");
     const mainDocLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(mainDocLink).toContain("sidebar-sublink");
@@ -223,7 +248,6 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Apps");
     expect(html).toContain('aria-expanded="true"');
 
-    // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');

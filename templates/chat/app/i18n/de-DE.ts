@@ -32,6 +32,12 @@ const messages = {
     newChat: "Neuer Chat",
     optionsFor: "Optionen für",
     pinChat: "Chat anheften",
+    pinned: "Angepinnt",
+    recents: "Kürzlich",
+    retryPreviousRequest:
+      "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
+    retryAttachmentUnavailable:
+      "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",
     renameFailed: "Umbenennen fehlgeschlagen",
     renameThread: "Thread umbenennen",
@@ -39,6 +45,7 @@ const messages = {
     suggestionCapabilities: "Was kann diese App?",
     suggestionCustomize: "Hilf mir, diese App anzupassen",
     unpinChat: "Chat lösen",
+    untitledChat: "Unbenannter Chat",
   },
   navigation: {
     chat: "Chat",

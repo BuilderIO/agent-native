@@ -43,7 +43,7 @@ export function DesignCollaboratorAvatar({
   return (
     <Avatar
       className={cn(
-        "size-7 border-2 border-[var(--design-editor-panel-bg)] shadow-sm",
+        "size-7 border border-[var(--design-editor-panel-bg)] shadow-sm",
         className,
       )}
     >

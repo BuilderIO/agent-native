@@ -1,7 +1,10 @@
 import { getFrameGroupBounds } from "@shared/canvas-math";
-import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import type {
+  CodeLayerNode,
+  CodeLayerTreeNode,
+  WrapNodeSizeHint,
+} from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
-import { normalizeDesignSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -16,13 +19,24 @@ import {
 import type { RuntimeLayerSnapshot } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { AlignableRect } from "@/pages/design-editor/layout-operations";
-import { inferAutoLayoutFromChildren } from "@/pages/design-editor/layout-operations";
+import {
+  authoredPxLength,
+  inferAutoLayoutFromChildren,
+} from "@/pages/design-editor/layout-operations";
+import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import {
   enableInlineScreenAutoLayout,
   getRuntimeScreenAutoLayoutSubjectIds,
 } from "@/pages/design-editor/screen-auto-layout";
 import { overviewSelectionTargetsElement } from "@/pages/design-editor/selection-state";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { ApplyFileContentUpdateResult } from "./apply-file-content-update";
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
 
 export interface AddAutoLayoutArgs {
   activeFile: DesignFile;
@@ -38,7 +52,7 @@ export interface AddAutoLayoutArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyFileContentUpdateResult;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -52,7 +66,7 @@ export interface AddAutoLayoutArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
     Map<
@@ -122,8 +136,6 @@ export function runAddAutoLayout({
   });
   if (!canEditDesign) return;
 
-  // Overview handles whole screens; a layer selection must still reach the
-  // element path below, as Figma applies Shift+A to whatever is selected.
   if (
     viewModeRef.current === "overview" &&
     !overviewSelectionTargetsElement({
@@ -148,8 +160,10 @@ export function runAddAutoLayout({
       (candidate) => candidate.id === screenId,
     );
     if (!screen) return;
-    const screenSourceType =
-      normalizeDesignSourceType(screen.sourceType) ?? designSourceType;
+    const screenSourceType = resolveOverviewScreenSourceType(
+      screen,
+      designSourceType,
+    );
 
     if (screenSourceType === "localhost") {
       const snapshot = runtimeLayerSnapshotsById[screenId];
@@ -158,7 +172,9 @@ export function runAddAutoLayout({
         return;
       }
       const runtimeSubjectIds = getRuntimeScreenAutoLayoutSubjectIds(
-        buildCodeLayerProjection(snapshot.html),
+        buildCodeLayerProjection(snapshot.html, {
+          source: { kind: "inline-html", fileId: screenId },
+        }),
       );
       if (runtimeSubjectIds.length === 0) {
         toast.error(t("designEditor.toasts.reactSourceAnchorsLoading"));
@@ -183,6 +199,7 @@ export function runAddAutoLayout({
         content: baseContent,
         width: screen.width,
         height: screen.height,
+        source: { kind: "design-file", fileId: screenId },
       });
       if (result.status === "unsupported") {
         toast(t("designEditor.toasts.autoLayoutScreensUnsupported"));
@@ -219,20 +236,35 @@ export function runAddAutoLayout({
     return;
   }
   const baseContent = getFreshActiveContent();
+  const source = { kind: "design-file" as const, fileId: activeFile.id };
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
   if (nodeIds.length === 0) return;
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
 
   if (nodeIds.length >= 2) {
-    // (b) multi-selection: wrap siblings into a new inferred flex
-    // container in one call (wrapNodes already strips each child's own
-    // position/left/top/right/bottom when autoLayout is true).
     const selectedNodes = nodeIds
       .map((nodeId) => nodesById.get(nodeId))
       .filter((node): node is CodeLayerNode => Boolean(node));
     if (selectedNodes.length < 2) return;
     const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
+    const sizeHints: Record<string, WrapNodeSizeHint> = {};
+    for (const [index, node] of selectedNodes.entries()) {
+      const rect = selectedRects[index];
+      if (
+        !rect ||
+        ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)
+      ) {
+        continue;
+      }
+      const hint: WrapNodeSizeHint = {
+        width: rect.width,
+        height: rect.height,
+      };
+      if (authoredPxLength(node.style.left) === null) hint.left = rect.x;
+      if (authoredPxLength(node.style.top) === null) hint.top = rect.y;
+      if (Object.keys(hint).length > 0) sizeHints[node.id] = hint;
+    }
     const bounds = getFrameGroupBounds(selectedRects);
     const inferred = inferAutoLayoutFromChildren(
       bounds
@@ -245,11 +277,16 @@ export function runAddAutoLayout({
         : { x: 0, y: 0, width: 0, height: 0 },
       selectedRects,
     );
-    const patch = applyVisualEdit(baseContent, {
-      kind: "wrapNodes",
-      targetIds: nodeIds,
-      autoLayout: true,
-    });
+    const patch = applyVisualEdit(
+      baseContent,
+      {
+        kind: "wrapNodes",
+        targetIds: nodeIds,
+        autoLayout: true,
+        sizeHints: Object.keys(sizeHints).length > 0 ? sizeHints : undefined,
+      },
+      { source },
+    );
     if (patch.result.status !== "applied") {
       toast.error(
         codeLayerPatchMessage(
@@ -262,31 +299,54 @@ export function runAddAutoLayout({
     }
     let nextContent = patch.content;
     const wrapperId = patch.result.wrapperNodeId;
-    if (wrapperId) {
-      const gapPatch = applyVisualEdit(nextContent, {
-        kind: "style",
-        target: { nodeId: wrapperId },
-        property: "flex-direction",
-        value: inferred.direction,
-      });
-      if (gapPatch.result.status === "applied") {
-        nextContent = gapPatch.content;
-        const paddingPatch = applyVisualEdit(nextContent, {
+    const promotedSelectedNode = Boolean(
+      wrapperId && nodeIds.includes(wrapperId),
+    );
+    if (wrapperId && !promotedSelectedNode) {
+      const gapPatch = applyVisualEdit(
+        nextContent,
+        {
           kind: "style",
           target: { nodeId: wrapperId },
-          property: "gap",
-          value: `${inferred.gap}px`,
-        });
+          property: "flex-direction",
+          value: inferred.direction,
+        },
+        { source },
+      );
+      if (gapPatch.result.status === "applied") {
+        nextContent = gapPatch.content;
+        const paddingPatch = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property: "gap",
+            value: `${inferred.gap}px`,
+          },
+          { source },
+        );
         if (paddingPatch.result.status === "applied") {
           nextContent = paddingPatch.content;
         }
       }
     }
-    applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
+    const submittedProjection = buildCodeLayerProjection(nextContent, {
+      source,
+    });
+    const wrapperCandidate = wrapperId
+      ? submittedProjection.nodes.find(
+          (n) => n.dataAttributes["data-agent-native-node-id"] === wrapperId,
+        )
+      : null;
+    const publication = applyLocalContentUpdate(nextContent, {
+      forcePreviewFullDocument: true,
+    });
+    if (publication.status !== "accepted") return;
     if (wrapperId) {
-      const taggedProjection = buildCodeLayerProjection(nextContent);
-      const wrapperNode = taggedProjection.nodes.find(
-        (n) => n.dataAttributes["data-agent-native-node-id"] === wrapperId,
+      const wrapperNode = mapAcceptedSelectionNode(
+        publication,
+        projectAcceptedSource(publication, source),
+        wrapperCandidate,
       );
       if (wrapperNode) {
         setSelectedLayerIdsState([wrapperNode.id]);
@@ -296,19 +356,19 @@ export function runAddAutoLayout({
     return;
   }
 
-  // (a) single selected element. Figma wraps a leaf in a new vertical,
-  // zero-padding auto-layout frame; an existing container is converted.
   const soleNode = nodesById.get(nodeIds[0]!);
   if (!soleNode) return;
-  // An empty frame is a container, not a leaf: Figma converts it in place
-  // and only wraps a true leaf (text, shape) in a new auto-layout frame.
   const soleIsFrame = soleNode.dataAttributes["data-an-primitive"] === "frame";
   if (soleNode.children.length === 0 && !soleIsFrame) {
-    const wrapped = applyVisualEdit(baseContent, {
-      kind: "wrapNodes",
-      targetIds: [soleNode.id],
-      autoLayout: true,
-    });
+    const wrapped = applyVisualEdit(
+      baseContent,
+      {
+        kind: "wrapNodes",
+        targetIds: [soleNode.id],
+        autoLayout: true,
+      },
+      { source },
+    );
     if (wrapped.result.status !== "applied") {
       toast.error(
         codeLayerPatchMessage(
@@ -329,21 +389,37 @@ export function runAddAutoLayout({
         ["width", "fit-content"],
         ["height", "fit-content"],
       ] as const) {
-        const styled = applyVisualEdit(nextContent, {
-          kind: "style",
-          target: { nodeId: wrapperId },
-          property,
-          value,
-        });
+        const styled = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property,
+            value,
+          },
+          { source },
+        );
         if (styled.result.status === "applied") nextContent = styled.content;
       }
     }
-    applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
+    const submittedProjection = buildCodeLayerProjection(nextContent, {
+      source,
+    });
+    const wrapperCandidate = wrapperId
+      ? submittedProjection.nodes.find(
+          (node) =>
+            node.dataAttributes["data-agent-native-node-id"] === wrapperId,
+        )
+      : null;
+    const publication = applyLocalContentUpdate(nextContent, {
+      forcePreviewFullDocument: true,
+    });
+    if (publication.status !== "accepted") return;
     if (wrapperId) {
-      const projectionAfter = buildCodeLayerProjection(nextContent);
-      const wrapperNode = projectionAfter.nodes.find(
-        (node) =>
-          node.dataAttributes["data-agent-native-node-id"] === wrapperId,
+      const wrapperNode = mapAcceptedSelectionNode(
+        publication,
+        projectAcceptedSource(publication, source),
+        wrapperCandidate,
       );
       if (wrapperNode) {
         setSelectedLayerIdsState([wrapperNode.id]);
@@ -355,18 +431,20 @@ export function runAddAutoLayout({
   const childNodes = soleNode.children
     .map((childId) => nodesById.get(childId))
     .filter((node): node is CodeLayerNode => Boolean(node));
-  // An empty frame still takes auto layout in Figma, and
-  // inferAutoLayoutFromChildren already defaults that case to a column.
   const containerRect = rectFromCodeLayerNode(soleNode);
   const childRects = childNodes.map(rectFromCodeLayerNode);
   const inferred = inferAutoLayoutFromChildren(containerRect, childRects);
-  const patch = applyVisualEdit(baseContent, {
-    kind: "autoLayout",
-    targetId: soleNode.id,
-    enabled: true,
-    direction: inferred.direction,
-    gap: `${inferred.gap}px`,
-  });
+  const patch = applyVisualEdit(
+    baseContent,
+    {
+      kind: "autoLayout",
+      targetId: soleNode.id,
+      enabled: true,
+      direction: inferred.direction,
+      gap: `${inferred.gap}px`,
+    },
+    { source },
+  );
   if (patch.result.status !== "applied") {
     toast.error(
       codeLayerPatchMessage(
@@ -378,11 +456,6 @@ export function runAddAutoLayout({
     return;
   }
   let nextContent = patch.content;
-  // Figma reflows children when auto layout is enabled; opting one out is the
-  // explicit "ignore auto layout" toggle. wrapNodes already strips these on
-  // the multi-selection path — do the same for a single container.
-  // An empty value is rejected by isSafeStyleValue, so neutralise with CSS
-  // initial values rather than trying to remove the declarations.
   const reflowResets: Array<[string, string]> = [
     ["position", "static"],
     ["left", "auto"],
@@ -392,22 +465,30 @@ export function runAddAutoLayout({
   ];
   for (const childNode of childNodes) {
     for (const [property, value] of reflowResets) {
-      const stripped = applyVisualEdit(nextContent, {
-        kind: "style",
-        target: { nodeId: childNode.id },
-        property,
-        value,
-      });
+      const stripped = applyVisualEdit(
+        nextContent,
+        {
+          kind: "style",
+          target: { nodeId: childNode.id },
+          property,
+          value,
+        },
+        { source },
+      );
       if (stripped.result.status === "applied") nextContent = stripped.content;
     }
   }
   if (inferred.padding > 0) {
-    const paddingPatch = applyVisualEdit(nextContent, {
-      kind: "style",
-      target: { nodeId: soleNode.id },
-      property: "padding",
-      value: `${inferred.padding}px`,
-    });
+    const paddingPatch = applyVisualEdit(
+      nextContent,
+      {
+        kind: "style",
+        target: { nodeId: soleNode.id },
+        property: "padding",
+        value: `${inferred.padding}px`,
+      },
+      { source },
+    );
     if (paddingPatch.result.status === "applied") {
       nextContent = paddingPatch.content;
     }

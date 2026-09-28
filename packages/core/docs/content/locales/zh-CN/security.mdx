@@ -78,6 +78,8 @@ description: "代理原生应用的安全模型：输入验证、SQL 注入预�
 | 秘密曝光     | `.env` gitignored;静态加密的凭证和保管库 (AES-256-GCM)       |
 | SSRF         | `ssrfSafeFetch` 阻止内部/元数据目标 + 重定向重新绑定         |
 
+框架从会话创建请求上下文，并在应用读写中通过 `accessFilter()` 和 `assertAccess()` 强制执行所有权。代理 SQL 会收到按当前身份和组织过滤的临时视图。RLS 尚未启用，因此应用的直接查询仍必须使用这些辅助函数。
+
 ## 输入验证 {#input-validation}
 
 将 `defineAction` 与 Zod `schema:` 一起用于每个操作。该框架会在代码运行之前自动验证输入：

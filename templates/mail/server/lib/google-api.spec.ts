@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { gmailBatchGetMessages, googleFetch } from "./google-api.js";
+import {
+  GmailQuotaCooldownError,
+  createOAuth2Client,
+  gmailBatchGetMessages,
+  googleFetch,
+} from "./google-api.js";
 
 function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {
   return new Response(JSON.stringify(body), {
@@ -79,6 +84,43 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("preserves the HTTP status when OAuth refresh returns a non-JSON error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("upstream unavailable", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
+      ),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: Service Unavailable",
+      status: 503,
+    });
+  });
+
+  it("preserves the HTTP status and OAuth code for permanent refresh failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(400, { error: "invalid_scope" })),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: invalid_scope",
+      status: 400,
+    });
+  });
+
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {
     const fetchMock = vi
       .fn()
@@ -104,8 +146,96 @@ describe("googleFetch quota handling", () => {
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         "quota-token-a",
       ),
+    ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-a",
+      ),
     ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("floors a short provider Retry-After to the circuit breaker's own cooldown", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-floor",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
+    expect((caught as Error).message).toMatch(/about 90s/);
+    expect((caught as Error).message).not.toContain("Ask the user");
+    expect(caught).toMatchObject({
+      statusCode: 429,
+      errorCode: "gmail_quota_cooldown",
+      details: { retryAfterSeconds: 90 },
+    });
+  });
+
+  it("caps a long provider Retry-After to the breaker's advertised maximum", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "600" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let caught: unknown;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-cap",
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
+    expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(300_000);
+    expect((caught as Error).message).toMatch(/about 300s/);
+  });
+
+  it("classifies a whole-batch HTTP 429 as a typed cooldown error, not raw batch-failure text", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          429,
+          { error: { message: "User-rate limit exceeded" } },
+          { "retry-after": "30" },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const rejection = gmailBatchGetMessages(
+      "quota-token-whole-batch",
+      ["msg-1"],
+      "metadata",
+    );
+    await expect(rejection).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+    await expect(rejection).rejects.toThrow(/about 90s/);
   });
 
   it("treats quota failures inside Gmail batch parts as a whole-call cooldown", async () => {

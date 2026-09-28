@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### Produktionsdatenbank {#production}
 
-Legen Sie `DATABASE_URL` in Ihrer `.env`-Datei oder der Umgebung Ihres Deploy-Providers fest, um eine gehostete PostgreSQL-Datenbank zu verbinden:
+Legen Sie `DATABASE_URL` in Ihrer `.env`-Datei oder der Umgebung Ihres Deploy-Providers fest, um eine gehostete PostgreSQL-Datenbank zu verbinden. Zu den gängigen verwalteten Optionen gehören [Neon](/docs/neon), [Supabase](/docs/supabase), [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) und [Azure Database for PostgreSQL](/docs/azure-postgresql). Der Leitfaden [Plain Postgres](/docs/postgres) deckt andere verwaltete Dienste und selbst gehostete PostgreSQL-Server ab:
 
 ```bash
 # Neon Postgres
@@ -98,6 +98,8 @@ DATABASE_URL=pglite:./data/pglite
 ```
 
 Das Framework konfiguriert Drizzle anhand von `DATABASE_URL` für PostgreSQL.
+
+Das Framework begrenzt Verbindungen pro Pool. Standardwerte sind 20 für langlebige Node.js-Prozesse, 2 für serverlose Vordergrundfunktionen, 4 für serverlose Hintergrundfunktionen und 1 für geplante Worker mit geringem Verbindungsbedarf. `AGENT_NATIVE_DB_POOL_MAX` überschreibt das Limit pro Pool für Neon- und Standard-PostgreSQL-Clients. Schätzen Sie die Gesamtzahl über aktive Funktionsinstanzen oder Node.js-Prozesse, Apps und Datenbank-URLs. Jeder Prozess hat eigene Pools. Bleiben Sie unter dem Verbindungslimit der Datenbank oder des Poolers und lassen Sie Kapazität für Migrationen, Verwaltung und andere Clients frei. Verwenden Sie nach Möglichkeit den Pool-Endpunkt des Anbieters. Bei selbst gehostetem PostgreSQL mit vielen App-Prozessen kommt Transaktions-Pooling mit PgBouncer infrage.
 
 ### Von Builder.io verwaltete Datenbank {#builder-managed}
 

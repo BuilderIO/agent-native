@@ -4,15 +4,19 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import { addDaysToDateKey } from "@shared/timezone";
 import {
   useQueryClient,
   useQuery,
+  useQueries,
   keepPreviousData,
   type QueryKey,
 } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useMemo } from "react";
 
+import type { CalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
+import { isEventVisibleForDeclinedPreference } from "@/lib/calendar-view-preferences";
 import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
   isSharedCalendarDemo,
@@ -26,9 +30,15 @@ import {
 
 import {
   applyCalendarEventRsvp,
+  calendarEventIsInScope,
   calendarEventOverlapsListParams,
+  findCalendarEventById,
+  findCalendarEventForSelection,
+  getRemovedCalendarEvents,
   mergeCalendarEventIntoList,
+  removeCalendarEventsForScope,
   removeOptimisticCalendarEventFromList,
+  restoreMissingCalendarEvents,
 } from "./event-list-cache";
 
 type CreateEventInput = Omit<
@@ -51,6 +61,7 @@ type CreateEventInput = Omit<
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  cacheEventIdentity?: CalendarEventSourceIdentity;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
   removeGoogleMeet?: boolean;
@@ -69,7 +80,10 @@ type CreateEventMutationContext = EventListMutationContext & {
   optimisticId?: string;
 };
 type RsvpEventMutationContext = EventListMutationContext & {
-  previousEvent?: CalendarEvent;
+  previousEventQueries?: Array<[QueryKey, CalendarEvent | undefined]>;
+};
+type DeleteEventMutationContext = {
+  removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
 };
 
 type UpdateEventResult = Partial<CalendarEvent> & {
@@ -82,7 +96,15 @@ type UpdateEventResult = Partial<CalendarEvent> & {
 };
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
+export const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
+
+function invalidateEventQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: OVERLAY_EVENTS_BATCH_KEY });
+}
 
 function buildEventsParams(
   from?: string,
@@ -110,14 +132,6 @@ function getListEventsParams(
     return undefined;
   }
   return params as Record<string, string>;
-}
-
-function getEventQueryKey(id: string, calendarSourceKey?: string) {
-  return [
-    "action",
-    "get-event",
-    calendarSourceKey ? { id, calendarSourceKey } : { id },
-  ] as const;
 }
 
 export function getOptimisticTitleIsGenerated(
@@ -238,7 +252,7 @@ export function shouldDeferOptimisticEventUpdate(
   );
 }
 
-function updateListEventQueries(
+export function updateListEventQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   updater: (
     old: CalendarEvent[] | undefined,
@@ -249,30 +263,16 @@ function updateListEventQueries(
     queryKey: LIST_EVENTS_QUERY_KEY,
   });
 
-  for (const [queryKey] of queries) {
+  for (const [queryKey, data] of queries) {
     const params = getListEventsParams(queryKey);
+    if (params?.format === "inventory") continue;
+    if (data !== undefined && !Array.isArray(data)) continue;
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old) =>
       updater(old, params),
     );
   }
 }
 
-/**
- * Decide whether to show the full-page events skeleton.
- *
- * The skeleton should appear only when there is nothing meaningful to show for
- * the *current date range* — the very first load, or navigating to a range we
- * have not fetched yet. When only the *set* of calendars or person overlays
- * changes (adding/removing a feed or person), the events query key changes and
- * `keepPreviousData` keeps the user's existing events on screen as placeholder
- * data; flashing a skeleton over them — wiping the calendar for several seconds
- * — is the bug we are avoiding. In that case we keep the events visible and let
- * the refreshed set merge in.
- *
- * `settledRangeKey` is the date range we last had real (non-placeholder) data
- * for; comparing it to the current `rangeKey` tells a genuine range change
- * apart from a same-range refetch triggered by a calendar toggle.
- */
 export function shouldShowEventsSkeleton({
   isLoading,
   isPlaceholderData,
@@ -288,13 +288,39 @@ export function shouldShowEventsSkeleton({
   return isPlaceholderData && settledRangeKey !== rangeKey;
 }
 
+export const EVENTS_OVERLAY_BATCH_SIZE = 10;
+
 export function useEvents(
   from?: string,
   to?: string,
   overlayEmails?: string[],
   calendarSourceKeys?: string[],
 ) {
-  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const primaryOverlayEmails = overlayEmails?.slice(
+    0,
+    EVENTS_OVERLAY_BATCH_SIZE,
+  );
+  const extraOverlayBatches = useMemo(() => {
+    if (!overlayEmails || overlayEmails.length <= EVENTS_OVERLAY_BATCH_SIZE) {
+      return [];
+    }
+    const batches: string[][] = [];
+    for (
+      let i = EVENTS_OVERLAY_BATCH_SIZE;
+      i < overlayEmails.length;
+      i += EVENTS_OVERLAY_BATCH_SIZE
+    ) {
+      batches.push(overlayEmails.slice(i, i + EVENTS_OVERLAY_BATCH_SIZE));
+    }
+    return batches;
+  }, [overlayEmails]);
+
+  const params = buildEventsParams(
+    from,
+    to,
+    primaryOverlayEmails,
+    calendarSourceKeys,
+  );
   const demo = isSharedCalendarDemo();
   const live = useActionQuery<CalendarEvent[]>("list-events", params, {
     enabled: !demo,
@@ -302,6 +328,26 @@ export function useEvents(
     staleTime: 30_000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
+  });
+  const extraOverlayQueries = useQueries({
+    queries: extraOverlayBatches.map((batch) => {
+      const batchParams = {
+        ...buildEventsParams(from, to, batch),
+        sources: ["overlays"],
+      };
+      return {
+        queryKey: ["overlay-events-batch", batchParams] as QueryKey,
+        queryFn: () =>
+          callAction<CalendarEvent[]>("list-events", batchParams, {
+            method: "GET",
+          }),
+        enabled: !demo,
+        retry: false,
+        staleTime: 30_000,
+        gcTime: 30 * 60 * 1000,
+        placeholderData: keepPreviousData,
+      };
+    }),
   });
   const fixture = useQuery({
     queryKey: ["shared-calendar-demo-events", params],
@@ -316,7 +362,33 @@ export function useEvents(
     staleTime: Infinity,
   });
 
-  return demo ? fixture : live;
+  const mergedData = useMemo(() => {
+    if (!Array.isArray(live.data) || extraOverlayQueries.length === 0) {
+      return live.data;
+    }
+    const extras = extraOverlayQueries.flatMap((query) =>
+      Array.isArray(query.data) ? query.data : [],
+    );
+    return extras.length > 0 ? [...live.data, ...extras] : live.data;
+  }, [live.data, extraOverlayQueries]);
+
+  if (demo) return fixture;
+  if (extraOverlayQueries.length === 0) return live;
+
+  const overlayError = extraOverlayQueries.find((q) => q.error)?.error;
+
+  return {
+    ...live,
+    data: mergedData,
+    isLoading: live.isLoading,
+    isFetching:
+      live.isFetching || extraOverlayQueries.some((q) => q.isFetching),
+    isPlaceholderData:
+      live.isPlaceholderData ||
+      extraOverlayQueries.some((q) => q.isPlaceholderData),
+    error: live.error ?? overlayError ?? null,
+    isError: live.isError || Boolean(overlayError),
+  };
 }
 
 type OverlaySourceCoverage = {
@@ -332,49 +404,53 @@ type OverlayStatusResult = {
   >;
 };
 
-/**
- * Per-person read status for the "Other Calendars" sidebar list. Uses the
- * same list-events action in its inventory format (which already tracks
- * per-overlay-email status) with `sources: ["overlays"]` and a single-day
- * range so it stays cheap - it never reads the caller's own Google events,
- * ICS feeds, or bookings.
- */
+const OVERLAY_STATUS_BATCH_SIZE = 10;
+
 export function useOverlayCalendarStatus(overlayEmails: string[]) {
   const today = new Date().toISOString().slice(0, 10);
-  const query = useActionQuery<OverlayStatusResult>(
-    "list-events",
-    {
-      from: today,
-      to: today,
-      sources: ["overlays"],
-      overlayEmails,
-      format: "inventory",
-    },
-    {
-      enabled: overlayEmails.length > 0,
-      retry: false,
-      staleTime: 5 * 60_000,
-    },
-  );
+  const to = addDaysToDateKey(today, 1);
+  const batches = useMemo(() => {
+    const chunks: string[][] = [];
+    for (let i = 0; i < overlayEmails.length; i += OVERLAY_STATUS_BATCH_SIZE) {
+      chunks.push(overlayEmails.slice(i, i + OVERLAY_STATUS_BATCH_SIZE));
+    }
+    return chunks;
+  }, [overlayEmails]);
+  const queries = useQueries({
+    queries: batches.map((batch) => {
+      const params = {
+        from: today,
+        to,
+        sources: ["overlays"],
+        overlayEmails: batch,
+        format: "inventory",
+      };
+      return {
+        queryKey: ["action", "list-events", params] as QueryKey,
+        queryFn: () =>
+          callAction<OverlayStatusResult>("list-events", params, {
+            method: "GET",
+          }),
+        retry: false,
+        staleTime: 5 * 60_000,
+      };
+    }),
+  });
   const statusByEmail = useMemo(() => {
-    const coverage = query.data?.sourceCoverage ?? [];
-    return new Map(
-      coverage
-        .filter(
-          (entry): entry is OverlaySourceCoverage => entry.source === "overlay",
-        )
-        .map((entry) => [entry.id.toLowerCase(), entry]),
-    );
-  }, [query.data]);
+    const map = new Map<string, OverlaySourceCoverage>();
+    for (const query of queries) {
+      const coverage = query.data?.sourceCoverage ?? [];
+      for (const entry of coverage) {
+        if (entry.source === "overlay") {
+          map.set(entry.id.toLowerCase(), entry as OverlaySourceCoverage);
+        }
+      }
+    }
+    return map;
+  }, [queries]);
   return statusByEmail;
 }
 
-/**
- * Warm the events query cache for a given range without triggering a render.
- * Use to pre-fetch adjacent weeks so j/k navigation is instant — the same
- * stale/gc settings as `useEvents` apply, so the prefetched data is picked up
- * by the real query when the user actually navigates.
- */
 export function prefetchEvents(
   queryClient: ReturnType<typeof useQueryClient>,
   from: string,
@@ -383,7 +459,15 @@ export function prefetchEvents(
   calendarSourceKeys?: string[],
 ) {
   if (isSharedCalendarDemo()) return;
-  const params = buildEventsParams(from, to, overlayEmails, calendarSourceKeys);
+  const primaryOverlayEmails = overlayEmails
+    ? overlayEmails.slice(0, EVENTS_OVERLAY_BATCH_SIZE)
+    : overlayEmails;
+  const params = buildEventsParams(
+    from,
+    to,
+    primaryOverlayEmails,
+    calendarSourceKeys,
+  );
   return queryClient.prefetchQuery({
     queryKey: ["action", "list-events", params],
     queryFn: () =>
@@ -448,7 +532,7 @@ export function useCreateEvent() {
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+      invalidateEventQueries(queryClient);
     },
   });
 }
@@ -465,6 +549,7 @@ export function useUpdateEvent() {
         const previous = queryClient.getQueriesData<CalendarEvent[]>({
           queryKey: ["action", "list-events"],
         });
+        const { cacheEventIdentity, ...eventInput } = newData;
         const {
           addGoogleMeet,
           removeGoogleMeet,
@@ -477,7 +562,7 @@ export function useUpdateEvent() {
           workingLocationType,
           workingLocationLabel,
           ...optimisticData
-        } = newData;
+        } = eventInput;
         const optimisticPatch = targetAccountEmail
           ? {}
           : {
@@ -492,20 +577,24 @@ export function useUpdateEvent() {
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
           (old) => {
-            const target = old?.find((event) => event.id === optimisticData.id);
-            // A working-location change can alter the visual grouping of several
-            // days. Keep the editor mounted until Google confirms the write so a
-            // rejected request does not appear to save and then snap back.
+            const target = old
+              ? findCalendarEventById(
+                  old,
+                  optimisticData.id,
+                  cacheEventIdentity ?? optimisticData.accountEmail,
+                )
+              : undefined;
+            if (!target) return old;
             if (
               shouldDeferOptimisticEventUpdate(target, hasWorkingLocationUpdate)
             )
               return old;
             return old?.map((e) => {
-              const matchesScope =
-                e.id === optimisticData.id ||
-                (scope === "all" &&
-                  !!target?.recurringEventId &&
-                  e.recurringEventId === target.recurringEventId);
+              const matchesScope = calendarEventIsInScope(
+                e,
+                target,
+                scope ?? "single",
+              );
               if (!matchesScope) return e;
               const nextWorkingLocationType =
                 workingLocationType ?? getWorkingLocationType(e);
@@ -541,7 +630,14 @@ export function useUpdateEvent() {
         if (!eventPatch?.id) return;
         queryClient.setQueriesData<CalendarEvent[]>(
           { queryKey: ["action", "list-events"] },
-          (old) => reconcileUpdatedEventList(old, input.id, eventPatch),
+          (old) =>
+            reconcileUpdatedEventList(
+              old,
+              input.id,
+              eventPatch,
+              input.accountEmail,
+              input.cacheEventIdentity,
+            ),
         );
       },
       onError: (_err, _newData, context) => {
@@ -554,9 +650,7 @@ export function useUpdateEvent() {
         }
       },
       onSettled: () => {
-        void queryClient.invalidateQueries({
-          queryKey: ["action", "list-events"],
-        });
+        invalidateEventQueries(queryClient);
       },
     },
   );
@@ -566,6 +660,8 @@ export function reconcileUpdatedEventList(
   events: CalendarEvent[] | undefined,
   originalId: string,
   result: UpdateEventResult,
+  accountEmail?: string,
+  cacheEventIdentity?: CalendarEventSourceIdentity,
 ): CalendarEvent[] | undefined {
   if (!result.id) return events;
   const {
@@ -577,9 +673,17 @@ export function reconcileUpdatedEventList(
     ...eventPatch
   } = result;
   const targetId = replacedId ?? originalId;
+  const target = events
+    ? findCalendarEventById(
+        events,
+        targetId,
+        cacheEventIdentity ?? accountEmail,
+      )
+    : undefined;
+  if (!target) return events;
 
   return events?.map((event) => {
-    if (event.id !== targetId) return event;
+    if (!calendarEventIsInScope(event, target, "single")) return event;
     const idChanged = event.id !== eventPatch.id;
     return {
       ...event,
@@ -591,11 +695,24 @@ export function reconcileUpdatedEventList(
 
 export function findEventByCurrentOrReplacedId(
   events: CalendarEvent[],
-  eventId: string,
+  selectedEvent: CalendarEvent,
 ): CalendarEvent | undefined {
-  return events.find(
-    (event) => event.id === eventId || event._replacedId === eventId,
-  );
+  return findCalendarEventForSelection(events, selectedEvent);
+}
+
+export function findVisibleSelectedEvent(
+  events: CalendarEvent[],
+  selectedEvent: CalendarEvent,
+  showDeclinedEvents: boolean,
+): CalendarEvent | undefined {
+  const currentEvent =
+    findEventByCurrentOrReplacedId(events, selectedEvent) ?? selectedEvent;
+  return isEventVisibleForDeclinedPreference(
+    currentEvent.responseStatus,
+    showDeclinedEvents,
+  )
+    ? currentEvent
+    : undefined;
 }
 
 export function useDeleteEvent() {
@@ -611,36 +728,54 @@ export function useDeleteEvent() {
     {
       id: string;
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       sendUpdates?: "all" | "none";
       removeOnly?: boolean;
       notificationMessage?: string;
     }
   >("delete-event", {
-    onMutate: async ({ id }) => {
+    onMutate: async ({ id, accountEmail, cacheEventIdentity, scope }) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
       });
-      queryClient.setQueriesData<CalendarEvent[]>(
-        { queryKey: ["action", "list-events"] },
-        (old) => old?.filter((e) => e.id !== id),
+      const cachedEvents = previous.flatMap(([, events]) => events ?? []);
+      const targetEvent = findCalendarEventById(
+        cachedEvents,
+        id,
+        cacheEventIdentity ?? accountEmail,
       );
-      return { previous };
+      const hasMatchingEvents = cachedEvents.some(
+        (event) => event.id === id || event._replacedId === id,
+      );
+      if (hasMatchingEvents && !targetEvent) return { removedByQuery: [] };
+      const removedByQuery: Array<[QueryKey, CalendarEvent[]]> = [];
+      for (const [key, old] of previous) {
+        const next = removeCalendarEventsForScope(
+          old,
+          id,
+          scope,
+          targetEvent,
+          accountEmail,
+        );
+        const removed = getRemovedCalendarEvents(old, next);
+        if (removed.length > 0) removedByQuery.push([key, removed]);
+        if (next !== old) queryClient.setQueryData(key, next);
+      }
+      return { removedByQuery };
     },
     onError: (_err, _vars, context) => {
-      const previous = (context as EventListMutationContext | undefined)
-        ?.previous;
-      if (previous) {
-        for (const [key, data] of previous) {
-          queryClient.setQueryData(key, data);
-        }
+      const removedByQuery = (context as DeleteEventMutationContext | undefined)
+        ?.removedByQuery;
+      for (const [key, removed] of removedByQuery ?? []) {
+        queryClient.setQueryData<CalendarEvent[]>(key, (current) =>
+          restoreMissingCalendarEvents(current, removed),
+        );
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["action", "list-events"],
-      });
+      invalidateEventQueries(queryClient);
     },
   });
 }
@@ -660,55 +795,84 @@ export function useRsvpEvent() {
       id: string;
       status: "accepted" | "declined" | "tentative";
       accountEmail?: string;
+      cacheEventIdentity?: CalendarEventSourceIdentity;
       scope?: "single" | "all" | "thisAndFollowing";
       note?: string;
       sendUpdates?: "all" | "none";
     }
   >("rsvp-event", {
-    onMutate: async ({ id, status, accountEmail, scope, note }) => {
-      await queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+    onMutate: async ({
+      id,
+      status,
+      accountEmail,
+      cacheEventIdentity,
+      scope,
+      note,
+    }) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: LIST_EVENTS_QUERY_KEY }),
+        queryClient.cancelQueries({ queryKey: ["action", "get-event"] }),
+      ]);
       const previous = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: LIST_EVENTS_QUERY_KEY,
       });
-      const previousEvent = queryClient.getQueryData<CalendarEvent>(
-        getEventQueryKey(id),
-      );
+      const previousEventQueries = queryClient
+        .getQueriesData<CalendarEvent>({ queryKey: ["action", "get-event"] })
+        .filter(([, event]) => {
+          if (!event) return false;
+          const next = applyCalendarEventRsvp(
+            [event],
+            id,
+            status,
+            scope,
+            accountEmail,
+            note,
+            cacheEventIdentity,
+          );
+          return next?.[0] !== event;
+        });
 
       updateListEventQueries(queryClient, (old) =>
-        applyCalendarEventRsvp(old, id, status, scope, accountEmail, note),
-      );
-      queryClient.setQueryData<CalendarEvent>(getEventQueryKey(id), (old) => {
-        const updated = applyCalendarEventRsvp(
-          old ? [old] : undefined,
+        applyCalendarEventRsvp(
+          old,
           id,
           status,
           scope,
           accountEmail,
           note,
+          cacheEventIdentity,
+        ),
+      );
+      for (const [key, event] of previousEventQueries) {
+        const updated = applyCalendarEventRsvp(
+          event ? [event] : undefined,
+          id,
+          status,
+          scope,
+          accountEmail,
+          note,
+          cacheEventIdentity,
         );
-        return updated?.[0];
-      });
+        queryClient.setQueryData(key, updated?.[0]);
+      }
 
-      return { previous, previousEvent };
+      return { previous, previousEventQueries };
     },
-    onError: (_err, vars, context) => {
+    onError: (_err, _vars, context) => {
       const mutationContext = context as RsvpEventMutationContext | undefined;
       if (mutationContext?.previous) {
         for (const [key, data] of mutationContext.previous) {
           queryClient.setQueryData(key, data);
         }
       }
-      if (mutationContext?.previousEvent) {
-        queryClient.setQueryData(
-          getEventQueryKey(vars.id),
-          mutationContext.previousEvent,
-        );
+      for (const [key, event] of mutationContext?.previousEventQueries ?? []) {
+        queryClient.setQueryData(key, event);
       }
     },
-    onSettled: (_data, _error, vars) => {
-      void queryClient.invalidateQueries({ queryKey: LIST_EVENTS_QUERY_KEY });
+    onSettled: () => {
+      invalidateEventQueries(queryClient);
       void queryClient.invalidateQueries({
-        queryKey: getEventQueryKey(vars.id),
+        queryKey: ["action", "get-event"],
       });
     },
   });

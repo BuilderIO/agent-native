@@ -98,8 +98,8 @@ UI مع [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)؛ دع
 
 حزم وقت التشغيل الخاصة بها هي **تبعيات نظير اختيارية** ويتم تحميلها ببطء، لذا
 التطبيق الذي لا يستخدم أداة التثبيت مطلقًا لا يدفع ثمنه. يحمل كل محول
-تلميح `installPackage` (على سبيل المثال `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` يُجري تثبيتًا واضحًا
+تلميح `installPackage` (على سبيل المثال `@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness` يُجري تثبيتًا واضحًا
 خطأ إذا كانت الحزم مفقودة، و`isAgentHarnessPackageInstalled(entry)`
 يتيح لك التحقق أولاً.
 
@@ -162,38 +162,22 @@ const custom = resolveAgentHarness("acp", {
 it) ويكتب أحداث `file-change`؛ لا يتم الإعلان عن الطرق الطرفية،
 لذلك يستخدم الوكيل غلافه الخاص.
 
-## مصادقة Codex: الكود UI مقابل أدوات الحماية {#codex-auth}
+## مصادقة Codex: الكود UI مقابل محولات أدوات الحماية {#codex-auth}
 
-يوجد سطحان Codex، ويتم المصادقة عليهما بشكل مختلف:
+هناك سطحان لـ Codex:
 
-- **Agent-Native Code / Desktop** يقوم بتشغيل `codex exec` على جهاز المستخدم. إذا
-  قام المستخدم بتشغيل `codex login`، وهذا التشغيل المحلي يعيد استخدام ChatGPT
-  الاشتراك أو مفتاح API يصادق على تقارير Codex CLI المثبتة من خلال
-  `codex login status`.
-- **`ai-sdk-harness:codex`** يقوم بتحميل `@ai-sdk/harness-codex`، الذي يقوم بتشغيل Codex
-  داخل صندوق الحماية الخاص بالحزام من خلال `@openai/codex-sdk`. لا يحدث ذلك بصمت
-  ارث تسجيل دخول `~/.codex` لسطح المكتب الخاص بالمستخدم لأن وضع الحماية قد يكون بعيدًا
-  أو معزولة. بالنسبة إلى صناديق الحماية الموثوقة/الخاصة، يمكنك الاشتراك باستخدام `codexCliAuth: true`;
-  ينسخ Agent-Native ملف المصادقة Codex CLI المحلي إلى وضع الحماية قبل
-  يبدأ الحزام. بالنسبة لصناديق الحماية المستضافة أو المشتركة، قم بتكوين مفتاح/بوابة API
-  المصادقة بدلاً من ذلك.
+- **Agent-Native Code / Desktop** يقوم بتشغيل `codex exec` على جهاز المستخدم
+  ويعيد استخدام تسجيل دخول Codex CLI المحلي الذي يبلّغ عنه `codex login status`.
+- **`ai-sdk-harness:codex`** يستخدم تدفق اشتراك AI SDK Harness الأصلي حيثما كان
+  مدعومًا. لا يلزم إعداد إضافي: تبقى بيانات الاعتماد على المضيف، وتأتي بيانات
+  اعتماد مفتاح API الصريحة أولاً، ويتم تمرير المصادقة الناتجة إلى صندوق الحماية
+  دون نسخ ملف المصادقة المحلي. عيّن `harnessOptions.auth` إلى `"ai-gateway"`
+  لاستخدام AI Gateway فقط؛ هذا الوضع لا يقرأ اشتراكًا أصليًا.
 
-لذلك إذا سأل شخص ما عن الحزمة التي تحمل مسار Codex OAuth: للتشفير المحلي
-الجلسات، استخدم `@agent-native/core` / Desktop بالإضافة إلى المثبت
-`@openai/codex` CLI و`codex login`. بالنسبة إلى وضع الحماية `ai-sdk-harness:codex`،
-استخدم الاشتراك الصريح `codexCliAuth` عند نسخ تسجيل الدخول هذا إلى وضع الحماية
-مقبول.
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` يقرأ `CODEX_HOME/auth.json` أو `~/.codex/auth.json`. إلى
-أشر إلى تسجيل دخول محلي مختلف، وقم بالتمرير
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` أو
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+يدعم محول `ai-sdk-harness:codex` المضمّن فقط
+`permissionMode: "allow-all"`، لأن هذا هو الوضع الوحيد المقبول في إصدار Codex
+المستقر. اترك `permissionMode` دون تحديد لاستخدام هذا الإعداد الافتراضي؛ يتم
+رفض `allow-reads` و`allow-edits` لهذا المحول.
 
 ## التسجيل والحل {#register-resolve}
 
@@ -210,9 +194,13 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 ترجع `resolveAgentHarness(name, config?)` `AgentHarnessAdapter`. ال
 تتم إعادة توجيه `config` الاختياري إلى مصنع المحولات — لمحولات AI SDK
 الذي يتم تعيينه إلى `AiSdkHarnessAdapterOptions` (`label`، `description`،
-`permissionMode`، و`harnessOptions`، و`agentOptions`، وCodex فقط
-`codexCliAuth`). استخدم `listAgentHarnesses()` لتعداد ما تم تسجيله من أجله
-منتقي.
+`permissionMode`، و`harnessOptions`، و`agentOptions`). استخدم
+`listAgentHarnesses()` لتعداد ما تم تسجيله من أجله منتقي.
+
+بالنسبة إلى أحزمة Agent-Native المضمنة التي تستخدم صندوق حماية، مرر موفر صندوق
+الحماية عبر `agentOptions.sandbox` عند تسجيلها. يجب أن يطبق الموفر
+`resumeSession` لإعادة تهيئة الجلسة بعد إعادة تشغيل العملية؛ جلسة `sandbox` التي
+يملكها المستدعي تغطي الإنشاء الأولي فقط.
 
 ## أجري دورة {#run-a-turn}
 
@@ -234,7 +222,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

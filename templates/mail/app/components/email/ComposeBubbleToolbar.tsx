@@ -37,15 +37,6 @@ interface ComposeBubbleToolbarProps {
 const VIEWPORT_MARGIN = 8;
 const TOOLBAR_GAP = 8;
 
-/**
- * Custom bubble toolbar that avoids tiptap v3's BubbleMenu component.
- * The @tiptap/react/menus BubbleMenu has an internal useEditorState that
- * triggers infinite useSyncExternalStore re-render loops. This component
- * listens to editor events directly and positions itself via the DOM
- * selection API, avoiding the problematic subscription pattern. It renders in
- * a portal so selections on the first compose line are not clipped by the
- * scrollable compose body.
- */
 export function ComposeBubbleToolbar({
   editor,
   onFlush,
@@ -170,7 +161,6 @@ export function ComposeBubbleToolbar({
 
   useEffect(() => {
     const handleBlur = () => {
-      // Delay so focus can settle into link/AI inputs inside the toolbar
       setTimeout(() => {
         if (!toolbarRef.current?.contains(document.activeElement)) {
           setVisible(false);
@@ -296,6 +286,7 @@ export function ComposeBubbleToolbar({
           <input
             autoFocus
             type="url"
+            aria-label={t("mail.compose.enterLinkUrl")}
             placeholder={t("mail.compose.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
@@ -309,6 +300,7 @@ export function ComposeBubbleToolbar({
             className="bg-transparent border-none outline-none text-popover-foreground text-sm w-48 px-1 py-0.5 placeholder:text-muted-foreground"
           />
           <button
+            type="button"
             onClick={handleSetLink}
             className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium"
           >
@@ -331,6 +323,7 @@ export function ComposeBubbleToolbar({
             <>
               <textarea
                 autoFocus
+                aria-label={t("mail.compose.aiAssist")}
                 placeholder={t("mail.compose.aiAssistPlaceholder")}
                 value={aiPrompt}
                 rows={2}
@@ -352,6 +345,7 @@ export function ComposeBubbleToolbar({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
                     onClick={() => void handleAiAssist()}
                     className="text-xs text-primary hover:text-primary/80 px-1.5 py-0.5 font-medium shrink-0 self-end pb-1"
                   >
@@ -390,6 +384,8 @@ export function ComposeBubbleToolbar({
               <Tooltip key={title}>
                 <TooltipTrigger asChild>
                   <button
+                    type="button"
+                    aria-label={title}
                     onClick={action}
                     className={cn(
                       "p-1.5 rounded transition-colors",
@@ -409,6 +405,8 @@ export function ComposeBubbleToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-label={t("mail.compose.aiAssist")}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

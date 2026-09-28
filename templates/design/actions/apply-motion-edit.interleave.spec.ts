@@ -25,11 +25,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Fake @agent-native/core/collab backed by a real per-docId Y.Doc registry,
-// with a real deterministic prefix/suffix-trim diff for applyText — same
-// approach as insert-design-native-asset.interleave.spec.ts.
-// ---------------------------------------------------------------------------
 const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
@@ -67,6 +62,7 @@ function applyTextDiff(doc: InstanceType<typeof Y.Doc>, newText: string): void {
 }
 
 vi.mock("@agent-native/core/collab", () => ({
+  CollabBaseVersionConflictError: class CollabBaseVersionConflictError extends Error {},
   agentEnterDocument: vi.fn(),
   agentLeaveDocument: vi.fn(),
   hasCollabState: async (docId: string) => collabDocs.docs.has(docId),
@@ -80,6 +76,42 @@ vi.mock("@agent-native/core/collab", () => ({
   seedFromText: async (docId: string, text: string) => {
     if (collabDocs.docs.has(docId)) return;
     getOrCreateDoc(docId).getText("content").insert(0, text);
+  },
+  applyTextToYDoc: (
+    doc: InstanceType<typeof Y.Doc>,
+    _fieldName: string,
+    text: string,
+  ) => applyTextDiff(doc, text),
+  withPreparedYDocMutation: async (
+    docId: string,
+    _requestSource: string | undefined,
+    run: (lease: {
+      doc: InstanceType<typeof Y.Doc>;
+      baseVersion: number | null;
+      persist: (_tx: unknown, text: string) => Promise<void>;
+    }) => Promise<unknown>,
+  ) => {
+    const base = collabDocs.docs.get(docId) as
+      | InstanceType<typeof Y.Doc>
+      | undefined;
+    const doc = new Y.Doc();
+    if (base) Y.applyUpdate(doc, Y.encodeStateAsUpdate(base));
+    let persisted = false;
+    try {
+      const result = await run({
+        doc,
+        baseVersion: base ? 0 : null,
+        persist: async (_tx, _text) => {
+          collabDocs.docs.set(docId, doc);
+          persisted = true;
+        },
+      });
+      if (!persisted) doc.destroy();
+      return result;
+    } catch (error) {
+      doc.destroy();
+      throw error;
+    }
   },
 }));
 
@@ -95,18 +127,6 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestOrgId: () => undefined,
 }));
 
-// ---------------------------------------------------------------------------
-// Minimal fake Drizzle app-DB layer backing a single design_files row and a
-// single motion_timeline row store. Only supports the exact query shapes
-// apply-motion-edit.ts issues:
-//   - select({id, designId, filename, fileType, content}).from(designFiles)
-//       .innerJoin(designs).where(and(eq(designId), eq(id|filename))).limit(1)
-//   - select({id}).from(motionTimeline).where(and(eq(id), eq(designId))).limit(1)
-//   - select({id}).from(motionTimeline)
-//       .where(and(eq(designId), eq(sourceRef))).orderBy(desc(updatedAt)).limit(1)
-//   - db.transaction(tx => tx.update(motionTimeline)... | tx.insert(motionTimeline)...)
-//   - designFiles/designs updates performed internally by writeInlineSourceFile
-// ---------------------------------------------------------------------------
 interface FileRow {
   id: string;
   designId: string;
@@ -171,7 +191,6 @@ function matchesFileRow(row: FileRow, predicate: Predicate): boolean {
 
 function matchesTimelineRow(row: TimelineRow, predicate: Predicate): boolean {
   const asString = predicateString(predicate);
-  // Narrow by id first (most specific), then designId, then sourceRef.
   for (const row2 of motionTimelineStore.rows.values()) {
     if (asString.includes(row2.id) && row.id !== row2.id) return false;
   }
@@ -249,7 +268,6 @@ vi.mock("../server/db/index.js", () => {
         if (matchesTimelineRow(row, predicate)) Object.assign(row, values);
       }
     }
-    // designs table updates are no-ops for this fake DB — no rows tracked.
     return Promise.resolve({ rowsAffected: 1 });
   }
 
@@ -278,6 +296,7 @@ vi.mock("../server/db/index.js", () => {
         return Promise.resolve(undefined);
       },
     }),
+    execute: () => Promise.resolve({ rows: [] }),
     transaction: async (fn: (tx: typeof db) => Promise<void>) => fn(db),
   };
   return { getDb: () => db, schema };
@@ -347,25 +366,17 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     expect(result.contentPatched).toBe(true);
     expect(result.persisted).toBe(true);
 
-    // The collab doc must actually reflect the patched HTML, not just SQL —
-    // proving the write went through writeInlineSourceFile/seedFromText
-    // rather than a raw designFiles.content db.update bypassing collab.
     expect(await hasCollabState(FILE_ID)).toBe(true);
     const collabContent = await (
       await import("@agent-native/core/collab")
     ).getText(FILE_ID, "content");
     expect(collabContent).toContain("data-agent-native-motion");
 
-    // SQL mirrors the converged collab content.
     const sqlRow = currentFileRef();
     expect(sqlRow.content).toBe(collabContent);
   });
 
   it("a concurrent sibling collab write landing between the base read and the persist is NOT silently dropped — both changes survive", async () => {
-    // Simulate a live editor already having an open collab doc for this file
-    // (e.g. from a prior edit in the same session) with a sibling style edit
-    // baked in, so apply-motion-edit's readLiveSourceFile call observes it as
-    // the base.
     const preEditLive = await readLiveSourceFile(currentFileRef());
     await (
       await import("@agent-native/core/collab")
@@ -375,7 +386,7 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       "opacity: 1; border-radius: 12px;",
     );
     await applyText(FILE_ID, siblingEdited, "content", "agent");
-    seedFile(siblingEdited); // mirror SQL the way a guarded write would
+    seedFile(siblingEdited);
 
     const result = await action.run({
       designId: DESIGN_ID,
@@ -386,7 +397,6 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
 
     expect(result.persisted).toBe(true);
     const finalLive = await readLiveSourceFile(currentFileRef());
-    // BOTH changes present: the sibling's style edit AND the new motion CSS.
     expect(finalLive.content).toContain("border-radius: 12px;");
     expect(finalLive.content).toContain("data-agent-native-motion");
   });
@@ -413,16 +423,8 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
   });
 
   it("rejects (loud, not silent) when a concurrent write lands using a caller-supplied stale currentContent base", async () => {
-    // The action supports a caller-supplied `currentContent` param used
-    // instead of the live read as the patch base. If that base has gone
-    // stale relative to the live doc by the time the write happens, the
-    // write must be rejected rather than silently clobbering the concurrent
-    // change — mirroring the same guarantee writeInlineSourceFile gives
-    // every other caller-supplied-base action.
     const staleBase = baseDoc();
 
-    // A concurrent writer changes the live collab doc AFTER staleBase was
-    // captured by the (hypothetical) caller but BEFORE this action runs.
     await (
       await import("@agent-native/core/collab")
     ).seedFromText(FILE_ID, staleBase);
@@ -433,14 +435,9 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
     await applyText(FILE_ID, concurrentContent, "content", "agent");
     seedFile(concurrentContent);
 
-    // Sanity: the live doc has already diverged from staleBase.
     const liveNow = await readLiveSourceFile(currentFileRef());
     expect(liveNow.content).not.toBe(staleBase);
 
-    // Directly exercise writeInlineSourceFile with the stale base's hash to
-    // prove the guard rejects it — the same seam apply-motion-edit's
-    // persistFileContent helper goes through when currentContentInput is
-    // supplied and has gone stale by write time.
     const { writeInlineSourceFile } =
       await import("../server/source-workspace.js");
     const { sourceContentHash } = await import("../shared/source-workspace.js");
@@ -453,15 +450,11 @@ describe("apply-motion-edit collab-aware persist (contract-bypass fix)", () => {
       }),
     ).rejects.toThrow(/changed since it was read/);
 
-    // The concurrent edit must survive untouched.
     const finalLive = await readLiveSourceFile(currentFileRef());
     expect(finalLive.content).toContain("Caption text (edited concurrently)");
   });
 
   it("does not write HTML content when the motion_timeline row already reflects the same tracks and contentPatched is false (no managed style seam present)", async () => {
-    // canPatchManagedMotionCss requires an HTML document shape; feed content
-    // that doesn't look like HTML to exercise the contentPatched=false branch
-    // and confirm persistFileContent (and therefore collab) is never invoked.
     seedFile("just some opaque non-HTML content blob");
 
     const result = await action.run({

@@ -70,13 +70,10 @@ localidade ativa. Os códigos de localidade suportados são `en-US`, `zh-CN`,
 `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN` e
 `ar-SA`.
 
-Essa lista é fixada pela estrutura. Não é apenas o que este exemplo escolheu
-empacotar. `LocaleCode` é uma union do TypeScript com exatamente esses
-códigos, e `set-localization-preference` rejeita qualquer outro valor em
-tempo de execução. Cada localidade também precisa de metadados curados pela
-estrutura, como a direção do texto para idiomas da direita para a esquerda.
-Adicionar uma nova localidade significa estender a própria estrutura, não
-adicionar um arquivo de catálogo ao seu aplicativo.
+O framework fornece localidades integradas. Os aplicativos também podem
+registrar localidades BCP-47 canônicas com seus próprios metadados, como nomes
+nativo e em inglês e direção do texto. Use `coreMessageOverrides` para
+traduções opcionais do framework; chaves ausentes retornam ao inglês.
 
 `createAgentNativeI18nCatalog` também aceita um `sourceLocale` opcional, cujo
 padrão é `en-US`, e um array `supportedLocales` opcional. Defina
@@ -85,6 +82,10 @@ das localidades da estrutura, em vez de todas as dez. O padrão é usar todas
 as localidades que a estrutura suporta. `LanguagePicker` lista apenas as
 localidades desse conjunto, e qualquer localidade detectada ou solicitada
 fora dele recorre a `sourceLocale`.
+As localidades registradas em `locales` são adicionadas a essa lista mesmo
+quando `supportedLocales` restringe as localidades integradas.
+`translations.locales` em `agent-native.json` é uma lista de permissão explícita
+do aplicativo e tem prioridade sobre o registro do catálogo.
 
 ## UI
 
@@ -103,10 +104,14 @@ Use `useFormatters()` para datas, números, tempo relativo e listas. Não
 coloque formatação de data/número sensível à localidade dentro de strings de
 tradução.
 
-Coloque `<LanguagePicker />` em qualquer lugar do aplicativo em que o usuário
-possa alterar o idioma. Consulte [Kit de configurações](/docs/toolkit-settings)
-para o padrão de página de configurações, incluindo onde
-`openAgentSettings()` se encaixa.
+As Configurações já têm uma linha **Interface language** em Account › Preferences,
+e uma mudança ali vale para todos os aplicativos, então as páginas de configurações
+próprias de um aplicativo não adicionam um segundo seletor. Com a flag
+`settings-redesign` desligada, coloque o seletor na aba General da página com abas.
+Coloque `<LanguagePicker />` em qualquer outro lugar do aplicativo em que o usuário
+possa alterar o idioma, como um atalho no cabeçalho. Consulte
+[Kit de configurações](/docs/toolkit-settings) para o contrato da página de
+configurações.
 
 ## Actions e persistência
 
@@ -115,7 +120,7 @@ Todo aplicativo herda:
 - `get-localization-preference` — lê o `{ locale, timezone }` do usuário atual
 - `set-localization-preference` — define `locale` e/ou `timezone`, cada um opcional
 
-`locale` é `"system"` ou uma localidade BCP-47 suportada. `timezone` é
+`locale` é `"system"` ou uma localidade BCP-47 válida registrada pelo aplicativo. `timezone` é
 `"system"` ou um fuso IANA, como `America/New_York`. Ele existe para que o
 trabalho agendado e de automação seja executado no fuso do usuário, e não no
 do host. Definir apenas um campo deixa o outro inalterado, porque
@@ -154,5 +159,5 @@ protocolo, nomes de variáveis de ambiente ou nomes de provedor.
 ## O que vem a seguir
 
 - [**Visão geral**](/docs/client-overview#app-shell) — o wrapper `AppProviders` e outros hooks de navegador em que o i18n se baseia
-- [**Kit de configurações**](/docs/toolkit-settings) — coloque `<LanguagePicker>` na página de configurações padrão
+- [**Kit de configurações**](/docs/toolkit-settings) — o contrato da página de configurações, em que Account › Preferences cuida do idioma da interface
 - [**Primeiros Passos**](/docs/getting-started) — crie seu primeiro aplicativo em um modelo que já vem com catálogos localizados

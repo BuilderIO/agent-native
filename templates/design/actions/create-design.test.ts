@@ -20,10 +20,6 @@ const mocks = vi.hoisted(() => {
 
   const defaultLimitFn = vi.fn(async () => state.defaultRows);
   const titleWhereFn = vi.fn(async () => state.titleRows);
-  // resolveDefaultDesignSystemId chains `.limit(1)` after `.where(...)`;
-  // resolveDesignSystemIdByTitle awaits `.where(...)` directly. Both query
-  // the same designSystems table, so the stub exposes both shapes and each
-  // call site only ever exercises the one it actually chains.
   const whereDesignSystemsFn = vi.fn(() => ({ limit: defaultLimitFn }));
   const fromFn = vi.fn((table: unknown) => ({
     where: (condition: unknown) => {
@@ -71,6 +67,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => mocks.state.userEmail,
   getRequestOrgId: () => mocks.state.orgId,
 }));
@@ -122,6 +119,23 @@ describe("create-design — designSystemId defaults", () => {
     expect(mocks.state.insertedRow?.designSystemId).toBeNull();
     expect(result.designSystemId).toBeNull();
     expect(result.designSystem).toBeNull();
+  });
+
+  it("preserves an explicit no-system choice even when the caller has a default", async () => {
+    mocks.state.defaultRows = [{ id: "ds-default" }];
+    const input = action.schema.parse({
+      title: "Independent design",
+      designSystemId: null,
+      designSystem: "Acme",
+    });
+
+    const result = await action.run(input);
+
+    expect(mocks.state.insertedRow?.designSystemId).toBeNull();
+    expect(result.designSystemId).toBeNull();
+    expect(result.designSystem).toBeNull();
+    expect(mocks.mockDb.select).not.toHaveBeenCalled();
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
 
   it("still asserts viewer access when an explicit designSystemId is given", async () => {

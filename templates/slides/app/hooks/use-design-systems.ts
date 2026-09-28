@@ -12,14 +12,13 @@ type DesignSystemSummary = {
   createdAt: string;
 };
 
-export function useDesignSystems() {
+export function useDesignSystems(enabled = true) {
   const { data, isLoading, error, refetch } = useActionQuery<{
     designSystems: DesignSystemSummary[];
-  }>("list-design-systems");
+  }>("list-design-systems", undefined, { enabled });
 
   const designSystems: DesignSystemSummary[] = data?.designSystems ?? [];
-  const defaultSystem =
-    designSystems.find((ds) => ds.isDefault) ?? designSystems[0];
+  const defaultSystem = designSystems.find((ds) => ds.isDefault);
 
   return { designSystems, defaultSystem, isLoading, error, refetch };
 }

@@ -1,25 +1,11 @@
-/**
- * Stroke-section bug-hunt fixes (Figma-parity pass).
- *
- * 1. `strokeShowPatch` — StrokeLayerControl's eye-toggle "show" click used to
- *    fire three sequential onStyleChange calls (color, style, width) instead
- *    of one atomic patch, unlike every other multi-property commit in this
- *    file (e.g. TextStrokeProperties' equivalent show handler, which already
- *    batched via commitStylePatch). Extracted the patch computation so the
- *    caller can commit it as one history step, and tested directly here.
- * 2. `resolveRestoredStrokeStyle` — the Stroke section's top-level "+" button
- *    restored a hidden-but-existing border with `borderStyle` hardcoded to
- *    "solid", silently discarding a dashed/dotted style; the parallel outline
- *    branch a few lines below it already preserved style correctly. Both
- *    branches now share this one helper.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   resolveRestoredStrokeStyle,
+  strokeHiddenByColor,
+  strokeIsVisible,
   strokeShowPatch,
 } from "./position-helpers";
 
@@ -45,7 +31,6 @@ describe("strokeShowPatch", () => {
       "2px",
       "solid",
     );
-    // rgbaToCss serializes a fully-opaque color as hex, not rgba(...).
     expect(patch.borderColor).toBe("#ff0000");
   });
 
@@ -73,8 +58,6 @@ describe("strokeShowPatch", () => {
       "2px",
       "dashed",
     );
-    // A real style must be left untouched — no key written at all, so the
-    // caller's existing outlineStyle stays exactly as it was.
     expect(fromDashed.outlineStyle).toBeUndefined();
   });
 
@@ -97,8 +80,6 @@ describe("strokeShowPatch", () => {
   });
 });
 
-// Not a bug fix — existing round-trip coverage for the position <-> offset
-// math these fixes sit next to, since neither had a dedicated test file yet.
 describe("outline position <-> offset round trip", () => {
   it("outside is always offset 0px regardless of width", () => {
     expect(outlineOffsetForPosition("outside", "4px")).toBe("0px");
@@ -117,5 +98,29 @@ describe("outline position <-> offset round trip", () => {
 
   it("zero width never reads back as center", () => {
     expect(readStrokeOutlinePosition("0px", "0px")).toBe("outside");
+  });
+});
+
+describe("whether a stroke row should exist at all", () => {
+  it("does not count a width a stylesheet left behind with style none", () => {
+    expect(strokeIsVisible("1.5px", "none")).toBe(false);
+    expect(strokeIsVisible("0px", "solid")).toBe(false);
+  });
+
+  it("does not count a width with no style at all, such as a scaled inert outline", () => {
+    expect(strokeIsVisible("5.68px", undefined)).toBe(false);
+    expect(strokeIsVisible("5.68px", "")).toBe(false);
+    expect(strokeIsVisible("2px", "none hidden none none")).toBe(false);
+    expect(strokeIsVisible("2px", "none solid none none")).toBe(true);
+  });
+
+  it("counts a real stroke", () => {
+    expect(strokeIsVisible("1px", "solid")).toBe(true);
+    expect(strokeIsVisible("2px", "dashed")).toBe(true);
+  });
+
+  it("still counts one hidden through the eye icon, which zeroes alpha only", () => {
+    expect(strokeIsVisible("1px", "solid")).toBe(true);
+    expect(strokeHiddenByColor("rgba(0, 0, 0, 0)")).toBe(true);
   });
 });

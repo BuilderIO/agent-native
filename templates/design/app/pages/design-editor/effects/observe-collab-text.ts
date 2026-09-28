@@ -3,34 +3,38 @@ import * as Y from "yjs";
 
 import type { ElementInfo } from "@/components/design/types";
 import { refreshElementInfoFromContent } from "@/pages/design-editor/code-layer-state";
-import {
-  shouldApplyRemotePreviewContent,
-  writeCollabText,
-} from "@/pages/design-editor/collab-sync";
+import { shouldApplyRemotePreviewContent } from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
   shouldCheckpointAgentContent,
 } from "@/pages/design-editor/editor-session";
-import type { PreviewContentReplaceResult } from "@/pages/design-editor/editor-state";
+import type {
+  PendingLocalFileContent,
+  PreviewContentReplaceResult,
+} from "@/pages/design-editor/editor-state";
 import { previewContentReplaceNeedsRenderFallback } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 
+import { prepareCanonicalSourceContent } from "../source-publication";
+
 export interface ObserveCollabTextArgs {
+  publishCanonicalContent: (
+    fileId: string,
+    sourceContent: string,
+    fileType?: string,
+  ) => string;
+  fileType?: string;
   activeFileId: string | null;
   agentActive: boolean;
   documentFileContentRef: RefObject<string | null>;
   documentFileUpdatedAtRef: RefObject<string | null>;
   isSynced: boolean;
+  lastAppliedFileContentRef: RefObject<string | null>;
   lastAppliedFileUpdatedAtRef: RefObject<string | null>;
   lastLocalContentRef: RefObject<string | null>;
   latestActiveContentRef: RefObject<string | null>;
-  pendingLocalFileContentsRef: RefObject<
-    Map<
-      string,
-      { content: string; startedAt: number; baseUpdatedAt?: string | null }
-    >
-  >;
+  pendingLocalFileContentsRef: RefObject<Map<string, PendingLocalFileContent>>;
   recordExternalContentHistoryCheckpoint: (
     change: ContentHistoryChange,
   ) => void;
@@ -50,10 +54,13 @@ export interface ObserveCollabTextArgs {
 
 export function runObserveCollabText({
   activeFileId,
+  publishCanonicalContent,
+  fileType,
   agentActive,
   documentFileContentRef,
   documentFileUpdatedAtRef,
   isSynced,
+  lastAppliedFileContentRef,
   lastAppliedFileUpdatedAtRef,
   lastLocalContentRef,
   latestActiveContentRef,
@@ -72,44 +79,20 @@ export function runObserveCollabText({
   const fileId = activeFileId;
   const ytext = ydoc.getText("content");
   const handler = (_event: unknown, transaction?: { origin?: unknown }) => {
-    const next = ytext.toJSON();
-    // Item 5 (edit-flash): capture what the preview already reflects BEFORE
-    // this observe fires, so a remote-origin transaction that merely ECHOES
-    // content we already rendered (e.g. update-file's own applyText/
-    // seedFromText round-tripping our own just-saved commit back through
-    // the collab sync channel) can be recognized as a no-op instead of
-    // unconditionally forcing a full srcdoc rebuild below. Every commit
-    // path already sets latestActiveContentRef.current synchronously
-    // before the network round trip lands, so this ref reliably holds the
-    // pre-update value at the moment a same-content echo arrives.
+    const rawNext = ytext.toJSON();
     const previousActiveContent = latestActiveContentRef.current;
-    // UndoManager fires with itself as the origin; treat those as local too
-    // so the reconcile watermark and stale-selection fix are consistent.
     const isLocalEdit =
       transaction?.origin === TAB_ID ||
       transaction?.origin === LOCAL_EDIT_ORIGIN ||
       transaction?.origin === undoManagerRef.current;
+    const pending = pendingLocalFileContentsRef.current.get(fileId);
+    const pendingLocalContent = pending?.content;
     if (
-      shouldCheckpointAgentContent({
-        agentActive,
-        isLocalEdit,
-        previousContent: previousActiveContent,
-        nextContent: next,
-      })
+      pendingLocalContent &&
+      pending?.identityMigrationSourceContent === undefined &&
+      rawNext !== pendingLocalContent &&
+      !isLocalEdit
     ) {
-      // An agent/chat edit is remote at the CRDT layer but local in the UX:
-      // Cmd+Z should restore the attachment/design state from before the run.
-      // Record the replacement in the history owned by the current view
-      // mode so it remains undoable from either canvas.
-      recordExternalContentHistoryCheckpoint({
-        fileId,
-        before: previousActiveContent!,
-        after: next,
-      });
-    }
-    const pendingLocalContent =
-      pendingLocalFileContentsRef.current.get(fileId)?.content;
-    if (pendingLocalContent && next !== pendingLocalContent && !isLocalEdit) {
       setCollabContent(pendingLocalContent);
       setCollabContentFileId(fileId);
       lastLocalContentRef.current = pendingLocalContent;
@@ -123,10 +106,24 @@ export function runObserveCollabText({
       ) {
         setContentRenderRevision((revision) => revision + 1);
       }
-      // Untracked write — see clear() note in the seed effect above.
-      undoManagerRef.current?.clear(true, false);
-      writeCollabText(ydoc, ytext, pendingLocalContent, TAB_ID);
       return;
+    }
+    const next = isLocalEdit
+      ? prepareCanonicalSourceContent(rawNext, { fileId, fileType }).content
+      : publishCanonicalContent(fileId, rawNext, fileType);
+    if (
+      shouldCheckpointAgentContent({
+        agentActive,
+        isLocalEdit,
+        previousContent: previousActiveContent,
+        nextContent: next,
+      })
+    ) {
+      recordExternalContentHistoryCheckpoint({
+        fileId,
+        before: previousActiveContent!,
+        after: next,
+      });
     }
     setCollabContent(next);
     setCollabContentFileId(fileId);
@@ -141,13 +138,6 @@ export function runObserveCollabText({
         paintedContent: lastLocalContentRef.current,
       })
     ) {
-      // Holistic flash pipeline: a remote (peer/agent) edit arriving mid-
-      // session is exactly the "remote adoption" case that should apply
-      // in-place — this is not a file switch or initial mount. Try the
-      // bridge's live in-place full-document replace (same live iframe, no
-      // navigation) first; only fall back to an actual srcdoc rebuild when
-      // the bridge can't apply it (e.g. this screen's iframe isn't mounted/
-      // registered right now).
       if (
         previewContentReplaceNeedsRenderFallback(
           replacePreviewContent(next, null, { forceFullDocument: true }),
@@ -157,24 +147,25 @@ export function runObserveCollabText({
       }
       lastLocalContentRef.current = next;
     }
-    // Only advance the DB reconcile watermark when the live CRDT text
-    // actually matches the current SQL snapshot. Otherwise an intermediate
-    // or malformed Yjs update can shadow valid saved HTML until reload.
-    if (next === documentFileContentRef.current) {
-      lastAppliedFileUpdatedAtRef.current =
-        documentFileUpdatedAtRef.current ?? lastAppliedFileUpdatedAtRef.current;
+    const documentUpdatedAt = documentFileUpdatedAtRef.current;
+    if (rawNext === documentFileContentRef.current && documentUpdatedAt) {
+      lastAppliedFileUpdatedAtRef.current = documentUpdatedAt;
+      lastAppliedFileContentRef.current = documentFileContentRef.current;
     }
-    // Stale-selection fix: when a remote/agent edit changes the document,
-    // verify the selected element still exists in the new DOM. If not, clear
-    // selection and hover so the Edit panel doesn't operate on a ghost element.
     if (!isLocalEdit) {
       setSelectedElement((prev) => {
         if (!prev) return prev;
-        return refreshElementInfoFromContent(next, prev);
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId,
+        });
       });
       setHoveredElement((prev) => {
         if (!prev) return prev;
-        return refreshElementInfoFromContent(next, prev);
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId,
+        });
       });
     }
   };

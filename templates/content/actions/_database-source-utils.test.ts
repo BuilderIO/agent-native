@@ -49,6 +49,7 @@ import {
   normalizeSourceFreshness,
   refreshBuilderBodySourceValuesFromStoredLossless,
   serializeBuilderCmsSourceReadMetadataRecord,
+  serializeSourceField,
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
   sourceSnapshotDocumentSelection,
@@ -308,6 +309,32 @@ describe("database source helpers", () => {
     expect(normalizeSourceFreshness("fresh")).toBe("fresh");
     expect(normalizeSourceFreshness("stale")).toBe("stale");
     expect(normalizeSourceFreshness("mysterious fog")).toBe("unknown");
+  });
+
+  it("rejects unreadable source field write policy during serialization", () => {
+    const row = {
+      id: "field-1",
+      propertyId: "property-1",
+      localFieldKey: "property-1",
+      sourceFieldKey: "field",
+      sourceFieldLabel: "Field",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "unknown",
+      readOnly: 0,
+      provenance: "test",
+      freshness: "fresh",
+      lastSyncedAt: null,
+    };
+    expect(() => serializeSourceField(row as never, "Field")).toThrow(
+      "Invalid Content source field write owner: unknown",
+    );
+    expect(() =>
+      serializeSourceField(
+        { ...row, writeOwner: "local", readOnly: 2 } as never,
+        "Field",
+      ),
+    ).toThrow("Invalid Content source field read-only value: 2");
   });
 
   it("omits heavy Builder body payloads from read snapshots", () => {
@@ -1681,7 +1708,6 @@ describe("database source helpers", () => {
         },
       ],
     });
-    // The already-linked row with no title change yields nothing.
     expect(
       pending.find((cs) => cs.documentId === "doc-linked"),
     ).toBeUndefined();
@@ -2140,8 +2166,6 @@ describe("database source helpers", () => {
         { databaseItemId: "item-mine", documentId: "doc-mine" },
         { databaseItemId: "item-other", documentId: "doc-other" },
       ],
-      // doc-other is owned by a different source — it must not become a create
-      // candidate for this one, even though it isn't in this source's rowRows.
       otherSourceDocumentIds: new Set(["doc-other"]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
@@ -2150,8 +2174,6 @@ describe("database source helpers", () => {
   });
 
   it("a non-primary source adopts a row tagged for it via the Source property", () => {
-    // A new, unlinked row tagged for "source-zz" must create against zz even
-    // though zz is not the primary (allowUnsourcedCreates: false).
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms", id: "source-zz" },
       rowRows: [],
@@ -2171,8 +2193,6 @@ describe("database source helpers", () => {
       ]),
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
-    // zz adopts its own tagged row; the row tagged for another collection is
-    // left alone even though this is the non-primary source.
     expect(pending.find((cs) => cs.documentId === "doc-zz")).toBeDefined();
     expect(pending.find((cs) => cs.documentId === "doc-blog")).toBeUndefined();
   });
@@ -2188,14 +2208,12 @@ describe("database source helpers", () => {
       ],
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
 
-    // A non-primary source leaves an unsourced "Local" row alone.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,
         allowUnsourcedCreates: false,
       }),
     ).toHaveLength(0);
-    // The primary (default) adopts it as a create_draft.
     expect(
       buildBuilderLocalOutboundChangeSets({
         ...args,

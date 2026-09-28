@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.diff.in-place"
 name: "In-place typed review"
-user_promise: "Changes are reviewed inside the ordinary Page, Database, Board, template, source, or code surface that gives them meaning."
+user_promise: "Changes are reviewed inside the ordinary Page, Collection, Board, template, source, or code surface that gives them meaning."
 primary_user_job: "Evaluate a proposed change in context rather than translating it from a generic red/green destination."
 kind: "primitive"
 state: "approved_shape"

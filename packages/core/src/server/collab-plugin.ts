@@ -1,18 +1,3 @@
-/**
- * Nitro plugin that mounts collaborative editing routes.
- *
- * Templates opt in with one line:
- * ```ts
- * // server/plugins/collab.ts
- * import { createCollabPlugin } from "@agent-native/core/server";
- * export default createCollabPlugin({
- *   table: "documents",
- *   contentColumn: "content",
- *   access: { mode: "resource", resourceType: "document" },
- * });
- * ```
- */
-
 import {
   defineEventHandler,
   getMethod,
@@ -28,14 +13,14 @@ import {
   postCollabText,
   postCollabSearchReplace,
 } from "../collab/routes.js";
-import { listCollabDocIds } from "../collab/storage.js";
+import { hasCollabState } from "../collab/storage.js";
 import {
   postCollabJson,
   getCollabJson,
   postCollabPatch,
 } from "../collab/struct-routes.js";
 import { seedFromText, seedFromJson } from "../collab/ydoc-manager.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { getOrgContext } from "../org/context.js";
 import { resolveAccess, assertAccess } from "../sharing/access.js";
 import { getSession } from "./auth.js";
@@ -46,7 +31,6 @@ import { runWithRequestContext } from "./request-context.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/** Default maximum body size in bytes for collab write operations (2 MB). */
 const DEFAULT_MAX_PAYLOAD_BYTES = 2 * 1024 * 1024;
 
 type CollabAwarenessScope = {
@@ -63,13 +47,10 @@ export type CollabResourceIdResolver = (
 export type CollabAccess =
   | {
       mode: "resource";
-      /** The shareable resource type registered via `registerShareableResource`. */
       resourceType: string;
-      /** Map a collab document id to its parent shareable resource id. */
       resolveResourceId?: CollabResourceIdResolver;
     }
   | {
-      /** Deliver collaboration events to every authenticated user. */
       mode: "all-authenticated";
     };
 
@@ -84,11 +65,6 @@ type NormalizedCollabAccess =
       explicit: boolean;
     };
 
-/**
- * Tables whose implicit all-authenticated warning has already been logged in
- * this process. Avoids duplicate warnings during hot reloads while still
- * identifying every affected table.
- */
 const COLLAB_WARNING_TABLES_KEY =
   "__agentNativeImplicitCollabAccessWarningTables__";
 const collabWarningGlobal = globalThis as typeof globalThis & {
@@ -99,30 +75,15 @@ const _unscoped_warning_tables = (collabWarningGlobal[
 ] ??= new Set<string>());
 
 export interface CollabPluginOptions {
-  /** Table name containing document content. Default: "documents" */
   table?: string;
-  /** Column name for text content. Default: "content" */
   contentColumn?: string;
-  /** Column name for the document ID. Default: "id" */
   idColumn?: string;
-  /** Whether to auto-seed existing documents on startup. Default: true */
   autoSeed?: boolean;
-  /** Map a source-table id to the id used by the collab document store. */
   resolveCollabDocumentId?: (sourceId: string) => string;
-  /**
-   * Callback invoked after a collab update to sync the content column.
-   * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
-   */
+  resolveSourceIdFromCollabDocumentId?: (docId: string) => string;
   onContentSync?: (docId: string, text: string) => Promise<void>;
-  /** Content type: "text" for Y.Text (default) or "json" for Y.Map/Y.Array. */
   contentType?: "text" | "json";
-  /** Column name for JSON content (used when contentType is "json"). */
   jsonColumn?: string;
-  /**
-   * Access policy for collaboration routes and event delivery.
-   * Use `resource` for registered shareable resources, or explicitly choose
-   * `all-authenticated` for deployment-wide collaboration.
-   */
   access?: CollabAccess;
   /**
    * The shareable resource type registered via `registerShareableResource`.
@@ -137,11 +98,6 @@ export interface CollabPluginOptions {
    * @deprecated Use `access: { mode: "resource", resourceType, resolveResourceId }`.
    */
   resolveResourceId?: CollabResourceIdResolver;
-  /**
-   * Maximum allowed body size in bytes for write operations
-   * (update/text/json/patch). Requests exceeding this are rejected with 413.
-   * Default: 2097152 (2 MB).
-   */
   maxPayloadBytes?: number;
 }
 
@@ -213,6 +169,49 @@ function warnForImplicitAllAuthenticatedAccess(table: string): void {
   );
 }
 
+export function createCollabSourceSeeder(options: {
+  hasState: (docId: string) => Promise<boolean>;
+  loadSource: (docId: string) => Promise<string | null>;
+  seed: (docId: string, source: string, client?: DbExec) => Promise<void>;
+  withLock?: (
+    docId: string,
+    run: (client?: DbExec) => Promise<void>,
+  ) => Promise<void>;
+}): (docId: string) => Promise<void> {
+  const inFlight = new Map<string, Promise<void>>();
+
+  return async (docId) => {
+    const existing = inFlight.get(docId);
+    if (existing) return existing;
+
+    const seed = async (client?: DbExec) => {
+      if (await options.hasState(docId)) return;
+      const source = await options.loadSource(docId);
+      if (source === null) return;
+      if (client) {
+        await options.seed(docId, source, client);
+      } else {
+        await options.seed(docId, source);
+      }
+    };
+    const pending = (async () => {
+      if (await options.hasState(docId)) return;
+      if (options.withLock) {
+        await options.withLock(docId, seed);
+      } else {
+        await seed();
+      }
+    })();
+    inFlight.set(docId, pending);
+
+    try {
+      await pending;
+    } finally {
+      if (inFlight.get(docId) === pending) inFlight.delete(docId);
+    }
+  };
+}
+
 export function createCollabPlugin(
   options: CollabPluginOptions = {},
 ): NitroPluginDef {
@@ -224,8 +223,13 @@ export function createCollabPlugin(
     autoSeed = true,
     maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
   } = options;
-  const resolveCollabDocumentId =
-    options.resolveCollabDocumentId ?? ((sourceId: string) => sourceId);
+  const resolveSourceIdFromCollabDocumentId =
+    options.resolveSourceIdFromCollabDocumentId ?? ((docId: string) => docId);
+  const isJson = options.contentType === "json";
+  const seedColumn = isJson
+    ? options.jsonColumn || contentColumn
+    : contentColumn;
+  const legacyResolveCollabDocumentId = options.resolveCollabDocumentId;
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -241,6 +245,128 @@ export function createCollabPlugin(
   ) {
     warnForImplicitAllAuthenticatedAccess(table);
   }
+
+  const ensureDocumentSeeded = autoSeed
+    ? createCollabSourceSeeder({
+        hasState: hasCollabState,
+        loadSource: async (docId) => {
+          const readSource = (
+            row: Record<string, unknown>,
+            sourceId: string,
+          ): string => {
+            const source = row[seedColumn];
+            if (typeof source !== "string") {
+              throw new Error(
+                `[collab] ${table}.${seedColumn} for ${sourceId} is unreadable`,
+              );
+            }
+            return source;
+          };
+
+          if (
+            legacyResolveCollabDocumentId &&
+            !options.resolveSourceIdFromCollabDocumentId
+          ) {
+            const { rows } = await getDbExec().execute({
+              sql: `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
+            });
+            for (const row of rows as Record<string, unknown>[]) {
+              const rawSourceId = row[idColumn];
+              if (
+                rawSourceId === null ||
+                rawSourceId === undefined ||
+                (typeof rawSourceId !== "string" &&
+                  typeof rawSourceId !== "number" &&
+                  typeof rawSourceId !== "bigint")
+              ) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              const sourceId = String(rawSourceId);
+              if (!sourceId) {
+                throw new Error(
+                  `[collab] ${table}.${idColumn} for a legacy lazy seed is unreadable`,
+                );
+              }
+              if (legacyResolveCollabDocumentId(sourceId) !== docId) continue;
+              return readSource(row, sourceId);
+            }
+            return null;
+          }
+
+          const sourceId = resolveSourceIdFromCollabDocumentId(docId);
+          const { rows } = await getDbExec().execute({
+            sql: `SELECT ${seedColumn} FROM ${table} WHERE ${idColumn} = ?`,
+            args: [sourceId],
+          });
+          if (rows.length === 0) return null;
+          return readSource(rows[0] as Record<string, unknown>, sourceId);
+        },
+        seed: async (docId, source, client) => {
+          if (!isJson) {
+            if (client) {
+              await seedFromText(docId, source, "content", client);
+            } else {
+              await seedFromText(docId, source);
+            }
+            return;
+          }
+
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(source);
+          } catch (error) {
+            throw new Error(
+              `[collab] ${table}.${seedColumn} for ${docId} contains invalid JSON`,
+              { cause: error },
+            );
+          }
+          const type = Array.isArray(parsed) ? "array" : "map";
+          if (client) {
+            await seedFromJson(docId, parsed, "data", type, client);
+          } else {
+            await seedFromJson(docId, parsed, "data", type);
+          }
+        },
+        withLock: async (docId, run) => {
+          const client = getDbExec();
+          if (typeof client.transaction !== "function") return run();
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            const acquired = await client.transaction(async (tx) => {
+              const { rows } = await tx.execute({
+                sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0)) AS acquired",
+                args: [`${table}:${docId}`],
+                timeoutMs: 1_000,
+              });
+              const result = rows[0]?.acquired;
+              const acquired =
+                result === true || result === "t"
+                  ? true
+                  : result === false || result === "f"
+                    ? false
+                    : null;
+              if (acquired === null) {
+                throw new Error(
+                  `[collab] advisory lock result for ${docId} is unreadable`,
+                );
+              }
+              if (!acquired) return false;
+              await withDbExec(tx, () => run(tx));
+              return true;
+            });
+            if (acquired) return;
+
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, Math.min(200, 25 * (attempt + 1))),
+            );
+          }
+          throw new Error(
+            `[collab] timed out waiting to seed ${docId}; retry the request`,
+          );
+        },
+      })
+    : async () => {};
 
   return async (nitroApp: any) => {
     await awaitBootstrap(nitroApp);
@@ -264,12 +390,10 @@ export function createCollabPlugin(
     const collabEmitter = getCollabEmitter();
     collabEmitter.on("collab", async (event) => {
       if (!resourceType) {
-        // No access model — broadcast to all authenticated users (no owner/orgId tag).
         recordChange(event);
         return;
       }
 
-      // Resolve the resource to learn its owner/org so we can scope the event.
       const docId = event.docId as string | undefined;
       if (!docId) {
         recordChange(event);
@@ -281,13 +405,9 @@ export function createCollabPlugin(
           ? await resolveResourceId(docId)
           : docId;
         if (!resourceId) {
-          // Cannot resolve resource — drop the event to avoid leaking to
-          // unauthorized pollers. The client will catch up via state-vector.
           return;
         }
 
-        // Load the resource row to get owner/org. resolveAccess fetches the
-        // resource row internally; use getShareableResource to read it cheaply.
         const { requireShareableResource } =
           await import("../sharing/registry.js");
         const reg = requireShareableResource(resourceType);
@@ -300,7 +420,6 @@ export function createCollabPlugin(
           .limit(1);
 
         if (!resource) {
-          // Resource deleted — drop silently.
           return;
         }
 
@@ -311,9 +430,6 @@ export function createCollabPlugin(
         const orgId =
           typeof resource.orgId === "string" ? resource.orgId : undefined;
 
-        // Tag the event with owner/org (backward-compat fast path) AND with
-        // resourceType/resourceId so canSeeChangeForUser can run an
-        // access-aware check for non-owner sharees (see poll.ts).
         recordChange({
           ...event,
           ...(ownerEmail ? { owner: ownerEmail } : {}),
@@ -327,10 +443,6 @@ export function createCollabPlugin(
       }
     });
 
-    // Mount collab routes — manual method dispatch since the path layout is
-    // `/collab/:docId/<action>`. The framework strips the `/collab` mount
-    // prefix from event.url.pathname before calling us, so we see e.g.
-    // `/abc-123/state`.
     getH3App(nitroApp).use(
       `${P}/collab`,
       defineEventHandler(async (event: H3Event) => {
@@ -345,7 +457,6 @@ export function createCollabPlugin(
         }
         const method = getMethod(event);
 
-        // Auth check — all collab routes require a session
         const session = await getSession(event).catch(() => null);
         if (!session?.email) {
           setResponseStatus(event, 401);
@@ -357,10 +468,6 @@ export function createCollabPlugin(
         const orgId = orgCtx?.orgId ?? undefined;
 
         return runWithRequestContext({ userEmail, orgId }, async () => {
-          // Access check — require at least viewer for reads, editor for writes.
-          // Awareness routes (POST awareness / GET users) require the same
-          // level as other reads so that knowledge of who is editing a doc
-          // doesn't leak to users without access.
           if (resourceType) {
             const resourceId = resolveResourceId
               ? await resolveResourceId(docId)
@@ -377,11 +484,6 @@ export function createCollabPlugin(
               (action === "patch" && method === "POST");
 
             if (isWrite) {
-              // assertAccess throws ForbiddenError (→ 403) if no editor access.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has — loading it here
-              // means every keystroke-driven update read the whole document
-              // twice, once for the ACL and once for the edit itself.
               const access = await assertAccess(
                 resourceType,
                 resourceId,
@@ -404,9 +506,6 @@ export function createCollabPlugin(
                 event.context._collabAwarenessScope = awarenessScope;
               }
             } else {
-              // resolveAccess returns null when no access; return 404 to avoid leaking existence.
-              // Projected: only ownerEmail/orgId are read below, and a collab
-              // resource's body is the largest column it has.
               const access = await resolveAccess(
                 resourceType,
                 resourceId,
@@ -434,7 +533,6 @@ export function createCollabPlugin(
             }
           }
 
-          // Payload size limit for write operations
           const isWriteAction =
             (action === "update" && method === "POST") ||
             (action === "text" && method === "POST") ||
@@ -452,12 +550,19 @@ export function createCollabPlugin(
                 error: `Payload too large. Maximum is ${maxPayloadBytes} bytes.`,
               };
             }
-            // Store limit in context so route handlers can enforce it on the
-            // parsed body when content-length is absent or spoofed.
             if (event.context) {
               event.context._collabMaxPayloadBytes = maxPayloadBytes;
             }
           }
+
+          const needsSeed =
+            (action === "state" && method === "GET") ||
+            (action === "update" && method === "POST") ||
+            (action === "text" && method === "POST") ||
+            (action === "search-replace" && method === "POST") ||
+            (action === "json" && (method === "GET" || method === "POST")) ||
+            (action === "patch" && method === "POST");
+          if (needsSeed) await ensureDocumentSeeded(docId);
 
           if (action === "state" && method === "GET")
             return getCollabState(event);
@@ -483,75 +588,8 @@ export function createCollabPlugin(
       }),
     );
 
-    // Auto-seed existing documents into collab state
-    if (autoSeed) {
-      const isJson = options.contentType === "json";
-      const seedColumn = isJson
-        ? options.jsonColumn || contentColumn
-        : contentColumn;
-
-      // Run in background so it doesn't block startup
-      setTimeout(async () => {
-        try {
-          // Read existing ids once, then apply the plugin's document-id
-          // mapping before filtering. A source-table SQL predicate can use
-          // the wrong id for integrations such as Analytics' dash-* docs.
-          const existingDocIds = await listCollabDocIds();
-          const client = getDbExec();
-          const { rows } = await client.execute(
-            `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
-          );
-          for (const { row, docId } of selectUnseededCollabRows(
-            rows,
-            idColumn,
-            existingDocIds,
-            resolveCollabDocumentId,
-          )) {
-            let seeded = false;
-
-            if (isJson) {
-              const raw = (row[seedColumn] as string) ?? "{}";
-              try {
-                const parsed = JSON.parse(raw);
-                const inferredType: "map" | "array" = Array.isArray(parsed)
-                  ? "array"
-                  : "map";
-                await seedFromJson(docId, parsed, "data", inferredType);
-                seeded = true;
-              } catch {
-                // Invalid JSON — skip
-              }
-            } else {
-              const content = (row[seedColumn] as string) ?? "";
-              await seedFromText(docId, content);
-              seeded = true;
-            }
-            if (seeded) existingDocIds.add(docId);
-          }
-        } catch {
-          // Table may not exist yet on first boot — that's fine
-        }
-      }, 1000);
-    }
+    // Source rows are seeded lazily by the request path above. A cold-start
+    // scan here stampedes serverless instances and does work for documents no
+    // caller will ever open.
   };
-}
-
-export function selectUnseededCollabRows(
-  rows: ReadonlyArray<Record<string, unknown>>,
-  idColumn: string,
-  existingDocIds: ReadonlySet<string>,
-  resolveCollabDocumentId: (sourceId: string) => string = (sourceId) =>
-    sourceId,
-): Array<{ row: Record<string, unknown>; docId: string }> {
-  const seenDocIds = new Set(existingDocIds);
-  const unseeded: Array<{ row: Record<string, unknown>; docId: string }> = [];
-  for (const row of rows) {
-    const sourceId = String(row[idColumn] ?? "");
-    if (!sourceId) continue;
-    const docId = resolveCollabDocumentId(sourceId);
-    if (seenDocIds.has(docId)) continue;
-    seenDocIds.add(docId);
-    unseeded.push({ row, docId });
-  }
-  return unseeded;
 }

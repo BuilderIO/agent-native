@@ -6,7 +6,12 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
+import {
+  designFrame,
+  enterDirectMode,
+  expandAllLayers,
+  gotoEditor,
+} from "./helpers";
 
 const CONSTRAINTS_HTML = `<!doctype html>
 <html>
@@ -15,14 +20,14 @@ const CONSTRAINTS_HTML = `<!doctype html>
     <div data-agent-native-node-id="outer-frame" style="position:relative;width:720px;height:620px;padding:30px;background:#eee">
       <div data-agent-native-node-id="nested-frame" style="position:relative;width:400px;height:300px;background:#fff">
         <div data-agent-native-node-id="left-top" style="position:absolute;left:20px;top:20px;width:60px;height:30px;background:#fecaca">Left Top</div>
-        <div data-agent-native-node-id="right-bottom" style="position:absolute;left:110px;top:60px;width:70px;height:35px;background:#fed7aa">Right Bottom</div>
-        <div data-agent-native-node-id="stretch" style="position:absolute;left:40px;top:110px;width:120px;height:40px;background:#fef08a">Stretch Both</div>
-        <div data-agent-native-node-id="center" style="position:absolute;left:180px;top:170px;width:80px;height:45px;background:#bbf7d0">Center Both</div>
-        <div data-agent-native-node-id="scale" style="position:absolute;left:80px;top:230px;width:100px;height:50px;background:#bfdbfe">Scale Both</div>
+        <div data-agent-native-node-id="right-bottom" data-agent-native-layer-name="Right Bottom Frame" style="position:absolute;left:110px;top:60px;width:70px;height:35px;background:#fed7aa">Right Bottom</div>
+        <div data-agent-native-node-id="stretch" data-agent-native-layer-name="Stretch Both Frame" style="position:absolute;left:40px;top:110px;width:120px;height:40px;background:#fef08a">Stretch Both</div>
+        <div data-agent-native-node-id="center" data-agent-native-layer-name="Center Both Frame" style="position:absolute;left:180px;top:170px;width:80px;height:45px;background:#bbf7d0">Center Both</div>
+        <div data-agent-native-node-id="scale" data-agent-native-layer-name="Scale Both Frame" style="position:absolute;left:80px;top:230px;width:100px;height:50px;background:#bfdbfe">Scale Both</div>
       </div>
       <div data-agent-native-node-id="auto-frame" style="position:relative;display:flex;width:400px;height:180px;margin-top:30px;gap:12px;background:#ddd6fe">
         <div data-agent-native-node-id="flow-child">Flow child</div>
-        <div data-agent-native-node-id="auto-absolute" style="position:absolute;left:100px;top:60px;width:80px;height:40px;background:#f5d0fe">Auto Absolute</div>
+        <div data-agent-native-node-id="auto-absolute" data-agent-native-layer-name="Auto Absolute Frame" style="position:absolute;left:100px;top:60px;width:80px;height:40px;background:#f5d0fe">Auto Absolute</div>
       </div>
     </div>
   </body>
@@ -47,11 +52,25 @@ async function postAction(
 }
 
 async function selectFixtureLayer(page: Page, nodeId: string) {
-  const layer = designFrame(page).locator(
-    `[data-agent-native-node-id="${nodeId}"]`,
-  );
+  await page.keyboard.press("Escape");
+  const layerName = {
+    "right-bottom": "Right Bottom Frame",
+    stretch: "Stretch Both Frame",
+    center: "Center Both Frame",
+    scale: "Scale Both Frame",
+    "auto-absolute": "Auto Absolute Frame",
+  }[nodeId];
+  if (!layerName) throw new Error(`missing layer name for ${nodeId}`);
+  const layer = page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button]")
+    .filter({ hasText: layerName })
+    .first();
   await expect(layer).toBeVisible();
   await layer.click({ force: true });
+  await expect(
+    layer.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+  ).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("button", { name: "Constraints" })).toBeVisible();
 }
 
@@ -125,6 +144,7 @@ test("constraints preserve Figma geometry through real nested and auto-layout pa
     await gotoEditor(page, designId);
     await enterDirectMode(page);
     await page.getByRole("tab", { name: "Design", exact: true }).click();
+    await expandAllLayers(page);
 
     await selectFixtureLayer(page, "right-bottom");
     await chooseConstraint(page, "Horizontal", "Right");
@@ -181,32 +201,26 @@ test("constraints preserve Figma geometry through real nested and auto-layout pa
       ),
     ) as Record<(typeof ids)[number], Geometry>;
 
-    // Left/Top: position and fixed size stay constant.
     for (const key of ["left", "top", "width", "height"] as const) {
       expectClose(after["left-top"][key], before["left-top"][key]);
     }
-    // Right/Bottom: opposite-edge gaps and fixed size stay constant.
     for (const key of ["right", "bottom", "width", "height"] as const) {
       expectClose(after["right-bottom"][key], before["right-bottom"][key]);
     }
-    // Dual-edge pins stretch by the parent's exact resize delta.
     expectClose(after.stretch.left, before.stretch.left);
     expectClose(after.stretch.right, before.stretch.right);
     expectClose(after.stretch.top, before.stretch.top);
     expectClose(after.stretch.bottom, before.stretch.bottom);
     expectClose(after.stretch.width, before.stretch.width + 200);
     expectClose(after.stretch.height, before.stretch.height + 150);
-    // Center preserves its offset from the parent's center, never recenters.
     expectClose(after.center.centerX, before.center.centerX);
     expectClose(after.center.centerY, before.center.centerY);
     expectClose(after.center.width, before.center.width);
     expectClose(after.center.height, before.center.height);
-    // Scale preserves position and size ratios on both axes.
     expectClose(after.scale.left / 600, before.scale.left / 400, 0.002);
     expectClose(after.scale.top / 450, before.scale.top / 300, 0.002);
     expectClose(after.scale.width / 600, before.scale.width / 400, 0.002);
     expectClose(after.scale.height / 450, before.scale.height / 300, 0.002);
-    // Absolute children of auto-layout parents use the same proportional path.
     expectClose(
       after["auto-absolute"].left / 600,
       before["auto-absolute"].left / 400,

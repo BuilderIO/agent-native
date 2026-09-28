@@ -12,11 +12,6 @@ import type { RecapCopy } from "./transactional-email-store.js";
 
 const CLIPS_BRAND_NAME = "Clips";
 const CLIPS_SENDER_NAME = "Agent-Native Clips";
-/**
- * Yields `clips@agent-native.com` on first-party deployments and is ignored
- * where the configured sender is someone else's verified address, so a
- * self-hosted install keeps sending from an address its provider accepts.
- */
 const CLIPS_SENDER_SLUG = "clips";
 const UNIDENTIFIED_AGENT_NAME = "An AI agent";
 const EMAIL_SEND_TIMEOUT_MS = 60_000;
@@ -39,6 +34,8 @@ export type ClipsTransactionalEmailInput =
   | (TransactionalEmailBase & {
       kind: "unviewed-reminder";
       recordingId: string;
+      meetingId?: string | null;
+      meetingIsPublic?: boolean;
       title?: string | null;
       senderEmail?: string | null;
       senderName?: string | null;
@@ -48,7 +45,6 @@ export type ClipsTransactionalEmailInput =
       kind: "first-agent-view";
       recordingId: string;
       title?: string | null;
-      /** Absent when the reading agent could not be identified by product. */
       agentName?: string | null;
     })
   | (TransactionalEmailBase & {
@@ -186,6 +182,23 @@ function clipUrl(
   return appUrlForPath(`/r/${encodeURIComponent(recordingId)}`, options);
 }
 
+function recipientUrl(
+  recordingId: string,
+  meetingId: string | null | undefined,
+  meetingIsPublic: boolean | undefined,
+  options: ClipsTransactionalEmailRenderOptions,
+): string {
+  if (meetingId) {
+    return appUrlForPath(
+      meetingIsPublic
+        ? `/share/meeting/${encodeURIComponent(meetingId)}`
+        : `/meetings/${encodeURIComponent(meetingId)}`,
+      options,
+    );
+  }
+  return appUrlForPath(`/share/${encodeURIComponent(recordingId)}`, options);
+}
+
 function clipCommentsUrl(
   recordingId: string,
   videoTimestampMs: number | null | undefined,
@@ -292,18 +305,10 @@ export interface RecapCopySource {
     humanViews: number;
     completedPct: number;
     dropOffMs: number | null;
-    /** A null `agentLabel` is an agent we could not identify by product. */
     agentBreakdown: { agentLabel: string | null; sessions: number }[];
   };
 }
 
-/**
- * Builds every recap module from the metrics themselves.
- *
- * Deliberately not agent-written: a recap that waited on the owner opening
- * Clips would silently never arrive for the owners least likely to open it.
- * Each module is mechanical, so nothing is lost by composing it here.
- */
 export function composeRecapCopy(recap: RecapCopySource): RecapCopy {
   const views = countLabel(recap.humanViews, "time", "times");
   const reads = countLabel(recap.agentSessions, "agent", "agents");
@@ -355,11 +360,6 @@ function formatRecordedDate(recordedAt: string): string {
       });
 }
 
-/**
- * Email clients resolve neither CSS custom properties nor external
- * stylesheets, so the recap card inlines the same literal palette that
- * `renderEmail` already draws the surrounding card with.
- */
 const CARD_BG = "#0a0a0c"; // guard:allow-raw-color — inlined for email clients
 const CARD_BORDER = "#3f3f46"; // guard:allow-raw-color — inlined for email clients
 const CARD_DIVIDER = "#27272a"; // guard:allow-raw-color — inlined for email clients
@@ -451,28 +451,45 @@ export function renderClipsTransactionalEmail(
       const sender =
         singleLine(input.senderName) ||
         normalizeEmailDisplayName(input.senderEmail, "Someone");
-      const subject = `Still need to watch “${title}”?`;
-      const url = clipUrl(input.recordingId, options);
+      const copy = input.meetingId
+        ? {
+            subject: `Still need to read the notes from “${title}”?`,
+            heading: `${sender} shared meeting notes with you`,
+            waiting: `Notes from ${emailStrong(title!)} are waiting whenever you have a moment.`,
+            ctaLabel: "Read the Notes",
+            footerNoun: "these notes",
+          }
+        : {
+            subject: `Still need to watch “${title}”?`,
+            heading: `${sender} shared a Clip with you`,
+            waiting: `${emailStrong(title!)} is waiting whenever you have a moment.`,
+            ctaLabel: "Watch the Clip Manually",
+            footerNoun: "this Clip",
+          };
+      const url = recipientUrl(
+        input.recordingId,
+        input.meetingId,
+        input.meetingIsPublic,
+        options,
+      );
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandLogoUrl: resolveBrandLogoUrl(input.brandLogoUrl, options),
-        preheader: subject,
-        heading: `${sender} shared a Clip with you`,
-        paragraphs: [
-          `${emailStrong(title!)} is waiting whenever you have a moment.`,
-        ],
+        preheader: copy.subject,
+        heading: copy.heading,
+        paragraphs: [copy.waiting],
         linkBlock: {
           intro:
             "Don't have a moment to spare? Share the below link with your own AI agent and ask it for a summary:",
           url,
         },
         cta: {
-          label: "Watch the Clip Manually",
+          label: copy.ctaLabel,
           url,
         },
-        footer: `You received this reminder because ${sender} shared this Clip with you two days ago.`,
+        footer: `You received this reminder because ${sender} shared ${copy.footerNoun} with you two days ago.`,
       });
-      return { subject, ...rendered };
+      return { subject: copy.subject, ...rendered };
     }
 
     case "first-agent-view": {

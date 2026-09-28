@@ -16,6 +16,7 @@ import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume
 import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
+import { loadCliBootstrap } from "../scripts/cli-bootstrap.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { loadEnv } from "../scripts/utils.js";
 import { autoDiscoverActions } from "../server/action-discovery.js";
@@ -159,6 +160,7 @@ export async function runAgent(
 ): Promise<number> {
   loadEnv();
   registerBuiltinEngines();
+  await loadCliBootstrap();
 
   const stdout = io.stdout ?? console.log;
   const stderr = io.stderr ?? console.error;

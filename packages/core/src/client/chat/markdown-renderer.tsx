@@ -1,8 +1,5 @@
-// Owns: lazy react-markdown/shiki loaders, SmoothMarkdownText, MarkdownText,
-// HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
-// used by every markdown render path in AssistantChat.
+// Owns the shared markdown loader, streaming text helpers, and renderer.
 
-import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
@@ -24,12 +21,8 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import {
-  localizeKnownChatErrorText,
-  NEW_CHAT_ACTION_HREF,
-} from "../error-format.js";
+import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
-import { useT } from "../i18n.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
 import {
@@ -156,6 +149,86 @@ export function loadHighlighter(): Promise<ShikiHighlighter> {
 export const TextStreamingContext = React.createContext(false);
 export const ExternalTextStreamingContext = React.createContext(false);
 
+// `undefined` means "no chat host is providing run state", which is different
+// from `false` ("a host is providing it and the run has ended"). Embedded and
+// test surfaces render markdown without an AssistantChat above them, and they
+// must not be told the run is over.
+export const AgentRunActiveContext = React.createContext<boolean | undefined>(
+  undefined,
+);
+
+export interface ActiveTextStreamingIdentity {
+  runId: string | null;
+  turnId: string | null;
+}
+
+export const ActiveTextStreamingIdentityContext =
+  React.createContext<ActiveTextStreamingIdentity | null>(null);
+
+export function AgentTextStreamingProvider({
+  children,
+  identity,
+  streaming,
+  runActive,
+}: {
+  children: React.ReactNode;
+  identity: ActiveTextStreamingIdentity | null;
+  streaming: boolean;
+  runActive: boolean;
+}) {
+  return (
+    <AgentRunActiveContext.Provider value={runActive}>
+      <ActiveTextStreamingIdentityContext.Provider value={identity}>
+        <TextStreamingContext.Provider value={streaming}>
+          {children}
+        </TextStreamingContext.Provider>
+      </ActiveTextStreamingIdentityContext.Provider>
+    </AgentRunActiveContext.Provider>
+  );
+}
+
+function messageStreamingIdentity(
+  message: unknown,
+): ActiveTextStreamingIdentity {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | {
+        custom?: { runId?: unknown; turnId?: unknown };
+        runId?: unknown;
+        turnId?: unknown;
+      }
+    | undefined;
+  return {
+    runId:
+      typeof metadata?.custom?.runId === "string"
+        ? metadata.custom.runId
+        : typeof metadata?.runId === "string"
+          ? metadata.runId
+          : null,
+    turnId:
+      typeof metadata?.custom?.turnId === "string"
+        ? metadata.custom.turnId
+        : typeof metadata?.turnId === "string"
+          ? metadata.turnId
+          : null,
+  };
+}
+
+export function messageMatchesActiveTextStream(
+  message: unknown,
+  activeIdentity: ActiveTextStreamingIdentity | null,
+): boolean {
+  if (!activeIdentity) return false;
+  const messageIdentity = messageStreamingIdentity(message);
+  if (activeIdentity.turnId && messageIdentity.turnId) {
+    return activeIdentity.turnId === messageIdentity.turnId;
+  }
+  return Boolean(
+    activeIdentity.runId &&
+    messageIdentity.runId &&
+    activeIdentity.runId === messageIdentity.runId,
+  );
+}
+
 // ─── HighlightedCodeBlock wrapper ────────────────────────────────────────────
 // Reads streaming state from context so markdownComponents (a static constant)
 // can opt into debounced highlighting without needing to rebuild on every render.
@@ -199,6 +272,20 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
       /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
     );
   } catch {
+    return false;
+  }
+}
+
+function opensMarkdownLinkInNewTab(href: string | undefined): boolean {
+  if (!href || typeof window === "undefined") return false;
+  try {
+    const url = new URL(href, window.location.href);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin !== window.location.origin
+    );
+  } catch {
+    // coercion-ok: malformed links remain in the current tab and are not fetched here.
     return false;
   }
 }
@@ -258,8 +345,15 @@ export const markdownComponents = {
     }
     const isBuilderCta = isBuilderErrorCtaHref(href);
     if (!isBuilderCta) {
+      const openInNewTab = opensMarkdownLinkInNewTab(href);
       return (
-        <a href={href} className={className} {...rest}>
+        <a
+          href={href}
+          target={openInNewTab ? "_blank" : undefined}
+          rel={openInNewTab ? "noopener noreferrer" : undefined}
+          className={className}
+          {...rest}
+        >
           {children}
         </a>
       );
@@ -404,8 +498,8 @@ type SmoothStreamingTextCacheEntry = {
 
 // Grouped message parts are rebuilt as tool calls arrive. A text part can
 // therefore be unmounted and mounted again even though its identity did not
-// change. Keep the reveal cursor outside that subtree so a structural update
-// continues from the current cursor instead of replaying the opening sentence.
+// change. Keep the reveal state outside that subtree so a structural update
+// continues from the current position instead of replaying the opening sentence.
 const smoothStreamingTextCache = new Map<
   string,
   SmoothStreamingTextCacheEntry
@@ -479,6 +573,7 @@ export function useSmoothStreamingText(
   const frameRef = useRef<number | null>(null);
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);
+  const inputDoneRef = useRef(false);
   const resetKeyRef = useRef(resetKey);
   const cacheKeyRef = useRef(resetKey);
   const cacheStreamingRef = useRef(streaming);
@@ -565,6 +660,7 @@ export function useSmoothStreamingText(
     const revealCount = smoothStreamingRevealCount({
       backlog,
       elapsedMs: Math.min(120, Math.max(8, time - lastCommitAt)),
+      inputDone: inputDoneRef.current,
     });
 
     if (revealCount > 0) {
@@ -592,8 +688,27 @@ export function useSmoothStreamingText(
     const keyChanged = resetKeyRef.current !== resetKey;
     resetKeyRef.current = resetKey;
 
+    const targetGraphemes = splitStreamingTextGraphemes(targetText);
+    const shouldSettleBufferedText =
+      !keyChanged &&
+      !streaming &&
+      !prefersReducedMotion &&
+      visibleTextRef.current.length > 0 &&
+      visibleTextRef.current !== targetText &&
+      targetText.startsWith(visibleTextRef.current);
+
+    if (shouldSettleBufferedText) {
+      targetGraphemesRef.current = targetGraphemes;
+      inputDoneRef.current = true;
+      if (visibleCountRef.current < targetGraphemes.length) {
+        scheduleFrame();
+      }
+      return;
+    }
+
     if (!streaming || prefersReducedMotion) {
       cancelFrame();
+      inputDoneRef.current = false;
       targetGraphemesRef.current = EMPTY_GRAPHEMES;
       visibleCountRef.current = 0;
       if (visibleTextRef.current !== targetText) {
@@ -603,17 +718,17 @@ export function useSmoothStreamingText(
       return;
     }
 
-    const targetGraphemes = splitStreamingTextGraphemes(targetText);
     targetGraphemesRef.current = targetGraphemes;
+    inputDoneRef.current = false;
 
     const visibleNoLongerMatchesTarget =
       visibleTextRef.current.length > 0 &&
       !targetText.startsWith(visibleTextRef.current);
 
     if (
+      keyChanged ||
       visibleNoLongerMatchesTarget ||
-      visibleCountRef.current > targetGraphemes.length ||
-      (keyChanged && visibleTextRef.current.length === 0)
+      visibleCountRef.current > targetGraphemes.length
     ) {
       commitVisibleCount(initialSmoothStreamingGraphemeCount(targetGraphemes));
       lastCommitAtRef.current = 0;
@@ -702,9 +817,9 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   );
 });
 
-// ─── SmoothMarkdownText ────────────────────────────────────────────────────────
+// ─── StreamingText ────────────────────────────────────────────────────────────
 
-export function SmoothMarkdownText({
+export function StreamingText({
   text,
   streaming,
   resetKey,
@@ -769,6 +884,9 @@ export function SmoothMarkdownText({
   );
 }
 
+/** @deprecated Use StreamingText for new AgentKit surfaces. */
+export const SmoothMarkdownText = StreamingText;
+
 // ─── MarkdownText ──────────────────────────────────────────────────────────────
 
 export function shouldAnimateMarkdownText({
@@ -776,41 +894,26 @@ export function shouldAnimateMarkdownText({
   isLastAssistantMessage,
   statusType,
   externalStreaming,
+  activeMessageStreaming,
+  runActive,
 }: {
   textStreaming: boolean;
   isLastAssistantMessage: boolean;
   statusType: string;
   externalStreaming?: boolean;
+  activeMessageStreaming?: boolean;
+  runActive?: boolean;
 }): boolean {
+  // The active-turn identity is deliberately retained after a run ends so a
+  // late final chunk still animates. Without the `runActive` gate that makes
+  // the finished turn's last message permanently "streaming": it never enters
+  // the fast settle drain and keeps re-animating on remount.
+  const identityStreaming =
+    activeMessageStreaming === true && runActive !== false;
   return (
-    textStreaming &&
     isLastAssistantMessage &&
-    (statusType === "running" || externalStreaming === true)
-  );
-}
-
-export function MarkdownText() {
-  const t = useT();
-  const textPart = useMessagePartText();
-  const messageRuntime = useMessageRuntime();
-  const message = messageRuntime.getState();
-  const textStreaming = React.useContext(TextStreamingContext);
-  const externalStreaming = React.useContext(ExternalTextStreamingContext);
-  const isLastAssistantMessage = message.role === "assistant" && message.isLast;
-  const statusType =
-    textPart.status?.type ?? message.status?.type ?? "complete";
-
-  return (
-    <SmoothMarkdownText
-      text={localizeKnownChatErrorText(textPart.text, t)}
-      streaming={shouldAnimateMarkdownText({
-        textStreaming,
-        isLastAssistantMessage,
-        statusType,
-        externalStreaming,
-      })}
-      resetKey={message.id}
-      statusType={statusType}
-    />
+    (identityStreaming ||
+      (textStreaming &&
+        (statusType === "running" || externalStreaming === true)))
   );
 }

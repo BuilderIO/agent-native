@@ -45,6 +45,7 @@ const {
   syncOrganizationToIdentityHub,
   updateFederatedOrganizationMemberRole,
   validateFederatedOrganizationMembership,
+  validateFederatedOrganizationMembershipForCurrentRequest,
 } = await import("./federation.js");
 
 const identity = {
@@ -181,6 +182,58 @@ describe("cross-app organization federation", () => {
       }),
     ).rejects.toThrow("missing its deployment credential");
     expect(signA2ATokenMock).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes a stale icon revision from a transient hub failure", async () => {
+    const canonical = {
+      version: 1 as const,
+      kind: "emoji" as const,
+      emoji: "📚",
+    };
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT identity_authority, identity_id/i.test(sql)) {
+        return {
+          rows: [
+            {
+              identity_authority: "https://dispatch.agent-native.com",
+              identity_id: identity.id,
+              icon_json: JSON.stringify(canonical),
+              icon_revision: 2,
+              federation_roster_initialized_at: Date.now(),
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "icon-revision-conflict",
+              icon: canonical,
+              iconRevision: 5,
+            }),
+            { status: 409 },
+          ),
+      ),
+    );
+
+    await expect(
+      syncOrganizationToIdentityHub({} as any, {
+        id: identity.id,
+        name: identity.name,
+        role: identity.role,
+        email: identity.email,
+      }),
+    ).rejects.toMatchObject({
+      name: "FederatedIconConflictError",
+      icon: canonical,
+      iconRevision: 5,
+    });
   });
 
   it("sends the current owner roster during the one-time registration", async () => {
@@ -514,6 +567,35 @@ describe("cross-app organization federation", () => {
         sql: expect.stringContaining("DELETE FROM org_members"),
       }),
     );
+  });
+
+  it("validates a local organization for CLI callers without a request origin", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT name, identity_authority/i.test(sql)) {
+        return {
+          rows: [
+            {
+              name: "Example Org",
+              identity_authority: null,
+              identity_id: null,
+            },
+          ],
+        };
+      }
+      if (/SELECT role, federation_removal_pending_at/i.test(sql)) {
+        return { rows: [{ role: "admin" }] };
+      }
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+
+    await expect(
+      validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId: "local-org-1",
+        email: "admin@example.test",
+      }),
+    ).resolves.toEqual({ active: true, role: "admin" });
+    expect(getOriginMock).not.toHaveBeenCalled();
   });
 
   it("refreshes a satellite membership role from the authority", async () => {

@@ -2,12 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 
-/**
- * Clip FFBTGvnWyEys "Fix Frame and Screen Nesting in Design Editor".
- * On the board "frame" already means a screen card (data-frame-id), so the
- * Frame tool is overloaded — these pin which surface produces which thing.
- */
-
 const BLANK = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Home</title></head>
@@ -84,19 +78,14 @@ async function openEditor(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(3500);
 }
 
-/** Screen rect in page px, plus px-per-screen-unit. */
 async function screenBox(page: Page) {
   const box = (await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .boundingBox())!;
   return { ...box, scale: box.width / 320 };
 }
 
-/**
- * Scans for a point that actually hit-tests to the canvas surface. Computing
- * one from the screen rect lands on the inspector panel at narrow viewports.
- */
 async function emptyBoardPoint(page: Page) {
   const point = await page.evaluate(() => {
     const world = document.querySelector("[data-multi-screen-canvas-world]");
@@ -129,8 +118,6 @@ async function emptyBoardPoint(page: Page) {
   return point;
 }
 
-/** Frame is the primary tool; Screen lives in its dropdown. The trigger's
- *  label follows the active mode, so match either. */
 async function pickFrameMode(page: Page, mode: "Frame" | "Screen") {
   await page
     .locator(
@@ -246,8 +233,6 @@ test("the live board uses the light canvas theme token", async ({ page }) => {
   });
 
   await expect(page.locator("html")).toHaveClass(/light/);
-  // The wrapper paints the board; the document inside it is transparent so a
-  // colour-picker tick does not rebuild the iframe srcdoc.
   await expect(page.locator("[data-board-surface-layer]")).toHaveCSS(
     "background-color",
     "rgb(235, 235, 235)",
@@ -311,18 +296,15 @@ test("1:19 — the Screen tool makes a top-level screen, the Frame tool does not
   ).toBe(before.length + 1);
 });
 
-// boardSurfaceLocalPointToBoardPoint translates the board's 8192² document as
-// 1:1 canvas units, so a board-sourced drag's canvas y runs past the target
-// screen and getFrameEntryAtPoint never resolves a frame.
-test.fixme("4:24 — a board frame can be dragged into a screen and become a child", async ({
+test("4:24 — a board frame can be dragged into a screen and become a child", async ({
   page,
 }) => {
   const id = await newDesign(page);
   await openEditor(page, id);
   const empty = await emptyBoardPoint(page);
   await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 200,
-    y: empty.y + 200,
+    x: empty.x + 90,
+    y: empty.y + 90,
   });
 
   expect(
@@ -330,7 +312,6 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
     "precondition: the frame tool must put a frame on the board",
   ).toContain('data-an-primitive="frame"');
 
-  // Board objects live in their own iframe behind the screens.
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe")
     .first()
@@ -339,7 +320,6 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
     .first();
   const from = (await boardFrame.boundingBox())!;
   const screen = await screenBox(page);
-
   await page
     .locator('[data-design-bottom-toolbar] button[aria-label="Move"]')
     .click();
@@ -354,18 +334,16 @@ test.fixme("4:24 — a board frame can be dragged into a screen and become a chi
   );
   await page.mouse.move(
     screen.x + screen.width / 2,
-    screen.y + 300 * screen.scale,
+    screen.y + screen.height / 2,
     { steps: 24 },
   );
-  await page.waitForTimeout(700);
   await page.mouse.up();
-  await page.waitForTimeout(3000);
-
-  expect(
-    await fileContent(page, id, "index.html"),
-    `Clip 4:24 "adding a frame inside of a screen is not possible". Dragging a ` +
-      `board frame onto a screen must move it into that screen's document.`,
-  ).toContain('data-an-primitive="frame"');
+  await expect
+    .poll(() => fileContent(page, id, "index.html"), { timeout: 10_000 })
+    .toContain('data-an-primitive="frame"');
+  await expect
+    .poll(() => fileContent(page, id, "__board__.html"), { timeout: 10_000 })
+    .not.toContain('data-an-primitive="frame"');
 });
 
 // Was an invisible skip: it fired on EVERY run, so this guarded nothing while
@@ -388,28 +366,39 @@ test.fixme("2:11 — a shape drawn on the board is not painted behind the screen
     y: empty.y + 120,
   });
 
-  const stacking = await page.evaluate(() => {
-    const zOf = (el: Element | null) => {
-      let node = el as HTMLElement | null;
-      while (node) {
-        const z = getComputedStyle(node).zIndex;
-        if (z && z !== "auto") return Number(z);
-        node = node.parentElement;
-      }
-      return 0;
-    };
-    const screenCard = document.querySelector("[data-screen-iframe-id]");
-    const boardObject = document.querySelector(
-      "[data-draft-id],[data-board-primitive-id],[data-an-board-object]",
-    );
-    return boardObject
-      ? { screen: zOf(screenCard), object: zOf(boardObject) }
-      : null;
-  });
-  test.skip(
-    !stacking,
-    "no board object node was found to compare stacking against",
-  );
+  const readStacking = () =>
+    page.evaluate(() => {
+      const zOf = (el: Element | null) => {
+        let node = el as HTMLElement | null;
+        while (node) {
+          const z = getComputedStyle(node).zIndex;
+          if (z && z !== "auto") return Number(z);
+          node = node.parentElement;
+        }
+        return 0;
+      };
+      const screenCard = document.querySelector("[data-screen-iframe-id]");
+      const boardObject = document.querySelector(
+        "[data-draft-id],[data-board-primitive-id],[data-an-board-object]",
+      );
+      return boardObject
+        ? { screen: zOf(screenCard), object: zOf(boardObject) }
+        : null;
+    });
+  let stacking: { screen: number; object: number } | null = null;
+  await expect
+    .poll(
+      async () => {
+        stacking = await readStacking();
+        return stacking !== null;
+      },
+      {
+        timeout: 10_000,
+        message:
+          "board-object-camera-and-click: no board object node was found to compare stacking against",
+      },
+    )
+    .toBe(true);
 
   expect(
     stacking!.object,
@@ -438,7 +427,7 @@ test("a rectangle drawn on the board keeps its neutral fill", async ({
     style,
     `the clip reports rectangles coming out black; the canonical fill is a ` +
       `neutral grey. Got: ${style || "(no rectangle found)"}`,
-  ).toContain("rgb(218, 218, 218)");
+  ).toContain("rgb(217, 217, 217)");
 });
 
 test("the canvas does not go black and hide the screens after drawing a frame", async ({
@@ -455,20 +444,16 @@ test("the canvas does not go black and hide the screens after drawing a frame", 
   ).toBeGreaterThan(50);
 
   await drawFrameTool(page, "Frame", empty, {
-    x: empty.x + 240,
-    y: empty.y + 260,
+    x: empty.x + 90,
+    y: empty.y + 90,
   });
 
-  // The frame has to exist, or "the screens are still visible" holds for the
-  // trivial reason that nothing was drawn.
   await expect
     .poll(() => fileContent(page, id, "__board__.html"), { timeout: 20_000 })
     .toContain('data-an-primitive="frame"');
 
-  // Clip "Canvas Turns Black and Hides Frames": after the frame was created
-  // the overview painted black and every screen vanished from the canvas.
   const after = await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .boundingBox();
   expect(

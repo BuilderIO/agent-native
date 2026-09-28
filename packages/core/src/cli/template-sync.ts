@@ -1,19 +1,3 @@
-/**
- * `agent-native template` — pull later upstream template changes into an app
- * that was generated from a first-party template.
- *
- * The model is a real 3-way merge:
- *
- *   base   = the pristine upstream tree the app was generated from
- *            (stored as a git ref, see template-baseline.ts)
- *   theirs = the same template re-materialized at a newer ref, through the
- *            exact transform pipeline `create` runs
- *   ours   = the app's working tree
- *
- * Materialization fidelity is the whole feature: any divergence from what
- * `create` produced turns into phantom conflicts on every sync, so this file
- * reuses `create.ts`'s own transforms rather than reimplementing them.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -68,7 +52,6 @@ const defaultIO: TemplateIO = {
 
 const CONFLICT_MARKER = "<<<<<<<";
 
-/** Never merged: user secrets, lockfiles, generated output, personal memory. */
 const NEVER_TOUCH_NAMES = new Set([
   ".git",
   "learnings.md",
@@ -99,7 +82,6 @@ export interface AppTarget {
 export interface MaterializeOptions {
   appName: string;
   template: string;
-  /** Git ref to fetch from, or null to use the bundled/local template copy. */
   ref: string | null;
   shape: "workspace" | "standalone";
   workspaceRoot?: string;
@@ -122,14 +104,6 @@ export interface TemplateMergeResult {
   keptLocal: string[];
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Materialization
- * ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * Reproduce, in a temp directory, the exact bytes `create` would have written
- * for this (template, ref, app name, shape, workspace scope).
- */
 export async function materializeTemplate(
   opts: MaterializeOptions,
 ): Promise<MaterializeResult> {
@@ -203,10 +177,6 @@ export async function materializeTemplate(
 
   return { dir: dest, ref: usedRef, source };
 }
-
-/* ─────────────────────────────────────────────────────────────────────────
- * Merge
- * ───────────────────────────────────────────────────────────────────────── */
 
 export function isMergeExcluded(rel: string): boolean {
   const segments = rel.split("/");
@@ -357,10 +327,6 @@ function gitMergeFile(
   }
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Target resolution
- * ───────────────────────────────────────────────────────────────────────── */
-
 export function readProvenance(appDir: string): TemplateProvenance {
   const pkg = readJson(path.join(appDir, "package.json"));
   const scaffold = (
@@ -457,10 +423,6 @@ function findAppDir(cwd: string): string | null {
   return null;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Commands
- * ───────────────────────────────────────────────────────────────────────── */
-
 export async function runTemplate(
   args: string[],
   io: TemplateIO = defaultIO,
@@ -478,8 +440,6 @@ export async function runTemplate(
 
   const rest = args.slice(1);
 
-  // `materialize` produces a fresh post-processed template tree at --out; it has
-  // no existing app to resolve, so it runs before target resolution.
   if (command === "materialize") {
     try {
       return await materializeCommand(rest, io);
@@ -553,12 +513,6 @@ async function runForTarget(
   }
 }
 
-/**
- * Write the post-processed template tree to a directory — the pristine,
- * template-derived output `create` would produce (no install/git/skills).
- * `--to` defaults to the local template (walked up from the package); pass a ref
- * to fetch from GitHub instead.
- */
 async function materializeCommand(
   rest: string[],
   io: TemplateIO,
@@ -575,19 +529,9 @@ async function materializeCommand(
     io.err("template materialize requires --template <name>.");
     return 1;
   }
-  // Stage into a unique sibling dir, then swap it in crash-safely: move the old
-  // tree aside, move the staged tree in, and restore the old one if that fails.
-  // Directory replacement isn't atomic on POSIX (you can't rename onto a non-empty
-  // dir), so the old tree is only ever moved — never deleted before the new one is
-  // in place — and a crash between the two renames leaves it recoverable under
-  // `backup`. Unique same-filesystem siblings keep each rename atomic and
-  // collision-free.
   const parent = path.dirname(path.resolve(outDir));
   fs.mkdirSync(parent, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
-  // `backup` is a unique dir too, so a concurrent process can't occupy the path;
-  // renaming a directory onto an existing *empty* dir is a valid replace on POSIX,
-  // so the `hadOld` rename below still lands cleanly on it.
   const backup = fs.mkdtempSync(
     path.join(parent, ".template-materialize-backup-"),
   );
@@ -621,9 +565,6 @@ async function materializeCommand(
     return 0;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
-    // If restoring from `backup` above itself threw, `backupHoldsOriginal` is still
-    // true and `backup` is the only remaining copy of the pre-existing output —
-    // leave it on disk instead of deleting the last copy of the user's data.
     if (!backupHoldsOriginal) {
       fs.rmSync(backup, { recursive: true, force: true });
     } else {
@@ -838,10 +779,6 @@ function acceptCommand(target: AppTarget, io: TemplateIO): number {
   return 0;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
- * Helpers
- * ───────────────────────────────────────────────────────────────────────── */
-
 function useLocalTemplate(target: AppTarget, ref: string | null): boolean {
   if (!ref) return true;
   const source = target.provenance.templateSource;
@@ -937,8 +874,6 @@ function renderTreeDiff(baseDir: string, theirsDir: string): string {
       { cwd: staging, encoding: "utf-8", maxBuffer: 128 * 1024 * 1024 },
     );
     const output = (res.stdout ?? "").toString();
-    // Only the staging dir names leak into headers; content lines cannot
-    // contain the prefixed form, so this rewrite is safe.
     return output.trim()
       ? output
           .replaceAll("upstream-base/a/", "upstream-base/")
@@ -1005,7 +940,6 @@ function reportRefspecs(configured: string[], io: TemplateIO): void {
 
 const VALUE_FLAGS = new Set(["--to", "--ref", "--template"]);
 
-/** A flag's value must never be mistaken for the [app] positional. */
 function positionalArgs(args: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {

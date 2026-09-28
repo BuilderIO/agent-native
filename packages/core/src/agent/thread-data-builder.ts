@@ -28,12 +28,12 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
-  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
   outcome?: "unknown";
   completedSideEffect?: boolean;
   artifacts?: ArtifactReceipt[];
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  chatUIResult?: unknown;
   activity?: boolean;
   approval?: {
     approvalKey: string;
@@ -45,12 +45,6 @@ interface ContentPart {
 
 interface BuildAssistantMessageOptions {
   suppressInternalContinuation?: boolean;
-  /**
-   * Logical-turn identity. When set it is stamped onto the message metadata so
-   * continuation runs of the same turn can be folded onto a single durable
-   * assistant message (see foldAssistantTurn) instead of each run dropping or
-   * overwriting the others.
-   */
   turnId?: string;
   runDurationMs?: number;
   scope?: { type: string; id: string } | null;
@@ -61,6 +55,7 @@ type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
@@ -74,18 +69,10 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
-  // An explicit `recoverable: false` outranks the code and message inference
-  // below, matching `isRecoverableContinuationError`. The background
-  // no-progress breaker stops a turn while PRESERVING the underlying transient
-  // code, so reading the code instead of the flag drops the one error the user
-  // was supposed to see out of the persisted turn.
   if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
-    // Carries what `msg.includes("stream ended")` below used to: a
-    // Builder-credits deployment replaces that sentence with one visitor line,
-    // and the code is the only thing left that says the turn was truncated.
     code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
@@ -93,9 +80,6 @@ function isInternalContinuationError(event: {
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
-    // The gateway's unhandled-500 envelope arriving in-stream. Without this the
-    // turn stored Builder's internal correlation id as the assistant's visible
-    // answer instead of a continuation.
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
@@ -116,11 +100,6 @@ function isInternalContinuationError(event: {
   );
 }
 
-/**
- * Reconstruct an assistant-ui message from raw agent run events.
- * Mirrors the client-side processEvent logic so the server can persist
- * the assistant's response even if the frontend is disconnected.
- */
 export function buildAssistantMessage(
   events: RunEvent[],
   runId?: string,
@@ -144,6 +123,7 @@ export function buildAssistantMessage(
     recoverable?: boolean;
   } | null = null;
   let endedAtInternalContinuationBoundary = false;
+  let userStoppedRun = false;
 
   const appendText = (text: string) => {
     const last = content[content.length - 1];
@@ -163,8 +143,6 @@ export function buildAssistantMessage(
     }
   };
 
-  // Index of the last event that is not a `clear`. Everything after it is a
-  // trailing run of clears with no successor chunk to re-emit what they wipe.
   let lastNonClearIndex = events.length - 1;
   while (
     lastNonClearIndex >= 0 &&
@@ -175,16 +153,6 @@ export function buildAssistantMessage(
 
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
-      // A live stream always follows `clear` with the chunk that re-emits the
-      // wiped content. A rebuild has no successor, so applying a TRAILING
-      // clear can only destroy the transcript permanently.
-      //
-      // The whole trailing RUN has to be skipped, not just the final element:
-      // each failed engine attempt emits one `clear`, so three failed attempts
-      // in a row is the common shape, and skipping only the last still applied
-      // the other two. When the run made no tool calls that emptied `content`
-      // entirely and this builder returned null — the user's message was left
-      // with no assistant reply at all.
       if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
@@ -202,14 +170,6 @@ export function buildAssistantMessage(
 
     if (event.type === "tool_start") {
       const explicitToolCallId = event.id?.trim();
-      // A tool_start whose id is already in this turn is a REPLAY, not a new
-      // call: the tool-call journal and zombie-ledger recovery paths re-emit
-      // tool_start/tool_done for calls that already ran in an interrupted
-      // chunk. The live client coalesces those onto the original card, so a
-      // blind push here persisted a second copy of a call the user had only
-      // ever seen once — the duplicate that appears only after a reload.
-      // Matching the tool name too, so an id reused across different tools
-      // stays two cards rather than being silently merged into one.
       if (explicitToolCallId) {
         const replayed = content.some(
           (part) =>
@@ -296,13 +256,14 @@ export function buildAssistantMessage(
         if (event.artifacts !== undefined) part.artifacts = event.artifacts;
         if (event.mcpApp) part.mcpApp = event.mcpApp;
         if (event.chatUI) part.chatUI = event.chatUI;
+        if (event.chatUI && event.chatUIResult !== undefined) {
+          part.chatUIResult = event.chatUIResult;
+        }
       }
       continue;
     }
 
     if (event.type === "loop_limit") {
-      // Older servers emitted this as a user-visible terminal event. Treat it
-      // as an internal continuation boundary when rebuilding persisted turns.
       if (options.suppressInternalContinuation) {
         endedAtInternalContinuationBoundary = true;
       }
@@ -327,12 +288,6 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
-      // Mirror the live client (client/sse-event-processor.ts): route the raw
-      // provider/engine string through the same friendly-copy layer before it
-      // ever becomes persisted chat text, and keep the raw text only in
-      // `details`. Without this, a rebuild (background run, reconnect, poller,
-      // webhook turn) dumps whatever the provider sent — a JSON error body, an
-      // SSL handshake failure — straight into the user-visible transcript.
       const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
         message: normalized.message,
@@ -348,19 +303,19 @@ export function buildAssistantMessage(
       continue;
     }
 
-    // done, missing_api_key — terminal signals, not content
+    if (event.type === "done") {
+      userStoppedRun ||= event.reason === "user";
+      continue;
+    }
+
+    // missing_api_key — terminal signal, not content
   }
 
-  // Only a truly empty turn produces nothing to persist. A turn that ended at
-  // an internal continuation boundary (soft-timeout auto_continue, a
-  // recoverable gateway error, suppressed loop_limit) DID stream real content
-  // — persist it as a partial so the continuation run can fold the next chunk
-  // onto it (foldAssistantTurn) instead of the earlier text being dropped.
   if (content.length === 0) return null;
 
   const continued = endedAtInternalContinuationBoundary;
-  if (!continued) {
-    settleInterruptedToolCalls(content);
+  if (userStoppedRun || !continued) {
+    settleInterruptedToolCalls(content, userStoppedRun);
   }
 
   const custom: Record<string, unknown> = {};
@@ -380,7 +335,8 @@ export function buildAssistantMessage(
     custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
   }
   if (continued) custom.continued = true;
-  if (runError) {
+  if (userStoppedRun) custom.userStopped = true;
+  if (runError && !userStoppedRun) {
     custom.runError = {
       ...runError,
       ...(runId ? { runId } : {}),
@@ -396,20 +352,15 @@ export function buildAssistantMessage(
     createdAt: new Date(),
     role: "assistant",
     content,
-    status: runError
-      ? { type: "incomplete" as const, reason: "error" as const }
-      : { type: "complete" as const, reason: "stop" as const },
+    status: userStoppedRun
+      ? { type: "complete" as const, reason: "stop" as const }
+      : runError
+        ? { type: "incomplete" as const, reason: "error" as const }
+        : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
 }
 
-/**
- * The rebuild half of the live client's `clearAssistantDraftContent`
- * (client/sse-event-processor.ts). The two bodies are asserted identical by
- * `keeps clearAssistantDraftContent identical to the live client copy` in
- * thread-data-builder.spec.ts — a rebuild that clears more than the live stream
- * did makes narration vanish on reload, which is worse than clearing nothing.
- */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
@@ -426,9 +377,6 @@ function clearAssistantDraftContent(content: ContentPart[]): void {
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Only drop ephemeral placeholders. Materialized in-flight tool cards
-      // (real args from tool_start) stay mounted so a retry/auto-continue clear
-      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
         part.activity === true ||
         part.argsText === "" ||
@@ -456,6 +404,22 @@ function getStoredRunConfig(entry: any): any {
 
 function messageId(message: any): string | undefined {
   return typeof message?.id === "string" && message.id ? message.id : undefined;
+}
+
+function messageCreatedAtMs(message: any): number | null {
+  const value = message?.createdAt;
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : null;
+  }
+  return null;
 }
 
 function getMessageRunId(message: any): string | undefined {
@@ -494,13 +458,28 @@ function messageText(content: unknown): string {
     .join("");
 }
 
-function settleInterruptedToolCalls(content: ContentPart[]): void {
+function settleInterruptedToolCalls(
+  content: ContentPart[],
+  userStopped = false,
+): void {
   for (const part of content) {
-    if (part.type === "tool-call" && part.result === undefined) {
-      part.result = INTERRUPTED_TOOL_RESULT;
-      // Interrupted is not failed — never set `isError` here. The persisted
-      // turn must agree with the live client (client/sse-event-processor.ts).
-      part.outcome = "unknown";
+    const clearsSyntheticInterruption =
+      userStopped &&
+      part.type === "tool-call" &&
+      part.outcome === "unknown" &&
+      (part.result === INTERRUPTED_TOOL_RESULT ||
+        part.result === INTERRUPTED_ACTIVITY_RESULT);
+    if (
+      part.type === "tool-call" &&
+      (part.result === undefined || clearsSyntheticInterruption)
+    ) {
+      if (userStopped) {
+        part.result = "";
+        delete part.outcome;
+      } else {
+        part.result = INTERRUPTED_TOOL_RESULT;
+        part.outcome = "unknown";
+      }
     }
   }
 }
@@ -536,9 +515,6 @@ function findApprovalToolCallIndex(
       }
     }
 
-    // Older tool_start events without an id use one reader-local tc_N id.
-    // Only accept that fallback when it is unambiguous, so a replayed approval
-    // cannot attach its key to another same-name call.
     const readerLocalCandidates: number[] = [];
     for (let i = 0; i < content.length; i += 1) {
       const part = content[i];
@@ -568,14 +544,6 @@ function findApprovalToolCallIndex(
   return -1;
 }
 
-// Strip the render-only `toolCallId` before fingerprinting. The id is generated
-// differently depending on who built the message — the server now scopes it by
-// run (`${runId}:tc_1`) while the client's live stream uses a bare counter
-// (`tc_1`) — so the client export and the server fold of the SAME tool-call turn
-// would otherwise hash to different fingerprints and fail to dedupe, leaving the
-// turn rendered twice. The id never participates in message identity (history
-// replay regenerates its own ids), so hashing content without it is the correct
-// notion of "same message".
 function normalizeContentForFingerprint(content: unknown): unknown {
   if (!Array.isArray(content)) return content;
   return content.map((part: any) =>
@@ -585,17 +553,6 @@ function normalizeContentForFingerprint(content: unknown): unknown {
   );
 }
 
-// `strong` keys (id/runId/turnId) prove identity outright — two messages
-// sharing one of these ARE the same message. `fingerprint` keys are a
-// content-only fallback with no positional or temporal salt: two distinct
-// messages that merely render the same role+content+attachments (a repeated
-// prompt, a repeated canned reply) collide on it. A fingerprint key must
-// never outrank a strong key when ranking candidates — see
-// `findRankedIdentityMatch`, used by the ambiguous multi-candidate merge in
-// `mergeThreadDataForClientSave`. `messagesMatch` below only ever compares a
-// single candidate pair (adjacent-append dedup), where that ranking doesn't
-// apply and ANY shared key — strong or fingerprint — correctly means "same
-// message".
 interface MessageIdentityKeySet {
   strong: string[];
   fingerprint: string[];
@@ -608,23 +565,9 @@ function messageIdentityKeySet(message: any): MessageIdentityKeySet {
   }
   const runId = getMessageRunId(message);
   if (runId) strong.push(`run:${runId}`);
-  // A logical turn is ONE durable assistant message even though it may span
-  // several continuation runs, so two messages sharing a turnId (e.g. the
-  // client export and the server fold of the same answer) must dedupe to one.
   const turnId = turnIdOf(message);
   if (turnId) strong.push(`turn:${turnId}`);
 
-  // Normalize attachments through `normalizeAttachmentIdentity` so an
-  // explicit empty `[]` (assistant-ui's default for messages with no
-  // attachments) and an omitted/undefined `attachments` field hash to the
-  // same fingerprint. Without this, every user message ended up duplicated
-  // in `chat_threads`: one copy from `saveThreadData` (runtime export
-  // includes `attachments: []`) and one from `persistSubmittedUserMessage`
-  // → `buildUserMessage` (omits the field entirely). The merge couldn't
-  // dedupe them because their fingerprints differed by exactly one
-  // `[]` vs `undefined`. (Repro on slides prod: every user turn produced
-  // a `client_user → assistant → server_user` triple instead of a
-  // `user → assistant` pair.)
   const fingerprint: string[] = [];
   try {
     fingerprint.push(
@@ -667,18 +610,6 @@ function keySetsOverlap(a: string[], b: Set<string>): boolean {
   return a.some((key) => b.has(key));
 }
 
-/**
- * Rank candidate incoming entries for one existing entry: a strong-key match
- * (id/runId/turnId) always wins over a fingerprint-only match, since a
- * fingerprint has no positional or temporal salt and different messages can
- * collide on one. Within a tier, more than one candidate is genuinely
- * ambiguous — nothing in the keys says which is "the same message" — so
- * pick the candidate positioned closest to `existingIndex` instead of
- * silently keeping array-scan order (the original defect: the first unused
- * incoming entry sharing ANY key won, so a fingerprint match on an
- * out-of-order entry could preempt the correct strong-key match and pair the
- * wrong messages, rewriting parent links onto the wrong id).
- */
 function findRankedIdentityMatch(
   existingKeys: MessageIdentityKeySet,
   incomingKeySets: MessageIdentityKeySet[],
@@ -746,10 +677,6 @@ function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
-  // Same logical turn (client export vs server fold of one accumulating
-  // answer): never shrink — keep whichever side accumulated more content, so a
-  // stale/lossy export can't overwrite the richer folded turn. Ties prefer the
-  // terminal copy.
   const existingTurn = turnIdOf(existing);
   const incomingTurn = turnIdOf(incoming);
   if (
@@ -837,11 +764,6 @@ function normalizeAssistantToolCallIds(message: any): any {
   return changed ? { ...message, content } : message;
 }
 
-/**
- * Convert legacy/partially merged thread data into assistant-ui's exported
- * repository shape and repair parent links so `threadRuntime.import()` cannot
- * fail with "Parent message not found".
- */
 export function normalizeThreadRepository(repo: any): any {
   const normalized = repo && typeof repo === "object" ? { ...repo } : {};
   const sourceMessages: any[] = Array.isArray(repo?.messages)
@@ -900,19 +822,7 @@ export function normalizeThreadRepository(repo: any): any {
   return normalized;
 }
 
-/**
- * A replayed tool result is evidence, not the source of truth — the resumed
- * turn can always re-read current state. Bound each one so restoring fidelity
- * cannot itself overflow the context window, and say so in-band when it bites.
- */
 const MAX_REPLAYED_TOOL_RESULT_CHARS = 12_000;
-/**
- * Total budget for replayed tool payloads across the whole thread. Per-result
- * capping alone is not a bound: a long run has hundreds of calls, so replaying
- * every one of them would overflow the context window and break the very
- * continuation this replay exists to serve. The newest turns keep their tool
- * detail; older turns fall back to prose and say so.
- */
 const MAX_REPLAYED_TOOL_PAYLOAD_CHARS = 64_000;
 const ELIDED_TOOL_DETAIL_NOTE =
   "[Tool calls from this turn were elided from replayed history to fit the context. Re-read the current state with tools if their detail matters.]";
@@ -935,12 +845,6 @@ function replayedToolResultContent(result: unknown): string {
   return `${body.slice(0, MAX_REPLAYED_TOOL_RESULT_CHARS)}\n\n[Tool result truncated after ${MAX_REPLAYED_TOOL_RESULT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} omitted from replayed history. Re-read the current state with tools if the exact content matters.]`;
 }
 
-/**
- * Integration turns (Slack and friends) deliberately replay only what the
- * participant saw plus a compact artifact ledger — never the raw tool results.
- * `threadMessageTextForEngine` owns that policy, so a structured replay has to
- * defer to it rather than reach past it into `content`.
- */
 function hasIntegrationReplayPolicy(message: any): boolean {
   const metadata = message?.metadata;
   if (!metadata || typeof metadata !== "object") return false;
@@ -963,7 +867,6 @@ function replayableToolCalls(message: any): any[] {
   );
 }
 
-/** What replaying this turn's tool calls with their results would actually cost. */
 function replayedToolPayloadCost(message: any): number {
   let cost = 0;
   for (const part of replayableToolCalls(message)) {
@@ -975,13 +878,6 @@ function replayedToolPayloadCost(message: any): number {
   return cost;
 }
 
-/**
- * One persisted assistant turn spans many tool rounds. Replay it as the
- * provider protocol wants it — one assistant message carrying every `tool-call`,
- * then one user message carrying every matching `tool-result`. The exact
- * round-by-round interleaving is not recoverable from thread_data and does not
- * matter; what matters is that the calls and their outputs survive at all.
- */
 function assistantReplayContent(
   message: any,
   text: string,
@@ -1016,28 +912,9 @@ function assistantReplayContent(
 }
 
 export interface ThreadDataToEngineMessagesOptions {
-  /**
-   * Replay the tool calls and results thread_data already stores instead of
-   * flattening each turn to its prose. Required by callers that RESUME a run
-   * (chained background continuation, agent-teams continue): a turn rebuilt as
-   * text alone tells the model what it said but not what it did, so it re-runs
-   * tools it already ran and cannot see their output. Callers that only need
-   * "what was said" — recovery floors, memory compaction — leave this off.
-   */
   includeToolCalls?: boolean;
 }
 
-/**
- * Rebuild a flat `EngineMessage[]` from persisted thread_data (the
- * assistant-ui ExportedMessageRepository shape). Each turn collapses to its
- * text by default, which is all a recovery floor or a memory compaction needs.
- * Callers resuming a run pass `includeToolCalls` to replay what the turn
- * actually DID as well as what it said.
- *
- * Used to resume a background sub-agent in a fresh function invocation (the
- * server-side analog of the browser re-POSTing history for the main chat).
- * Originally inlined in `integrations/webhook-handler.ts`.
- */
 export function threadDataToEngineMessages(
   threadData: string | Record<string, unknown> | null | undefined,
   options: ThreadDataToEngineMessagesOptions = {},
@@ -1058,9 +935,6 @@ export function threadDataToEngineMessages(
     m?.role === "assistant" &&
     !hasIntegrationReplayPolicy(m);
 
-  // Spend the tool-payload budget on the most recent turns: those are the ones
-  // a resumed run is about to build on. Decided up front so the walk below can
-  // stay in conversation order.
   const toolPayloadAllowed = new Set<number>();
   if (options.includeToolCalls) {
     let spent = 0;
@@ -1089,9 +963,6 @@ export function threadDataToEngineMessages(
         }
         continue;
       }
-      // Over budget, or nothing to replay. Prose still travels — but a turn
-      // whose tool detail was dropped must not read like a turn that never
-      // called a tool.
       const elided = replayableToolCalls(m).length > 0;
       const prose = elided
         ? `${text.trim() ? `${text.trim()}\n\n` : ""}${ELIDED_TOOL_DETAIL_NOTE}`
@@ -1120,14 +991,6 @@ function engineMessageTextLength(message: EngineMessage): number {
   );
 }
 
-/**
- * The trailing window of what was actually said in a thread, for a request that
- * arrived carrying no history of its own. The client trims history against a
- * size budget, so one tool-heavy turn can zero it out; without this floor the
- * model re-derives answers it already gave and re-asks questions the user
- * already answered. Contiguous and bounded on purpose — this restores the
- * conversation, not the tool transcript.
- */
 export function recoverThreadHistoryForRequest(
   threadData: string | Record<string, unknown> | null | undefined,
   limits?: { maxMessages?: number; maxChars?: number },
@@ -1174,11 +1037,6 @@ function messageTextContent(message: any): string {
     .join("\n");
 }
 
-/**
- * Select the participant-visible delivery for integration turns while keeping
- * a compact, trusted resource ledger available to the agent. Raw tool results
- * remain in thread_data for UI/audit use but are not replayed into the prompt.
- */
 export function threadMessageTextForEngine(message: any): string {
   const delivery = message?.metadata?.integrationDelivery;
   const deliveryAttempted =
@@ -1370,15 +1228,94 @@ function rewriteEntryParentId(
   return { ...entry, parentId: rewritten };
 }
 
-/**
- * Merge an incoming client-side full-thread save over the current SQL copy.
- *
- * The browser exports and PUTs the whole assistant-ui repository. If a server
- * completion save lands first, an older browser export can otherwise replace
- * `thread_data` wholesale and delete the assistant message the server just
- * reconstructed from run events. Preserve server-only messages while still
- * accepting client-only messages and metadata.
- */
+function isMessageAncestor(
+  messages: readonly any[],
+  ancestorId: string,
+  descendantId: string,
+): boolean {
+  if (ancestorId === descendantId) return true;
+  const parentById = new Map<string, string | null>();
+  for (const entry of messages) {
+    const id = messageId(getStoredMessage(entry));
+    if (!id) continue;
+    const parentId = getStoredParentId(entry);
+    parentById.set(id, typeof parentId === "string" ? parentId : null);
+  }
+
+  const visited = new Set<string>();
+  let currentId: string | null = descendantId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    currentId = parentById.get(currentId) ?? null;
+    if (currentId === ancestorId) return true;
+  }
+  return false;
+}
+
+function chooseMergedHeadId(
+  existingRepo: any,
+  incomingRepo: any,
+  mergedRepo: any,
+): string | null {
+  const existingHead = messageId(
+    getStoredMessage(
+      existingRepo?.messages?.find(
+        (entry: any) =>
+          messageId(getStoredMessage(entry)) === existingRepo?.headId,
+      ),
+    ),
+  );
+  const incomingHead = messageId(
+    getStoredMessage(
+      incomingRepo?.messages?.find(
+        (entry: any) =>
+          messageId(getStoredMessage(entry)) === incomingRepo?.headId,
+      ),
+    ),
+  );
+  const mergedMessages = Array.isArray(mergedRepo?.messages)
+    ? mergedRepo.messages
+    : [];
+  const mergedIds = new Set(
+    mergedMessages
+      .map((entry: any) => messageId(getStoredMessage(entry)))
+      .filter((id: string | undefined): id is string => Boolean(id)),
+  );
+  const existingCandidate =
+    existingHead && mergedIds.has(existingHead) ? existingHead : null;
+  const incomingCandidate =
+    incomingHead && mergedIds.has(incomingHead) ? incomingHead : null;
+  if (!existingCandidate) return incomingCandidate;
+  if (!incomingCandidate || existingCandidate === incomingCandidate) {
+    return existingCandidate;
+  }
+
+  if (isMessageAncestor(mergedMessages, existingCandidate, incomingCandidate)) {
+    return incomingCandidate;
+  }
+  if (isMessageAncestor(mergedMessages, incomingCandidate, existingCandidate)) {
+    return existingCandidate;
+  }
+
+  const messageById = new Map(
+    mergedMessages.map((entry: any) => {
+      const message = getStoredMessage(entry);
+      return [messageId(message), message] as const;
+    }),
+  );
+  const existingTime = messageCreatedAtMs(messageById.get(existingCandidate));
+  const incomingTime = messageCreatedAtMs(messageById.get(incomingCandidate));
+  if (
+    existingTime !== null &&
+    incomingTime !== null &&
+    existingTime !== incomingTime
+  ) {
+    return incomingTime > existingTime ? incomingCandidate : existingCandidate;
+  }
+
+  return existingCandidate;
+}
+
 export interface MergeThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
@@ -1408,6 +1345,193 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
     -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
   );
   return pruneClaimedQueuedMessages(normalized);
+}
+
+function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (kind === "widget") {
+    const messageId = entry.messageId;
+    const widgetId = entry.widget?.id;
+    return typeof messageId === "string" && typeof widgetId === "string"
+      ? JSON.stringify([messageId, widgetId])
+      : undefined;
+  }
+  return typeof entry.id === "string" ? entry.id : undefined;
+}
+
+function snapshotMessageRunIds(agentKit: any): Map<string, string> {
+  const runIds = new Map<string, string>();
+  for (const event of Array.isArray(agentKit?.events) ? agentKit.events : []) {
+    if (
+      (event?.type === "message.created" ||
+        event?.type === "message.completed") &&
+      event.message?.role === "assistant" &&
+      typeof event.message.id === "string" &&
+      typeof event.runId === "string"
+    ) {
+      runIds.set(event.message.id, event.runId);
+    }
+  }
+  for (const run of Array.isArray(agentKit?.runs) ? agentKit.runs : []) {
+    if (
+      typeof run?.activeMessageId === "string" &&
+      typeof run.id === "string"
+    ) {
+      runIds.set(run.activeMessageId, run.id);
+    }
+  }
+  return runIds;
+}
+
+function snapshotAssistantTextKey(
+  message: any,
+  runIds: Map<string, string>,
+): string | undefined {
+  const runId =
+    (typeof message?.id === "string" ? runIds.get(message.id) : undefined) ??
+    message?.metadata?.runId ??
+    message?.metadata?.custom?.runId;
+  if (
+    message?.role !== "assistant" ||
+    typeof runId !== "string" ||
+    !Array.isArray(message.parts) ||
+    message.parts.length === 0 ||
+    !message.parts.every(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+  ) {
+    return undefined;
+  }
+  return JSON.stringify([
+    runId,
+    message.parts.map((part: any) => [part.text, part.format ?? null]),
+  ]);
+}
+
+function preferIncomingSnapshotEntry(
+  kind: "message" | "toolCall" | "widget",
+  existing: any,
+  incoming: any,
+): boolean {
+  if (kind === "message") {
+    const rank = (message: any) =>
+      message.status === "complete" ? 2 : message.status === "error" ? 1 : 0;
+    if (rank(existing) !== rank(incoming))
+      return rank(incoming) > rank(existing);
+    const partCount = (message: any) =>
+      Array.isArray(message.parts) ? message.parts.length : 0;
+    if (partCount(existing) !== partCount(incoming)) {
+      return partCount(incoming) > partCount(existing);
+    }
+    const textLength = (message: any) =>
+      (Array.isArray(message.parts) ? message.parts : []).reduce(
+        (total: number, part: any) =>
+          total + (typeof part?.text === "string" ? part.text.length : 0),
+        0,
+      );
+    return textLength(incoming) > textLength(existing);
+  }
+  if (kind === "toolCall") {
+    return existing.status === "running" && incoming.status !== "running";
+  }
+  return (
+    existing.widget?.state === "active" && incoming.widget?.state !== "active"
+  );
+}
+
+function mergeAgentKitHistoryArray(
+  existing: unknown,
+  incoming: unknown,
+  kind: "message" | "toolCall" | "widget",
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const merged = Array.isArray(existing) ? [...existing] : [];
+  const positions = new Map<string, number>();
+  const assistantTextPositions = new Map<string, number[]>();
+  merged.forEach((entry, index) => {
+    const id = snapshotEntryId(entry, kind);
+    if (id && !positions.has(id)) positions.set(id, index);
+    if (kind === "message") {
+      const key = snapshotAssistantTextKey(entry, existingMessageRunIds);
+      if (key) {
+        assistantTextPositions.set(key, [
+          ...(assistantTextPositions.get(key) ?? []),
+          index,
+        ]);
+      }
+    }
+  });
+  const matchedAssistantTextPositions = new Set<number>();
+  for (const entry of Array.isArray(incoming) ? incoming : []) {
+    const id = snapshotEntryId(entry, kind);
+    const idIndex = id ? positions.get(id) : undefined;
+    const textKey =
+      kind === "message"
+        ? snapshotAssistantTextKey(entry, incomingMessageRunIds)
+        : undefined;
+    const textIndex =
+      idIndex === undefined && textKey
+        ? assistantTextPositions
+            .get(textKey)
+            ?.find((candidate) => !matchedAssistantTextPositions.has(candidate))
+        : undefined;
+    const index = idIndex ?? textIndex;
+    if (index === undefined) {
+      if (id) positions.set(id, merged.length);
+      merged.push(entry);
+    } else {
+      if (kind === "message") matchedAssistantTextPositions.add(index);
+      if (id && idIndex === undefined) positions.set(id, index);
+      const preferIncoming = preferIncomingSnapshotEntry(
+        kind,
+        merged[index],
+        entry,
+      );
+      const preferCurrentMessageId =
+        kind === "message" &&
+        textIndex !== undefined &&
+        !preferIncomingSnapshotEntry(kind, entry, merged[index]);
+      if (preferIncoming || preferCurrentMessageId) {
+        merged[index] = entry;
+      }
+    }
+  }
+  return merged;
+}
+
+function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+  if (
+    !existing ||
+    typeof existing !== "object" ||
+    Array.isArray(existing) ||
+    !incoming ||
+    typeof incoming !== "object" ||
+    Array.isArray(incoming)
+  ) {
+    return incoming ?? existing;
+  }
+  const previous = existing as Record<string, unknown>;
+  const next = incoming as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...previous, ...next };
+  const existingMessageRunIds = snapshotMessageRunIds(previous);
+  const incomingMessageRunIds = snapshotMessageRunIds(next);
+  for (const [key, kind] of [
+    ["messages", "message"],
+    ["toolCalls", "toolCall"],
+    ["widgets", "widget"],
+  ] as const) {
+    const entries = mergeAgentKitHistoryArray(
+      previous[key],
+      next[key],
+      kind,
+      existingMessageRunIds,
+      incomingMessageRunIds,
+    );
+    if (entries) merged[key] = entries;
+  }
+  return merged;
 }
 
 function pruneClaimedQueuedMessages(repo: any): any {
@@ -1460,6 +1584,13 @@ export function mergeThreadDataForClientSave(
     merged.queuedMessages === undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
+  }
+
+  if (merged.agentKit !== undefined) {
+    merged.agentKit = mergeAgentKitHistory(
+      existingNormalized?.agentKit,
+      merged.agentKit,
+    );
   }
 
   const existingMessages = Array.isArray(existingNormalized?.messages)
@@ -1532,7 +1663,15 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
+  const normalizedMerged = normalizeThreadRepository(
+    pruneClaimedQueuedMessages(merged),
+  );
+  normalizedMerged.headId = chooseMergedHeadId(
+    existingNormalized,
+    incomingNormalized,
+    normalizedMerged,
+  );
+  return normalizedMerged;
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -1588,10 +1727,6 @@ function buildStoredAttachments(
           metadata: { displayOnly: true },
         };
       }
-      // When the attachment was successfully pre-uploaded, store only the URL
-      // reference. This keeps the SQL thread_data row compact regardless of
-      // file size, and lets the transcript render from the hosted URL instead
-      // of re-shipping megabytes of base64 on every poll save.
       const uploadedUrl = (att as any).url as string | undefined;
       if (uploadedUrl) {
         const referenceOnly = (att as any).referenceOnly === true;
@@ -1602,7 +1737,6 @@ function buildStoredAttachments(
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
-          // URL reference shape — content[0] uses the hosted URL.
           content: storedAsImage
             ? [{ type: "image", image: uploadedUrl }]
             : [
@@ -1613,7 +1747,6 @@ function buildStoredAttachments(
                   filename: att.name,
                 },
               ],
-          // Keep the reference metadata for tooling / read-attachment.
           metadata: {
             uploadUrl: uploadedUrl,
             uploadProvider: (att as any).uploadProvider as string | undefined,
@@ -1640,10 +1773,6 @@ function buildStoredAttachments(
         };
       }
 
-      // Binary attachment data is request-scoped input, not thread state. If
-      // the provider was unavailable or failed, retain only a visible marker
-      // so the transcript can explain why the attachment needs storage setup
-      // without putting base64 bytes in SQL.
       if (att.storageRequired === true || typeof att.data === "string") {
         const uploadFailed = att.storageUploadFailed === true;
         return {
@@ -1860,7 +1989,11 @@ export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
   }
 
   const parentId =
-    lastIndex >= 0 ? (messageId(getStoredMessage(lastEntry)) ?? null) : null;
+    typeof nextRepo.headId === "string"
+      ? nextRepo.headId
+      : lastIndex >= 0
+        ? (messageId(getStoredMessage(lastEntry)) ?? null)
+        : null;
   nextRepo.messages.push({ message: userMsg, parentId });
   nextRepo.headId = userMsg.id;
   return nextRepo;
@@ -1895,16 +2028,6 @@ function shouldReplaceLastAssistant(
   return Boolean(lastText && nextText && nextText.startsWith(lastText));
 }
 
-/**
- * Merge the server-reconstructed assistant message into persisted
- * assistant-ui thread data.
- *
- * The browser periodically saves thread data while a run is still streaming.
- * That can leave the last assistant message non-empty but partial/pending.
- * Completion must replace that same-run partial message instead of treating
- * any assistant content as proof that the frontend already saved the final
- * turn.
- */
 export function upsertAssistantMessage(
   repo: any,
   assistantMsg: AssistantMessage,
@@ -1929,11 +2052,13 @@ export function upsertAssistantMessage(
   }
 
   const fallbackParentId =
-    nextRepo.messages.length > 0
-      ? (messageId(
-          getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
-        ) ?? null)
-      : null;
+    typeof nextRepo.headId === "string"
+      ? nextRepo.headId
+      : nextRepo.messages.length > 0
+        ? (messageId(
+            getStoredMessage(nextRepo.messages[nextRepo.messages.length - 1]),
+          ) ?? null)
+        : null;
   const resolvedParentId =
     parentId === null ||
     (typeof parentId === "string" &&
@@ -1970,8 +2095,6 @@ function assistantRunDurationMs(
     : null;
 }
 
-/** Rough size of an assistant message's content, used only to pick the larger
- *  of two representations of the same chunk so a fold can never shrink. */
 function assistantContentWeight(content: unknown): number {
   if (!Array.isArray(content)) return 0;
   let weight = 0;
@@ -1985,9 +2108,6 @@ function assistantContentWeight(content: unknown): number {
   return weight;
 }
 
-/** Concatenate continuation content onto the accumulated turn, merging a
- *  trailing+leading text run so the resumed answer reads as one flowing
- *  message rather than two stacked fragments. */
 function appendFoldedContent(existing: any[], incoming: any[]): any[] {
   const merged = existing.map((p) => ({ ...p }));
   for (const part of incoming) {
@@ -2009,27 +2129,17 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
   }).content;
 }
 
-/**
- * Fold a continuation run's assistant message onto the single durable message
- * for its logical turn (identified by `turnId`), so a turn that spans several
- * continuation runs accumulates into ONE message that only ever grows. This is
- * the server-side analog of an append-only rollout: the durable transcript is
- * a monotonic fold over every run in the turn, never a per-run snapshot that
- * drops the earlier chunks.
- *
- * Idempotent and never-shrinking, so it is safe to run alongside the client's
- * full-thread export (which may write the same turn from the other side):
- *   - First chunk of a turn → appended as a fresh message.
- *   - A run whose content is already represented (already folded, or the client
- *     saved it) → kept as-is, choosing whichever copy has more content.
- *   - A new chunk → appended onto the accumulated turn.
- * Falls back to per-run upsert when no `turnId` is available (turn == run).
- */
 export function foldAssistantTurn(
   repo: any,
   assistantMsg: AssistantMessage,
-  options: { turnId?: string; runId?: string; parentId?: string | null },
+  options: {
+    turnId?: string;
+    runId?: string;
+    parentId?: string | null;
+    agentKitOwnsContinuation?: boolean;
+  },
 ): any {
+  if (options.agentKitOwnsContinuation) return repo;
   const turnId = options.turnId;
   const runId = options.runId;
   if (!turnId)
@@ -2045,14 +2155,9 @@ export function foldAssistantTurn(
     (options.parentId === undefined ||
       getStoredParentId(lastEntry) === options.parentId) &&
     (turnIdOf(lastMsg) === turnId ||
-      // A message the client wrote for one of this turn's runs before it
-      // carried a turnId stamp.
       (!!runId && getMessageRunId(lastMsg) === runId));
 
   if (!sameTurn) {
-    // First chunk of this turn (or the previous assistant belongs to an
-    // earlier turn) — append as a fresh message; buildAssistantMessage already
-    // stamped turnId + foldedRunIds onto it.
     return upsertAssistantMessage(repo, assistantMsg, options.parentId);
   }
 
@@ -2065,9 +2170,6 @@ export function foldAssistantTurn(
     !!runId &&
     (existingFolded.includes(runId) || getMessageRunId(lastMsg) === runId);
 
-  // If this run's chunk is already represented in the turn (the client saved
-  // it, or we already folded it), do not re-append — keep the larger copy so
-  // the turn never shrinks. Otherwise fold this chunk onto the accumulated turn.
   const mergedContent = runAlreadyFolded
     ? assistantContentWeight(incomingContent) >
       assistantContentWeight(existingContent)
@@ -2109,7 +2211,6 @@ export function foldAssistantTurn(
   if (mergedDurationMs != null) {
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
-  // Only the freshest chunk decides whether the turn is still continuing.
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
 
   const mergedMessage = {
@@ -2118,8 +2219,6 @@ export function foldAssistantTurn(
       role: "assistant",
       content: mergedContent,
     }).content,
-    // The freshest chunk's status wins: a clean done supersedes a prior
-    // partial; a real error supersedes a partial.
     status: assistantMsg.status ?? lastMsg.status,
     metadata: {
       ...lastMsg.metadata,
@@ -2138,10 +2237,6 @@ export function normalizeThreadTitle(value: unknown): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
-/**
- * Extract title and preview from a thread runtime export.
- * Isomorphic — works on both server and client.
- */
 export function extractThreadMeta(repo: any): {
   title: string;
   preview: string;
@@ -2154,7 +2249,6 @@ export function extractThreadMeta(repo: any): {
   let title = "";
   let preview = "";
   for (const entry of msgs) {
-    // Support both wrapped ({ message: { role, content } }) and flat ({ role, content }) formats
     const msg = entry?.message ?? entry;
     if (msg.role !== "user") continue;
     const textParts = Array.isArray(msg.content)

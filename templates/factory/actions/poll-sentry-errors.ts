@@ -5,7 +5,6 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
-import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   readFactoryPollCursor,
   writeFactoryPollCursor,
@@ -52,7 +51,6 @@ export default defineAction({
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
-    await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
     const job = await readCallingFactoryAutomation(context, {
       userEmail,
       orgId,
@@ -93,9 +91,6 @@ export default defineAction({
     if (cursor !== null && Number.isNaN(cursor)) {
       throw new Error("Stored Sentry polling cursor is not a valid timestamp.");
     }
-    // Reconcile every bounded result by its stable Sentry issue id. Frequency
-    // ordering is not a safe timestamp cursor: an older issue can re-enter the
-    // top page after its frequency changes.
     for (const issue of issues) {
       const firstSeen = Date.parse(issue.firstSeen);
       if (Number.isNaN(firstSeen))
@@ -254,7 +249,6 @@ export default defineAction({
           inboxLimit,
           added,
           updated,
-          authorFiltered: 0,
           newlyObserved: added,
           truncated: added + updated < observedIssues.length,
           itemIds: addedIds,

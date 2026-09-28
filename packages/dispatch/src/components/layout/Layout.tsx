@@ -58,13 +58,22 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import {
+  useFeatureFlagState,
+  type FeatureFlagState,
+} from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { RunsTray } from "@agent-native/core/client/progress";
-import { AgentNativeIcon, FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import { isSettingsPathname } from "@agent-native/core/client/settings";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -83,7 +92,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconSettings,
   IconShield,
-  IconSearch,
   IconWorld,
   IconDeviceDesktop,
   IconPlus,
@@ -115,6 +123,7 @@ import {
   workspaceAppIdFromRoute,
   workspaceAppDirectHref,
   workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
@@ -146,26 +155,18 @@ export type DispatchNavIcon = ComponentType<{
 }>;
 
 export interface DispatchNavItem {
-  /** Stable id used for keys and navigation.view. Avoid built-in ids. */
   id: string;
-  /** React Router path for the tab, usually backed by an app/routes/*.tsx file. */
   to: string;
   label: string;
   icon?: DispatchNavIcon;
-  /** Defaults to "operations", which renders under the Admin control plane. */
   section?: DispatchNavSection;
-  /** Override active matching for nested or multi-route tools. */
   match?: (pathname: string) => boolean;
-  /** Canonical path inside the Admin shell for management tabs. */
   adminTo?: string;
 }
 
 export interface DispatchExtensionConfig {
-  /** Opt into the Codex/T3-like chat-first shell for chat routes. */
   chatFirst?: boolean;
-  /** Extra sidebar tabs supplied by the generated workspace. */
   navItems?: readonly DispatchNavItem[];
-  /** Extra React Query keys to invalidate when Dispatch receives DB sync events. */
   queryKeys?: readonly string[];
 }
 
@@ -218,13 +219,40 @@ const BOTTOM_NAV_ITEMS = [
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 
+export interface DispatchSidebarBrandProps {
+  brandName?: ReactNode;
+  brandIcon?: ReactNode;
+}
+
+export interface DispatchNavContentProps extends DispatchSidebarBrandProps {
+  onNavigate?: () => void;
+  extensions?: DispatchExtensionConfig;
+  chatFirstMode?: boolean;
+  chatFirstEmbedded?: boolean;
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  chatFirstAppLayout?: ChatFirstAppLayoutPreference;
+  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
+  chatFirstApps?: readonly ChatFirstAppItem[];
+  chatFirstAppsLoading?: boolean;
+  chatFirstAppsError?: string | null;
+  chatFirstActiveAppId?: string;
+  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
+  onChatFirstNewChat?: () => void;
+  onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
+  onChatFirstAppsRetry?: () => void;
+}
+
+export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
+  children: ReactNode;
+  extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
+}
+
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
-// Below 768px, ChatFirstSurfacePanel becomes a max-[767px]:z-10 full-screen
-// overlay (surface-panel.tsx). This toggle is the only way to dismiss it, so
-// its z-index must stay above that overlay in every stacking context or the
-// panel becomes undismissable on mobile.
 export const CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME =
   "absolute right-3 top-2 z-20";
 
@@ -260,13 +288,25 @@ interface SearchAgentThreadsResult {
 const DispatchExtensionsContext = createContext<
   DispatchExtensionConfig | undefined
 >(undefined);
+interface DispatchWorkspaceAppLauncher {
+  apps: readonly ChatFirstAppItem[];
+  isLoading: boolean;
+  error?: unknown;
+  openApp: (app: ChatFirstAppItem) => void;
+  retry: () => void;
+}
+
+const DispatchWorkspaceAppLauncherContext =
+  createContext<DispatchWorkspaceAppLauncher | null>(null);
 
 export function useDispatchExtensions(): DispatchExtensionConfig | undefined {
   return useContext(DispatchExtensionsContext);
 }
 
-// Routes whose page renders its own toolbar. Layout skips its sticky chat
-// control so there's no duplicate page chrome.
+export function useDispatchWorkspaceAppLauncher() {
+  return useContext(DispatchWorkspaceAppLauncherContext);
+}
+
 function pageOwnsToolbar(pathname: string): boolean {
   if (pathname === "/tools" || pathname.startsWith("/tools/")) return true;
   if (pathname === "/extensions" || pathname.startsWith("/extensions/"))
@@ -315,6 +355,28 @@ export function shouldAutoCollapseDispatchSidebar(pathname: string): boolean {
   return localDispatchPath(pathname).startsWith("/apps/");
 }
 
+export function shouldQueryChatFirstApps(
+  isChatRoute: boolean,
+  chatFirstMode: boolean,
+): boolean {
+  return isChatRoute || chatFirstMode;
+}
+
+/**
+ * The redesigned Settings brings its own navigation, header, and agent
+ * toggle, so it renders full width. While the flag loads it shows the
+ * shell's skeleton, which needs the same frame.
+ */
+export function isRedesignedSettingsPath(
+  pathname: string,
+  settingsRedesign: FeatureFlagState,
+): boolean {
+  return (
+    isSettingsPathname(localDispatchPath(pathname)) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading")
+  );
+}
+
 function chatFirstPrimaryTabForPath(
   pathname: string,
 ): ChatFirstPrimaryTab | undefined {
@@ -344,12 +406,6 @@ function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
   if (!basePath) return path;
-  // Mirror the basename calculation entry.client.tsx uses to configure the
-  // router (basePath iff the current URL is under that mount, "" otherwise).
-  // Reading the live URL directly avoids races with the previous check on
-  // `__reactRouterContext.basename`, which could read undefined before the
-  // entry script set it — that race produced /dispatch/dispatch/<route>
-  // history entries that 404'd on back-button navigation.
   const pathname = window.location.pathname;
   const routerHasBasename =
     pathname === basePath || pathname.startsWith(`${basePath}/`);
@@ -964,6 +1020,8 @@ function DispatchChatsSection({
 export function NavContent({
   onNavigate,
   extensions,
+  brandName = DISPATCH_SIDEBAR_LABEL,
+  brandIcon,
   chatFirstMode = false,
   chatFirstEmbedded = false,
   collapsed = false,
@@ -979,25 +1037,7 @@ export function NavContent({
   onChatFirstNewChat,
   onChatFirstAppOpen,
   onChatFirstAppsRetry,
-}: {
-  onNavigate?: () => void;
-  extensions?: DispatchExtensionConfig;
-  chatFirstMode?: boolean;
-  chatFirstEmbedded?: boolean;
-  collapsed?: boolean;
-  collapsible?: boolean;
-  onCollapsedChange?: (collapsed: boolean) => void;
-  chatFirstAppLayout?: ChatFirstAppLayoutPreference;
-  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
-  chatFirstApps?: readonly ChatFirstAppItem[];
-  chatFirstAppsLoading?: boolean;
-  chatFirstAppsError?: string | null;
-  chatFirstActiveAppId?: string;
-  chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
-  onChatFirstNewChat?: () => void;
-  onChatFirstAppOpen?: (app: ChatFirstAppItem) => void;
-  onChatFirstAppsRetry?: () => void;
-}) {
+}: DispatchNavContentProps) {
   const t = useT();
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const location = useLocation();
@@ -1043,27 +1083,8 @@ export function NavContent({
       </TooltipContent>
     </Tooltip>
   ) : null;
-  const searchButton = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
-    </Tooltip>
-  );
   const feedbackButton = (
-    <FeedbackButton
-      variant={collapsed ? "icon" : "sidebar"}
-      side="right"
-      className={collapsed ? "size-8" : "min-w-0"}
-    />
+    <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
   const chatFirstCreateAppTrigger = (
     <CreateAppPopover
@@ -1085,7 +1106,9 @@ export function NavContent({
     <ChatFirstAppsRail
       apps={chatFirstApps}
       activeAppId={chatFirstActiveAppId}
+      activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
+      grayscaleInactiveIcons={false}
       loading={chatFirstAppsLoading}
       error={chatFirstAppsError}
       layout={chatFirstAppLayout}
@@ -1100,12 +1123,11 @@ export function NavContent({
         onNavigate?.();
       }}
       createAppTrigger={chatFirstCreateAppTrigger}
-      renderIcon={(app, options) => (
+      renderIcon={(app) => (
         <AppIcon
           id={app.id}
           name={app.name}
           size="sm"
-          monochrome={options?.isInactive}
           className="size-7 rounded-lg"
         />
       )}
@@ -1221,61 +1243,15 @@ export function NavContent({
       </ul>
     </nav>
   );
-  const organizationPicker = (
-    <div
-      className={cn(
-        "py-2 empty:hidden",
-        collapsed ? "flex justify-center px-1" : "px-3",
-      )}
-    >
-      <OrgSwitcher compact={collapsed} reserveSpace currentAppId="dispatch" />
-    </div>
-  );
-  const sidebarFooterActions = (
-    <SidebarFooterActions
-      collapsed={collapsed}
-      feedback={feedbackButton}
-      search={searchButton}
-      collapse={collapseButton}
-    />
-  );
-
   return (
     <>
-      <div
-        className={cn(
-          "flex h-12 shrink-0 items-center border-b border-sidebar-border",
-          collapsed ? "justify-center px-0" : "px-4",
-        )}
-      >
-        <Link
-          to={dispatchNavLinkTarget("/overview")}
-          aria-label={`${DISPATCH_SIDEBAR_LABEL} overview`}
-          data-dispatch-logo
-          className={cn(
-            "flex items-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-            collapsed ? "justify-center" : "gap-2",
-          )}
-        >
-          <AgentNativeIcon
-            aria-hidden="true"
-            className={cn(
-              "shrink-0 text-foreground",
-              collapsed ? "h-3.5 w-6" : "h-[17px] w-[30px]",
-            )}
-          />
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <div
-                data-dispatch-sidebar-label
-                className="truncate text-lg font-bold tracking-tight text-foreground"
-              >
-                {DISPATCH_SIDEBAR_LABEL}
-              </div>
-            </div>
-          )}
-        </Link>
-      </div>
+      <AppSidebarHeader
+        brandName={brandName}
+        brandIcon={brandIcon}
+        appId="dispatch"
+        brandHref={dispatchNavLinkTarget("/overview")}
+        collapsed={collapsed}
+      />
 
       {chatFirstMode ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -1319,19 +1295,28 @@ export function NavContent({
         data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
       >
         {bottomNavigation}
-        {organizationPicker}
-        {sidebarFooterActions}
+        <AppSidebarFooter
+          collapsed={collapsed}
+          collapsible={false}
+          feedback={feedbackButton}
+          orgSwitcher={
+            <OrgSwitcher
+              compact={collapsed}
+              reserveSpace
+              currentAppId="dispatch"
+              className={cn(
+                "!bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary",
+                collapsed ? "!size-9 !p-0 [&>svg]:!size-4" : "min-w-0 flex-1",
+              )}
+            />
+          }
+          footerExtras={collapseButton}
+        />
       </div>
     </>
   );
 }
 
-/**
- * Below 768px `ChatFirstSurfacePanel` is already a full-screen overlay
- * (surface-panel.tsx). Mounting the sub-app's own `AgentSidebar` chat rail
- * inside it too would stack a second full-screen shell on top of it, so the
- * rail only gets its own chat surface once there is room beside the panel.
- */
 export function renderChatFirstAppSurfaceTab({
   registration,
   embedPath,
@@ -1375,6 +1360,7 @@ export function renderChatFirstAppSurfaceTab({
         id: registration.id,
         name: registration.name ?? registration.id,
         path: registration.path,
+        homePath: registration.homePath,
         url: registration.url,
       }}
       embedPath={embedPath}
@@ -1388,20 +1374,15 @@ export function Layout({
   children,
   extensions,
   agentPageHref,
-}: {
-  children: ReactNode;
-  extensions?: DispatchExtensionConfig;
-  agentPageHref?: string;
-}) {
+  brandName,
+  brandIcon,
+}: DispatchLayoutProps) {
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const pageTitle = useHeaderTitle();
   const headerActions = useHeaderActions();
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Drives renderChatFirstSurfaceTab's app-tab chatSidebar decision below —
-  // the chat-first surface panel is already a full-screen overlay at this
-  // width, so an app tab must not also mount its own full-screen chat rail.
   const isMobileSurface = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -1419,6 +1400,10 @@ export function Layout({
   );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
+  const isRedesignedSettingsRoute = isRedesignedSettingsPath(
+    location.pathname,
+    useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
+  );
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
@@ -1457,12 +1442,12 @@ export function Layout({
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
-    { enabled: chatFirstMode },
+    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
     "list_apps",
     {},
-    { enabled: chatFirstMode },
+    { enabled: shouldQueryChatFirstApps(isChatRoute, chatFirstMode) },
   );
   const chatFirstWorkspaceApps = useMemo(
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
@@ -1476,6 +1461,7 @@ export function Layout({
         name: app.name,
         path: app.path,
         url: app.url,
+        homePath: app.homePath,
         enabled: app.status !== "pending" && app.archived !== true,
       });
     }
@@ -1513,7 +1499,10 @@ export function Layout({
         registration &&
         !isWorkspaceSsoApp(registration) &&
         isPathMountedWorkspaceApp(registration)
-          ? workspaceAppDirectHref(registration, "/")
+          ? workspaceAppDirectHref(
+              registration,
+              workspaceAppTargetPath(registration),
+            )
           : null;
       if (directHref && shouldOpenWorkspaceAppInTopWindow()) {
         if (navigateToWorkspaceApp(directHref)) return;
@@ -1521,6 +1510,35 @@ export function Layout({
       void navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
     },
     [chatFirstAppRegistrations, navigate],
+  );
+  const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
+    () => ({
+      apps: chatFirstAppItems,
+      isLoading:
+        chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading,
+      error: chatFirstAppsQuery.isError
+        ? chatFirstAppsQuery.error
+        : chatFirstGrantedAppsQuery.isError
+          ? chatFirstGrantedAppsQuery.error
+          : undefined,
+      openApp: openChatFirstApp,
+      retry: () => {
+        void chatFirstAppsQuery.refetch();
+        void chatFirstGrantedAppsQuery.refetch();
+      },
+    }),
+    [
+      chatFirstAppsQuery.error,
+      chatFirstAppsQuery.isError,
+      chatFirstAppsQuery.isLoading,
+      chatFirstAppsQuery.refetch,
+      chatFirstGrantedAppsQuery.error,
+      chatFirstGrantedAppsQuery.isError,
+      chatFirstGrantedAppsQuery.isLoading,
+      chatFirstGrantedAppsQuery.refetch,
+      chatFirstAppItems,
+      openChatFirstApp,
+    ],
   );
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const [chatFirstPane, setChatFirstPane] =
@@ -1689,9 +1707,6 @@ export function Layout({
       }
       if (resolution.target.openExternally && typeof window !== "undefined") {
         try {
-          // Builder's Visual Editor rejects iframe ancestors with CSP/X-Frame-
-          // Options. Prefer the real browser tab; the browser pane below is a
-          // visible fallback when popup policy blocks this non-click event.
           if (
             window.open(resolution.target.url, "_blank", "noopener,noreferrer")
           ) {
@@ -2257,22 +2272,26 @@ export function Layout({
   if (electronEmbedded) {
     return (
       <DispatchExtensionsContext.Provider value={extensions}>
-        <HeaderActionsProvider>
-          <div
-            data-dispatch-electron-control-plane
-            className="flex h-screen w-full overflow-hidden bg-background"
-          >
-            <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-              <Header showAgentToggle={false} />
-              <InvitationBanner />
-              <main className="flex-1 overflow-y-auto">
-                <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
-                  {children}
-                </div>
-              </main>
+        <DispatchWorkspaceAppLauncherContext.Provider
+          value={chatHomeAppLauncher}
+        >
+          <HeaderActionsProvider>
+            <div
+              data-dispatch-electron-control-plane
+              className="flex h-screen w-full overflow-hidden bg-background"
+            >
+              <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+                <Header showAgentToggle={false} />
+                <InvitationBanner />
+                <main className="flex-1 overflow-y-auto">
+                  <div className="mx-auto max-w-7xl space-y-10 px-4 py-6 sm:px-6">
+                    {children}
+                  </div>
+                </main>
+              </div>
             </div>
-          </div>
-        </HeaderActionsProvider>
+          </HeaderActionsProvider>
+        </DispatchWorkspaceAppLauncherContext.Provider>
       </DispatchExtensionsContext.Provider>
     );
   }
@@ -2292,7 +2311,10 @@ export function Layout({
     );
   }
 
-  const showAgentControls = !isChatRoute && !pageOwnsToolbar(localPathname);
+  const showAgentControls =
+    !isChatRoute &&
+    !isRedesignedSettingsRoute &&
+    !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2361,8 +2383,8 @@ export function Layout({
             <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pt-2 lg:px-6">
               <Button
                 variant="ghost"
-                size="icon"
-                className="pointer-events-auto absolute start-4 top-2 h-8 w-8 lg:hidden"
+                size="icon-sm"
+                className="pointer-events-auto absolute start-4 top-2 lg:hidden"
                 onClick={() => setMobileOpen(true)}
                 aria-label="Open navigation"
               >
@@ -2512,64 +2534,24 @@ export function Layout({
 
   return (
     <DispatchExtensionsContext.Provider value={extensions}>
-      <HeaderActionsProvider>
-        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-          <aside
-            data-collapsed={sidebarCollapsed ? "true" : "false"}
-            className={cn(
-              "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-              sidebarCollapsed ? "w-14" : "w-56",
-            )}
-          >
-            <NavContent
-              extensions={extensions}
-              chatFirstMode={chatFirstMode}
-              chatFirstEmbedded={chatFirstEmbedded}
-              collapsed={sidebarCollapsed}
-              chatFirstAppLayout={chatFirstAppLayout}
-              onChatFirstAppLayoutChange={persistChatFirstAppLayout}
-              chatFirstApps={chatFirstAppItems}
-              chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
-              chatFirstAppsError={
-                chatFirstAppsQuery.isError
-                  ? chatFirstCopy("appsLoadError")
-                  : null
-              }
-              chatFirstActiveAppId={chatFirstActiveAppId}
-              chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
-              onChatFirstNewChat={() => {
-                closeChatFirstSessionWatch();
-                chatFirstSurfaceTabsStore.closeAll();
-                setChatFirstSurfacePanelOpen(false);
-              }}
-              onChatFirstAppOpen={(app) => {
-                if (isDispatchWorkspaceAppId(app.id)) return;
-                setSidebarCollapsed(true);
-                openChatFirstApp(app);
-              }}
-              onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
-              collapsible
-              onCollapsedChange={setSidebarCollapsed}
-            />
-          </aside>
-
-          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-            <SheetContent
-              side="left"
-              className="w-72 bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
-            >
-              <SheetTitle className="sr-only">
-                {t("dispatch.nav.navigation")}
-              </SheetTitle>
-              <SheetDescription className="sr-only">
-                {t("dispatch.nav.navigationDescription")}
-              </SheetDescription>
-              <div className="flex h-full w-full flex-col">
+      <DispatchWorkspaceAppLauncherContext.Provider value={chatHomeAppLauncher}>
+        <HeaderActionsProvider>
+          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
+            {isRedesignedSettingsRoute ? null : (
+              <aside
+                data-collapsed={sidebarCollapsed ? "true" : "false"}
+                className={cn(
+                  "agent-layout-left-drawer hidden shrink-0 flex-col border-e !border-e-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+                  sidebarCollapsed ? "w-14" : "w-[260px]",
+                )}
+              >
                 <NavContent
                   extensions={extensions}
+                  brandName={brandName}
+                  brandIcon={brandIcon}
                   chatFirstMode={chatFirstMode}
                   chatFirstEmbedded={chatFirstEmbedded}
-                  collapsed={false}
+                  collapsed={sidebarCollapsed}
                   chatFirstAppLayout={chatFirstAppLayout}
                   onChatFirstAppLayoutChange={persistChatFirstAppLayout}
                   chatFirstApps={chatFirstAppItems}
@@ -2586,20 +2568,70 @@ export function Layout({
                     chatFirstSurfaceTabsStore.closeAll();
                     setChatFirstSurfacePanelOpen(false);
                   }}
-                  onChatFirstAppOpen={openChatFirstApp}
+                  onChatFirstAppOpen={(app) => {
+                    if (isDispatchWorkspaceAppId(app.id)) return;
+                    setSidebarCollapsed(true);
+                    openChatFirstApp(app);
+                  }}
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
-                  onNavigate={() => setMobileOpen(false)}
+                  collapsible
+                  onCollapsedChange={setSidebarCollapsed}
                 />
-              </div>
-            </SheetContent>
-          </Sheet>
+              </aside>
+            )}
 
-          <div className="relative min-w-0 flex-1 overflow-hidden">
-            {content}
-            {workspaceAppContent}
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetContent
+                side="left"
+                className="w-72 bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+              >
+                <SheetTitle className="sr-only">
+                  {t("dispatch.nav.navigation")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("dispatch.nav.navigationDescription")}
+                </SheetDescription>
+                <div className="flex h-full w-full flex-col">
+                  <NavContent
+                    extensions={extensions}
+                    brandName={brandName}
+                    brandIcon={brandIcon}
+                    chatFirstMode={chatFirstMode}
+                    chatFirstEmbedded={chatFirstEmbedded}
+                    collapsed={false}
+                    chatFirstAppLayout={chatFirstAppLayout}
+                    onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                    chatFirstApps={chatFirstAppItems}
+                    chatFirstAppsLoading={chatFirstAppsQuery.isLoading}
+                    chatFirstAppsError={
+                      chatFirstAppsQuery.isError
+                        ? chatFirstCopy("appsLoadError")
+                        : null
+                    }
+                    chatFirstActiveAppId={chatFirstActiveAppId}
+                    chatFirstActivePrimaryTab={chatFirstActivePrimaryTab}
+                    onChatFirstNewChat={() => {
+                      closeChatFirstSessionWatch();
+                      chatFirstSurfaceTabsStore.closeAll();
+                      setChatFirstSurfacePanelOpen(false);
+                    }}
+                    onChatFirstAppOpen={openChatFirstApp}
+                    onChatFirstAppsRetry={() =>
+                      void chatFirstAppsQuery.refetch()
+                    }
+                    onNavigate={() => setMobileOpen(false)}
+                  />
+                </div>
+              </SheetContent>
+            </Sheet>
+
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              {content}
+              {workspaceAppContent}
+            </div>
           </div>
-        </div>
-      </HeaderActionsProvider>
+        </HeaderActionsProvider>
+      </DispatchWorkspaceAppLauncherContext.Provider>
     </DispatchExtensionsContext.Provider>
   );
 }

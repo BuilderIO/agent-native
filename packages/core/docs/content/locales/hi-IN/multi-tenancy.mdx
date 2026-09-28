@@ -9,7 +9,7 @@ description: "प्रत्येक एजेंट-नेटिव ऐप �
 
 ## आपको मुफ़्त में क्या मिलता है {#free}
 
-एक ताज़ा `npx @agent-native/core@latest create` मचान पहले से ही भेजा जा रहा है:
+एक ताज़ा `npx --yes @agent-native/core@latest create` मचान पहले से ही भेजा जा रहा है:
 
 - **उपयोगकर्ता पंजीकरण और लॉगिन** — [Authentication](/docs/authentication) देखें।
 - **संगठन** — उपयोगकर्ता संगठन बनाते हैं और सदस्यों को ईमेल द्वारा आमंत्रित करते हैं। प्रत्येक संगठन पूरी तरह से पृथक किरायेदार है।
@@ -62,9 +62,9 @@ description: "प्रत्येक एजेंट-नेटिव ऐप �
 
 </Diagram>
 
-## संगठन स्विचर UI {#org-switcher}
+## खाता मेनू {#org-switcher}
 
-संगठन-स्विचर और सदस्य UI बिना किसी अतिरिक्त कोड के प्रत्येक टेम्पलेट में प्रस्तुत करते हैं। वे `/_agent-native/org/*` के तहत कोर संगठन REST मार्गों को चलाते हैं (संगठन बनाएं, संगठन स्विच करें, सदस्यों को सूचीबद्ध करें/आमंत्रित करें/हटाएं, भूमिकाएं बदलें, अनुमत ईमेल डोमेन सेट करें)। उपयोगकर्ता स्विचर से सक्रिय संगठन चुनते हैं; सदस्य पैनल आमंत्रणों और भूमिका परिवर्तनों को संभालता है।
+खाता मेनू (`OrgSwitcher`, साइडबार के नीचे) और सेटिंग्स के संगठन पेज बिना किसी अतिरिक्त कोड के हर टेम्पलेट में दिखते हैं। वे `/_agent-native/org/*` के तहत कोर संगठन REST रूट चलाते हैं (संगठन बनाएं, संगठन बदलें, सदस्यों को सूचीबद्ध करें/आमंत्रित करें/हटाएं, भूमिकाएं बदलें, अनुमत ईमेल डोमेन सेट करें)। उपयोगकर्ता खाता मेनू से सक्रिय संगठन चुनते हैं; **Settings › Organization › Members** आमंत्रण और भूमिका परिवर्तन संभालता है।
 
 यह फ्रेमवर्क का अपना `org/` मॉड्यूल है, न कि बेटर ऑथ का संगठन प्लगइन (जो जानबूझकर पंजीकृत नहीं है)। पूर्ण संगठन-प्रबंधन सतह - `createOrganization`, REST मार्ग, और `invite-member` जैसे टेम्पलेट-लिखित `defineAction` रैपर - [Authentication → Organizations](/docs/authentication#organizations) में प्रलेखित है।
 
@@ -122,3 +122,7 @@ description: "प्रत्येक एजेंट-नेटिव ऐप �
 - [**Authentication**](/docs/authentication#organizations) — sessions, social providers और organization-management surface
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL-level isolation, `ownableColumns()` contract और access guards
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — साझा authentication और RBAC के साथ एक monorepo में कई Agent-Native ऐप्स होस्ट करना
+
+## आइसोलेशन मॉडल
+
+सर्वर रीड और राइट के लिए `accessFilter()` और `assertAccess()` का उपयोग करें। एजेंट SQL स्कोपिंग ownable tables के लिए अस्थायी फ़िल्टर किए गए views बनाती है। `pnpm guards` में unscoped-query जांच शामिल है। RLS अभी सक्रिय सुरक्षा परत नहीं है और इसे 1.0 के बाद hardening के रूप में नियोजित किया गया है। [प्रशासित डिप्लॉयमेंट](/docs/administered-deployments) देखें।

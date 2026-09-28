@@ -12,6 +12,8 @@ import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
+  resolveSourceWorkspace,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -19,6 +21,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   type AutoLayoutEditIntent,
+  type BooleanSubtractEditIntent,
   type ClassEditIntent,
   type CodeLayerSource,
   type EditIntent,
@@ -26,6 +29,8 @@ import {
   type WrapNodesEditIntent,
 } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
+import { linkedComponentRootForNode } from "../shared/component-links.js";
+import { componentNodeIdMatches } from "../shared/component-model.js";
 import type { TailwindBreakpointPrefix } from "../shared/design-state.js";
 import {
   planLocalJsxVisualEdit,
@@ -37,13 +42,11 @@ import {
   utilityStem,
   widthToPrefix,
 } from "../shared/responsive-classes.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
+import applyComponentPropEditAction from "./apply-component-prop-edit.js";
 import readLocalFileAction from "./read-local-file.js";
 import writeLocalFileAction from "./write-local-file.js";
 
-/**
- * Short human-readable label describing an edit intent, shown next to the
- * agent's selection ring for live viewers (e.g. "AI — Editing text").
- */
 function editIntentLabel(intent: EditIntent): string {
   switch (intent.kind) {
     case "textContent":
@@ -58,6 +61,8 @@ function editIntentLabel(intent: EditIntent): string {
       return "Moving element";
     case "wrapNodes":
       return "Grouping elements";
+    case "booleanSubtract":
+      return "Subtracting selected shapes";
     case "unwrap":
       return "Ungrouping elements";
     case "autoLayout":
@@ -69,17 +74,8 @@ function editIntentLabel(intent: EditIntent): string {
 
 type VisualEditActionSource = CodeLayerSource & { html?: string };
 
-/** Tailwind responsive prefix values accepted by the action. */
 const TAILWIND_PREFIXES = ["base", "sm", "md", "lg", "xl", "2xl"] as const;
 
-/**
- * Resolve the active breakpoint prefix for a class edit.
- *
- * - If `activeBreakpoint` is provided it is used directly.
- * - If only `activeFrameWidthPx` is provided the prefix is derived via `widthToPrefix`.
- * - If neither is provided the result is `null` (= no breakpoint scoping; global
- *   class edit, current backward-compatible behaviour).
- */
 function resolveActivePrefix(
   activeBreakpoint?: TailwindBreakpointPrefix | null,
   activeFrameWidthPx?: number | null,
@@ -89,38 +85,12 @@ function resolveActivePrefix(
   return null;
 }
 
-/**
- * Derive a CSS-property key from a Tailwind class token for use in
- * `responsive-class` `"remove"` operations (e.g. `"text-lg"` → `"font-size"`).
- *
- * Delegates to the shared `utilityStem` so the key matches EXACTLY what
- * `setPropertyClass`/`removePropertyClass` compute internally — a divergent
- * local heuristic would make breakpoint-scoped removes silently miss (and, with
- * the old first-segment heuristic, nuke unrelated utilities like `text-center`).
- */
 function stemFromToken(token: string): string {
-  // Strip any responsive prefix (e.g. "md:text-sm" → "text-sm").
   const prefixMatch = /^(?:2xl|xl|lg|md|sm):/.exec(token);
   const utility = prefixMatch ? token.slice(prefixMatch[0].length) : token;
   return utilityStem(utility);
 }
 
-/**
- * Convert a global `ClassEditIntent` into the equivalent `EditIntent` scoped to
- * the given breakpoint prefix.
- *
- * - `"add"` and `"replace"` become `"responsive-class"` edits that write /
- *   replace the utility at the target prefix.
- * - `"remove"` becomes a `"responsive-class"` remove that strips the utility
- *   stem at the target prefix.
- * - `"set"` has no direct per-breakpoint analog (it replaces the whole class
- *   list) and is passed through unchanged so existing behaviour is preserved.
- *
- * When `prefix` is `"base"`, the intent is returned unchanged because
- * `setPropertyClass(className, "base", utility)` is equivalent to a
- * global unprefixed add/replace and the existing `"class"` path already
- * handles it correctly.
- */
 function scopeClassIntentToBreakpoint(
   intent: ClassEditIntent,
   prefix: TailwindBreakpointPrefix,
@@ -165,21 +135,9 @@ function scopeClassIntentToBreakpoint(
     };
   }
 
-  // "set" — no per-breakpoint analog; fall back to global class edit.
   return intent;
 }
 
-/**
- * Convert a `class` or `style` intent into the equivalent Framer-scoped edit
- * for a desktop-down max-width bound (§6.4 breakpoint bar semantics):
- *
- * - `class` add/replace/remove → `responsive-class` with `maxWidthPx`
- *   (writes/removes a `max-[<bound>px]:` scoped token).
- * - `style` → the single class-vs-media decision (`planBreakpointStyleWrite`):
- *   Tailwind-utility values become scoped classes; raw CSS values become
- *   managed `@media (max-width: <bound>px)` rules via `breakpoint-style`.
- * - Everything else passes through unchanged.
- */
 function scopeIntentToFramerBound(
   intent: EditIntent,
   maxWidthPx: number,
@@ -215,11 +173,11 @@ function scopeIntentToFramerBound(
         stem: stemFromToken(tokens[0]),
       };
     }
-    // "set" — no per-breakpoint analog.
     return intent;
   }
 
   if (intent.kind === "style") {
+    if (intent.operation === "remove") return intent;
     const plan = planBreakpointStyleWrite({
       property: intent.property,
       value: intent.value,
@@ -251,16 +209,6 @@ function scopeIntentToFramerBound(
   return intent;
 }
 
-/**
- * Resolve the Framer desktop-down bound for a design-file edit from the
- * design's stored breakpoint set (+ the edited screen's primary width).
- *
- * - `{ kind: "bound" }` — a wider frame exists; scope below it.
- * - `{ kind: "base" }` — the active frame IS the widest context; edits
- *   belong to the base layer (Framer semantics).
- * - `{ kind: "unknown" }` — the design has no breakpoint set; callers fall
- *   back to the legacy min-width prefix behaviour.
- */
 function resolveFramerBoundFromDesignData(
   designData: string | null,
   fileId: string,
@@ -357,8 +305,6 @@ const targetSchema = z
       .object({
         line: z.number().int().positive(),
         column: z.number().int().positive(),
-        // Without this the deterministic writer cannot tell a React 19
-        // owner-stack line from an authored one and would seek to it.
         positionPrecision: z
           .enum(["authored", "transformed", "unknown"])
           .optional(),
@@ -385,19 +331,63 @@ const targetSchema = z
     }
   });
 
+const MAX_STRUCTURE_SIZE_HINT = 1_000_000;
+const structureSizeHintCoordinate = z
+  .number()
+  .finite()
+  .min(-MAX_STRUCTURE_SIZE_HINT)
+  .max(MAX_STRUCTURE_SIZE_HINT);
+const structureSizeHintSchema = z
+  .object({
+    width: structureSizeHintCoordinate.nonnegative(),
+    height: structureSizeHintCoordinate.nonnegative(),
+    left: structureSizeHintCoordinate.optional(),
+    top: structureSizeHintCoordinate.optional(),
+  })
+  .strict();
+
+const styleIntentSchema = z
+  .object({
+    kind: z.literal("style"),
+    target: targetSchema,
+    property: z
+      .string()
+      .describe(
+        "CSS property to set or remove. Deterministic edits cover the visual editor's common layout, typography, fill, stroke, effect, transform, and spacing properties.",
+      ),
+    operation: z
+      .enum(["set", "remove"])
+      .optional()
+      .describe(
+        '"set" (default) writes the CSS value; "remove" deletes all matching inline declarations so the stylesheet or inherited value applies.',
+      ),
+    value: z
+      .string()
+      .optional()
+      .describe(
+        'CSS value to write; required for "set" and omitted for "remove".',
+      ),
+  })
+  .superRefine((intent, ctx) => {
+    if (intent.operation === "remove" && intent.value !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["value"],
+        message: 'Omit value when operation is "remove".',
+      });
+    } else if (intent.operation !== "remove" && intent.value === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["value"],
+        message: 'Provide value when operation is omitted or "set".',
+      });
+    }
+  });
+
 const intentSchema = z.preprocess(
   parseJsonString,
   z.discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("style"),
-      target: targetSchema,
-      property: z
-        .string()
-        .describe(
-          "CSS property to set. Deterministic edits cover the visual editor's common layout, typography, fill, stroke, effect, transform, and spacing properties.",
-        ),
-      value: z.string().describe("CSS value to write into the inline style."),
-    }),
+    styleIntentSchema,
     z.object({
       kind: z.literal("class"),
       target: targetSchema,
@@ -476,7 +466,23 @@ const intentSchema = z.preprocess(
         .describe(
           "When true the wrapper gets display:flex; flex-direction:column; gap:8px and absolute positioning is stripped from each wrapped child.",
         ),
+      wrapperKind: z
+        .enum(["group", "frame"])
+        .optional()
+        .describe(
+          "Semantic identity for a non-auto-layout wrapper. Defaults to group; auto-layout wrappers are frames.",
+        ),
+      sizeHints: z.record(z.string(), structureSizeHintSchema).optional(),
     }) satisfies z.ZodType<WrapNodesEditIntent>,
+    z.object({
+      kind: z.literal("booleanSubtract"),
+      targetIds: z
+        .array(z.string())
+        .min(2)
+        .describe(
+          "data-agent-native-node-id values of consecutive sibling rectangles and ellipses to subtract. The first selected shape in source order supplies the result fill; all selected operands remain editable layers inside the new Subtract group.",
+        ),
+    }) satisfies z.ZodType<BooleanSubtractEditIntent>,
     z.object({
       kind: z.literal("unwrap"),
       targetId: z
@@ -610,13 +616,6 @@ async function resolveEditableDesignFile(
 
   await assertAccess("design", file.designId, "editor");
 
-  // Read the live (collab-authoritative, not just SQL-stored) content and
-  // capture its versionHash so the eventual persist can be conditioned on
-  // this exact base still being current — see persistDesignFileEdit below.
-  // Same read helper the 8 sibling actions (insert-design-native-asset.ts,
-  // insert-asset.ts, etc.) migrated to, closing the write-race window where
-  // a concurrent editor's change landed between this read and the raw
-  // unconditional write this action used to do.
   const workspaceFile: SourceWorkspaceFile = {
     id: file.id,
     designId: file.designId,
@@ -803,11 +802,40 @@ function batchResult(
   };
 }
 
+function targetRefsForIntent(
+  intent: EditIntent,
+  resolvedTarget?: { nodeId?: string; selector?: string },
+): Array<{ nodeId?: string; selector?: string }> {
+  const refs: Array<{ nodeId?: string; selector?: string }> = [];
+  if (resolvedTarget) refs.push(resolvedTarget);
+  if ("target" in intent) {
+    refs.push(intent.target);
+    if (intent.kind === "moveNode") refs.push(intent.anchor);
+    return refs;
+  }
+  if ("targetIds" in intent) {
+    refs.push(...intent.targetIds.map((nodeId) => ({ nodeId })));
+    return refs;
+  }
+  if ("targetId" in intent) refs.push({ nodeId: intent.targetId });
+  return refs;
+}
+
+function responsiveStyleRemovalResult() {
+  return {
+    status: "needsAgent" as const,
+    changed: false,
+    message:
+      "Responsive style removal requires a scoped reset operation; no source was changed.",
+  };
+}
+
 export default defineAction({
   description:
     "Apply one deterministic visual edit to a code-backed HTML design layer. " +
     "Pass one intent or an ordered array of intents; batched intents are folded into one persisted write. " +
     "Supports safe inline style, class, and leaf textContent edits on inline/SQL HTML files, plus diff-first literal leaf JSX edits on consented localhost files; escalates ambiguous, dynamic, repeated, shared, or structural JSX edits without writing. " +
+    "Intent kinds (intent.kind, exact literal required): style, class, breakpoint-style, textContent (leaf text — there is no 'set-text' kind), attribute, deleteNode, moveNode, wrapNodes, booleanSubtract, unwrap, autoLayout. booleanSubtract creates an editable SVG mask from at least two consecutive sibling rectangles/ellipses; operands must be positioned with pixel geometry and solid fills. " +
     "Responsive editing (§6.4): pass activeFrameWidthPx (the active breakpoint frame width, matching the UI's breakpoint bar) to scope class AND style edits Framer-style — overrides apply below the next-wider frame and cascade down; the widest frame is the base. " +
     "Raw CSS values persist as managed @media rules (<style data-agent-native-breakpoints>); Tailwind-utility values become max-[<bound>px]: classes. " +
     "Pass activeBreakpoint to force legacy min-width prefix scoping for class edits, or maxWidthPx for an explicit desktop-down bound. Omit all three for base (global) behaviour.",
@@ -872,6 +900,19 @@ export default defineAction({
     const editIntents = (
       Array.isArray(intent) ? intent : [intent]
     ) as EditIntent[];
+    const hasStyleRemoval = editIntents.some(
+      (editIntent) =>
+        editIntent.kind === "style" && editIntent.operation === "remove",
+    );
+
+    if (hasStyleRemoval && maxWidthPx != null) {
+      const result = responsiveStyleRemovalResult();
+      return {
+        result,
+        results: editIntents.map(() => result),
+        persisted: false,
+      };
+    }
 
     if (actionSource.kind === "local-file") {
       if (editIntents.length !== 1) {
@@ -952,7 +993,8 @@ export default defineAction({
       if (
         editIntent.kind !== "textContent" &&
         editIntent.kind !== "class" &&
-        editIntent.kind !== "style"
+        editIntent.kind !== "style" &&
+        editIntent.kind !== "attribute"
       ) {
         return {
           result: {
@@ -975,6 +1017,17 @@ export default defineAction({
             changed: false,
             message:
               "Breakpoint-scoped localhost JSX edits require semantic source inspection in this first deterministic slice.",
+          },
+          persisted: false,
+        };
+      }
+      if (editIntent.kind === "style" && editIntent.operation === "remove") {
+        return {
+          result: {
+            status: "needsAgent" as const,
+            changed: false,
+            message:
+              "Removing inline styles from JSX requires semantic source editing; no file was changed.",
           },
           persisted: false,
         };
@@ -1096,6 +1149,32 @@ export default defineAction({
     }
 
     const file = await resolveEditableDesignFile(actionSource);
+    if (
+      hasStyleRemoval &&
+      activeBreakpoint == null &&
+      activeFrameWidthPx != null &&
+      resolveFramerBoundFromDesignData(
+        file.designData,
+        file.id,
+        activeFrameWidthPx,
+      ).kind === "bound"
+    ) {
+      const result = responsiveStyleRemovalResult();
+      return {
+        result,
+        results: editIntents.map(() => result),
+        projection: buildCodeLayerProjection(file.content, {
+          source: file.codeLayerSource,
+        }),
+        designId: file.designId,
+        fileId: file.id,
+        filename: file.filename,
+        persisted: false,
+        patchedContent: includeContent ? file.content : undefined,
+        bytesBefore: file.content.length,
+        bytesAfter: file.content.length,
+      };
+    }
     const batch = applyIntentBatch(
       file.content,
       editIntents,
@@ -1117,11 +1196,303 @@ export default defineAction({
       batch.results.some((result) => result.changed) &&
       batch.content !== file.content;
 
+    const sourceProjection = buildCodeLayerProjection(file.content, {
+      source: file.codeLayerSource,
+    });
+    const nodeForTarget = (target: { nodeId?: string; selector?: string }) => {
+      const byId = target.nodeId
+        ? sourceProjection.nodes.find((candidate) =>
+            componentNodeIdMatches(candidate, target.nodeId!),
+          )
+        : undefined;
+      return (
+        byId ??
+        sourceProjection.nodes.find(
+          (candidate) => candidate.selector === target.selector,
+        )
+      );
+    };
+    const hasLinkedTarget =
+      allApplied &&
+      editIntents.some((editIntent, index) =>
+        targetRefsForIntent(editIntent, batch.results[index]?.target).some(
+          (target) => {
+            const node = nodeForTarget(target);
+            return node
+              ? linkedComponentRootForNode(node, sourceProjection) !== null
+              : false;
+          },
+        ),
+      );
+
+    if (hasLinkedTarget) {
+      const noWrite = (
+        status: "needsAgent" | "conflict",
+        message: string,
+        extra: Record<string, unknown> = {},
+      ) => {
+        const failure = {
+          status,
+          changed: false,
+          message,
+        } as const;
+        const results = batch.results.map((result) => ({
+          ...failure,
+          target: result.target,
+        }));
+        return {
+          result: failure,
+          results,
+          projection: sourceProjection,
+          designId: file.designId,
+          fileId: file.id,
+          filename: file.filename,
+          persisted: false,
+          ...(extra.ctaRequired ? { ctaRequired: true } : {}),
+          ...(includeContent ? { patchedContent: file.content } : {}),
+          bytesBefore: file.content.length,
+          bytesAfter: file.content.length,
+        };
+      };
+      const unscoped =
+        activeBreakpoint == null &&
+        activeFrameWidthPx == null &&
+        maxWidthPx == null;
+      const oneStyle =
+        batch.scopedIntents.length === 1 &&
+        batch.scopedIntents[0]?.kind === "style" &&
+        batch.scopedIntents[0].operation !== "remove" &&
+        batch.scopedIntents[0].value !== undefined;
+      const oneText =
+        batch.scopedIntents.length === 1 &&
+        batch.scopedIntents[0]?.kind === "textContent" &&
+        batch.scopedIntents[0].html === undefined;
+      const styleBatch =
+        batch.scopedIntents.length > 1 &&
+        batch.scopedIntents.every(
+          (editIntent) =>
+            editIntent.kind === "style" &&
+            editIntent.operation !== "remove" &&
+            editIntent.value !== undefined,
+        );
+      if (!unscoped || (!oneStyle && !oneText && !styleBatch)) {
+        return noWrite(
+          "needsAgent",
+          "This linked component edit is not supported by the deterministic linked path. Use apply-component-prop-edit for linked style, text, or layer-name edits; inspect structural, class, removed-style, and breakpoint-scoped changes before writing.",
+        );
+      }
+
+      const nodeIdFor = (
+        editIntent: EditIntent,
+        index: number,
+      ): string | null => {
+        if (!("target" in editIntent)) return null;
+        const node = nodeForTarget(
+          batch.results[index]?.target ?? editIntent.target,
+        );
+        const durableNodeId =
+          node?.dataAttributes["data-agent-native-node-id"]?.trim();
+        if (durableNodeId) return durableNodeId;
+        return node &&
+          linkedComponentRootForNode(node, sourceProjection) === null
+          ? node.id
+          : null;
+      };
+
+      let componentEdit:
+        | { kind: "style"; property: string; value: string }
+        | { kind: "textContent"; value: string }
+        | {
+            kind: "styleTargetsBatch";
+            targets: Array<{
+              fileId: string;
+              nodeId: string;
+              styles: Record<string, string>;
+            }>;
+          };
+      let componentNodeId: string;
+      const firstIntent = batch.scopedIntents[0];
+      if (
+        oneStyle &&
+        firstIntent?.kind === "style" &&
+        firstIntent.operation !== "remove" &&
+        firstIntent.value !== undefined
+      ) {
+        const editIntent = firstIntent;
+        componentNodeId = nodeIdFor(editIntent, 0) ?? "";
+        if (!componentNodeId) {
+          return noWrite(
+            "needsAgent",
+            "The linked style target has no stable node id. Refresh its source anchor before applying the linked component edit.",
+          );
+        }
+        componentEdit = {
+          kind: "style",
+          property: editIntent.property,
+          value: editIntent.value!,
+        };
+      } else if (oneText && firstIntent?.kind === "textContent") {
+        const editIntent = firstIntent;
+        componentNodeId = nodeIdFor(editIntent, 0) ?? "";
+        if (!componentNodeId) {
+          return noWrite(
+            "needsAgent",
+            "The linked text target has no stable node id. Refresh its source anchor before applying the linked component edit.",
+          );
+        }
+        componentEdit = { kind: "textContent", value: editIntent.value };
+      } else {
+        const targets = new Map<
+          string,
+          { fileId: string; nodeId: string; styles: Record<string, string> }
+        >();
+        for (const [index, editIntent] of batch.scopedIntents.entries()) {
+          if (editIntent.kind !== "style" || editIntent.operation === "remove")
+            continue;
+          const nodeId = nodeIdFor(editIntent, index);
+          if (!nodeId) {
+            return noWrite(
+              "needsAgent",
+              "A linked style-batch target has no stable node id. Refresh its source anchor before applying the linked component edit.",
+            );
+          }
+          const target = targets.get(nodeId) ?? {
+            fileId: file.id,
+            nodeId,
+            styles: {},
+          };
+          target.styles[editIntent.property] = editIntent.value!;
+          targets.set(nodeId, target);
+        }
+        const [firstTarget] = targets.values();
+        if (!firstTarget) {
+          return noWrite(
+            "needsAgent",
+            "The linked style batch has no resolvable targets. No source was changed.",
+          );
+        }
+        componentNodeId = firstTarget.nodeId;
+        componentEdit = {
+          kind: "styleTargetsBatch",
+          targets: [...targets.values()],
+        };
+      }
+
+      if (designSourceTypeFromData(file.designData) !== "inline") {
+        return noWrite(
+          "needsAgent",
+          "Linked component persistence is available only for inline designs. Use the existing source-mode handoff; no source was changed.",
+          { ctaRequired: true },
+        );
+      }
+
+      const workspace = await resolveSourceWorkspace(file.designId, {
+        includeContent: true,
+        includeBoard: true,
+      });
+      if (workspace.sourceType !== "inline") {
+        return noWrite(
+          "needsAgent",
+          "Linked component persistence is available only for inline designs. Use the existing source-mode handoff; no source was changed.",
+          { ctaRequired: true },
+        );
+      }
+      const htmlFiles = workspace.files.filter(
+        (sourceFile) => sourceFile.fileType === "html",
+      );
+      const liveBases = await Promise.all(
+        htmlFiles.map(async (sourceFile) => ({
+          fileId: sourceFile.id,
+          versionHash: (await readLiveSourceFile(sourceFile)).versionHash,
+        })),
+      );
+      const primaryBase = liveBases.find((base) => base.fileId === file.id);
+      if (!primaryBase || primaryBase.versionHash !== file.versionHash) {
+        return noWrite(
+          "conflict",
+          "The selected source changed while linked component versions were being prepared. Refresh and retry; no source was changed.",
+        );
+      }
+
+      let linkedResult: Record<string, unknown>;
+      try {
+        linkedResult = await applyComponentPropEditAction.run(
+          {
+            designId: file.designId,
+            fileId: file.id,
+            nodeId: componentNodeId,
+            edit: componentEdit,
+            source: { expectedFiles: liveBases },
+          },
+          context,
+        );
+      } catch (error) {
+        if (!(error instanceof SourceWorkspaceEditConflictError)) throw error;
+        return noWrite(
+          "conflict",
+          "A linked source changed before the atomic component write. Refresh and retry; no source was changed.",
+        );
+      }
+
+      const conflict = linkedResult.conflict === true;
+      const ctaRequired = linkedResult.ctaRequired === true;
+      const error =
+        typeof linkedResult.error === "string"
+          ? linkedResult.error
+          : typeof linkedResult.ctaMessage === "string"
+            ? linkedResult.ctaMessage
+            : "The linked component edit could not be applied.";
+      if (conflict || ctaRequired || linkedResult.error) {
+        return noWrite(conflict ? "conflict" : "needsAgent", error, {
+          ctaRequired,
+        });
+      }
+
+      const persisted = linkedResult.persisted === true;
+      const changes = Array.isArray(linkedResult.changes)
+        ? (linkedResult.changes as Array<{
+            fileId?: string;
+            after?: string;
+          }>)
+        : [];
+      const targetContent =
+        changes.find((change) => change.fileId === file.id)?.after ??
+        file.content;
+      const results = batch.results.map((result) => ({
+        ...result,
+        changed: persisted && result.changed,
+      }));
+      const aggregate = batchResult(results, persisted);
+      const result =
+        results.length === 1
+          ? {
+              ...aggregate,
+              changed: persisted,
+              message: persisted
+                ? "Linked component edit persisted with its non-overridden instances."
+                : aggregate.message,
+            }
+          : aggregate;
+      return {
+        result,
+        results,
+        projection: buildCodeLayerProjection(targetContent, {
+          source: file.codeLayerSource,
+        }),
+        designId: file.designId,
+        fileId: file.id,
+        filename: file.filename,
+        persisted,
+        changes: linkedResult.changes,
+        sourceBases: linkedResult.sourceBases,
+        ...(includeContent ? { patchedContent: targetContent } : {}),
+        bytesBefore: file.content.length,
+        bytesAfter: targetContent.length,
+      };
+    }
+
     const lastResult = batch.results[batch.results.length - 1];
     if (lastResult?.target) {
-      // Publish a RESOLVABLE selection descriptor so live viewers can render a
-      // ring over the element being edited. Prefer the stable
-      // `data-agent-native-node-id` anchor over the projection CSS selector.
       agentUpdateSelection(file.id, {
         selection: agentSelectionDescriptor(
           lastResult.target,

@@ -36,9 +36,6 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-// Feature subcomponents not exercised by these tests: stub them out so the
-// popover can render without their own data-fetching hooks (people search,
-// Apollo enrichment, find-time availability, attendee list rendering).
 vi.mock("@/components/calendar/ApolloPanel", () => ({
   ResearchMeetingButton: () => null,
 }));
@@ -59,8 +56,6 @@ vi.mock("@/components/layout/AppLayout", () => ({
   useCalendarContext: () => calendarContext,
 }));
 
-// Data hooks backed by react-query: mock so the popover doesn't need a
-// QueryClientProvider in the test tree.
 vi.mock("@/hooks/use-events", () => ({
   useEvent: () => ({ data: undefined, isLoading: false }),
   useUpdateEvent: () => ({ mutate: updateEventMutate, isPending: false }),
@@ -85,9 +80,6 @@ vi.mock("@/hooks/use-zoom-auth", () => ({
   useConnectZoom: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-// Radix-backed overlay primitives: stub as simple open-gated wrappers so
-// nested popovers (e.g. TimezoneCombobox) that default to closed stay out of
-// the DOM, matching how these primitives are mocked elsewhere in this repo.
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({
     open,
@@ -280,6 +272,30 @@ describe("EventDetailPopover characterization", () => {
     expect(content?.innerHTML).toContain("text-[13px] font-medium");
   });
 
+  it("passes the selected calendar event through to delete", () => {
+    const event = baseEvent({
+      accountEmail: "steve@builder.io",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+    });
+    const onDelete = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover event={event} defaultOpen onDelete={onDelete}>
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const deleteButton = findByExactText("button", "eventForm.delete");
+    expect(deleteButton).toBeTruthy();
+    act(() => (deleteButton as HTMLElement).click());
+
+    expect(onDelete).toHaveBeenCalledOnce();
+    expect(onDelete).toHaveBeenCalledWith(event);
+  });
+
   it("shows shared-calendar provenance without edit controls", () => {
     act(() => {
       root.render(
@@ -373,10 +389,11 @@ describe("EventDetailPopover characterization", () => {
 
   it("preserves a literal fallback label typed by the user", () => {
     const onTitleSave = vi.fn();
+    const event = baseEvent({ title: "(No title)" });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({ title: "(No title)" })}
+          event={event}
           defaultOpen
           onDelete={() => undefined}
           onTitleSave={onTitleSave}
@@ -398,24 +415,21 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    expect(onTitleSave).toHaveBeenCalledWith(
-      "event-1",
-      "(No title)",
-      undefined,
-    );
+    expect(onTitleSave).toHaveBeenCalledWith(event, "(No title)");
   });
 
   it("dismisses a blank out-of-office draft without saving its generated title", () => {
     const onTitleSave = vi.fn();
     const onDismissNew = vi.fn();
+    const event = baseEvent({
+      title: "Out of office",
+      titleIsGenerated: true,
+      eventType: "outOfOffice",
+    });
     act(() => {
       root.render(
         <EventDetailPopover
-          event={baseEvent({
-            title: "Out of office",
-            titleIsGenerated: true,
-            eventType: "outOfOffice",
-          })}
+          event={event}
           isDraft
           defaultOpen
           onDelete={() => undefined}
@@ -439,7 +453,7 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(onTitleSave).not.toHaveBeenCalled();
-    expect(onDismissNew).toHaveBeenCalledWith("event-1", undefined);
+    expect(onDismissNew).toHaveBeenCalledWith(event);
   });
 
   it("preserves an explicit Out of office title on a draft", () => {
@@ -556,8 +570,6 @@ describe("EventDetailPopover characterization", () => {
       (openButton as HTMLElement).click();
     });
 
-    // Sidebar mode consumes this interaction, so the popover never becomes
-    // visible and parents must not receive a misleading open notification.
     expect(onOpenChange).not.toHaveBeenCalled();
 
     calendarContext.eventDetailSidebar = false;
@@ -573,8 +585,6 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    // Disabling sidebar mode later must not reveal a popover that was never
-    // visibly opened.
     expect(findByExactText("button", "Open")).toBeUndefined();
     expect(onOpenChange).not.toHaveBeenCalled();
   });
@@ -631,7 +641,6 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    // Enter location edit mode by clicking the read-only location text.
     const locationText = findByExactText("span", "Room A");
     expect(locationText).toBeTruthy();
     act(() => {
@@ -644,15 +653,11 @@ describe("EventDetailPopover characterization", () => {
     expect(locationInput).toBeTruthy();
     expect(locationInput!.value).toBe("Room A");
 
-    // Simulate an uncommitted, in-progress edit (not yet saved/blurred).
     act(() => {
       setNativeInputValue(locationInput!, "Room A (typing)");
     });
     expect(locationInput!.value).toBe("Room A (typing)");
 
-    // An external update (e.g. picked up by polling/another user/the agent)
-    // changes the location AND the start/end time while the user is still
-    // mid-edit on the location field.
     const updatedEvent = baseEvent({
       location: "Room B",
       start: "2026-07-10T18:00:00.000Z",
@@ -671,8 +676,6 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    // The actively-edited location field is untouched by the resync — the
-    // user's uncommitted text is not yanked out from under them.
     const locationInputAfterUpdate = document.querySelector<HTMLInputElement>(
       'input[placeholder="eventForm.addLocation"]',
     );
@@ -680,9 +683,6 @@ describe("EventDetailPopover characterization", () => {
   });
 
   it("uses the event timezone when seeding the time editor", () => {
-    // Keep the assertion independent from the machine running Vitest. Without
-    // the explicit event timezone conversion, UTC would render these values
-    // as 4:00 PM and 5:00 PM.
     vi.stubEnv("TZ", "UTC");
     const event = baseEvent({
       start: "2026-07-10T16:00:00.000Z",
@@ -708,8 +708,6 @@ describe("EventDetailPopover characterization", () => {
         (button) => button.textContent === "Mock open popover",
       );
 
-    // The outer detail popover is first; the start and end time pickers are
-    // the next two nested popovers in the rendered event form.
     const startTimePopoverButton = openPopoverButtons()[1];
     const endTimePopoverButton = openPopoverButtons()[2];
     expect(startTimePopoverButton).toBeTruthy();
@@ -752,12 +750,6 @@ describe("EventDetailPopover characterization", () => {
   );
 
   it("prefers the viewer's calendar timezone over the event's stored timezone when seeding the time editor", () => {
-    // Same instant as the previous test, but this event was created in a
-    // different zone (America/Los_Angeles) than the viewer's currently
-    // configured Calendar Settings timezone (America/New_York, passed as the
-    // `timezone` prop). The grid always converts into the viewer's zone, so
-    // this popover must match it instead of falling back to the event's own
-    // stored creation zone.
     vi.stubEnv("TZ", "UTC");
     const event = baseEvent({
       start: "2026-07-10T16:00:00.000Z",
@@ -851,8 +843,6 @@ describe("EventDetailPopover characterization", () => {
       await flushMicrotasks();
     });
 
-    // The event already has a guest, so the decision branch inside saveField
-    // opens the guest-notification prompt instead of mutating immediately.
     expect(updateEventMutate).not.toHaveBeenCalled();
     const dialog = document.querySelector(
       '[data-testid="guest-notification-dialog"]',
@@ -920,8 +910,6 @@ describe("EventDetailPopover characterization", () => {
       await flushMicrotasks();
     });
 
-    // No guests on the event means the decision branch skips the prompt
-    // entirely (resolves with sendUpdates: "none") and saves right away.
     expect(
       document.querySelector('[data-testid="guest-notification-dialog"]'),
     ).toBeNull();
@@ -1068,14 +1056,13 @@ describe("EventDetailPopover characterization", () => {
     expect(openSpy).toHaveBeenCalledWith(
       "https://zoom.us/j/1234567890",
       "_blank",
+      "noopener,noreferrer",
     );
 
     act(() => root.unmount());
     unmounted = true;
     openSpy.mockClear();
 
-    // No listener should remain after unmount — the same shortcut is now a
-    // no-op instead of a leaked handler still calling window.open.
     act(() => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {

@@ -118,13 +118,21 @@ export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter 
         .update(document.content)
         .digest("hex");
       const versionId = randomUUID();
+      const capturedAt = new Date().toISOString();
       await getDb().insert(schema.documentVersions).values({
         id: versionId,
         ownerEmail: document.ownerEmail,
         documentId: document.id,
         title: document.title,
         content: document.content,
-        createdAt: new Date().toISOString(),
+        groupId: versionId,
+        groupKind: "operation",
+        actorKind: "system",
+        origin: "native-creative-context",
+        operation: "capture-document-context",
+        checkpointKind: "after",
+        createdAt: capturedAt,
+        updatedAt: capturedAt,
       });
       const handle = await putPrivateBlob({
         data: Buffer.from(document.content),

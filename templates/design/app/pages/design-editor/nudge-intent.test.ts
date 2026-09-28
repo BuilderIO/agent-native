@@ -159,7 +159,7 @@ describe("resolveNudgeIntent — free-placed objects", () => {
     expect(resolveNudgeIntent({ direction: "up", largeStep: true })).toEqual({
       kind: "translate",
       dx: 0,
-      dy: -8,
+      dy: -10,
     });
   });
 
@@ -403,8 +403,8 @@ describe("hasExplicitGridPlacement", () => {
 });
 
 describe("DEFAULT_NUDGE_AMOUNTS", () => {
-  it("uses a big nudge that lands on the 8px grid rather than Figma's 10", () => {
-    expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 8 });
+  it("uses the Figma-style 10px Shift nudge independently of the layout grid", () => {
+    expect(DEFAULT_NUDGE_AMOUNTS).toEqual({ small: 1, big: 10 });
   });
 });
 
@@ -413,13 +413,16 @@ function elementInfoFor(
   tagName = "div",
   parentDisplay?: string,
   parentFlexDirection?: string,
+  parentLayoutOverrides?: Partial<NonNullable<ElementInfo["parentLayout"]>>,
 ): ElementInfo {
-  // A real bridge payload always carries a computed `flex-direction` alongside
-  // a flex `parentDisplay`, so the default keeps fixtures faithful to that.
   const flexDirection =
     parentDisplay === "flex" || parentDisplay === "inline-flex"
       ? (parentFlexDirection ?? "row")
       : parentFlexDirection;
+  const parentLayout = {
+    ...(flexDirection ? { flexDirection } : {}),
+    ...parentLayoutOverrides,
+  };
   return {
     tagName,
     sourceId: nodeId,
@@ -427,19 +430,18 @@ function elementInfoFor(
     classes: [],
     computedStyles: {},
     parentDisplay,
-    ...(flexDirection ? { parentLayout: { flexDirection } } : {}),
+    ...(Object.keys(parentLayout).length > 0 ? { parentLayout } : {}),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
   } as unknown as ElementInfo;
 }
 
-/** Apply the resolved intent the way handleNudgeSelection does, and report the
- * resulting DOM order so a test asserts the visible outcome, not the plan. */
 function orderAfterNudge(
   content: string,
   nodeId: string,
   direction: "up" | "right" | "down" | "left",
   parentDisplay?: string,
   parentFlexDirection?: string,
+  parentLayoutOverrides?: Partial<NonNullable<ElementInfo["parentLayout"]>>,
 ): string[] | { kind: string } {
   const intent = resolveElementNudgeIntent({
     content,
@@ -448,6 +450,7 @@ function orderAfterNudge(
       "div",
       parentDisplay,
       parentFlexDirection,
+      parentLayoutOverrides,
     ),
     direction,
     largeStep: false,
@@ -540,6 +543,75 @@ describe("resolveElementNudgeIntent", () => {
     expect(orderAfterNudge(content, "a", "down")).toEqual(["b", "c", "a", "d"]);
   });
 
+  it("uses rendered grid tracks when the grid display comes from a stylesheet", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+        <div data-agent-native-node-id="c">C</div>
+        <div data-agent-native-node-id="d">D</div>
+      </section>
+    </body></html>`;
+    expect(
+      orderAfterNudge(content, "a", "down", "grid", undefined, {
+        display: "grid",
+        gridAutoFlow: "column",
+        gridTemplateColumns: "100px 100px",
+        gridTemplateRows: "100px 100px",
+      }),
+    ).toEqual(["b", "a", "c", "d"]);
+  });
+
+  it("does not reorder a stylesheet-positioned grid child", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        ...elementInfoFor("a", "div", "grid", undefined, {
+          display: "grid",
+          gridTemplateColumns: "100px 100px",
+        }),
+        computedStyles: { gridColumn: "2 / auto", gridRow: "auto" },
+      },
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toEqual({ kind: "none" });
+  });
+
+  it("reorders an auto-placed grid child with span-only placement", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="grid" class="grid-source">
+        <div data-agent-native-node-id="a">A</div>
+        <div data-agent-native-node-id="b">B</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        ...elementInfoFor("a", "div", "grid", undefined, {
+          display: "grid",
+          gridTemplateColumns: "100px 100px",
+        }),
+        computedStyles: {
+          gridColumn: "auto / span 2",
+          gridRow: "auto / auto",
+        },
+      },
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toMatchObject({
+      kind: "reorder",
+      placement: "after",
+    });
+  });
+
   it("translates a child that opted out of the flow with position: absolute", () => {
     const content = `<!doctype html><html><body>
       <section data-agent-native-node-id="row" style="display:flex">
@@ -558,9 +630,6 @@ describe("resolveElementNudgeIntent", () => {
   });
 
   it("reorders a child of a plain block container down the block axis", () => {
-    // Block children stack in DOM order, so ArrowDown moves the child past its
-    // sibling. This previously translated, which under `position: static` is a
-    // no-op the user sees as "nothing happens".
     expect(orderAfterNudge(BLOCK_STACK, "alpha", "down")).toEqual([
       "beta",
       "alpha",
@@ -585,10 +654,6 @@ describe("resolveElementNudgeIntent", () => {
         <div data-agent-native-node-id="beta">Beta</div>
       </section>
     </body></html>`;
-    // `.row { display: flex }` lives in a stylesheet, so describeFlowContainer
-    // sees no container — but the bridge reports the rendered display, which is
-    // the only source that knows. This used to swallow the key; now the arrow
-    // does the useful thing and moves the child through its siblings.
     expect(orderAfterNudge(content, "alpha", "right", "flex")).toEqual([
       "beta",
       "alpha",
@@ -602,13 +667,9 @@ describe("resolveElementNudgeIntent", () => {
         <div data-agent-native-node-id="beta">Beta</div>
       </section>
     </body></html>`;
-    // `.col { display: flex; flex-direction: column }`. Assuming a row would
-    // reorder on left/right and do nothing useful on down.
     expect(orderAfterNudge(content, "alpha", "down", "flex", "column")).toEqual(
       ["beta", "alpha"],
     );
-    // Cross-axis in a non-wrapping column has nowhere to go, and writing
-    // `left` on a static flow child would do nothing.
     expect(
       orderAfterNudge(content, "alpha", "right", "flex", "column"),
     ).toEqual({ kind: "none" });
@@ -621,7 +682,6 @@ describe("resolveElementNudgeIntent", () => {
         <div data-agent-native-node-id="beta">Beta</div>
       </section>
     </body></html>`;
-    // Visual left is DOM forward under `row-reverse`.
     expect(
       orderAfterNudge(content, "alpha", "left", "flex", "row-reverse"),
     ).toEqual(["beta", "alpha"]);
@@ -765,13 +825,6 @@ describe("resolveElementNudgeIntent", () => {
   });
 });
 
-/**
- * Regression: a running-app screen (fusion / localhost) stores its ROUTE URL in
- * `design_files.content`, not markup. Projecting that string finds no nodes, so
- * every arrow key silently degraded to a blind translate — writing left/top on a
- * flow child, the exact operation this module exists to avoid. The caller must
- * feed the live DOM snapshot instead.
- */
 describe("resolveElementNudgeIntent on a running-app screen", () => {
   const ROUTE_URL = "https://design.example.com/builder-preview/design-1/about";
 
@@ -795,8 +848,6 @@ describe("resolveElementNudgeIntent on a running-app screen", () => {
   });
 
   it("suppresses the nudge on a flow child the snapshot can see", () => {
-    // Without the snapshot this returned a translate, which is what put an
-    // inline left/top onto a flex child in the embedded Builder Design tab.
     expect(orderAfterNudge(ROW_SCREEN, "beta", "up")).toEqual({ kind: "none" });
   });
 
@@ -807,8 +858,6 @@ describe("resolveElementNudgeIntent on a running-app screen", () => {
       direction: "right",
       largeStep: false,
     });
-    // The caller applies its moveNode to `intent.content`; if that were the
-    // route URL the patch would overwrite the screen's stored route.
     expect(intent).toMatchObject({ kind: "reorder", content: ROW_SCREEN });
   });
 });

@@ -57,7 +57,9 @@ export function CreateFactoryAutomationView({
   const [form, setForm] = useState<FactoryAutomationFormState>(
     emptyAutomationForm(),
   );
-  const createMutation = useActionMutation("create-factory-automation");
+  const createMutation = useActionMutation("create-factory-automation", {
+    skipActionQueryInvalidation: true,
+  });
   const templatesQuery = useActionQuery<Template[]>(
     "list-factory-automation-templates",
     { source: form.source },

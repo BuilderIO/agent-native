@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { createDbExec } from "@agent-native/core/db";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
@@ -28,8 +31,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -82,11 +83,6 @@ describe("content db migrations cover every schema.ts column", () => {
  * current list, so there is nothing to retroactively name.
  */
 describe("content db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -106,8 +102,6 @@ describe("content db.ts migration entries follow the naming convention", () => {
   const entries = extractEntries(dbTsSource);
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // content_migrations has 60 entries plus content_source_migrations has 5
-    // more; this just guards against the regex finding ~zero entries.
     expect(entries.length).toBeGreaterThan(60);
   });
 
@@ -118,17 +112,124 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 
   it("every migration entry with version > 60 has a name", () => {
-    // Both runContentMigrations (max 60) and runContentSourceMigrations (max
-    // 5) share this same source file and regex scan, so a version > 60 can
-    // only be a NEW entry added to either list after this change — the
-    // content_source_migrations list's own v1-v5 are all <= 60 and stay
-    // unaffected.
     const missingNames = entries
       .filter((e) => e.version > 60)
       .filter((e) => !e.name)
       .map((e) => e.version);
     expect(missingNames).toEqual([]);
   });
+
+  it("runs comment AI migrations after a deployed v92 ledger", () => {
+    const byName = new Map(entries.map((entry) => [entry.name, entry.version]));
+    expect(byName.get("content-comment-ai-requests-and-actor")).toBeGreaterThan(
+      92,
+    );
+    expect(
+      byName.get("content-comment-ai-active-thread-index"),
+    ).toBeGreaterThan(92);
+  });
+
+  it.each(["main", "inline-conversations"] as const)(
+    "upgrades the %s Comment AI table variant with PGlite",
+    async (variant) => {
+      const migration = dbTsSource.match(
+        /name: "content-comment-ai-durable-concurrency",\s+sql: `([\s\S]*?)`,\s+},/,
+      )?.[1];
+      expect(migration).toBeTruthy();
+      const directory = mkdtempSync(join(tmpdir(), `content-ai-${variant}-`));
+      const db = await createDbExec({ url: `pglite:${directory}` });
+      const executeSql = async (sql: string) => {
+        for (const statement of sql
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)) {
+          await db.execute(statement);
+        }
+      };
+      try {
+        await executeSql(`CREATE TABLE document_comments (id TEXT PRIMARY KEY);
+          CREATE TABLE comment_ai_requests (
+            id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, requester_email TEXT NOT NULL,
+            document_id TEXT NOT NULL, thread_id TEXT NOT NULL, root_comment_id TEXT NOT NULL,
+            field_id TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL,
+            ${variant === "main" ? "thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL, base_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL," : "submitted_thread_digest TEXT NOT NULL, submitted_snapshot_json TEXT NOT NULL, agent_thread_id TEXT NOT NULL,"}
+            run_id TEXT, result_json TEXT, error TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          );`);
+        if (variant === "inline-conversations") {
+          await executeSql(`CREATE TABLE comment_ai_attempts (
+            id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, request_id TEXT NOT NULL,
+            attempt_number INTEGER NOT NULL, status TEXT NOT NULL,
+            source_revision TEXT NOT NULL, suggestion_revision TEXT NOT NULL,
+            thread_digest TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+          );
+          INSERT INTO comment_ai_attempts VALUES
+            ('attempt', 'owner', 'request', 1, 'reasoning', 'base', 'suggestion', 'digest', '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+          INSERT INTO comment_ai_requests (
+            id,owner_email,requester_email,document_id,thread_id,root_comment_id,
+            field_id,intent,status,submitted_thread_digest,submitted_snapshot_json,
+            agent_thread_id,created_at,updated_at
+          ) VALUES ('request','owner','owner','doc','thread','root','body','reply','queued','digest','{}','agent',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);`);
+        }
+        await executeSql(migration!);
+        const columns = await db.execute(
+          "SELECT column_name FROM information_schema.columns WHERE table_name = 'comment_ai_requests'",
+        );
+        const names = columns.rows.map((row) => String(row.column_name));
+        expect(names).toEqual(
+          expect.arrayContaining([
+            "thread_digest",
+            "submitted_thread_digest",
+            "base_revision",
+            "agent_turn_id",
+          ]),
+        );
+        if (variant === "inline-conversations") {
+          const attemptColumns = await db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'comment_ai_attempts'",
+          );
+          expect(
+            attemptColumns.rows.map((row) => String(row.column_name)),
+          ).toEqual(
+            expect.arrayContaining([
+              "payload_json",
+              "run_id",
+              "model",
+              "error_code",
+              "error",
+            ]),
+          );
+          const migrated = await db.execute(
+            "SELECT thread_digest,base_revision FROM comment_ai_requests WHERE id = 'request'",
+          );
+          expect(migrated.rows[0]).toMatchObject({
+            thread_digest: "digest",
+            base_revision: "base",
+          });
+          await db.execute(
+            `UPDATE comment_ai_attempts
+              SET payload_json = '{"retained":true}', run_id = 'run', model = 'model',
+                  error_code = 'operation_failed', error = 'failure'
+              WHERE id = 'attempt'`,
+          );
+          const attempt = await db.execute(
+            "SELECT payload_json,run_id,model,error_code,error FROM comment_ai_attempts WHERE id = 'attempt'",
+          );
+          expect(attempt.rows[0]).toMatchObject({
+            payload_json: '{"retained":true}',
+            run_id: "run",
+            model: "model",
+            error_code: "operation_failed",
+            error: "failure",
+          });
+        }
+      } finally {
+        await db.close?.();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("keeps Builder source refresh hot-path indexes in migrations", () => {
     expect(dbTsSource).toContain(
@@ -149,42 +250,86 @@ describe("content db.ts migration entries follow the naming convention", () => {
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after both
- * `runContentMigrations(...)` and `runContentSourceMigrations(...)` so
- * hand-written migrations stay authoritative — not just that the regex guard
- * above passes.
- */
-describe("content db.ts wires ensureAdditiveColumns after runMigrations", () => {
+describe("content db.ts schedules post-boot maintenance after runMigrations", () => {
+  const maintenanceSource = readFileSync(
+    new URL("../lib/startup-maintenance.ts", import.meta.url),
+    "utf8",
+  );
+
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
-    expect(dbTsSource).toMatch(
+    expect(maintenanceSource).toMatch(
       /import\s*\{[^}]*\bensureAdditiveColumns\b[^}]*\}\s*from\s*["']@agent-native\/core\/db["']/,
     );
+    expect(maintenanceSource).toContain("ensureAdditiveColumns({");
   });
 
-  it("calls ensureAdditiveColumns after both migration runners complete", () => {
+  it("schedules maintenance only after both migration runners are awaited", () => {
     const contentMigrationsCallIdx = dbTsSource.indexOf(
       "runContentMigrations(",
     );
     const sourceMigrationsCallIdx = dbTsSource.indexOf(
       "runContentSourceMigrations(",
     );
-    const ensureCallIdx = dbTsSource.indexOf("ensureAdditiveColumns({");
+    const scheduleCallIdx = dbTsSource.indexOf(
+      "void scheduleStartupMaintenance();",
+    );
     expect(contentMigrationsCallIdx).toBeGreaterThan(-1);
     expect(sourceMigrationsCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(-1);
-    expect(ensureCallIdx).toBeGreaterThan(contentMigrationsCallIdx);
-    expect(ensureCallIdx).toBeGreaterThan(sourceMigrationsCallIdx);
+    expect(scheduleCallIdx).toBeGreaterThan(-1);
+    expect(scheduleCallIdx).toBeGreaterThan(contentMigrationsCallIdx);
+    expect(scheduleCallIdx).toBeGreaterThan(sourceMigrationsCallIdx);
 
-    // Both migration plugin functions must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
+    // Both migration plugin functions must be awaited before the scheduler
+    // is called, not just textually after it — and the scheduler itself must
+    // NOT be awaited (boot no longer pays for the net or the repairs).
     expect(dbTsSource).toMatch(
-      /await\s+runContentMigrations\([^)]*\)[\s\S]*?await\s+runContentSourceMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
+      /await\s+runContentMigrations\([^)]*\)[\s\S]*?await\s+runContentSourceMigrations\([^)]*\)[\s\S]*?void\s+scheduleStartupMaintenance\(\);/,
     );
+  });
+
+  it("boot no longer awaits the net or either repair", () => {
+    expect(dbTsSource).not.toMatch(/await\s+ensureAdditiveColumns/);
+    expect(dbTsSource).not.toMatch(/await\s+repairUnseededBlocksFields/);
+    expect(dbTsSource).not.toMatch(
+      /await\s+repairFilesSystemPropertyDefinitions/,
+    );
+    expect(dbTsSource).not.toContain("scheduleBlocksRepairRetry");
+  });
+
+  it("the lazy module runs both repairs after the net and logs failures loudly", () => {
+    const netIdx = maintenanceSource.indexOf("additive-columns");
+    const blocksIdx = maintenanceSource.indexOf("blocks-repair");
+    const filesIdx = maintenanceSource.indexOf(
+      "files-system-properties-repair",
+    );
+    expect(netIdx).toBeGreaterThan(-1);
+    expect(blocksIdx).toBeGreaterThan(netIdx);
+    expect(filesIdx).toBeGreaterThan(blocksIdx);
+
+    expect(maintenanceSource).toContain("repairUnseededBlocksFields");
+    expect(maintenanceSource).toContain("repairFilesSystemPropertyDefinitions");
+    expect(maintenanceSource).toMatch(
+      /console\.error\(\s*`\[db\] startup maintenance "\$\{label\}"/,
+    );
+    expect(maintenanceSource).toMatch(/\bscheduleRetry\b/);
+  });
+
+  it("treats additive-column summary errors as a retryable failed step", () => {
+    expect(maintenanceSource).toMatch(
+      /summary\.errors\.length > 0[\s\S]{0,400}throw new Error\(/,
+    );
+  });
+
+  it("awaits each retry chain before the next step and keeps the trigger ref'd", () => {
+    // A fire-and-forget retry would let the next step race the safety net
+    // the retry is still finishing, so the chain must be awaited.
+    expect(maintenanceSource).toMatch(/await\s+scheduleRetry\(/);
+    const triggerIdx = maintenanceSource.indexOf(
+      "export function scheduleStartupMaintenance",
+    );
+    expect(triggerIdx).toBeGreaterThan(-1);
+    expect(maintenanceSource.slice(triggerIdx)).not.toMatch(/\.unref\(/);
+    expect(maintenanceSource.match(/\.unref\(/g)?.length).toBe(1);
   });
 
   it("does not remove the body-hydration queue index migration (v60)", () => {

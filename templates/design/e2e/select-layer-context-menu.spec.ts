@@ -83,11 +83,6 @@ async function openLayerStack(
     const rect = element.getBoundingClientRect();
     return { x: rect.left + 165, y: rect.top + 165 };
   });
-  // Dispatch on the real bridge shield inside Chromium. A top-level
-  // page.mouse right-click is consumed by Chromium's iframe context-menu
-  // boundary in headless mode before the srcdoc listener sees it; this still
-  // exercises the actual contextmenu event, elementsFromPoint stack, iframe
-  // postMessage bridge, host menu, and selection path end-to-end.
   await stage.evaluate((_element, point) => {
     document.dispatchEvent(
       new MouseEvent("contextmenu", {
@@ -175,8 +170,6 @@ test("Select layer lists the exact visible unlocked hit stack and dismisses with
     );
     expect(orderedHits).toEqual(visibleLabels);
 
-    // Escape dismisses the submenu/menu and leaves the right-click top hit
-    // selected; it must not accidentally pick a different candidate.
     await page.keyboard.press("Escape");
     await expect(page.getByText("Select layer", { exact: true })).toBeHidden();
     await expect.poll(() => selectedTreeLabel(page)).toContain("Front sibling");
@@ -311,6 +304,58 @@ test("Select layer on a non-active overview screen routes selection to that exac
       after.files?.find((file: { id?: string }) => file.id === aboutId)
         ?.content,
     ).toBe(aboutBaseline);
+  } finally {
+    await postAction(request, "delete-design", { id: designId }).catch(
+      () => {},
+    );
+  }
+});
+
+test("Edit with AI opened from direct mode accepts textarea input", async ({
+  page,
+  request,
+}) => {
+  const created = await postAction(request, "create-design", {
+    title: `Direct mode edit prompt ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    await postAction(request, "create-file", {
+      designId,
+      filename: "index.html",
+      content: STACK_HTML,
+      fileType: "html",
+    });
+    await gotoEditor(page, designId);
+    await enterDirectMode(page);
+
+    await openLayerStack(page, designFrame(page), false);
+    const editWithAi = page.getByRole("menuitem", {
+      name: "Edit with AI…",
+      exact: true,
+    });
+    await editWithAi.hover();
+    await expect(editWithAi).toHaveAttribute("data-state", "open");
+    await page
+      .getByRole("menu")
+      .last()
+      .getByText("Nested child", { exact: true })
+      .click();
+
+    const editPrompt = page.getByRole("textbox", { name: "Leave feedback…" });
+    await expect(editPrompt).toBeVisible();
+    await expect(editPrompt).toBeFocused();
+    const editPromptBox = await editPrompt.boundingBox();
+    expect(editPromptBox).not.toBeNull();
+    await page.mouse.click(
+      editPromptBox!.x + editPromptBox!.width / 2,
+      editPromptBox!.y + editPromptBox!.height / 2,
+    );
+    await editPrompt.pressSequentially("Make this heading more concise");
+    await expect(editPrompt).toHaveValue("Make this heading more concise");
   } finally {
     await postAction(request, "delete-design", { id: designId }).catch(
       () => {},

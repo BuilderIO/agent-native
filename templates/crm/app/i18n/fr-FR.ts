@@ -24,6 +24,11 @@ const messages = {
     retry: "Réessayer",
     search: "Rechercher",
   },
+  chatHome: {
+    description:
+      "Explorez le contexte autorisé des comptes, les suivis et les éléments de preuve dans Native SQL et les fiches connectées.",
+    placeholder: "Posez une question sur votre CRM",
+  },
   commandMenu: {
     placeholder: "Rechercher des enregistrements, listes et commandes…",
     groupRecords: "Enregistrements",
@@ -67,6 +72,8 @@ const messages = {
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
     languageLabel: "Langue de l’interface",
+    mcpAbout:
+      "Connectez CRM à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans CRM pour vous : trouver des fiches, mettre à jour des champs et gérer des tâches. Elle ne voit que ce que vous pouvez voir.",
   },
   connection: {
     tab: "Connexion",
@@ -616,6 +623,19 @@ const messages = {
     evaluatedThroughAsk: "Évalué avec Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Examiner les doublons",
+    duplicateReviewTitle: "Doublons possibles",
+    duplicateReviewDescription:
+      "Compare cette fiche aux candidats accessibles. Jev envoie à TypeSafe les noms, types de fiche et indices de correspondance de cinq candidats au maximum. Sa probabilité est indicative ; la fusion demande un examen distinct.",
+    duplicateReviewRun: "Chercher des doublons",
+    duplicateReviewLoading: "Recherche en cours…",
+    duplicateReviewFailed: "Impossible de terminer l'examen des doublons.",
+    duplicateReviewUnavailable:
+      "Jev n'a pas pu examiner ces fiches. Les candidats trouvés par les règles restent visibles.",
+    duplicateReviewEmpty: "Aucun doublon probable trouvé.",
+    duplicateRuleConfidence: "Correspondance par règles : {{percent}} %",
+    duplicateJevProbability: "Probabilité Jev de même entité : {{percent}} %",
+    duplicateMatchedOn: "Indices communs : {{values}}",
     evidenceAttached: "Preuve d’appel jointe.",
     evidenceAttachFailed: "Impossible de joindre la preuve.",
     addEvidence: "Ajouter une preuve",

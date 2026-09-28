@@ -1,8 +1,6 @@
 import { emit } from "@agent-native/core/event-bus";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
-  getOAuthTokens,
-  saveOAuthTokens,
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
@@ -36,6 +34,11 @@ import {
   getContactFrequencyMap,
 } from "../lib/contact-frequency.js";
 import {
+  parseSavedDraftBackend,
+  resolveSavedDraftBackend,
+} from "../lib/draft-backend.js";
+import { isValidAddressList } from "../lib/email-address-validation.js";
+import {
   collectLinks,
   newClickToken,
   newPixelToken,
@@ -47,7 +50,6 @@ import {
   filterLabelMessages,
 } from "../lib/gmail-query.js";
 import {
-  createOAuth2Client,
   gmailGetMessage,
   gmailGetThread,
   gmailListLabels,
@@ -59,16 +61,21 @@ import {
   calendarGetEvent,
   calendarPatchEvent,
   gmailGetAttachment,
+  GmailQuotaCooldownError,
 } from "../lib/google-api.js";
 import {
   isConnected,
+  getConnectedAccountsWithErrors,
+  getClientForConnectedAccount,
+  getClientsWithErrors,
   invalidateListCacheForOwner,
   listGmailMessages,
   gmailToEmailMessage,
   getAccountDisplayName,
-  getOAuth2Credentials,
+  invalidateHistoryCacheForAccount,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
+import { syncInboxLabelDelta } from "../lib/inbox-store-sync.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
 import { listInboxEmails } from "../lib/list-inbox-emails.js";
 import {
@@ -83,11 +90,11 @@ import {
   resolveComposeAttachments,
   splitReplyQuote,
 } from "../lib/outgoing-email.js";
+import {
+  resolveExistingSavedDraftOwnership,
+  SavedDraftOwnershipError,
+} from "../lib/saved-draft-ownership.js";
 import { resolveGoogleSenderIdentity } from "../lib/sender-identity.js";
-// State-change operations (archive/unarchive/star/trash/untrash/markRead) have
-// been migrated to the action surface; their handlers have been removed. The
-// shared lib functions in ../lib/email-state.js remain the single source of
-// truth and are called directly from the action definitions.
 import {
   threadMessagesCache,
   THREAD_CACHE_TTL,
@@ -95,50 +102,48 @@ import {
   invalidateThreadCache,
 } from "../lib/thread-cache.js";
 
-/**
- * Strip CRLF from any value that flows into an RFC 2822 header line. Without
- * this, any `\r\n` in `to`/`cc`/`bcc`/`subject`/`from` injects a new header
- * (`Subject: hi\r\nBcc: attacker@evil` would silently BCC the attacker via
- * the user's connected Gmail account). See email-templates.ts for the same
- * pattern applied to system emails.
- */
 function stripCrlf(s: string): string {
   return s.replace(/[\r\n]+/g, " ").trim();
 }
-
-/**
- * Loose validator for an RFC 2822 address-list header value (To/Cc/Bcc).
- * Accepts comma-separated addresses optionally wrapped in `Display Name <addr>`
- * form. Empty input is allowed (caller guards on required-vs-optional). Real
- * full-spec validation is intractable in regex; this catches the common
- * "subject: foo\r\nBcc: …" / "garbage" cases after the CRLF strip and lets
- * Gmail's server-side validation do the rest.
- */
-function isValidAddressList(value: string): boolean {
-  if (!value) return true;
-  const stripped = value.trim();
-  if (!stripped) return true;
-  // Address regex: must have something@something.something (no whitespace
-  // inside the local-or-domain). Display-name + angle-addr form is allowed.
-  const ADDR = /(?:[^,<>]*<\s*\S+@\S+\.\S+\s*>|\s*\S+@\S+\.\S+\s*)/;
-  const parts = stripped.split(",");
-  return parts.every((p) => ADDR.test(p.trim()));
-}
-
-// ---------------------------------------------------------------------------
-// Label map cache — avoids re-fetching label names from Gmail on every request
-// ---------------------------------------------------------------------------
 
 const labelMapCache = new Map<
   string,
   { map: Map<string, string>; expiresAt: number }
 >();
-const LABEL_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const LABEL_CACHE_TTL = 5 * 60 * 1000;
+
+type MailAccountError = { email: string; error: string };
+type AccountTokenResult = {
+  tokens: Array<{ email: string; accessToken: string }>;
+  errors: MailAccountError[];
+};
+
+function formatMailAccountErrors(errors: readonly MailAccountError[]): string {
+  return errors.map(({ email, error }) => `${email}: ${error}`).join("; ");
+}
+
+function mergeMailAccountErrors(
+  ...groups: ReadonlyArray<readonly MailAccountError[]>
+): MailAccountError[] {
+  const merged = new Map<string, MailAccountError>();
+  for (const error of groups.flat()) {
+    merged.set(`${error.email.toLowerCase()}\0${error.error}`, error);
+  }
+  return [...merged.values()];
+}
+
+function setMailAccountErrorsHeader(
+  event: H3Event,
+  errors: readonly MailAccountError[],
+): void {
+  if (errors.length === 0) return;
+  const safe = JSON.stringify(errors).replace(/[^\x20-\x7e]/g, "?");
+  setResponseHeader(event, "X-Account-Errors", safe);
+}
 
 async function getCachedLabelMap(
   accountTokens: Array<{ email: string; accessToken: string }>,
 ): Promise<Map<string, string>> {
-  // Build a cache key from sorted account emails
   const cacheKey = accountTokens
     .map((a) => a.email)
     .sort()
@@ -166,125 +171,176 @@ async function getCachedLabelMap(
   return labelMap;
 }
 
-// ---------------------------------------------------------------------------
-// Token helper — get a valid access token, refreshing if needed
-// ---------------------------------------------------------------------------
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
+async function getAccessToken(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<string | null> {
+  const client = await getClientForConnectedAccount(ownerEmail, accountEmail);
+  return client?.accessToken ?? null;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  // If token expires within 5 minutes, refresh it
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[getAccessToken] refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-      // Fall through to use existing token
-    }
-  }
-
-  return tokens.access_token;
-}
-
-/**
- * Get access tokens for accounts owned by the given user.
- * Always requires forEmail to enforce per-user isolation.
- */
 async function getAccountTokens(
   forEmail: string,
   requestedAccountEmails?: readonly string[],
-): Promise<Array<{ email: string; accessToken: string }>> {
+): Promise<AccountTokenResult> {
   const requested = requestedAccountEmails
     ? new Set(requestedAccountEmails.map((account) => account.toLowerCase()))
     : undefined;
-  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+  const [accounts, { clients, errors }] = await Promise.all([
+    listOAuthAccountsByOwner("google", forEmail),
+    getClientsWithErrors(
+      forEmail,
+      requestedAccountEmails ? [...requestedAccountEmails] : undefined,
+    ),
+  ]);
+  const oauthAccounts = accounts.filter(
     (account) => !requested || requested.has(account.accountId.toLowerCase()),
   );
+  const oauthAccountEmails = new Set(
+    oauthAccounts.map((account) => account.accountId.toLowerCase()),
+  );
 
-  const results: Array<{ email: string; accessToken: string }> = [];
-
-  for (const account of accounts) {
-    // Seed in-memory cache from SQL on first load
+  for (const account of oauthAccounts) {
     if (account.displayName && !getAccountDisplayName(account.accountId)) {
       setAccountDisplayName(account.accountId, account.displayName);
     }
-
-    const token = await getAccessToken(account.accountId);
-    if (token) {
-      results.push({ email: account.accountId, accessToken: token });
-      // Fetch from Google if we still don't have a display name
-      if (!getAccountDisplayName(account.accountId)) {
-        // Mark as attempted immediately so concurrent requests don't re-fire
-        setAccountDisplayName(account.accountId, account.accountId);
-        googleFetch(`https://www.googleapis.com/oauth2/v2/userinfo`, token)
-          .then((profile: any) => {
-            if (profile?.name) {
-              setAccountDisplayName(account.accountId, profile.name);
-              setOAuthDisplayName(
-                "google",
-                account.accountId,
-                profile.name,
-              ).catch(() => {});
-            }
-          })
-          .catch(() => {});
-      }
-    }
   }
 
-  return results;
+  for (const client of clients) {
+    if (
+      !oauthAccountEmails.has(client.email.toLowerCase()) ||
+      getAccountDisplayName(client.email)
+    ) {
+      continue;
+    }
+    setAccountDisplayName(client.email, client.email);
+    googleFetch(
+      `https://www.googleapis.com/oauth2/v2/userinfo`,
+      client.accessToken,
+    )
+      .then((profile: any) => {
+        if (profile?.name) {
+          setAccountDisplayName(client.email, profile.name);
+          setOAuthDisplayName("google", client.email, profile.name).catch(
+            () => {},
+          );
+        }
+      })
+      .catch(() => {});
+  }
+
+  return {
+    tokens: clients.map(({ email, accessToken }) => ({ email, accessToken })),
+    errors,
+  };
 }
 
-/**
- * Validate that the given accountEmail is owned by the logged-in user.
- * Returns the validated account email, or the user's own email as fallback.
- */
 async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
+  if (!requestAccountEmail) {
+    const { clients, errors } = await getClientsWithErrors(ownerEmail);
+    const ownerAccount = clients.find(
+      (client) => client.email.toLowerCase() === ownerEmail.toLowerCase(),
+    );
+    if (ownerAccount) return ownerAccount.email;
+    if (clients.length > 0) return clients[0].email;
+    if (errors.length > 0) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: formatMailAccountErrors(errors),
+        data: { accountErrors: errors },
+      });
+    }
     return ownerEmail;
   }
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  const isOwned = accounts.some((a) => a.accountId === requestAccountEmail);
-  if (!isOwned) {
-    throw new Error("Account not owned by current user");
+  const { accounts, errors } = await getConnectedAccountsWithErrors(ownerEmail);
+  const account = accounts.find(
+    (accountEmail) =>
+      accountEmail.toLowerCase() === requestAccountEmail.toLowerCase(),
+  );
+  if (!account) {
+    if (errors.length > 0) {
+      throw createError({
+        statusCode: 503,
+        statusMessage: formatMailAccountErrors(errors),
+        data: { accountErrors: errors },
+      });
+    }
+    throw createError({
+      statusCode: 403,
+      statusMessage: "Account not owned by current user",
+    });
   }
-  return requestAccountEmail;
+  return account;
 }
 
-/** Extract the logged-in user's email from the request session. */
+type GmailAccessResult =
+  | { ok: true; accountEmail: string; accessToken: string }
+  | {
+      ok: false;
+      response: { error: string; accountErrors?: MailAccountError[] };
+    };
+
+async function resolveGmailAccess(
+  event: H3Event,
+  ownerEmail: string,
+  requestedAccountEmail?: string,
+): Promise<GmailAccessResult> {
+  let accountEmail: string;
+  try {
+    accountEmail = await resolveAccountEmail(requestedAccountEmail, ownerEmail);
+  } catch (error: any) {
+    setResponseStatus(event, error?.statusCode ?? 500);
+    return {
+      ok: false,
+      response: {
+        error:
+          error?.statusMessage ??
+          error?.message ??
+          "Could not resolve the Gmail account",
+        ...(error?.data?.accountErrors
+          ? { accountErrors: error.data.accountErrors }
+          : {}),
+      },
+    };
+  }
+
+  let accessToken: string | null;
+  try {
+    accessToken = await getAccessToken(ownerEmail, accountEmail);
+  } catch (error) {
+    const accountErrors = [
+      {
+        email: accountEmail,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Google credential refresh failed",
+      },
+    ];
+    setResponseStatus(event, 503);
+    return {
+      ok: false,
+      response: {
+        error: formatMailAccountErrors(accountErrors),
+        accountErrors,
+      },
+    };
+  }
+
+  if (!accessToken) {
+    setResponseStatus(event, 401);
+    return {
+      ok: false,
+      response: { error: "No valid access token for account" },
+    };
+  }
+
+  return { ok: true, accountEmail, accessToken };
+}
+
 async function userEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
   if (!session?.email) {
@@ -292,8 +348,6 @@ async function userEmail(event: H3Event): Promise<string> {
   }
   return session.email;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function reqSource(event: H3Event) {
   return getHeader(event, "x-request-source") || undefined;
@@ -309,11 +363,14 @@ async function readGmailComposeAttachment(
   },
 ): Promise<Buffer | null> {
   if (!attachment.gmailMessageId || !attachment.gmailAttachmentId) return null;
-  const accountTokens = await getAccountTokens(ownerEmail);
   const requestedAccountEmail = requestAccountEmail ?? attachment.accountEmail;
   const requestedAccount = requestedAccountEmail
     ? await resolveAccountEmail(requestedAccountEmail, ownerEmail)
     : undefined;
+  const { tokens: accountTokens, errors } = await getAccountTokens(
+    ownerEmail,
+    requestedAccount ? [requestedAccount] : undefined,
+  );
   const candidates = requestedAccount
     ? accountTokens.filter((account) => account.email === requestedAccount)
     : accountTokens;
@@ -329,6 +386,13 @@ async function readGmailComposeAttachment(
     } catch {
       continue;
     }
+  }
+  if (errors.length > 0) {
+    throw createError({
+      statusCode: 502,
+      statusMessage: formatMailAccountErrors(errors),
+      data: { accountErrors: errors },
+    });
   }
   return null;
 }
@@ -383,7 +447,22 @@ function parseEmailPageLimit(value: string | undefined): number {
   return Math.min(Math.max(Math.floor(n), 10), 50);
 }
 
-// ─── Email list ───────────────────────────────────────────────────────────────
+function gmailErrorStatus(error: unknown): {
+  status: number;
+  retryAfterSeconds?: number;
+} {
+  if (error instanceof GmailQuotaCooldownError) {
+    return {
+      status: 429,
+      retryAfterSeconds: Math.min(
+        Math.max(1, Math.ceil(error.retryAfterMs / 1000)),
+        300,
+      ),
+    };
+  }
+  const parsed = (error as any)?.message?.match(/\((\d+)\)/)?.[1];
+  return { status: parsed ? Number(parsed) : 502 };
+}
 
 export const listEmails = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
@@ -412,13 +491,9 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     return { emails };
   }
 
-  // If Google is connected, fetch from Gmail directly (skip demo data)
   if (await isConnected(email)) {
     try {
-      if (forceRefresh) invalidateListCacheForOwner(email);
-
       const { pageToken } = getQuery(event) as { pageToken?: string };
-      // Decode composite page tokens (one per Gmail account)
       let pageTokens: Record<string, string> | undefined;
       if (pageToken) {
         try {
@@ -430,8 +505,17 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      // Fetch label name mapping from all accounts (cached)
-      const accountTokens = await getAccountTokens(email);
+      // Fence list responses before token resolution so an in-flight request
+      // cannot repopulate the old shared snapshot while force-refresh waits.
+      if (forceRefresh) invalidateListCacheForOwner(email);
+
+      const { tokens: accountTokens, errors: tokenErrors } =
+        await getAccountTokens(email);
+      if (forceRefresh) {
+        for (const account of accountTokens)
+          invalidateHistoryCacheForAccount(account.email);
+        invalidateListCacheForOwner(email);
+      }
       const labelMap = await getCachedLabelMap(accountTokens);
       const isPlainInboxRequest = view === "inbox" && !q && !label;
       const settings = isPlainInboxRequest
@@ -450,8 +534,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         label,
         limit: pageLimit,
         pageTokens,
-        // Metadata responses omit MIME parts. Saved-filter partitioning
-        // needs attachment filenames for has:attachment/filename queries.
         threadFormat:
           view === "drafts" || hasAttachmentSavedFilter ? "full" : "metadata",
         threadCandidateLimit: q ? 80 : undefined,
@@ -460,7 +542,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       });
 
       if (!listResult.ok) {
-        // All accounts failed — surface as error
+        setMailAccountErrorsHeader(event, tokenErrors);
         if (listResult.isQuotaError) {
           setResponseStatus(event, 429);
           setResponseHeader(
@@ -474,18 +556,16 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         return { error: listResult.message };
       }
 
-      const { emails, errors, nextPageTokens, resultSizeEstimate } = listResult;
+      const {
+        emails,
+        errors: listErrors,
+        nextPageTokens,
+        resultSizeEstimate,
+      } = listResult;
+      const errors = mergeMailAccountErrors(listErrors, tokenErrors);
 
-      // If some accounts failed but others succeeded, add warning header.
-      // HTTP headers must be ByteString (code points <= 255), so strip any
-      // UTF-8 that might land in an error message (em dashes, smart quotes,
-      // etc. from Google error responses). Otherwise the whole handler 500s.
-      if (errors.length > 0) {
-        const safe = JSON.stringify(errors).replace(/[^\x20-\x7e]/g, "?");
-        setResponseHeader(event, "X-Account-Errors", safe);
-      }
+      setMailAccountErrorsHeader(event, errors);
 
-      // Encode next page token for the frontend
       let nextPageToken: string | undefined;
       if (nextPageTokens) {
         nextPageToken = Buffer.from(JSON.stringify(nextPageTokens)).toString(
@@ -499,7 +579,7 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       };
     } catch (error: any) {
       console.error("[listEmails] Gmail error:", error.message);
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   }
@@ -516,7 +596,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
       new Set([email.toLowerCase()]),
     );
   } else {
-    // Filter by view
     switch (view) {
       case "inbox":
         emails = emails.filter(
@@ -552,7 +631,6 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         if (label) emails = filterLabelMessages(emails, label);
         break;
       default:
-        // label: prefixed or raw label id
         const labelId = view.startsWith("label:")
           ? view.replace("label:", "")
           : view;
@@ -562,12 +640,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Full-text search
   if (q) {
     emails = emails.filter((e) => emailMessageMatchesSearch(e, q));
   }
 
-  // Filter out snoozed emails. Skip when searching so snoozed hits surface too.
   if (!q && (view === "inbox" || view === "unread")) {
     const snoozedIds = await getSnoozedThreadIds(email);
     if (snoozedIds.size > 0) {
@@ -577,14 +653,10 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Sort by date descending
   emails.sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  // Paginate the same way the Gmail-connected branch above does, so local/demo
-  // mode doesn't load the entire filtered list in one unbounded response and
-  // infinite scroll (which relies on nextPageToken) actually has a next page.
   const { pageToken: localPageToken } = getQuery(event) as {
     pageToken?: string;
   };
@@ -611,8 +683,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   const threadId = getRouterParam(event, "threadId") as string;
   const { accountEmail } = getQuery(event) as { accountEmail?: string };
 
-  // Cache hit: skip Gmail entirely. Survives prefetch → navigate within TTL,
-  // and across sibling j/k navigation for the same thread.
   const cacheKey = threadCacheKey(email, threadId);
   const cached = threadMessagesCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
@@ -621,25 +691,35 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
 
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
-      let candidateTokens = accountTokens;
+      let resolvedAccount: string | undefined;
       if (accountEmail) {
-        let resolvedAccount: string;
         try {
           resolvedAccount = await resolveAccountEmail(accountEmail, email);
-        } catch {
-          setResponseStatus(event, 403);
-          return { error: "Account not owned by current user" };
+        } catch (error: any) {
+          const statusCode = error?.statusCode ?? 403;
+          setResponseStatus(event, statusCode);
+          return {
+            error: error?.statusMessage ?? "Account not owned by current user",
+            ...(error?.data?.accountErrors
+              ? { accountErrors: error.data.accountErrors }
+              : {}),
+          };
         }
+      }
+      const { tokens: accountTokens, errors } = await getAccountTokens(
+        email,
+        resolvedAccount ? [resolvedAccount] : undefined,
+      );
+      let candidateTokens = accountTokens;
+      if (resolvedAccount) {
         candidateTokens = accountTokens.filter(
-          (account) => account.email === resolvedAccount,
+          (account) =>
+            account.email.toLowerCase() === resolvedAccount.toLowerCase(),
         );
       }
+      setMailAccountErrorsHeader(event, errors);
       const labelMap = await getCachedLabelMap(accountTokens);
 
-      // When the list row tells us which connected account owns the thread,
-      // fetch only that account. Otherwise fall back to scanning all accounts
-      // for older callers and copied URLs.
       for (const { email: acctEmail, accessToken } of candidateTokens) {
         try {
           const threadRes = await gmailGetThread(accessToken, threadId, "full");
@@ -650,7 +730,6 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
               labelMap,
             ),
           );
-          // Sort oldest first
           messages.sort(
             (a: any, b: any) =>
               new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -661,25 +740,41 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
           });
           return messages;
         } catch (error: any) {
-          const status = error?.message?.match(/\((\d+)\)/)?.[1];
-          if (status === "404") continue;
+          const { status, retryAfterSeconds } = gmailErrorStatus(error);
+          if (status === 404) continue;
           console.error("[getThreadMessages] Gmail error:", error.message);
-          setResponseStatus(event, parseInt(status) || 502);
+          setResponseStatus(event, status);
+          if (retryAfterSeconds !== undefined) {
+            setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+          }
           return { error: error.message };
         }
       }
       if (candidateTokens.length > 0) {
+        if (errors.length > 0) {
+          setResponseStatus(event, 502);
+          return {
+            error: formatMailAccountErrors(errors),
+            accountErrors: errors,
+          };
+        }
         setResponseStatus(event, 404);
         return { error: "Thread not found in any account" };
       }
+      if (errors.length > 0) {
+        setResponseStatus(event, 502);
+        return {
+          error: formatMailAccountErrors(errors),
+          accountErrors: errors,
+        };
+      }
     } catch (error: any) {
       console.error("[getThreadMessages] error:", error.message);
-      setResponseStatus(event, 500);
+      setResponseStatus(event, error?.statusCode ?? 500);
       return { error: error.message };
     }
   }
 
-  // Demo data: find all emails with matching threadId
   const emails = await readEmails(email);
   const threadMessages = emails
     .filter((e) => e.threadId === threadId)
@@ -693,12 +788,11 @@ export const getThreadMessages = defineEventHandler(async (event: H3Event) => {
   return threadMessages;
 });
 
-// ─── Single email ─────────────────────────────────────────────────────────────
-
 export const getEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   if (await isConnected(email)) {
-    const accountTokens = await getAccountTokens(email);
+    const { tokens: accountTokens, errors } = await getAccountTokens(email);
+    setMailAccountErrorsHeader(event, errors);
     const labelMap = await getCachedLabelMap(accountTokens);
     for (const { email: acctEmail, accessToken } of accountTokens) {
       try {
@@ -709,16 +803,33 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
         );
         return gmailToEmailMessage(msg, acctEmail, labelMap);
       } catch (error: any) {
-        const status = error?.message?.match(/\((\d+)\)/)?.[1];
-        if (status === "404") continue;
+        const { status, retryAfterSeconds } = gmailErrorStatus(error);
+        if (status === 404) continue;
         console.error("[getEmail] Gmail error:", error.message);
-        setResponseStatus(event, parseInt(status) || 502);
+        setResponseStatus(event, status);
+        if (retryAfterSeconds !== undefined) {
+          setResponseHeader(event, "Retry-After", String(retryAfterSeconds));
+        }
         return { error: error.message };
       }
     }
     if (accountTokens.length > 0) {
+      if (errors.length > 0) {
+        setResponseStatus(event, 502);
+        return {
+          error: formatMailAccountErrors(errors),
+          accountErrors: errors,
+        };
+      }
       setResponseStatus(event, 404);
       return { error: "Message not found in any account" };
+    }
+    if (errors.length > 0) {
+      setResponseStatus(event, 502);
+      return {
+        error: formatMailAccountErrors(errors),
+        accountErrors: errors,
+      };
     }
   }
 
@@ -731,8 +842,6 @@ export const getEmail = defineEventHandler(async (event: H3Event) => {
   return found;
 });
 
-// ─── Report spam ──────────────────────────────────────────────────────────────
-
 export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -742,23 +851,28 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
   const { accountEmail, threadId: bodyThreadId } = body;
 
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const id = getRouterParam(event, "id") as string;
-      // Get the threadId from the message if not provided
       let threadId = bodyThreadId;
       if (!threadId) {
         const msg = await gmailGetMessage(accessToken, id, "minimal");
         threadId = msg.threadId;
       }
-      // Report spam on entire thread
-      await gmailModifyThread(accessToken, threadId!, ["SPAM"], ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        threadId!,
+        ["SPAM"],
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, threadId!);
+      await syncInboxLabelDelta(email, acct, [threadId!], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
+      });
       return { id, threadId, spam: true };
     } catch (error: any) {
       console.error("[reportSpam] Gmail error:", error.message);
@@ -767,7 +881,6 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: move to trash with a spam label
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
     const target = emails.find((e) => e.id === getRouterParam(event, "id"));
@@ -795,8 +908,6 @@ export const reportSpam = defineEventHandler(async (event: H3Event) => {
     return { id: getRouterParam(event, "id"), threadId, spam: true };
   });
 });
-
-// ─── Block sender ─────────────────────────────────────────────────────────────
 
 async function readBlockedSenders(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "blocked-senders");
@@ -827,23 +938,27 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing senderEmail" };
   }
 
-  // If Gmail is connected, create a filter to auto-delete + report spam
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const id = getRouterParam(event, "id") as string;
 
-      // Report the entire thread as spam
       const msg = await gmailGetMessage(accessToken, id, "minimal");
-      await gmailModifyThread(accessToken, msg.threadId, ["SPAM"], ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        msg.threadId,
+        ["SPAM"],
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, msg.threadId);
+      await syncInboxLabelDelta(email, acct, [msg.threadId], {
+        add: ["SPAM"],
+        remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
+      });
 
-      // Create a filter to auto-delete future emails from this sender
       try {
         await googleFetch(
           `https://gmail.googleapis.com/gmail/v1/users/me/settings/filters`,
@@ -858,7 +973,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
           },
         );
       } catch (filterErr: any) {
-        // Filter creation may fail (permissions), but spam report still worked
         console.error(
           "[blockSender] filter creation failed:",
           filterErr.message,
@@ -873,7 +987,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: add to blocked list + trash the thread
   const blocked = await readBlockedSenders(email);
   if (!blocked.includes(senderEmail.toLowerCase())) {
     blocked.push(senderEmail.toLowerCase());
@@ -910,8 +1023,6 @@ export const blockSender = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Mute thread ──────────────────────────────────────────────────────────────
-
 async function readMutedThreads(email: string): Promise<string[]> {
   const data = await getUserSetting(email, "muted-threads");
   if (data && Array.isArray((data as any).threads)) {
@@ -936,17 +1047,22 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   const { accountEmail } = body;
 
   if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
       const threadId = getRouterParam(event, "threadId") as string;
-      // Gmail "mute" = remove from inbox; future replies also skip inbox
-      await gmailModifyThread(accessToken, threadId, undefined, ["INBOX"]);
+      const updated = (await gmailModifyThread(
+        accessToken,
+        threadId,
+        undefined,
+        ["INBOX"],
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(email, threadId);
+      await syncInboxLabelDelta(email, acct, [threadId], {
+        remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
+      });
       return { threadId, muted: true };
     } catch (error: any) {
       console.error("[muteThread] Gmail error:", error.message);
@@ -955,7 +1071,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: archive all messages in thread + record as muted
   const threadId = getRouterParam(event, "threadId") as string;
   const muted = await readMutedThreads(email);
   if (!muted.includes(threadId)) {
@@ -982,8 +1097,6 @@ export const muteThread = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Delete permanently ───────────────────────────────────────────────────────
-
 export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   return withLocalEmailMutationLock(email, async () => {
@@ -998,8 +1111,6 @@ export const deleteEmail = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Send / compose ───────────────────────────────────────────────────────────
-
 export const sendEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const settings = await readSettings(email);
@@ -1011,9 +1122,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "Missing required fields: to, subject, body" };
   }
 
-  // Validate address-list shape after stripCrlf — guards against header
-  // injection where the attacker supplies a `\r\n`-laced subject or
-  // recipient and tries to smuggle Bcc/Reply-To headers into the raw email.
   const cleanedTo = stripCrlf(to);
   const cleanedCc = cc ? stripCrlf(cc) : "";
   const cleanedBcc = bcc ? stripCrlf(bcc) : "";
@@ -1033,27 +1141,34 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
       email,
       accountEmail,
     );
-  } catch {
-    setResponseStatus(event, 400);
-    return { error: "One or more attachments could not be read" };
+  } catch (error: any) {
+    setResponseStatus(event, error?.statusCode ?? 400);
+    return {
+      error:
+        error?.statusMessage ?? "One or more attachments could not be read",
+      ...(error?.data?.accountErrors
+        ? { accountErrors: error.data.accountErrors }
+        : {}),
+    };
   }
 
-  // If Gmail is connected, send via Gmail API
   if (await isConnected(email)) {
     try {
-      const accountTokens = await getAccountTokens(email);
-      let selectedToken = accountTokens[0]?.accessToken;
-      let selectedEmail =
-        (await resolveAccountEmail(accountEmail, email)) ||
-        accountTokens[0]?.email ||
-        "me";
+      let selectedEmail = await resolveAccountEmail(accountEmail, email);
+      const { tokens: accountTokens, errors } = await getAccountTokens(
+        email,
+        replyToId && !accountEmail ? undefined : [selectedEmail],
+      );
+      let selectedToken = accountTokens.find(
+        (account) =>
+          account.email.toLowerCase() === selectedEmail.toLowerCase(),
+      )?.accessToken;
 
       let threadId: string | undefined;
       let inReplyTo: string | undefined;
       let references: string | undefined;
 
       if (replyToId) {
-        // Find which account owns the original message and use that for the reply
         for (const { email: acctEmail, accessToken } of accountTokens) {
           try {
             const original = await gmailGetMessage(
@@ -1080,126 +1195,139 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
             if (err?.message?.includes("404")) continue;
           }
         }
-      }
-
-      if (accountEmail) {
-        const match = accountTokens.find((c) => c.email === accountEmail);
-        if (match) {
-          selectedToken = match.accessToken;
-          selectedEmail = match.email;
+        if (!threadId) {
+          if (errors.length > 0) {
+            setResponseStatus(event, 502);
+            return {
+              error: formatMailAccountErrors(errors),
+              accountErrors: errors,
+            };
+          }
+          setResponseStatus(event, 404);
+          return { error: "Reply source not found in the selected account" };
         }
       }
 
-      if (selectedToken) {
-        const senderIdentity = await resolveGoogleSenderIdentity({
-          accessToken: selectedToken,
-          email: selectedEmail,
-          fallbackName: settings.name,
-          cachedName: getAccountDisplayName(selectedEmail),
-          onResolvedDisplayName: (name) => {
-            setAccountDisplayName(selectedEmail, name);
-            void setOAuthDisplayName("google", selectedEmail, name).catch(
-              () => {},
-            );
-          },
-        });
+      if (!selectedToken) {
+        if (errors.length > 0) {
+          setResponseStatus(event, 502);
+          return {
+            error: formatMailAccountErrors(errors),
+            accountErrors: errors,
+          };
+        }
+        setResponseStatus(event, 401);
+        return { error: "No valid access token for account" };
+      }
+      setMailAccountErrorsHeader(event, errors);
 
-        const tracking = buildTrackingContext(event, body || "", settings);
+      const senderIdentity = await resolveGoogleSenderIdentity({
+        accessToken: selectedToken,
+        email: selectedEmail,
+        fallbackName: settings.name,
+        cachedName: getAccountDisplayName(selectedEmail),
+        onResolvedDisplayName: (name) => {
+          setAccountDisplayName(selectedEmail, name);
+          void setOAuthDisplayName("google", selectedEmail, name).catch(
+            () => {},
+          );
+        },
+      });
 
-        const raw = buildOutgoingRawEmail({
-          from: senderIdentity.header,
-          to: cleanedTo,
-          cc: cleanedCc,
-          bcc: cleanedBcc,
-          subject: subject || "(no subject)",
-          body: body || "",
-          inReplyTo,
-          references,
-          tracking,
-          attachments,
-        });
+      const tracking = buildTrackingContext(event, body || "", settings);
 
-        const sendBody: any = { raw };
-        if (threadId) sendBody.threadId = threadId;
+      const raw = buildOutgoingRawEmail({
+        from: senderIdentity.header,
+        to: cleanedTo,
+        cc: cleanedCc,
+        bcc: cleanedBcc,
+        subject: subject || "(no subject)",
+        body: body || "",
+        inReplyTo,
+        references,
+        tracking,
+        attachments,
+      });
 
-        const sent = await googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
-          selectedToken,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(sendBody),
-          },
+      const sendBody: any = { raw };
+      if (threadId) sendBody.threadId = threadId;
+
+      const sent = await googleFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
+        selectedToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sendBody),
+        },
+      );
+
+      if (tracking && sent?.id) {
+        persistTracking({
+          pixelToken: tracking.pixelToken,
+          messageId: sent.id,
+          ownerEmail: selectedEmail,
+          sentAt: Date.now(),
+          linkTokens: tracking.linkTokens,
+        }).catch((err) =>
+          console.error("[sendEmail] persistTracking failed:", err),
         );
-
-        if (tracking && sent?.id) {
-          persistTracking({
-            pixelToken: tracking.pixelToken,
-            messageId: sent.id,
-            ownerEmail: selectedEmail,
-            sentAt: Date.now(),
-            linkTokens: tracking.linkTokens,
-          }).catch((err) =>
-            console.error("[sendEmail] persistTracking failed:", err),
-          );
-        }
-
-        // Bust the server-side thread cache so the next fetch shows the new
-        // message. Without this, replies sent within the 5-min TTL don't
-        // appear until the cache entry expires.
-        if (sent.threadId) {
-          invalidateThreadCache(email, sent.threadId);
-        }
-        invalidateListCacheForOwner(email);
-
-        // Track contact frequency for all recipients
-        const allRecipients = [to, cc, bcc]
-          .filter(Boolean)
-          .flatMap((field: string) =>
-            field.split(",").map((r: string) => {
-              const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
-              return match
-                ? { email: match[2].trim(), name: match[1].trim() }
-                : { email: r.trim() };
-            }),
-          )
-          .filter((r) => r.email);
-        incrementSendFrequency(email, allRecipients).catch(() => {});
-
-        // Emit mail.message.sent event (best-effort)
-        try {
-          emit(
-            "mail.message.sent",
-            {
-              messageId: sent.id,
-              to: to || "",
-              subject: subject || "",
-            },
-            { owner: email },
-          );
-        } catch {
-          // best-effort — never block the send response
-        }
-
-        setResponseStatus(event, 201);
-        return {
-          id: sent.id,
-          threadId: sent.threadId,
-          labelIds: sent.labelIds || ["SENT"],
-          from: {
-            name: senderIdentity.displayName || senderIdentity.email,
-            email: senderIdentity.email,
-          },
-        };
       }
+
+      if (sent.threadId) {
+        invalidateThreadCache(email, sent.threadId);
+      }
+      invalidateListCacheForOwner(email);
+
+      const allRecipients = [to, cc, bcc]
+        .filter(Boolean)
+        .flatMap((field: string) =>
+          field.split(",").map((r: string) => {
+            const match = r.trim().match(/^(.+?)\s*<(.+?)>$/);
+            return match
+              ? { email: match[2].trim(), name: match[1].trim() }
+              : { email: r.trim() };
+          }),
+        )
+        .filter((r) => r.email);
+      incrementSendFrequency(email, allRecipients).catch(() => {});
+
+      try {
+        emit(
+          "mail.message.sent",
+          {
+            messageId: sent.id,
+            to: to || "",
+            subject: subject || "",
+          },
+          { owner: email },
+        );
+      } catch {
+        // coercion-ok: the provider send succeeded; this secondary event is best-effort.
+      }
+
+      setResponseStatus(event, 201);
+      return {
+        id: sent.id,
+        threadId: sent.threadId,
+        labelIds: sent.labelIds || ["SENT"],
+        from: {
+          name: senderIdentity.displayName || senderIdentity.email,
+          email: senderIdentity.email,
+        },
+      };
     } catch (error: any) {
       console.error("[sendEmail] Gmail API error:", error.message);
-      setResponseStatus(event, 500);
-      return { error: "Failed to send email via Gmail" };
+      setResponseStatus(event, error?.statusCode ?? 500);
+      return {
+        error: error?.statusMessage ?? "Failed to send email via Gmail",
+        ...(error?.data?.accountErrors
+          ? { accountErrors: error.data.accountErrors }
+          : {}),
+      };
     }
   }
 
-  // Local fallback: store as sent email
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
 
@@ -1260,8 +1388,6 @@ export const sendEmail = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Save draft (persistent, Gmail-style) ─────────────────────────────────────
-
 export const saveDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const settings = await readSettings(email);
@@ -1278,9 +1404,13 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     accountEmail,
   } = reqBody;
 
-  // Validate header values after stripCrlf — same protection as sendEmail.
-  // Drafts go through the same buildRawEmail path so they need the same
-  // header-injection guard.
+  let requestedBackend: ReturnType<typeof parseSavedDraftBackend>;
+  try {
+    requestedBackend = parseSavedDraftBackend(reqBody.savedDraftBackend);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft backend" };
+  }
   if (
     !isValidAddressList(to ? stripCrlf(to) : "") ||
     !isValidAddressList(cc ? stripCrlf(cc) : "") ||
@@ -1302,16 +1432,55 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     return { error: "One or more attachments could not be read" };
   }
 
-  // If Gmail is connected, create/update a Gmail draft
-  if (await isConnected(email)) {
-    const acct = await resolveAccountEmail(reqBody?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
+  if (
+    draftId !== undefined &&
+    draftId !== null &&
+    typeof draftId !== "string"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "Invalid saved draft ID" };
+  }
+  const savedDraftId =
+    typeof draftId === "string" && draftId ? draftId : undefined;
+
+  let draftBackend: "gmail" | "local";
+  let gmailConnected: boolean | undefined;
+  let draftAccountEmail = accountEmail as string | undefined;
+  try {
+    if (savedDraftId) {
+      const ownership = await resolveExistingSavedDraftOwnership({
+        ownerEmail: email,
+        savedDraftId,
+        savedDraftBackend: requestedBackend,
+        accountEmail: draftAccountEmail,
+      });
+      draftBackend = ownership.backend;
+      draftAccountEmail = ownership.accountEmail ?? draftAccountEmail;
+    } else {
+      gmailConnected =
+        requestedBackend === "local" ? false : await isConnected(email);
+      draftBackend = resolveSavedDraftBackend(requestedBackend, gmailConnected);
     }
+  } catch (error) {
+    if (!(error instanceof SavedDraftOwnershipError)) throw error;
+    setResponseStatus(event, 409);
+    return { error: error.message };
+  }
+
+  if (draftBackend === "gmail") {
+    if (!(gmailConnected ?? (await isConnected(email)))) {
+      setResponseStatus(event, 401);
+      return { error: "Gmail is not connected for this saved draft" };
+    }
+    const gmailAccess = await resolveGmailAccess(
+      event,
+      email,
+      draftAccountEmail,
+    );
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accountEmail: acct, accessToken } = gmailAccess;
     try {
-      const draftFrom = accountEmail || "me";
+      const draftFrom = draftAccountEmail || "me";
       const raw = buildOutgoingRawEmail({
         from: draftFrom,
         to: to || "",
@@ -1322,11 +1491,10 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
         attachments,
       });
 
-      if (draftId) {
-        // Update existing Gmail draft
+      if (savedDraftId) {
         try {
           const updated = await googleFetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(savedDraftId)}`,
             accessToken,
             {
               method: "PUT",
@@ -1334,12 +1502,19 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               body: JSON.stringify({ message: { raw } }),
             },
           );
-          return { draftId: updated.id, updated: true };
-        } catch {
-          // Draft may have been deleted; create new
+          return {
+            draftId: updated.id,
+            backend: "gmail" as const,
+            accountEmail: acct,
+            updated: true,
+          };
+        } catch (error) {
+          if (!(error instanceof Error) || !/\b404\b/.test(error.message)) {
+            throw error;
+          }
+          // A deleted Gmail draft is safe to replace with a new one.
         }
       }
-      // Create new Gmail draft
       const created = await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/drafts`,
         accessToken,
@@ -1349,7 +1524,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
           body: JSON.stringify({ message: { raw } }),
         },
       );
-      return { draftId: created.id, created: true };
+      return {
+        draftId: created.id,
+        backend: "gmail" as const,
+        accountEmail: acct,
+        created: true,
+      };
     } catch (error: any) {
       console.error("[saveDraft] Gmail error:", error.message);
       setResponseStatus(event, 500);
@@ -1357,12 +1537,15 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
     }
   }
 
-  // Local fallback: save as EmailMessage with isDraft=true
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
-    const existingIdx = draftId
-      ? emails.findIndex((e) => e.id === draftId && e.isDraft)
+    const existingIdx = savedDraftId
+      ? emails.findIndex((e) => e.id === savedDraftId && e.isDraft)
       : -1;
+    if (savedDraftId && existingIdx < 0) {
+      setResponseStatus(event, 409);
+      return { error: "Saved local draft was not found" };
+    }
 
     const draftEmail: EmailMessage = {
       id: existingIdx >= 0 ? emails[existingIdx].id : `draft-${nanoid(8)}`,
@@ -1431,16 +1614,12 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
 
     return {
       draftId: draftEmail.id,
+      backend: "local" as const,
       [existingIdx >= 0 ? "updated" : "created"]: true,
     };
   });
 });
 
-/**
- * Build a tracking context for an outgoing message. Returns undefined when
- * both open- and click-tracking are disabled so the caller skips injection
- * entirely.
- */
 function buildTrackingContext(
   event: H3Event,
   body: string,
@@ -1468,20 +1647,19 @@ function buildTrackingContext(
   };
 }
 
-// ─── Delete draft ─────────────────────────────────────────────────────────────
-
 export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const id = getRouterParam(event, "id") as string;
 
   if (await isConnected(email)) {
     const body = await readBody(event).catch(() => ({}));
-    const acct = await resolveAccountEmail(body?.accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "No valid access token for account" };
-    }
+    const gmailAccess = await resolveGmailAccess(
+      event,
+      email,
+      body?.accountEmail,
+    );
+    if (!gmailAccess.ok) return gmailAccess.response;
+    const { accessToken } = gmailAccess;
     try {
       await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${id}`,
@@ -1494,7 +1672,6 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
     return { ok: true };
   }
 
-  // Local fallback
   return withLocalEmailMutationLock(email, async () => {
     const emails = await readEmails(email);
     const filtered = emails.filter((e) => !(e.id === id && e.isDraft));
@@ -1505,201 +1682,189 @@ export const deleteDraft = defineEventHandler(async (event: H3Event) => {
   });
 });
 
-// ─── Contacts (extracted from email history) ─────────────────────────────────
-
 export type ContactEntry = { name: string; email: string; count: number };
+export type ContactLookupResult = {
+  contacts: ContactEntry[];
+  errors: MailAccountError[];
+};
 
-// Contact cache: keyed by user email, TTL 10 minutes
 const contactCache = new Map<
   string,
   {
     data: ContactEntry[];
+    errors: MailAccountError[];
     expiresAt: number;
   }
 >();
-const CONTACT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CONTACT_CACHE_TTL = 10 * 60 * 1000;
 
-/**
- * Load (or return cached) contacts for the given user, ranked by send/receive
- * frequency. Exposed so agent actions like `find-contact` can reuse the same
- * waterfall (saved contacts → other contacts → recent Gmail headers → local
- * fallback) without duplicating the People API calls or the cache.
- */
 export async function loadContactsForEmail(
   email: string,
-): Promise<ContactEntry[]> {
+): Promise<ContactLookupResult> {
   const cached = contactCache.get(email);
   if (cached && Date.now() < cached.expiresAt) {
-    return cached.data;
+    return { contacts: cached.data, errors: cached.errors };
   }
 
   if (await isConnected(email)) {
-    try {
-      const accountTokens = await getAccountTokens(email);
-      const contactMap = new Map<
-        string,
-        { name: string; email: string; count: number }
-      >();
+    const { tokens: accountTokens, errors } = await getAccountTokens(email);
+    const contactMap = new Map<
+      string,
+      { name: string; email: string; count: number }
+    >();
 
-      for (const { accessToken } of accountTokens) {
-        // Fetch saved contacts (People API connections)
-        try {
-          let nextPageToken: string | undefined;
-          do {
-            const resp = await peopleListConnections(accessToken, {
-              pageSize: 200,
-              personFields: "names,emailAddresses",
-              pageToken: nextPageToken,
-            });
-            for (const person of resp.connections || []) {
-              const emails = person.emailAddresses || [];
-              const name =
-                person.names?.[0]?.displayName || emails[0]?.value || "";
-              for (const em of emails) {
-                if (!em.value) continue;
-                const key = em.value.toLowerCase();
-                const existing = contactMap.get(key);
-                if (existing) {
-                  existing.count += 5; // boost saved contacts
-                  if (
-                    name &&
-                    name !== em.value &&
-                    existing.name === existing.email
-                  ) {
-                    existing.name = name;
-                  }
-                } else {
-                  contactMap.set(key, {
-                    name: name || em.value,
-                    email: em.value,
-                    count: 5,
-                  });
+    for (const { email: accountEmail, accessToken } of accountTokens) {
+      try {
+        let nextPageToken: string | undefined;
+        do {
+          const resp = await peopleListConnections(accessToken, {
+            pageSize: 200,
+            personFields: "names,emailAddresses",
+            pageToken: nextPageToken,
+          });
+          for (const person of resp.connections || []) {
+            const emails = person.emailAddresses || [];
+            const name =
+              person.names?.[0]?.displayName || emails[0]?.value || "";
+            for (const em of emails) {
+              if (!em.value) continue;
+              const key = em.value.toLowerCase();
+              const existing = contactMap.get(key);
+              if (existing) {
+                existing.count += 5;
+                if (
+                  name &&
+                  name !== em.value &&
+                  existing.name === existing.email
+                ) {
+                  existing.name = name;
                 }
-              }
-            }
-            nextPageToken = resp.nextPageToken ?? undefined;
-          } while (nextPageToken);
-        } catch (err: any) {
-          console.error("[listContacts] connections error:", err.message);
-        }
-
-        // Fetch "other contacts" (people you've interacted with but haven't saved)
-        try {
-          let nextPageToken: string | undefined;
-          do {
-            const resp = await peopleListOtherContacts(accessToken, {
-              pageSize: 200,
-              readMask: "names,emailAddresses",
-              pageToken: nextPageToken,
-            });
-            for (const person of resp.otherContacts || []) {
-              const emails = person.emailAddresses || [];
-              const name =
-                person.names?.[0]?.displayName || emails[0]?.value || "";
-              for (const em of emails) {
-                if (!em.value) continue;
-                const key = em.value.toLowerCase();
-                if (!contactMap.has(key)) {
-                  contactMap.set(key, {
-                    name: name || em.value,
-                    email: em.value,
-                    count: 1,
-                  });
-                }
-              }
-            }
-            nextPageToken = resp.nextPageToken ?? undefined;
-          } while (nextPageToken);
-        } catch (err: any) {
-          console.error("[listContacts] otherContacts error:", err.message);
-        }
-      }
-
-      // Always merge in addresses from Gmail headers. People API's
-      // otherContacts only surfaces senders, so people the user has emailed
-      // (but who haven't replied) won't appear unless we scan sent messages.
-      // We query sent first to ensure outgoing recipients are captured, then
-      // fall back to a general scan when People API returned nothing (e.g.
-      // missing scopes).
-      const gmailQueries =
-        contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
-      for (const query of gmailQueries) {
-        try {
-          const { messages } = await listGmailMessages(
-            query,
-            25,
-            email,
-            undefined,
-            { messageFormat: "metadata" },
-          );
-          for (const msg of messages) {
-            const headers = msg.payload?.headers || [];
-            for (const field of ["From", "To", "Cc", "Bcc"]) {
-              const raw =
-                headers.find(
-                  (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
-                )?.value || "";
-              if (!raw) continue;
-              for (const part of raw.split(",")) {
-                const trimmed = part.trim();
-                if (!trimmed) continue;
-                const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
-                const name = match
-                  ? match[1].trim().replace(/^"|"$/g, "")
-                  : trimmed;
-                const addr = match ? match[2].trim() : trimmed;
-                if (!addr || !addr.includes("@")) continue;
-                const key = addr.toLowerCase();
-                const existing = contactMap.get(key);
-                if (existing) {
-                  existing.count++;
-                  if (
-                    name &&
-                    name !== addr &&
-                    existing.name === existing.email
-                  ) {
-                    existing.name = name;
-                  }
-                } else {
-                  contactMap.set(key, {
-                    name: name || addr,
-                    email: addr,
-                    count: 1,
-                  });
-                }
+              } else {
+                contactMap.set(key, {
+                  name: name || em.value,
+                  email: em.value,
+                  count: 5,
+                });
               }
             }
           }
-        } catch (err: any) {
-          console.error(
-            `[listContacts] Gmail header scan error (query="${query}"):`,
-            err.message,
-          );
-        }
+          nextPageToken = resp.nextPageToken ?? undefined;
+        } while (nextPageToken);
+      } catch (err: any) {
+        console.error("[listContacts] connections error:", err.message);
+        errors.push({ email: accountEmail, error: err.message });
       }
 
-      // Merge SQL-tracked send frequency into contact counts
-      let freqMap: Map<string, number>;
       try {
-        freqMap = await getContactFrequencyMap(email);
-      } catch {
-        freqMap = new Map();
+        let nextPageToken: string | undefined;
+        do {
+          const resp = await peopleListOtherContacts(accessToken, {
+            pageSize: 200,
+            readMask: "names,emailAddresses",
+            pageToken: nextPageToken,
+          });
+          for (const person of resp.otherContacts || []) {
+            const emails = person.emailAddresses || [];
+            const name =
+              person.names?.[0]?.displayName || emails[0]?.value || "";
+            for (const em of emails) {
+              if (!em.value) continue;
+              const key = em.value.toLowerCase();
+              if (!contactMap.has(key)) {
+                contactMap.set(key, {
+                  name: name || em.value,
+                  email: em.value,
+                  count: 1,
+                });
+              }
+            }
+          }
+          nextPageToken = resp.nextPageToken ?? undefined;
+        } while (nextPageToken);
+      } catch (err: any) {
+        console.error("[listContacts] otherContacts error:", err.message);
+        errors.push({ email: accountEmail, error: err.message });
       }
-      const contacts = Array.from(contactMap.values())
-        .map((c) => ({
-          ...c,
-          count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
-        }))
-        .sort((a, b) => b.count - a.count);
+    }
+
+    const gmailQueries = contactMap.size === 0 ? ["in:sent", ""] : ["in:sent"];
+    for (const query of gmailQueries) {
+      try {
+        const { messages, errors: gmailErrors } = await listGmailMessages(
+          query,
+          25,
+          email,
+          undefined,
+          { messageFormat: "metadata" },
+        );
+        errors.push(...gmailErrors);
+        for (const msg of messages) {
+          const headers = msg.payload?.headers || [];
+          for (const field of ["From", "To", "Cc", "Bcc"]) {
+            const raw =
+              headers.find(
+                (h: any) => h.name?.toLowerCase() === field.toLowerCase(),
+              )?.value || "";
+            if (!raw) continue;
+            for (const part of raw.split(",")) {
+              const trimmed = part.trim();
+              if (!trimmed) continue;
+              const match = trimmed.match(/^(.+?)\s*<(.+?)>$/);
+              const name = match
+                ? match[1].trim().replace(/^"|"$/g, "")
+                : trimmed;
+              const addr = match ? match[2].trim() : trimmed;
+              if (!addr || !addr.includes("@")) continue;
+              const key = addr.toLowerCase();
+              const existing = contactMap.get(key);
+              if (existing) {
+                existing.count++;
+                if (name && name !== addr && existing.name === existing.email) {
+                  existing.name = name;
+                }
+              } else {
+                contactMap.set(key, {
+                  name: name || addr,
+                  email: addr,
+                  count: 1,
+                });
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error(
+          `[listContacts] Gmail header scan error (query="${query}"):`,
+          err.message,
+        );
+        errors.push({ email: "workspace", error: err.message });
+      }
+    }
+
+    let freqMap: Map<string, number>;
+    try {
+      freqMap = await getContactFrequencyMap(email);
+    } catch {
+      freqMap = new Map();
+    }
+    const contacts = Array.from(contactMap.values())
+      .map((c) => ({
+        ...c,
+        count: c.count + (freqMap.get(c.email.toLowerCase()) || 0) * 10,
+      }))
+      .sort((a, b) => b.count - a.count);
+    const result = {
+      contacts,
+      errors: mergeMailAccountErrors(errors),
+    };
+    if (result.errors.length === 0) {
       contactCache.set(email, {
         data: contacts,
+        errors: [],
         expiresAt: Date.now() + CONTACT_CACHE_TTL,
       });
-      return contacts;
-    } catch (error: any) {
-      console.error("[listContacts] error:", error.message);
-      // Fall through to demo data
     }
+    return result;
   }
 
   const emails = await readEmails(email);
@@ -1741,19 +1906,28 @@ export async function loadContactsForEmail(
   const contacts = Array.from(contactMap.values()).sort(
     (a, b) => b.count - a.count,
   );
+  const result = { contacts, errors: [] };
   contactCache.set(email, {
     data: contacts,
+    errors: [],
     expiresAt: Date.now() + CONTACT_CACHE_TTL,
   });
-  return contacts;
+  return result;
 }
 
 export const listContacts = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
-  return loadContactsForEmail(email);
+  const result = await loadContactsForEmail(email);
+  setMailAccountErrorsHeader(event, result.errors);
+  if (result.contacts.length === 0 && result.errors.length > 0) {
+    setResponseStatus(event, 502);
+    return {
+      error: formatMailAccountErrors(result.errors),
+      accountErrors: result.errors,
+    };
+  }
+  return result.contacts;
 });
-
-// ─── Labels ───────────────────────────────────────────────────────────────────
 
 export const listLabels = defineEventHandler(async (_event: H3Event) => {
   const email = await userEmail(_event);
@@ -1766,8 +1940,9 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         ?.split(",")
         .map((account) => account.trim())
         .filter(Boolean);
-      const accountTokens = await getAccountTokens(email, accountEmails);
-      // Deduplicate by derived short-name id (not Gmail label ID)
+      const { tokens: accountTokens, errors: tokenErrors } =
+        await getAccountTokens(email, accountEmails);
+      setMailAccountErrorsHeader(_event, tokenErrors);
       const labelMap = new Map<
         string,
         {
@@ -1779,8 +1954,7 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
         }
       >();
       let successfulAccountReads = 0;
-      let failedAccountReads = 0;
-      // Fetch labels from each account sequentially to avoid race conditions on the shared map
+      let failedAccountReads = tokenErrors.length;
       for (const { accessToken } of accountTokens) {
         try {
           const res = await gmailListLabels(accessToken);
@@ -1808,8 +1982,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
               Number(label.threadsUnread ?? label.messagesUnread ?? 0) || 0;
             const totalCount =
               Number(label.threadsTotal ?? label.messagesTotal ?? 0) || 0;
-            // Use and display the full label name so Gmail nesting survives
-            // import. The sidebar indents slash-delimited paths.
             const normalizedSystem = systemLabelIds[gmailId];
             const fullId =
               normalizedSystem?.id ?? name.toLowerCase().replace(/_/g, " ");
@@ -1830,8 +2002,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
             }
           }
         } catch {
-          // A partial label map is not safe to return because it drops labels
-          // from accounts that failed and makes counts look authoritative.
           failedAccountReads += 1;
         }
       }
@@ -1851,7 +2021,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       }
       const labels: Label[] = Array.from(labelMap.values());
 
-      // Normalize Gmail category labels with friendly names
       const gmailCategories: Record<string, string> = {
         important: "Important",
         "note-to-self": "Note to Self",
@@ -1863,7 +2032,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       for (const [id, name] of Object.entries(gmailCategories)) {
         const existing = labels.findIndex((l) => l.id === id);
         if (existing >= 0) {
-          // Fix casing (Gmail returns "IMPORTANT", we want "Important")
           labels[existing].name = name;
         } else {
           labels.push({
@@ -1889,8 +2057,6 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
   );
 });
 
-// ─── Calendar RSVP ───────────────────────────────────────────────────────────
-
 export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const { eventId, calendarId, response, accountEmail } = (await readBody(
@@ -1912,24 +2078,19 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     return { error: "No Google account connected" };
   }
 
-  try {
-    const acct = await resolveAccountEmail(accountEmail, email);
-    const accessToken = await getAccessToken(acct);
-    if (!accessToken) {
-      setResponseStatus(event, 401);
-      return { error: "Google account not found" };
-    }
+  const gmailAccess = await resolveGmailAccess(event, email, accountEmail);
+  if (!gmailAccess.ok) return gmailAccess.response;
+  const { accessToken } = gmailAccess;
 
+  try {
     const calId = calendarId || "primary";
 
-    // Get the event first to preserve existing data
     const calEvent = await calendarGetEvent(accessToken, calId, eventId);
     if (!calEvent) {
       setResponseStatus(event, 404);
       return { error: "Event not found" };
     }
 
-    // Find the current user's attendee entry and update their response
     const settings = await readSettings(email);
     const myEmail = settings.email?.toLowerCase();
     const attendees = calEvent.attendees || [];
@@ -1943,7 +2104,6 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
     }
 
     if (!found) {
-      // Add self as attendee with the response
       attendees.push({
         email: myEmail,
         responseStatus: response,
@@ -1961,8 +2121,6 @@ export const calendarRsvp = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-// ─── Unsubscribe ─────────────────────────────────────────────────────────────
-
 export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
   const email = await userEmail(event);
   const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
@@ -1974,12 +2132,9 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
     return { error: "No connected account" };
   }
 
-  const acct = await resolveAccountEmail(body.accountEmail, email);
-  const accessToken = await getAccessToken(acct);
-  if (!accessToken) {
-    setResponseStatus(event, 401);
-    return { error: "No valid access token" };
-  }
+  const gmailAccess = await resolveGmailAccess(event, email, body.accountEmail);
+  if (!gmailAccess.ok) return gmailAccess.response;
+  const { accessToken } = gmailAccess;
 
   try {
     const id = getRouterParam(event, "id") as string;
@@ -1998,7 +2153,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       return { error: "No unsubscribe header found" };
     }
 
-    // Extract URLs from the header
     const entries = listUnsub.match(/<[^>]+>/g) || [];
     let url: string | undefined;
     let mailto: string | undefined;
@@ -2015,13 +2169,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       !!listUnsubPost &&
       listUnsubPost.toLowerCase().includes("list-unsubscribe=one-click");
 
-    // Try RFC 8058 one-click unsubscribe first.
-    //
-    // SSRF: the URL comes from an inbound email's `List-Unsubscribe` header
-    // — fully attacker-controlled. Without this guard a phishing email can
-    // make the production server POST to AWS IMDS (`http://169.254.169.254/`),
-    // localhost loopback, or internal cluster services and exfiltrate cloud
-    // creds / hit authenticated internal endpoints.
     if (oneClick && url) {
       try {
         const res = await ssrfSafeFetch(
@@ -2040,34 +2187,23 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
           console.warn(
             "[unsubscribe] one-click POST blocked: SSRF-protected URL",
           );
-          // Don't echo the URL — that would let an attacker probe via the
-          // error response to map internal infrastructure.
           setResponseStatus(event, 400);
           return { error: "Unsubscribe URL is not allowed" };
         }
-        // One-click failed, fall through to other methods
         console.warn("[unsubscribe] one-click POST failed:", e.message);
       }
     }
 
-    // Try mailto unsubscribe
     if (mailto) {
       try {
-        // Parse mailto for optional subject/body
         const [address, query] = mailto.split("?");
         const params = new URLSearchParams(query || "");
         const subject = params.get("subject") || "Unsubscribe";
         const bodyText = params.get("body") || "";
 
-        // CRLF-strip every header value flowing into the raw RFC 2822
-        // message — the address/subject/body all come from inbound email
-        // headers and are attacker-controlled. Without this an unsubscribe
-        // mailto URI of `mailto:victim@target?subject=Hi%0D%0ABcc:attacker`
-        // injects a Bcc through the user's connected Gmail account.
         const safeAddress = stripCrlf(address || "");
         const safeSubject = stripCrlf(subject);
 
-        // Build RFC 2822 email
         const raw = Buffer.from(
           `To: ${safeAddress}\r\nSubject: ${safeSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bodyText}`,
         )
@@ -2083,7 +2219,6 @@ export const unsubscribeEmail = defineEventHandler(async (event: H3Event) => {
       }
     }
 
-    // Return the URL for the client to open manually
     if (url) {
       return { ok: true, method: "url-only", url };
     }

@@ -17,6 +17,7 @@ import type { DesignData } from "@/pages/design-editor/types";
 
 export interface DownloadSvgArgs {
   design: DesignData | null;
+  activePreviewFrameId?: string | null;
   fallbackExportName: (extension: string, suffix?: string) => string;
   selectedElement: ElementInfo | null;
   setSvgExporting: Dispatch<SetStateAction<boolean>>;
@@ -24,8 +25,23 @@ export interface DownloadSvgArgs {
   triggerBlobDownload: (blob: Blob, filename: string) => void;
 }
 
+export function resolveSvgExportIframe<
+  T extends { getAttribute(name: string): string | null },
+>(iframes: Iterable<T>, activePreviewFrameId?: string | null): T | null {
+  const candidates = Array.from(iframes);
+  if (activePreviewFrameId) {
+    const active = candidates.find(
+      (iframe) =>
+        iframe.getAttribute("data-screen-iframe-id") === activePreviewFrameId,
+    );
+    if (active) return active;
+  }
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
+}
+
 export async function runDownloadSvg(
   {
+    activePreviewFrameId,
     design,
     fallbackExportName,
     selectedElement,
@@ -35,8 +51,11 @@ export async function runDownloadSvg(
   }: DownloadSvgArgs,
   settings?: Partial<ExportSettingsValue>,
 ) {
-  const iframe = document.querySelector<HTMLIFrameElement>(
-    "iframe[data-design-preview-iframe]",
+  const iframe = resolveSvgExportIframe(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+    activePreviewFrameId,
   );
   const doc = iframe?.contentDocument;
   if (!doc?.documentElement) {
@@ -46,10 +65,6 @@ export async function runDownloadSvg(
 
   setSvgExporting(true);
   try {
-    // Same readiness race as the PNG path (see waitForExportReady):
-    // without this, an SVG downloaded right after a screen loads inlines
-    // whatever partial/empty CSSOM exists at that instant, producing an
-    // unstyled export for no reason a user could tell from the UI.
     await waitForExportReady(doc);
     const width = Math.max(
       doc.documentElement.scrollWidth,
@@ -83,8 +98,6 @@ export async function runDownloadSvg(
           .map((rule) => rule.cssText)
           .join("\n");
       } catch {
-        // Cross-origin stylesheets cannot be read. Leave the original link in
-        // place instead of failing the whole export.
         return;
       }
       if (!cssText.trim()) return;
@@ -97,15 +110,7 @@ export async function runDownloadSvg(
       clonedStylesheetLinks[index]?.replaceWith(style);
     });
     clone.querySelectorAll("script").forEach((node) => node.remove());
-    // Strip the editor's selection outline / handles so the SVG shows only
-    // the design, not the editor chrome.
     removeEditorChromeOverlays(clone);
-    // The live DOM can contain Alpine/Vue-style directive attributes such
-    // as `@click`, `:class`, and `x-bind:class`. They are valid HTML but
-    // invalid/unbound XML names, and the old serializer emitted a download
-    // that xmllint/Figma rejected at the first directive. This is a static
-    // snapshot (scripts are removed just above), so strip executable and
-    // otherwise XML-unsafe attributes from the clone before serialization.
     stripNonStaticXmlAttributes(clone);
     clone.style.width = `${width}px`;
     clone.style.minHeight = `${height}px`;
@@ -127,10 +132,6 @@ export async function runDownloadSvg(
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;") || t("designEditor.designExport");
     const exportScale = Math.max(0.1, Math.min(4, settings?.scale ?? 1));
-    // When an element is selected, crop to just that frame by narrowing the
-    // SVG viewBox to its document-space rect. The foreignObject still holds
-    // the full document so layout and inherited styles stay intact; the
-    // viewBox clips the visible region to the selection.
     const cropRect = resolveExportCropRect(doc, selectedElement);
     const svg = buildStaticForeignObjectSvg({
       documentWidth: width,

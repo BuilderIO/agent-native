@@ -1,0 +1,86 @@
+import type { ReactNode } from "react";
+
+import { Button } from "../ui/button.js";
+import { cn } from "../utils.js";
+
+export interface AgentSuggestionItem {
+  id: string;
+  label: string;
+  prompt?: string;
+  disabled?: boolean;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
+export type AgentSuggestionInput = string | AgentSuggestionItem;
+
+export interface AgentSuggestionBarProps {
+  suggestions: readonly AgentSuggestionInput[];
+  ariaLabel: string;
+  onSelect: (suggestion: AgentSuggestionItem) => void;
+  renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
+  className?: string;
+}
+
+export function normalizeAgentSuggestion(
+  suggestion: AgentSuggestionInput,
+  index: number,
+): AgentSuggestionItem {
+  if (typeof suggestion !== "string") return suggestion;
+  return {
+    id: `suggestion-${index}-${suggestion}`,
+    label: suggestion,
+    prompt: suggestion,
+  };
+}
+
+export function agentSuggestionPrompt(
+  suggestion: AgentSuggestionInput,
+): string {
+  return typeof suggestion === "string"
+    ? suggestion
+    : (suggestion.prompt ?? suggestion.label);
+}
+
+export function AgentSuggestionBar({
+  suggestions,
+  ariaLabel,
+  onSelect,
+  renderSuggestion,
+  className,
+}: AgentSuggestionBarProps) {
+  if (suggestions.length === 0) return null;
+
+  return (
+    <section
+      aria-label={ariaLabel}
+      data-agent-suggestion-bar="true"
+      className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
+    >
+      <div
+        data-agent-suggestion-scroller="true"
+        className="flex w-full min-w-0 snap-x snap-proximity gap-1 overflow-x-auto overscroll-x-contain px-0.5 py-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {suggestions.map((input, index) => {
+          const suggestion = normalizeAgentSuggestion(input, index);
+          return (
+            <Button
+              key={suggestion.id}
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={suggestion.disabled}
+              onClick={() => onSelect(suggestion)}
+              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
+            >
+              <span>
+                {renderSuggestion
+                  ? renderSuggestion(suggestion)
+                  : suggestion.label}
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

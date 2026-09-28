@@ -1,20 +1,29 @@
-// @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
+  imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   insertDroppedImageIntoSlideHtml,
   insertImageIntoSlideHtml,
   normalizeImageObjectPosition,
+  prefetchImage,
+  swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
+  takeSlideImageUploadProvenance,
   updateImageFitInSlideHtml,
+  updateLiveImagesUnderEdit,
 } from "./slide-image-replacement";
+import { stampSlideSource } from "./slide-source-map";
 
 function firstImage(html: string): HTMLImageElement | null {
   return new DOMParser()
@@ -23,6 +32,121 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("swaps hosted sources without replacing a live transformed image", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent
+      .replace(
+        "blob:preview",
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      )
+      .replace("left:40px", "left:220px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img");
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe(
+      "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+    );
+    expect(image.style.left).toBe("184px");
+  });
+
+  it("updates image metadata and fit without overwriting live geometry", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="blob:preview" alt="Preview" width="320" height="180" style="position:absolute;left:40px;width:320px;object-fit:contain;"></div>';
+    const nextContent =
+      '<div class="fmd-slide"><img src="https://cdn.builder.io/api/v1/image/assets%2Fphoto" alt="Photo" width="640" height="360" style="position:absolute;left:220px;width:640px;object-fit:cover;object-position:right bottom;"></div>';
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img");
+    if (!image) throw new Error("expected preview image");
+    image.style.left = "184px";
+    image.style.width = "512px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("alt")).toBe("Photo");
+    expect(image.getAttribute("width")).toBe("640");
+    expect(image.getAttribute("height")).toBe("360");
+    expect(image.style.left).toBe("184px");
+    expect(image.style.width).toBe("512px");
+    expect(image.style.objectFit).toBe("cover");
+    expect(image.style.objectPosition).toBe("right bottom");
+  });
+
+  it("waits for the hosted image to decode before resolving", async () => {
+    let requestedSrc = "";
+    let decoded = false;
+    const decode = vi.fn(async () => {
+      decoded = true;
+    });
+    vi.stubGlobal(
+      "Image",
+      class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        decode = decode;
+
+        set src(value: string) {
+          requestedSrc = value;
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    try {
+      await expect(
+        prefetchImage("https://cdn.builder.io/api/v1/image/assets%2Fphoto"),
+      ).resolves.toBe(true);
+      expect(requestedSrc).toBe(
+        "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
+      );
+      expect(decoded).toBe(true);
+      expect(decode).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not report a hosted image as ready when it cannot decode", async () => {
+    vi.stubGlobal(
+      "Image",
+      class MockImage {
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        decode = vi.fn(async () => {
+          throw new Error("decode failed");
+        });
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    try {
+      await expect(
+        prefetchImage("https://cdn.builder.io/broken"),
+      ).resolves.toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts SVG drops when the browser omits the MIME type", () => {
+    expect(
+      imageFileLooksSupported(new File(["<svg />"], "logo.svg", { type: "" })),
+    ).toBe(true);
+  });
+
   it("replaces only the optimistic preview image", () => {
     const html = `<div class="fmd-slide"><img src="blob:preview" alt="Preview"><img src="/placeholder.png" alt="Placeholder"><div class="fmd-img-placeholder">Image</div></div>`;
 
@@ -229,6 +353,21 @@ describe("slide image replacement", () => {
 
     expect(img?.getAttribute("src")).toBe("/uploads/new.png");
     expect(img?.getAttribute("alt")).toBe("New");
+  });
+
+  it("keeps a slide's leading <style> block", () => {
+    const html = `<style>.card{padding:16px}</style>\n<div class="fmd-slide"><div class="card">Card</div><img src="/old.png" style="width: 120px;"></div>`;
+    const replaced = replaceImageTargetInSlideHtml(
+      html,
+      "/old.png",
+      "/new.png",
+    );
+    expect(replaced).toContain("<style>.card{padding:16px}</style>");
+    expect(firstImage(replaced)?.getAttribute("src")).toBe("/new.png");
+    const fitted = updateImageFitInSlideHtml(html, "/old.png", {
+      objectFit: "cover",
+    });
+    expect(fitted).toContain("<style>.card{padding:16px}</style>");
   });
 
   it("updates fit and position when the image URL contains escaped query params", () => {
@@ -494,8 +633,6 @@ describe("slide image replacement", () => {
     const slideRoot = doc.querySelector(".fmd-slide") as HTMLElement | null;
 
     expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
-    // Must not become a plain flex-flow sibling of the existing content
-    // (the slide is a flex column), or it visually squishes everything else.
     expect(img?.getAttribute("style")).toContain("position: absolute");
     expect(slideRoot?.getAttribute("style")).toContain("position: relative");
     expect(doc.querySelector("h1")).not.toBeNull();
@@ -532,5 +669,166 @@ describe("slide image replacement", () => {
     expect(updated).toContain("Body copy");
     expect(updated).toContain('src="/uploads/drop.png"');
     expect(updated).toContain("position: absolute");
+  });
+});
+
+describe("updateLiveImagesUnderEdit", () => {
+  const url = "https://cdn.test/uploaded.png";
+
+  function uploadOnDraft(
+    committed: string,
+    preview: Parameters<typeof applyOptimisticImagePreview>[1],
+  ) {
+    const rendered = applyOptimisticImagePreview(committed, preview);
+    const capturedSnapshot = rendered.replace("Caption", "Caption ty");
+    const latest = stripOptimisticImagePreviews(capturedSnapshot, [preview]);
+    const next = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(
+        stripOptimisticImagePreviews(latest, [preview]),
+        preview,
+      ),
+      preview.previewSrc,
+      url,
+    );
+    const stampedRendered = stampSlideSource(rendered, "slide-test").html;
+    const stampedSnapshot = stampSlideSource(
+      capturedSnapshot,
+      "slide-test",
+    ).html;
+    const stampedNext = stampSlideSource(next, "slide-test").html;
+    const root = document.createElement("div");
+    root.innerHTML = stampedRendered;
+    const edited = root.querySelector<HTMLElement>("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption ty";
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      stampedSnapshot,
+    )!;
+    edited.textContent = "Caption typed";
+    return { rendered: stampedRendered, next: stampedNext, provenance, root };
+  }
+
+  it.each([
+    [
+      "a dropped image",
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null, position: { x: 10, y: 20 } },
+    ],
+    [
+      "a filled placeholder",
+      '<div class="fmd-slide"><div class="fmd-img-placeholder" style="width:200px">Hero</div><p>Caption</p></div>',
+      {
+        previewSrc: "blob:p1",
+        replaceSrc: createPlaceholderImageTarget(0, "Hero"),
+      },
+    ],
+    [
+      "a replaced image",
+      '<div class="fmd-slide"><img src="https://cdn.test/old.png" style="width:200px"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: "https://cdn.test/old.png" },
+    ],
+  ])(
+    "patches %s when the incoming edited node matches its upload snapshot",
+    (_label, committed, preview) => {
+      const { rendered, next, provenance, root } = uploadOnDraft(
+        committed,
+        preview,
+      );
+      expect(updateLiveImagesUnderEdit(root, rendered, next, provenance)).toBe(
+        true,
+      );
+      expect(root.querySelector("img")!.getAttribute("src")).toBe(url);
+      expect(root.querySelector("p")!.textContent).toBe("Caption typed");
+    },
+  );
+
+  it("refuses an image change that also changed the edited text elsewhere", () => {
+    const { rendered, next, provenance, root } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const remote = next.replace("Caption ty", "Agent caption");
+    expect(updateLiveImagesUnderEdit(root, rendered, remote, provenance)).toBe(
+      false,
+    );
+    expect(root.querySelector("img")!.getAttribute("src")).toBe("blob:p1");
+  });
+
+  it("fails closed when overlapping uploads register different snapshots for the same result", () => {
+    const { next, provenance } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const conflictingProvenance = {
+      ...provenance,
+      editedNodeMarkup: provenance.editedNodeMarkup.replace(
+        "Caption ty",
+        "Other caption",
+      ),
+    };
+
+    registerSlideImageUploadProvenance("slide-overlap", next, provenance);
+    registerSlideImageUploadProvenance(
+      "slide-overlap",
+      next,
+      conflictingProvenance,
+    );
+
+    expect(takeSlideImageUploadProvenance("slide-overlap", next)).toBeNull();
+  });
+});
+
+describe("upload provenance registry", () => {
+  const provenance = (stamp: string) => ({
+    editedSourceStamp: stamp,
+    editedNodeMarkup: `<p data-src-i="${stamp}">Caption</p>`,
+  });
+
+  it("drops a failed or cancelled upload's snapshot", () => {
+    registerSlideImageUploadProvenance(
+      "slide-failed",
+      "<p>a</p>",
+      provenance("1"),
+    );
+    discardSlideImageUploadProvenance("slide-failed", "<p>a</p>");
+    expect(
+      takeSlideImageUploadProvenance("slide-failed", "<p>a</p>"),
+    ).toBeNull();
+  });
+
+  it("keeps only the latest snapshots", () => {
+    for (let index = 0; index < 40; index += 1) {
+      registerSlideImageUploadProvenance(
+        `slide-many-${index % 2}`,
+        `<p>${index}</p>`,
+        provenance(String(index)),
+      );
+    }
+    expect(
+      takeSlideImageUploadProvenance("slide-many-0", "<p>0</p>"),
+    ).toBeNull();
+    expect(takeSlideImageUploadProvenance("slide-many-1", "<p>39</p>")).toEqual(
+      provenance("39"),
+    );
+  });
+
+  it("frees a discarded snapshot's place for later uploads", () => {
+    const contents = Array.from(
+      { length: 16 },
+      (_, index) => `<p>${index}</p>`,
+    );
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-a", content, provenance("a"));
+    }
+    for (const content of contents) {
+      discardSlideImageUploadProvenance("slide-a", content);
+    }
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-b", content, provenance("b"));
+    }
+    expect(takeSlideImageUploadProvenance("slide-b", "<p>0</p>")).toEqual(
+      provenance("b"),
+    );
   });
 });

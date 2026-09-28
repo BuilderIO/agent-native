@@ -35,6 +35,15 @@ describe("retainFactoryTabParams", () => {
     expect(next.get("status")).toBeNull();
   });
 
+  it("drops automationId when switching away from Automations", () => {
+    const current = new URLSearchParams(
+      "factoryId=f1&tab=automations&automationId=a1",
+    );
+    const next = retainFactoryTabParams(current, "audit");
+    expect(next.get("tab")).toBe("audit");
+    expect(next.get("automationId")).toBeNull();
+  });
+
   it("keeps audit filters and drops inbox filters", () => {
     const current = new URLSearchParams(
       "factoryId=f1&tab=inbox&itemId=i1&status=failed&range=today&automation=factory-pr-babysit&auditRunId=r1",

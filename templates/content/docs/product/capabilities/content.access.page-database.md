@@ -2,8 +2,8 @@
 record_type: "capability"
 spec_version: 2
 id: "content.access.page-database"
-name: "Page and Database access"
-user_promise: "Page and Database roles separate reading, commenting, entry editing, and structure authority."
+name: "Page and Collection access"
+user_promise: "Page and Collection roles separate reading, commenting, entry editing, and structure authority."
 primary_user_job: "Share work at the appropriate level without accidentally granting collection-wide power."
 kind: "primitive"
 state: "approved_shape"
@@ -12,11 +12,11 @@ availability: "universal"
 dependencies: []
 related_features: []
 roadmap_boundary: "supporting"
-acceptance_summary: "Fixed Page and Database roles are enforced by the shared Action surface before every read or mutation, including deletion and structured-value policy."
+acceptance_summary: "Fixed Page and Collection roles are enforced by the shared Action surface before every read or mutation, including deletion and structured-value policy."
 proof_requirements:
   [
     "Page role decisions for view, comment, edit, and full access",
-    "Database role decisions for entry versus schema authority",
+    "Collection role decisions for entry versus schema authority",
     "Identical UI, agent, API, and automation enforcement",
     "Deletion, select-option, source-policy, and stale-capability failure coverage",
   ]
@@ -25,20 +25,20 @@ superseded_by: null
 last_reviewed: "2026-07-29"
 ---
 
-# Page and Database access
+# Page and Collection access
 
 ## Why this exists
 
-Collaboration needs more than editor or viewer. A teammate may comment on a Page, edit a Database entry, or manage the Database structure—those are deliberately different powers.
+Collaboration needs more than editor or viewer. A teammate may comment on a Page, edit a Collection entry, or manage the Collection structure—those are deliberately different powers.
 
 ## Example workflow
 
-A manager gives a collaborator **Can edit entries** in a planning Database. The collaborator changes authorized rows but cannot alter Properties or delete the Database; a Page commenter can discuss a brief but cannot edit its body.
+A manager gives a collaborator **Can edit entries** in a planning Collection. The collaborator changes authorized rows but cannot alter Properties or delete the Collection; a Page commenter can discuss a brief but cannot edit its body.
 
 ## Product contract
 
 - Page roles are **Can view**, **Can comment**, **Can edit**, and **Full access**.
-- Database roles are **Can view**, **Can comment**, **Can edit entries**, **Can edit database**, and **Full access**.
+- Collection roles are **Can view**, **Can comment**, **Can edit entries**, **Can edit collection**, and **Full access**.
 - Roles are fixed product roles backed by internal capabilities, not custom checkbox combinations.
 - Every UI, agent, automation, and API operation calls the same Action authorization and operation-specific validation.
 - Source truth, Property locks, and policy can narrow authority; they never widen a role.
@@ -62,11 +62,11 @@ Given a Page commenter, when they add a comment, then it is permitted. When they
 
 ## Current evidence
 
-Current Content actions and Database permission work provide role and ownership substrate, but the complete fixed-role matrix, shared effective operation capabilities, and all destructive/structured-value paths are not yet proven together. This remains `approved_shape`.
+Current Content actions and Collection permission work provide role and ownership substrate, but the complete fixed-role matrix, shared effective operation capabilities, and all destructive/structured-value paths are not yet proven together. This remains `approved_shape`.
 
 ## Proof plan
 
-1. Build a role-by-operation matrix for Page and Database actions and UI controls.
+1. Build a role-by-operation matrix for Page and Collection actions and UI controls.
 2. Test direct, bulk, agent, automation, source-backed, and stale client capability paths.
 3. Verify denial is typed and leaves content, schema, and audit state unchanged.
 4. Test role changes during a pending mutation, reload, keyboard, and assistive technology.

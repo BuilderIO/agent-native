@@ -9,17 +9,6 @@ const DOCS_PATH_PREFIXES = [
   "packages/docs/",
 ] as const;
 
-/**
- * Prose and static assets under a docs directory are documentation; the source
- * and config files beside them are code.
- *
- * A docs-only PR runs zero checks — guards included — so anything classified
- * here as documentation ships unverified. `packages/docs/` is a full Nitro +
- * React Router app: 248 `.ts`/`.tsx` files, a server route directory, and the
- * `netlify.toml` that owns the site's static cache headers. Those headers went
- * missing for 13 days (2026-08-07 a882a536af → 2026-08-20 4ec27fb575) inside
- * this blind spot.
- */
 const DOCS_CONTENT_EXTENSIONS = new Set([
   ".md",
   ".mdx",
@@ -69,6 +58,7 @@ const CHECK_NAMES = [
   "guards",
   "drizzle",
   "qa_static",
+  "agentkit_acceptance",
 ] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
@@ -142,9 +132,6 @@ export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
     if (root) roots.add(root);
   }
 
-  // Include the changed workspace and both its dependency/dependent closure.
-  // Explicit path selectors work in detached PR checkouts and do not rely on
-  // pnpm discovering a Git base revision.
   return [...roots].sort().map((root) => `...{${root}}...`);
 }
 
@@ -157,8 +144,6 @@ function isFullPath(path: string): boolean {
     return true;
   }
 
-  // Unknown repository-level files are dependencies of the whole CI graph.
-  // Run everything when they change so a new root tool cannot bypass checks.
   return !isWorkspacePath(normalized) && !isDocsPath(normalized);
 }
 
@@ -179,6 +164,12 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
+  const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
+  const sharedAppConfigChanged = hasPath(
+    changedPaths,
+    "packages/shared-app-config/",
+  );
+  const chatChanged = hasPath(changedPaths, "templates/chat/");
   const schedulingChanged = hasPath(changedPaths, "packages/scheduling/");
   const dispatchChanged = hasPath(changedPaths, "packages/dispatch/");
   const contentChanged = hasPath(changedPaths, "templates/content/");
@@ -210,7 +201,7 @@ function buildChecks(
       coreChanged ||
       dispatchChanged ||
       schedulingChanged ||
-      hasPath(changedPaths, "templates/chat/") ||
+      chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
@@ -233,6 +224,12 @@ function buildChecks(
       );
     }),
     qa_static: templateChanged,
+    agentkit_acceptance:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      chatChanged,
   };
 }
 
@@ -253,7 +250,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
     nonDocsPaths,
     checks: docsOnly
       ? (Object.fromEntries(
-          CHECK_NAMES.map((name) => [name, false]),
+          CHECK_NAMES.map((name) => [name, name === "lint"]),
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
     workspaceFilters,

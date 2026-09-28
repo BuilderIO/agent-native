@@ -10,6 +10,7 @@ const messages = {
     },
     views: {
       inbox: "Inbox",
+      all: "Alle",
       unread: "Unread",
       starred: "Starred",
       snoozed: "Snoozed",
@@ -24,6 +25,128 @@ const messages = {
       extensions: "Erweiterungen",
       noteToSelf: "Notiz an mich",
     },
+    inbox: {
+      syncing: "Posteingang wird synchronisiert…",
+    },
+    sort: {
+      label: "Posteingang sortieren",
+      newest: "Neueste",
+      priority: "Priorität",
+      priorityFailed: "Der Posteingang konnte nicht sortiert werden.",
+      priorityScoreHelp:
+        "Ein höherer Wert bedeutet, dass Jev die Nachricht für wichtiger hält.",
+      priorityFeedbackSuggestion:
+        "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
+      priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
+      aiSetupTitle: "KI-Posteingang einrichten",
+      aiSetupTagLabel: "KI-Tag erstellen",
+      aiSetupImportanceLabel: "Wichtige E-Mails",
+      aiSetupSpamLabel: "Unerwünscht",
+      aiSetupArchiveLabel: "Posteingang überspringen",
+      aiSetupSave: "Einrichtung speichern",
+      aiSetupSkip: "Vorerst überspringen",
+      aiSetupImportantHeadline: "Was ist dir wichtig?",
+      aiSetupSkipInboxHeadline: "Was darf deinen Posteingang überspringen?",
+      aiSetupTagsHeadline: "E-Mails in Tabs sortieren",
+      aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
+      aiSetupTagReceipts: "Belege",
+      aiSetupTagUpdates: "Produktupdates",
+      aiSetupTagGitHub: "Menschen auf GitHub",
+      aiSetupPromptReceipts: "Belege und Bestellbestätigungen von Onlineshops",
+      aiSetupPromptUpdates: "Produktupdates und Versionshinweise meiner Tools",
+      aiSetupPromptGitHub:
+        "GitHub-Benachrichtigungen mit Kommentaren von Menschen",
+      aiSetupImportantPrompt:
+        "Nachrichten, die eine Antwort brauchen oder eine Frist haben, einschließlich menschlicher Kommentare auf GitHub. Bot-Kommentare überspringen.",
+      aiSetupArchiveSpamPrompt:
+        "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
+      aiSetupCustomTag: "Benutzerdefiniert",
+      aiSetupDone: "Fertig",
+      aiSetupConnectGmailHeadline:
+        "Verbinde Gmail, um deinen Posteingang zu sortieren",
+      aiSetupConnectGmailDescription:
+        "Verbinde Google, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupConnectJevHeadline:
+        "Verbinde Jev, um deinen Posteingang zu sortieren",
+      aiSetupConnectJevDescription:
+        "Verbinde Jev, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupCustomTabName: "Tab-Name",
+      aiSetupCustomTabExample: "z. B. Rechnungen von Lieferanten",
+      aiSetupRunAgain: "Einrichtung erneut starten",
+      aiSetupTagCalendar: "Kalender",
+      aiSetupPromptCalendar:
+        "Kalendereinladungen und Terminänderungen, die ich brauche",
+      aiSetupTagTravel: "Reisen",
+      aiSetupPromptTravel:
+        "Reisebestätigungen und Reservierungen, die ich brauche",
+      aiSetupTagFinance: "Finanzen",
+      aiSetupPromptFinance: "Rechnungen und Kontoauszüge, die ich brauche",
+      aiSetupArchiveExample:
+        "Bot- und CI-Benachrichtigungen von GitHub, Vercel und Dependabot",
+      aiSetupFilteredExample:
+        "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
+      aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupSortingDescription:
+        "Das haben deine Regeln in aktuellen E-Mails gefunden.",
+      aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
+      aiSetupRetry: "Erneut versuchen",
+      aiSetupGmailStatusFailed:
+        "Die Gmail-Verbindung konnte nicht geprüft werden",
+      aiSetupAutomationSettingsFailed:
+        "Die Einstellungen für das KI-Modell konnten nicht geprüft werden",
+      aiSetupSortingProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
+      aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupUndoBeforeRetry:
+        "Mache die Teiländerungen rückgängig, bevor du es erneut versuchst.",
+      aiSetupSortingFailed:
+        "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
+      aiSetupUndoComplete:
+        "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupUndoFailed:
+        "Diese Änderungen im Posteingang konnten nicht rückgängig gemacht werden. Versuche es erneut.",
+      aiSetupUndoStatusFailed:
+        "Der Rückgängig-Vorgang wurde gesendet, aber die neuesten Ergebnisse konnten nicht geladen werden.",
+      aiSetupRuleCount: "{{count}} Treffer",
+      aiSetupNoMatches:
+        "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
+      aiSetupChatTip:
+        "Du kannst Regeln jederzeit im Chat verfeinern oder ergänzen.",
+      aiSetupChatPrompt: "E-Mails von meiner Führungskraft priorisieren…",
+      aiSetupNoRules: "Es wurden keine Regeln ausgewählt.",
+      aiSetupPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      aiSetupSortInbox: "Posteingang sortieren",
+      aiSetupImportantExample:
+        "Alles von meinem Chef, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "Die KI versieht passende E-Mails mit Tags und erstellt für jeden Tag einen eigenen Tab neben deinem Posteingang.",
+      aiSetupImportantDescription:
+        "Die KI versieht passende E-Mails mit dem Label Wichtig, damit sie im Tab Wichtig erscheinen.",
+      aiSetupSkipInboxDescription:
+        "Die KI archiviert passende E-Mails, sodass sie nicht im Posteingang landen. Sie bleiben unter Alle Nachrichten und in der Suche verfügbar.",
+      aiSetupAddTab: "Tab hinzufügen",
+      aiSetupAdjustRules: "Regeln anpassen",
+      aiSetupImportantBoss: "Nachrichten von meinem Chef, ",
+      aiSetupImportantBossChip: "Nachrichten von meinem Chef",
+      aiSetupImportantReply: "Antwort nötig",
+      aiSetupImportantDeadlines: "Fristen",
+      aiSetupImportantCustomers: "Kunden",
+      aiSetupImportantGitHub: "Menschen auf GitHub",
+      aiSetupImportantCalendar: "Kalendereinladungen",
+      aiSetupSkipNewsletters: "Newsletter",
+      aiSetupSkipPromotions: "Angebote",
+      aiSetupSkipBots: "Bot- und CI-Alarme",
+      aiSetupSkipColdSales: "Kalte Vertriebsanfragen",
+      aiSetupSkipRecruiters: "Recruiter",
+      aiSetupSkipSocial: "Social-Media-Alarme",
+      priorityFeedbackLabel: "Feedback zur Wichtigkeit",
+      priorityScoreHigh: "Hohe Wichtigkeit",
+      priorityScoreMedium: "Mittlere Wichtigkeit",
+      priorityScoreLow: "Geringe Wichtigkeit",
+      priorityEditRules: "Wichtigkeitsregeln bearbeiten",
+      aiSetupContinue: "Weiter",
+    },
     toolbar: {
       toggleMenu: "Menü umschalten",
       menu: "Menu",
@@ -35,7 +158,9 @@ const messages = {
       accounts: "Accounts",
       pinSidebar: "Seitenleiste anheften",
       unpinSidebar: "Seitenleiste lösen",
+      closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
+      aiSettings: "Tags und Regeln verwalten",
     },
     search: {
       label: "Suchen",
@@ -51,13 +176,16 @@ const messages = {
       filtersLimitReached: "Du kannst bis zu 20 Filter speichern.",
     },
     tabSettings: {
+      splitInbox: "Geteilter Posteingang",
       views: "Ansichten",
       categories: "Kategorien",
       rename: "Umbenennen",
       renameTab: "Tab umbenennen",
       savedFilters: "Gespeicherte Filter",
       combinedInbox: "Kombinierter Posteingang",
-      help: "Markierte Elemente werden als Tabs angezeigt. Label-E-Mails werden vom Posteingang getrennt.",
+      allTab: "Alle-Tab",
+      help: "Der kombinierte Posteingang zeigt alle Konten zusammen. Deaktiviere ihn, um E-Mails auf Tabs aufzuteilen.",
+      aiSetup: "KI-Tags und Regeln einrichten",
     },
     accounts: {
       remove: "Entfernen",
@@ -73,6 +201,8 @@ const messages = {
       markUnread: "Als ungelesen markieren",
       moveTo: "Verschieben nach",
       moveToTrash: "In Papierkorb verschieben",
+      star: "Markieren",
+      unstar: "Markierung entfernen",
     },
     compose: {
       addImage: "Bild hinzufügen",
@@ -84,11 +214,16 @@ const messages = {
       attachFile: "Datei anhängen",
       bold: "Fett",
       cancel: "Abbrechen",
+      closeAllDrafts: "Alle Entwürfe schließen",
       code: "Code",
       deleteDraft: "Entwurf löschen",
+      deleteDrafts: "Entwürfe löschen",
+      reopenDraft: "Wieder öffnen",
+      openInMail: "In Mail öffnen",
       discardDraft: "Entwurf verwerfen",
       enterLinkUrl: "Gib die URL für den Link ein.",
       forward: "Forward",
+      from: "Von",
       fullScreen: "Vollbild",
       fullScreenCompose: "Verfassen im Vollbild",
       generate: "Generieren",
@@ -100,19 +235,29 @@ const messages = {
       minimize: "Minimize",
       minimizeCompose: "Verfassen minimieren",
       newDraft: "Neuer Entwurf",
+      newMessage: "Neue Nachricht",
       pasteLink: "Link einfügen...",
       plainText: "Nur Text",
       popOut: "In Verfassen-Fenster öffnen",
       reply: "Reply",
       replyTo: "to {{recipient}}",
+      queuedDraft: "Wartender Entwurf",
       restore: "Wiederherstellen",
       restoreCompose: "Verfassen wiederherstellen",
       restoreComposeSize: "Größe des Verfassens wiederherstellen",
       restoreSize: "Größe wiederherstellen",
       send: "Senden",
       sending: "Senden...",
+      hideCcBcc: "Cc und Bcc ausblenden",
+      showCcBcc: "Cc und Bcc anzeigen",
       strikethrough: "Durchgestrichen",
       subject: "Subject",
+      to: "An",
+      toRecipients: "Empfänger in An",
+      cc: "Cc",
+      ccRecipients: "Empfänger in Cc",
+      bcc: "Bcc",
+      bccRecipients: "Empfänger in Bcc",
       toSubmit: "to submit",
       uploading: "Hochladen...",
       writeMessagePlaceholder: "Schreibe deine Nachricht...",
@@ -190,17 +335,25 @@ const messages = {
       expandToIndividualEmails: "In einzelne E-Mail-Adressen aufteilen",
       peopleCount: "{{count}} people",
       recipientCount: "{{count}} recipients",
+      removeRecipient: "Empfänger {{recipient}} entfernen",
       saveAsAlias: "Als Alias speichern",
       saving: "Speichern...",
     },
     sendLater: {
       cancelScheduledSend: "Geplanten Versand abbrechen",
+      dateInput: "Datum und Uhrzeit",
+      noDateMatch: "Keine passende zukünftige Zeit",
+      inputPlaceholder: "Versuche: 8 Uhr, 3 Tage, 7. Aug.",
+      scheduleAt: "Am {{date}}",
+      scheduledFor: "Geplant für {{date}}",
       pickDateTime: "Datum und Uhrzeit wählen...",
       scheduleSend: "Versand planen",
       sendNow: "Jetzt senden",
 
       laterToday: "Später heute",
       tomorrowMorning: "Morgen früh",
+      tomorrowAfternoon: "Morgen Nachmittag",
+      weekdayMorning: "{{weekday}} morgens",
       nextWeek: "Nächste Woche",
     },
     snooze: {
@@ -220,15 +373,29 @@ const messages = {
     },
     thread: {
       alwaysFrom: "Always from {{domain}}",
+      at: "um",
+      back: "Zurück",
+      cc: "Cc",
+      closeDetails: "Details schließen",
+      closeSearch: "Suche schließen",
       downloadAll: "Alle herunterladen",
       emailContent: "E-Mail-Inhalt",
+      from: "Von",
       hideQuotedText: "Zitierten Text ausblenden",
       imagesBlocked: "Bilder blockiert.",
+      maximize: "Maximieren",
+      minimize: "Minimieren",
+      nextConversation: "Nächste Unterhaltung",
+      nextMatch: "Nächster Treffer",
+      previousConversation: "Vorherige Unterhaltung",
+      previousMatch: "Vorheriger Treffer",
       remoteImagesHidden: "Externe Bilder sind in diesem Embed ausgeblendet.",
       searchConversation: "In Unterhaltung suchen...",
+      searchConversationLabel: "In Unterhaltung suchen",
       showImages: "Bilder anzeigen",
       showQuotedText: "Zitierten Text anzeigen",
       showSignature: "Signatur anzeigen",
+      to: "An",
       unsubscribe: "Unsubscribe",
       unsubscribeTooltip: "Von dieser Mailingliste abmelden",
       unsubscribing: "Abmeldung läuft...",
@@ -239,6 +406,8 @@ const messages = {
       actions: "Auswahlaktionen",
       selected: "{{count}} selected",
       select: "Auswählen",
+      selectEmail: "E-Mail auswählen",
+      deselectEmail: "Auswahl der E-Mail aufheben",
       all: "Alle",
       none: "Keine",
       read: "Read",
@@ -273,6 +442,12 @@ const messages = {
       archivedMany: "Archived {{count}} conversations.",
       archiveFailed:
         "Archivierung fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
+      moveFailed:
+        "Verschieben fehlgeschlagen. Die Unterhaltung wurde wiederhergestellt.",
+      movePartialFailed:
+        "{{succeeded}} von {{total}} Unterhaltungen verschoben; {{failed}} fehlgeschlagen.",
+      moveSucceeded: "Nach {{label}} verschoben.",
+      moveManySucceeded: "{{count}} Unterhaltungen nach {{label}} verschoben.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
@@ -282,8 +457,13 @@ const messages = {
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Bild konnte nicht hochgeladen werden",
       failedToSendEmail: "No se pudo enviar el email",
+      messageSent: "Nachricht gesendet.",
+      failedToSaveDraft: "Entwurf konnte nicht gespeichert werden.",
+      failedToDeleteDraft: "Entwurf konnte nicht gelöscht werden.",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
+      finishRecipientInput:
+        "Füge den Empfänger hinzu oder lösche den Text, bevor du sendest.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
         "Conecta Builder u otro motor de IA antes de usar Generar.",
@@ -294,6 +474,8 @@ const messages = {
       draftDismissed: "Borrador descartado.",
       openedInCompose: "Abierto en redacción.",
       draftSent: "Borrador enviado.",
+      draftClosed: "Entwurf geschlossen.",
+      draftsClosed: "{{count}} Entwürfe geschlossen.",
       failedToSendDraft: "No se pudo enviar el borrador.",
       snoozeDbNotReady:
         "La base de datos de posponer no está lista. Ejecuta: pnpm db:push en la plantilla mail.",
@@ -315,9 +497,12 @@ const messages = {
       missingGoogleCredentials:
         "No se encontraron client_id y client_secret en JSON",
       failedToSaveCredentials: "No se pudieron guardar las credenciales",
+      someAccountsFailed: "Konnte nicht laden: {{accounts}}",
     },
     googleConnect: {
       connectTitle: "Google-Konto verbinden",
+      connectionNotConfigured:
+        "Die Gmail-Verbindung ist für diese App nicht konfiguriert. Bitte wende dich an die Administration, um sie zu aktivieren, oder überspringe diesen Schritt vorerst.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -373,6 +558,7 @@ const messages = {
       neverSpam: "Nunca spam",
       neverImportant: "Nunca importante",
       important: "Importante",
+      notImportant: "Nicht wichtig",
       star: "Destacar",
       trash: "Papelera",
       applyLabel: "Aplicar etiqueta",
@@ -394,6 +580,8 @@ const messages = {
     aiFilter: {
       title: "KI-Filter",
       subtitle: "Ein umkehrbares Label, das aus deinen Entscheidungen lernt.",
+      rulesTitle: "Regeln",
+      newRule: "Neue Regel",
       lunaBadge: "Luna, wenn verfügbar",
       toggle: "KI-Filter aktivieren",
       autoFilterTitle: "Mit hoher Sicherheit automatisch filtern",
@@ -431,6 +619,8 @@ const messages = {
         "Fügt das Label agent-native-filtered hinzu und archiviert die Unterhaltung. Du kannst dies jederzeit rückgängig machen.",
       learningNote:
         "Behält die Nachricht im Posteingang und bringt dem Filter bei, den Fehler nicht zu wiederholen.",
+      learningProgress:
+        "{{count}} von {{required}} Beispielen bestätigt. Aktuelle E-Mails werden geprüft, sobald alle {{required}} bestätigt sind.",
       rememberLabel: "Für zukünftige Nachrichten merken (optional)",
       correctLabel: "Was soll der Filter lernen? (optional)",
       rememberPlaceholder:
@@ -446,8 +636,100 @@ const messages = {
       actionFailed: "Der KI-Filter konnte nicht aktualisiert werden.",
       settingsFailed:
         "Die Einstellungen des KI-Filters konnten nicht gespeichert werden.",
+      automationRulesLoadFailed: "Triage-Regeln konnten nicht geladen werden.",
       instructionFailed:
         "Die KI-Filter-Anweisung konnte nicht gespeichert werden.",
+      autoArchiveMode: "Automatisch archivieren",
+      skipInboxMode: "Posteingang überspringen",
+      spamMode: "Unerwünscht",
+      tagMode: "Tag",
+      aiTagsTitle: "KI-Tags",
+      ruleHelpLabel: "{{mode}}-Regeln erklären",
+      aiTagRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+      importantRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+      skipInboxRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+      spamRuleHelp:
+        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
+      filteredMode: "Gefiltert",
+      manageSettings: "Verwalten",
+      askJev: "Jev fragen",
+      askJevPrompt:
+        "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
+      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
+      chatSuggestionPriority: "E-Mails von … priorisieren",
+      chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
+      ruleBackfillStarting: "Diese Regel wird auf aktuelle E-Mails angewendet…",
+      ruleBackfillProgress:
+        "Aktuelle E-Mails: {{processed}} von {{total}} bearbeitet",
+      ruleBackfillMatches: "{{count}} aktuelle Nachrichten passen",
+      ruleBackfillNoMatches:
+        "Keine aktuellen Nachrichten passen zu dieser Regel.",
+      ruleBackfillFailed:
+        "Diese Regel konnte nicht auf aktuelle E-Mails angewendet werden.",
+      ruleBackfillPartialFailure:
+        "{{count}} Nachrichten konnten nicht aktualisiert werden.",
+      ruleBackfillUndoing: "Aktuelle E-Mails werden wiederhergestellt…",
+      ruleBackfillUndoComplete: "{{count}} Nachrichten wiederhergestellt",
+      ruleBackfillReview: "Treffer prüfen",
+      importantMode: "Wichtig",
+      notifyMode: "Benachrichtigen",
+      notifyModeHelp:
+        "Markiert passende E-Mails als wichtig und zeigt ein Browser-Popup, wenn Mail geöffnet und die Glocke aktiviert ist. Die mobile App folgt in Kürze.",
+      manageAutomationsLink: "Weitere Automatisierungsaktionen",
+      notImportantMode: "Nicht wichtig",
+      importantLabel: "KI-Wichtig",
+      reviewImportant: "Wichtige anzeigen",
+      importantPlaceholder:
+        "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
+      ruleAdded: "KI-Regel hinzugefügt.",
+      instructionHelp: "Klare Sprache verwenden",
+      tagNamePlaceholder: "Tag-Name",
+      spamLabelHint:
+        "Treffer werden markiert und aus dem Posteingang verschoben.",
+      spamPlaceholder:
+        "z. B. Nachrichten, die eindeutig Werbung oder unerwünscht sind",
+      tagPlaceholder: "z. B. Belege und Bestellbestätigungen von Onlineshops",
+      archivePlaceholder:
+        "z. B. GitHub-Bot-Benachrichtigungen, die keine Aufmerksamkeit benötigen",
+      addShortcut: "⌘ Enter zum Hinzufügen",
+      previewTitle: "Letzte E-Mails prüfen",
+      previewDescription:
+        "Prüfe die letzten 20 Nachrichten im Posteingang, bevor du eine neue Regel aktivierst. Archivierte und automatisch archivierte E-Mails werden nie ausgewertet.",
+      previewScope: "Nur Posteingang · archivierte E-Mails ausgeschlossen",
+      previewButton: "Vorschau starten",
+      previewRunning: "Letzte Posteingang-E-Mails werden geprüft…",
+      jevBadge: "Jev",
+      jevMatchProbability: "Jev-Trefferwahrscheinlichkeit: {{percent}}%",
+      feedbackLabel: "Treffer auswählen, die nicht enthalten sein sollen",
+      notSpamShort: "Kein Spam",
+      notMatchShort: "Kein Treffer",
+      noMatch: "Kein Treffer",
+      feedbackPlaceholder:
+        "Optional: Beschreibe, was die KI missverstanden hat oder wonach sie stattdessen suchen soll",
+      refineButton: "Regel aktualisieren & erneut prüfen",
+      instructionsUpdated: "Regel aktualisiert und Vorschau erneut ausgeführt.",
+      noRecentMail: "Keine aktuellen E-Mails im Posteingang zu prüfen.",
+      addRuleToPreview:
+        "Füge eine KI-Regel hinzu, um aktuelle E-Mails zu prüfen.",
+      previewEmpty:
+        "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
+      previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
+      promptRulesCleared: "Triage-Regeln entfernt.",
+      tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
+      addTag: "Tag hinzufügen",
+      triageTitle: "KI-Triage",
+      connectJev: "Jev verbinden",
+      connectJevToRunTriage: "Verbinde Jev, um die Triage auszuführen",
+      freeBuilderOrApiKey:
+        "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
+      jevAvailabilityFailed:
+        "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
+      connectBuilder: "Builder.io verbinden",
+      addJevApiKey: "API-Schlüssel hinzufügen",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -506,6 +788,9 @@ const messages = {
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
+    ruleSuggestionFilter: "Nachrichten wie diese herausfiltern",
+    ruleSuggestionImportant: "E-Mails von meiner Führungskraft priorisieren",
+    ruleSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
   },
   settings: {
     openAgentSettings: "Agent verwalten",
@@ -531,6 +816,7 @@ const messages = {
     markRead: "Als gelesen markieren",
     star: "Markieren",
     trash: "Papierkorb",
+    notify: "Benachrichtigen",
     labelName: "Labelname",
     addAction: "+ Aktion hinzufügen",
     ruleName: "Regelname",
@@ -580,6 +866,10 @@ const messages = {
     signatureImageUploadFailed:
       "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
+    autocomplete: "Autovervollständigung",
+    sendAndMarkDone: "Senden und als erledigt markieren",
+    autocompleteSaveFailed:
+      "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
@@ -606,8 +896,6 @@ const messages = {
     slackPostEndpoint: "Slack-POST-Endpunkt",
     slackPostEndpointHelp:
       "In Slack Event Subscriptions verwenden. Browser-GET kann Not Found anzeigen.",
-    teamDescription:
-      "Richte ein Team ein, um E-Mail-Automatisierungen und Einstellungen mit Kollegen zu teilen.",
     title: "Einstellungen",
     general: "Allgemein",
     generalDescription: "Sprache und kontoweite Einstellungen fur Mail.",
@@ -634,12 +922,19 @@ const messages = {
     deleteSnippetDescription:
       'Textbaustein "{{name}}" loschen? Dies kann nicht ruckgangig gemacht werden.',
     automations: "Automatisierungen",
-    aiFilter: "KI-Filter",
+    rules: "Regeln",
+    rulesModel: "Modell für Regeln",
+    rulesModelDescription: "Gleicht eingehende E-Mails mit deinen Regeln ab.",
+    slackDraftRequests: "Entwurfsanfragen",
+    slackDraftQueue: "Entwürfe aus Slack einreihen",
+    slackDraftQueueDescription:
+      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
+    openDraftQueue: "Entwurfswarteschlange öffnen",
+    aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",
     tracking: "Tracking",
     slack: "Slack",
-    team: "Team",
     deleteAlias: "Alias löschen",
     editAlias: "Alias bearbeiten",
   },
@@ -666,8 +961,11 @@ const messages = {
     goToStarred: "Zu Markierten",
     goToSent: "Zu Gesendet",
     goToDrafts: "Zu Entwurfen",
+    goToAllMail: "Zu allen E-Mails",
     goToArchive: "Zum Archiv",
     goToTrash: "Zum Papierkorb",
+    enableAutocomplete: "Autovervollständigung aktivieren",
+    disableAutocomplete: "Autovervollständigung deaktivieren",
     privacy: "Datenschutz",
     imagesShowAll: "Bilder: alle anzeigen",
     imagesBlockTrackers: "Bilder: bekannte Tracker blockieren",
@@ -676,6 +974,23 @@ const messages = {
     toggleLight: "Hellen Modus umschalten",
     toggleDark: "Dunklen Modus umschalten",
     actions: "Aktionen",
+    shortcuts: "Tastenkürzel",
+    shortcutsGlobal: "Allgemein",
+    shortcutsList: "Nachrichtenliste",
+    shortcutsThread: "Konversation",
+    shortcutsCompose: "Verfassen",
+    backToCommands: "Zurück zu den Befehlen",
+    backToMessageList: "Zur Nachrichtenliste zurückkehren",
+    cycleTabs: "Zwischen Tabs wechseln",
+    extendSelection: "Auswahl erweitern",
+    moveSelection: "Auswahl verschieben",
+    nextPreviousConversation: "Nächste / vorherige Unterhaltung",
+    nextPreviousMessage: "Nächste / vorherige Nachricht",
+    openMessage: "Nachricht öffnen",
+    selectAllConversations: "Alle Unterhaltungen auswählen",
+    sendAndMarkDone: "Senden und als erledigt markieren",
+    toggleMessageExpansion: "Nachricht ein- / ausklappen",
+    toggleReadState: "Lesestatus umschalten",
   },
 };
 

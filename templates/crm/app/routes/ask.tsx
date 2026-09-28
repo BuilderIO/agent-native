@@ -1,7 +1,8 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 
 import { TAB_ID } from "@/lib/tab-id";
@@ -11,6 +12,7 @@ export function meta() {
 }
 
 export default function AskCrmRoute() {
+  const t = useT();
   useEffect(() => {
     const onChatRunning = (event: Event) => {
       if ((event as CustomEvent<{ isRunning?: boolean }>).detail?.isRunning)
@@ -21,33 +23,27 @@ export default function AskCrmRoute() {
       window.removeEventListener("agentNative.chatRunning", onChatRunning);
   }, []);
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="crm-chat-panel"
-        storageKey="crm"
-        browserTabId={TAB_ID}
-        defaultMode="chat"
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText="Ask CRM"
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder="Ask about your CRM"
-        composerSlot={
-          <div className="crm-chat-intro">
-            <h1>Ask CRM</h1>
-            <p>
-              Explore permitted account context, follow-up work, and evidence
-              across Native SQL and connected records.
-            </p>
-          </div>
-        }
-      />
-    </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      surfaceClassName="crm-chat-panel"
+      storageKey="crm"
+      browserTabId={TAB_ID}
+      defaultMode="chat"
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("navigation.askCrm")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("chatHome.placeholder")}
+      homeIntroSlot={
+        <div className="crm-chat-intro">
+          <h1>{t("navigation.askCrm")}</h1>
+        </div>
+      }
+    />
   );
 }

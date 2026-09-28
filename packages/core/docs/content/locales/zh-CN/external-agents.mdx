@@ -99,9 +99,9 @@ search: "Claude Anthropic ChatGPT OpenAI Claude 代码 Codex 光标 Claude Cowor
 https://<your-app>.agent-native.com/mcp
 ```
 
-在应用中打开 **Settings → Integrations**，然后搜索您熟悉的主机名称：
+在应用中打开 **Settings → Connections → Integrations**，然后搜索您熟悉的主机名称：
 Claude、Claude Cowork、Claude Code、Anthropic、ChatGPT、OpenAI、Codex、Grok
-或 xAI。唯一的外部主机结果会打开 **Settings → MCP**，并选中最匹配的指南。
+或 xAI。唯一的外部主机结果会打开 **Settings → MCP server**，并选中最匹配的指南。
 复制 **MCP server URL** 并粘贴到 AI 主机中。URL 是已部署应用的基础 URL 加上
 `/mcp`。
 
@@ -127,13 +127,23 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
 Claude、ChatGPT、光标、Claude 代码、Codex、Grok 和其他的主机特定选项卡。
 
+## 私有 Content 链接 {#private-content-links}
+
+私有 Content 分享链接可以标识文档而不暴露其内容。请将同一 Content 实例的 `/mcp` URL 添加为代理的远程 MCP 服务器，使用 Agent-Native 账户完成身份验证，启用连接或工具，然后重试原始文档请求。`/mcp/connect` 页面提供配置选项，但仅打开该页面不会在代理中安装连接。
+
+此流程适用于 Claude、ChatGPT、Claude Code、Codex、Cursor、Antigravity、OpenCode、GitHub Copilot / VS Code 等支持 MCP 的主机。配置界面和身份验证提示因主机而异。Antigravity 通过 **Settings → Customizations → Installed MCP Servers** 或 MCP 配置文件管理远程服务器；Agent-Native 的 `connect` 命令目前不会配置 Antigravity。
+
+身份验证只识别已连接的账户，不会扩大文档权限。公开文档仍可通过分享页面读取。私有文档只有在该账户本来就有权限时才能通过 MCP 读取。如果连接后 `get-document` 返回“未找到”，该响应无法区分权限不足与过期、已删除或无效的文档 ID。更改权限前，请验证链接和已连接账户的访问权限。
+
+重新安装连接器或更改公开共享链接无法解决已确认的已连接账户权限拒绝问题。
+
 <a id="access-tab"></a>
 
 ### 应用内的 MCP 设置 {#mcp-settings}
 
-标准应用 Settings 在 **Integrations** 旁边提供 **MCP** 选项卡。它显示应用的规范
+Settings 在应用分组中提供 **MCP server** 页面。它显示应用的规范
 MCP URL、可用时的 A2A 代理卡片，以及与完整连接页面相同的设置指南。使用
-**Settings → MCP** 作为应用内起点，或直接打开 `/mcp/connect` 查看完整流程和令牌回退。
+**Settings → MCP server** 作为应用内起点，或直接打开 `/mcp/connect` 查看完整流程和令牌回退。
 
 ### Claude 和 ChatGPT OAuth {#oauth}
 

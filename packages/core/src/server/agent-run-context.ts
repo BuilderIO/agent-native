@@ -1,6 +1,5 @@
 import { createError, getHeader, type H3Event } from "h3";
 
-import { resolveOrgIdForEmail, getOrgContext } from "../org/context.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -10,22 +9,34 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
-import { getSession } from "./auth.js";
 import {
+  getRequestContext,
+  getRequestIdentityAuthenticatedAtMs,
+  getRequestIdentitySessionToken,
   runWithRequestContext,
   type RequestContext,
 } from "./request-context.js";
 
+const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
+  (...args) =>
+    import("../org/context.js").then(({ resolveOrgIdForEmail }) =>
+      resolveOrgIdForEmail(...args),
+    );
+const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
+  ...args
+) =>
+  import("../org/context.js").then(({ getOrgContext }) =>
+    getOrgContext(...args),
+  );
+
 export type AgentRunOwnerContext = {
   owner: string;
   anonymous: boolean;
+  authUserId?: string;
+  identityAuthenticatedAtMs?: number;
   name?: string;
-  /**
-   * Trusted org binding for a cookieless durable worker. Presence matters:
-   * `null` means the authenticated foreground request had no org and must not
-   * fall back to another membership during worker re-entry.
-   */
   orgId?: string | null;
+  orgScope?: "personal" | null;
 };
 
 export const AGENT_RUN_OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
@@ -93,28 +104,15 @@ export function readAgentRunTimezone(event: H3Event): string | undefined {
     : undefined;
 }
 
-/**
- * The caller's browser analytics session id, when the page sent one.
- *
- * Emitted as PostHog's `$session_id` on the run's `$ai_*` events so an agent
- * trace joins to the session replay it happened in. Distinct from
- * `$ai_session_id`, which is the conversation thread. Read by both the agent
- * run path and the HTTP action route, so one visit correlates across the UI's
- * action calls and the agent's.
- */
 export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-session-id");
   const value = Array.isArray(raw) ? raw[0] : raw;
-  return typeof value === "string" &&
-    value.trim().length > 0 &&
-    value.trim().length < 128
-    ? value.trim()
-    : undefined;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return /^[!-~]{1,127}$/.test(trimmed) ? trimmed : undefined;
 }
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
-/** Stable browser-tab context used to scope ambient application state. */
 export function readBrowserTabIdHeader(event: H3Event): string | undefined {
   const raw = readHeaderValue(event, "x-agent-native-browser-tab");
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -158,20 +156,22 @@ export function seedAgentRunOwnerContext(
 export async function seedBackgroundAgentRunOwnerContext(
   event: H3Event,
   runId: string,
-  orgId?: string | null,
-): Promise<AgentRunOwnerContext | null> {
-  try {
-    const { getRunOwnerEmail } = await import("../agent/run-store.js");
-    const owner = await getRunOwnerEmail(runId);
-    if (!owner) return null;
-    return seedAgentRunOwnerContext(event, {
-      owner,
-      anonymous: false,
-      ...(orgId !== undefined ? { orgId } : {}),
+): Promise<AgentRunOwnerContext> {
+  const { getTurnInitiatorByRun } = await import("../agent/run-store.js");
+  const initiator = await getTurnInitiatorByRun(runId);
+  if (!initiator) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: "Agent turn initiator is unavailable",
     });
-  } catch {
-    return null;
   }
+  return seedAgentRunOwnerContext(event, {
+    owner: initiator.email,
+    anonymous: initiator.anonymous,
+    ...(initiator.authUserId ? { authUserId: initiator.authUserId } : {}),
+    orgScope: initiator.orgScope,
+    orgId: initiator.orgId,
+  });
 }
 
 export async function resolveAgentRunOwnerContext(
@@ -184,12 +184,23 @@ export async function resolveAgentRunOwnerContext(
     | undefined;
   if (seeded) return seeded;
 
+  const { getSession } = await import("./auth.js");
   const session = await getSession(event);
   if (session?.email) {
+    const orgScope = getRequestContext()?.orgScope;
+    const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(
+      event,
+      session.email,
+    );
     return seedAgentRunOwnerContext(event, {
       owner: session.email,
       anonymous: false,
+      ...(identityAuthenticatedAtMs !== undefined
+        ? { identityAuthenticatedAtMs }
+        : {}),
+      ...(session.authUserId ? { authUserId: session.authUserId } : {}),
       name: session.name,
+      ...(orgScope ? { orgScope } : {}),
     });
   }
 
@@ -222,6 +233,7 @@ export async function resolveAgentRunOrgId(options: {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
   } else {
     try {
+      const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
     } catch {
@@ -265,6 +277,10 @@ export async function resolveAgentRunRequestContext(options: {
   const timezone = readAgentRunTimezone(options.event);
   const browserSessionId = readBrowserSessionIdHeader(options.event);
   const browserTabId = readBrowserTabIdHeader(options.event);
+  const identitySessionToken = getRequestIdentitySessionToken(
+    options.event,
+    options.ownerContext.owner,
+  );
   const clientPlatform = readAnalyticsClientPlatformHeader(options.event);
   const isSyntheticTraffic = readSyntheticTrafficHeader(options.event);
   const waitUntil = requestWaitUntil(options.event);
@@ -274,6 +290,20 @@ export async function resolveAgentRunRequestContext(options: {
   };
   return {
     userEmail: options.ownerContext.owner,
+    ...(options.ownerContext.authUserId
+      ? { authUserId: options.ownerContext.authUserId }
+      : {}),
+    ...(options.ownerContext.orgScope === "personal"
+      ? { orgScope: "personal" as const }
+      : {}),
+    ...(options.ownerContext.anonymous ? { agentRunAnonymous: true } : {}),
+    ...(options.ownerContext.identityAuthenticatedAtMs !== undefined
+      ? {
+          identityAuthenticatedAtMs:
+            options.ownerContext.identityAuthenticatedAtMs,
+        }
+      : {}),
+    ...(identitySessionToken ? { identitySessionToken } : {}),
     userName: options.ownerContext.name,
     orgId,
     timezone,

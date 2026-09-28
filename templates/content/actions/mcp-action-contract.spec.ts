@@ -1,26 +1,37 @@
 import { describe, expect, it } from "vitest";
 
 import { mcpToolInputSchema } from "../../../packages/core/src/mcp/tool-input-schema.js";
+import {
+  MAX_MIGRATION_PLAN_BYTES,
+  MAX_MIGRATION_ROWS,
+} from "./_content-database-row-migration.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
+import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
+import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
 import deleteContentDatabase from "./delete-content-database.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
+import listContentSpaces from "./list-content-spaces.js";
 import listDocuments from "./list-documents.js";
+import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import refreshList from "./refresh-list.js";
+import restoreContentDatabase from "./restore-content-database.js";
 import searchDocuments from "./search-documents.js";
 import updateComment from "./update-comment.js";
+import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
 import updateDatabaseItems from "./update-database-items.js";
 import updateDocument from "./update-document.js";
@@ -29,6 +40,14 @@ import viewScreen from "./view-screen.js";
 
 describe("Content action-owned agent catalogs", () => {
   const directMcpActions = {
+    "create-content-database": createContentDatabase,
+    "configure-document-property": configureDocumentProperty,
+    "update-content-database-view": updateContentDatabaseView,
+    "list-content-spaces": listContentSpaces,
+    "get-content-database-source": getContentDatabaseSource,
+    "delete-content-database": deleteContentDatabase,
+    "restore-content-database": restoreContentDatabase,
+    "list-trashed-content-databases": listTrashedContentDatabases,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
@@ -50,7 +69,6 @@ describe("Content action-owned agent catalogs", () => {
   const deferredDatabaseActions = {
     "add-content-database-source-field-property":
       addContentDatabaseSourceFieldProperty,
-    "delete-content-database": deleteContentDatabase,
     "manage-content-database-migration": manageContentDatabaseMigration,
   };
 
@@ -59,6 +77,10 @@ describe("Content action-owned agent catalogs", () => {
       expect(action.mcpTool).toBe(true);
       expect(action.tool.description.length).toBeGreaterThan(80);
     }
+  });
+
+  it("returns migration receipts as structured MCP content", () => {
+    expect(migrateContentDatabaseRows.mcpApp?.structuredContent).toBe(true);
   });
 
   it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
@@ -163,7 +185,86 @@ describe("Content action-owned agent catalogs", () => {
     expect(updateDatabaseItems.schema.safeParse([]).success).toBe(false);
   });
 
-  it("keeps schema, destructive, and migration actions out of compact MCP discovery", () => {
+  it("advertises and accepts complete migrations above 100 rows", () => {
+    const migrationPlan = {
+      databaseId: "database_1",
+      databaseDocumentId: "document_1",
+      idempotencyKey: "migration_1",
+      expectedRowCount: 143,
+      propertyDefinitions: [],
+      rows: Array.from({ length: 143 }, (_, index) => ({
+        itemId: `item_${index}`,
+        documentId: `document_${index}`,
+        expectedUpdatedAt: "2026-09-14T00:00:00.000Z",
+        content: `Row ${index}`,
+        propertyValues: [],
+        protectedPropertyValues: [],
+      })),
+      legacyPropertyIds: [],
+    };
+
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "validate",
+        plan: migrationPlan,
+      }).success,
+    ).toBe(true);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "validate",
+        plan: {
+          ...migrationPlan,
+          expectedRowCount: 101,
+          rows: migrationPlan.rows.slice(0, 101),
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      migrateContentDatabaseRows.schema.safeParse({
+        phase: "validate",
+        plan: {
+          ...migrationPlan,
+          expectedRowCount: MAX_MIGRATION_ROWS + 1,
+          rows: Array.from({ length: MAX_MIGRATION_ROWS + 1 }, (_, index) => ({
+            ...migrationPlan.rows[0],
+            itemId: `oversized_item_${index}`,
+            documentId: `oversized_document_${index}`,
+          })),
+        },
+      }).success,
+    ).toBe(false);
+    const oversizedPlan = migrateContentDatabaseRows.schema.safeParse({
+      phase: "validate",
+      plan: {
+        ...migrationPlan,
+        rows: [
+          {
+            ...migrationPlan.rows[0],
+            content: "x".repeat(MAX_MIGRATION_PLAN_BYTES),
+          },
+        ],
+        expectedRowCount: 1,
+      },
+    });
+    expect(oversizedPlan.success).toBe(false);
+    if (!oversizedPlan.success)
+      expect(oversizedPlan.error.issues[0]?.message).toContain(
+        `${MAX_MIGRATION_PLAN_BYTES} bytes`,
+      );
+
+    const validateVariant =
+      migrateContentDatabaseRows.tool.parameters?.anyOf?.find(
+        (variant: any) => variant.properties?.phase?.const === "validate",
+      ) as any;
+    expect(
+      validateVariant.properties.plan.properties.expectedRowCount.maximum,
+    ).toBe(MAX_MIGRATION_ROWS);
+    expect(validateVariant.properties.plan.properties.rows.maxItems).toBe(
+      MAX_MIGRATION_ROWS,
+    );
+  });
+
+  it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {
     for (const action of Object.values(deferredDatabaseActions)) {
       expect(action.mcpTool).not.toBe(true);
     }
@@ -265,7 +366,9 @@ describe("Content action-owned agent catalogs", () => {
   it("gives direct document writes agent-readable selection and input guidance", () => {
     expect(createDocument.tool.description).toContain("Create and persist");
     expect(createDocument.tool.description).toContain("edit-document");
-    expect(editDocument.tool.description).toContain("Prefer this over");
+    expect(editDocument.tool.description).toContain(
+      "initialize a literally empty body",
+    );
     expect(editDocument.tool.description).toContain("match exactly");
     expect(updateDocument.tool.description).toContain(
       "Agents must use get-document followed by edit-document",
@@ -279,6 +382,10 @@ describe("Content action-owned agent catalogs", () => {
     expect(editProperties?.edits?.description).toContain(
       "snapshot-stable batch",
     );
+    expect(editProperties?.initializeContent?.description).toContain(
+      "literally empty document body",
+    );
+    expect(editProperties?.initializeContent?.minLength).toBe(1);
     expect(editDocument.tool.parameters?.required).toEqual(
       expect.arrayContaining(["id", "baseRevision", "idempotencyKey"]),
     );

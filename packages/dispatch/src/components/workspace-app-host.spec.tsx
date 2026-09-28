@@ -273,7 +273,7 @@ describe("WorkspaceAppKeepAlive", () => {
     ).not.toBeNull();
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "analytics.agent-native.com",
-      url: "https://analytics.agent-native.com",
+      url: "https://analytics.agent-native.com/home",
       chrome: "minimal",
     });
     expect(
@@ -330,7 +330,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      url: "https://mail.agent-native.com",
+      url: "https://mail.agent-native.com/home",
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
@@ -360,6 +360,29 @@ describe("WorkspaceAppKeepAlive", () => {
       chrome: "minimal",
     });
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses a registered workspace home path for embedded sessions", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail/inbox",
+      chrome: "minimal",
+    });
   });
 
   it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
@@ -660,7 +683,7 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(topWindow.location.href).toBe("");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
@@ -668,7 +691,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
   it("opens the app in the top window for a native desktop host", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
+    const expectedUrl = new URL("/mail/inbox", window.location.href).href;
     clientState.clientSurface = "electron";
     Object.defineProperty(window, "top", {
       configurable: true,
@@ -677,7 +700,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            homePath: "/inbox",
+          }}
+        />,
       );
       await Promise.resolve();
     });
@@ -707,10 +737,10 @@ describe("WorkspaceAppKeepAlive", () => {
       await Promise.resolve();
     });
 
-    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail");
+    expect(navigateToTopWindow).toHaveBeenCalledWith("/mail/home");
     expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      path: "/mail/home",
       chrome: "minimal",
     });
     expect(container.querySelector("iframe")).not.toBeNull();
@@ -750,7 +780,7 @@ describe("WorkspaceAppKeepAlive", () => {
 
   it("opens the app in the top window for a Builder webview", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
+    const expectedUrl = new URL("/mail/home", window.location.href).href;
     clientState.inBuilderFrame = true;
     Object.defineProperty(window, "top", {
       configurable: true,

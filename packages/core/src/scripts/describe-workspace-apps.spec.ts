@@ -9,10 +9,14 @@ const discoverAgents = vi.fn();
 const findAgent = vi.fn();
 
 vi.mock("../a2a/client.js", () => ({
+  A2ANoJsonRpcInterfaceError: class A2ANoJsonRpcInterfaceError extends Error {},
   A2AClient: class {
     constructor(public baseUrl: string) {}
     getAgentCard(options?: { timeoutMs?: number }) {
       return getAgentCard(this.baseUrl, options);
+    }
+    resolveEndpointUrl() {
+      return Promise.resolve(this.baseUrl);
     }
   },
 }));
@@ -116,8 +120,6 @@ describe("describe-workspace-apps", () => {
     expect(output).not.toContain("Callable actions:");
   });
 
-  // The catalog is only trustworthy if it is read from live deployments, so an
-  // unreachable peer must read as unknown rather than as having no capabilities.
   it("distinguishes an unreachable card from a peer that exposes nothing", async () => {
     discoverAgents.mockResolvedValue([
       agent(),

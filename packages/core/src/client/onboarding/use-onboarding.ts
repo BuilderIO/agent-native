@@ -1,26 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-/**
- * `useOnboarding` — client hook for the framework onboarding system.
- *
- * Fetches `/_agent-native/onboarding/steps` on mount, after any user-initiated
- * mutation (complete / dismiss / reopen), and when the tab regains focus.
- * No polling — onboarding state changes are user-driven, so a poll loop just
- * burns the DB and amplifies transient network errors.
- */
 
 import type {
   OnboardingAppProfile,
   OnboardingMethod,
   OnboardingStepStatus,
+  OnboardingSummary,
 } from "../../onboarding/types.js";
 import { getAnalyticsIdentityKey, trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
+import { scheduleAfterPaint } from "../use-after-paint.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
 } from "./first-run-status.js";
 
 const seenOnboardingEvents = new Set<string>();
+const ONBOARDING_SUMMARY_TIMEOUT_MS = 15_000;
 
 export function trackOnboardingEvent(
   name: string,
@@ -34,11 +29,22 @@ export function trackOnboardingEvent(
     properties.flow,
     properties.step_id,
     properties.extension_id,
+    properties.integration_id,
+    properties.role,
   ]
     .map((value) => String(value ?? ""))
     .join(":");
-  if (seenOnboardingEvents.has(key)) return;
-  seenOnboardingEvents.add(key);
+  const isRepeatableInteraction =
+    name.startsWith("integration_") ||
+    name === "onboarding_role_save_started" ||
+    name === "onboarding_method_clicked" ||
+    name === "onboarding_method_started" ||
+    name === "onboarding_method_outcome" ||
+    name === "onboarding_dismissed" ||
+    name === "onboarding_reopened" ||
+    name === "onboarding_abandoned";
+  if (!isRepeatableInteraction && seenOnboardingEvents.has(key)) return;
+  if (!isRepeatableInteraction) seenOnboardingEvents.add(key);
   trackEvent(name, properties);
 }
 
@@ -47,32 +53,17 @@ export interface UseOnboardingResult {
   profile: OnboardingAppProfile | null;
   loading: boolean;
   error: string | null;
-  /** Active step = first required+incomplete, else first incomplete. */
   currentStepId: string | null;
   completeCount: number;
   totalCount: number;
-  /** True when every required step is complete. */
   allComplete: boolean;
-  /** User dismissed the banner via the X button. */
   dismissed: boolean;
-  /** Refetch steps immediately. */
   refresh: () => Promise<void>;
-  /** Mark a step complete via the server-side override. */
   complete: (id: string) => Promise<void>;
-  /** Dismiss the banner permanently (until server-side reset). */
   dismiss: () => Promise<void>;
-  /** Re-open the panel after dismissal. */
   reopen: () => Promise<void>;
-  /** True until the post-signup full-screen flow is completed. */
   firstRun: boolean;
-  /** Clear the post-signup full-screen flow marker. Rejects instead of
-   *  resolving silently when the server call fails — see
-   *  `completeFirstRunError` for the message to show the user. */
   completeFirstRun: () => Promise<void>;
-  /** Set when the last `completeFirstRun()` call failed. Cleared on the next
-   *  attempt (success or failure). Distinct from `error` (the initial steps
-   *  load failure) so a failed Skip/Continue doesn't swap the whole screen
-   *  for an unrelated "could not load" message. */
   completeFirstRunError: string | null;
 }
 
@@ -92,17 +83,19 @@ export function useOnboarding(
   >(null);
   const stepsRef = useRef<OnboardingStepStatus[]>([]);
   const mountedRef = useRef(true);
+  const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
     setFirstRun(preview || initialFirstRun);
   }, [initialFirstRun, preview]);
 
   const fetchAll = useCallback(async () => {
+    const fetchGeneration = ++fetchGenerationRef.current;
     try {
-      const stepsUrl = agentNativePath(
+      const summaryUrl = agentNativePath(
         preview
-          ? "/_agent-native/onboarding/steps?preview=1"
-          : "/_agent-native/onboarding/steps",
+          ? "/_agent-native/onboarding/summary?preview=1"
+          : "/_agent-native/onboarding/summary",
       );
       const firstRunPromise = preview
         ? Promise.resolve(true).then((value) => {
@@ -112,22 +105,40 @@ export function useOnboarding(
         : initialFirstRun
           ? Promise.resolve(true)
           : fetchFirstRunOnboardingStatus();
-      const [stepsRes, dismissRes, profileRes, firstRunRes] = await Promise.all(
-        [
-          fetch(stepsUrl),
-          fetch(agentNativePath("/_agent-native/onboarding/dismissed")),
-          fetch(agentNativePath("/_agent-native/onboarding/profile")),
-          firstRunPromise,
-        ],
-      );
-      if (!mountedRef.current) return;
-      if (!stepsRes.ok) {
-        throw new Error(`steps: ${stepsRes.status}`);
+      const summaryController =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      let summaryTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      const summaryTimeout = new Promise<never>((_resolve, reject) => {
+        summaryTimeoutId = setTimeout(() => {
+          summaryController?.abort();
+          reject(new Error("onboarding summary timed out"));
+        }, ONBOARDING_SUMMARY_TIMEOUT_MS);
+      });
+      const summaryRequest = (async () => {
+        const response = await fetch(summaryUrl, {
+          ...(summaryController ? { signal: summaryController.signal } : {}),
+        });
+        if (!response.ok) {
+          throw new Error(`summary: ${response.status}`);
+        }
+        return (await response.json()) as OnboardingSummary;
+      })();
+      const [summary, firstRunRes] = await Promise.all([
+        Promise.race([summaryRequest, summaryTimeout]),
+        firstRunPromise,
+      ]).finally(() => {
+        if (summaryTimeoutId !== undefined) clearTimeout(summaryTimeoutId);
+        summaryController?.abort();
+      });
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
       }
-      const stepsData: OnboardingStepStatus[] = await stepsRes.json();
       const previousSteps = stepsRef.current;
       if (previousSteps.length > 0) {
-        for (const [stepIndex, step] of stepsData.entries()) {
+        for (const [stepIndex, step] of summary.steps.entries()) {
           const previousStep = previousSteps.find(
             (previous) => previous.id === step.id,
           );
@@ -140,13 +151,10 @@ export function useOnboarding(
           }
         }
       }
-      stepsRef.current = stepsData;
-      setSteps(stepsData);
+      stepsRef.current = summary.steps;
+      setSteps(summary.steps);
 
-      if (!profileRes.ok) {
-        throw new Error(`profile: ${profileRes.status}`);
-      }
-      setProfile((await profileRes.json()) as OnboardingAppProfile);
+      setProfile(summary.profile);
 
       if (preview) {
         setFirstRun(true);
@@ -154,35 +162,50 @@ export function useOnboarding(
         setFirstRun(firstRunRes === true);
       }
 
-      if (dismissRes.ok) {
-        const d = (await dismissRes.json()) as {
-          dismissed?: boolean;
-          allComplete?: boolean;
-        };
-        setDismissed(!!d.dismissed);
-      }
+      setDismissed(!!summary.dismissed);
       setError(null);
     } catch (e) {
-      if (!mountedRef.current) return;
+      if (
+        !mountedRef.current ||
+        fetchGeneration !== fetchGenerationRef.current
+      ) {
+        return;
+      }
       setError(e instanceof Error ? e.message : "Failed to load onboarding");
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (
+        mountedRef.current &&
+        fetchGeneration === fetchGenerationRef.current
+      ) {
+        setLoading(false);
+      }
     }
   }, [preview]);
 
   useEffect(() => {
     mountedRef.current = true;
-    void fetchAll();
-    // Refetch when the tab regains focus — picks up any changes the agent
-    // made while the user was away (or that another tab made).
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void fetchAll();
+    let initialFetchRan = false;
+    const cancelInitialFetch = scheduleAfterPaint(() => {
+      initialFetchRan = true;
+      if (mountedRef.current) void fetchAll();
+    });
+    const refetchOnFocus = () => {
+      if (!initialFetchRan) {
+        initialFetchRan = true;
+        cancelInitialFetch();
+      }
+      void fetchAll();
     };
-    const onFocus = () => fetchAll();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refetchOnFocus();
+    };
+    const onFocus = () => refetchOnFocus();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
     return () => {
       mountedRef.current = false;
+      fetchGenerationRef.current += 1;
+      cancelInitialFetch();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
@@ -212,17 +235,33 @@ export function useOnboarding(
   );
 
   const dismiss = useCallback(async () => {
-    setDismissed(true); // optimistic
+    setDismissed(true);
+    const currentStepIndex = steps.findIndex((step) => !step.complete);
+    const currentStep = steps[currentStepIndex];
+    trackOnboardingEvent("onboarding_dismissed", {
+      flow: "checklist",
+      ...(currentStepIndex >= 0
+        ? {
+            step_id: currentStep?.id,
+            step_index: currentStepIndex,
+          }
+        : {}),
+      reason: "user_action",
+    });
     await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
     });
     await fetchAll();
-  }, [fetchAll]);
+  }, [fetchAll, steps]);
 
   const reopen = useCallback(async () => {
-    setDismissed(false); // optimistic
+    setDismissed(false);
+    trackOnboardingEvent("onboarding_reopened", {
+      flow: "checklist",
+      reason: "user_action",
+    });
     await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -242,9 +281,6 @@ export function useOnboarding(
       return;
     }
     setCompleteFirstRunError(null);
-    // Both a rejected fetch (offline, dropped connection) and a non-ok
-    // response are real failures — neither may look like success to the
-    // caller, so both throw instead of returning as if the step advanced.
     let response: Response;
     try {
       response = await fetch(
@@ -314,5 +350,4 @@ export function useOnboarding(
   };
 }
 
-/** Re-export type for convenience. */
 export type { OnboardingMethod, OnboardingStepStatus };

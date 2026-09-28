@@ -1,9 +1,6 @@
 name: Deploy Agent-Native production sites from GitHub
+run-name: Deploy Agent-Native production sites `${{ inputs.sites }}`
 
-# Manual production cutover lane. It builds the same repository projects from
-# an exact main commit, uploads their prebuilt output to Netlify, publishes it,
-# and smoke-tests the live host. The existing production manager remains
-# available for rollback and for the workspace site without a local source map.
 on:
   workflow_dispatch:
     inputs:
@@ -32,9 +29,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep fleet runs in their own queue. Per-site child-job concurrency below
-  # coordinates each cutover without letting a manager or promotion run evict
-  # a pending fleet run from GitHub's single pending slot.
   group: agent-native-production-fleet-${{ inputs.sites }}
   cancel-in-progress: false
 
@@ -69,7 +63,6 @@ jobs:
     needs: resolve-source
     runs-on: ubuntu-latest
     outputs:
-      complete_fleet: ${{ steps.matrix.outputs.complete_fleet }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -136,32 +129,13 @@ jobs:
           }
           if (!buildable.length) throw new Error('No buildable production sites selected.');
 
-          const productionNames = Object.entries(sites)
-            .filter(([, site]) =>
-              typeof site?.host === 'string' && site.host.endsWith('.agent-native.com'),
-            )
-            .map(([name]) => name);
-          const completeFleet =
-            productionNames.length > 0 &&
-            productionNames.every(
-              (name) =>
-                names.includes(name) &&
-                buildable.some((site) => site.site === name),
-            );
-
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             `matrix=${JSON.stringify({ include: buildable })}\n`,
           );
-          fs.appendFileSync(
-            process.env.GITHUB_OUTPUT,
-            `complete_fleet=${completeFleet}\n`,
-          );
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
 
-  # Opt-in pre-flight. Skipped entirely unless the dispatch asks for it, and a
-  # skipped job does not hold up the deploy below.
   beta-e2e:
     name: Beta E2E pre-flight
     if: ${{ inputs.beta_e2e }}
@@ -173,22 +147,19 @@ jobs:
 
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
+    permissions:
+      contents: read
     needs: [resolve-source, discover-sites, beta-e2e]
-    # Spelled out per dependency rather than with `needs.*.result`: the two
-    # source jobs must still have succeeded exactly as before, while the
-    # pre-flight only has to have not failed — which is the state it is in when
-    # it was skipped for not being requested.
     if: >-
       ${{ !cancelled()
       && needs.resolve-source.result == 'success'
       && needs.discover-sites.result == 'success'
       && needs.beta-e2e.result != 'failure' }}
     concurrency:
-      group: agent-native-production-site-${{ matrix.site }}
+      group: agent-native-production-fleet-child-${{ matrix.site }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
-      max-parallel: 3
       matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -202,59 +173,32 @@ jobs:
       smoke: ${{ inputs.smoke }}
     secrets: inherit
 
-  record-beta-migration:
-    name: Record production migration marker
-    needs: [resolve-source, discover-sites, deploy]
-    if: >-
-      ${{ needs.discover-sites.outputs.complete_fleet == 'true'
-      && needs.deploy.result == 'success' }}
-    runs-on: ubuntu-latest
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
     permissions:
-      contents: write
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_ref }}
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const sourceSha = process.env.SOURCE_SHA.trim().toLowerCase();
-            if (!/^[0-9a-f]{40}$/.test(sourceSha)) {
-              core.setFailed('The production migration marker must target a full commit SHA.');
-              return;
-            }
-            const ref = `refs/tags/agent-native-beta-migrated/${sourceSha}`;
-            try {
-              const existing = await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: ref.slice('refs/'.length),
-              });
-              if (existing.data.object.sha.toLowerCase() !== sourceSha) {
-                core.setFailed(`Refusing to change existing production migration marker ${ref}.`);
-                return;
-              }
-              core.info(`Production migration marker already exists: ${ref}`);
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                await github.rest.git.createRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref,
-                  sha: sourceSha,
-                });
-                core.info(`Created production migration marker: ${ref}`);
-              } catch (createError) {
-                if (createError.status !== 422) throw createError;
-                const existing = await github.rest.git.getRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  ref: ref.slice('refs/'.length),
-                });
-                if (existing.data.object.sha.toLowerCase() !== sourceSha) {
-                  core.setFailed(`Concurrent production migration marker ${ref} points to a different commit.`);
-                  return;
-                }
-                core.info(`Production migration marker was created concurrently: ${ref}`);
-              }
-            }
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

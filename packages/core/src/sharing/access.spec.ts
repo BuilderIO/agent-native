@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withDbExec, type DbExec } from "../db/client.js";
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -10,6 +11,7 @@ import {
   assertAccess,
   ForbiddenError,
   resolveAccess,
+  resolveRegisteredAccessContext,
 } from "./access.js";
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
@@ -46,6 +48,29 @@ type Db = ReturnType<typeof drizzle>;
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let db: Db;
+
+it("preserves a transaction through resource-specific context normalization", () => {
+  const transaction = {
+    execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+  };
+  const resolved = resolveRegisteredAccessContext(
+    {
+      type: "normalized-transaction-test",
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      resolveAccessContext: (ctx) => ({ userEmail: ctx.userEmail }),
+    },
+    {
+      userEmail: viewerEmail,
+      orgId,
+      transaction,
+    },
+  );
+
+  expect(resolved).toEqual({ userEmail: viewerEmail, transaction });
+});
 
 async function insertDoc(values: {
   id: string;
@@ -103,7 +128,8 @@ beforeEach(async () => {
       principal_id TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       created_by TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      notified_at TEXT
     );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
@@ -120,6 +146,12 @@ beforeEach(async () => {
       role TEXT NOT NULL,
       joined_at BIGINT NOT NULL,
       federation_removal_pending_at INTEGER
+    );
+    CREATE TABLE org_invitations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT NOT NULL
     );
     CREATE TABLE workspace_user_groups (
       id TEXT PRIMARY KEY,
@@ -148,6 +180,138 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("requires approval only for public or external access changes", async () => {
+    await insertDoc({ id: "doc-share-approval" });
+    await addOrgMember(orgId, viewerEmail);
+    const needsShareApproval = shareResource.needsApproval;
+    if (typeof needsShareApproval !== "function") {
+      throw new Error("share-resource approval predicate is missing");
+    }
+    const dbExec: DbExec = {
+      execute: async (statement) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        const rows = await pglite.prepare(sql).all(...args);
+        return { rows, rowsAffected: 0 };
+      },
+    };
+    const shareApproval = (
+      userEmail: string,
+      principalType: "user" | "group" | "org",
+      principalId: string,
+      role: "viewer" | "commenter" | "editor" | "admin" = "viewer",
+    ) =>
+      runWithRequestContext({ userEmail, orgId }, () =>
+        withDbExec(dbExec, () =>
+          needsShareApproval({
+            resourceType,
+            resourceId: "doc-share-approval",
+            principalType,
+            principalId,
+            role,
+          }),
+        ),
+      );
+
+    await expect(shareApproval(ownerEmail, "user", viewerEmail)).resolves.toBe(
+      false,
+    );
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail),
+    ).resolves.toBe(true);
+    await expect(shareApproval(ownerEmail, "org", orgId)).resolves.toBe(false);
+    await expect(shareApproval(ownerEmail, "org", otherOrgId)).resolves.toBe(
+      true,
+    );
+    await expect(shareApproval(ownerEmail, "group", "team-id")).resolves.toBe(
+      false,
+    );
+
+    await db.insert(docShares).values({
+      id: "share-external-noop",
+      resourceId: "doc-share-approval",
+      principalType: "user",
+      principalId: outsiderEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail),
+    ).resolves.toBe(false);
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail, "editor"),
+    ).resolves.toBe(true);
+    await expect(
+      shareApproval(outsiderEmail, "user", "someone@example.test"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      requireOrgMemberForUserShares: true,
+    });
+    await expect(
+      shareApproval(ownerEmail, "user", outsiderEmail, "editor"),
+    ).resolves.toBe(false);
+  });
+
+  it("requires approval only when public visibility expands access", async () => {
+    await insertDoc({ id: "doc-public-approval" });
+    await insertDoc({
+      id: "doc-already-public",
+      visibility: "public",
+    });
+    const needsVisibilityApproval = setResourceVisibility.needsApproval;
+    if (typeof needsVisibilityApproval !== "function") {
+      throw new Error("set-resource-visibility approval predicate is missing");
+    }
+
+    const visibilityApproval = (userEmail: string, resourceId: string) =>
+      runWithRequestContext({ userEmail, orgId }, () =>
+        needsVisibilityApproval({
+          resourceType,
+          resourceId,
+          visibility: "public",
+        }),
+      );
+
+    await expect(
+      visibilityApproval(ownerEmail, "doc-public-approval"),
+    ).resolves.toBe(true);
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        needsVisibilityApproval({
+          resourceType,
+          resourceId: "doc-public-approval",
+          visibility: "org",
+        }),
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      visibilityApproval(ownerEmail, "doc-already-public"),
+    ).resolves.toBe(false);
+    await expect(
+      visibilityApproval(outsiderEmail, "doc-public-approval"),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      allowPublic: false,
+    });
+    await expect(
+      visibilityApproval(ownerEmail, "doc-public-approval"),
+    ).resolves.toBe(false);
+  });
+
   it("keeps viewer read-only while granting commenter comment capability", () => {
     expect(ROLE_RANK.commenter).toBeGreaterThan(ROLE_RANK.viewer);
     expect(roleSatisfies("viewer", "commenter")).toBe(false);
@@ -156,6 +320,7 @@ describe("shareable resource access helpers", () => {
   });
 
   it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
+    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
     expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
     expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
@@ -229,6 +394,39 @@ describe("shareable resource access helpers", () => {
     ]);
   });
 
+  it("lists shares while an additive share-column migration is pending", async () => {
+    await insertDoc({ id: "doc-pending-migration" });
+    await db.insert(docShares).values({
+      id: "share-pending-migration",
+      resourceId: "doc-pending-migration",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-09-09T00:00:00.000Z",
+    });
+    await pglite.exec("ALTER TABLE qa_doc_shares DROP COLUMN notified_at");
+
+    await expect(
+      runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-pending-migration",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      shares: [
+        {
+          id: "share-pending-migration",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "viewer",
+          createdAt: "2026-09-09T00:00:00.000Z",
+        },
+      ],
+    });
+  });
+
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
     await insertDoc({ id: "owned" });
     await insertDoc({ id: "owned-other-org", orgId: otherOrgId });
@@ -274,8 +472,6 @@ describe("shareable resource access helpers", () => {
       },
     ]);
 
-    // Public visibility is intentionally omitted from list queries by default
-    // — public means "anyone with the link," not "appears in everyone's list."
     await expect(
       listVisible({ userEmail: ownerEmail, orgId }),
     ).resolves.toEqual(["owned", "owned-solo", "same-org", "shared-org"]);
@@ -296,8 +492,6 @@ describe("shareable resource access helpers", () => {
       listVisible({ userEmail: viewerEmail, orgId }, "editor"),
     ).resolves.toEqual(["shared-org"]);
 
-    // Opt-in: callers that want cross-user public discovery in a list
-    // (e.g. a public template gallery) pass `{ includePublic: true }`.
     await expect(
       listVisible({ userEmail: viewerEmail }, "viewer", {
         includePublic: true,
@@ -432,10 +626,6 @@ describe("shareable resource access helpers", () => {
   });
 
   it("grants org-visibility access to a real org member even when a different org is active", async () => {
-    // Regression test: `org` visibility must key off actual `org_members`
-    // rows, not equality with the caller's currently active org. A caller
-    // can be a genuine member of both `orgId` and `otherOrgId` while only
-    // one of them is their active selection at any given moment.
     await insertDoc({
       id: "doc-org-cross-active",
       ownerEmail: outsiderEmail,
@@ -464,9 +654,6 @@ describe("shareable resource access helpers", () => {
       orgId: otherOrgId,
       visibility: "org",
     });
-    // viewerEmail has an active org, but is never added to `org_members` for
-    // `otherOrgId` — access must fail rather than fall back to any equality
-    // check.
     await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
       await expect(
         resolveAccess(resourceType, "doc-org-no-membership"),
@@ -474,6 +661,53 @@ describe("shareable resource access helpers", () => {
       await expect(
         assertAccess(resourceType, "doc-org-no-membership", "viewer"),
       ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("keeps direct user shares working in a transaction without org_members", async () => {
+    await insertDoc({
+      id: "doc-org-direct-share-without-members",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await db.insert(docShares).values({
+      id: "share-direct-without-members",
+      resourceId: "doc-org-direct-share-without-members",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+    await pglite.exec("DROP TABLE org_members");
+    const transaction = {
+      execute: async (
+        statement: string | { sql: string; args?: unknown[] },
+      ) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        const args =
+          typeof statement === "string" ? [] : (statement.args ?? []);
+        const result = await pglite.query(sql, args);
+        return {
+          rows: Array.from(result.rows ?? []),
+          rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+        };
+      },
+    };
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, () =>
+      assertAccess(
+        resourceType,
+        "doc-org-direct-share-without-members",
+        "editor",
+        {
+          userEmail: viewerEmail,
+          orgId,
+          transaction: transaction as any,
+        },
+      ),
+    ).then((access) => {
+      expect(access.role).toBe("editor");
     });
   });
 
@@ -577,7 +811,8 @@ describe("shareable resource access helpers", () => {
         principal_id TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer',
         created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        notified_at TEXT
       );
     `);
     registerShareableResource({
@@ -797,7 +1032,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-actions",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
       await expect(
         shareResource.run({
           resourceType,
@@ -814,7 +1049,7 @@ describe("shareable resource access helpers", () => {
           principalType: "org",
           principalId: otherOrgId,
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toMatchObject({ ok: true });
     });
 
     const shares = await db
@@ -832,6 +1067,123 @@ describe("shareable resource access helpers", () => {
       .from(docs)
       .where(eq(docs.id, "doc-actions"));
     expect(doc).toMatchObject({ visibility: "org" });
+  });
+
+  it("emits share cards only for created or changed grants", async () => {
+    await insertDoc({ id: "doc-share-card" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const share = {
+        resourceType,
+        resourceId: "doc-share-card",
+        principalType: "user" as const,
+        principalId: viewerEmail,
+        role: "viewer" as const,
+        notify: false,
+      };
+
+      const created = (await shareResource.run(share)) as Record<string, any>;
+      expect(created.change).toEqual({
+        verb: "created",
+        kind: "resource-share",
+        title: "doc-share-card",
+        detail: `user:${viewerEmail} · viewer`,
+      });
+      expect(created.updated).toBe(false);
+
+      const unchanged = (await shareResource.run(share)) as Record<string, any>;
+      expect(unchanged.updated).toBe(false);
+      expect(unchanged).not.toHaveProperty("change");
+
+      const updated = (await shareResource.run({
+        ...share,
+        role: "editor",
+      })) as Record<string, any>;
+      expect(updated.updated).toBe(true);
+      expect(updated.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-share-card",
+        detail: `user:${viewerEmail} · editor`,
+      });
+    });
+  });
+
+  it("emits an unshare card only when a grant is removed", async () => {
+    await insertDoc({ id: "doc-unshare-card" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await shareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+        role: "viewer",
+        notify: false,
+      });
+
+      const removed = (await unshareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+      })) as Record<string, any>;
+      expect(removed.change).toEqual({
+        verb: "deleted",
+        kind: "resource-share",
+        title: "doc-unshare-card",
+        detail: `user:${viewerEmail}`,
+      });
+
+      const unchanged = (await unshareResource.run({
+        resourceType,
+        resourceId: "doc-unshare-card",
+        principalType: "user",
+        principalId: viewerEmail,
+      })) as Record<string, any>;
+      expect(unchanged).not.toHaveProperty("change");
+    });
+  });
+
+  it("emits a visibility card only when visibility or organization scope changes", async () => {
+    await insertDoc({
+      id: "doc-visibility-card",
+      orgId: null,
+      visibility: "org",
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const attached = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "org",
+      })) as Record<string, any>;
+      expect(attached.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-visibility-card",
+        detail: "org",
+      });
+
+      const unchanged = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "org",
+      })) as Record<string, any>;
+      expect(unchanged).not.toHaveProperty("change");
+
+      const changed = (await setResourceVisibility.run({
+        resourceType,
+        resourceId: "doc-visibility-card",
+        visibility: "private",
+      })) as Record<string, any>;
+      expect(changed.change).toEqual({
+        verb: "updated",
+        kind: "resource-share",
+        title: "doc-visibility-card",
+        detail: "private",
+      });
+    });
   });
 
   it("delegates visibility persistence to a resource-owned hook", async () => {
@@ -854,7 +1206,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-hook",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     expect(persistVisibilityChange).toHaveBeenCalledWith(
@@ -914,7 +1266,7 @@ describe("shareable resource access helpers", () => {
           principalType: "user",
           principalId: "VIEWER+QA@EXAMPLE.COM",
         }),
-      ).resolves.toEqual({ ok: true });
+      ).resolves.toMatchObject({ ok: true });
     });
 
     shares = await db
@@ -936,7 +1288,11 @@ describe("shareable resource access helpers", () => {
           principalId: "opaque-user-id",
           role: "viewer",
         }),
-      ).rejects.toThrow(/email address/);
+      ).rejects.toMatchObject({
+        errorCode: "invalid_user_share_principal",
+        statusCode: 400,
+        message: expect.stringMatching(/email address/),
+      });
     });
 
     const shares = await db
@@ -967,7 +1323,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-legacy-solo",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     const [row] = await db
@@ -997,7 +1353,7 @@ describe("shareable resource access helpers", () => {
           resourceId: "doc-local-solo",
           visibility: "org",
         }),
-      ).resolves.toEqual({ ok: true, visibility: "org" });
+      ).resolves.toMatchObject({ ok: true, visibility: "org" });
     });
 
     const [row] = await db
@@ -1046,7 +1402,6 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
           visibility: "private",
         },
       });
-      // The full row includes non-access-decision columns like "title".
       expect(Object.keys(access!.resource)).toEqual(
         expect.arrayContaining(["title"]),
       );
@@ -1171,9 +1526,6 @@ describe("resolveAccess / assertAccess opt-in projected load", () => {
         undefined,
         { skipResourceBody: true },
       );
-      // The resolver reads `resource.title`, which only exists on a full
-      // row — this proves the opt-in projection was ignored for a
-      // registration with a dynamic `publicAccessRole` resolver.
       expect(access).toMatchObject({
         role: "editor",
         resource: { title: "proj-dynamic-edit" },

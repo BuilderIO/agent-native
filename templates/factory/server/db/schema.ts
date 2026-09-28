@@ -18,6 +18,7 @@ export const triageItems = table(
     summary: text("summary"),
     status: text("status").notNull().default("received"),
     risk: text("risk").notNull().default("unknown"),
+    confidence: text("confidence").notNull().default("unknown"),
     channelId: text("channel_id"),
     threadTs: text("thread_ts"),
     repository: text("repository"),
@@ -236,6 +237,34 @@ export const factoryGraphVersions = table(
   }),
 );
 
+export const factoryAutomationVersions = table(
+  "factory_automation_versions",
+  {
+    id: text("id").primaryKey(),
+    automationId: text("automation_id").notNull(),
+    factoryId: text("factory_id").notNull(),
+    version: integer("version").notNull(),
+    rawContent: text("raw_content").notNull(),
+    displayName: text("display_name"),
+    source: text("source").notNull().default("save"),
+    summary: text("summary").notNull().default(""),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+  },
+  (version) => ({
+    automationVersionUnique: uniqueIndex(
+      "factory_automation_versions_unique_idx",
+    ).on(version.orgId, version.automationId, version.version),
+    automationCreatedIdx: index("factory_automation_versions_created_idx").on(
+      version.orgId,
+      version.automationId,
+      version.createdAt,
+    ),
+  }),
+);
+
 export const factoryPollCursors = table(
   "factory_poll_cursors",
   {
@@ -246,6 +275,7 @@ export const factoryPollCursors = table(
     lastSlackTs: text("last_slack_ts"),
     slackHistoryCursor: text("slack_history_cursor"),
     lastSentrySeenAt: text("last_sentry_seen_at"),
+    babysitQueueCursor: text("babysit_queue_cursor"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull(),

@@ -4,6 +4,9 @@ const assertAccessMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 const completeVideoGenerationRunMock = vi.hoisted(() => vi.fn());
 const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
+const readVariantStateMock = vi.hoisted(() => vi.fn());
+const failMissingVariantRunMock = vi.hoisted(() => vi.fn());
+const trackMock = vi.hoisted(() => vi.fn());
 const updateSetCalls = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
 const schemaMock = vi.hoisted(() => ({
@@ -23,6 +26,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: trackMock,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
@@ -39,8 +46,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -56,7 +61,10 @@ vi.mock("../server/lib/library-access.js", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...conditions) => ({ op: "and", conditions })),
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
+  ne: vi.fn((column, value) => ({ op: "ne", column, value })),
+  sql: vi.fn(),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -81,6 +89,8 @@ vi.mock("../server/lib/json.js", () => ({
 }));
 
 vi.mock("./variant-slots.js", () => ({
+  failMissingVariantRun: failMissingVariantRunMock,
+  readVariantState: readVariantStateMock,
   upsertVariantSlot: upsertVariantSlotMock,
 }));
 
@@ -95,15 +105,20 @@ vi.mock("./_helpers.js", () => ({
 
 import action from "./refresh-generation-run.js";
 
+const interruptedImageRunError =
+  "Image generation was interrupted before a preview was created. Start a new generation to retry.";
+
 function createDb({
   run,
   assets,
+  completionClaims = Number.POSITIVE_INFINITY,
 }: {
-  run: Record<string, unknown>;
+  run: Record<string, unknown> | null;
   assets: Array<Record<string, unknown>>;
+  completionClaims?: number;
 }) {
   const rowsForTable = (table: unknown) =>
-    table === schemaMock.assetGenerationRuns ? [run] : assets;
+    table === schemaMock.assetGenerationRuns ? (run ? [run] : []) : assets;
   return {
     select: vi.fn(() => ({
       from: vi.fn((table: unknown) => ({
@@ -121,8 +136,17 @@ function createDb({
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, unknown>) => ({
-        where: vi.fn(async () => {
+        where: vi.fn(() => {
           updateSetCalls.push(values);
+          return {
+            returning: vi.fn(async () => {
+              if (values.status !== "completed" || completionClaims <= 0) {
+                return [];
+              }
+              completionClaims -= 1;
+              return [{ ...run, ...values }];
+            }),
+          };
         }),
       })),
     })),
@@ -134,8 +158,11 @@ describe("refresh-generation-run", () => {
     vi.clearAllMocks();
     libraryAccessMock.mockResolvedValue({ role: "owner", canApprove: true });
     updateSetCalls.length = 0;
+    trackMock.mockReset();
     assertAccessMock.mockResolvedValue(undefined);
     upsertVariantSlotMock.mockResolvedValue(undefined);
+    readVariantStateMock.mockResolvedValue(null);
+    failMissingVariantRunMock.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -172,7 +199,6 @@ describe("refresh-generation-run", () => {
 
     const result = await action.run({ runId: "run-1" });
 
-    // Refreshing mutates the run row, so it is scoped to the run's author.
     expect(libraryAccessMock).toHaveBeenCalledWith(
       "library-1",
       "author@example.test",
@@ -198,6 +224,138 @@ describe("refresh-generation-run", () => {
       }),
     );
     expect(completeVideoGenerationRunMock).not.toHaveBeenCalled();
+  });
+
+  it("fails a stale pending slot when its generation row is missing", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          ownerEmail: "author@example.test",
+          status: "pending",
+          createdAt: "2026-05-28T11:49:00.000Z",
+        },
+      ],
+    });
+    failMissingVariantRunMock.mockResolvedValue(true);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    const result = await action.run({
+      runId: "missing-run",
+      threadId: "thread-1",
+    });
+
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
+    expect(failMissingVariantRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "missing-run",
+        libraryId: "library-1",
+        scopeId: "thread-1",
+        error: interruptedImageRunError,
+      }),
+    );
+    expect(result).toEqual({
+      run: null,
+      assets: [],
+      missingRun: true,
+      slotReconciled: true,
+    });
+  });
+
+  it("uses the request owner for a stale legacy slot without ownerEmail", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          status: "pending",
+          createdAt: "2026-05-28T11:49:00.000Z",
+        },
+      ],
+    });
+    failMissingVariantRunMock.mockResolvedValue(true);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    const result = await action.run(
+      { runId: "missing-run", threadId: "thread-1" },
+      { userEmail: "author@example.test" },
+    );
+
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "author@example.test",
+      "A generation run",
+    );
+    expect(result).toEqual({
+      run: null,
+      assets: [],
+      missingRun: true,
+      slotReconciled: true,
+    });
+  });
+
+  it("keeps a fresh missing run visible as an error instead of clearing it", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          status: "pending",
+          createdAt: "2026-05-28T11:59:30.000Z",
+        },
+      ],
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    await expect(
+      action.run({ runId: "missing-run", threadId: "thread-1" }),
+    ).rejects.toThrow("Generation run not found.");
+    expect(libraryAccessMock).not.toHaveBeenCalled();
+    expect(failMissingVariantRunMock).not.toHaveBeenCalled();
+  });
+
+  it("does not reconcile a missing run authored by another user", async () => {
+    getDbMock.mockReturnValue(createDb({ run: null, assets: [] }));
+    readVariantStateMock.mockResolvedValue({
+      libraryId: "library-1",
+      slots: [
+        {
+          runId: "missing-run",
+          slotId: "slot-1",
+          ownerEmail: "other@example.test",
+          status: "pending",
+          createdAt: "2026-05-28T11:49:00.000Z",
+        },
+      ],
+    });
+    libraryAccessMock.mockRejectedValue(new Error("Forbidden"));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T12:00:00.000Z"));
+
+    await expect(
+      action.run({ runId: "missing-run", threadId: "thread-1" }),
+    ).rejects.toThrow("Forbidden");
+
+    expect(libraryAccessMock).toHaveBeenCalledWith(
+      "library-1",
+      "other@example.test",
+      "A generation run",
+    );
+    expect(failMissingVariantRunMock).not.toHaveBeenCalled();
   });
 
   it("restores a completed image asset into its live slot", async () => {
@@ -231,6 +389,41 @@ describe("refresh-generation-run", () => {
         assetId: "asset-1",
         previewUrl: "/api/assets/asset-1/content",
       }),
+    );
+  });
+
+  it("emits image completion once when refreshes race", async () => {
+    getDbMock.mockReturnValue(
+      createDb({
+        run: {
+          id: "run-3",
+          libraryId: "library-1",
+          ownerEmail: "author@example.test",
+          collectionId: null,
+          presetId: null,
+          sessionId: null,
+          prompt: "Hero image",
+          mediaType: "image",
+          status: "pending",
+          error: null,
+          metadata: JSON.stringify({ slotId: "hero-slot" }),
+          createdAt: "2026-05-28T11:59:30.000Z",
+        },
+        assets: [{ id: "asset-1" }],
+        completionClaims: 1,
+      }),
+    );
+
+    await Promise.all([
+      action.run({ runId: "run-3" }),
+      action.run({ runId: "run-3" }),
+    ]);
+
+    expect(trackMock).toHaveBeenCalledOnce();
+    expect(trackMock).toHaveBeenCalledWith(
+      "media_generated",
+      expect.objectContaining({ output_id: "asset-1" }),
+      undefined,
     );
   });
 });

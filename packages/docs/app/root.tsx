@@ -2,6 +2,7 @@ import { AgentNativeWebMcpActionRegistration } from "@agent-native/core/client/h
 import {
   AgentNativeRouteWarmup,
   defineClientAction,
+  isClientRouteUrl,
 } from "@agent-native/core/client/host";
 import {
   AgentNativeI18nProvider,
@@ -19,6 +20,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type MouseEvent,
 } from "react";
 import {
   Links,
@@ -29,13 +31,15 @@ import {
   Link,
   isRouteErrorResponse,
   useMatches,
+  useHref,
   useNavigate,
   useRouteError,
   useLocation,
+  useRevalidator,
   type LoaderFunctionArgs,
 } from "react-router";
 
-import { getGithubStarCount } from "../lib/github-star-count";
+import { getGithubStarCount } from "../server/lib/github-star-count.server";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -62,6 +66,7 @@ import appCss from "./global.css?url";
 
 const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+const GITHUB_STAR_REVALIDATION_DELAY_MS = 1_500;
 
 const LazyAgentSidebar = lazy(async () => {
   const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
@@ -115,7 +120,6 @@ const JSON_LD = JSON.stringify({
         name: "Builder.io",
         url: "https://builder.io",
       },
-      codeRepository: "https://github.com/BuilderIO/agent-native",
     },
   ],
 });
@@ -223,14 +227,29 @@ function useRootLocaleData() {
     : fallbackRootLocaleData(location.pathname);
 }
 
+function GithubStarCountRevalidator({
+  starCount,
+}: {
+  starCount: number | null;
+}) {
+  const { revalidate } = useRevalidator();
+  const scheduledRef = useRef(false);
+
+  useEffect(() => {
+    if (starCount !== null || scheduledRef.current) return;
+    scheduledRef.current = true;
+    const timer = window.setTimeout(
+      () => revalidate(),
+      GITHUB_STAR_REVALIDATION_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [revalidate, starCount]);
+
+  return null;
+}
+
 export const links = () => [
   { rel: "stylesheet", href: appCss },
-  // Every selector in tokens.css is scoped under .builder-brand-tokens, which
-  // the header, the footer, and the homepage opt into. It deliberately stays
-  // off <body>: global.css has `:where(:not(.builder-brand-tokens *))`
-  // exclusions carrying the docs prose chrome, and a body-level opt-in would
-  // silently make all three of them match nothing. The page background is
-  // unified through --bg in global.css instead, which mirrors --b-bg-page.
   { rel: "stylesheet", href: tokensCss },
   { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
   { rel: "apple-touch-icon", href: "/logo192.png", type: "image/png" },
@@ -254,12 +273,65 @@ export const meta = () => [
       "Build autonomous agents with intuitive UIs. Define each capability once for the agent, UI, APIs, and integrations. Open-source TypeScript.",
   },
   { property: "og:type", content: "website" },
-  { property: "og:url", content: SITE_URL },
-  { property: "og:site_name", content: "Agent-Native" },
 ];
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   const { starCount } = useRootLocaleData();
+  const routerRootHref = useHref("/");
+  const navigate = useNavigate();
+
+  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("a[href]");
+    if (
+      !link ||
+      link.dataset.discover ||
+      (link.target && link.target !== "_self") ||
+      link.hasAttribute("download")
+    ) {
+      return;
+    }
+
+    const url = new URL(link.href, window.location.href);
+    if (
+      url.origin !== window.location.origin ||
+      (url.pathname === window.location.pathname &&
+        url.search === window.location.search)
+    ) {
+      return;
+    }
+    if (!isClientRouteUrl(url)) return;
+
+    const routerRootPath = new URL(
+      routerRootHref,
+      window.location.href,
+    ).pathname.replace(/\/+$/, "");
+    let pathname = url.pathname;
+    if (routerRootPath) {
+      if (url.pathname === routerRootPath) {
+        pathname = "/";
+      } else if (url.pathname.startsWith(`${routerRootPath}/`)) {
+        pathname = url.pathname.slice(routerRootPath.length);
+      } else {
+        return;
+      }
+    }
+
+    event.preventDefault();
+    void navigate(`${pathname}${url.search}${url.hash}`);
+  };
 
   return (
     // core's `.agent-sidebar-shell` sits between <body> and this chrome and
@@ -267,8 +339,12 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     // the background on <body> never shows and every route inherited a color
     // from a token system the brand palette knows nothing about. Painting --bg
     // here is what actually decides the page color, on every route.
-    <div className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]">
+    <div
+      className="min-h-screen w-full min-w-0 overflow-x-clip bg-[var(--bg)]"
+      onClick={handleClick}
+    >
       <ScrollManager />
+      <GithubStarCountRevalidator starCount={starCount} />
       <SnackbarProvider>
         <SiteHeader starCount={starCount} />
         {children}
@@ -308,6 +384,8 @@ function SeoLinks() {
   return (
     <>
       <link rel="canonical" href={canonical} />
+      <meta property="og:url" content={canonical} />
+      <meta property="og:site_name" content="Agent-Native" />
       {markdownPath ? (
         <link
           rel="alternate"
@@ -389,9 +467,6 @@ function setManagedScrollTop(top: number) {
   }
 }
 
-// AgentSidebar wraps content in an overflow-auto div, so the window usually
-// does not scroll. Keep both normal route changes and hash links pointed at
-// that real scroll container.
 function ScrollManager() {
   const { pathname, hash } = useLocation();
   const ref = useRef<HTMLSpanElement>(null);
@@ -478,6 +553,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script
+          src="https://analytics.ahrefs.com/analytics.js"
+          data-key="z2Qe9BlsuxGKqijbSuv8ow"
+          async
+        />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           data-agent-native-locale-init
@@ -571,9 +651,6 @@ export function RootShell({ mounted }: { mounted: boolean }) {
   );
 
   const fallback = (
-    // Mirror AgentSidebar's outer layout (h-screen + overflow-hidden shell
-    // with an overflow-auto child) so swapping in the real sidebar after
-    // hydration doesn't shift the scrollbar and re-anchor centered content.
     <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
         {content}
@@ -581,11 +658,6 @@ export function RootShell({ mounted }: { mounted: boolean }) {
     </div>
   );
 
-  // One tree shape for every phase. Returning `fallback` bare before mount and
-  // a fragment+Suspense after put the placeholder at two different positions,
-  // so React tore the whole page down and rebuilt it on the `mounted` flip --
-  // on top of the rebuild the lazy swap itself causes. Keeping the fragment and
-  // the Suspense boundary mounted in every phase removes that first teardown.
   return (
     <>
       {mounted && (
@@ -598,6 +670,7 @@ export function RootShell({ mounted }: { mounted: boolean }) {
       <Suspense fallback={fallback}>
         {mounted ? (
           <LazyAgentSidebar
+            screenRefreshOnlyWhenPanelActive
             storageKey="docs"
             position="right"
             defaultOpen={false}
@@ -625,8 +698,6 @@ export function RootShell({ mounted }: { mounted: boolean }) {
   );
 }
 
-// Mirrors core's ErrorBoundary.tsx useStaleChunkRecovery: reload once on a
-// stale chunk instead of stranding the user on the generic error screen.
 function useStaleChunkRecovery(error: unknown): boolean {
   const [recovering, setRecovering] = useState(() =>
     isStaleDocsChunkError(error),
@@ -648,9 +719,6 @@ function LocalizedError({ error }: { error: unknown }) {
   const localizedPath = (path: string) =>
     sitePathForLocale(path, localeData.locale);
 
-  // Always surface the underlying error to devtools/Sentry — a generic
-  // "Something went wrong" screen with nothing logged is how a root cause
-  // stays unknown (see the incident this recovery path was added for).
   if (typeof console !== "undefined" && error && !recovering) {
     console.error("[DocsErrorBoundary]", error);
   }
@@ -680,7 +748,7 @@ function LocalizedError({ error }: { error: unknown }) {
           <p className="mb-8 text-base leading-relaxed text-[var(--fg-secondary)]">
             {t("errors.notFoundBody")}
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center gap-3">
             <Link
               data-an-prefetch="viewport"
               to={localizedPath("/")}

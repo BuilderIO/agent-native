@@ -1,8 +1,10 @@
 import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
+import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
   withCanonicalTrackingProperties,
@@ -25,6 +27,8 @@ import {
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { clientBuildId } from "./build-compatibility.js";
+import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -59,28 +63,23 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
-  SessionReplayContext,
-  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
 } from "./session-replay.js";
 export {
   getSessionReplayContext,
   getSessionReplayUrl,
-} from "./session-replay.js";
+} from "./session-replay-context.js";
+export type {
+  SessionReplayContext,
+  SessionReplayLinkOptions,
+} from "./session-replay-context.js";
 
 declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
-    /** Set by synthetic E2E contexts before the first app script runs. */
+    __AGENT_NATIVE_GA_GTAG__?: (...args: any[]) => void;
     __AGENT_NATIVE_SYNTHETIC_TRAFFIC__?: string;
     __AGENT_NATIVE_CONFIG__?: {
-      /**
-       * This app's origins, projected by server/app-origin-config.ts. These
-       * replace the `VITE_` mirrors of APP_URL / WORKSPACE_* — the prefix only
-       * ever answered "how does this reach the browser", which the shell
-       * answers better. Impersonal, so safe in the CDN-cached shell.
-       */
-      /** Public authenticated-app route used by client session fallbacks. */
       appHomePath?: string;
       appUrl?: string;
       workspaceGatewayUrl?: string;
@@ -90,23 +89,11 @@ declare global {
       sentryDsn?: string;
       sentryEnvironment?: string;
       deploymentEnvironment?: string;
-      /**
-       * Public PostHog project key + host. Publishable and identical for every
-       * visitor, so it ships inside the CDN-cached SSR shell alongside the
-       * Sentry DSN. Absent when no public key is configured.
-       */
       posthogKey?: string;
       posthogHost?: string;
       posthogErrorTracking?: boolean;
-      /** Public first-party Analytics write config for static/SSR shells. */
       agentNativeAnalyticsPublicKey?: string;
       agentNativeAnalyticsEndpoint?: string;
-      /**
-       * Hosted Realtime Gateway config. Impersonal (same for every visitor),
-       * so it is safe inside the CDN-cached SSR shell — unlike the per-user
-       * subscribe token, which is minted client-side after load. Absent when
-       * the app uses the in-process (local) transport.
-       */
       realtime?: { transport?: string; gatewayBaseUrl?: string };
     };
   }
@@ -131,61 +118,26 @@ type AgentChatTrackingState = {
   seen: Map<string, number>;
 };
 
-/**
- * First-party, Sentry-style error capture configuration. Pass `true`/`false`
- * to force on/off, or an options object to tune it. When omitted, error
- * capture auto-enables whenever a first-party analytics public key is
- * configured (mirroring pageview + session-replay auto-enable).
- */
 export type ErrorCaptureConfigOptions = {
-  /** Build/release identifier attached to every captured exception. */
   release?: string;
-  /** Deployment environment (e.g. "production"). Defaults to Vite MODE. */
   environment?: string;
-  /** Auto-capture `window.onerror`. Defaults to true. */
   captureGlobalErrors?: boolean;
-  /** Auto-capture `unhandledrejection`. Defaults to true. */
   captureUnhandledRejections?: boolean;
-  /** Breadcrumb ring-buffer size. Defaults to 20. */
   maxBreadcrumbs?: number;
 };
 
 export type ConfigureTrackingOptions = {
-  /** Platform attribution attached to every event emitted by this client. */
   clientPlatform?: AnalyticsClientPlatform;
-  /**
-   * Agent-Native first-party analytics public key. This mirrors hosted
-   * analytics SDKs where consumers pass the key at setup time instead of
-   * relying on build-time environment variables.
-   */
   key?: string;
-  /** Alias for `key`, matching the replay ingest payload name. */
   publicKey?: string;
-  /** First-party analytics track endpoint. */
   endpoint?: string;
   getDefaultProps?: GetDefaultProps;
-  /**
-   * Disable content-capturing analytics such as interaction autocapture and
-   * session replay while retaining pageviews, explicit events, and Sentry.
-   */
   contentCapture?: boolean;
-  /** Resolve content capture synchronously for each browser pathname. */
   contentCaptureForPath?: (pathname: string) => boolean;
-  /**
-   * Whether tracking may read the authenticated agent-engine status endpoint.
-   * Disable this on anonymous/public routes to avoid an expected 401 request.
-   */
   llmConnectionStatus?: boolean;
-  /** Disable framework auth refresh when the host owns identity/session state. */
   authSessionRefresh?: boolean;
-  /** Disable automatic history/pageview events when the host emits its own. */
   pageviewTracking?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
-  /**
-   * First-party, Sentry-style error capture. Auto-captures uncaught errors
-   * and unhandled rejections and exposes `captureException`/`captureMessage`.
-   * Auto-enables when a public key is present; pass `false` to disable.
-   */
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
 
@@ -193,10 +145,12 @@ export type TrackingIdentityUser = {
   id?: string;
   email?: string;
   username?: string;
+  authUserId?: string;
 };
 
 type TrackingIdentity = {
   userId?: string;
+  authUserId?: string;
   userEmail?: string;
   userName?: string;
   orgId?: string | null;
@@ -221,6 +175,7 @@ let _pendingSentryCaptures: Array<{
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
+let _llmConnectionBootRefresh: Promise<void> | null = null;
 let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
@@ -236,19 +191,11 @@ let _sessionReplayModuleForCapture:
   | null = null;
 let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
-// Buffer for setSentryUser calls made before Sentry has initialized.
-// `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
   "https://analytics.agent-native.com/track";
-/**
- * Dedicated first-party analytics event name for captured exceptions. The
- * analytics server ingest forks events with this name into the error-capture
- * tables (error_issues / error_events) while still recording them in
- * analytics_events for alerting. Keep in sync with the template server ingest.
- */
 export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
@@ -265,20 +212,14 @@ const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
 
-// First-touch referral attribution (viral attribution). Captured once on the
-// visitor's first page load and persisted across the signup boundary so the
-// server-side `signup` event can record where the user came from. First-write
-// wins — an existing value is never overwritten.
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 const APP_ENTRY_STORAGE_KEY = "agent-native.app_entry";
+const APP_LAST_ENTRY_STORAGE_KEY_PREFIX = "agent-native.app_last_entry";
 const MAX_APP_ENTRY_KEYS = 100;
-// 30 days, matching the session cookie lifetime — long enough to bridge a
-// "land today, sign up next week" path without retaining attribution forever.
+const RETURN_USAGE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS = 2592000;
 const FIRST_TOUCH_MAX_FIELD_LENGTH = 120;
-// Keep the serialized cookie well under the ~4KB browser cap; we bail rather
-// than write a runaway cookie if some field combination blows past this.
 const FIRST_TOUCH_MAX_COOKIE_BYTES = 1500;
 const FIRST_TOUCH_QUERY_FIELDS = [
   "ref",
@@ -393,7 +334,14 @@ function installLlmConnectionRefresh(): void {
   if (typeof window === "undefined" || _llmConnectionRefreshInstalled) return;
   _llmConnectionRefreshInstalled = true;
   _llmConnectionStatus = readCachedLlmConnectionStatus();
-  void refreshLlmConnectionStatus();
+  _llmConnectionBootRefresh = new Promise<void>((resolve) => {
+    scheduleAfterPaint(() => {
+      void Promise.race([
+        refreshLlmConnectionStatus(),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 250)),
+      ]).finally(resolve);
+    });
+  });
   window.addEventListener("focus", () => {
     void refreshLlmConnectionStatus();
   });
@@ -451,8 +399,9 @@ function setTrackingIdentityFromSession(data: unknown): void {
     return;
   }
   const email = readTrackingString(session.email);
+  const canonicalAuthUserId = readTrackingString(session.authUserId);
   const authUserId = readTrackingString(session.userId);
-  const userId = email || authUserId;
+  const userId = email || canonicalAuthUserId || authUserId;
   if (!userId) {
     clearTrackingIdentity();
     return;
@@ -460,6 +409,7 @@ function setTrackingIdentityFromSession(data: unknown): void {
   const userName = readTrackingString(session.name);
   _trackingIdentity = {
     userId,
+    ...(canonicalAuthUserId ? { authUserId: canonicalAuthUserId } : {}),
     ...(email ? { userEmail: email } : {}),
     ...(userName ? { userName } : {}),
     orgId: readTrackingString(session.orgId) ?? null,
@@ -498,11 +448,12 @@ function applyTrackingIdentity(
   properties: Record<string, unknown>,
   identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  if (!identity) return properties;
-  let next = properties;
+  let next = { ...properties };
+  delete next.auth_user_id;
+  delete next.authUserId;
+  if (!identity) return next;
   const assign = (key: string, value: unknown) => {
     if (value !== undefined && value !== null && next[key] === undefined) {
-      if (next === properties) next = { ...properties };
       next[key] = value;
     }
   };
@@ -513,13 +464,12 @@ function applyTrackingIdentity(
   return next;
 }
 
-/**
- * The signed-in user id used to attribute browser events, or `undefined` when
- * signed out. Same value the server attributes its events to (email, falling
- * back to the auth user id), so a person is one person across both.
- */
 function getTrackingUserId(): string | undefined {
   return _trackingIdentity?.userId;
+}
+
+function getTrackingAuthUserId(): string | undefined {
+  return _trackingIdentity?.authUserId;
 }
 
 export function getAnalyticsIdentityKey(): string | undefined {
@@ -549,11 +499,6 @@ function truncateFirstTouchField(value: string | null | undefined): string {
   return trimmed.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH);
 }
 
-/**
- * Extract just the host of a referrer URL — never the full URL or query
- * string (those can carry tokens). Returns "" when there's no usable host or
- * the referrer is same-origin (a same-site navigation isn't a referral).
- */
 function scrubReferrerHost(referrer: string | undefined): string {
   if (!referrer) return "";
   try {
@@ -615,9 +560,6 @@ function readFirstTouchCookie(): string | null {
 
 function writeFirstTouchCookie(encodedValue: string): void {
   if (typeof document === "undefined") return;
-  // Non-sensitive, written by client JS, so no HttpOnly. SameSite=Lax keeps it
-  // on top-level navigations (which is how share links arrive) without leaking
-  // it to cross-site subresource requests.
   const cookie =
     `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
     `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
@@ -664,11 +606,6 @@ function captureFirstTouchAttribution(): void {
   }
 }
 
-/**
- * Return the parsed first-touch referral attribution captured for this
- * visitor, or `null` when none is stored. Reads from `localStorage`
- * (`an_attribution`). SSR-safe and defensive.
- */
 export function getFirstTouchAttribution(): FirstTouchAttribution | null {
   if (typeof window === "undefined") return null;
   try {
@@ -714,9 +651,6 @@ function ensureAmplitude(): boolean {
 
   _amplitudeLoadPromise = import("@amplitude/analytics-browser")
     .then((module) => {
-      // Standard pageviews and explicit events are emitted below. Keep SDK-level
-      // DOM/network autocapture off so rendered user content is never collected as
-      // an implicit analytics side effect.
       module.init(key, { autocapture: false });
       _amplitudeModule = module;
       _amplitudeInitialized = true;
@@ -800,9 +734,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
   const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
   const isDocsPage = isAgentNativeDocsUrl(requestUrl);
-  // React Router's stale-chunk recovery handles these failures by reloading
-  // the page. Keep the external Sentry stream aligned with first-party
-  // capture, which already drops the prevented browser event.
   if (
     exceptionValues.some((value) =>
       isDynamicImportFailureMessage(
@@ -813,11 +744,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     return true;
   }
 
-  // A server-owned run can emit an expected run_timeout while handing off to
-  // its continuation. AssistantChat retries these transitions automatically;
-  // only locally timed-out or ultimately unrecoverable runs should create a
-  // Sentry issue. Keep this scoped to the explicit chat tags so real provider
-  // and network timeout errors remain visible.
   if (
     event.tags?.context === "agent-native-chat" &&
     event.tags?.errorCode === "run_timeout" &&
@@ -826,11 +752,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
-  // rrweb 2.1.0 replays recorded media interactions with `void media.play()`.
-  // Browsers may reject that promise when the recorded media was unmuted and
-  // no user activation is still active, which becomes a source-less unhandled
-  // rejection even though the replay player keeps working. Keep this scoped to
-  // the replay detail route and the exact browser autoplay-policy message.
   if (
     isSessionReplayUrl(requestUrl) &&
     exceptionValues.some((value) => {
@@ -845,20 +766,11 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
-  // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
-  // out of the SSE stream parser when the agent run needs to be
-  // auto-continued. It's caught by the chat adapter and is never a real
-  // error. Drop it unconditionally — capturing it as a Sentry exception
-  // pollutes the issue list with sentinels that have no actionable stack.
   if (
     exceptionValues.some((value) => value.type === "AgentAutoContinueSignal")
   ) {
     return true;
   }
-  // Browser-side access control rejections usually mean a tab outlived the
-  // session or hit a protected route while signed out. The server Sentry setup
-  // already drops these bare auth errors; mirror that here for client-captured
-  // route/query failures.
   if (
     exceptionValues.some((value) => {
       const exceptionType = String(value.type ?? "")
@@ -877,10 +789,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
-  // Safari occasionally reports a source-less global `EmptyRanges` reference
-  // error while browsing public pages. There is no script URL or function to
-  // map back to our bundle, so keep the filter narrow and only drop it when
-  // every frame is missing/undefined.
   if (
     exceptionValues.some((value) => {
       const exceptionType = String(value.type ?? "")
@@ -929,8 +837,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   ) {
     return true;
   }
-  // Exact user/navigation aborts are expected browser behavior. Keep other
-  // AbortError shapes visible unless they match this common non-bug message.
   if (
     exceptionValues.some((value) => {
       const exceptionType = String(value.type ?? "")
@@ -1017,6 +923,10 @@ function resolveClientDeploymentEnvironment(): string {
   );
 }
 
+function resolveClientRelease(): string {
+  return `agent-native-client@${clientBuildId() || "development"}`;
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -1060,6 +970,7 @@ function ensureSentry(loadWithoutDsn = false): void {
       module.init({
         dsn,
         environment: resolveClientDeploymentEnvironment(),
+        release: resolveClientRelease(),
         beforeSend(event) {
           if (isSyntheticBrowserTraffic()) return null;
           event.tags = {
@@ -1069,14 +980,9 @@ function ensureSentry(loadWithoutDsn = false): void {
           if (shouldDropBrowserSentryNoise(event)) {
             return null;
           }
-          // Strip sensitive query params from the request URL. React Router
-          // history can include share tokens, ?signin=1, password reset codes,
-          // public-share password params (audit F-07), etc.
           if (event.request?.url) {
             event.request.url = scrubUrl(event.request.url);
           }
-          // Clean the same params from breadcrumb URLs (Sentry captures
-          // history.pushState breadcrumbs by default).
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {
               if (crumb && typeof crumb === "object" && "data" in crumb) {
@@ -1102,7 +1008,6 @@ function ensureSentry(loadWithoutDsn = false): void {
         resolveClientDeploymentEnvironment(),
       );
       _sentryInitialized = true;
-      // Flush any user/tag that was set before init.
       if (_pendingSentryUser !== undefined) {
         module.setUser(_pendingSentryUser);
         _pendingSentryUser = undefined;
@@ -1123,14 +1028,6 @@ function ensureSentry(loadWithoutDsn = false): void {
     });
 }
 
-/**
- * Attach the current user to Sentry events from the browser. Pass `null` to
- * clear (e.g. on logout). If Sentry isn't initialized yet, the value is
- * buffered and applied once `ensureSentry()` runs.
- *
- * Pass `orgId` to also tag events with the active organization ID — useful
- * for filtering Sentry by tenant.
- */
 export function setSentryUser(
   user: TrackingIdentityUser | null,
   orgId?: string | null,
@@ -1138,11 +1035,19 @@ export function setSentryUser(
   const previousIdentity = _trackingIdentity;
   const suppressTracking = isQaTrackingUser(user);
   let shouldRetryReplay = false;
+  let sentryUser: TrackingIdentityUser | null = null;
   if (user) {
+    sentryUser = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+    };
     const userId = user.email || user.id;
     if (userId) {
+      const authUserId = readTrackingString(user.authUserId);
       _trackingIdentity = {
         userId,
+        ...(authUserId ? { authUserId } : {}),
         ...(user.email ? { userEmail: user.email } : {}),
         ...(user.username ? { userName: user.username } : {}),
         orgId: orgId ?? null,
@@ -1167,19 +1072,18 @@ export function setSentryUser(
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
   if (_sentryInitialized && _sentryModule) {
-    _sentryModule.setUser(suppressTracking ? null : user);
+    _sentryModule.setUser(suppressTracking ? null : sentryUser);
     if (orgId !== undefined) {
       _sentryModule.setTag("orgId", orgId ?? null);
     }
     return;
   }
-  _pendingSentryUser = suppressTracking ? null : user;
+  _pendingSentryUser = suppressTracking ? null : sentryUser;
   if (orgId !== undefined) {
     _pendingSentryOrgId = orgId ?? null;
   }
 }
 
-/** Neutral alias for hosts that own identity outside Sentry. */
 export function setTrackingIdentity(
   user: TrackingIdentityUser | null,
   orgId?: string | null,
@@ -1188,30 +1092,11 @@ export function setTrackingIdentity(
 }
 
 export interface ClientCaptureContext {
-  /** Searchable Sentry tags (low-cardinality strings only). */
   tags?: Record<string, string | undefined>;
-  /**
-   * High-cardinality / structured payload — not searchable but visible in
-   * the Sentry event detail (file sizes, request URLs, response body
-   * tails, etc.).
-   */
   extra?: Record<string, unknown>;
-  /**
-   * Grouped contexts shown as separate cards in the Sentry event UI.
-   */
   contexts?: Record<string, Record<string, unknown>>;
 }
 
-/**
- * Capture an exception to Sentry from browser code without forcing the
- * caller to depend on `@sentry/browser` directly.
- *
- * Templates can route a thrown Error through here on a known failure path
- * (chunk-upload 500, thumbnail upload, etc.) to attach searchable tags and
- * structured extra context. No-ops gracefully when Sentry isn't
- * initialized — never throws back into the caller, so a Sentry hiccup
- * can't mask the original error.
- */
 export function captureClientException(
   error: unknown,
   context: ClientCaptureContext = {},
@@ -1231,12 +1116,6 @@ export function captureClientException(
   }
 }
 
-/**
- * Public browser-side error capture utility, mirroring `trackEvent()`:
- * templates can call `captureError(err, { tags, extra, contexts })` without
- * depending on Sentry directly. Sentry receives the event when a browser DSN
- * is configured; otherwise this is a quiet no-op.
- */
 export function captureError(
   error: unknown,
   context: ClientCaptureContext = {},
@@ -1290,12 +1169,6 @@ export type AgentChatLifecycleEvent = {
   tabId?: string;
 };
 
-/**
- * Record a content-free, browser-session-linked chat lifecycle marker and add
- * the same marker to session replay when replay is configured. The bounded
- * global de-dupe survives React Strict Mode remounts without retaining keys
- * forever.
- */
 export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
   if (typeof window === "undefined") return;
   if (isSyntheticBrowserTraffic()) return;
@@ -1417,12 +1290,6 @@ function syncTrackingContentCaptureForLocation(): void {
   );
 }
 
-/**
- * Lazily load the session-replay module so error capture can read the active
- * replay id and surface manual captures on the replay timeline without a
- * static import (which would create an analytics <-> session-replay import
- * cycle and pull the replay module into the analytics chunk eagerly).
- */
 function loadSessionReplayModuleForCapture(): void {
   if (_sessionReplayModuleForCapture) return;
   import("./session-replay.js")
@@ -1482,19 +1349,10 @@ function amplitudeEventProperties(
   return stableProperties;
 }
 
-/**
- * Resolve browser PostHog config, or `undefined` when error capture should not
- * reach PostHog. Reads the SSR-injected shell config first, then Vite env for
- * static/SPA builds that never render through the SSR handler.
- */
 function posthogErrorConfig(): { key: string; host: string } | undefined {
   const shell = window.__AGENT_NATIVE_CONFIG__;
   if (shell?.posthogErrorTracking === false) return undefined;
   const env = import.meta.env as Record<string, string | undefined>;
-  // Static/SPA builds never render through the SSR handler, so they never see
-  // the shell config that carries the server-side opt-out. Without this a
-  // Vite-only deployment could not honour `POSTHOG_ERROR_TRACKING=false`
-  // short of deleting the public key.
   if (env?.VITE_POSTHOG_ERROR_TRACKING?.trim().toLowerCase() === "false") {
     return undefined;
   }
@@ -1508,16 +1366,6 @@ function posthogErrorConfig(): { key: string; host: string } | undefined {
   return { key, host };
 }
 
-/**
- * Send the exception straight to PostHog's event endpoint.
- *
- * Not relayed through `/_agent-native/track`: that route requires a resolved
- * session, so every signed-out crash would be dropped without a trace.
- *
- * `distinct_id` uses the signed-in user id when we have one so browser events
- * join the server's events for the same person; otherwise the stable anonymous
- * id, which `$identify` later aliases on login.
- */
 function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
   if (isSyntheticBrowserTraffic()) return;
   const config = posthogErrorConfig();
@@ -1550,7 +1398,6 @@ function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
     const endpoint = `${config.host}/i/v0/e/`;
 
     if (navigator.sendBeacon) {
-      // text/plain avoids a CORS preflight the page may not survive.
       const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
       if (navigator.sendBeacon(endpoint, blob)) return;
     }
@@ -1569,10 +1416,6 @@ function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
 function sendExceptionEvent(event: CapturedExceptionEvent): void {
   if (isSyntheticBrowserTraffic()) return;
   if (isQaTrackingIdentity(_trackingIdentity)) return;
-  // Route through the existing first-party analytics ingest as a dedicated
-  // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
-  // transport; the server forks it into error_issues/error_events and still
-  // records it in analytics_events for alerting.
   trackEvent(
     AGENT_NATIVE_EXCEPTION_EVENT_NAME,
     exceptionEventProperties(event),
@@ -1598,8 +1441,6 @@ function errorCaptureAutoEnabled(): boolean {
     window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  // A PostHog public key is an equally explicit opt-in — an app running
-  // PostHog and no Agent-Native Analytics should still report browser crashes.
   return !!publicKey || !!posthogErrorConfig();
 }
 
@@ -1684,18 +1525,38 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
-      onUploadRejected:
-        options.onUploadRejected ??
-        ((details) => {
+      onRecordingStarted: (recordingAttemptId) => {
+        try {
+          trackEvent("session_replay_started", {
+            recording_attempt_id: recordingAttemptId,
+          });
+        } catch {
+          // coercion-ok: keep capture running if optional telemetry fails.
+        }
+        options.onRecordingStarted?.(recordingAttemptId);
+      },
+      onUploadRejected: options.onUploadRejected,
+      onUploadRejectedWithAttemptId: (details, recordingAttemptId) => {
+        try {
           trackEvent("session replay upload rejected", {
+            recording_attempt_id: recordingAttemptId,
             status: details.status,
             restart_attempted: details.restartAttempted,
             restart_succeeded: details.restartSucceeded,
+            ...(details.failureReason
+              ? { failure_reason: details.failureReason }
+              : {}),
+            ...(details.retryAfterSeconds !== undefined
+              ? { retry_after_seconds: details.retryAfterSeconds }
+              : {}),
             ...(details.restartReason
               ? { restart_reason: details.restartReason }
               : {}),
           });
-        }),
+        } finally {
+          options.onUploadRejectedWithAttemptId?.(details, recordingAttemptId);
+        }
+      },
       requireSignedInUser:
         options.requireSignedInUser ??
         sessionReplayRequiresSignedInUserFromEnv() ??
@@ -1905,6 +1766,28 @@ function resolveProps(
   name: string,
   params?: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (name === "session_replay_started") {
+    return params?.recording_attempt_id === undefined
+      ? {}
+      : { recording_attempt_id: params.recording_attempt_id };
+  }
+  if (
+    name === "session replay upload rejected" ||
+    name === "session_replay_upload_rejected"
+  ) {
+    const allowed = [
+      "recording_attempt_id",
+      "status",
+      "restart_attempted",
+      "restart_succeeded",
+      "failure_reason",
+      "retry_after_seconds",
+      "restart_reason",
+    ];
+    return Object.fromEntries(
+      Object.entries(params ?? {}).filter(([key]) => allowed.includes(key)),
+    );
+  }
   if (typeof window === "undefined") return { ...params };
   const base: Record<string, unknown> = {
     url: window.location.origin + window.location.pathname,
@@ -2029,6 +1912,14 @@ function rememberAppEntryKey(entryKey: string): boolean {
   return true;
 }
 
+function rememberLastAppEntry(appName: string, now: number): number | null {
+  const key = `${APP_LAST_ENTRY_STORAGE_KEY_PREFIX}:${appName}`;
+  const stored = safeStorageGet(key);
+  const previous = stored ? Number(stored) : NaN;
+  safeStorageSet(key, String(now));
+  return Number.isFinite(previous) ? previous : null;
+}
+
 let _appEntryAuthRetry: Promise<void> | null = null;
 
 function waitForTrackingIdentityBeforeAppEntry(): boolean {
@@ -2061,6 +1952,8 @@ function emitAppEntered(): void {
   if (!appName) return;
   const entryKey = sessionId ? `${appName}:${sessionId}` : appName;
   if (!rememberAppEntryKey(entryKey)) return;
+  const now = Date.now();
+  const previousEntryAt = rememberLastAppEntry(appName, now);
   const attribution = getFirstTouchAttribution();
   trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.appEntered, {
     app_name: appName,
@@ -2070,6 +1963,15 @@ function emitAppEntered(): void {
       ? { referrer: attribution.landing_referrer }
       : {}),
   });
+  if (previousEntryAt !== null) {
+    const daysSinceLast = Math.floor((now - previousEntryAt) / 86_400_000);
+    if (now - previousEntryAt >= RETURN_USAGE_THRESHOLD_MS) {
+      trackEvent(AGENT_NATIVE_LIFECYCLE_EVENTS.returnUsage, {
+        app_name: appName,
+        days_since_last: daysSinceLast,
+      });
+    }
+  }
 }
 
 function emitPageview(reason: string): void {
@@ -2088,6 +1990,10 @@ function schedulePageview(reason: string): void {
     void stopSessionReplay("local-plan-privacy");
   }
   const run = () => emitPageview(reason);
+  const deferredBootRefresh =
+    _llmConnectionBootRefresh && !_llmConnectionStatus
+      ? _llmConnectionBootRefresh
+      : null;
   const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
     pendingStartupContext.push(_llmConnectionRefresh);
@@ -2095,14 +2001,18 @@ function schedulePageview(reason: string): void {
   if (_trackingSessionRefresh && !_trackingIdentityResolved) {
     pendingStartupContext.push(_trackingSessionRefresh);
   }
-  if (pendingStartupContext.length > 0) {
-    const timeout = new Promise<void>((resolve) =>
-      window.setTimeout(resolve, 250),
-    );
-    void Promise.race([
-      Promise.allSettled(pendingStartupContext),
-      timeout,
-    ]).finally(run);
+  if (deferredBootRefresh !== null) {
+    if (pendingStartupContext.length > 0) {
+      const timeout = new Promise<void>((resolve) =>
+        window.setTimeout(resolve, 250),
+      );
+      void Promise.all([
+        deferredBootRefresh,
+        Promise.race([Promise.allSettled(pendingStartupContext), timeout]),
+      ]).finally(run);
+      return;
+    }
+    void deferredBootRefresh.finally(run);
     return;
   }
   if (typeof queueMicrotask === "function") {
@@ -2190,6 +2100,34 @@ function sendAgentNativeAnalytics(
   }
 }
 
+function emitBrowserTrackingEvent(
+  name: string,
+  props: Record<string, unknown>,
+  options: {
+    gtagProperties?: Record<string, unknown>;
+    sendGtag?: boolean;
+  } = {},
+): void {
+  const { gtagProperties = props, sendGtag = true } = options;
+  const amplitudeProps = amplitudeEventProperties(name, props);
+  if (sendGtag) {
+    const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
+    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+  }
+  if (ensureAmplitude()) {
+    _amplitudeModule?.track(name, amplitudeProps);
+  } else if (_amplitudeApiKey) {
+    if (_pendingAmplitudeEvents.length < 100) {
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
+    }
+  }
+  const authUserId = getTrackingAuthUserId();
+  sendAgentNativeAnalytics(
+    name,
+    authUserId ? { ...props, auth_user_id: authUserId } : props,
+  );
+}
+
 export function trackEvent(
   name: string,
   params?: Record<string, unknown>,
@@ -2199,18 +2137,34 @@ export function trackEvent(
   if (isQaTrackingIdentity(_trackingIdentity)) return;
   ensureSentry();
   const props = resolveProps(name, params);
-  const amplitudeProps = amplitudeEventProperties(name, props);
-  window.gtag?.("event", name.replace(/\s+/g, "_"), props);
-  if (ensureAmplitude()) {
-    _amplitudeModule?.track(name, amplitudeProps);
-  } else if (_amplitudeApiKey) {
-    if (_pendingAmplitudeEvents.length < 100) {
-      _pendingAmplitudeEvents.push([name, amplitudeProps]);
-    }
+  const canonical = canonicalTrackingEvent(name, props);
+  const gtagNameMatchesCanonical =
+    canonical !== null && name.replace(/\s+/g, "_") === canonical.name;
+  emitBrowserTrackingEvent(name, props, {
+    gtagProperties: gtagNameMatchesCanonical ? canonical.properties : props,
+  });
+  if (canonical) {
+    emitBrowserTrackingEvent(canonical.name, canonical.properties, {
+      sendGtag: !gtagNameMatchesCanonical,
+    });
   }
-  sendAgentNativeAnalytics(name, props);
+  void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   if (lifecycle) trackEvent(lifecycle.name, lifecycle.properties);
+}
+
+export function trackAnonymousEvent(
+  name: string,
+  properties: Record<string, unknown>,
+): void {
+  if (
+    typeof window === "undefined" ||
+    isSyntheticBrowserTraffic() ||
+    isQaTrackingIdentity(_trackingIdentity)
+  ) {
+    return;
+  }
+  sendAgentNativeAnalytics(name, properties);
 }
 
 export function trackLifecycleEvent(

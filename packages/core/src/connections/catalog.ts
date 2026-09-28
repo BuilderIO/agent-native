@@ -38,6 +38,7 @@ export type WorkspaceConnectionProviderId =
   | "sentry"
   | "granola"
   | "clips"
+  | "anthropic-managed-agents"
   | "generic";
 
 export interface WorkspaceConnectionCredentialKey {
@@ -433,6 +434,23 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: [],
     capabilities: ["search", "import", "meetings"],
     recommendedTemplateUses: ["brain", "clips"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "anthropic-managed-agents",
+    label: "Anthropic Managed Agents",
+    description:
+      "Hosted Anthropic agents that run their own tools and context while Agent-Native keeps the app workflow and approvals.",
+    credentialKeys: [
+      {
+        key: "ANTHROPIC_API_KEY",
+        label: "Anthropic API key",
+        description:
+          "API key for the Anthropic Managed Agents API. Store it in the workspace vault.",
+        required: true,
+      },
+    ],
+    capabilities: ["code"],
+    recommendedTemplateUses: ["brain", "dispatch", "factory"],
   }),
   defineWorkspaceConnectionProvider({
     id: "generic",

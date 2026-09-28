@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   deviceViewportFloorForWidth,
+  findTopFrameEntryAtPoint,
   getBreakpointFrameGeometry,
   getCanonicalScreenStack,
   getResponsiveInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
   getResponsiveScreenGroupSize,
+  getScreenPreviewViewport,
   reorderCanonicalScreenStack,
   resolveFrameGeometrySync,
+  resolveHitTestForegroundId,
   visibleBreakpointWidths,
 } from "./frame-geometry";
 
@@ -21,7 +24,6 @@ describe("content-fit frame height", () => {
   });
 
   it("uses measured content height over the primary-aspect projection", () => {
-    // Before measurement, the pure aspect projection is used (unchanged).
     const projected = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 900 / 1440,
@@ -29,8 +31,6 @@ describe("content-fit frame height", () => {
     });
     expect(projected.naturalHeight).toBe(Math.round(390 * (900 / 1440)));
 
-    // Once measured, the frame grows to its real content (floored at one device
-    // viewport) instead of the clipped primary-aspect projection.
     const measured = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 900 / 1440,
@@ -52,8 +52,6 @@ describe("content-fit frame height", () => {
   });
 
   it("keeps a pinned height below the device floor", () => {
-    // A pinned height is a user decision, so the floor must not raise it back
-    // up the way it does for a measured height.
     const geo = getBreakpointFrameGeometry({
       widthPx: 390,
       naturalAspect: 1,
@@ -86,21 +84,32 @@ describe("content-fit frame height", () => {
       primary,
       () => 3000,
     );
-    // Group must be tall enough to contain the 3000px-tall mobile frame
-    // (scaled by primary scale) so culling doesn't evict it while visible.
     expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
   });
 
+  it("uses renderer scale for aspect-changing primary geometry and culling", () => {
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const primary = { x: 0, y: 0, width: 768, height: 1024 };
+    expect(getScreenPreviewViewport(screen.metadata, primary).scale).toBe(1);
+
+    const group = getResponsiveScreenGroupSize(screen, primary, () => 2200);
+    expect(group).toEqual({ width: 768 + 24 + 390, height: 2200 });
+    expect(
+      getResponsiveScreenCullGeometry(screen, primary, () => 2200),
+    ).toMatchObject(group);
+  });
+
   it("dedupes breakpoints against the device width, not the resized box width", () => {
-    // A desktop primary (device width 1440) resized down to a 390px box must
-    // NOT drop the distinct 390 mobile breakpoint as a "duplicate".
     const screen = {
       id: "s1",
       metadata: { width: 1440, height: 900 },
       breakpointWidths: [390],
     };
     const resizedBox = { x: 0, y: 0, width: 390, height: 900 };
-    // Width exceeds the base box only if the 390 breakpoint is still present.
     expect(
       getResponsiveScreenGroupSize(screen, resizedBox).width,
     ).toBeGreaterThan(resizedBox.width);
@@ -109,8 +118,6 @@ describe("content-fit frame height", () => {
 
 describe("visibleBreakpointWidths", () => {
   it("drops a breakpoint whose width equals the primary/base frame width", () => {
-    // Default generated design: desktop-1440 primary must not render a
-    // redundant desktop-1440 breakpoint frame next to itself.
     expect(visibleBreakpointWidths([390, 1440], 1440)).toEqual([390]);
   });
 
@@ -177,6 +184,24 @@ describe("responsive overview group layout", () => {
     expect(group.rotation).toBeUndefined();
     expect(group.width).toBeGreaterThanOrEqual(200);
     expect(group.height).toBeGreaterThan(320);
+  });
+
+  it("keeps the rotated right-extended preview inside cull bounds", () => {
+    const group = getResponsiveScreenCullGeometry(
+      {
+        id: "s1",
+        metadata: { width: 1440, height: 900 },
+        breakpointWidths: [390],
+      },
+      { x: 0, y: 0, width: 768, height: 1024, rotation: 90 },
+      () => 2200,
+    );
+
+    expect(group.x).toBeCloseTo(-1304);
+    expect(group.y).toBeCloseTo(128);
+    expect(group.width).toBeCloseTo(2200);
+    expect(group.height).toBeCloseTo(1182);
+    expect(group.rotation).toBeUndefined();
   });
 
   it("self-heals persisted legacy lineup coordinates without moving custom layouts", () => {
@@ -367,5 +392,68 @@ describe("canonical overview screen stack", () => {
         placement: "before",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hit-test foreground tie-break", () => {
+  const hasGeometry = (ids: string[]) => (id: string) => ids.includes(id);
+
+  it("prefers an explicit selection over everything else", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: ["b"],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "a",
+      }),
+    ).toBe("b");
+  });
+
+  it("falls back to the sticky activeId when nothing is selected", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["a", "b"]),
+        activeId: "a",
+        firstScreenId: "b",
+      }),
+    ).toBe("a");
+  });
+
+  it("keeps the sticky activeId for a fresh draw gesture too — it's the same id paint boosts", () => {
+    expect(
+      resolveHitTestForegroundId({
+        selectedIds: [],
+        hasGeometry: hasGeometry(["original", "new"]),
+        activeId: "original",
+        firstScreenId: "original",
+      }),
+    ).toBe("original");
+  });
+
+  it("end-to-end: a draw gesture's point resolves to whichever screen paint puts on top, not array order", () => {
+    const original = {
+      id: "original",
+      geometry: { x: 0, y: 0, width: 1440, height: 900 },
+    };
+    const created = {
+      id: "new",
+      geometry: { x: 1300, y: 0, width: 1440, height: 900 },
+    };
+    const pointInsideNewScreen = { x: 1400, y: 50 };
+
+    const resolved = findTopFrameEntryAtPoint(
+      [original, created],
+      pointInsideNewScreen,
+      {
+        foregroundId: resolveHitTestForegroundId({
+          selectedIds: [],
+          hasGeometry: hasGeometry(["original", "new"]),
+          activeId: "original",
+          firstScreenId: "original",
+        }),
+      },
+    );
+    expect(resolved?.id).toBe("original");
   });
 });

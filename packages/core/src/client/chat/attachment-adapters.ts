@@ -1,8 +1,8 @@
-// Owns: image/document/text attachment adapters and attachment serialization helpers.
-
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  formatOversizedTextAttachmentError,
   IMAGE_ATTACHMENT_ACCEPT,
+  MAX_TEXT_ATTACHMENT_BYTES as MAX_TEXT_FILE_BYTES,
 } from "@agent-native/toolkit/composer/attachment-accept";
 import type {
   AttachmentAdapter,
@@ -11,24 +11,18 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 
-// Maximum document size (4 MB). Larger files would bloat the JSON POST
-// body past Vercel's ~4.5 MB limit after base64 encoding (+33% overhead).
-export const MAX_PDF_BYTES = 4 * 1024 * 1024;
+export const MAX_PDF_BYTES = 2.5 * 1024 * 1024;
 
-// Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
-// base64-encoding a raw screenshot eats enough heap to crash the composer
-// (PayloadTooLarge / "Maximum call stack" in serializers). Downscale large
-// images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Estimated total serialized body budget (JSON POST). Vercel/Netlify cap ~4.5 MB.
-// We stop well below to leave room for the text payload and JSON framing.
-export const MAX_ESTIMATED_BODY_BYTES = 3.5 * 1024 * 1024;
-// At 3.5 MB of serializable attachments, aggressively re-downscale images.
+export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
+export const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
+export const MAX_ESTIMATED_BODY_BYTES =
+  MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
+export const MAX_TEXT_ATTACHMENT_BYTES = MAX_TEXT_FILE_BYTES;
 export const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
 export const AGGRESSIVE_JPEG_QUALITY = 0.7;
 
-/** MIME types that vision models accept natively (no canvas transcoding needed). */
 const WEB_SAFE_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -61,7 +55,7 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
 
 function formatOversizedDocumentError(name: string, size: number): string {
   const mb = (size / 1024 / 1024).toFixed(1);
-  const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+  const maxMb = Number((MAX_PDF_BYTES / 1024 / 1024).toFixed(1)).toString();
   return `"${name}" is ${mb} MB - documents are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
@@ -74,18 +68,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * Returns true when the MIME type is natively accepted by vision APIs
- * (jpeg / png / gif / webp). HEIC, TIFF, AVIF, BMP, etc. return false.
- */
 function isWebSafeImageType(mimeType: string): boolean {
   return WEB_SAFE_IMAGE_TYPES.has(mimeType.toLowerCase());
 }
 
-/**
- * Transcode an image to a web-safe JPEG or PNG via canvas and return its
- * data-URL. Throws if canvas is unavailable.
- */
 export async function transcodeImageToDataURL(
   file: File,
   opts: {
@@ -120,65 +106,77 @@ export async function transcodeImageToDataURL(
   }
 }
 
-/**
- * Return a web-safe, size-bounded data-URL for an image file.
- *
- * - Always transcodes formats that vision APIs reject (HEIC, TIFF, AVIF, BMP, …)
- *   to JPEG/PNG via canvas, regardless of file size.
- * - Also downscales files over MAX_IMAGE_BYTES so large screenshots/photos
- *   don't blow up the request body.
- * - Throws (does NOT silently fall back) when the format is non-web-safe and
- *   canvas transcoding fails — the adapter should surface a visible error.
- */
 export async function getImageFileDataURL(file: File): Promise<string> {
   const needsTranscode = !isWebSafeImageType(file.type);
   const tooBig = file.size > MAX_IMAGE_BYTES;
 
   if (!needsTranscode && !tooBig) {
-    // Already a supported type and within size budget — serve raw.
     return getFileDataURL(file);
   }
 
   if (typeof document === "undefined" || typeof Image === "undefined") {
     if (needsTranscode) {
-      // Can't transcode server-side — surface an error rather than silently
-      // attaching garbage bytes that the model cannot decode.
       throw new Error(
         `"${file.name}" is a ${file.type || "unknown"} image. Only JPEG, PNG, GIF, and WebP are supported in this environment.`,
       );
     }
-    // Can't downscale but the type is fine — send raw and hope for the best.
     return getFileDataURL(file);
   }
 
-  // Transcode via canvas. Throws on decode failure for non-web-safe types
-  // so the adapter can surface a visible error; falls back to raw for
-  // oversized-but-supported types (the older behaviour).
   try {
     return await transcodeImageToDataURL(file);
   } catch (err) {
     if (needsTranscode) {
-      // Re-throw so the DownscalingImageAttachmentAdapter.send() can surface it.
       throw err;
     }
-    // Safe type, just couldn't downscale — fall back to the raw file.
     return getFileDataURL(file);
   }
 }
 
-/**
- * Estimate the serialized byte cost of a collection of attachment data-URLs
- * (base64 strings, accounting for JSON string escaping overhead).
- */
-export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
-  // JSON.stringify adds ~2 bytes of quotes per string; base64 is already
-  // accounted for in the string length. Add 15% for JSON framing.
-  return dataUrls.reduce((sum, url) => sum + url.length, 0) * 1.15;
+export function measureJsonStringBytes(values: string[]): number {
+  const encodedBytes = new TextEncoder();
+  return values.reduce(
+    (sum, value) => sum + encodedBytes.encode(JSON.stringify(value)).byteLength,
+    0,
+  );
+}
+
+export function getSubmittedPromptBodyStrings(
+  prompt: string,
+  isContinuation: boolean,
+): string[] {
+  return isContinuation ? [prompt, prompt, prompt] : [prompt, prompt];
+}
+
+export function estimateAttachmentBodyBytes(values: string[]): number {
+  return measureJsonStringBytes(values) * 1.15;
 }
 
 export type QueuedAttachment = CompleteAttachment & {
   metadata?: Record<string, unknown>;
 };
+
+export function getAttachmentBodyStrings(
+  attachments: ReadonlyArray<QueuedAttachment>,
+): string[] {
+  return attachments.flatMap((attachment) =>
+    attachment.content.flatMap((part) => {
+      if (part.type === "image" && typeof part.image === "string") {
+        return [part.image];
+      }
+      if (part.type === "text" && typeof part.text === "string") {
+        return [part.text];
+      }
+      if (
+        part.type === "file" &&
+        typeof (part as { data?: unknown }).data === "string"
+      ) {
+        return [(part as { data: string }).data];
+      }
+      return [];
+    }),
+  );
+}
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
   public accept = IMAGE_ATTACHMENT_ACCEPT;
@@ -299,8 +297,14 @@ function escapeQueuedAttachmentAttribute(value: string): string {
 
 export function isTextLikeFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
-  if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+  if (
+    file.type === "application/json" ||
+    file.type === "application/x-yaml" ||
+    file.type === "message/rfc822"
+  ) {
+    return true;
+  }
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml|eml)$/i.test(
     file.name,
   );
 }
@@ -428,6 +432,12 @@ export async function serializeQueuedAttachments(
           content: [{ type: "image", image: await getImageFileDataURL(file) }],
         });
       } else if (isTextLikeFile(file)) {
+        if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+          throw new Error(
+            formatOversizedTextAttachmentError(file.name, file.size),
+          );
+        }
+        const text = await file.text();
         queued.push({
           id,
           type: "file",
@@ -437,7 +447,7 @@ export async function serializeQueuedAttachments(
           content: [
             {
               type: "text",
-              text: textFileAttachmentEnvelope(file, await file.text()),
+              text: textFileAttachmentEnvelope(file, text),
             },
           ],
         });

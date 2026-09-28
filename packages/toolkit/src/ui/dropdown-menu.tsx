@@ -25,14 +25,14 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent",
+      "flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent data-[state=open]:bg-accent",
       inset && "ps-8",
       className,
     )}
     {...props}
   >
     {children}
-    <IconChevronRight className="ms-auto h-4 w-4 rtl:-scale-x-100" />
+    <IconChevronRight className="ms-auto h-4 w-4 shrink-0 rtl:-scale-x-100" />
   </DropdownMenuPrimitive.SubTrigger>
 ));
 DropdownMenuSubTrigger.displayName =
@@ -69,8 +69,6 @@ DropdownMenuSubContent.displayName =
 type DropdownMenuContentProps = React.ComponentPropsWithoutRef<
   typeof DropdownMenuPrimitive.Content
 > & {
-  // Allows rendering the portal into a custom container; useful when the menu
-  // must appear above a specific stacking context (e.g. a fullscreen video player).
   container?: React.ComponentPropsWithoutRef<
     typeof DropdownMenuPrimitive.Portal
   >["container"];
@@ -196,7 +194,10 @@ const DropdownMenuShortcut = ({
 }: React.HTMLAttributes<HTMLSpanElement>) => {
   return (
     <span
-      className={cn("ms-auto text-xs tracking-widest opacity-60", className)}
+      className={cn(
+        "ms-auto ps-4 text-xs tracking-widest opacity-60",
+        className,
+      )}
       {...props}
     />
   );

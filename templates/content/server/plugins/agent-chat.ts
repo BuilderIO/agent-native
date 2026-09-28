@@ -4,22 +4,21 @@ import {
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, notInArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
-import * as schema from "../db/schema.js";
+import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
+import { getDb, schema } from "../db/index.js";
+import { resolveCommentAiActionSurface } from "../lib/comment-ai.js";
 import {
-  documentVersionChatContextFromRun,
-  serializeDocumentVersionChatContext,
-} from "../lib/document-version-context.js";
+  documentChatStartVersionId,
+  recordDocumentHistoryTransition,
+} from "../lib/document-history.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
 } from "../lib/public-documents.js";
 
-// These tools are injected by the framework/provider layer, so they cannot
-// declare `deferLoading` beside a Content action. Content-owned starter tools
-// carry `deferLoading: false` in their own definitions.
 const INJECTED_INITIAL_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
@@ -32,39 +31,6 @@ const DOCUMENT_EDIT_TOOLS = new Set([
   "restore-document-version",
   "update-document",
 ]);
-const CHAT_VERSION_LIMIT = 100;
-
-async function enforceDocumentVersionLimit(
-  db: ReturnType<typeof import("../db/index.js").getDb>,
-  documentId: string,
-  ownerEmail: string,
-): Promise<void> {
-  const keep = await db
-    .select({ id: schema.documentVersions.id })
-    .from(schema.documentVersions)
-    .where(
-      and(
-        eq(schema.documentVersions.documentId, documentId),
-        eq(schema.documentVersions.ownerEmail, ownerEmail),
-      ),
-    )
-    .orderBy(
-      desc(schema.documentVersions.createdAt),
-      desc(schema.documentVersions.id),
-    )
-    .limit(CHAT_VERSION_LIMIT);
-  if (keep.length < CHAT_VERSION_LIMIT) return;
-  await db.delete(schema.documentVersions).where(
-    and(
-      eq(schema.documentVersions.documentId, documentId),
-      eq(schema.documentVersions.ownerEmail, ownerEmail),
-      notInArray(
-        schema.documentVersions.id,
-        keep.map((version) => version.id),
-      ),
-    ),
-  );
-}
 
 function eventRecord(entry: unknown): Record<string, unknown> | undefined {
   if (!entry || typeof entry !== "object") return undefined;
@@ -105,22 +71,102 @@ function hasDocumentEdit(
 ): boolean {
   return run.events.some((entry, index) => {
     const record = eventRecord(entry);
-    const input = record
-      ? inputForCompletedTool(run.events, index, record)
-      : undefined;
-    const targetId =
-      record?.tool === "restore-document-version"
-        ? input?.documentId
-        : input?.id;
-    return (
-      record?.type === "tool_done" &&
-      record.completedSideEffect === true &&
-      record.isError !== true &&
-      typeof record.tool === "string" &&
-      DOCUMENT_EDIT_TOOLS.has(record.tool) &&
-      targetId === documentId
-    );
+    if (
+      record?.type !== "tool_done" ||
+      record.completedSideEffect !== true ||
+      record.isError === true ||
+      typeof record.tool !== "string" ||
+      !DOCUMENT_EDIT_TOOLS.has(record.tool)
+    ) {
+      return false;
+    }
+    const input = inputForCompletedTool(run.events, index, record);
+    return (input?.documentId ?? input?.id) === documentId;
   });
+}
+
+async function autosaveDocumentAtChatBoundary(
+  scope: { type: string; id: string },
+  run: { events?: readonly unknown[]; threadId?: string; runId?: string },
+  phase: "start" | "end",
+): Promise<void> {
+  const hasEdit = run.events
+    ? hasDocumentEdit({ events: run.events }, scope.id)
+    : false;
+  if (
+    scope.type !== "document" ||
+    !run.threadId ||
+    !run.runId ||
+    (phase === "end" && !hasEdit)
+  ) {
+    return;
+  }
+
+  let access = await assertAccess("document", scope.id, "editor");
+  let document = access.resource as {
+    ownerEmail: string;
+    title: string;
+    content: string;
+  };
+  if (phase === "start") {
+    await flushOpenDocumentEditorToSql({
+      documentId: scope.id,
+      ownerEmail: document.ownerEmail,
+    });
+    access = await assertAccess("document", scope.id, "editor");
+    document = access.resource as typeof document;
+  }
+  const db = getDb();
+  const chatContext = { threadId: run.threadId, runId: run.runId, phase };
+
+  if (phase === "start") {
+    const existing = await db
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(
+        and(
+          eq(schema.documentVersions.documentId, scope.id),
+          eq(schema.documentVersions.ownerEmail, document.ownerEmail),
+          eq(
+            schema.documentVersions.id,
+            documentChatStartVersionId(
+              document.ownerEmail,
+              scope.id,
+              run.threadId,
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (existing.length) return;
+  }
+
+  const state = { title: document.title, content: document.content };
+  await recordDocumentHistoryTransition({
+    db,
+    ownerEmail: document.ownerEmail,
+    documentId: scope.id,
+    before: state,
+    after: state,
+    cause: {
+      groupId: `agent:${document.ownerEmail}:${run.runId}`,
+      groupKind: "agent_run",
+      actorEmail: document.ownerEmail,
+      actorKind: "agent",
+      origin: "agent-chat",
+      operation: phase === "start" ? "chat start" : "chat autosave",
+      chatContext,
+      ...(phase === "start" ? { skipBeforeCheckpoint: true } : {}),
+    },
+    now: new Date().toISOString(),
+  });
+}
+
+async function autosaveDocumentBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  await autosaveDocumentAtChatBoundary(scope, run, "start");
 }
 
 async function autosaveDocumentAfterAgentTurn(
@@ -129,68 +175,29 @@ async function autosaveDocumentAfterAgentTurn(
     events: readonly unknown[];
     threadId?: string;
     runId?: string;
-    turnId?: string;
   },
 ): Promise<void> {
-  if (scope.type !== "document" || !hasDocumentEdit(run, scope.id)) return;
-
-  const access = await assertAccess("document", scope.id, "editor");
-  const document = access.resource as {
-    ownerEmail: string;
-    title: string;
-    content: string;
-  };
-  const { getDb, schema } = await import("../db/index.js");
-  const db = getDb();
-  const [latest] = await db
-    .select({
-      title: schema.documentVersions.title,
-      content: schema.documentVersions.content,
-    })
-    .from(schema.documentVersions)
-    .where(
-      and(
-        eq(schema.documentVersions.documentId, scope.id),
-        eq(schema.documentVersions.ownerEmail, document.ownerEmail),
-      ),
-    )
-    .orderBy(desc(schema.documentVersions.createdAt))
-    .limit(1);
-  if (latest?.title === document.title && latest.content === document.content) {
-    return;
-  }
-
-  await db.insert(schema.documentVersions).values({
-    id: crypto.randomUUID(),
-    ownerEmail: document.ownerEmail,
-    documentId: scope.id,
-    title: document.title,
-    content: document.content,
-    chatContext: serializeDocumentVersionChatContext(
-      documentVersionChatContextFromRun(run),
-    ),
-    createdAt: new Date().toISOString(),
-  });
-  await enforceDocumentVersionLimit(db, scope.id, document.ownerEmail);
+  await autosaveDocumentAtChatBoundary(scope, run, "end");
 }
 
 export default createAgentChatPlugin({
   appId: "content",
+  onAgentTurnStart: autosaveDocumentBeforeAgentTurn,
   onAgentTurnComplete: autosaveDocumentAfterAgentTurn,
+  nativeActionsInDev: true,
+  resolveActionSurface: resolveCommentAiActionSurface,
   durableBackgroundRuns: true,
   selectedA2AReceiverOwnsObjective: true,
+  frameworkTools: { labs: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
     externalAgents: { writes: "allowlisted" },
     instructions:
-      "Find documents with list-documents or search-documents; read one with get-document (pull-document for the raw markdown you will edit). Author content yourself and persist it with create-document, or edit-document for a targeted change and update-document for a full replace. For Notion or other provider data use provider-api-catalog → provider-api-docs → provider-api-request instead of guessing endpoints.",
+      "Find documents with list-documents or search-documents; read with get-document (pull-document for raw Markdown). Author and persist content with create-document. For body changes use revision-guarded edit-document; pass initializeContent only when get-document returns an empty body. Use update-document for metadata and browser rewrites. For provider data use provider-api-catalog → provider-api-docs → provider-api-request.",
   },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
-  // Enable sandboxed JavaScript execution so Content agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Notion endpoint.
   codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI document assistant. You manage documents, comments, media blocks, sharing, and connected Notion content through actions and shared application state.
@@ -214,8 +221,6 @@ Content's Notion access is per-user OAuth only. Never ask for or use NOTION_API_
         search: async (query: string) => {
           const db = getDb();
           const ownerEmail = getCurrentOwnerEmail();
-          // Project only id/title/parentId — documents.content is the full
-          // page body and must not be pulled into this per-keystroke search.
           const mentionColumns = {
             id: documents.id,
             title: documents.title,

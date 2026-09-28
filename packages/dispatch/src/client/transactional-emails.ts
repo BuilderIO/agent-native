@@ -17,7 +17,6 @@ export interface AppTransactionalEmail {
   recipientLabel: string;
   sender: string;
   senderLabel: string;
-  /** null when the send log could not be read — not the same as zero sends. */
   sent: number | null;
   failed: number | null;
   lastSentAt: number | null;
@@ -28,9 +27,7 @@ export interface AppEmailCatalog {
   appName: string;
   appPath: string;
   emails: AppTransactionalEmail[];
-  /** Set when this app's catalog could not be read at all. */
   error: string | null;
-  /** Set when the catalog loaded but its send counts did not. */
   statsError: string | null;
 }
 
@@ -117,15 +114,14 @@ export async function callAppAction<T>(
     },
     ...(method === "POST" ? { body: JSON.stringify(params) } : {}),
   });
-  if (!res.ok) throw new Error(`${action} failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const error = new Error(`${action} failed: HTTP ${res.status}`);
+    (error as Error & { status: number }).status = res.status;
+    throw error;
+  }
   return (await res.json()) as T;
 }
 
-/**
- * Load one app's catalog. Never throws — a single unreachable app must not
- * blank the whole screen, but its failure is returned rather than swallowed so
- * the UI can say "couldn't read" instead of showing it as having no emails.
- */
 const CATALOG_TIMEOUT_MS = 10_000;
 
 export async function fetchAppEmailCatalog(
@@ -181,7 +177,6 @@ export interface EmailPreview {
   text: string;
 }
 
-/** Render one email's preview with dummy data, from the owning app. */
 export async function fetchEmailPreview(
   appPath: string,
   id: string,

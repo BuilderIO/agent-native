@@ -39,6 +39,7 @@ describe("create account dialog", () => {
     expect(source).toContain("/_agent-native/auth/desktop-exchange");
     expect(source).toContain("/_agent-native/auth/magic-link");
     expect(source).toContain("oauthPopupRef");
+    expect(source).toContain("openOAuthPopup");
     expect(source).toContain("closeOAuthPopup");
     expect(source).toContain("oauthRunRef.current += 1");
     expect(source).toContain('method: "google"');

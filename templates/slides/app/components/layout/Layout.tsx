@@ -11,16 +11,22 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { extractGoogleSlidesUrls } from "@shared/google-docs";
 import { IconMenu2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useDecks } from "@/context/DeckContext";
+import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
-  hasCurrentSlideSelection,
+  buildSlidesAgentContext,
+  getSlidesAgentScopeLabel,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -34,6 +40,8 @@ import { Header } from "./Header";
 import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
+  isSlidesFullWidthSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -45,6 +53,46 @@ interface LayoutProps {
 interface EditorSidebarOverride {
   locationKey: string;
   collapsed: boolean;
+}
+
+interface MobileDeckSaveFlushRequest {
+  requestId: string;
+  deckId: string;
+}
+
+function readMobileDeckSaveFlushRequest(
+  value: unknown,
+): MobileDeckSaveFlushRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const request = value as Record<string, unknown>;
+  if (
+    typeof request.requestId !== "string" ||
+    !request.requestId ||
+    typeof request.deckId !== "string" ||
+    !request.deckId
+  ) {
+    return null;
+  }
+  return { requestId: request.requestId, deckId: request.deckId };
+}
+
+function postMobileDeckSaveFlushAck(message: {
+  requestId: string;
+  requestedDeckId: string;
+  activeDeckId: string | null;
+  status: "flushed" | "not-target" | "failed";
+}) {
+  const nativeBridge = (
+    window as Window & {
+      ReactNativeWebView?: { postMessage: (value: string) => void };
+    }
+  ).ReactNativeWebView;
+  nativeBridge?.postMessage(
+    JSON.stringify({
+      type: "agentNative.mobileDeckSaveFlush.ack",
+      ...message,
+    }),
+  );
 }
 
 /** Routes whose pages render their own toolbar — Layout still renders chrome
@@ -63,6 +111,9 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const { flushDeckSave } = useDecks();
+  const creativeContextEnabled = useCreativeContextLab();
+  const settingsRedesign = useSettingsRedesign();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -72,6 +123,10 @@ export function Layout({ children }: LayoutProps) {
   });
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("slides");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [runningChatTabs, setRunningChatTabs] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const wasChatRoute = useRef(isChatRoute);
   const [composerText, setComposerText] = useState("");
   const [slidesSelection, setSlidesSelection] =
     useState<SlidesAgentSelection | null>(() => readPublishedSlidesSelection());
@@ -79,6 +134,76 @@ export function Layout({ children }: LayoutProps) {
     useState<EditorSidebarOverride | null>(null);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } =
     useSidebarCollapsed();
+  useEffect(() => {
+    if (wasChatRoute.current && !isChatRoute) {
+      setRunningChatTabs(new Set());
+    }
+    wasChatRoute.current = isChatRoute;
+  }, [isChatRoute]);
+
+  useEffect(() => {
+    const onChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (typeof detail?.isRunning !== "boolean") return;
+      const tabId =
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      setRunningChatTabs((current) => {
+        const next = new Set(current);
+        if (detail.isRunning) next.add(tabId);
+        else next.delete(tabId);
+        return next;
+      });
+    };
+    window.addEventListener("agentNative.chatRunning", onChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
+  }, []);
+  useEffect(() => {
+    const onMobileDeckSaveFlush = (event: Event) => {
+      const request = readMobileDeckSaveFlushRequest(
+        (event as CustomEvent<unknown>).detail,
+      );
+      if (!request) return;
+      const activeDeckId =
+        location.pathname.match(/^\/deck\/([^/]+)/)?.[1] ?? null;
+      if (activeDeckId !== request.deckId) {
+        postMobileDeckSaveFlushAck({
+          requestId: request.requestId,
+          requestedDeckId: request.deckId,
+          activeDeckId,
+          status: "not-target",
+        });
+        return;
+      }
+      void flushDeckSave(request.deckId).then(
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "flushed",
+          }),
+        () =>
+          postMobileDeckSaveFlushAck({
+            requestId: request.requestId,
+            requestedDeckId: request.deckId,
+            activeDeckId,
+            status: "failed",
+          }),
+      );
+    };
+    window.addEventListener(
+      "agentNative.mobileDeckSaveFlush",
+      onMobileDeckSaveFlush,
+    );
+    return () =>
+      window.removeEventListener(
+        "agentNative.mobileDeckSaveFlush",
+        onMobileDeckSaveFlush,
+      );
+  }, [flushDeckSave, location.pathname]);
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
       setSlidesSelection(
@@ -101,12 +226,17 @@ export function Layout({ children }: LayoutProps) {
     const match = location.pathname.match(/^\/deck\/([^/]+)/);
     const deckId = match?.[1];
     if (!deckId) return null;
-    const hasSelection = hasCurrentSlideSelection(slidesSelection, deckId);
+    const agentContext = buildSlidesAgentContext(slidesSelection, deckId);
+    const scopeLabel = getSlidesAgentScopeLabel(slidesSelection, deckId);
     return {
       type: "deck" as const,
       id: deckId,
-      label: t(hasSelection ? "agent.currentSelection" : "agent.thisSlide"),
+      label:
+        scopeLabel.key === "agent.slideNumber"
+          ? t(scopeLabel.key, { number: scopeLabel.number })
+          : t(scopeLabel.key),
       contextKey: "slides-current-context",
+      ...agentContext,
     };
   }, [location.pathname, slidesSelection, t]);
   const deckChatHistory = useMemo<
@@ -115,9 +245,14 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
+      beforeStart: () => flushDeckSave(deckId),
       list: {
         action: "list-deck-versions",
-        args: { deckId, limit: 100 },
+        args: (threadId) => ({
+          deckId,
+          limit: 100,
+          ...(threadId ? { threadId } : {}),
+        }),
         getVersions: (result: unknown) => {
           const versions =
             result && typeof result === "object"
@@ -134,9 +269,10 @@ export function Layout({ children }: LayoutProps) {
           deckId,
           versionId: version.id,
         }),
+        beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope]);
+  }, [deckScope, flushDeckSave]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -157,8 +293,13 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const ownToolbar = pageHasOwnToolbar(location.pathname);
-  const showAppSidebar = shouldShowSlidesAppSidebar(location.pathname);
+  const fullWidthSettings = isSlidesFullWidthSettingsRoute(
+    location.pathname,
+    settingsRedesign,
+  );
+  const ownToolbar = pageHasOwnToolbar(location.pathname) || fullWidthSettings;
+  const showAppSidebar =
+    shouldShowSlidesAppSidebar(location.pathname) && !fullWidthSettings;
   const editorSidebarOverrideForLocation =
     editorSidebarOverride?.locationKey === location.key
       ? editorSidebarOverride.collapsed
@@ -257,7 +398,7 @@ export function Layout({ children }: LayoutProps) {
           defaultOpen={false}
           chatViewTransition
           chatViewTransitionHandoff={chatHomeHandoffPending}
-          openOnChatRunning={chatHomeHandoffActive}
+          openOnChatRunning={runningChatTabs.size > 0 || chatHomeHandoffActive}
           onFullscreenRequest={openAgentChatFullscreen}
           emptyStateText={t("agent.emptyState")}
           suggestions={[
@@ -265,18 +406,20 @@ export function Layout({ children }: LayoutProps) {
             t("agent.suggestionBrand"),
             t("agent.suggestionHero"),
           ]}
+          dynamicSuggestions={false}
           scope={deckScope}
           chatHistory={deckChatHistory}
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>
               <GoogleDriveConnectionCta
                 active={extractGoogleSlidesUrls(composerText).length > 0}
               />
-              <CreativeContextComposerChip />
+              {creativeContextEnabled ? <CreativeContextComposerChip /> : null}
             </>
           }
         >

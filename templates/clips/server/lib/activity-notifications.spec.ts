@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ type: "and", conditions }),
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
+  sql: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -80,10 +81,6 @@ const RECORDING = {
   expiresAt: null as string | null,
 };
 
-/**
- * `select().from().where().limit()` reads the recording;
- * `select().from().where()` (no limit) reads thread participants.
- */
 function stubDb(options: {
   recording: typeof RECORDING | null;
   participants?: string[];
@@ -122,7 +119,6 @@ describe("clips activity notifications", () => {
     });
     mocks.getUserSetting.mockResolvedValue(null);
     stubDb({ recording: RECORDING });
-    // Access filtering has its own tests; these assert who is offered.
     mocks.filterRecipients.mockImplementation(
       async ({ emails }: { emails: string[] }) => [...emails],
     );

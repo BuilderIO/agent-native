@@ -4,10 +4,6 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Each test runs real migrations against a fresh PGlite database; under full
-// workspace concurrency (and a shared machine running other suites) that
-// setup can far exceed the 5s default, so give it generous headroom. The
-// tests themselves complete in a few seconds uncontended.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const ownerEmail = "owner+approval-fencing@example.test";
@@ -330,14 +326,51 @@ describe("dispatch approval request status fencing", () => {
     });
     expect(Number((approvedAuditRows.rows[0] as any).count)).toBe(0);
 
-    // Confirm no side effect landed either: the policy change must not have
-    // been applied to tenant A's org settings by the foreign-tenant attempt.
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
       expect(await dispatchStore.getApprovalPolicy()).toEqual({
         enabled: false,
         approverEmails: [],
       });
     });
+  });
+
+  it("does not let the same email approve a request from another organization", async () => {
+    const [{ runWithRequestContext }, { getDbExec }, dispatchStore] =
+      await Promise.all([
+        import("@agent-native/core/server"),
+        import("@agent-native/core/db"),
+        import("./dispatch-store.js"),
+      ]);
+    const exec = getDbExec();
+
+    const requestId = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      async () => {
+        const created = await dispatchStore.createApprovalRequest({
+          changeType: "approval-policy.update",
+          targetType: "dispatch-settings",
+          targetId: "dispatch-approval-policy",
+          summary: "Keep this request in its organization",
+          payload: { enabled: true, approverEmails: [] },
+        });
+        return (created as any).id as string;
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: ownerEmail, orgId: otherOrgId },
+      async () => {
+        await expect(dispatchStore.approveRequest(requestId)).rejects.toThrow(
+          "Approval request not found",
+        );
+      },
+    );
+
+    const rows = await exec.execute({
+      sql: "SELECT status FROM dispatch_approval_requests WHERE id = ?",
+      args: [requestId],
+    });
+    expect(rows.rows[0]).toMatchObject({ status: "pending" });
   });
 
   it("does not let a caller from a different tenant reject another tenant's request", async () => {

@@ -51,6 +51,7 @@ import type {
   AssetVariantState,
   ImageLibrarySummary,
 } from "../../../shared/api";
+import { looksLikeMachinePayload } from "../../../shared/provider-error";
 
 type LibraryListResult = {
   libraries?: ImageLibrarySummary[];
@@ -62,12 +63,6 @@ function variantStateKey(threadId: string | null) {
   return threadId ? `asset-variants:${threadId}` : "asset-variants";
 }
 
-// Only reconcile a still-pending slot once it is old enough that the run cannot
-// plausibly still be generating. Keep this above the server generation budget
-// (IMAGE_GENERATION_REQUEST_TIMEOUT_MS, default 300s) and in step with
-// STALE_IMAGE_RUN_MS in refresh-generation-run, so a slow-but-healthy run (e.g.
-// gpt-image-2) is not flagged "interrupted" and flipped to an error slot before
-// its finished image arrives.
 const STALE_PENDING_RUN_MS = 10 * 60 * 1000;
 
 function slotTime(slot: VariantSlot): number {
@@ -110,9 +105,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
   } as any) as { data?: LibraryListResult };
-  // Saving a candidate into the kit needs editor access, while generating it
-  // only needs read access, so the tray asks before offering Save at all
-  // rather than letting the button 403.
   const { data: libraryAccess } = useActionQuery(
     "get-library-access",
     { libraryId: variants?.libraryId } as any,
@@ -141,9 +133,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         ),
     [variants?.slots],
   );
-  // Variant numbers reflect generation order (oldest = 1), not display order:
-  // refined candidates render first but keep the next number in sequence
-  // instead of stealing "Variant 1" from the newest-first display sort above.
   const variantNumberBySlotId = useMemo(() => {
     const map = new Map<string, number>();
     (variants?.slots ?? [])
@@ -172,7 +161,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     if (!runId) return;
     refreshingRunIds.current.add(runId);
     refreshGeneration.mutate(
-      { runId },
+      { runId, threadId },
       {
         onSettled: () => {
           window.setTimeout(() => {
@@ -200,8 +189,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   };
 
   useEffect(() => {
-    // Re-measure after the slot list changes size (new/removed candidates)
-    // since that can flip whether either arrow should be enabled.
     updateScrollEdges();
   }, [slots.length]);
 
@@ -711,8 +698,8 @@ function GenerationPreviewDialog({
               ) : null}
               <Button
                 variant="outline"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                size="icon-sm"
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 disabled={isDismissing}
                 onClick={() => onDismiss(slot)}
                 aria-label={t("library.deleteCandidate")}
@@ -788,9 +775,11 @@ function GenerationSlotPreview({ slot }: { slot: VariantSlot }) {
     );
   }
   if (slot.status === "failed") {
+    const failure =
+      slot.error && !looksLikeMachinePayload(slot.error) ? slot.error : null;
     return (
       <div className="flex h-full w-full items-center justify-center p-2 text-center text-[11px] text-destructive">
-        {slot.error || t("library.failed")}
+        {failure || t("library.failed")}
       </div>
     );
   }

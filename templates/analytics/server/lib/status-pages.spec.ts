@@ -28,10 +28,6 @@ import {
   type StatusPageMonitorRef,
 } from "./status-pages";
 
-// ---------------------------------------------------------------------------
-// Test fixtures / helpers
-// ---------------------------------------------------------------------------
-
 const EMPTY_WINDOWS: UptimeWindows = {
   uptime24h: null,
   uptime7d: null,
@@ -87,11 +83,6 @@ function stats(overrides: Partial<MonitorStats> = {}): MonitorStats {
   };
 }
 
-/**
- * Minimal Drizzle mock: each `.where(...)` resolves to the next queued result
- * set, and also exposes `.limit()` returning the same set (mirrors the pattern
- * used by session-replay-retention.spec.ts). Queue order must match query order.
- */
 function createDbMock(resultSets: unknown[][]) {
   const queue = [...resultSets];
   const makeWhereResult = () => {
@@ -143,10 +134,6 @@ const SAFE_MONITOR_KEYS = [
   "url",
   "windows",
 ];
-
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
 
 describe("normalizeSlug", () => {
   it("lowercases, replaces runs of non-alphanumerics with single dashes, trims", () => {
@@ -234,7 +221,7 @@ describe("sanitizePublicMonitor (security boundary)", () => {
       showResponseTime: true,
     });
     expect(result.windows).toEqual(EMPTY_WINDOWS);
-    expect(result.status).toBe("up"); // falls back to lastStatus
+    expect(result.status).toBe("up");
   });
 });
 
@@ -273,7 +260,6 @@ describe("assemblePublicMonitors (inclusion boundary)", () => {
       ref({ monitorId: "m1", order: 0 }),
       ref({ monitorId: "m2", order: 1 }),
     ];
-    // Only m1 is owned/returned by the owner-scoped query.
     const rows = [monitorRow({ id: "m1" })];
     const statsMap = new Map<string, MonitorStats>([["m1", stats()]]);
     const result = assemblePublicMonitors(refs, rows, statsMap, {
@@ -282,10 +268,6 @@ describe("assemblePublicMonitors (inclusion boundary)", () => {
     expect(result.map((m) => m.id)).toEqual(["m1"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Public read scoping (behavioral, through getPublicStatusPage)
-// ---------------------------------------------------------------------------
 
 describe("getPublicStatusPage", () => {
   beforeEach(() => {
@@ -297,8 +279,6 @@ describe("getPublicStatusPage", () => {
   });
 
   it("returns null for an unknown or unpublished slug (no published row)", async () => {
-    // The published-only lookup yields nothing → null, and the monitors query
-    // is never reached.
     getDbMock.mockReturnValue(createDbMock([[]]));
     const result = await getPublicStatusPage("does-not-exist");
     expect(result).toBeNull();
@@ -316,24 +296,16 @@ describe("getPublicStatusPage", () => {
     const result = await getPublicStatusPage("acme");
     expect(result).not.toBeNull();
     expect(result!.slug).toBe("acme");
-    // m2 was included on the page but is NOT owned → excluded.
     expect(result!.monitors.map((m) => m.id)).toEqual(["m1"]);
     const monitor = result!.monitors[0];
     expect(Object.keys(monitor).sort()).toEqual(SAFE_MONITOR_KEYS);
     expect(monitor.url).toBeNull();
-    // No secret/config field leaks anywhere in the public payload.
     expect(JSON.stringify(result)).not.toContain("SECRET");
     expect(result!.overall).toBe("operational");
-    // stats were requested only for the owned+included id.
     expect(getMonitorStatsMock).toHaveBeenCalledTimes(1);
     expect(getMonitorStatsMock.mock.calls[0][1]).toEqual(["m1"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Source guards: keep the scoping invariants that the mocks above can't prove
-// (that the real SQL filters by published + scopes monitors to the page owner).
-// ---------------------------------------------------------------------------
 
 describe("status-pages.ts public-read source invariants", () => {
   const source = readFileSync(

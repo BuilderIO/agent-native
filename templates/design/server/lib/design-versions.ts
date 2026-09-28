@@ -15,23 +15,37 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
+import { captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, asc, desc, eq, isNull, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
+import {
+  componentDeletionGeometrySchema,
+  type ComponentDeletionGeometry,
+} from "../../shared/component-archive.js";
 import { getDb, schema } from "../db/index.js";
-import { withSourceFileWriteLock } from "../source-workspace.js";
+import {
+  affectedRowCount,
+  designSourceMutationLockKey,
+  lockDesignFilesTable,
+  withSourceFileWriteLock,
+} from "../source-workspace.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
 const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
+const EDITOR_CHECKPOINT_THROTTLE_MS = 5 * 60 * 1000;
 
 export interface DesignVersionChatContext {
   threadId?: string;
   runId?: string;
   turnId?: string;
   actionName?: string;
+  phase?: "start" | "end";
+  surface?: "editor";
+  caller?: "frontend" | "webmcp";
 }
 
 export interface DesignVersionFile {
@@ -52,6 +66,7 @@ export interface ParsedDesignVersionSnapshot {
   tweaks?: unknown;
   appliedTweaks?: unknown;
   resolvedCssVars?: unknown;
+  deletionGeometry?: ComponentDeletionGeometry;
   capturedAt?: string;
   chatContext?: DesignVersionChatContext;
 }
@@ -61,10 +76,30 @@ export interface DesignVersionListEntry {
   designId: string;
   label: string | null;
   createdAt: string | null;
-  source: "chat" | "legacy";
+  source: "chat" | "editor" | "legacy";
   fileCount: number;
   chatContext: DesignVersionChatContext | null;
   editable: boolean;
+}
+
+export type DesignVersionCheckpointSkipReason =
+  | "blob-storage-unavailable"
+  | "checkpoint-failed";
+
+export interface DesignVersionCheckpointSkipped {
+  skipped: true;
+  reason: DesignVersionCheckpointSkipReason;
+}
+
+export type DesignVersionCheckpointResult =
+  | { id: string; createdAt: string; label: string }
+  | DesignVersionCheckpointSkipped
+  | null;
+
+export function checkpointSkippedResultField(
+  result: DesignVersionCheckpointResult,
+): { checkpoint: DesignVersionCheckpointSkipped } | Record<string, never> {
+  return result && "skipped" in result ? { checkpoint: result } : {};
 }
 
 export class DesignVersionRestoreConflictError extends Error {
@@ -73,6 +108,15 @@ export class DesignVersionRestoreConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DesignVersionRestoreConflictError";
+  }
+}
+
+class DesignCheckpointBlobUnavailableError extends Error {
+  constructor() {
+    super(
+      "Private blob storage is required for design checkpoints larger than 256 KiB.",
+    );
+    this.name = "DesignCheckpointBlobUnavailableError";
   }
 }
 
@@ -97,6 +141,15 @@ function stableStringify(value: unknown): string {
     .sort()
     .map((key) => `${JSON.stringify(key)}:${stableStringify(object[key])}`)
     .join(",")}}`;
+}
+
+function designVersionIdForIdempotencyKey(
+  designId: string,
+  idempotencyKey: string,
+) {
+  return `design-version-${createHash("sha256")
+    .update(stableStringify({ designId, idempotencyKey }))
+    .digest("hex")}`;
 }
 
 function nextRevisionTimestamp(previous: string | null | undefined): string {
@@ -131,6 +184,13 @@ function parseChatContext(
       context[key] = candidate;
     }
   }
+  if (value.phase === "start" || value.phase === "end") {
+    context.phase = value.phase;
+  }
+  if (value.surface === "editor") context.surface = "editor";
+  if (value.caller === "frontend" || value.caller === "webmcp") {
+    context.caller = value.caller;
+  }
   return Object.keys(context).length > 0 ? context : undefined;
 }
 
@@ -149,11 +209,6 @@ function isSafeFilename(filename: string): boolean {
   );
 }
 
-/**
- * Validate the stored snapshot before exposing it as a restore target.
- * Existing branch/context snapshots use the same `files` shape, so they remain
- * listable and restorable when their file ids are still available.
- */
 export function parseDesignVersionSnapshot(
   raw: string,
   expectedDesignId: string,
@@ -260,6 +315,17 @@ export function parseDesignVersionSnapshot(
     parsed.appliedTweaks = value.appliedTweaks;
   if (value.resolvedCssVars !== undefined)
     parsed.resolvedCssVars = value.resolvedCssVars;
+  if (value.deletionGeometry !== undefined) {
+    const deletionGeometry = componentDeletionGeometrySchema.safeParse(
+      value.deletionGeometry,
+    );
+    if (!deletionGeometry.success) {
+      throw new Error(
+        "Design version snapshot has invalid component deletion geometry.",
+      );
+    }
+    parsed.deletionGeometry = deletionGeometry.data;
+  }
   if (typeof value.capturedAt === "string")
     parsed.capturedAt = value.capturedAt;
   parsed.chatContext = parseChatContext(value.chatContext);
@@ -293,7 +359,6 @@ function isPrivateBlobHandle(value: unknown): value is PrivateBlobHandle {
   );
 }
 
-/** Read both legacy inline snapshots and bounded private-blob references. */
 export async function readDesignVersionSnapshot(
   raw: string,
   expectedDesignId: string,
@@ -321,12 +386,12 @@ export async function readDesignVersionSnapshot(
 }
 
 function chatContextKey(
-  context: DesignVersionChatContext | undefined,
+  context: DesignVersionChatContext | null | undefined,
 ): string | null {
-  if (!context) return null;
+  if (!context || context.surface === "editor") return null;
   const scope = context.threadId ?? "";
   const turn = context.turnId ?? context.runId ?? "";
-  return turn ? `${scope}:${turn}` : null;
+  return turn ? `${scope}:${turn}:${context.phase ?? ""}` : null;
 }
 
 function actionChatContext(
@@ -338,6 +403,19 @@ function actionChatContext(
     ...(context.threadId ? { threadId: context.threadId } : {}),
     ...(context.runId ? { runId: context.runId } : {}),
     ...(context.turnId ? { turnId: context.turnId } : {}),
+    ...(context.actionName ? { actionName: context.actionName } : {}),
+  };
+}
+
+function editorActionContext(
+  context: ActionRunContext,
+): DesignVersionChatContext | null {
+  if (context.caller !== "frontend" && context.caller !== "webmcp") {
+    return null;
+  }
+  return {
+    surface: "editor",
+    caller: context.caller,
     ...(context.actionName ? { actionName: context.actionName } : {}),
   };
 }
@@ -354,18 +432,6 @@ function nextUpdatedAt(current: string | null, now: Date): string {
     ? Math.max(currentMs + 1, now.getTime())
     : now.getTime();
   return new Date(nextMs).toISOString();
-}
-
-function affectedRowCount(result: unknown): number | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const candidate = result as {
-    rowsAffected?: unknown;
-    rowCount?: unknown;
-    changes?: unknown;
-  };
-  const value =
-    candidate.rowsAffected ?? candidate.rowCount ?? candidate.changes;
-  return typeof value === "number" ? value : undefined;
 }
 
 function designFileRevisionWhere(file: {
@@ -432,10 +498,13 @@ async function assertNoUnpersistedCollaborativeEdits(
   designId: string,
   storedFiles: ReadonlyArray<{ id: string; content: string }>,
   designData?: string | null,
+  database?: DesignDatabase,
 ): Promise<void> {
   let liveSnapshot;
   try {
-    liveSnapshot = await buildDesignSnapshot(designId, designData);
+    liveSnapshot = database
+      ? await buildDesignSnapshot(designId, designData, {}, database)
+      : await buildDesignSnapshot(designId, designData);
   } catch {
     throw new DesignVersionRestoreConflictError(
       "Design history cannot verify live editing state right now. Refresh and try again.",
@@ -467,18 +536,64 @@ async function withDesignFileLocks<T>(
 }
 
 type DesignAccess = Awaited<ReturnType<typeof assertAccess>>;
+type DesignDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert">;
 
 const designVersionLocks = new Map<string, Promise<unknown>>();
+
+const editorCheckpointRecentSkips = new Map<
+  string,
+  { at: number; reason: DesignVersionCheckpointSkipReason }
+>();
+
+export function __clearEditorCheckpointSkipsForTests(): void {
+  editorCheckpointRecentSkips.clear();
+}
+
+async function latestStateMatches(
+  raw: string,
+  designId: string,
+  stateHash: string,
+  currentStateJson: string,
+): Promise<boolean> {
+  try {
+    const stored: unknown = JSON.parse(raw);
+    if (isRecord(stored) && typeof stored.stateHash === "string") {
+      return stored.stateHash === stateHash;
+    }
+    const previous = await readDesignVersionSnapshot(raw, designId);
+    const previousState = {
+      designData: previous.designData,
+      designTitle: previous.designTitle,
+      designDescription: previous.designDescription,
+      projectType: previous.projectType,
+      designSystemId: previous.designSystemId,
+      files: previous.files,
+      tweaks: previous.tweaks,
+      appliedTweaks: previous.appliedTweaks,
+      resolvedCssVars: previous.resolvedCssVars,
+      deletionGeometry: previous.deletionGeometry,
+    };
+    return stableStringify(previousState) === currentStateJson;
+    // coercion-ok: unreadable history cannot suppress a new autosave.
+  } catch {
+    // An unreadable checkpoint cannot establish equality; preserve autosave.
+    return false;
+  }
+}
 
 async function captureDesignVersion(
   designId: string,
   options: {
     label: string;
     chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+    preferStoredFileContent?: boolean;
+    idempotencyKey?: string;
   },
   access: DesignAccess,
+  database?: DesignDatabase,
 ): Promise<{ id: string; createdAt: string; label: string }> {
-  const design = access.resource as {
+  let design = access.resource as {
     data?: unknown;
     title?: unknown;
     description?: unknown;
@@ -486,8 +601,29 @@ async function captureDesignVersion(
     designSystemId?: unknown;
     ownerEmail?: unknown;
   };
+  if (database) {
+    const [currentDesign] = await database
+      .select()
+      .from(schema.designs)
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      )
+      .limit(1);
+    if (!currentDesign) {
+      throw new Error(`Design "${designId}" not found.`);
+    }
+    design = { ...design, ...currentDesign };
+  }
   const designData = parseDesignData(designId, design.data);
-  const liveSnapshot = await buildDesignSnapshot(designId, designData);
+  const snapshotOptions = options.preferStoredFileContent
+    ? { preferStoredFileContent: true }
+    : undefined;
+  const liveSnapshot = database
+    ? await buildDesignSnapshot(designId, designData, snapshotOptions, database)
+    : await buildDesignSnapshot(designId, designData, snapshotOptions);
   const designTitle = typeof design.title === "string" ? design.title : "";
   const designDescription =
     typeof design.description === "string" || design.description === null
@@ -517,8 +653,11 @@ async function captureDesignVersion(
     tweaks: liveSnapshot.tweaks,
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
+    deletionGeometry: options.deletionGeometry,
   };
-  const db = getDb();
+  const currentStateJson = stableStringify(currentState);
+  const stateHash = createHash("sha256").update(currentStateJson).digest("hex");
+  const db = database ?? getDb();
   const [latest] = await db
     .select({
       id: schema.designVersions.id,
@@ -548,47 +687,34 @@ async function captureDesignVersion(
         chatContextCompatible = false;
       }
     }
-    try {
-      const previous = await readDesignVersionSnapshot(
+    if (
+      chatContextCompatible &&
+      (await latestStateMatches(
         latest.snapshot,
         designId,
-      );
-      const previousState = {
-        designData: previous.designData,
-        designTitle: previous.designTitle,
-        designDescription: previous.designDescription,
-        projectType: previous.projectType,
-        designSystemId: previous.designSystemId,
-        files: previous.files,
-        tweaks: previous.tweaks,
-        appliedTweaks: previous.appliedTweaks,
-        resolvedCssVars: previous.resolvedCssVars,
+        stateHash,
+        currentStateJson,
+      ))
+    ) {
+      return {
+        id: latest.id,
+        createdAt: latest.createdAt ?? createdAt,
+        label: latest.label ?? options.label,
       };
-      if (
-        chatContextCompatible &&
-        stableStringify(previousState) === stableStringify(currentState)
-      ) {
-        return {
-          id: latest.id,
-          createdAt: latest.createdAt ?? createdAt,
-          label: latest.label ?? options.label,
-        };
-      }
-      // coercion-ok: unreadable history cannot suppress a new autosave.
-    } catch {
-      // An unreadable checkpoint cannot establish equality; preserve autosave.
     }
   }
-  const id = `design-version-${createHash("sha256")
-    .update(
-      stableStringify({
-        designId,
-        previousVersionId: latest?.id ?? "initial",
-        chatContextKey: chatContextKey(options.chatContext),
-        state: currentState,
-      }),
-    )
-    .digest("hex")}`;
+  const id = options.idempotencyKey
+    ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
+    : `design-version-${createHash("sha256")
+        .update(
+          stableStringify({
+            designId,
+            previousVersionId: latest?.id ?? "initial",
+            chatContextKey: chatContextKey(options.chatContext),
+            stateHash,
+          }),
+        )
+        .digest("hex")}`;
   const snapshot = JSON.stringify({
     schemaVersion: 1,
     snapshotKind: "design-history",
@@ -603,7 +729,11 @@ async function captureDesignVersion(
     appliedTweaks: liveSnapshot.appliedTweaks,
     resolvedCssVars: liveSnapshot.resolvedCssVars,
     capturedAt: createdAt,
+    stateHash,
     ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+    ...(options.deletionGeometry
+      ? { deletionGeometry: options.deletionGeometry }
+      : {}),
   });
   let uploadedBlob: PrivateBlobHandle | null = null;
   let storedSnapshot = snapshot;
@@ -622,9 +752,7 @@ async function captureDesignVersion(
       },
     });
     if (!blob) {
-      throw new Error(
-        "Private blob storage is required for design checkpoints larger than 256 KiB.",
-      );
+      throw new DesignCheckpointBlobUnavailableError();
     }
     uploadedBlob = blob;
     storedSnapshot = JSON.stringify({
@@ -633,7 +761,11 @@ async function captureDesignVersion(
       designId,
       fileCount: liveSnapshot.files.length,
       capturedAt: createdAt,
+      stateHash,
       ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+      ...(options.deletionGeometry
+        ? { deletionGeometry: options.deletionGeometry }
+        : {}),
       blob,
     });
   }
@@ -703,7 +835,11 @@ export async function withDesignVersionLock<T>(
 
 export async function createDesignVersionSnapshot(
   designId: string,
-  options: { label: string; chatContext?: DesignVersionChatContext },
+  options: {
+    label: string;
+    chatContext?: DesignVersionChatContext;
+    deletionGeometry?: ComponentDeletionGeometry;
+  },
 ) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
@@ -711,79 +847,243 @@ export async function createDesignVersionSnapshot(
   });
 }
 
-/**
- * Create one durable pre-edit checkpoint for a chat turn. The turn key makes
- * retries and multi-action turns converge on the earliest checkpoint instead
- * of filling history with one copy per tool call.
- */
-export async function snapshotDesignBeforeAgentEdit(
+export async function createDesignChatBeginningSnapshot(
   designId: string,
-  context?: ActionRunContext,
-): Promise<{ id: string; createdAt: string; label: string } | null> {
-  if (!context) return null;
-  const chatContext = actionChatContext(context);
-  if (!chatContext) return null;
-
+  run: { threadId: string; runId: string },
+) {
   return withDesignVersionLock(designId, async () => {
     const access = await assertAccess("design", designId, "editor");
-    const key = chatContextKey(chatContext);
-    if (!key) return null;
-
     const rows = await getDb()
-      .select({
-        id: schema.designVersions.id,
-        createdAt: schema.designVersions.createdAt,
-        label: schema.designVersions.label,
-        chatContext: schema.designVersions.chatContext,
-      })
+      .select({ id: schema.designVersions.id })
       .from(schema.designVersions)
-      .where(eq(schema.designVersions.designId, designId))
-      .orderBy(
-        asc(isNull(schema.designVersions.createdAt)),
-        desc(schema.designVersions.createdAt),
-        desc(schema.designVersions.id),
+      .where(
+        and(
+          eq(schema.designVersions.designId, designId),
+          eq(
+            schema.designVersions.id,
+            designVersionIdForIdempotencyKey(
+              designId,
+              `chat-start:${run.threadId}`,
+            ),
+          ),
+        ),
       )
-      .limit(CHAT_VERSION_LOOKBACK);
-
-    let existing: { id: string; createdAt: string; label: string } | undefined;
-    for (const row of rows) {
-      let rowChatContext: DesignVersionChatContext | undefined;
-      try {
-        rowChatContext = parseStoredChatContext(row.chatContext);
-      } catch {
-        continue;
-      }
-      if (chatContextKey(rowChatContext) !== key) continue;
-      const candidate = {
-        id: row.id,
-        createdAt: row.createdAt ?? new Date().toISOString(),
-        label: row.label ?? "Before chat edit",
-      };
-      if (
-        !existing ||
-        versionTime(candidate.createdAt) < versionTime(existing.createdAt)
-      ) {
-        existing = candidate;
-      }
-    }
-    if (existing) return existing;
-
+      .limit(1);
+    if (rows.length) return null;
     return captureDesignVersion(
       designId,
       {
-        label: context.actionName
-          ? `Before chat edit: ${context.actionName}`
-          : "Before chat edit",
-        chatContext,
+        label: "Before chat",
+        chatContext: { ...run, phase: "start" },
+        idempotencyKey: `chat-start:${run.threadId}`,
       },
       access,
     );
   });
 }
 
+function checkpointSkipReason(
+  error: unknown,
+): DesignVersionCheckpointSkipReason {
+  return error instanceof DesignCheckpointBlobUnavailableError
+    ? "blob-storage-unavailable"
+    : "checkpoint-failed";
+}
+
+async function snapshotDesignBeforeAgentEditInLock(
+  designId: string,
+  context: ActionRunContext,
+  database?: DesignDatabase,
+  editorCheckpointMode: "auxiliary" | "required" = "auxiliary",
+  allowCheckpointFailureSkip = false,
+): Promise<DesignVersionCheckpointResult> {
+  const chatContext = actionChatContext(context);
+  const editorContext = editorActionContext(context);
+  if (!chatContext && !editorContext) return null;
+
+  const access = await assertAccess("design", designId, "editor");
+  if (editorContext) {
+    if (editorCheckpointMode === "required") {
+      return await captureDesignVersion(
+        designId,
+        {
+          label: context.actionName
+            ? `Before editor edit: ${context.actionName}`
+            : "Before editor edit",
+          chatContext: editorContext,
+        },
+        access,
+        database,
+      );
+    }
+    if (context.caller === "frontend") {
+      const [latestVersion] = await (database ?? getDb())
+        .select({
+          id: schema.designVersions.id,
+          createdAt: schema.designVersions.createdAt,
+          label: schema.designVersions.label,
+          chatContext: schema.designVersions.chatContext,
+        })
+        .from(schema.designVersions)
+        .where(eq(schema.designVersions.designId, designId))
+        .orderBy(
+          asc(isNull(schema.designVersions.createdAt)),
+          desc(schema.designVersions.createdAt),
+          desc(schema.designVersions.id),
+        )
+        .limit(1);
+      if (latestVersion) {
+        let latestChatContext: DesignVersionChatContext | undefined;
+        try {
+          latestChatContext = parseStoredChatContext(latestVersion.chatContext);
+        } catch {
+          latestChatContext = undefined;
+        }
+        const latestIsFrontendEditorCheckpoint =
+          latestChatContext?.surface === "editor" &&
+          latestChatContext.caller === "frontend";
+        const latestAgeMs = Date.now() - versionTime(latestVersion.createdAt);
+        if (
+          latestIsFrontendEditorCheckpoint &&
+          latestAgeMs < EDITOR_CHECKPOINT_THROTTLE_MS
+        ) {
+          return {
+            id: latestVersion.id,
+            createdAt: latestVersion.createdAt ?? new Date().toISOString(),
+            label: latestVersion.label ?? "Before editor edit",
+          };
+        }
+      }
+      if (allowCheckpointFailureSkip) {
+        const recentSkip = editorCheckpointRecentSkips.get(designId);
+        if (
+          recentSkip &&
+          Date.now() - recentSkip.at < EDITOR_CHECKPOINT_THROTTLE_MS
+        ) {
+          return { skipped: true, reason: recentSkip.reason };
+        }
+      }
+    }
+    try {
+      const captured = await captureDesignVersion(
+        designId,
+        {
+          label: context.actionName
+            ? `Before editor edit: ${context.actionName}`
+            : "Before editor edit",
+          chatContext: editorContext,
+        },
+        access,
+        database,
+      );
+      editorCheckpointRecentSkips.delete(designId);
+      return captured;
+    } catch (error) {
+      const reason = checkpointSkipReason(error);
+      captureError(error, {
+        tags: { source: "design-versions", checkpoint: "editor" },
+        extra: { designId, actionName: context.actionName },
+      });
+      if (!allowCheckpointFailureSkip) throw error;
+      if (context.caller === "frontend") {
+        editorCheckpointRecentSkips.set(designId, { at: Date.now(), reason });
+      }
+      return { skipped: true, reason };
+    }
+  }
+  if (!chatContext) return null;
+  const key = chatContextKey(chatContext);
+  if (!key) return null;
+
+  const rows = await (database ?? getDb())
+    .select({
+      id: schema.designVersions.id,
+      createdAt: schema.designVersions.createdAt,
+      label: schema.designVersions.label,
+      chatContext: schema.designVersions.chatContext,
+    })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.designId, designId))
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
+    .limit(CHAT_VERSION_LOOKBACK);
+
+  let existing: { id: string; createdAt: string; label: string } | undefined;
+  for (const row of rows) {
+    let rowChatContext: DesignVersionChatContext | undefined;
+    try {
+      rowChatContext = parseStoredChatContext(row.chatContext);
+    } catch {
+      continue;
+    }
+    if (chatContextKey(rowChatContext) !== key) continue;
+    const candidate = {
+      id: row.id,
+      createdAt: row.createdAt ?? new Date().toISOString(),
+      label: row.label ?? "Before chat edit",
+    };
+    if (
+      !existing ||
+      versionTime(candidate.createdAt) < versionTime(existing.createdAt)
+    ) {
+      existing = candidate;
+    }
+  }
+  if (existing) return existing;
+
+  return captureDesignVersion(
+    designId,
+    {
+      label: context.actionName
+        ? `Before chat edit: ${context.actionName}`
+        : "Before chat edit",
+      chatContext,
+    },
+    access,
+    database,
+  );
+}
+
+export async function snapshotDesignBeforeAgentEdit(
+  designId: string,
+  context?: ActionRunContext,
+  options?: {
+    allowCheckpointFailureSkip?: boolean;
+  },
+): Promise<DesignVersionCheckpointResult> {
+  if (!context) return null;
+  return withDesignVersionLock(designId, () =>
+    snapshotDesignBeforeAgentEditInLock(
+      designId,
+      context,
+      undefined,
+      "auxiliary",
+      options?.allowCheckpointFailureSkip ?? false,
+    ),
+  );
+}
+
+export async function snapshotDesignBeforeAgentEditInVersionLock(
+  designId: string,
+  context?: ActionRunContext,
+  database?: DesignDatabase,
+): Promise<DesignVersionCheckpointResult> {
+  if (!context) return null;
+  return snapshotDesignBeforeAgentEditInLock(
+    designId,
+    context,
+    database,
+    "required",
+  );
+}
+
 export async function listDesignVersions(
   designId: string,
   limit: number,
+  threadId?: string,
 ): Promise<{
   designId: string;
   count: number;
@@ -791,7 +1091,8 @@ export async function listDesignVersions(
   versions: DesignVersionListEntry[];
 }> {
   await assertAccess("design", designId, "viewer");
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select({
       id: schema.designVersions.id,
       label: schema.designVersions.label,
@@ -807,11 +1108,46 @@ export async function listDesignVersions(
       desc(schema.designVersions.id),
     )
     .limit(limit);
+  const beginningRows = await db
+    .select({
+      id: schema.designVersions.id,
+      label: schema.designVersions.label,
+      createdAt: schema.designVersions.createdAt,
+      chatContext: schema.designVersions.chatContext,
+      fileCount: schema.designVersions.fileCount,
+    })
+    .from(schema.designVersions)
+    .where(
+      threadId
+        ? and(
+            eq(schema.designVersions.designId, designId),
+            eq(
+              schema.designVersions.id,
+              designVersionIdForIdempotencyKey(
+                designId,
+                `chat-start:${threadId}`,
+              ),
+            ),
+          )
+        : and(
+            eq(schema.designVersions.designId, designId),
+            like(schema.designVersions.chatContext, '%"phase":"start"%'),
+          ),
+    )
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      asc(schema.designVersions.createdAt),
+    )
+    .limit(threadId ? 1 : limit);
+  const rowsById = new Map(
+    [...rows, ...beginningRows].map((row) => [row.id, row]),
+  );
 
   const regular: DesignVersionListEntry[] = [];
   const chat = new Map<string, DesignVersionListEntry>();
+  const activeStartEntries: DesignVersionListEntry[] = [];
   let invalidCount = 0;
-  for (const row of rows) {
+  for (const row of rowsById.values()) {
     let chatContext: DesignVersionChatContext | undefined;
     try {
       chatContext = parseStoredChatContext(row.chatContext);
@@ -824,7 +1160,12 @@ export async function listDesignVersions(
       designId,
       label: row.label,
       createdAt: row.createdAt,
-      source: chatContext ? "chat" : "legacy",
+      source:
+        chatContext?.surface === "editor"
+          ? "editor"
+          : chatContext
+            ? "chat"
+            : "legacy",
       fileCount: row.fileCount ?? 0,
       chatContext: chatContext ?? null,
       editable: Boolean(chatContext),
@@ -834,19 +1175,47 @@ export async function listDesignVersions(
       regular.push(entry);
       continue;
     }
-    const previous = chat.get(key);
     if (
-      !previous ||
-      versionTime(entry.createdAt) < versionTime(previous.createdAt)
+      threadId &&
+      chatContext?.threadId === threadId &&
+      chatContext.phase === "start"
     ) {
-      chat.set(key, entry);
+      activeStartEntries.push(entry);
+      continue;
     }
+    const previous = chat.get(key);
+    const replacePrevious =
+      !previous ||
+      (chatContext?.phase === "end"
+        ? versionTime(entry.createdAt) > versionTime(previous.createdAt)
+        : versionTime(entry.createdAt) < versionTime(previous.createdAt));
+    if (replacePrevious) chat.set(key, entry);
   }
 
-  const versions = [...regular, ...chat.values()].sort(
+  const versions = [...regular, ...chat.values(), ...activeStartEntries].sort(
     (left, right) => versionTime(right.createdAt) - versionTime(left.createdAt),
   );
-  return { designId, count: versions.length, invalidCount, versions };
+  const limitedVersions = versions.slice(0, limit);
+  const activeStart = threadId
+    ? versions.find(
+        (version) =>
+          version.chatContext?.threadId === threadId &&
+          version.chatContext.phase === "start",
+      )
+    : undefined;
+  if (activeStart && !limitedVersions.includes(activeStart)) {
+    limitedVersions[limitedVersions.length - 1] = activeStart;
+    limitedVersions.sort(
+      (left, right) =>
+        versionTime(right.createdAt) - versionTime(left.createdAt),
+    );
+  }
+  return {
+    designId,
+    count: limitedVersions.length,
+    invalidCount,
+    versions: limitedVersions,
+  };
 }
 
 interface RestoreFile {
@@ -870,7 +1239,7 @@ export async function restoreDesignVersion(args: {
   collaborationReconcilePending: string[];
 }> {
   return withDesignVersionLock(args.designId, async () => {
-    await assertAccess("design", args.designId, "editor");
+    const access = await assertAccess("design", args.designId, "editor");
     const db = getDb();
     const [version] = await db
       .select({
@@ -921,49 +1290,54 @@ export async function restoreDesignVersion(args: {
         ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
       ],
       async () => {
-        const lockedFiles = await db
-          .select()
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.designId, args.designId));
-        await assertNoForeignCollaborators(
-          [
-            ...lockedFiles.map((file) => file.id),
-            ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
-          ],
-          currentEmail,
-        );
+        return db.transaction(async (tx) => {
+          await tx.execute(
+            sql`SELECT pg_advisory_xact_lock(hashtextextended(${designSourceMutationLockKey(args.designId)}, 0::bigint))`,
+          );
+          await lockDesignFilesTable(tx);
+          const lockedFiles = await tx
+            .select()
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, args.designId));
+          await assertNoForeignCollaborators(
+            [
+              ...lockedFiles.map((file) => file.id),
+              ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
+            ],
+            currentEmail,
+          );
 
-        const lockedAccess = await assertAccess(
-          "design",
-          args.designId,
-          "editor",
-        );
-        const currentDesign = lockedAccess.resource as {
-          data?: unknown;
-          updatedAt?: string | null;
-        };
-        await assertNoUnpersistedCollaborativeEdits(
-          args.designId,
-          lockedFiles,
-          typeof currentDesign.data === "string"
-            ? currentDesign.data
-            : undefined,
-        );
-        const before = await captureDesignVersion(
-          args.designId,
-          { label: "Before restore" },
-          lockedAccess,
-        );
-        const now = new Date();
-        const updatedAt = nextUpdatedAt(currentDesign.updatedAt ?? null, now);
-        const currentById = new Map(lockedFiles.map((file) => [file.id, file]));
-        const currentByFilename = new Map(
-          lockedFiles.map((file) => [file.filename, file]),
-        );
-        const claimedIds = new Set<string>();
-        const restoreFiles: RestoreFile[] = [];
+          const [currentDesign] = await tx
+            .select()
+            .from(schema.designs)
+            .where(eq(schema.designs.id, args.designId))
+            .limit(1);
+          if (!currentDesign) {
+            throw new Error(`Design "${args.designId}" not found.`);
+          }
+          await assertNoUnpersistedCollaborativeEdits(
+            args.designId,
+            lockedFiles,
+            currentDesign.data,
+            tx,
+          );
+          const before = await captureDesignVersion(
+            args.designId,
+            { label: "Before restore" },
+            access,
+            tx,
+          );
+          const now = new Date();
+          const updatedAt = nextUpdatedAt(currentDesign.updatedAt ?? null, now);
+          const currentById = new Map(
+            lockedFiles.map((file) => [file.id, file]),
+          );
+          const currentByFilename = new Map(
+            lockedFiles.map((file) => [file.filename, file]),
+          );
+          const claimedIds = new Set<string>();
+          const restoreFiles: RestoreFile[] = [];
 
-        await db.transaction(async (tx) => {
           for (const targetFile of target.files) {
             const byId = targetFile.id
               ? currentById.get(targetFile.id)
@@ -1123,18 +1497,18 @@ export async function restoreDesignVersion(args: {
               "Design changed while history was being restored. Refresh and try again.",
             );
           }
-        });
 
-        return {
-          beforeRestoreVersionId: before.id,
-          restore: {
-            updatedAt,
-            files: restoreFiles,
-            deletedFileIds: lockedFiles
-              .filter((file) => !claimedIds.has(file.id))
-              .map((file) => file.id),
-          },
-        };
+          return {
+            beforeRestoreVersionId: before.id,
+            restore: {
+              updatedAt,
+              files: restoreFiles,
+              deletedFileIds: lockedFiles
+                .filter((file) => !claimedIds.has(file.id))
+                .map((file) => file.id),
+            },
+          };
+        });
       },
     );
 

@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
 
+import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+
 import {
   detectMetricValueColumn,
+  formatSqlChartTooltipLabel,
   formatMetricValue,
-  hasChartSizeChanged,
   safeDashboardLinkHref,
   sessionReplayHref,
-  shouldDisableChartAnimation,
   shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
@@ -14,64 +15,8 @@ import {
   toSqlChartDateKey,
 } from "./SqlChart";
 
-describe("chart resize animation policy", () => {
-  it("keeps the initial measurement stable and detects later size changes", () => {
-    expect(hasChartSizeChanged(null, { width: 640, height: 250 })).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-    expect(
-      hasChartSizeChanged(
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  // Disabling the animation while it is still running freezes the line's
-  // stroke-dasharray partway, so the series never becomes visible. Lazy-loaded
-  // panels always reflow just after mounting, which used to trip exactly this.
-  it("ignores a resize that lands before the entry animation has settled", () => {
-    expect(
-      shouldDisableChartAnimation(
-        false,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(false);
-  });
-
-  it("disables the animation for a resize after the entry animation settles", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 520, height: 250 },
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps animating when a settled resize reports the same size", () => {
-    expect(
-      shouldDisableChartAnimation(
-        true,
-        { width: 640, height: 250 },
-        { width: 640, height: 250 },
-      ),
-    ).toBe(false);
-  });
-});
-
-// Postgres/Neon returns numeric and bigint columns as strings. The metric
-// renderer used to only format `typeof raw === "number"`,
-// so a Postgres rate like "0.00000000000000000000" was dumped verbatim instead
-// of being shown as "0.00%". formatMetricValue coerces numeric strings first.
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {
-    // 21-decimal string exactly like the live "Viral Signup Share" panel showed
     expect(formatMetricValue("0.000000000000000000000", "percent")).toBe(
       "0.00%",
     );
@@ -103,7 +48,7 @@ describe("formatMetricValue", () => {
 
   it("leaves genuinely non-numeric strings untouched", () => {
     expect(formatMetricValue("n/a", "number")).toBe("n/a");
-    expect(formatMetricValue("", "number")).toBe(""); // preserved original behavior
+    expect(formatMetricValue("", "number")).toBe("");
     expect(formatMetricValue(null, "number")).toBe("-");
     expect(formatMetricValue(undefined, "number")).toBe("-");
   });
@@ -283,5 +228,21 @@ describe("partial-day time-series helpers", () => {
     expect(result.series).toEqual([
       { key: "signups", solidKey: "signups", partialKey: null },
     ]);
+  });
+});
+
+describe("chart tooltip date labels", () => {
+  const panel = { source: "first-party" } as SqlPanel;
+
+  it("includes the weekday for daily chart keys", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "date")).toBe(
+      "Monday, Jun 22",
+    );
+  });
+
+  it("leaves non-daily chart keys in the compact date format", () => {
+    expect(formatSqlChartTooltipLabel("2026-06-22", panel, "week")).toBe(
+      "Jun 22",
+    );
   });
 });

@@ -5,10 +5,13 @@ import { z } from "zod";
 
 import { trashEmail } from "../server/lib/email-state.js";
 
-// Gmail has no batch endpoint for trash (unlike label add/remove), so bulk
-// trash uses bounded-concurrency parallel calls instead of one-at-a-time or
-// fully-unbounded fan-out.
 const TRASH_CONCURRENCY = 5;
+
+export type TrashEmailActionResult = {
+  requested: string[];
+  succeeded: string[];
+  failed: { id: string; error: string }[];
+};
 
 async function trashWithBoundedConcurrency(
   ids: string[],
@@ -80,9 +83,26 @@ export default defineAction({
     const failed = results.filter((r) => !r.success);
 
     if (failed.length > 0) {
+      if (ids.length > 1) {
+        return {
+          requested: ids,
+          succeeded: results.filter((r) => r.success).map((r) => r.id),
+          failed: failed.map(({ id, error }) => ({
+            id,
+            error: error ?? "failed",
+          })),
+        } satisfies TrashEmailActionResult;
+      }
       throw new Error(
         `Trashed ${succeeded}/${ids.length} email(s). Failures: ${failed.map((r) => `${r.id}: ${r.error}`).join("; ")}`,
       );
+    }
+    if (ids.length > 1) {
+      return {
+        requested: ids,
+        succeeded: results.map((r) => r.id),
+        failed: [],
+      } satisfies TrashEmailActionResult;
     }
     return `Trashed ${succeeded} email(s) successfully`;
   },

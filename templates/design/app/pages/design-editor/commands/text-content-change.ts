@@ -3,11 +3,14 @@ import {
   buildCodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
+import { linkedComponentRootForNode } from "@shared/component-links";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { defaultTextLayerName } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   bridgeSourceIdForCodeLayerNode,
   codeLayerNodeMatchesBridgeTarget,
@@ -16,7 +19,13 @@ import {
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
-import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
+import type {
+  LiveScreenSnapshot,
+  TextCommitStatus,
+} from "@/pages/design-editor/command-types";
+import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
+import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
   DesignFile,
@@ -24,9 +33,21 @@ import type {
   EditorMode,
 } from "@/pages/design-editor/types";
 
+import type { ApplyLocalContentUpdateResult } from "./apply-local-content-update";
+import { runRepeatItemEdit } from "./repeat-item-edit";
+import {
+  mapAcceptedSelectionNode,
+  projectAcceptedSource,
+} from "./selection-publication";
+
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
   activeFile: DesignFile;
+  applyLinkedComponentEdit?: (
+    fileId: string,
+    nodeId: string,
+    edit: { kind: "textContent"; value: string },
+  ) => void;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -40,13 +61,14 @@ export interface TextContentChangeArgs {
       updatedAt?: string;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
-  ) => void;
+  ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  finalizePendingTextCreation: (
+  canEditLiveScreen?: boolean;
+  prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
     finalContent: string,
-  ) => boolean;
+  ) => PendingTextCreationFinalization;
   getFreshActiveContent: () => string;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
   recordPendingLiveTextEdit: (
@@ -54,7 +76,13 @@ export interface TextContentChangeArgs {
     selector: string,
     value: string,
     elementInfo?: ElementInfo,
-    details?: { html?: string; originalValue?: string; originalHtml?: string },
+    details?: {
+      html?: string;
+      originalValue?: string;
+      originalHtml?: string;
+      routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    },
   ) => void;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -72,11 +100,13 @@ export function runTextContentChange(
   {
     activeCanvasSourceType,
     activeFile,
+    applyLinkedComponentEdit,
     applyLocalContentUpdate,
     canEditDesign,
-    finalizePendingTextCreation,
+    canEditLiveScreen,
     getFreshActiveContent,
     liveScreenSnapshotsById,
+    prepareTextCreationFinalization,
     recordPendingLiveTextEdit,
     setActiveTool,
     setMode,
@@ -92,10 +122,12 @@ export function runTextContentChange(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
-) {
-  if (!canEditDesign) return;
-  if (!activeFile) return;
+): TextCommitStatus {
+  if (!canEditDesign && !canEditLiveScreen) return "refused";
+  if (!activeFile) return "refused";
   if (activeCanvasSourceType === "localhost") {
     recordPendingLiveTextEdit(
       activeFile.id,
@@ -106,27 +138,99 @@ export function runTextContentChange(
     );
     setActiveTool("move");
     setMode("edit");
-    return;
+    return "accepted";
   }
   const activeLiveSnapshot = liveScreenSnapshotsById[activeFile.id];
+  const source = activeLiveSnapshot
+    ? { kind: "inline-html" as const, fileId: activeFile.id }
+    : { kind: "design-file" as const, fileId: activeFile.id };
   const baseContent = activeLiveSnapshot?.html ?? getFreshActiveContent();
-  const projection = buildCodeLayerProjection(baseContent);
+  const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === activeFile.id
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
+  const repeatXFor = targetNode?.repeatXFor;
+  const textBinding =
+    typeof targetNode?.attributes["x-text"] === "string"
+      ? targetNode.attributes["x-text"]
+      : "";
+  if (repeatXFor && textBinding) {
+    const edit = runRepeatItemEdit({
+      content: baseContent,
+      target: {
+        xFor: repeatXFor,
+        itemIndex: elementInfo?.repeat?.itemIndex ?? -1,
+        keyExpression: elementInfo?.repeat?.keyExpression,
+        itemKey: elementInfo?.repeat?.itemKey,
+      },
+      operation: { kind: "set-value", binding: textBinding, value },
+    });
+    if (edit.status === "written") {
+      applyLocalContentUpdate(edit.content, {
+        forcePreviewFullDocument: true,
+      });
+      setActiveTool("move");
+      setMode("edit");
+      return "accepted";
+    }
+    if (edit.status === "refused") {
+      trace("structure", "repeat-item-refused", {
+        operation: "set-value",
+        reason: edit.reason,
+      });
+      toast.error(
+        t(
+          edit.refusal === "no-item"
+            ? "designEditor.toasts.repeatRowPickOnCanvas"
+            : "designEditor.toasts.repeatListNotEditable",
+        ),
+      );
+      return "refused";
+    }
+  }
+  if (
+    activeCanvasSourceType === "inline" &&
+    targetNode &&
+    linkedComponentRootForNode(targetNode, projection)
+  ) {
+    const durableNodeId =
+      targetNode.dataAttributes["data-agent-native-node-id"];
+    if (!durableNodeId || !applyLinkedComponentEdit) {
+      toast.error(t("designEditor.patchProof.selectorMissing"), {
+        duration: 4000,
+      });
+      return "refused";
+    }
+    applyLinkedComponentEdit(activeFile.id, durableNodeId, {
+      kind: "textContent",
+      value,
+    });
+    setActiveTool("move");
+    setMode("edit");
+    return "accepted";
+  }
   const isEmpty = value.trim().length === 0;
   const removedContent =
     isEmpty && targetNode
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent
-    ? applyVisualEdit(baseContent, {
-        kind: "textContent",
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        value,
-        html: details?.html,
-      })
+    ? applyVisualEdit(
+        baseContent,
+        {
+          kind: "textContent",
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          value,
+          html: details?.html,
+        },
+        { source },
+      )
     : null;
   const nextContent =
     removedContent ??
@@ -140,39 +244,9 @@ export function runTextContentChange(
       ),
       { duration: 4000 },
     );
-    return;
+    return "refused";
   }
-  const finalizedCreation = finalizePendingTextCreation(
-    activeFile.id,
-    [
-      elementInfo?.sourceId,
-      targetNode?.id,
-      targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
-    ],
-    nextContent,
-  );
-  if (activeLiveSnapshot) {
-    updateLiveScreenSnapshotContent(activeFile.id, nextContent, {
-      recordHistory: !finalizedCreation,
-    });
-  } else {
-    applyLocalContentUpdate(nextContent, {
-      skipPreview: true,
-      recordHistory: !finalizedCreation,
-    });
-  }
-  // T8: committing text editing should return to the move tool (matches
-  // the creation path, which already does this), not re-arm the text
-  // tool — re-arming it meant every subsequent click anywhere on the
-  // canvas started ANOTHER new text box instead of selecting/moving.
-  setActiveTool("move");
-  setMode("edit");
-  if (removedContent) {
-    setSelectedElement(null);
-    setSelectedLayerIdsState([]);
-    return;
-  }
-  const nextProjection = buildCodeLayerProjection(nextContent);
+  const nextProjection = buildCodeLayerProjection(nextContent, { source });
   const nextNode = targetNode
     ? nextProjection.nodes.find((node) =>
         codeLayerNodeMatchesBridgeTarget(
@@ -182,20 +256,90 @@ export function runTextContentChange(
         ),
       )
     : null;
-  if (nextNode) setSelectedLayerIdsState([nextNode.id]);
+  const namedContent = nextNode
+    ? (setCodeLayerAttributeInHtml(
+        nextContent,
+        nextNode,
+        "data-agent-native-layer-name",
+        defaultTextLayerName(value),
+      ) ?? nextContent)
+    : nextContent;
+  const finalizedCreation = prepareTextCreationFinalization(
+    activeFile.id,
+    [
+      elementInfo?.sourceId,
+      targetNode?.id,
+      targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+    ],
+    namedContent,
+  );
+  const contentToApply = finalizedCreation.isCreationCommit
+    ? namedContent
+    : nextContent;
+  let publication: ApplyLocalContentUpdateResult | null = null;
+  if (activeLiveSnapshot) {
+    if (
+      !updateLiveScreenSnapshotContent(activeFile.id, contentToApply, {
+        recordHistory: !finalizedCreation.historyHandled,
+      })
+    ) {
+      return "refused";
+    }
+  } else {
+    publication = applyLocalContentUpdate(contentToApply, {
+      skipPreview: true,
+      recordHistory: !finalizedCreation.historyHandled,
+    });
+    if (publication.status !== "accepted") return "refused";
+  }
+  finalizedCreation.confirm();
+  setActiveTool("move");
+  setMode("edit");
+  if (removedContent) {
+    setSelectedElement(null);
+    setSelectedLayerIdsState([]);
+    return "accepted";
+  }
+  let selectedNode = nextNode;
+  if (publication) {
+    const submittedProjection = buildCodeLayerProjection(contentToApply, {
+      source,
+    });
+    const submittedNode = targetNode
+      ? submittedProjection.nodes.find((node) =>
+          codeLayerNodeMatchesBridgeTarget(
+            node,
+            selector,
+            bridgeSourceIdForCodeLayerNode(targetNode),
+          ),
+        )
+      : null;
+    selectedNode = mapAcceptedSelectionNode(
+      publication,
+      projectAcceptedSource(publication, source),
+      submittedNode,
+    );
+  }
+  if (selectedNode) setSelectedLayerIdsState([selectedNode.id]);
   setSelectedElement((previous) => {
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base
       ? {
           ...base,
-          sourceId: nextNode
-            ? bridgeSourceIdForCodeLayerNode(nextNode)
+          sourceId: selectedNode
+            ? bridgeSourceIdForCodeLayerNode(selectedNode)
             : base.sourceId,
-          selector: nextNode ? preferredCodeLayerSelector(nextNode) : selector,
+          selector: selectedNode
+            ? preferredCodeLayerSelector(selectedNode)
+            : selector,
+          sourceLayerIdentity: selectedNode
+            ? { screenId: activeFile.id, nodeId: selectedNode.id }
+            : base.sourceLayerIdentity,
           textContent: value.slice(0, 200),
           htmlContent: details?.html,
         }
       : previous;
   });
+  return "accepted";
 }

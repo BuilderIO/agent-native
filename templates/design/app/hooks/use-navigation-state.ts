@@ -6,6 +6,10 @@ import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
 
+import {
+  designEditorViewFromSearchParams,
+  isPersistedDesignEditorRoute,
+} from "@/lib/design-editor-route";
 import { normalizeDesignLeftPanel } from "@/pages/design-editor/tool-state";
 
 export interface NavigationState {
@@ -100,12 +104,6 @@ export function designSelectionStateKeysForTab(
     : ["design-selection"];
 }
 
-/**
- * Route-level cleanup only owns this tab's scoped selection. The editor's
- * owner-aware unmount cleanup is responsible for the global compatibility
- * mirror; clearing that mirror here would let any tab that leaves /design
- * erase another still-open editor tab's current agent context.
- */
 export function designSelectionCleanupKeysForTab(
   browserTabId?: string,
 ): string[] {
@@ -166,7 +164,7 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
 
   const params = new URLSearchParams();
   const editorView = normalizeEditorView(cmd.editorView);
-  if (editorView) params.set("view", editorView);
+  if (editorView) params.set("editorView", editorView);
   if (editorView === "single") params.set("mode", cmd.mode ?? "interact");
   const rawInspectorTab = cmd.inspectorTab ?? cmd.inspector;
   const inspectorTab = normalizeInspectorTab(rawInspectorTab);
@@ -232,7 +230,7 @@ export function useNavigationState(enabled = true) {
 
   useEffect(() => {
     if (!enabled) return;
-    if (location.pathname.startsWith("/design/")) return;
+    if (isPersistedDesignEditorRoute(location.pathname)) return;
     for (const key of designSelectionCleanupKeysForTab(browserTabId)) {
       setClientAppState(key, null).catch(() => {});
     }
@@ -244,10 +242,10 @@ export function useNavigationState(enabled = true) {
       const state: NavigationState = { view: "list" };
       const searchParams = new URLSearchParams(search);
 
-      if (pathname.startsWith("/design/")) {
+      if (isPersistedDesignEditorRoute(pathname)) {
         state.view = "editor";
         state.designId = params.id;
-        const editorView = normalizeEditorView(searchParams.get("view"));
+        const editorView = designEditorViewFromSearchParams(searchParams);
         if (editorView) state.editorView = editorView;
         const mode = normalizeEditorMode(searchParams.get("mode"));
         if (mode) state.mode = mode;

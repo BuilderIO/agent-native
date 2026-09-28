@@ -1,6 +1,23 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  templatesPage: {
+    actions: "{{title}} 템플릿 작업",
+    previewAction: "미리보기",
+    title: "템플릿",
+    browseAll: "모두 보기",
+    searchPlaceholder: "템플릿 검색…",
+    loading: "템플릿 로딩 중",
+    empty: "검색과 일치하는 템플릿이 없습니다.",
+    loadFailed: "템플릿을 불러오지 못했습니다.",
+    preview: "템플릿 미리보기",
+    useTemplate: "템플릿 사용",
+    opening: "템플릿 여는 중…",
+    createFailed: "이 템플릿으로 프레젠테이션을 만들지 못했습니다.",
+    previous: "이전",
+    next: "다음",
+    slidePosition: "슬라이드 {{current}} / {{total}}",
+  },
   creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",
@@ -23,15 +40,26 @@ const messages = {
     brand: "슬라이드",
     decks: "덱",
     designSystems: "디자인 시스템",
-    team: "팀",
   },
   settings: {
+    agentObservability: "에이전트 관찰성",
     title: "설정",
     description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
+    labs: "Labs",
+    labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
+    labLayoutOverflowWarningDescription:
+      "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
+    notificationsEmail: "이메일",
+    commentsAndReplies: "댓글 및 답글",
+    commentsAndRepliesDescription:
+      "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
+    retry: "다시 시도",
+    mcpAbout:
+      "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -50,6 +78,7 @@ const messages = {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
     thisSlide: "이 슬라이드",
     currentSelection: "현재 선택",
+    slideNumber: "슬라이드 {{number}}",
     suggestionPitch: "이 문서로 10장짜리 피치덱 만들기",
     suggestionBrand: "이 덱에 우리 브랜드 적용",
     suggestionHero: "이 슬라이드의 히어로 이미지 생성",
@@ -103,7 +132,7 @@ const messages = {
       "Google PickerにはGOOGLE_PICKER_API_KEYとGOOGLE_PICKER_APP_IDが必要です。",
     imageUploadFailed: "画像のアップロードに失敗しました",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     sentToAgent: "エージェントに送信しました",
     imageUploadGenericError: "この画像のアップロード中に問題が発生しました。",
     uploading: "アップロード中…",
@@ -162,8 +191,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "앱에서 열기",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -179,6 +206,12 @@ const messages = {
     emptyTitle: "브랜드 아이덴티티 설정",
     emptyDescription:
       "브랜드 색상, 타이포그래피, 로고로 디자인 시스템을 만드세요. 새 덱은 모두 이 시각적 정체성을 따릅니다.",
+    tierLimitTitle: "디자인 시스템 한도에 도달했습니다",
+    tierLimitDescription:
+      "현재 Builder 플랜의 디자인 시스템 한도에 도달했습니다. Builder 플랜을 업그레이드하여 새로 만드세요.",
+    tierLimitDescriptionWithCount:
+      "Builder {{plan}} 플랜에서 디자인 시스템을 {{current}}/{{max}}개 사용 중입니다. 업그레이드하여 새로 만드세요.",
+    tierLimitUpgrade: "Builder 플랜 업그레이드",
   },
   editorToolbar: {
     layoutTitle: "제목",
@@ -205,9 +238,6 @@ const messages = {
     usingDesignSystem: "{{title}} 사용 중",
     usingLinkedDesignSystem: "연결된 디자인 시스템 사용 중",
     viewOnly: "보기 전용",
-    sourcePreserving: "제한된 편집",
-    sourcePreservingDescription:
-      "텍스트와 개체는 편집할 수 있습니다. 이 가져온 덱에서는 슬라이드 추가, 삭제 및 순서 변경이 비활성화됩니다.",
     commenterRoleLabel: "댓글 작성자",
     commenterRoleDescription: "보고 댓글을 추가할 수 있습니다",
     slideSettings: "슬라이드 설정",
@@ -292,6 +322,10 @@ const messages = {
     exportPptx: "PPTX로 내보내기",
     connectGoogle: "Google 연결",
     openInGoogleSlides: "Google Slides에서 열기",
+    googleSlidesUnavailable: "사용 불가",
+    googleSlidesOpenImporter: "Google Slides 가져오기 열기",
+    googleSlidesUnavailableHint:
+      "Google 연결이 설정되지 않아 지금은 Google Slides로 내보낼 수 없습니다. 대신 PPTX로 내보낸 뒤 Google Slides에서 가져오세요.",
     googleSlidesCreated: "Google Slides에서 열었습니다",
     googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",
     duplicateDeck: "덱 복제",
@@ -360,8 +394,16 @@ const messages = {
   },
   comments: {
     deleteComment: "댓글 삭제",
+    editComment: "댓글 수정",
+    save: "저장",
     saveCommentFailed: "이 댓글을 저장할 수 없습니다.",
+    updateFailed: "이 댓글을 수정할 수 없습니다.",
+    deleteFailed: "이 댓글을 삭제할 수 없습니다.",
+    reactionFailed: "리액션을 수정할 수 없습니다.",
     addCommentPlaceholder: "댓글 추가...",
+    addReaction: "리액션 추가",
+    toggleReaction: "{{emoji}} 리액션 전환",
+    reactWith: "{{emoji}}(으)로 리액션",
     cancel: "취소",
     saving: "저장 중...",
     comment: "댓글",
@@ -369,6 +411,7 @@ const messages = {
     replyPlaceholder: "답글...",
     reply: "답글",
     resolveThread: "스레드 해결",
+    reopenThread: "스레드 다시 열기",
     hideReplies: "답글 숨기기",
     replyCount: "답글 {{count}}개",
     title: "댓글",
@@ -381,6 +424,15 @@ const messages = {
     retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
+    scope: "댓글 범위",
+    thisSlide: "이 슬라이드",
+    allComments: "모든 슬라이드",
+    audience: "댓글 대상",
+    all: "전체",
+    forYou: "나에게",
+    goToSlide: "슬라이드로 이동",
+    search: "댓글 검색",
+    searchPlaceholder: "모든 댓글 검색...",
   },
   styleInspector: {
     title: "Style",
@@ -468,6 +520,10 @@ const messages = {
     rose: "Rose",
     arrange: "정렬",
     order: "순서",
+    group: "그룹화",
+    ungroup: "그룹 해제",
+    bringForward: "앞으로 가져오기",
+    sendBackward: "뒤로 보내기",
     bringToFront: "맨 앞으로 가져오기",
     sendToBack: "맨 뒤로 보내기",
     copyStyle: "스타일 복사",
@@ -524,6 +580,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "저장됨" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -589,10 +646,31 @@ const messages = {
     enterFullscreen: "进入全屏",
     clickToEnterFullscreen: "点击进入全屏",
   },
+  deckAccessPage: {
+    errorCode: "오류 403",
+    noAccessTitle: "액세스 권한이 없습니다",
+    noAccessDescription:
+      "덱 소유자에게 액세스를 요청하거나 올바른 계정으로 전환하세요.",
+    noteLabel: "소유자에게 보낼 메모 추가(선택 사항)",
+    notePlaceholder: "이 덱을 검토하고 있습니다",
+    requesting: "요청 중",
+    requestFailed: "요청이 전송되지 않았습니다. 다시 시도해 주세요.",
+    requestSentDescription:
+      "소유자가 요청을 승인하면 바로 이메일로 알려 드리겠습니다.",
+    goHome: "홈으로 이동",
+    signedInAs: "로그인한 계정:",
+    switchAccount: "계정 전환",
+  },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
+    generationStalled: "5분 동안 진행되지 않아 생성을 일시 중지했습니다",
+    generationStalledDescription:
+      "저장된 슬라이드는 그대로 있습니다. 채팅에서 이 덱의 생성을 이어가세요.",
+    continueInChat: "채팅에서 이어가기",
+    continueGenerationPrompt:
+      "이 덱의 슬라이드 생성을 계속하세요. 먼저 현재 슬라이드와 저장된 생성 컨텍스트를 확인하세요. 완료된 슬라이드는 유지하고 누락된 슬라이드만 추가하세요.",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
@@ -627,6 +705,9 @@ const messages = {
     accessApprovalTitle: "액세스 권한이 부여되었습니다",
     accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
     accessApprovalMessage: "이제 {{email}} 님이 이 덱을 열 수 있습니다.",
+    accessApprovalRequesterEmailed: "이메일로 알려 드렸습니다.",
+    accessApprovalRequesterEmailFailed:
+      "{{email}}에게 이메일을 보내지 못했습니다. 이제 덱을 열 수 있다고 알려 주세요.",
     accessApprovalAlreadyMessage:
       "{{email}} 님은 이미 이 덱에 액세스할 수 있습니다.",
     accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
@@ -638,14 +719,14 @@ const messages = {
     accessApprovalSignIn: "로그인",
     accessApprovalLoading: "액세스 권한을 부여하는 중...",
     backToDecks: "덱으로 돌아가기",
-    tryAgain: "重试",
+    tryAgain: "다시 시도",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
-      "슬라이드에 이미지를 업로드하려면 에이전트 작성기의 모델 메뉴에서 Builder.io를 연결하세요. 빈 캔버스에 이미지를 놓으면 제공자 없이도 에이전트로 보낼 수 있습니다.",
+      "이미지를 업로드하려면 개체 스토리지를 연결하세요. Builder.io(무료)를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
-    deckHasNoSlides: "幻灯片没有页面。",
+    deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",
     layoutOverflowWarning: "레이아웃이 넘칩니다",
@@ -660,6 +741,10 @@ const messages = {
       "지금 나가거나 새로고침하면 아직 저장되지 않은 변경 사항을 잃을 수 있습니다. 정말 나가시겠어요?",
     keepEditing: "계속 편집",
     leaveWithoutSaving: "저장하지 않고 나가기",
+    editorMarkupNotSaved:
+      "이 편집은 슬라이드에 편집기 마크업이 추가되므로 저장되지 않았습니다.",
+    textEditConflictNotSaved:
+      "같은 텍스트가 동시에 다른 곳에서 변경되어 텍스트 편집이 저장되지 않았습니다.",
   },
   designSystemSetup: {
     importedBrand: "가져온 브랜드",
@@ -717,6 +802,8 @@ const messages = {
     websitePlaceholder: "example.com 또는 Nike",
     add: "추가",
     githubRepository: "코드 연결: GitHub 저장소",
+    codeIndexingEnterpriseOnly:
+      "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
     githubRef: "브랜치, 태그 또는 커밋 (선택 사항)",
     githubPaths: "파일 또는 폴더, 쉼표로 구분 (선택 사항)",
     codeFiles: "코드 파일 연결",
@@ -743,12 +830,132 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "제품 피치 덱 만들기",
+      roadmap: "제품 로드맵 만들기",
+      explainer: "프레젠테이션으로 주제 설명하기",
+    },
+    suggestedPrompts: "추천 프롬프트",
+    importMenu: {
+      import: "가져오기",
+      options: "가져오기 옵션",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      invalidPptx: "PPTX 파일을 선택하세요.",
+      invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      networkFailed:
+        "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
+      notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+      unsupportedFileType:
+        "지원되지 않는 파일 형식입니다. 지원되는 파일을 선택하세요.",
+      uploadLimitExceeded:
+        "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
+    },
+    importDeck: "덱 가져오기",
+    context: {
+      websiteReference: "웹사이트 첨부",
+      websiteUrlLabel: "웹사이트 URL",
+      websiteUrl: "웹사이트 URL 붙여넣기",
+      figmaUrlLabel: "Figma 링크",
+      invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
+      createSystem: "디자인 시스템 만들기",
+      noSystems:
+        "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
+      searchSystems: "디자인 시스템 검색…",
+      searchFrames: "Figma 프레임 검색…",
+      searchDesigns: "디자인 검색…",
+      searchPresentations: "프레젠테이션 검색…",
+      menu: {
+        system: "디자인 시스템 사용",
+        figma: "Figma 첨부",
+        design: "디자인 참조",
+        deck: "프레젠테이션 참조",
+        searchDesign: "디자인 검색…",
+      },
+      loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
+      saveFailed: "컨텍스트 선택을 저장할 수 없습니다.",
+      system: "디자인 시스템",
+      figmaUrl: "Figma 링크 붙여넣기",
+      browse: "프레임 찾아보기",
+      empty: "참조가 없습니다.",
+      previous: "이전",
+      next: "다음",
+      title: "컨텍스트",
+      remove: "참조 제거",
+      deck: "프레젠테이션",
+      design: "디자인 참조",
+      figma: "Figma 프레임",
+      notReady:
+        "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
+      emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      websiteReadFailed:
+        "이 웹사이트를 자동으로 읽을 수 없습니다. 관련 텍스트를 복사해 붙여넣어 주세요.",
+      figmaReadFailed:
+        "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
+      tooMany: "참조를 최대 20개까지 선택하세요.",
+      search: "참조 검색",
+      designCategory: "디자인",
+    },
+    quickStart: {
+      invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",
+      starting: "시작 중…",
+      generate: "생성",
+      connectionRequired:
+        "홈 프롬프트 위에서 AI 제공업체를 연결하거나 직접 AI 키를 추가한 후 다시 시도하세요.",
+      invalidPdf: "PDF 파일을 선택하세요.",
+      notReady:
+        "대기 중이거나 실패한 컨텍스트와 연결 상태를 확인한 후 다시 시도하세요.",
+      tooLong: "소스 텍스트는 20,000자 미만으로 입력하세요.",
+      trends: {
+        label: "최신 업계 동향에 대한 프레젠테이션 만들기",
+        field: "업종 또는 주제",
+        prompt:
+          "제공된 주제의 최신 동향을 조사하고 최신 출처를 포함한 프레젠테이션을 만드세요. 생성하기 전에 정보를 검증하세요.",
+      },
+      notes: {
+        label: "회의 메모를 프레젠테이션으로 변환",
+        field: "회의 메모",
+        prompt:
+          "제공된 회의 메모를 바탕으로 핵심 내용, 결정 사항 및 다음 단계를 담은 프레젠테이션을 만드세요. 메모를 자료로 사용하세요.",
+      },
+      pdf: {
+        label: "PDF의 핵심 내용 요약",
+        field: "PDF 파일",
+        prompt:
+          "첨부된 PDF를 읽고 핵심 내용을 요약한 프레젠테이션을 만드세요. 읽을 수 없는 내용은 추측하지 말고 보고하세요.",
+      },
+      website: {
+        label: "회사 웹사이트에서 덱 생성",
+        field: "회사 웹사이트 URL",
+        prompt:
+          "제공된 회사 웹사이트를 읽고 회사 소개 프레젠테이션을 만드세요. 사실을 지어내지 말고 접근 오류를 보고하세요.",
+      },
+    },
+    connectBuilderIo: "Builder.io 연결",
+    connectingBuilder: "Builder.io 연결 중…",
+    recent: "최근 항목",
+    starters: {
+      pitch: {
+        label: "제안 발표",
+        prompt: "다음 주제로 제안 발표를 만들어 주세요: ",
+      },
+      update: {
+        label: "프로젝트 현황",
+        prompt: "다음 프로젝트의 진행 상황, 성과, 다음 단계를 정리해 주세요: ",
+      },
+      lesson: {
+        label: "주제 설명",
+        prompt: "다음 주제를 설명하는 발표를 만들어 주세요: ",
+      },
+    },
     loadFailed: "콘텐츠를 불러올 수 없습니다",
     loadFailedDescription:
       "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
     retry: "다시 시도",
+    fileStorageStatusUnavailable:
+      "개체 스토리지 상태를 확인할 수 없습니다. 파일을 업로드하기 전에 다시 시도하세요.",
+    fileStorageSetupRequired:
+      "연결된 개체 스토리지가 없습니다. 무료 Builder.io를 연결하거나 설정 → 파일 업로드에서 자체 S3 호환 스토리지 키를 추가하세요.",
     decksTitle: "덱",
-    newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",
     deckLengthHeader: "덱 길이",
     deckLengthShort: "짧게(3–5장)",
@@ -773,11 +980,13 @@ const messages = {
     newDeckPromptTitle: "새 프레젠테이션",
     newDeckPlaceholder: "생성할 프레젠테이션을 설명해 주세요...",
     skipPrompt: "프롬프트 건너뛰기",
-    firstDeckPromptTitle: "어떤 프레젠테이션을 생성할까요?",
+    firstDeckPromptTitle: "첫 프레젠테이션을 만들어 보세요",
     firstDeckSkip: "건너뛰기",
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    referenceFileStorageUnavailable:
+      "파일 저장소가 설정되지 않았습니다. 참조 파일을 가져오려면 Builder.io 또는 다른 파일 제공업체를 연결하세요.",
     attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",

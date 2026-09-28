@@ -12,11 +12,6 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/bmp",
 ]);
 
-/**
- * Validate every image before any upload starts. PPTX imports reject partial
- * fidelity, so an unsupported image must not leave earlier slide uploads
- * orphaned when the action eventually throws.
- */
 export function assertPptxImagesRenderable(
   slides: readonly ParsedSlide[],
 ): void {

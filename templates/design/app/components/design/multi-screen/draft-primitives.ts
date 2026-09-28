@@ -10,7 +10,10 @@ import {
   type PenPath,
 } from "@shared/pen-path";
 
-import { DEFAULT_LINE_STROKE_WIDTH_PX } from "../canvas-primitive-style";
+import {
+  DEFAULT_LINE_STROKE_WIDTH_PX,
+  DEFAULT_SHAPE_FILL,
+} from "../canvas-primitive-style";
 import { boardPointToScreenLocalPoint } from "./coordinate-transforms";
 import { getFrameCenter, getScreenPreviewViewport } from "./frame-geometry";
 import type {
@@ -25,8 +28,8 @@ import type {
   ResolvedScreenMetadata,
 } from "./types";
 
-const DRAFT_FRAME_WIDTH = 320;
-const DRAFT_FRAME_HEIGHT = 640;
+const DRAFT_FRAME_WIDTH = 1440;
+const DRAFT_FRAME_HEIGHT = 1024;
 const DRAFT_RECT_WIDTH = 100;
 const DRAFT_RECT_HEIGHT = 100;
 const DRAFT_TEXT_WIDTH = 180;
@@ -156,18 +159,20 @@ export function createDraftPrimitive({
       points: pathPoints,
       stroke: toolProps?.stroke,
       strokeWidth: toolProps?.strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX,
+      startPoint: toolProps?.startPoint,
+      endPoint: toolProps?.endPoint,
     };
   }
+  const isFrame = tool === "frame";
   return {
     id,
-    kind:
-      tool === "frame"
-        ? "frame"
-        : tool === "ellipse" || tool === "polygon" || tool === "star"
-          ? tool
-          : "rectangle",
+    kind: isFrame
+      ? "frame"
+      : tool === "ellipse" || tool === "polygon" || tool === "star"
+        ? tool
+        : "rectangle",
     geometry,
-    fill: toolProps?.fill,
+    fill: isFrame ? toolProps?.fill : (toolProps?.fill ?? DEFAULT_SHAPE_FILL),
     stroke: toolProps?.stroke,
     strokeWidth: toolProps?.strokeWidth,
   };
@@ -215,6 +220,12 @@ function createDraftId(tool: DraftCreationTool) {
     .slice(2, 8)}`;
 }
 
+function createStableInsertId(kind: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${kind}-${crypto.randomUUID()}`
+    : `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 export function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
   return {
     ...draft,
@@ -233,12 +244,6 @@ export function draftPrimitiveToInsert(
     width: metadata?.width ?? frameGeometry.width,
     height: metadata?.height ?? frameGeometry.height,
   };
-  // A draw must serialize in the same viewport the content is laid out in.
-  // getScreenPreviewViewport is the source of truth: an inline screen renders at
-  // metadata dims and CSS-scales when the frame's aspect matches, but reflows to
-  // the frame when it differs (so the metadata 1280×2560 default no longer
-  // stretches shapes on a non-portrait frame). Fixed-viewport sources
-  // (localhost/fusion) always use their own metadata viewport.
   const isInline = !metadata || metadata.source === "inline";
   const previewViewport = getScreenPreviewViewport(metadataViewport, {
     width: frameGeometry.width,
@@ -286,14 +291,17 @@ export function draftPrimitiveToInsert(
       };
   return {
     kind: draft.kind,
-    nodeId: draft.id,
+    nodeId: createStableInsertId(draft.kind),
     geometry: localGeometry,
     points: draft.points?.map(toLocalPoint),
     pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,
+    penPath: scaledPenPath,
     text: draft.text,
     fill: draft.fill,
     stroke: draft.stroke,
     strokeWidth: draft.strokeWidth,
+    startPoint: draft.startPoint,
+    endPoint: draft.endPoint,
     autoSize: draft.autoSize,
   };
 }

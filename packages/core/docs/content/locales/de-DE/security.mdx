@@ -78,6 +78,8 @@ Die Framework-Architektur verhindert häufige Schwachstellen, wenn Sie die Stand
 | Geheime Enthüllung | `.env` gitignored; Anmeldeinformationen und Tresor im Ruhezustand verschlüsselt (AES-256-GCM) |
 | SSRF               | `ssrfSafeFetch` blockiert interne Ziele/Metadatenziele + Umleitungs-Neubindung                |
 
+Das Framework erstellt den Anfragekontext aus der Sitzung und erzwingt Eigentum mit `accessFilter()` und `assertAccess()` bei Anwendungslese- und -schreibvorgängen. Agent-SQL erhält temporäre, nach Identität und Organisation gefilterte Ansichten. RLS ist noch nicht aktiviert, daher müssen rohe Anwendungsabfragen diese Helfer weiterhin verwenden.
+
 ## Eingabevalidierung {#input-validation}
 
 Verwenden Sie `defineAction` mit einem Zod `schema:` für jede Aktion. Das Framework validiert die Eingabe automatisch, bevor Ihr Code ausgeführt wird:

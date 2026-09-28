@@ -16,16 +16,27 @@
  * - `deployFusionProject`       — trigger a hosted deploy of the project.
  * - `getFusionDeploys`          — list deploys (poll deploy status).
  *
- * All calls authenticate the same way as `runBuilderAgent`: the Builder
- * private key as a bearer token plus the space/public key as the `apiKey`
- * query param, resolved through the shared credential provider.
+ * All calls use the shared Builder authorization resolver. OAuth tokens use
+ * bearer authentication alone; legacy private keys also require the
+ * space/public key as the `apiKey` query param.
  *
  * Endpoints match ai-services `packages/service/main.ts`; streaming endpoints
  * respond with newline-delimited JSON over chunked HTTP.
  */
 
+import { z } from "zod";
+
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
+import {
+  builderReferralInfoSchema,
+  type BuilderReferralInfo,
+} from "../shared/builder-referrals.js";
+import {
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
 import { getBuilderApiHost, getBuilderAppHost } from "./builder-browser.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
 
 export interface FusionBranchRef {
   projectId: string;
@@ -33,58 +44,105 @@ export interface FusionBranchRef {
 }
 
 export interface EnsureFusionContainerResult {
-  /**
-   * `ready` — container is up; `url` is the dev-server preview URL.
-   * `provisioning` — still booting when the time budget ran out; callers
-   * should poll again.
-   * `error` — the backend reported a failure.
-   */
   status: "ready" | "provisioning" | "error";
   url?: string;
-  /** Last human-readable progress/error message seen on the stream. */
   message?: string;
 }
 
 export interface SendFusionMessageResult {
   sent: boolean;
-  /** Final agent text when the call waited for completion. */
   response?: string;
   error?: string;
 }
 
-async function resolveFusionAuth(): Promise<{
-  privateKey: string;
-  publicKey: string;
-  userId: string | null;
-}> {
-  const { resolveBuilderCredentials } =
-    await import("./credential-provider.js");
-  const creds = await resolveBuilderCredentials();
-  if (!creds.privateKey || !creds.publicKey) {
-    throw new Error("Builder keys are not configured");
+async function resolveFusionAuth(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (!authorization) {
+    throw new Error(
+      "Builder.io is not connected. Connect Builder.io in Settings.",
+    );
   }
-  return {
-    privateKey: creds.privateKey,
-    publicKey: creds.publicKey,
-    userId: creds.userId,
-  };
+  if (authorization.source === "legacy" && !authorization.legacyPublicKey) {
+    throw new Error(
+      "Builder legacy credentials require BUILDER_PUBLIC_KEY for this request.",
+    );
+  }
+  return authorization;
 }
 
 function fusionUrl(
   path: string,
-  auth: { publicKey: string; userId: string | null },
+  authorization: BuilderRequestAuthorization,
   params?: Record<string, string>,
 ): URL {
   const url = new URL(path, getBuilderApiHost());
-  url.searchParams.set("apiKey", auth.publicKey);
-  if (auth.userId) url.searchParams.set("userId", auth.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+    if (authorization.userId) {
+      url.searchParams.set("userId", authorization.userId);
+    }
+  }
   for (const [key, value] of Object.entries(params ?? {})) {
     url.searchParams.set(key, value);
   }
   return url;
 }
 
-/** The Builder visual-editor URL for a fusion branch. */
+const builderCreditUsageSchema = z.object({
+  plan: z.enum(["free", "paid"]),
+  balance: z.number().finite().nonnegative(),
+  quota: z.object({
+    period: z.enum(["daily", "monthly"]),
+    limit: z.number().finite().positive(),
+    used: z.number().finite().nonnegative(),
+    remaining: z.number().finite().nonnegative(),
+  }),
+});
+
+export type BuilderCreditUsage = z.infer<typeof builderCreditUsageSchema>;
+
+export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: "builder:ai:invoke",
+  });
+  if (!authorization) return null;
+
+  const response = await fetch(
+    fusionUrl("/agent-native/credits/v1/usage", authorization),
+    {
+      headers: { Authorization: authorization.authorization },
+      signal: AbortSignal.timeout(5000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Builder credit usage failed (${response.status}).`);
+  }
+  return builderCreditUsageSchema.parse(await response.json());
+}
+
+export async function getBuilderReferralInfo(): Promise<BuilderReferralInfo | null> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope: "builder:ai:invoke",
+  });
+  if (!authorization) return null;
+
+  const response = await fetch(
+    fusionUrl("/agent-native/credits/v1/referrals", authorization),
+    {
+      headers: { Authorization: authorization.authorization },
+      signal: AbortSignal.timeout(5000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Builder referral info failed (${response.status}).`);
+  }
+  return builderReferralInfoSchema.parse(await response.json());
+}
+
 export function getFusionBranchEditorUrl(ref: FusionBranchRef): string {
   const host = getBuilderAppHost().replace(/\/+$/, "");
   return withBuilderUtmTrackingParams(
@@ -93,16 +151,10 @@ export function getFusionBranchEditorUrl(ref: FusionBranchRef): string {
   );
 }
 
-/** Public URL for a reserved fusion hosting slug. */
 export function getFusionHostingUrl(slug: string): string {
   return `https://${slug}.builder.cloud`;
 }
 
-/**
- * Read an NDJSON response stream, invoking `onLine` per parsed JSON object.
- * Unparseable lines are skipped. Resolves when the stream ends or `onLine`
- * returns `true` (early stop).
- */
 async function readNdjsonStream(
   response: Response,
   onLine: (chunk: Record<string, unknown>) => boolean | undefined,
@@ -134,7 +186,6 @@ async function readNdjsonStream(
       if (done) return;
     }
   } finally {
-    // Release the connection; safe to call after the stream is exhausted.
     reader.cancel().catch(() => {});
   }
 }
@@ -145,18 +196,10 @@ function asString(value: unknown): string | undefined {
 
 const DEFAULT_ENSURE_CONTAINER_TIMEOUT_MS = 25_000;
 
-/**
- * Ensure the branch container is running and resolve its preview URL.
- *
- * Streams provisioning progress from `/projects/ensure-container`; resolves
- * `ready` + `url` from the terminal chunk. When the container is still booting
- * after `timeoutMs`, aborts the request and returns `provisioning` so callers
- * can poll again without blowing their run budget.
- */
 export async function ensureFusionContainer(
   args: FusionBranchRef & { timeoutMs?: number },
 ): Promise<EnsureFusionContainerResult> {
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth("builder:projects:write");
   const controller = new AbortController();
   const timeoutMs = args.timeoutMs ?? DEFAULT_ENSURE_CONTAINER_TIMEOUT_MS;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -171,7 +214,7 @@ export async function ensureFusionContainer(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${auth.privateKey}`,
+          Authorization: auth.authorization,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -225,15 +268,6 @@ export async function ensureFusionContainer(
 
 const DEFAULT_SEND_MESSAGE_TIMEOUT_MS = 30_000;
 
-/**
- * Send a prompt to the fusion branch's in-container coding agent via
- * `/projects/branch/message`.
- *
- * Defaults to `fireAndForget: true`: the backend dispatches the message and
- * ends the stream without waiting for the agent turn, so this returns in
- * seconds. Pass `fireAndForget: false` (with a generous `timeoutMs`) to wait
- * for the turn and capture the agent's final text.
- */
 export async function sendFusionBranchMessage(
   args: FusionBranchRef & {
     prompt: string;
@@ -244,7 +278,7 @@ export async function sendFusionBranchMessage(
 ): Promise<SendFusionMessageResult> {
   const prompt = args.prompt?.trim();
   if (!prompt) throw new Error("prompt is required");
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth("builder:projects:write");
   const fireAndForget = args.fireAndForget ?? true;
   const controller = new AbortController();
   const timeoutMs = args.timeoutMs ?? DEFAULT_SEND_MESSAGE_TIMEOUT_MS;
@@ -258,7 +292,7 @@ export async function sendFusionBranchMessage(
     const response = await fetch(fusionUrl("/projects/branch/message", auth), {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${auth.privateKey}`,
+        Authorization: auth.authorization,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -322,8 +356,6 @@ export async function sendFusionBranchMessage(
     });
   } catch (error) {
     if (controller.signal.aborted) {
-      // Timed out reading the stream. With fire-and-forget the dispatch has
-      // already happened server-side once we saw any progress chunk.
       if (dispatched) return { sent: true };
       return {
         sent: false,
@@ -344,14 +376,15 @@ export async function sendFusionBranchMessage(
 
 async function fusionJsonRequest(
   path: string,
+  requiredScope: BuilderOAuthPermissionScope,
   init: { method: "GET" | "POST" | "DELETE"; body?: Record<string, unknown> },
   params?: Record<string, string>,
 ): Promise<Record<string, unknown>> {
-  const auth = await resolveFusionAuth();
+  const auth = await resolveFusionAuth(requiredScope);
   const response = await fetch(fusionUrl(path, auth, params), {
     method: init.method,
     headers: {
-      Authorization: `Bearer ${auth.privateKey}`,
+      Authorization: auth.authorization,
       ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
     ...(init.body ? { body: JSON.stringify(init.body) } : {}),
@@ -379,61 +412,63 @@ async function fusionJsonRequest(
   return {};
 }
 
-/**
- * Push the fusion branch's code to its git remote. Starts/attaches the
- * container if needed, then syncs with `canPush`.
- */
 export async function pushFusionBranch(
   ref: FusionBranchRef,
 ): Promise<Record<string, unknown>> {
-  return fusionJsonRequest("/projects/branch/push-to-remote", {
-    method: "POST",
-    body: { projectId: ref.projectId, branchName: ref.branchName },
-  });
+  return fusionJsonRequest(
+    "/projects/branch/push-to-remote",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: { projectId: ref.projectId, branchName: ref.branchName },
+    },
+  );
 }
 
-/** Reserve a hosting slug (`<slug>.builder.cloud`) for the project. */
 export async function reserveFusionHostingSlug(args: {
   projectId: string;
   slug: string;
 }): Promise<{ slug: string }> {
-  const result = await fusionJsonRequest("/projects/hosting/reserve-slug", {
-    method: "POST",
-    body: { projectId: args.projectId, slug: args.slug },
-  });
+  const result = await fusionJsonRequest(
+    "/projects/hosting/reserve-slug",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: { projectId: args.projectId, slug: args.slug },
+    },
+  );
   const slug = asString(result.slug);
   if (!slug) throw new Error("Slug reservation returned no slug");
   return { slug };
 }
 
-/**
- * Trigger a hosted deploy for the project. Requires a reserved hosting slug.
- * Returns immediately; poll `getFusionDeploys` for progress
- * (`queued → building → uploading → deploying → live | failed | canceled`).
- */
 export async function deployFusionProject(args: {
   projectId: string;
   checkoutBranch?: string;
 }): Promise<{ deployId: string; status: string }> {
-  const result = await fusionJsonRequest("/projects/deploy", {
-    method: "POST",
-    body: {
-      projectId: args.projectId,
-      ...(args.checkoutBranch ? { checkoutBranch: args.checkoutBranch } : {}),
+  const result = await fusionJsonRequest(
+    "/projects/deploy",
+    "builder:projects:write",
+    {
+      method: "POST",
+      body: {
+        projectId: args.projectId,
+        ...(args.checkoutBranch ? { checkoutBranch: args.checkoutBranch } : {}),
+      },
     },
-  });
+  );
   const deployId = asString(result.deployId);
   if (!deployId) throw new Error("Deploy did not return a deployId");
   return { deployId, status: asString(result.status) ?? "queued" };
 }
 
-/** List the project's deploys, optionally filtered to one deploy id. */
 export async function getFusionDeploys(args: {
   projectId: string;
   deployId?: string;
 }): Promise<Array<Record<string, unknown>>> {
   const result = await fusionJsonRequest(
     "/projects/deploys",
+    "builder:projects:read",
     { method: "GET" },
     {
       projectId: args.projectId,

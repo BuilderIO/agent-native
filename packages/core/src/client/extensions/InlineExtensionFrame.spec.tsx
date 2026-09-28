@@ -76,6 +76,22 @@ describe("InlineExtensionFrame", () => {
       submit: true,
       openSidebar: false,
     });
+    expect(iframe?.getAttribute("aria-disabled")).toBe("true");
+    expect(iframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Again",
+            submit: true,
+          },
+        }),
+      );
+    });
+    expect(sendToAgentChat).toHaveBeenCalledTimes(1);
   });
 
   it("keeps extension chat messages draft-only without explicit submission", async () => {
@@ -109,6 +125,115 @@ describe("InlineExtensionFrame", () => {
       message: "A refresh error",
       context: undefined,
       submit: false,
+      openSidebar: true,
+    });
+  });
+
+  it("ignores duplicate submit events for transient extensions", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Send</button>",
+          }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    const sendEvent = {
+      type: "agent-native-send-to-chat",
+      message: "One-time action",
+      submit: true,
+    };
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: sendEvent,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: sendEvent,
+        }),
+      );
+    });
+
+    expect(sendToAgentChat).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChat).toHaveBeenCalledWith({
+      message: "One-time action",
+      context: undefined,
+      submit: true,
+      openSidebar: true,
+    });
+  });
+
+  it("resets the transient submit latch when replacement content changes", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>First</button>",
+          }}
+        />,
+      );
+    });
+
+    const firstIframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: firstIframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "First action",
+            submit: true,
+          },
+        }),
+      );
+    });
+
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Replacement</button>",
+          }}
+        />,
+      );
+    });
+
+    const replacementIframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: replacementIframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-send-to-chat",
+            message: "Replacement action",
+            submit: true,
+          },
+        }),
+      );
+    });
+
+    expect(sendToAgentChat).toHaveBeenCalledTimes(2);
+    expect(sendToAgentChat).toHaveBeenLastCalledWith({
+      message: "Replacement action",
+      context: undefined,
+      submit: true,
       openSidebar: true,
     });
   });

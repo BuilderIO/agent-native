@@ -65,6 +65,7 @@ export function ToolkitProvider({
       children,
       intent,
       emphasis,
+      inset,
       size,
       pending,
       leadingIcon,
@@ -75,15 +76,17 @@ export function ToolkitProvider({
       ...props
     }: ActionButtonProps) {
       const variant =
-        emphasis === "ghost"
-          ? "ghost"
-          : emphasis === "outline"
-            ? "outline"
-            : intent === "danger"
-              ? "destructive"
-              : intent === "primary"
-                ? "default"
-                : "secondary";
+        inset && emphasis === "ghost"
+          ? "ghost-inset"
+          : emphasis === "ghost"
+            ? "ghost"
+            : emphasis === "outline"
+              ? "outline"
+              : intent === "danger"
+                ? "destructive"
+                : intent === "primary"
+                  ? "default"
+                  : "secondary";
       const legacySize =
         size === "compact" ? "sm" : size === "large" ? "lg" : "default";
       return (

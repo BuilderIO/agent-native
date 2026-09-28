@@ -19,35 +19,11 @@ import {
 
 export interface RequireActiveOrgProps {
   children: ReactNode;
-  /**
-   * Override the heading shown on the create-org pane. Default: "Create your organization".
-   */
   title?: string;
-  /**
-   * Override the description shown below the heading. Default explains that
-   * an org is required to use the app.
-   */
   description?: string;
-  /** Optional extra classes on the blocking pane wrapper. */
   className?: string;
 }
 
-/**
- * Guards its children behind the user having an active organization.
- *
- * When the user has no active org, renders a blocking, centered pane in place
- * of `children` with:
- *   1. Any pending invitations (one-click accept), and
- *   2. A "Create your organization" form.
- *
- * As soon as an org is joined or created, `useOrg` refetches and `children`
- * renders normally.
- *
- * The pane fills whatever box this component is rendered into — it does **not**
- * position itself `fixed` over the viewport. Place it inside your app shell so
- * ambient UI (agent sidebar, global nav) stays accessible while the user
- * completes org setup.
- */
 export function RequireActiveOrg({
   children,
   title,
@@ -59,10 +35,6 @@ export function RequireActiveOrg({
 
   if (isLoading) return null;
 
-  // Network / server failure on the org lookup — do NOT fall through to the
-  // create-org pane (that would lock out an existing member on a transient
-  // 500). Render a retry state instead. Only treat a successful null orgId
-  // response as "genuinely no org".
   if (isError) {
     return (
       <ErrorPane
@@ -80,6 +52,7 @@ export function RequireActiveOrg({
       pendingInvitations={org?.pendingInvitations ?? []}
       domainMatches={org?.domainMatches ?? []}
       email={org?.email ?? ""}
+      allowCreateOrg={org?.access?.orgCreation !== "closed"}
       title={title ?? t("org.createTitle")}
       description={description ?? t("org.createDescription")}
       className={className}
@@ -137,6 +110,7 @@ function CreateOrgPane({
   pendingInvitations,
   domainMatches,
   email,
+  allowCreateOrg,
   title,
   description,
   className,
@@ -149,6 +123,7 @@ function CreateOrgPane({
   }>;
   domainMatches: Array<{ orgId: string; orgName: string }>;
   email: string;
+  allowCreateOrg: boolean;
   title: string;
   description: string;
   className?: string;
@@ -163,8 +138,12 @@ function CreateOrgPane({
   const hasDomainMatches = domainMatches.length > 0;
   const userDomain = email.split("@")[1] ?? "";
   const [showCreateForm, setShowCreateForm] = useState(
-    !hasDomainMatches && !hasInvites,
+    allowCreateOrg && !hasDomainMatches && !hasInvites,
   );
+  const paneTitle = allowCreateOrg ? title : t("org.askAdminTitle");
+  const paneDescription = allowCreateOrg
+    ? description
+    : t("org.askAdminDescription");
 
   const busy =
     createOrg.isPending || acceptInvitation.isPending || joinByDomain.isPending;
@@ -179,9 +158,9 @@ function CreateOrgPane({
       <div className="my-auto w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg">
         <div className="mb-6 flex items-center gap-2">
           <IconUsersGroup className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-lg font-semibold">{title}</h1>
+          <h1 className="text-lg font-semibold">{paneTitle}</h1>
         </div>
-        <p className="mb-6 text-sm text-muted-foreground">{description}</p>
+        <p className="mb-6 text-sm text-muted-foreground">{paneDescription}</p>
 
         {hasDomainMatches && (
           <div className="mb-4">
@@ -261,7 +240,7 @@ function CreateOrgPane({
           </div>
         )}
 
-        {(hasDomainMatches || hasInvites) && (
+        {allowCreateOrg && (hasDomainMatches || hasInvites) && (
           <button
             type="button"
             onClick={() => setShowCreateForm((v) => !v)}
@@ -275,7 +254,7 @@ function CreateOrgPane({
           </button>
         )}
 
-        {showCreateForm && (
+        {allowCreateOrg && showCreateForm && (
           <form
             onSubmit={async (e) => {
               e.preventDefault();

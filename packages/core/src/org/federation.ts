@@ -5,8 +5,8 @@ import type { H3Event } from "h3";
 import { signA2AToken, canonicalA2AAudience } from "../a2a/index.js";
 import { getDbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { iconValueSchema, type IconValue } from "../icons/index.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
-import { getOrigin } from "../server/google-oauth.js";
 import {
   resolveIdentityHubUrl,
   resolveIdentitySsoAppId,
@@ -20,6 +20,7 @@ import {
 } from "./feature-flags.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type { OrgRole } from "./types.js";
+import { parseOrganizationIconJson } from "./visual-identity.js";
 
 const FEDERATION_PATH = "/_agent-native/identity/organization";
 const ORG_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -33,12 +34,24 @@ export interface FederatedOrganizationIdentity {
   name: string;
   role: OrgRole;
   email: string;
+  icon?: IconValue | null;
+  iconRevision?: number;
 }
 
 export type FederatedOrganizationSyncInput = Omit<
   FederatedOrganizationIdentity,
   "authority"
 >;
+
+export class FederatedIconConflictError extends Error {
+  constructor(
+    readonly icon: IconValue | null,
+    readonly iconRevision: number,
+  ) {
+    super("Workspace icon changed elsewhere; retry your selection");
+    this.name = "FederatedIconConflictError";
+  }
+}
 
 export type FederatedOrganizationProvisionResult =
   | "disabled"
@@ -58,13 +71,9 @@ export type FederatedMembershipValidation =
   | { active: true; role: OrgRole }
   | { active: false; role: null };
 
-function requestEventFromContext(): H3Event {
+function requestEventFromContext(): H3Event | undefined {
   const requestOrigin = getRequestContext()?.requestOrigin;
-  if (!requestOrigin) {
-    throw new Error(
-      "Federated membership validation requires a request origin.",
-    );
-  }
+  if (!requestOrigin) return undefined;
   let url: URL;
   try {
     url = new URL(requestOrigin);
@@ -118,10 +127,31 @@ function validateOrganizationFields(
     !input.name.trim() ||
     input.name.trim().length > MAX_ORG_NAME_LENGTH ||
     !isOrgRole(input.role) ||
-    !input.email.includes("@")
+    !input.email.includes("@") ||
+    (input.iconRevision !== undefined &&
+      (!Number.isSafeInteger(input.iconRevision) || input.iconRevision < 0))
   ) {
     throw new Error("Invalid federated organization identity.");
   }
+}
+
+async function applyFederatedVisualIdentity(
+  orgId: string,
+  identity: FederatedOrganizationIdentity,
+): Promise<void> {
+  if (identity.icon === undefined || identity.iconRevision === undefined)
+    return;
+  await getDbExec().execute({
+    sql: `UPDATE organizations
+          SET icon_json = ?, icon_revision = ?
+          WHERE id = ? AND icon_revision < ?`,
+    args: [
+      identity.icon === null ? null : JSON.stringify(identity.icon),
+      identity.iconRevision,
+      orgId,
+      identity.iconRevision,
+    ],
+  });
 }
 
 function validateIdentity(input: FederatedOrganizationIdentity): void {
@@ -177,6 +207,12 @@ async function sendFederationAssertion(
       org_id: input.id,
       org_name: input.name.trim(),
       org_role: input.role,
+      ...(input.icon !== undefined
+        ? {
+            org_icon: input.icon,
+            org_icon_revision: input.iconRevision ?? 0,
+          }
+        : {}),
       ...extraClaims,
     },
   });
@@ -314,6 +350,21 @@ async function registerWithIdentityHub(
   if (!sent) return null;
   const { hub, response } = sent;
   if (!response.ok) {
+    if (response.status === 409) {
+      const conflict = await response.json();
+      if (
+        conflict?.code === "icon-revision-conflict" &&
+        Number.isSafeInteger(conflict.iconRevision) &&
+        conflict.iconRevision >= 0 &&
+        (conflict.icon === null ||
+          iconValueSchema.safeParse(conflict.icon).success)
+      ) {
+        throw new FederatedIconConflictError(
+          conflict.icon,
+          conflict.iconRevision,
+        );
+      }
+    }
     throw new Error(
       `Identity hub organization federation failed (${response.status}).`,
     );
@@ -374,7 +425,6 @@ async function loadFederatedRoster(
   return roster;
 }
 
-/** Add an explicitly invited member to the identity authority roster. */
 export async function addFederatedOrganizationMember(
   event: H3Event,
   input: {
@@ -388,7 +438,6 @@ export async function addFederatedOrganizationMember(
   return sendFederatedMemberOperation(event, input, "add-member");
 }
 
-/** Propagate an owner/admin role change to the identity authority roster. */
 export async function updateFederatedOrganizationMemberRole(
   event: H3Event,
   input: {
@@ -402,7 +451,6 @@ export async function updateFederatedOrganizationMemberRole(
   return sendFederatedMemberOperation(event, input, "update-member-role");
 }
 
-/** Remove a member from the identity authority before removing its local row. */
 export async function revokeFederatedOrganizationMember(
   event: H3Event,
   input: {
@@ -415,14 +463,8 @@ export async function revokeFederatedOrganizationMember(
   return sendFederatedMemberOperation(event, input, "remove-member");
 }
 
-/**
- * Revalidate a linked local membership against Dispatch before using it for
- * authorization. This is the satellite-side revocation boundary: local rows
- * are copied state, so a successful authority response can remove or retag
- * them while an unavailable authority fails closed.
- */
 export async function validateFederatedOrganizationMembership(
-  event: H3Event,
+  event: H3Event | undefined,
   input: { orgId: string; email: string },
 ): Promise<FederatedMembershipValidation> {
   const email = input.email.trim().toLowerCase();
@@ -458,7 +500,11 @@ export async function validateFederatedOrganizationMembership(
     throw new Error("Organization has an invalid identity mapping.");
   }
 
-  const currentOrigin = normalizeAuthority(getOrigin(event));
+  const currentOrigin = event
+    ? normalizeAuthority(
+        (await import("../server/google-oauth.js")).getOrigin(event),
+      )
+    : null;
   if (currentOrigin === identityAuthority) {
     return { active: true, role: localRole };
   }
@@ -469,6 +515,11 @@ export async function validateFederatedOrganizationMembership(
   if (rollout === "unavailable") {
     throw new Error(
       "Cross-app organization federation rollout is unavailable.",
+    );
+  }
+  if (!event) {
+    throw new Error(
+      "Federated membership validation requires a request origin.",
     );
   }
   const hub = resolveIdentityHubUrl(event);
@@ -544,7 +595,6 @@ export async function validateFederatedOrganizationMembership(
   return { active: true, role: body.memberRole };
 }
 
-/** Validate a linked membership from an action, which only retains request metadata. */
 export async function validateFederatedOrganizationMembershipForCurrentRequest(input: {
   orgId: string;
   email: string;
@@ -555,7 +605,6 @@ export async function validateFederatedOrganizationMembershipForCurrentRequest(i
   );
 }
 
-/** Register the local org and its current member with the Dispatch authority. */
 export async function syncOrganizationToIdentityHub(
   event: H3Event,
   input: FederatedOrganizationSyncInput,
@@ -571,7 +620,7 @@ export async function syncOrganizationToIdentityHub(
 
   const exec = getDbExec();
   const local = await exec.execute({
-    sql: `SELECT identity_authority, identity_id,
+    sql: `SELECT identity_authority, identity_id, icon_json, icon_revision,
                  federation_roster_initialized_at
           FROM organizations WHERE id = ? LIMIT 1`,
     args: [input.id],
@@ -608,6 +657,11 @@ export async function syncOrganizationToIdentityHub(
       ...input,
       authority,
       id: canonicalOrgId,
+      icon:
+        input.icon === undefined
+          ? parseOrganizationIconJson(row.icon_json)
+          : input.icon,
+      iconRevision: input.iconRevision ?? Number(row.icon_revision ?? 0),
     },
     canonicalOrgId,
     roster,
@@ -660,10 +714,6 @@ async function ensureLocalMembership(
   invalidateMemberOrgCaches();
 }
 
-/**
- * Link the signed Dispatch org into this app without guessing from a name or
- * email domain. Existing local orgs with no durable match are left untouched.
- */
 export async function provisionFederatedOrganization(
   identity: FederatedOrganizationIdentity,
 ): Promise<FederatedOrganizationProvisionResult> {
@@ -692,6 +742,7 @@ export async function provisionFederatedOrganization(
 
   if (mapped.rows[0]) {
     const localOrgId = String((mapped.rows[0] as any).id);
+    await applyFederatedVisualIdentity(localOrgId, identity);
     await ensureLocalMembership(localOrgId, identity);
     await setActiveOrgId(
       identity.email,
@@ -720,6 +771,7 @@ export async function provisionFederatedOrganization(
               WHERE id = ? AND identity_authority IS NULL AND identity_id IS NULL`,
         args: [identity.authority, identity.id, identity.id],
       });
+      await applyFederatedVisualIdentity(identity.id, identity);
       await ensureLocalMembership(identity.id, identity);
       await setActiveOrgId(
         identity.email,
@@ -740,5 +792,6 @@ export async function provisionFederatedOrganization(
     identityAuthority: identity.authority,
     identityId: identity.id,
   });
+  await applyFederatedVisualIdentity(identity.id, identity);
   return "created";
 }

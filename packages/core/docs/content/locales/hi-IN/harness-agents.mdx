@@ -98,8 +98,8 @@ search: "हार्नेस एजेंट एजेंटहार्ने
 
 उनके रनटाइम पैकेज **वैकल्पिक सहकर्मी निर्भरता** हैं और आलस्य से लोड होते हैं, इसलिए एक
 ऐप जो कभी भी हार्नेस का उपयोग नहीं करता वह इसके लिए भुगतान नहीं करता है। प्रत्येक एडॉप्टर में एक
-`installPackage` संकेत (उदाहरण के लिए `@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness` एक स्पष्ट इंस्टॉल फेंकता है
+`installPackage` संकेत (उदाहरण के लिए `@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness` एक स्पष्ट इंस्टॉल फेंकता है
 यदि पैकेज गायब हैं तो त्रुटि, और `isAgentHarnessPackageInstalled(entry)`
 आपको पहले जांच करने देता है।
 
@@ -162,38 +162,23 @@ const custom = resolveAgentHarness("acp", {
 it) और एमिट `file-change` ईवेंट लिखता है; टर्मिनल विधियों का विज्ञापन नहीं किया जाता है,
 इसलिए एजेंट अपने स्वयं के शेल का उपयोग करता है।
 
-## Codex प्रमाणन: कोड UI बनाम हार्नेस सैंडबॉक्स {#codex-auth}
+## Codex प्रमाणन: कोड UI बनाम हार्नेस एडाप्टर {#codex-auth}
 
-दो Codex सतहें हैं, और वे अलग-अलग तरीके से प्रमाणित करते हैं:
+Codex की दो सतहें हैं:
 
-- **Agent-Native कोड / डेस्कटॉप** उपयोगकर्ता की मशीन पर `codex exec` चलाता है। यदि
-  उपयोगकर्ता ने `codex login` चलाया है, यह स्थानीय रन जो भी ChatGPT है उसका पुन: उपयोग करता है
-  सदस्यता या API-कुंजी के माध्यम से स्थापित Codex CLI रिपोर्ट
-  `codex login status`.
-- **`ai-sdk-harness:codex`** `@ai-sdk/harness-codex` को लोड करता है, जो Codex को चलाता है
-  `@openai/codex-sdk` के माध्यम से हार्नेस सैंडबॉक्स के अंदर। यह चुपचाप नहीं
-  उपयोगकर्ता का डेस्कटॉप `~/.codex` लॉगिन इनहेरिट करें क्योंकि सैंडबॉक्स रिमोट हो सकता है
-  या पृथक। विश्वसनीय/निजी सैंडबॉक्स के लिए, `codexCliAuth: true` के साथ ऑप्ट इन करें;
-  Agent-Native स्थानीय Codex CLI ऑथ फ़ाइल को इससे पहले सैंडबॉक्स में कॉपी करता है
-  हार्नेस शुरू होता है। होस्ट किए गए या साझा किए गए सैंडबॉक्स के लिए, API-कुंजी / गेटवे कॉन्फ़िगर करें
-  इसके बजाय प्रमाणीकरण।
+- **Agent-Native कोड / डेस्कटॉप** उपयोगकर्ता की मशीन पर `codex exec` चलाता है
+  और `codex login status` में रिपोर्ट किए गए स्थानीय Codex CLI लॉगिन का पुन: उपयोग करता है।
+- **`ai-sdk-harness:codex`** जहां समर्थित हो, upstream AI SDK Harness के native
+  subscription flow का उपयोग करता है। किसी अतिरिक्त सेटिंग की आवश्यकता नहीं है:
+  credentials host पर रहते हैं, स्पष्ट API-key credentials को प्राथमिकता मिलती है,
+  और स्थानीय auth फ़ाइल कॉपी किए बिना परिणामी auth sandbox में पहुंचाया जाता है। केवल
+  AI Gateway उपयोग करने के लिए `harnessOptions.auth` को `"ai-gateway"` पर सेट करें;
+  यह मोड native subscription को कभी नहीं पढ़ता।
 
-इसलिए यदि कोई पूछता है कि कौन सा पैकेज Codex OAuth पथ वहन करता है: स्थानीय कोडिंग के लिए
-सत्र, स्थापित `@agent-native/core`/डेस्कटॉप का उपयोग करें
-`@openai/codex` CLI और `codex login`। सैंडबॉक्स्ड `ai-sdk-harness:codex` के लिए,
-उस लॉगिन को सैंडबॉक्स में कॉपी करते समय स्पष्ट `codexCliAuth` ऑप्ट-इन का उपयोग करें
-स्वीकार्य है।
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` पढ़ता है `CODEX_HOME/auth.json` या `~/.codex/auth.json`. को
-किसी भिन्न स्थानीय लॉगिन पर इंगित करें, पास करें
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` या
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+अंतर्निहित `ai-sdk-harness:codex` एडाप्टर केवल
+`permissionMode: "allow-all"` का समर्थन करता है, क्योंकि स्थिर Codex रनटाइम में
+यही एकमात्र स्वीकार्य मोड है। इस डिफ़ॉल्ट का उपयोग करने के लिए `permissionMode`
+छोड़ दें; यह एडाप्टर `allow-reads` और `allow-edits` को अस्वीकार करता है।
 
 ## पंजीकरण करें और समाधान करें {#register-resolve}
 
@@ -210,9 +195,14 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 `resolveAgentHarness(name, config?)` एक `AgentHarnessAdapter` लौटाता है। द
 वैकल्पिक `config` को एडॉप्टर फ़ैक्टरी में भेज दिया गया है - AI SDK एडाप्टर के लिए
 जो `AiSdkHarnessAdapterOptions` (`label`, `description`,
-`permissionMode`, `harnessOptions`, `agentOptions`, और Codex-केवल
-`codexCliAuth`). किसके लिए पंजीकृत है यह गिनने के लिए `listAgentHarnesses()` का उपयोग करें
+`permissionMode`, `harnessOptions`, और `agentOptions`) पर मैप होता है।
+किसके लिए पंजीकृत है यह गिनने के लिए `listAgentHarnesses()` का उपयोग करें
 एक पिकर।
+
+सैंडबॉक्स वाले बिल्ट-इन हार्नेस के लिए, पंजीकरण करते समय `agentOptions.sandbox`
+के माध्यम से सैंडबॉक्स प्रोवाइडर दें। प्रक्रिया पुनः आरंभ होने के बाद रीहाइड्रेशन
+के लिए प्रोवाइडर को `resumeSession` लागू करना होगा; कॉलर द्वारा दी गई `sandbox`
+session केवल शुरुआती निर्माण को कवर करती है।
 
 ## एक मोड़ चलाएँ {#run-a-turn}
 
@@ -234,7 +224,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

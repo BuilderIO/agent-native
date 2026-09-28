@@ -31,6 +31,12 @@ const messages = {
     newChat: "New Chat",
     optionsFor: "Options For",
     pinChat: "Pin Chat",
+    pinned: "Pinned",
+    recents: "Recents",
+    retryPreviousRequest:
+      "Retry my previous request now that the model provider is connected.",
+    retryAttachmentUnavailable:
+      "Chat can't reopen this attachment for retry. Add an accessible file URL, then retry.",
     renameChat: "Rename Chat",
     renameFailed: "Rename Failed",
     renameThread: "Rename Thread",
@@ -38,6 +44,7 @@ const messages = {
     suggestionCapabilities: "What can this app do?",
     suggestionCustomize: "Help me customize this app",
     unpinChat: "Unpin Chat",
+    untitledChat: "Untitled chat",
   },
   navigation: {
     chat: "Chat",

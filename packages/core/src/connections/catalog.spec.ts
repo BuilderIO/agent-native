@@ -32,6 +32,7 @@ describe("workspace connection provider catalog", () => {
       "sentry",
       "granola",
       "clips",
+      "anthropic-managed-agents",
       "generic",
     ]);
   });
@@ -153,7 +154,7 @@ describe("workspace connection provider catalog", () => {
         templateUse: "brain",
         capability: "code",
       }).map((provider) => provider.id),
-    ).toEqual(["github", "jira"]);
+    ).toEqual(["github", "jira", "anthropic-managed-agents"]);
 
     expect(
       listWorkspaceConnectionProvidersForTemplate("factory").map(

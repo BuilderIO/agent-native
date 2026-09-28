@@ -1,3 +1,8 @@
+import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
+
+export type RelativeStyleOperation =
+  | { kind: "delta"; delta: number }
+  | ({ kind: "expression" } & ScrubRelativeExpression);
 import {
   getBreakpointOverrideState,
   type BreakpointOverrideState,
@@ -5,6 +10,15 @@ import {
 import type { InteractionState } from "@shared/interaction-states";
 
 import type { MotionKeyframeCssProperty } from "../inspector";
+import type { ElementInfo } from "../types";
+
+export interface CapturedStyleTarget {
+  fileId: string;
+  layerId: string;
+  elementInfo: ElementInfo;
+  upperBoundPx: number | null;
+  lowerBoundPx: number | null;
+}
 
 /**
  * PF12: gesture-lifecycle metadata threaded alongside a style commit.
@@ -17,6 +31,8 @@ import type { MotionKeyframeCssProperty } from "../inspector";
  *   gesture's authoritative final value — exactly one per gesture — which
  *   DOES trigger the full source commit. Omitting meta entirely preserves
  *   prior behavior (treated as "commit") for every non-scrub/color call site.
+ * - "cancel": the preview was restored to its pointerdown value and its
+ *   uncommitted history lineage should be discarded without another write.
  *
  * - `interactionState`: set on EVERY style commit (regardless of `phase`)
  *   while the inspector's element interaction-state selector
@@ -48,9 +64,15 @@ import type { MotionKeyframeCssProperty } from "../inspector";
  *   /  managed-breakpoint-block commit path.
  */
 export interface StyleChangeMeta {
-  phase?: "preview" | "commit";
+  phase?: "preview" | "commit" | "cancel";
+  runtimeApplied?: boolean;
+  routePath?: string;
+  relativeDelta?: number;
+  relativeExpression?: ScrubRelativeExpression;
+  relativeDeltaProperties?: string[];
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
+  capturedStyleTargets?: CapturedStyleTarget[];
 }
 
 export type StyleChangeHandler = (
@@ -59,16 +81,15 @@ export type StyleChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void;
 
-/**
- * Result of converting a container to a flex/grid flow. Only `"unsupported"`
- * (no inline source for this node) may fall back to writing the container
- * styles alone: after a `"failed"` rewrite the children are still pinned, so
- * that fallback would render a layout nobody asked for and report success.
- */
+export type SelectionColorChangeHandler = (
+  from: string,
+  to: string,
+  meta?: StyleChangeMeta,
+) => void | boolean;
+
 export type ApplyLayoutFlowOutcome = "applied" | "unsupported" | "failed";
 
 export type ApplyLayoutFlowHandler = (
-  /** Null for a merged multi-selection, which has no single source id. */
   nodeId: string | null,
   containerStyles: Record<string, string>,
 ) => ApplyLayoutFlowOutcome;
@@ -78,26 +99,12 @@ export type StylesChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void;
 
-/**
- * Per-render bundle the style-section components below use to render the
- * motion keyframe diamond next to a field — precomputed once in `EditPanel`
- * from `motionKeyframeState`/`onToggleMotionKeyframe` so each section only
- * needs to know its own field's CSS property name. `undefined` (the whole
- * bundle, or `hasTimeline: false`) means "render no diamonds" — sections
- * check this before rendering `MotionKeyframeDiamond` at all.
- */
 export interface MotionKeyframeFieldContext {
   hasTimeline: boolean;
   keyframedProperties: readonly string[];
   onToggle?: (cssProperty: MotionKeyframeCssProperty) => void;
 }
 
-/**
- * Per-render bundle the style-section components below use to render the
- * breakpoint override indicator next to a field — precomputed once in
- * `EditPanel` from `breakpointContext`. `undefined` means "render no
- * indicators" (feature off or editing the base frame).
- */
 export interface BreakpointOverrideFieldContext {
   nodeId: string | undefined;
   breakpointWidths: readonly number[];
@@ -107,13 +114,6 @@ export interface BreakpointOverrideFieldContext {
   onReset: (property: string, maxWidthPx: number) => void;
 }
 
-/**
- * Resolve a single property's override state against
- * `BreakpointOverrideFieldContext`, or `undefined` when the feature is off /
- * there's no stable node id for the current selection. Thin wrapper around
- * `getBreakpointOverrideState` so call sites don't repeat the
- * className/nodeId/html plumbing at every field.
- */
 export function resolveBreakpointOverride(
   ctx: BreakpointOverrideFieldContext | undefined,
   className: string,

@@ -11,6 +11,7 @@ const getAccessTokenMock = vi.hoisted(() => vi.fn());
 const markReconnectMock = vi.hoisted(() => vi.fn());
 const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
+const listOwnersMock = vi.hoisted(() => vi.fn());
 const resolveOrgMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
@@ -26,10 +27,24 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
 
 vi.mock("../oauth-tokens/store.js", () => ({
   getOAuthTokens: getRawTokensMock,
+  listOAuthTokenOwners: listOwnersMock,
 }));
 
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: resolveOrgMock,
+}));
+
+const isRestrictedMock = vi.hoisted(() => vi.fn(async () => false));
+const readRoleMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | null> => "member"),
+);
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: isRestrictedMock,
+  readOrgMemberRole: readRoleMock,
 }));
 
 import {
@@ -37,13 +52,17 @@ import {
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
   BUILDER_OAUTH_SCOPES,
+  canRoleConnectPersonalBuilder,
   deleteBuilderOAuthSession,
   exchangeBuilderOAuthAuthorization,
   finishBuilderOAuthAuthorization,
   getBuilderOAuthConnectionScope,
+  getBuilderOAuthGrants,
   getBuilderOAuthStoredScope,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrant,
+  listUsersWithStoredBuilderOAuthGrant,
   markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
   saveBuilderOAuthCredentials,
@@ -91,6 +110,12 @@ function credentials(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// Every save stamps when the grant was connected, so status can tell a fresh
+// reconnect from the grant that was already there.
+function savedCredentials(finished: ReturnType<typeof credentials>) {
+  return { ...finished, connectedAt: expect.any(Number) };
+}
+
 beforeEach(() => {
   startMock.mockReset();
   finishMock.mockReset();
@@ -104,12 +129,15 @@ beforeEach(() => {
   getRawTokensMock.mockReset();
   getRawTokensMock.mockResolvedValue(null);
   resolveOrgMock.mockReset();
-  // Every user belongs to an org; individual tests override the org id.
   resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
+  isRestrictedMock.mockReset();
+  isRestrictedMock.mockResolvedValue(false);
+  readRoleMock.mockReset();
+  readRoleMock.mockResolvedValue("member");
 });
 
 describe("Builder hosted user OAuth", () => {
-  it("uses the exact fixed Builder contract and least-privilege scopes", () => {
+  it("uses the exact fixed Builder contract and requests every Builder scope up front", () => {
     expect({
       issuer: BUILDER_OAUTH_ISSUER,
       resource: BUILDER_OAUTH_RESOURCE,
@@ -117,13 +145,18 @@ describe("Builder hosted user OAuth", () => {
     }).toEqual({
       issuer: "https://mcp.builder.io",
       resource: "https://api.builder.io",
-      // Uploads need the asset scope: Builder's /api/v1/upload/* endpoints
-      // enforce it, so without it a connected user cannot store a file.
-      scopes: ["builder:ai:invoke", "builder:assets:write"],
+      scopes: [
+        "builder:ai:invoke",
+        "builder:agents:run",
+        "builder:browser:connect",
+        "builder:assets:write",
+        "builder:projects:read",
+        "builder:projects:write",
+        "builder:designsystem:read",
+        "builder:designsystem:write",
+      ],
     });
-    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toMatch(
-      /offline_access|project|design|browser|agent/,
-    );
+    expect(BUILDER_OAUTH_SCOPES.join(" ")).not.toContain("offline_access");
   });
 
   it("starts public PKCE authorization with Builder's fixed resource and scope", async () => {
@@ -189,7 +222,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: savedCredentials(finished),
     });
   });
 
@@ -214,7 +247,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "user",
       scopeId: ownerEmail,
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: savedCredentials(finished),
     });
     expect(validateIssuerMock).toHaveBeenCalledWith(
       finished.discoveryState,
@@ -225,8 +258,6 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
-  // Without this the grant's scopes would have to be guessed on every later
-  // read, and a new two-scope grant is indistinguishable from a legacy one.
   it("records the requested scopes when the token response omits them", async () => {
     const finished = credentials({
       tokens: {
@@ -282,7 +313,7 @@ describe("Builder hosted user OAuth", () => {
     });
 
     expect(saveMock).toHaveBeenCalledWith(
-      expect.objectContaining({ credentials: finished }),
+      expect.objectContaining({ credentials: savedCredentials(finished) }),
     );
   });
 
@@ -410,7 +441,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-acme",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: savedCredentials(finished),
     });
   });
 
@@ -442,7 +473,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("stores under the org captured at start, not the active org at callback", async () => {
-    // A switched active org must not win over the org authorized at start.
     resolveOrgMock.mockResolvedValue("org-switched");
     const finished = credentials();
     finishMock.mockResolvedValue({ credentials: finished });
@@ -466,7 +496,7 @@ describe("Builder hosted user OAuth", () => {
       scope: "org",
       scopeId: "org-started",
       serverUrl: BUILDER_OAUTH_RESOURCE,
-      credentials: finished,
+      credentials: savedCredentials(finished),
     });
     expect(resolveOrgMock).not.toHaveBeenCalled();
   });
@@ -489,8 +519,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("does not return a stored access token after reconnect is required", async () => {
-    // reconnect_required lives on the credential now; the generic resolver
-    // returns no token for it.
     getAccessTokenMock.mockResolvedValue(null);
 
     await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
@@ -604,10 +632,6 @@ describe("Builder hosted user OAuth", () => {
     expect(getAccessTokenMock).not.toHaveBeenCalled();
   });
 
-  // A stored credential with no `scope` claim predates both Builder always
-  // setting one and this flow recording it, so it can only be an AI-only grant.
-  // Crediting it with the upload scope would trade a clear local error for an
-  // opaque 403 from Builder.
   it("keeps a scope-less legacy credential AI-only", async () => {
     getRawTokensMock.mockResolvedValue({});
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
@@ -686,8 +710,6 @@ describe("Builder hosted user OAuth", () => {
   });
 
   it("returns no session and does not double-mark when the resolver yields no token", async () => {
-    // The credential lifecycle owns reconnect latching on a failed refresh, so
-    // Builder just reports no session instead of writing its own flag.
     readMock.mockResolvedValue(
       credentials({ tokenExpiresAt: Date.now() + 1_000 }),
     );
@@ -734,5 +756,242 @@ describe("Builder hosted user OAuth", () => {
       remoteRevoked: false,
     });
     expect(revokeMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Builder organization and personal connections", () => {
+  // A tiny token store keyed like the real one, so a save, a read, and a
+  // delete all see the same rows.
+  function installTokenStore() {
+    const rows = new Map<string, Record<string, unknown>>();
+    const rowKey = (options: { scope: string; scopeId: string }) =>
+      `${options.scope}:${options.scopeId}`;
+    saveMock.mockImplementation(async (options) => {
+      rows.set(rowKey(options), options.credentials);
+    });
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        rows.has(owner) ? { stored: true } : null,
+    );
+    readMock.mockImplementation(async (options) => rows.get(rowKey(options)));
+    getAccessTokenMock.mockImplementation(async (options) =>
+      rows.has(rowKey(options)) ? `<ACCESS_TOKEN_${options.scope}>` : null,
+    );
+    revokeMock.mockImplementation(async (options) => {
+      rows.delete(rowKey(options));
+      return { local: "deleted", remote: "succeeded" };
+    });
+    return rows;
+  }
+
+  it("honors an explicit scope over the connector's role", async () => {
+    installTokenStore();
+    await expect(
+      saveBuilderOAuthCredentials({
+        ownerEmail,
+        orgId: "org-acme",
+        role: "member",
+        scope: "org",
+        credentials: credentials(),
+      }),
+    ).resolves.toBe("org");
+    await expect(
+      saveBuilderOAuthCredentials({
+        ownerEmail,
+        orgId: "org-acme",
+        role: "owner",
+        scope: "user",
+        credentials: credentials(),
+      }),
+    ).resolves.toBe("user");
+    expect(saveMock.mock.calls.map(([options]) => options.scope)).toEqual([
+      "org",
+      "user",
+    ]);
+  });
+
+  it("refuses an explicit org write with no organization instead of saving it personally", async () => {
+    resolveOrgMock.mockResolvedValue(null);
+    await expect(
+      saveBuilderOAuthCredentials({
+        ownerEmail,
+        role: "owner",
+        scope: "org",
+        credentials: credentials(),
+      }),
+    ).rejects.toThrow("An organization is required");
+    expect(saveMock).not.toHaveBeenCalled();
+  });
+
+  it("uses a member's personal grant for them only and falls back to the org's once it is removed", async () => {
+    installTokenStore();
+    await saveBuilderOAuthCredentials({
+      ownerEmail: "admin@example.com",
+      orgId: DEFAULT_ORG,
+      role: "admin",
+      credentials: credentials(),
+    });
+    await saveBuilderOAuthCredentials({
+      ownerEmail,
+      orgId: DEFAULT_ORG,
+      role: "member",
+      scope: "user",
+      credentials: credentials(),
+    });
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+    await expect(
+      getBuilderOAuthSession("bob@example.com", DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+
+    await deleteBuilderOAuthSession(ownerEmail, "user", DEFAULT_ORG);
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+    await expect(
+      hasStoredBuilderOAuthGrant("admin@example.com", "org", DEFAULT_ORG),
+    ).resolves.toBe(true);
+  });
+
+  it("finds personal grants for a whole organization in one batched read", async () => {
+    listOwnersMock.mockImplementation(
+      async (_provider: string, accountIds: string[]) => [
+        { accountId: accountIds[0], owner: "user:ann@example.com" },
+        // A row under the right key but another owner is not this member's.
+        { accountId: accountIds[1], owner: "user:someone-else@example.com" },
+      ],
+    );
+
+    await expect(
+      listUsersWithStoredBuilderOAuthGrant([
+        "ann@example.com",
+        "bob@example.com",
+        "cy@example.com",
+      ]),
+    ).resolves.toEqual(new Set(["ann@example.com"]));
+    expect(listOwnersMock).toHaveBeenCalledTimes(1);
+    expect(listOwnersMock.mock.calls[0]![0]).toBe("mcp");
+    expect(listOwnersMock.mock.calls[0]![1]).toHaveLength(3);
+    expect(getRawTokensMock).not.toHaveBeenCalled();
+  });
+
+  it("reports both grants when both exist, each on its own", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, {
+      ...credentials(),
+      connectedAt: 2_000,
+      oauthLifecycle: { reconnectReason: "invalid_grant" },
+    });
+
+    await expect(
+      getBuilderOAuthGrants(ownerEmail, DEFAULT_ORG),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: false },
+      personal: { connectedAt: 2_000, needsReconnect: true, restricted: false },
+    });
+  });
+
+  it("skips a restricted member's personal grant for the org's and keeps it stored", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    isRestrictedMock.mockResolvedValue(true);
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+    await expect(
+      getBuilderOAuthGrants(ownerEmail, DEFAULT_ORG),
+    ).resolves.toEqual({
+      org: { connectedAt: 1_000, needsReconnect: false },
+      personal: { connectedAt: 2_000, needsReconnect: false, restricted: true },
+    });
+    expect(isRestrictedMock).toHaveBeenCalledWith({
+      email: ownerEmail,
+      orgId: DEFAULT_ORG,
+    });
+    expect(rows.has(`user:${ownerEmail}`)).toBe(true);
+
+    // Turning the restriction off restores the personal grant.
+    isRestrictedMock.mockResolvedValue(false);
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+  });
+
+  it("runs an owner or admin on the org's grant ahead of one they connected before promotion", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    readRoleMock.mockResolvedValue("admin");
+
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "org" });
+    expect(readRoleMock).toHaveBeenCalledWith(DEFAULT_ORG, ownerEmail);
+    expect(rows.has(`user:${ownerEmail}`)).toBe(true);
+
+    readRoleMock.mockResolvedValue("member");
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+
+    // With no org grant, an admin still runs on their own.
+    rows.delete(`org:${DEFAULT_ORG}`);
+    readRoleMock.mockResolvedValue("admin");
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+  });
+
+  it("fails the grant lookup when a manager's role can't be read, instead of guessing", async () => {
+    const rows = installTokenStore();
+    rows.set(`org:${DEFAULT_ORG}`, { ...credentials(), connectedAt: 1_000 });
+    rows.set(`user:${ownerEmail}`, { ...credentials(), connectedAt: 2_000 });
+    readRoleMock.mockRejectedValue(new Error("db query timed out"));
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).rejects.toThrow("db query timed out");
+
+    // A database without the org tables simply has no managers.
+    readRoleMock.mockRejectedValue(
+      Object.assign(new Error('relation "org_members" does not exist'), {
+        code: "42P01",
+      }),
+    );
+    await expect(
+      getBuilderOAuthSession(ownerEmail, DEFAULT_ORG),
+    ).resolves.toMatchObject({ scope: "user" });
+  });
+
+  it("reports a stored grant that no longer reads as Builder custody as needing reconnect", async () => {
+    getRawTokensMock.mockImplementation(
+      async (_provider: string, _key: string, owner: string) =>
+        owner === `org:${DEFAULT_ORG}` ? { corrupt: true } : null,
+    );
+    readMock.mockResolvedValue(null);
+
+    await expect(
+      getBuilderOAuthGrants(ownerEmail, DEFAULT_ORG),
+    ).resolves.toEqual({
+      org: { connectedAt: null, needsReconnect: true },
+    });
+  });
+
+  it("reports no grants as an empty record and skips the org lookup without an org", async () => {
+    await expect(getBuilderOAuthGrants(ownerEmail, null)).resolves.toEqual({});
+    expect(getRawTokensMock).toHaveBeenCalledTimes(1);
+    expect(resolveOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("lets owners and admins connect only the organization's connection", () => {
+    expect(canRoleConnectPersonalBuilder("owner")).toBe(false);
+    expect(canRoleConnectPersonalBuilder("admin")).toBe(false);
+    expect(canRoleConnectPersonalBuilder("member")).toBe(true);
+    expect(canRoleConnectPersonalBuilder(null)).toBe(true);
   });
 });

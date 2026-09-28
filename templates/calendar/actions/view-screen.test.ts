@@ -133,4 +133,59 @@ describe("view-screen calendar context", () => {
       },
     );
   });
+
+  it("omits declined events and a declined selection when they are hidden", async () => {
+    readAppStateMock.mockImplementation(async (key: string) => {
+      if (key === "navigation") {
+        return {
+          view: "calendar",
+          calendarViewMode: "week",
+          date: "2026-08-13",
+          eventId: "declined-event",
+        };
+      }
+      if (key === "calendar-view-preferences") {
+        return { showDeclinedEvents: false };
+      }
+      return null;
+    });
+    listCalendarEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "accepted-event",
+          title: "Accepted",
+          start: "2026-08-13T16:00:00.000Z",
+          end: "2026-08-13T16:30:00.000Z",
+          source: "google",
+          attendees: [],
+          responseStatus: "accepted",
+        },
+        {
+          id: "declined-event",
+          title: "Declined",
+          start: "2026-08-13T17:00:00.000Z",
+          end: "2026-08-13T17:30:00.000Z",
+          source: "google",
+          attendees: [],
+          responseStatus: "declined",
+        },
+      ],
+      errors: [],
+      googleConnected: true,
+      range: {
+        from: "2026-08-10T07:00:00.000Z",
+        to: "2026-08-17T07:00:00.000Z",
+        timezone: "America/Los_Angeles",
+        defaulted: false,
+      },
+    });
+
+    const result = JSON.parse(await viewScreen.run({}));
+
+    expect(result.events).toMatchObject({
+      count: 1,
+      items: [{ id: "accepted-event" }],
+    });
+    expect(result).not.toHaveProperty("selectedEvent");
+  });
 });

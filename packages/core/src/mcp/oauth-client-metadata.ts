@@ -224,7 +224,13 @@ function validateClientMetadataDocument(
       "Client metadata document token_endpoint_auth_method is invalid",
     );
   }
-  if (tokenEndpointAuthMethod !== "none") {
+  const supportedTokenEndpointAuthMethods = parseStringArray(
+    document.token_endpoint_auth_methods_supported,
+  );
+  if (
+    tokenEndpointAuthMethod !== "none" &&
+    !supportedTokenEndpointAuthMethods.includes("none")
+  ) {
     throw new Error("Only public Client ID Metadata clients are supported");
   }
 
@@ -234,10 +240,6 @@ function validateClientMetadataDocument(
   // support). The token endpoint independently honors only
   // "authorization_code"/"refresh_token" no matter what this list says.
   const grantTypes = parseStringArray(document.grant_types);
-  // Metadata documents may advertise extension grants that this server does
-  // not implement. The authorization request still selects the supported
-  // authorization-code flow, so rejecting an extra grant here only prevents
-  // otherwise compatible clients such as Claude from connecting.
   if (
     (document.grant_types !== undefined &&
       (!Array.isArray(document.grant_types) ||

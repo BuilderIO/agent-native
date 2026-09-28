@@ -12,9 +12,8 @@ import {
 } from "../server/lib/design-template-data.js";
 import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 import getDesignSystem from "./get-design-system.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-/** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -49,6 +48,7 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {

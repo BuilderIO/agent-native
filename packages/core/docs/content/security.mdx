@@ -203,7 +203,7 @@ session.orgId → AGENT_ORG_ID → SQL row scoping
 
 </Diagram>
 
-The signed-in session carries `email` and (when an org is active) `orgId`. The framework establishes request context from that session, exposes the active org to agent SQL as `AGENT_ORG_ID`, and rewrites every query so it can only see rows the current identity owns. The same path applies whether the query comes from the UI, an action, or the agent — the agent cannot read data for an org the user isn't a member of.
+The signed-in session carries `email` and (when an org is active) `orgId`. The framework establishes request context from that session and enforces ownership with `accessFilter()` and `assertAccess()` on application reads and writes. Agent SQL receives temporary filtered views for the active identity and organization. RLS is not enabled yet, so raw application queries must still use these helpers. The same enforcement contract applies whether the operation comes from the UI, an action, or the agent — the agent cannot read data for an org the user isn't a member of.
 
 ### Per-User Scoping (`owner_email`)
 

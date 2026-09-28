@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 
+import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
 import {
   defineEventHandler,
   readBody,
@@ -13,6 +14,7 @@ import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -22,7 +24,12 @@ import {
   deleteUploadedReferenceBlob,
   storeUploadedReferenceBlob,
 } from "../lib/uploaded-reference-storage.js";
-import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
+import {
+  canSaveAsUploadedAsset,
+  hasExpectedSvgSignature,
+  isSafeSvg,
+  uploadImageAsset,
+} from "./assets.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -31,6 +38,7 @@ import {
 export {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_SVG_REFERENCE_FILE_BYTES,
 } from "../../shared/upload-types.js";
 const FIG_LOCAL_COPY_SIGNATURE = new Uint8Array([
   0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
@@ -51,11 +59,6 @@ function safeFilename(
 ): string | null {
   const ext = extension.toLowerCase();
   if (!isSlidesReferenceFileExtension(ext)) return null;
-  // Filename uniqueness comes from nanoid (~21 chars, ~126 bits of entropy),
-  // not `Date.now()` — second-resolution timestamps are guessable and let
-  // someone with the per-tenant URL prefix probe the upload window. The
-  // tenant subdir already namespaces by user; nanoid makes the leaf
-  // unguessable too. (audit 10 medium / audit 01 medium).
   return `${nanoid()}${ext}`;
 }
 
@@ -66,10 +69,34 @@ function ascii(data: Uint8Array, start: number, end: number): string {
 export function maxReferenceFileBytes(
   originalName: string | undefined,
 ): number {
+  if (path.extname(originalName ?? "").toLowerCase() === ".svg") {
+    return MAX_SVG_REFERENCE_FILE_BYTES;
+  }
   return path.extname(originalName ?? "").toLowerCase() === ".fig"
     ? MAX_FIG_REFERENCE_FILE_BYTES
     : MAX_REFERENCE_FILE_BYTES;
 }
+
+export const getUploadStorageStatus = defineEventHandler(async (event) => {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
+  }
+
+  return withSlidesRequestContext(
+    event,
+    async () => ({
+      referenceStorageReady:
+        !isHostedSlidesRuntime() || (await isPrivateBlobConfiguredForRequest()),
+    }),
+    auth.context,
+  );
+});
 
 function formatMaxFileSize(bytes: number): string {
   return `${Math.round(bytes / 1024 / 1024)} MB`;
@@ -108,14 +135,7 @@ function hasExpectedSignature(ext: string, data: Uint8Array): boolean {
     return ascii(data, 0, 4) === "RIFF" && ascii(data, 8, 12) === "WEBP";
   }
   if (ext === ".svg") {
-    const head = Buffer.from(
-      data.subarray(0, Math.min(data.length, 8192)),
-    ).toString("utf8");
-    const normalized = head.replace(/^\uFEFF/, "").trimStart();
-    return (
-      /^<svg(?:\s|>)/i.test(normalized) ||
-      /^<\?xml\b[\s\S]{0,4096}<svg(?:\s|>)/i.test(normalized)
-    );
+    return hasExpectedSvgSignature(data);
   }
   return !data.subarray(0, 4096).includes(0);
 }
@@ -160,6 +180,10 @@ export async function saveUploadedReferenceFile(args: {
       `Unsupported file type. Allowed: ${SLIDES_REFERENCE_FILE_ERROR_LABEL}.`,
     );
   }
+  const maxBytes = maxReferenceFileBytes(args.originalName);
+  if (args.data.length > maxBytes) {
+    throw new Error(`File too large (max ${formatMaxFileSize(maxBytes)})`);
+  }
   const isDeclaredImage = [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(
     declaredExt,
   );
@@ -179,12 +203,18 @@ export async function saveUploadedReferenceFile(args: {
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
   const assetOriginalName =
     ext === declaredExt
       ? args.originalName
       : `${path.basename(args.originalName, path.extname(args.originalName))}${ext}`;
   const resolvedType =
-    detectedImage?.mimeType ?? (args.type || "application/octet-stream");
+    detectedImage?.mimeType ??
+    (declaredExt === ".svg"
+      ? "image/svg+xml"
+      : args.type || "application/octet-stream");
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
     let reference: string | null;
@@ -205,7 +235,7 @@ export async function saveUploadedReferenceFile(args: {
     if (!reference) {
       throw Object.assign(
         new Error(
-          "Private file storage is not configured. Connect Builder.io (free tier available) or another file provider before uploading reference files in a hosted Slides deployment.",
+          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before uploading reference files.",
         ),
         { statusCode: 503 },
       );
@@ -218,10 +248,6 @@ export async function saveUploadedReferenceFile(args: {
     await fs.promises.writeFile(destPath, args.data);
     uploadedPath = pathForAgent(destPath);
   }
-  // For images, also push to the public file-upload provider so the agent can
-  // embed a hosted URL (in slide HTML, chat replies, etc.). The `path` above
-  // remains the private import source: a tenant path locally and an encrypted,
-  // owner-scoped blob reference in hosted deployments.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -239,9 +265,6 @@ export async function saveUploadedReferenceFile(args: {
         })
       ).url;
     } catch {
-      // No provider configured or upload failed — the agent still has the
-      // on-disk path. The caller's UI can prompt the user to connect a
-      // provider if it needs a public URL.
       url = undefined;
     }
   }
@@ -255,7 +278,6 @@ export async function saveUploadedReferenceFile(args: {
   };
 }
 
-// Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -294,7 +316,10 @@ export const uploadFiles = defineEventHandler(async (event) => {
       if (oversized) {
         const limit = maxReferenceFileBytes(oversized.filename);
         setResponseStatus(event, 413);
-        return { error: `File too large (max ${formatMaxFileSize(limit)})` };
+        return {
+          error: `File "${oversized.filename || "upload"}": File too large (max ${formatMaxFileSize(limit)})`,
+          failedFileName: oversized.filename,
+        };
       }
 
       const results = await Promise.allSettled(
@@ -312,26 +337,35 @@ export const uploadFiles = defineEventHandler(async (event) => {
         (result): result is PromiseFulfilledResult<UploadedReferenceFile> =>
           result.status === "fulfilled",
       );
-      const failedResult = results.find(
+      const failedResultIndex = results.findIndex(
         (result) => result.status === "rejected",
       );
-      if (failedResult) {
+      if (failedResultIndex !== -1) {
         await Promise.allSettled(
           successfulResults.map((result) =>
             deleteUploadedReferenceBlob(result.value.path, email),
           ),
         );
+        const failedResult = results[failedResultIndex];
+        const failedFile = fileParts[failedResultIndex];
+        const failedReason =
+          failedResult?.status === "rejected" ? failedResult.reason : undefined;
+        const errorMessage =
+          failedReason instanceof Error
+            ? failedReason.message
+            : "Invalid upload";
+        const errorStatusCode =
+          typeof failedReason === "object" &&
+          failedReason !== null &&
+          "statusCode" in failedReason
+            ? failedReason.statusCode
+            : undefined;
         const statusCode =
-          typeof (failedResult.reason as { statusCode?: unknown })
-            ?.statusCode === "number"
-            ? (failedResult.reason as { statusCode: number }).statusCode
-            : 400;
+          typeof errorStatusCode === "number" ? errorStatusCode : 400;
         setResponseStatus(event, statusCode);
         return {
-          error:
-            failedResult.reason instanceof Error
-              ? failedResult.reason.message
-              : "Invalid upload",
+          error: `File "${failedFile?.filename || "upload"}": ${errorMessage}`,
+          failedFileName: failedFile?.filename,
         };
       }
 

@@ -16,27 +16,32 @@ export const CALENDAR_COLORS = [
 
 export type CalendarColorMode = "multi" | "single";
 
-/** Account-scoped key: a Google account email, or `"ics:<externalCalendarId>"`. */
+export const MIN_CALENDAR_DAYS = 1;
+export const MAX_CALENDAR_DAYS = 31;
+export const DEFAULT_CALENDAR_DAYS = 7;
+
 export type CalendarColorSourceKey = string;
 
 export interface CalendarViewPreferences {
   hideWeekends: boolean;
+  numberOfDays: number;
+  showDeclinedEvents: boolean;
+  showWeekNumbers: boolean;
   /** @deprecated kept for back-compat migration; use accountColorModes */
   colorMode: CalendarColorMode;
   /** @deprecated kept for back-compat migration; use accountColors */
   singleColor: string;
-  /** Per-account color mode ("multi" = color by meeting type, "single" = fixed color) */
   accountColorModes: Record<CalendarColorSourceKey, CalendarColorMode>;
-  /** Per-account fixed color, used when that account's mode is "single" */
   accountColors: Record<CalendarColorSourceKey, string>;
-  /** Agent-Native visibility overrides for Google calendar sources. */
   googleCalendarVisibility: Record<string, boolean>;
-  /** Local display-color overrides keyed by opaque canonical Google calendar key. */
   googleCalendarColors: Record<string, string>;
 }
 
 export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   hideWeekends: false,
+  numberOfDays: DEFAULT_CALENDAR_DAYS,
+  showDeclinedEvents: true,
+  showWeekNumbers: false,
   colorMode: "multi",
   singleColor: CALENDAR_COLORS[0],
   accountColorModes: {},
@@ -44,6 +49,19 @@ export const DEFAULT_CALENDAR_VIEW_PREFERENCES: CalendarViewPreferences = {
   googleCalendarVisibility: {},
   googleCalendarColors: {},
 };
+
+export function normalizeNumberOfDays(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.min(MAX_CALENDAR_DAYS, Math.max(MIN_CALENDAR_DAYS, value))
+    : DEFAULT_CALENDAR_DAYS;
+}
+
+export function isEventVisibleForDeclinedPreference(
+  responseStatus: string | undefined,
+  showDeclinedEvents: boolean,
+): boolean {
+  return showDeclinedEvents || responseStatus !== "declined";
+}
 
 export function isValidCalendarColorMode(
   value: unknown,
@@ -86,11 +104,6 @@ function normalizeBooleanRecord(input: unknown): Record<string, boolean> {
   return out;
 }
 
-/**
- * Returns a stable default color for an account that hasn't picked one yet,
- * cycling through the shared palette by the account's position in `keys` so
- * distinct accounts default to distinct swatches.
- */
 export function defaultColorForAccount(
   accountKey: CalendarColorSourceKey,
   allKeysInOrder: CalendarColorSourceKey[],
@@ -114,6 +127,13 @@ export function normalizeCalendarViewPreferences(
   if (typeof input.hideWeekends === "boolean") {
     next.hideWeekends = input.hideWeekends;
   }
+  next.numberOfDays = normalizeNumberOfDays(input.numberOfDays);
+  if (typeof input.showDeclinedEvents === "boolean") {
+    next.showDeclinedEvents = input.showDeclinedEvents;
+  }
+  if (typeof input.showWeekNumbers === "boolean") {
+    next.showWeekNumbers = input.showWeekNumbers;
+  }
   if (isValidCalendarColorMode(input.colorMode)) {
     next.colorMode = input.colorMode;
   }
@@ -135,6 +155,9 @@ export function calendarViewPreferencesEqual(
 ): boolean {
   return (
     a.hideWeekends === b.hideWeekends &&
+    a.numberOfDays === b.numberOfDays &&
+    a.showDeclinedEvents === b.showDeclinedEvents &&
+    a.showWeekNumbers === b.showWeekNumbers &&
     a.colorMode === b.colorMode &&
     a.singleColor === b.singleColor &&
     recordsEqual(a.accountColorModes, b.accountColorModes) &&

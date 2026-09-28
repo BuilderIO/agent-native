@@ -19,6 +19,10 @@ vi.mock("h3", () => ({
     onClosed: (callback: () => void) => {
       event.close = callback;
     },
+    close: async () => {
+      event.closed = true;
+      event.close?.();
+    },
     send: () => ({ stream: true }),
   }),
 }));
@@ -96,6 +100,104 @@ describe("poll event SSE handler", () => {
       vi.useRealTimers();
     }
   });
+
+  it("holds the stream open indefinitely when no max duration is set", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const handler = createPollEventsHandler() as any;
+      const event = {
+        pushed: [] as unknown[],
+        close: undefined as any,
+        closed: false,
+      };
+
+      await handler(event);
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+
+      expect(event.closed).toBe(false);
+
+      event.close?.();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes the stream and tears down its listeners at the max duration", async () => {
+    vi.useFakeTimers();
+    try {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const { getPollEmitter, POLL_CHANGE_EVENT, recordChange } =
+        await import("./poll.js");
+      const { getAwarenessEmitter, AWARENESS_CHANGE_EVENT } =
+        await import("../collab/awareness.js");
+      const listeners = () => ({
+        poll: getPollEmitter().listenerCount(POLL_CHANGE_EVENT),
+        awareness: getAwarenessEmitter().listenerCount(AWARENESS_CHANGE_EVENT),
+      });
+      const before = listeners();
+      const handler = createPollEventsHandler(undefined, {
+        maxDurationMs: 280_000,
+      }) as any;
+      const event = {
+        pushed: [] as unknown[],
+        close: undefined as any,
+        closed: false,
+      };
+
+      await handler(event);
+      expect(listeners()).toEqual({
+        poll: before.poll + 1,
+        awareness: before.awareness + 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(279_000);
+      expect(event.closed).toBe(false);
+      const beforeClose = event.pushed.length;
+      expect(beforeClose).toBeGreaterThan(1);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(event.closed).toBe(true);
+      const afterClose = event.pushed.length;
+
+      expect(listeners()).toEqual(before);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      recordChange({
+        source: "action",
+        type: "change",
+        key: "after-close",
+        owner: "test@example.com",
+      });
+      expect(event.pushed).toHaveLength(afterClose);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    2_147_483_648,
+    "280000",
+  ])(
+    "rejects an invalid max duration (%s) instead of treating it as unset",
+    async (maxDurationMs) => {
+      const { createPollEventsHandler, validateSseMaxDurationMs } =
+        await import("./poll-events.js");
+
+      expect(() =>
+        createPollEventsHandler(undefined, {
+          maxDurationMs: maxDurationMs as number,
+        }),
+      ).toThrow(RangeError);
+      expect(() =>
+        validateSseMaxDurationMs(maxDurationMs, "sseMaxDurationMs"),
+      ).toThrow(/^sseMaxDurationMs must be a positive finite number/);
+    },
+  );
 
   it("rejects unauthenticated streams", async () => {
     mockSession.value = null;

@@ -2,7 +2,10 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import type { InspectorTab } from "@/components/design/EditPanel";
-import { getScreenPreviewViewport } from "@/components/design/multi-screen/frame-geometry";
+import {
+  getScreenPreviewViewport,
+  resolveFrameGeometrySync,
+} from "@/components/design/multi-screen/frame-geometry";
 import type { ElementInfo } from "@/components/design/types";
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import {
@@ -50,22 +53,18 @@ export interface ApplyDesignEditorCommandArgs {
   >;
   setMode: Dispatch<SetStateAction<EditorMode>>;
   setPinMode: Dispatch<SetStateAction<boolean>>;
+  setOverviewSelectedScreenIds: Dispatch<SetStateAction<string[]>>;
   setScreenZoom: Dispatch<SetStateAction<number>>;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setSelectedLayerIdsState: Dispatch<SetStateAction<string[]>>;
   setViewMode: Dispatch<SetStateAction<"single" | "overview">>;
+  pendingOverviewScreenSelectionRef?: RefObject<string | null>;
   setZoomForView: (
     targetView: "single" | "overview",
     update: SetStateAction<number>,
   ) => void;
+  overviewDataReady?: boolean;
   viewModeRef: RefObject<"single" | "overview">;
-  /**
-   * Reveals a screen on the overview canvas the same way a freshly-created
-   * screen is revealed (`focusCreatedScreen`/`getCreatedScreenNavigationPlan`).
-   * Optional so a command-only caller (tests, or a future non-canvas surface)
-   * can omit it; when present it's called whenever this command names a
-   * screen and lands in overview mode with real geometry to fit.
-   */
   requestCameraFit?: (camera: CreatedScreenNavigationPlan["camera"]) => void;
 }
 
@@ -84,12 +83,15 @@ export function runApplyDesignEditorCommand(
     setInteractDeviceName,
     setInteractDeviceSize,
     setMode,
+    setOverviewSelectedScreenIds,
     setPinMode,
     setScreenZoom,
     setSelectedElement,
     setSelectedLayerIdsState,
     setViewMode,
     setZoomForView,
+    pendingOverviewScreenSelectionRef,
+    overviewDataReady = true,
     viewModeRef,
     requestCameraFit,
   }: ApplyDesignEditorCommandArgs,
@@ -122,12 +124,9 @@ export function runApplyDesignEditorCommand(
           ? commandRecord.layerId
           : null;
   const targetFile = findDesignFileByScreenTarget(files, target);
-  // A navigate command can name a screen the agent just created that the
-  // get-design query hasn't refetched yet. Treat any unresolved named target
-  // as not-yet-applied (return false) so the app-state key is preserved and
-  // re-applied on the next tick once the file loads — not just when there are
-  // zero files. Otherwise the navigate is silently consumed and dropped.
   if (target && !targetFile) return false;
+
+  const targetView = editorView ?? viewModeRef.current;
 
   const inspectorTab =
     command.inspectorTab === "design" ||
@@ -168,6 +167,12 @@ export function runApplyDesignEditorCommand(
 
   if (targetFile) {
     setActiveFileId(targetFile.id);
+    if (targetView === "overview") {
+      if (pendingOverviewScreenSelectionRef) {
+        pendingOverviewScreenSelectionRef.current = targetFile.id;
+      }
+      setOverviewSelectedScreenIds([targetFile.id]);
+    }
   }
   if (selectionId) {
     setSelectedLayerIdsState([selectionId]);
@@ -177,20 +182,14 @@ export function runApplyDesignEditorCommand(
     typeof command.zoom === "number" && Number.isFinite(command.zoom)
       ? clampZoom(command.zoom)
       : null;
-  const targetView = editorView ?? viewModeRef.current;
-  // Zoom-compounding fix — see shouldDeferOverviewZoomCommand's doc
-  // comment: converting a persisted overview zoom back to canvas units
-  // needs the REAL overviewZoomScale (known only once `files` loads), so
-  // defer (return "not yet applicable", same contract as the
-  // `target && !targetFile` bailout above) instead of committing the
-  // conversion against the transient pre-load fallback scale. The mount
-  // effect retries automatically once `files` populates and this
-  // callback's identity changes.
   if (
     shouldDeferOverviewZoomCommand({
       hasZoomCommand: commandZoom !== null,
       targetView,
-      filesLoaded: files.length > 0,
+      filesLoaded:
+        files.length > 0 &&
+        (targetView !== "overview" ||
+          (overviewDataReady && overviewScreens.length > 0)),
     })
   ) {
     return false;
@@ -204,33 +203,43 @@ export function runApplyDesignEditorCommand(
     if (!selectionId) setSelectedElement(null);
     applyCommandTool("move");
     setViewMode("overview");
-    // A command that names a screen (only ever a URL `screen=`/`fileId=`
-    // query param or an equivalent `navigate` app-state write, never an
-    // ordinary in-canvas interaction — see screen-command-utils.ts) means
-    // "land here, focused on this screen", the same reveal a freshly created
-    // screen gets from focusCreatedScreen. Skip it when the geometry isn't
-    // known yet rather than fitting to a placeholder rect.
-    if (targetFile && requestCameraFit) {
-      const geometry = canvasFrameGeometryById[targetFile.id];
+    const targetScreen = targetFile
+      ? overviewScreens.find((screen) => screen.id === targetFile.id)
+      : undefined;
+    if (targetScreen && requestCameraFit && commandZoom === null) {
+      const geometry = resolveFrameGeometrySync({
+        screens: overviewScreens.map((screen) => ({
+          id: screen.id,
+          metadata: {
+            width: screen.width ?? 1280,
+            height: screen.height ?? 2560,
+          },
+          breakpointWidths: screen.breakpointWidths,
+          layoutGroupId: screen.layoutGroupId,
+        })),
+        currentGeometryById: {},
+        persistedGeometryById: canvasFrameGeometryById,
+      }).next[targetScreen.id];
       if (
-        geometry &&
-        Number.isFinite(geometry.x) &&
-        Number.isFinite(geometry.y) &&
-        Number.isFinite(geometry.width) &&
-        Number.isFinite(geometry.height)
+        !geometry ||
+        !Number.isFinite(geometry.x) ||
+        !Number.isFinite(geometry.y) ||
+        !Number.isFinite(geometry.width) ||
+        !Number.isFinite(geometry.height)
       ) {
-        requestCameraFit(
-          getCreatedScreenNavigationPlan({
-            screenId: targetFile.id,
-            geometry: {
-              x: geometry.x as number,
-              y: geometry.y as number,
-              width: geometry.width as number,
-              height: geometry.height as number,
-            },
-          }).camera,
-        );
+        return false;
       }
+      requestCameraFit(
+        getCreatedScreenNavigationPlan({
+          screenId: targetScreen.id,
+          geometry: {
+            x: geometry.x as number,
+            y: geometry.y as number,
+            width: geometry.width as number,
+            height: geometry.height as number,
+          },
+        }).camera,
+      );
     }
   } else if (editorView === "single") {
     viewModeRef.current = "single";
@@ -271,7 +280,13 @@ export function runApplyDesignEditorCommand(
     setActiveTool("move");
     setDrawMode(false);
     setPinMode(false);
-    setMode("interact");
+    const requestedMode =
+      command.mode === "edit" ||
+      command.mode === "annotate" ||
+      command.mode === "interact"
+        ? command.mode
+        : "interact";
+    setMode(requestedMode);
     if (commandZoom === null) {
       setScreenZoom(FOCUSED_SCREEN_ZOOM);
     }

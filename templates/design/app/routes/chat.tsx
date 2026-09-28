@@ -65,16 +65,18 @@ export default function ChatRoute() {
         defaultMode="chat"
         storageKey={DESIGN_CHAT_STORAGE_KEY}
         scope={scope}
+        isolateHistoryByScope={true}
         threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
-        showHeader={false}
-        showTabBar={false}
+        showHeader
+        showTabBar
         dynamicSuggestions={false}
         suggestions={[
           t("chat.suggestionLandingPage"),
           t("chat.suggestionBrandMatch"),
           t("chat.suggestionMobile"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("chat.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

@@ -8,8 +8,6 @@ import { useApolloStatus, useApolloConnect } from "@/hooks/use-apollo";
 
 import { IntegrationsSidebar } from "./IntegrationsSidebar";
 
-// ─── Apollo logo SVG ────────────────────────────────────────────────────────
-
 function ApolloLogo({ className }: { className?: string }) {
   return (
     <svg
@@ -37,8 +35,6 @@ function ApolloLogo({ className }: { className?: string }) {
     </svg>
   );
 }
-
-// ─── Apollo Setup Prompt ─────────────────────────────────────────────────────
 
 export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   const t = useT();
@@ -103,8 +99,6 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   );
 }
 
-// ─── Attendee row with Apollo hover card ─────────────────────────────────────
-
 interface AttendeeWithApolloProps {
   attendee: NonNullable<CalendarEvent["attendees"]>[number];
   children: React.ReactNode;
@@ -121,7 +115,6 @@ export function AttendeeApolloPopover({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -141,13 +134,11 @@ export function AttendeeApolloPopover({
   const handleClick = () => {
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      // Position to the left of the trigger; if not enough space, position to the right
       const popoverWidth = 320;
       const left =
         rect.left - popoverWidth - 8 > 0
           ? rect.left - popoverWidth - 8
           : rect.right + 8;
-      // Keep within vertical viewport
       const top = Math.min(rect.top, window.innerHeight - 400);
       setAnchor({ top: Math.max(8, top), left });
     }
@@ -192,8 +183,6 @@ export function AttendeeApolloPopover({
   );
 }
 
-// ─── Research Meeting Button ─────────────────────────────────────────────────
-
 export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const t = useT();
   const { connected } = useApolloStatus();
@@ -201,6 +190,7 @@ export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const { send, codeRequiredDialog } = useSendToAgentChat();
 
   const attendees = (event.attendees ?? []).filter((a) => !a.self);
+  const attendeeCount = attendees.length;
   if (attendees.length === 0) return null;
 
   const handleResearch = () => {
@@ -243,7 +233,7 @@ Use the Apollo API (/api/apollo/person?email=...) to look up each attendee and c
         </div>
         {t("apollo.researchMeeting")}
         <span className="ml-auto text-xs text-muted-foreground/40">
-          {t("apollo.attendeeCount", { count: attendees.length })}
+          {t("apollo.attendeeCount", { count: attendeeCount })}
         </span>
       </button>
     </>

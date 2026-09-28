@@ -1,17 +1,3 @@
-/**
- * Pre-bootstrap registration order for the workspace-app handshake routes.
- *
- * `/_agent-native/identity` and `/_agent-native/embed/start` used to be
- * registered late in `createCoreRoutesPlugin`'s sequential init chain, so a
- * cold function made the desktop/mobile shell's embed handshake wait 4-5s for
- * unrelated bootstrap work (migrations, provider registration, etc.) before
- * first paint. `core-routes-plugin.health-auth.spec.ts` already solves the
- * "assert on a deeply-nested handler without booting the real plugin" problem
- * by slicing the source text; this file follows that precedent for the
- * ordering guarantee — h3 dispatches middleware in registration order, so the
- * source order IS the runtime contract.
- */
-
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -34,21 +20,28 @@ function indexOfAll(source: string, needles: string[]): number[] {
 }
 
 describe("core-routes-plugin pre-bootstrap registration order", () => {
-  it("registers security headers and CORS before the identity/embed-start routes, all before awaitBootstrap", () => {
+  it("registers security headers, application state, and handshake routes before awaitBootstrap", () => {
     const source = pluginSource();
     const [securityHeaders, cors, identity, embedStart, awaitBootstrapCall] =
       indexOfAll(source, [
         "createSecurityHeadersMiddleware()",
         "CORS for framework routes.",
-        // Matches the handler body, not the excludedPaths/early-paths array
-        // entries above (which also contain the literal route path).
         "return handleIdentitySso(event, subpath);",
         "createEmbedStartRouteHandler({ getExistingSession: getSession })",
         "await awaitBootstrap(nitroApp);",
       ]);
+    const pluginStart = source.indexOf(
+      "export function createCoreRoutesPlugin(",
+    );
+    const appState = source.indexOf(
+      "mountApplicationStateRoutes(nitroApp, P,",
+      source.indexOf("ensureS3FileUploadProvider();", pluginStart),
+    );
+    expect(appState).toBeGreaterThan(-1);
 
-    expect(securityHeaders).toBeLessThan(cors);
-    expect(cors).toBeLessThan(identity);
+    expect(appState).toBeLessThan(securityHeaders);
+    expect(appState).toBeLessThan(cors);
+    expect(appState).toBeLessThan(identity);
     expect(identity).toBeLessThan(embedStart);
     expect(embedStart).toBeLessThan(awaitBootstrapCall);
   });
@@ -65,9 +58,6 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
     );
 
     expect(guardIndex).toBeGreaterThan(-1);
-    // The guard immediately preceding /embed/start's pre-bootstrap
-    // registration must be the one wrapping it, not a stray later match —
-    // both must land before awaitBootstrap.
     expect(guardIndex).toBeLessThan(embedStartIndex);
     expect(embedStartIndex).toBeLessThan(awaitBootstrapIndex);
   });
@@ -80,6 +70,9 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
 
     expect(excludedPaths).toContain("${FRAMEWORK_ROUTE_PREFIX}/identity");
     expect(excludedPaths).toContain("${FRAMEWORK_ROUTE_PREFIX}/embed/start");
+    expect(excludedPaths).toContain(
+      "${FRAMEWORK_ROUTE_PREFIX}/application-state",
+    );
   });
 
   it("marks both handshake paths ready before bootstrap", () => {
@@ -92,9 +85,7 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
 
     expect(markedPaths).toContain("`${P}/identity`");
     expect(markedPaths).toContain("`${P}/embed/start`");
-    // Respects the same disableEmbedRoute guard as the actual registration —
-    // marking a route "ready" that was never mounted would be a lie, even if
-    // a harmless one (h3 just 404s).
+    expect(markedPaths).toContain("`${P}/application-state`");
     expect(markedPaths).toContain("options.disableEmbedRoute");
   });
 });
@@ -112,11 +103,36 @@ describe("/_agent-native/health alerts block", () => {
     expect(body).toContain(
       "chatHealthSlackWebhookConfigured: isSlackWebhookConfigured()",
     );
-    // Must never gate the response status — an unconfigured webhook is
-    // informational, not an outage.
     const alertsIndex = body.indexOf("alerts:");
     const statusIndex = body.indexOf("setResponseStatus(event, 503)");
     expect(statusIndex).toBeGreaterThan(-1);
     expect(statusIndex).toBeLessThan(alertsIndex);
+  });
+});
+
+describe("Builder connect routes are gated, not hoisted", () => {
+  it("keeps provider-linking routes out of the readiness-gate exclusion list", () => {
+    const source = pluginSource();
+    const excludedBlock = source.slice(
+      source.indexOf("excludedPaths: ["),
+      source.indexOf("});", source.indexOf("excludedPaths: [")),
+    );
+    expect(excludedBlock).not.toContain("builder/connect");
+    expect(excludedBlock).not.toContain("connection-status");
+    expect(excludedBlock).not.toContain("builder/status");
+  });
+
+  it("registers the Builder connect and status routes after awaitBootstrap", () => {
+    const source = pluginSource();
+    const [awaitBootstrapCall, statusAliases, builderConnect] = indexOfAll(
+      source,
+      [
+        "await awaitBootstrap(nitroApp);",
+        "mountBuilderStatusRouteAliases(",
+        "`${P}/builder/connect`,",
+      ],
+    );
+    expect(statusAliases).toBeGreaterThan(awaitBootstrapCall);
+    expect(builderConnect).toBeGreaterThan(awaitBootstrapCall);
   });
 });

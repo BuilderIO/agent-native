@@ -44,6 +44,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
+  PromptBar: ({ children }: { children?: React.ReactNode }) => (
+    <div data-prompt-bar="inline">{children}</div>
+  ),
   PromptComposer: (props: Record<string, unknown>) => {
     clientState.promptComposerProps = props;
     const onSubmit = props.onSubmit as (value: string) => void;
@@ -188,6 +191,9 @@ describe("DispatchControlPlane", () => {
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
     ).not.toBeNull();
+    expect(
+      container.querySelector('[data-prompt-bar="inline"]'),
+    ).not.toBeNull();
     expect(clientState.useChatModels).toHaveBeenCalledWith({
       storageKey: "agent-native:chat-models:selection:dispatch",
     });
@@ -318,6 +324,7 @@ describe("DispatchControlPlane", () => {
         name: "Mail",
         description: "Email client",
         url: "https://mail.agent-native.com",
+        source: "builtin",
       },
       {
         id: "clips",
@@ -331,6 +338,14 @@ describe("DispatchControlPlane", () => {
         id: "onboarding",
         name: "Duplicate onboarding",
         url: "https://duplicate.example.com",
+        source: "custom",
+      },
+      {
+        id: "custom-app",
+        name: "Custom app",
+        description: "A workspace-connected app",
+        url: "https://custom.agent-native.com",
+        source: "custom",
       },
     ];
     clientState.curatedTemplates = [
@@ -364,7 +379,8 @@ describe("DispatchControlPlane", () => {
 
     expect(container.textContent).toContain("Onboarding");
     expect(container.textContent).toContain("Mail");
-    expect(container.textContent).toContain("Clips");
+    expect(container.textContent).toContain("Custom app");
+    expect(container.textContent).not.toContain("Clips");
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
@@ -381,6 +397,12 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
     expect(
+      Array.from(container.querySelectorAll("a")).some(
+        (anchor) =>
+          anchor.getAttribute("href") === "https://custom.agent-native.com",
+      ),
+    ).toBe(true);
+    expect(
       container.querySelectorAll(
         'button[aria-label="Open options for Onboarding"]',
       ),
@@ -395,14 +417,9 @@ describe("DispatchControlPlane", () => {
         );
     });
     const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
-      'a[href="/onboarding"][target="_blank"]',
+      'a[href="/onboarding/home"][target="_blank"]',
     );
     expect(onboardingNewTabLink).not.toBeNull();
-    const clipsHref = Array.from(container.querySelectorAll("a"))
-      .map((anchor) => anchor.getAttribute("href"))
-      .find((href) => href?.includes("clips.agent-native.com"));
-    expect(clipsHref).toContain("https://clips.agent-native.com");
-    expect(clipsHref).not.toContain("/share/");
   });
 
   it("searches available apps case-insensitively before showing the empty state", async () => {

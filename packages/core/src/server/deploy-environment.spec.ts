@@ -1,8 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveDeployEnvironment } from "./deploy-environment.js";
+import {
+  isExplicitLocalDeployEnvironment,
+  resolveDeployEnvironment,
+} from "./deploy-environment.js";
 
 describe("resolveDeployEnvironment", () => {
+  it("distinguishes an explicit local classification from fallback metadata", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "development");
+    expect(resolveDeployEnvironment()).toBe("local");
+    expect(isExplicitLocalDeployEnvironment()).toBe(false);
+
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " LOCAL ");
+    expect(isExplicitLocalDeployEnvironment()).toBe(true);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

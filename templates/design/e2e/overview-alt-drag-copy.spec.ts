@@ -79,8 +79,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.waitForTimeout(1500);
 }
 
-/** Frames are taller than the window, so the drag surface's own centre is
- *  routinely off-screen and a mouse gesture there lands on <html>. */
 async function visibleCentre(page: Page, locator: Locator) {
   const box = (await locator.boundingBox())!;
   const view = page.viewportSize()!;
@@ -124,7 +122,6 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
   const { designId, fileIds } = await createDesign(request, 1);
   try {
     await openOverview(page, designId, 1);
-    // Only the label row selects the frame itself; the card body drills in.
     await page.locator("[data-frame-label]").first().click();
     const dragSurface = page.locator("[data-frame-drag-surface]");
     await expect(dragSurface).toBeVisible();
@@ -133,11 +130,101 @@ test("alt-dragging a selected frame drops a copy and leaves the original in plac
     await altDrag(page, dragSurface, 220, 140);
 
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
+    const copyId = Object.keys(await frameOffsets(page)).find(
+      (id) => id !== fileIds[0],
+    );
+    if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
+    await expect
+      .poll(
+        async () => {
+          const offset = (await frameOffsets(page))[copyId!];
+          return Boolean(
+            offset &&
+            offset.left > before[fileIds[0]!]!.left &&
+            offset.top > before[fileIds[0]!]!.top,
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
     const after = await frameOffsets(page);
     expect(after[fileIds[0]!]).toEqual(before[fileIds[0]!]);
-    const copyId = Object.keys(after).find((id) => id !== fileIds[0])!;
     expect(after[copyId]!.left).toBeGreaterThan(before[fileIds[0]!]!.left);
     expect(after[copyId]!.top).toBeGreaterThan(before[fileIds[0]!]!.top);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("alt-dragging a frame over an occupied screen keeps the copy above it", async ({
+  page,
+  request,
+}) => {
+  const { designId, fileIds } = await createDesign(request, 2);
+  const occupiedId = fileIds[1]!;
+  try {
+    await action(request, "update-design", {
+      id: designId,
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", occupiedId],
+          value: { x: 1600, y: 0, width: 1280, height: 900, z: 90 },
+        },
+      ],
+    });
+    await openOverview(page, designId, 2);
+    await page.locator("[data-frame-label]").first().click();
+
+    const source = page.locator("[data-frame-drag-surface]").first();
+    const occupied = page.locator("[data-frame-label]").nth(1);
+    const start = await visibleCentre(page, source);
+    const drop = await visibleCentre(page, occupied);
+    await altDrag(page, source, drop.x - start.x, drop.y - start.y);
+
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3, {
+      timeout: 30_000,
+    });
+    let frames: Record<
+      string,
+      { x: number; y: number; width: number; height: number; z: number }
+    > = {};
+    await expect
+      .poll(
+        async () => {
+          const response = await request.get(
+            `${BASE_URL}/_agent-native/actions/get-design`,
+            { params: { id: designId, includeFileContent: "false" } },
+          );
+          if (!response.ok()) {
+            throw new Error(`get-design: ${response.status()}`);
+          }
+          const design = await response.json();
+          const data =
+            typeof design.data === "string"
+              ? JSON.parse(design.data)
+              : design.data;
+          if (!data || typeof data !== "object" || !data.canvasFrames) {
+            throw new Error("get-design returned no canvas frame geometry");
+          }
+          frames = data.canvasFrames;
+          return Object.keys(frames).length;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(3);
+
+    const copyId = Object.keys(frames).find((id) => !fileIds.includes(id));
+    if (!copyId) throw new Error("Alt-drag did not create a duplicate frame");
+    const copy = frames[copyId]!;
+    const existing = frames[occupiedId]!;
+    const overlaps =
+      copy.x < existing.x + existing.width &&
+      copy.x + copy.width > existing.x &&
+      copy.y < existing.y + existing.height &&
+      copy.y + copy.height > existing.y;
+    expect(overlaps).toBe(true);
+    expect(copy.z).toBeGreaterThan(existing.z);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -177,6 +264,23 @@ test("alt-dragging a multi-frame selection copies every frame and keeps their sp
       sourceLefts[1]! - sourceLefts[0]!,
       0,
     );
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+
+    const redoShortcut =
+      process.platform === "darwin" ? "Meta+Shift+z" : "Control+Shift+z";
+    await page.keyboard.press(redoShortcut);
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4, {
+      timeout: 20_000,
+    });
+    const selectedCopyRows = page
+      .getByRole("tree", { name: "Layers" })
+      .locator('[role="treeitem"][aria-level="1"][aria-selected="true"]')
+      .filter({ hasText: "copy" });
+    await expect(selectedCopyRows).toHaveCount(2, { timeout: 20_000 });
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

@@ -63,14 +63,20 @@ describe("action lifecycle tracking", () => {
       properties: {
         action_name: "create-clip",
         output_id: "clip-1",
+        outcome: "success",
         success: true,
+        status: "completed",
       },
     });
+    expect(events[0]?.properties?.operation_id).toEqual(
+      events[1]?.properties?.operation_id,
+    );
   });
 
   it("records a failed outcome and preserves the original error", async () => {
     const events = captureEvents();
     const failure = new Error("storage unavailable");
+    failure.name = "AbortError";
     const trackedRun = wrapRunWithActionTracking(async () => {
       throw failure;
     }, false);
@@ -84,8 +90,50 @@ describe("action lifecycle tracking", () => {
     expect(events[1]).toMatchObject({
       properties: {
         action_name: "create-clip",
-        failure_type: "Error",
+        failure_type: "cancelled",
+        operation_id: expect.any(String),
+        outcome: "cancelled",
         success: false,
+        status: "failed",
+      },
+    });
+    expect(events[0]?.properties?.operation_id).toEqual(
+      events[1]?.properties?.operation_id,
+    );
+  });
+
+  it("classifies framework statusCode failures as HTTP errors", async () => {
+    const events = captureEvents();
+    const failure = Object.assign(new Error("request failed"), {
+      statusCode: 503,
+    });
+    const trackedRun = wrapRunWithActionTracking(async () => {
+      throw failure;
+    }, false);
+
+    await expect(trackedRun({}, context)).rejects.toBe(failure);
+
+    expect(events[1]).toMatchObject({
+      properties: {
+        failure_type: "http_error",
+        outcome: "http_error",
+      },
+    });
+  });
+
+  it("keeps arbitrary TypeErrors in the generic error bucket", async () => {
+    const events = captureEvents();
+    const failure = new TypeError("invalid property access");
+    const trackedRun = wrapRunWithActionTracking(async () => {
+      throw failure;
+    }, false);
+
+    await expect(trackedRun({}, context)).rejects.toBe(failure);
+
+    expect(events[1]).toMatchObject({
+      properties: {
+        failure_type: "error",
+        outcome: "error",
       },
     });
   });

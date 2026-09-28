@@ -6,6 +6,8 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  frameworkRoutePrefix,
+  isFrameworkRoutePath,
   isWorkspaceAppPath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
@@ -56,12 +58,6 @@ describe("agentNativePath", () => {
   });
 
   it("does not mistake an app-local route for a sibling app's workspace mount", () => {
-    // Regression for the Builder connect popup opening
-    // "/settings/_agent-native/builder/connect" instead of
-    // "/dispatch/_agent-native/builder/connect" — the workspace gateway has
-    // no app mounted at "/settings" (it's a page inside the "dispatch" app),
-    // so that URL 404s into the gateway's app-picker page instead of
-    // reaching Builder's real sign-in/authorize screen.
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
     vi.stubEnv(
@@ -343,5 +339,110 @@ describe("appApiPath", () => {
     expect(appApiPath("/api/local-migration")).toBe(
       "/docs/api/local-migration",
     );
+  });
+});
+
+describe("configurable framework route prefix", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults to the internal prefix and leaves URLs unchanged", () => {
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(frameworkRoutePrefix()).toBe("/_agent-native");
+    expect(agentNativePath("/_agent-native/actions/x")).toBe(
+      "/_agent-native/actions/x",
+    );
+  });
+
+  it("builds browser URLs under the bundled public prefix", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(frameworkRoutePrefix()).toBe("/_platform");
+    expect(agentNativePath("/_agent-native/actions/x?y=1")).toBe(
+      "/_platform/actions/x?y=1",
+    );
+    expect(agentNativePath("/api/x")).toBe("/api/x");
+    expect(isFrameworkRoutePath("/_platform/events")).toBe(true);
+    expect(isFrameworkRoutePath("/_agent-native/events")).toBe(true);
+    expect(isFrameworkRoutePath("/_platform-extra/events")).toBe(false);
+  });
+
+  it("applies the app base path once, after the prefix swap", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    vi.stubGlobal("window", { location: { pathname: "/docs/dashboard" } });
+    expect(agentNativePath("/_agent-native/events")).toBe(
+      "/docs/_platform/events",
+    );
+  });
+
+  it("derives the app base path from the public prefix in the live URL", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform/builder/callback" },
+    });
+    expect(appBasePath()).toBe("/docs");
+  });
+
+  it("ignores a route that merely contains the prefix text", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform-settings" },
+    });
+    expect(appBasePath()).toBe("");
+    vi.stubGlobal("window", {
+      location: { pathname: "/docs/_platform" },
+    });
+    expect(appBasePath()).toBe("/docs");
+  });
+
+  it("leaves a similarly named app route alone", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+    vi.stubGlobal("window", { location: { pathname: "/" } });
+    expect(agentNativePath("/_agent-native-extra/settings")).toBe(
+      "/_agent-native-extra/settings",
+    );
+  });
+
+  it("issues workspace relay callbacks under the public prefix", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/_platform" },
+    });
+    vi.stubGlobal("window", {
+      location: { pathname: "/mail/settings", origin: "https://ws.example" },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceOAuthOrigin: "https://ws.example",
+      },
+    });
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://ws.example/_platform/google/callback",
+    );
+  });
+
+  it("falls back to the projected shell config and rejects a malformed one", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      __AGENT_NATIVE_CONFIG__: { frameworkRoutePrefix: "/_gateway" },
+    });
+    expect(frameworkRoutePrefix()).toBe("/_gateway");
+    vi.stubGlobal("window", {
+      location: { pathname: "/" },
+      __AGENT_NATIVE_CONFIG__: { frameworkRoutePrefix: "/api" },
+    });
+    expect(() => frameworkRoutePrefix()).toThrow(/reserved namespace/);
   });
 });

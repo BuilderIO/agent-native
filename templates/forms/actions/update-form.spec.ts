@@ -43,6 +43,11 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
+  defineAction: (options: unknown) => options,
+}));
+
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
@@ -157,11 +162,6 @@ describe("update-form settings", () => {
     });
 
     expect(result.fields).toEqual(fields);
-    // Compare structurally rather than as an exact JSON string: the fields
-    // schema validates each field through a real zod object shape now, and
-    // zod always reconstructs an object in its shape's declared key order —
-    // a harmless, order-only difference no reader of the persisted JSON
-    // (or of `result.fields` above) can observe.
     expect(mockInvalidatePublicFormCache).toHaveBeenCalledWith(
       state.existing,
       expect.objectContaining({ fields: expect.any(String) }),

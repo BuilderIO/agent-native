@@ -5,11 +5,6 @@ export type RecordingPageAccessRole =
   | "commenter"
   | "viewer";
 
-/**
- * Match the public recording and video routes: only a finite expiry date can
- * expire a recording, and the expiry is strict so the exact instant remains
- * valid until time advances past it.
- */
 export function isRecordingExpired(
   expiresAt: string | null | undefined,
   now = Date.now(),
@@ -18,6 +13,14 @@ export function isRecordingExpired(
 
   const expires = new Date(expiresAt).getTime();
   return Number.isFinite(expires) && expires < now;
+}
+
+export function isRecordingExpiredForViewer(input: {
+  expiresAt: string | null | undefined;
+  viewerIsOwner: boolean;
+  now?: number;
+}): boolean {
+  return !input.viewerIsOwner && isRecordingExpired(input.expiresAt, input.now);
 }
 
 /**
@@ -39,7 +42,6 @@ export function canOpenDirectRecordingPage(input: {
   return true;
 }
 
-/** Comment activity follows the same expiry and password boundary as the player. */
 export function canReceiveRecordingActivity(input: {
   ownerEmail: string;
   recipientEmail: string;

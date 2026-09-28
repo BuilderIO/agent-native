@@ -8,6 +8,7 @@ export const contextDirectives = table("context_directives", {
   segmentId: text("segment_id").notNull(),
   action: text("action", { enum: ["pin", "evict", "summarize"] }).notNull(),
   summaryText: text("summary_text"),
+  // guard:allow-identity-column — enum actor kind, not an email identity
   createdBy: text("created_by", { enum: ["user", "agent"] })
     .notNull()
     .default("user"),

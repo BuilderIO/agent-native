@@ -3,6 +3,99 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("agent-native shell surface tokens", () => {
+  it("does not add a streaming cursor to chat markdown", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const conversationCss = readFileSync(
+      new URL("./agent-conversation.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).not.toContain("agent-streaming-cursor");
+    expect(conversationCss).not.toContain("agent-markdown-stream-caret");
+  });
+
+  it("does not pull recessed queue rows into the composer", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).not.toContain(
+      'data-agent-message-queue-variant="recessed"][data-empty="false"]',
+    );
+    expect(css).not.toContain("margin-bottom: -1.25rem");
+  });
+
+  it("keeps the composer surface opaque while preserving its muted blend", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-composer-root\s*\{[^}]*background:\s*color-mix\(\s*in srgb,\s*var\(--agent-kit-subtle-surface\) 45%,\s*var\(--agent-kit-recessed-surface\)\s*\);/s,
+    );
+  });
+
+  it("routes AgentKit density, geometry, elevation, and status through role tokens", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toContain('@import "./tokens/agent-kit.css";');
+    expect(css).toContain(".agent-kit-density");
+    expect(css).toContain(".agent-kit-activity-row");
+    expect(css).toContain(".agent-kit-tone-positive");
+    expect(css).toContain("var(--agent-kit-composer-elevation)");
+    expect(tokens).toContain("--agent-kit-conversation-max-width:");
+    expect(tokens).toContain("--agent-kit-density-font-size:");
+    expect(tokens).toContain("--agent-kit-composer-radius:");
+    expect(tokens).toContain("--agent-kit-composer-toolbar-control-size:");
+    expect(tokens).toContain("--agent-kit-composer-toolbar-control-font-size:");
+    expect(tokens).toContain(
+      "--agent-kit-composer-toolbar-control-line-height:",
+    );
+    expect(tokens).toContain(
+      "--agent-kit-composer-toolbar-control-font-weight:",
+    );
+    expect(tokens).toContain("--agent-kit-positive:");
+    expect(tokens).toContain("--agent-kit-subtle-surface:");
+    expect(tokens).toContain("--agent-kit-popover-surface:");
+    expect(tokens).toContain("--agent-kit-text:");
+    expect(tokens).toContain("--agent-kit-muted-text:");
+    expect(tokens).toContain("--agent-kit-border:");
+  });
+
+  it("keeps AgentKit activity components on semantic roles", () => {
+    const sources = [
+      "../client/chat/agent-activity-trace.tsx",
+      "../client/chat/tool-chips.tsx",
+      "../client/chat/tool-call-display.tsx",
+      "../client/tool-cells/FilesChangedSummary.tsx",
+    ].map((path) =>
+      readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
+    );
+    const source = sources.join("\n");
+
+    expect(source).not.toMatch(/text-(?:green|red|blue|gray|slate|zinc)-/);
+    expect(source).not.toContain("text-[13px]");
+    expect(source).not.toContain("max-w-[60%]");
+    expect(source).toContain("agent-kit-activity-row");
+    expect(source).toContain("agent-kit-activity-object-boundary");
+    expect(source).toContain("agent-kit-tone-positive");
+
+    const tools = readFileSync(
+      new URL("../client/chat/tool-call-display.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+    expect(tools).not.toContain("max-w-[95%]");
+    expect(tools).toContain("agent-kit-tool-content-boundary");
+  });
+
   it("restores standard markdown list markers", () => {
     const css = readFileSync(
       new URL("./agent-conversation.css", import.meta.url),
@@ -22,17 +115,42 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
-  it("keeps the raised app surface on the semantic background color", () => {
+  it("keeps the shell surface hierarchy on semantic roles", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
 
     expect(css).toContain(
-      "--agent-native-raised-surface: hsl(var(--background));",
+      "--agent-native-raised-surface: var(--agent-kit-recessed-surface);",
     );
-    expect(css).toContain("--agent-native-card-surface: hsl(var(--card));");
+    expect(css).toContain(
+      "--agent-native-lower-surface: var(--agent-kit-nav-surface);",
+    );
+    expect(css).toContain(
+      "--agent-native-card-surface: var(--agent-kit-raised-surface);",
+    );
     expect(css).not.toMatch(/--agent-native-raised-surface:\s*color-mix\(/);
     expect(css).not.toMatch(/--agent-native-card-surface:\s*color-mix\(/);
+    expect(
+      readFileSync(new URL("./tokens/agent-kit.css", import.meta.url), {
+        encoding: "utf8",
+      }),
+    ).toMatch(
+      /--agent-kit-recessed-surface:[\s\S]*?--agent-kit-nav-surface:[\s\S]*?--agent-kit-raised-surface:/s,
+    );
+  });
+
+  it("matches the shell backing to chat and keeps the open right seam square", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-shell,\s*\.agent-layout-shell\s*\{[^}]*background:\s*var\(--agent-kit-recessed-surface\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-sidebar-main-surface\[data-agent-sidebar-main-state="open"\]\[data-agent-sidebar-main-position="right"\]\s*\{[^}]*border-start-end-radius:\s*0;[^}]*border-end-end-radius:\s*0;/s,
+    );
   });
 
   it("keeps app and agent main surfaces borderless", () => {
@@ -52,6 +170,46 @@ describe("agent-native shell surface tokens", () => {
     expect(frameCss).toMatch(
       /\.agent-frame-main-surface\[data-agent-frame-main-state="open"\] \{[^}]*box-shadow: none;/s,
     );
+  });
+
+  it("suppresses the native search widgets only for fields that own their clear button", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-native-search-input::-webkit-search-cancel-button,\s*\.agent-native-search-input::-webkit-search-decoration,\s*\.agent-native-search-input::-webkit-search-results-button,\s*\.agent-native-search-input::-webkit-search-results-decoration\s*\{[^}]*-webkit-appearance: none;[^}]*appearance: none;/s,
+    );
+    expect(css).not.toMatch(
+      /(^|[\s,])input\[type="search"\]::-webkit-search-cancel-button/m,
+    );
+  });
+
+  it("keeps the dedicated Chat canvas square against its navigation rail", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-layout-main-surface\[data-agent-chat-canvas="true"\] \{[^}]*border-radius: 0;/s,
+    );
+  });
+
+  it("coordinates the AgentKit workspace reveal with the remaining chat canvas", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body--workspace-open \{[^}]*width: calc\(100% - var\(--agent-kit-workspace-panel-width\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-chat-canvas-body \{[^}]*transition-property: width;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-kit-workspace-panel \{[^}]*transition-property: transform;/s,
+    );
+    expect(css).not.toContain("--agent-kit-workspace-panel-opacity-duration");
   });
 
   it("removes shell transitions while the agent sidebar is being resized", () => {
@@ -94,15 +252,43 @@ describe("agent-native shell surface tokens", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
 
     expect(css).toMatch(
-      /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow: 0 0% 0%;[\s\S]*?box-shadow:[\s\S]*?hsl\(var\(--agent-shadow\) \/ var\(--agent-shadow-o\)\);/s,
+      /\.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?box-shadow: var\(--agent-kit-drawer-elevation\);/s,
     );
-    expect(css).toMatch(
-      /\.dark \.agent-sidebar-panel\[data-agent-sidebar-animation="drawer"\][\s\S]*?--agent-shadow-o: 0\.08;/s,
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-drawer-elevation:/s,
+    );
+    expect(css).not.toContain("hsl(var(--foreground) / 0.07)");
+    expect(css).not.toContain("hsl(var(--foreground) / 0.12)");
+    expect(css).not.toContain("hsl(var(--agent-shadow)");
+    expect(tokens).toContain("--agent-kit-shadow-color: var(--foreground);");
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-shadow-color: var\(--background\);[\s\S]*?--agent-kit-composer-elevation:[\s\S]*?hsl\(var\(--agent-kit-shadow-color\) \/ 0\.22\)/s,
     );
     expect(css).toMatch(
       /::view-transition-old\(agent-native-sidebar-drawer\),\s*::view-transition-new\(agent-native-sidebar-drawer\)[\s\S]*?height: 100%;/s,
+    );
+  });
+
+  it("gives the light composer a quiet boundary without a dark-mode highlight", () => {
+    const tokens = readFileSync(
+      new URL("./tokens/agent-kit.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(tokens).toMatch(
+      /:root\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0\.82;[\s\S]*?--agent-kit-composer-focus-border-opacity: 1;/s,
+    );
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-opacity: 0;[\s\S]*?--agent-kit-composer-focus-border-opacity: 0;/s,
+    );
+    expect(tokens).toMatch(
+      /\.dark\s*\{[\s\S]*?--agent-kit-composer-border-color: transparent;[\s\S]*?--agent-kit-composer-focus-border-color: transparent;/s,
     );
   });
 
@@ -171,26 +357,12 @@ describe("agent-native shell surface tokens", () => {
   });
 });
 
-/**
- * These three properties each promote or re-promote a compositing layer on the
- * chat sidebar — the surface every template mounts and the one users reported
- * as "glitching out when you open chat": flow content painting as flat
- * rectangles while only separately-composited overlays survived. They read as
- * harmless performance hints, which is why they kept coming back. Each
- * assertion below names the element that must NOT carry the property.
- */
 describe("agent chat sidebar compositing invariants", () => {
   const readCss = () =>
     readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
     });
 
-  /**
-   * Bodies of every rule whose selector list matches `matches`. Comments are
-   * stripped first: the declarations these tests forbid are also *named* in the
-   * comments explaining why they are forbidden, and a guard that a comment can
-   * satisfy is not a guard.
-   */
   const ruleBodies = (
     css: string,
     matches: (selector: string) => boolean,
@@ -219,12 +391,10 @@ describe("agent chat sidebar compositing invariants", () => {
   it("declares the chat fade mask unconditionally so it is never added or removed", () => {
     const css = readCss();
 
-    // The mask itself belongs to the base class...
     const base = ruleBodies(css, (s) => s === ".message-scroller-viewport");
     expect(base.length).toBeGreaterThan(0);
     expect(base.some((body) => body.includes("mask-image"))).toBe(true);
 
-    // ...and the scroll-dependent modifier may only retune its length.
     const modifier = ruleBodies(
       css,
       (s) => s === ".message-scroller-viewport--top-fade",
@@ -238,13 +408,10 @@ describe("agent chat sidebar compositing invariants", () => {
 
   it("applies view-transition-name only while the drawer morph is running", () => {
     const source = readFileSync(
-      new URL("../client/AgentPanel.tsx", import.meta.url),
+      new URL("../client/AgentSidebar.tsx", import.meta.url),
       { encoding: "utf8" },
     );
 
-    // A bare `viewTransitionName: NAME,` line is the unconditional form: it
-    // makes the panel a containing block for fixed descendants for the life of
-    // the page and enlists it in unrelated route view transitions.
     expect(source).not.toMatch(
       /^\s*viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME,/m,
     );

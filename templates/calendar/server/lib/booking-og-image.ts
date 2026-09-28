@@ -19,7 +19,9 @@ const WIDTH = 1200;
 const HEIGHT = 630;
 const SURFACE = "#0a0a0a";
 const BORDER = "#1f1f1f";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const FG = "#FAF9F5";
+// guard:allow-raw-color — fixed brand palette for a generated social-preview image, not app UI theming
 const MUTED = "#9A9997";
 const FONT_FAMILY = "Liberation Sans, Arial, system-ui, sans-serif";
 const FONT_SOURCE_PATHS = [
@@ -57,8 +59,6 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-// Also used by the public booking-link handler so it can identify the owner
-// without exposing their raw email address.
 export function displayNameFromIdentifier(
   username?: string | null,
   ownerEmail?: string | null,

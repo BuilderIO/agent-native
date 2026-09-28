@@ -24,11 +24,11 @@ interface OutOfOfficeEventProps {
   onResizeTopPointerDown?: (event: React.PointerEvent) => void;
   onResizeBottomPointerDown?: (event: React.PointerEvent) => void;
   shouldSuppressClick?: () => boolean;
-  onDelete: (eventId: string) => void;
+  onDelete: (event: CalendarEvent) => void;
   isDraft: boolean;
   defaultOpen: boolean;
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
-  onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
+  onDismissNew?: (event: CalendarEvent) => void;
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {

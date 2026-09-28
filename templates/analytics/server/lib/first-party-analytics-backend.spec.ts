@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getScopedSettingRecord = vi.hoisted(() => vi.fn());
+const getOrgSetting = vi.hoisted(() => vi.fn());
 const putScopedSettingRecord = vi.hoisted(() => vi.fn());
 const getBigQueryProjectId = vi.hoisted(() => vi.fn());
 const runQuery = vi.hoisted(() => vi.fn());
@@ -12,6 +13,7 @@ vi.mock("./scoped-settings.js", () => ({
   getScopedSettingRecord,
   putScopedSettingRecord,
 }));
+vi.mock("@agent-native/core/settings", () => ({ getOrgSetting }));
 vi.mock("./bigquery.js", () => ({
   getBigQueryProjectId,
   runQuery,
@@ -25,11 +27,13 @@ vi.mock("./credentials-context.js", () => ({
 import {
   backfillFirstPartyAnalyticsBatch,
   createFirstPartyAnalyticsInserter,
+  FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
   FirstPartyAnalyticsUnsupportedSqlError,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
+  insertFirstPartyAnalyticsRowsWithResults,
   renderFirstPartyAnalyticsBigQuerySql,
   resetFirstPartyAnalyticsBackendCacheForTests,
   saveFirstPartyAnalyticsBackend,
@@ -37,6 +41,7 @@ import {
 
 beforeEach(() => {
   getScopedSettingRecord.mockReset();
+  getOrgSetting.mockReset();
   putScopedSettingRecord.mockReset();
   getBigQueryProjectId.mockReset();
   runQuery.mockReset();
@@ -45,6 +50,10 @@ beforeEach(() => {
   execute.mockReset();
   resetFirstPartyAnalyticsBackendCacheForTests();
   getScopedSettingRecord.mockResolvedValue({
+    sink: "dual",
+    table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+  });
+  getOrgSetting.mockResolvedValue({
     sink: "dual",
     table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
   });
@@ -65,6 +74,53 @@ describe("first-party BigQuery backend", () => {
     await getFirstPartyAnalyticsBackend(scope);
 
     expect(getScopedSettingRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses only the org sink setting for org-scoped previews", async () => {
+    getOrgSetting.mockResolvedValue(null);
+
+    await expect(
+      getFirstPartyAnalyticsBackend({
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      }),
+    ).resolves.toEqual({
+      sink: "postgres",
+      table: null,
+      backfillCursor: null,
+      backfillCompleted: false,
+    });
+
+    expect(getOrgSetting).toHaveBeenCalledWith(
+      "customer-org",
+      FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+    );
+    expect(getScopedSettingRecord).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse a personal fallback backend cached for the same org", async () => {
+    getScopedSettingRecord.mockResolvedValue({
+      sink: "bigquery",
+      table: "personal-project.analytics.personal_events",
+    });
+    getOrgSetting.mockResolvedValue(null);
+
+    await expect(
+      getFirstPartyAnalyticsBackend({
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+      }),
+    ).resolves.toMatchObject({ sink: "bigquery" });
+    await expect(
+      getFirstPartyAnalyticsBackend({
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      }),
+    ).resolves.toMatchObject({ sink: "postgres", table: null });
+
+    expect(getOrgSetting).toHaveBeenCalledTimes(1);
   });
 
   it("qualifies logical sources and quotes scope values for BigQuery", () => {
@@ -221,9 +277,6 @@ describe("first-party BigQuery backend", () => {
     expect(rendered).not.toContain("COALESCE(template, template, app)");
   });
 
-  // Every row here reproduced a real production BigQuery 400 or hard failure
-  // before the translator handled it, so the expectation is the output BigQuery
-  // accepts, not merely that it changed.
   it.each([
     [
       "SELECT sum(amount)::numeric AS v FROM analytics_events",
@@ -262,7 +315,6 @@ describe("first-party BigQuery backend", () => {
       "DATE_TRUNC(CAST(event_date AS DATE), DAY)",
     ],
     [
-      // PostgreSQL weeks start Monday; a bare BigQuery WEEK starts Sunday.
       "SELECT date_trunc('week', event_date) AS v FROM analytics_events",
       "DATE_TRUNC(CAST(event_date AS DATE), WEEK(MONDAY))",
     ],
@@ -507,11 +559,60 @@ describe("first-party BigQuery backend", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(
+      JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string),
+    ).toMatchObject({ skipInvalidRows: true, ignoreUnknownValues: false });
+    expect(
       JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string).rows,
     ).toHaveLength(200);
     expect(
       JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string).rows,
     ).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
+  it("delivers only rows BigQuery did not reject", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        insertErrors: [{ index: 1, errors: [{ message: "invalid event" }] }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "BigQuery rejected 1 event row(s): invalid event",
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("reconciles rows after an ambiguous insert response", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("socket closed"));
+    vi.stubGlobal("fetch", fetchMock);
+    runQuery.mockResolvedValue({
+      rows: [{ id: "event-1" }],
+      schema: [{ name: "id", type: "STRING" }],
+    });
+
+    await expect(
+      insertFirstPartyAnalyticsRowsWithResults(
+        [{ id: "event-1" }, { id: "event-2" }],
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      ),
+    ).resolves.toEqual({
+      acceptedIds: ["event-1"],
+      rejectedIds: ["event-2"],
+      error: "socket closed",
+    });
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("SELECT id FROM"),
+    );
     vi.unstubAllGlobals();
   });
 

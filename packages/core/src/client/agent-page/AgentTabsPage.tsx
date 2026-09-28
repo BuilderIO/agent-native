@@ -468,18 +468,11 @@ export type AgentPageExtraTabFactory = (
 ) => SettingsTabItem;
 
 export interface AgentTabsPageProps {
-  /**
-   * Human-readable app name used in the MCP tab's connect instructions
-   * (e.g. "name it Mail"). Falls back to standard app-title metadata, then a
-   * hostname-derived guess — never `document.title`, which this page owns.
-   */
   appName?: string;
   extraTabs?: SettingsTabItem[];
-  /** Scoped app-specific tabs that receive the current Manage agent page scope. */
   extraTabFactories?: AgentPageExtraTabFactory[];
   defaultTab?: string;
   className?: string;
-  /** Whether to render the Agent page search box. Defaults to true. */
   enableSearch?: boolean;
   searchPlaceholder?: string;
   hiddenTabs?: string[];
@@ -818,7 +811,7 @@ export function AgentTabsPage({
                 }}
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder}
-                className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+                className="agent-native-search-input h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
               />
               {query && (
                 <button

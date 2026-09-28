@@ -40,10 +40,14 @@ vi.mock("./microphone-visualizer", () => ({
 }));
 
 vi.mock("./camera-visualizer", () => ({
-  CameraVisualizer: (props: { onStatusChange: VisualizerStatusCallback }) => {
+  CameraVisualizer: React.forwardRef<
+    { startTest: () => void },
+    { onStatusChange: VisualizerStatusCallback }
+  >((props, ref) => {
     visualizerCallbacks.cameraStatusChange = props.onStatusChange;
-    return <span data-testid="camera-test" />;
-  },
+    React.useImperativeHandle(ref, () => ({ startTest: vi.fn() }));
+    return null;
+  }),
 }));
 
 vi.mock("./recorder-engine", () => ({
@@ -223,9 +227,7 @@ describe("PreRecordPanel desktop-aligned setup", () => {
       container.querySelectorAll('[data-testid="microphone-waveform"]'),
     ).toHaveLength(1);
     expect(microphoneTrigger?.contains(waveform)).toBe(true);
-    expect(
-      container.querySelector('[data-testid="camera-test"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('[data-testid="camera-test"]')).toBeNull();
     expect(container.querySelector('input[type="file"]')).toBeNull();
     expect(container.textContent).not.toContain("preRecord.import");
     expect(container.textContent).not.toContain("preRecord.uploadVideo");
@@ -236,6 +238,28 @@ describe("PreRecordPanel desktop-aligned setup", () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  it("keeps the camera test behind the camera menu", async () => {
+    await renderPanel();
+
+    expect(container.textContent).not.toContain("cameraVisualizer.test");
+
+    await act(async () => {
+      openMenu(
+        container.querySelector('[aria-label="preRecord.defaultCamera"]'),
+      );
+      await Promise.resolve();
+    });
+
+    const cameraMenu = document.body.querySelector('[role="menu"]');
+    expect(cameraMenu?.querySelector('[role="separator"]')).not.toBeNull();
+    const cameraItems = Array.from(
+      cameraMenu?.querySelectorAll('[role="menuitem"]') ?? [],
+    );
+    expect(cameraItems[cameraItems.length - 1]?.textContent).toBe(
+      "cameraVisualizer.test",
+    );
   });
 
   it("uses available web width before truncating device labels", async () => {

@@ -53,6 +53,20 @@ vi.mock("../ConnectBuilderCard.js", () => ({
   ),
 }));
 
+vi.mock("../FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="file-storage-dialog" /> : null,
+}));
+
+vi.mock("../uploads/use-file-upload-status.js", () => ({
+  useFileUploadStatus: () => ({
+    data: { configured: false },
+    isError: false,
+    isSuccess: true,
+    refetch: vi.fn(),
+  }),
+}));
+
 vi.mock("../use-agent-chat-context.js", () => ({
   useAgentChatContext: builderHandoffMocks.useAgentChatContext,
 }));
@@ -141,6 +155,44 @@ describe("ToolCallDisplay native renderers", () => {
 
   it("waits five minutes before showing the long-running hint", () => {
     expect(TOOL_LONG_RUNNING_HINT_DELAY_MS).toBe(5 * 60_000);
+  });
+
+  it("does not reopen storage setup for a restored tool result", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="connect-file-storage"
+          args={{}}
+          result={JSON.stringify({ kind: "connect-file-storage-card" })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    act(() => container.querySelector("button")?.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it("keeps agent-team spawn results in the live task card", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent-teams"
+          args={{ action: "spawn", task: "Draft Monday update" }}
+          result={
+            '{"taskId":"task-1","threadId":"thread-1","description":"Draft Monday update"}'
+          }
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Spawned agent: Draft Monday update",
+    );
+    expect(container.textContent).toContain("Open task thread");
+    expect(container.querySelector("[data-action-card]")).toBeNull();
   });
 
   it("renders the provider logo for catalog-backed MCP tools", async () => {
@@ -1073,6 +1125,24 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector("button")?.parentElement;
     expect(row?.className).toContain("w-full");
     expect(container.querySelector("button")?.className).toContain("w-full");
+    expect(container.textContent).toContain("recent deals");
+  });
+
+  it("shows the command itself in a generic command row", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="exec-command"
+          args={{ cmd: "pnpm test --filter @agent-native/core" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("exec command");
+    expect(container.textContent).toContain(
+      "pnpm test --filter @agent-native/core",
+    );
   });
 
   it("expands inputs inline and opens output in a popover", () => {
@@ -1874,9 +1944,6 @@ describe("ReasoningCell", () => {
     expect(container.querySelectorAll("button")).toHaveLength(1);
     expect(container.textContent).not.toContain("verify the join keys first.");
 
-    // Opening "Worked for…" reveals the thought's own collapsed row, not its
-    // prose — reasoning is collapsible in there just like the tool calls it
-    // sits between.
     act(() => {
       container.querySelector("button")?.click();
     });
@@ -2151,6 +2218,34 @@ describe("WorkedForSummary", () => {
     });
 
     expect(container.textContent).toContain("Worked for 5m");
+  });
+
+  it("applies the running shimmer while the work summary is live", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary isRunning>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Working");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+    expect(container.querySelector(".agent-running-shimmer")?.textContent).toBe(
+      "Working",
+    );
+  });
+
+  it("does not shimmer after the work summary completes", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5 * 60_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.querySelector(".agent-running-shimmer")).toBeNull();
   });
 
   it("starts open when completed work contains interactive UI", () => {
@@ -2485,15 +2580,16 @@ describe("ApprovalAffordance", () => {
       );
     });
 
-    const approvalCopy = Array.from(container.querySelectorAll("span")).find(
-      (span) => span.textContent === "Approve to run send-email?",
-    ) as HTMLSpanElement;
-    const approvalCard = approvalCopy.parentElement as HTMLDivElement;
+    const approvalCard = container.querySelector(
+      ".agent-approval-card",
+    ) as HTMLDivElement;
+    const approvalCopy = Array.from(approvalCard.querySelectorAll("div")).find(
+      (div) => div.textContent === "Approve to run send-email?",
+    ) as HTMLDivElement;
     const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
 
-    expect(approvalCard.className).toContain("flex-wrap");
-    expect(approvalCopy.className).toContain("min-w-0");
-    expect(approvalCopy.className).toContain("flex-1");
+    expect(approvalCard.className).toContain("rounded-xl");
+    expect(approvalCopy.className).toContain("font-semibold");
     expect(actionButtons.map((button) => button.textContent)).toEqual([
       "Approve",
       "",
@@ -2612,11 +2708,6 @@ describe("ApprovalAffordance", () => {
   });
 
   it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
-    // Mirrors a failed resume: the server's resume never consumed the grant
-    // (expired TTL, turn-id mismatch) and re-enters the gate, re-emitting
-    // `approval_required` for the SAME toolCallId with a fresh `askId`. The
-    // approval host (AssistantChat) retains resolutions per askId, so the
-    // stale "approved" mark from the first ask must not apply to the new one.
     const onApprove = vi.fn();
     const resolutionsByIdentity = new Map<string, "approved" | "denied">();
     const identity = (
@@ -2662,8 +2753,6 @@ describe("ApprovalAffordance", () => {
     expect(onApprove).toHaveBeenCalledWith("approval-1");
     expect(container.textContent).toContain("Approved. Re-running bash...");
 
-    // The failed resume re-emits approval_required for the same toolCallId
-    // with a new askId.
     act(() => root.render(<ReissuedApproval askId="ask-2" />));
 
     expect(container.textContent).not.toContain("Approved. Re-running bash...");

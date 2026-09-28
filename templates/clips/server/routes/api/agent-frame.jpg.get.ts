@@ -1,9 +1,3 @@
-/**
- * GET /api/agent-frame.jpg?id=<recordingId>&atMs=<timestampMs>[&password=<pw>|&t=<token>]
- *
- * Extract a JPEG frame from a public clip for external agents.
- */
-
 import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -19,16 +13,20 @@ import {
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../lib/pending-redactions.js";
+import {
   CLIPS_AGENT_ACCESS_PARAM,
   loadPublicAgentAccess,
-  loadRecordingMediaBytes,
+  loadRecordingMediaFile,
   queryString,
   RecordingMediaFetchError,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
 import {
-  extractJpegFrame,
-  probeMediaDurationMs,
+  extractJpegFrameFromFile,
+  probeMediaDurationMsFromFile,
   VideoFrameExtractionError,
 } from "../../lib/video-frame.js";
 
@@ -148,17 +146,15 @@ function redirectToResolvedFrame(
 }
 
 async function extractFrameWithStaleDurationRecovery({
-  media,
-  mimeType,
+  mediaPath,
   atMs,
 }: {
-  media: Uint8Array;
-  mimeType: string;
+  mediaPath: string;
   atMs: number;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {
     return {
-      frame: await extractJpegFrame({ mediaBytes: media, mimeType, atMs }),
+      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
       atMs,
     };
   } catch (error) {
@@ -170,7 +166,7 @@ async function extractFrameWithStaleDurationRecovery({
       throw error;
     }
 
-    const actualDurationMs = await probeMediaDurationMs(media, mimeType);
+    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
     if (actualDurationMs === null || actualDurationMs > atMs + 1) {
       throw error;
     }
@@ -184,11 +180,7 @@ async function extractFrameWithStaleDurationRecovery({
       if (candidate === atMs) continue;
       try {
         return {
-          frame: await extractJpegFrame({
-            mediaBytes: media,
-            mimeType,
-            atMs: candidate,
-          }),
+          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
           atMs: candidate,
         };
       } catch (candidateError) {
@@ -220,6 +212,18 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+
+  if (
+    isHeldForRedaction(
+      recording.editsJson,
+      accessResult.access.viewerIsOwner ? "owner" : null,
+    )
+  ) {
+    setResponseStatus(event, 409);
+    setResponseHeader(event, "Content-Type", "application/json; charset=utf-8");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
+  }
   const durationMs =
     typeof recording.durationMs === "number" ? recording.durationMs : 0;
   const requestedMs = parseTimestampMs(
@@ -252,29 +256,32 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   try {
-    const media = await loadRecordingMediaBytes(recording);
-    const resolved = await extractFrameWithStaleDurationRecovery({
-      media: media.bytes,
-      mimeType: media.mimeType,
-      atMs,
-    });
+    const media = await loadRecordingMediaFile(recording);
+    try {
+      const resolved = await extractFrameWithStaleDurationRecovery({
+        mediaPath: media.path,
+        atMs,
+      });
 
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        resolved.frame,
-        media.mimeType,
-      );
+      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
+        await persistDefaultThumbnailIfMissing(
+          access,
+          resolved.frame,
+          media.mimeType,
+        );
+      }
+
+      if (resolved.atMs !== atMs) {
+        return redirectToResolvedFrame(event, access, resolved.atMs);
+      }
+
+      applyFrameHeaders(event);
+      const buffer = Buffer.from(resolved.frame);
+      if (cacheable) setCachedFrame(key, buffer);
+      return buffer;
+    } finally {
+      await media.cleanup().catch(() => {});
     }
-
-    if (resolved.atMs !== atMs) {
-      return redirectToResolvedFrame(event, access, resolved.atMs);
-    }
-
-    applyFrameHeaders(event);
-    const buffer = Buffer.from(resolved.frame);
-    if (cacheable) setCachedFrame(key, buffer);
-    return buffer;
   } catch (err) {
     const isFrameError = err instanceof VideoFrameExtractionError;
     setResponseStatus(

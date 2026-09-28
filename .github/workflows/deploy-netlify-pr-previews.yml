@@ -1,0 +1,420 @@
+name: Manage Netlify PR previews
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Separate authorized site requests from ignored comments before they queue.
+  group: >-
+    netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER'
+      ) &&
+      github.event.comment.user.type == 'User' &&
+      (
+        github.event.comment.body == '/preview analytics' && 'authorized-analytics' ||
+        github.event.comment.body == '/preview assets' && 'authorized-assets' ||
+        github.event.comment.body == '/preview calendar' && 'authorized-calendar' ||
+        github.event.comment.body == '/preview clips' && 'authorized-clips' ||
+        github.event.comment.body == '/preview content' && 'authorized-content' ||
+        github.event.comment.body == '/preview design' && 'authorized-design' ||
+        github.event.comment.body == '/preview dispatch' && 'authorized-dispatch' ||
+        github.event.comment.body == '/preview forms' && 'authorized-forms' ||
+        github.event.comment.body == '/preview mail' && 'authorized-mail' ||
+        github.event.comment.body == '/preview plan' && 'authorized-plan' ||
+        github.event.comment.body == '/preview slides' && 'authorized-slides' ||
+        github.event.comment.body == '/preview starter' && 'authorized-starter' ||
+        github.event.comment.body == '/preview fw' && 'authorized-fw' ||
+        format('unrecognized-{0}', github.run_id)
+      ) ||
+      format('ignored-{0}', github.run_id)
+    }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize internal PR preview
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.action == 'created' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/preview ')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pull_request_number: ${{ steps.authorize.outputs.pull_request_number }}
+      source_ref: ${{ steps.authorize.outputs.source_ref }}
+      checkout_ref: ${{ steps.authorize.outputs.checkout_ref }}
+      site: ${{ steps.authorize.outputs.site }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Parse the selected app
+        id: command
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          import { previewSiteFromCommand } from "./scripts/netlify-pr-preview-targets.ts";
+
+          const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+          const site = previewSiteFromCommand(event.comment.body);
+          if (!site) throw new Error("Use /preview <site> for an eligible app.");
+          appendFileSync(process.env.GITHUB_OUTPUT, `site=${site}\n`);
+          NODE
+
+      - name: Verify the open PR and internal authors
+        id: authorize
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PULL_REQUEST_NUMBER: ${{ github.event.issue.number }}
+          SITE_NAME: ${{ steps.command.outputs.site }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
+              throw new Error('Pull request number must be a positive integer.');
+            }
+            if (
+              context.payload.comment.user?.type !== 'User' ||
+              !['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)
+            ) {
+              throw new Error('Only organization owners and members can request previews.');
+            }
+
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequestNumber,
+            });
+            const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            if (
+              pullRequest.state !== 'open' ||
+              pullRequest.base.ref !== 'main' ||
+              pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
+              pullRequest.head.repo?.full_name?.toLowerCase() !== fullName
+            ) {
+              throw new Error('Preview requires an open, same-repository PR targeting main.');
+            }
+            if (
+              pullRequest.user?.type !== 'User' ||
+              !['OWNER', 'MEMBER'].includes(pullRequest.author_association)
+            ) {
+              throw new Error('Only PRs authored by an organization owner or member can receive previews.');
+            }
+            core.setOutput('pull_request_number', String(pullRequest.number));
+            core.setOutput('source_ref', pullRequest.head.sha);
+            core.setOutput('checkout_ref', pullRequest.base.sha);
+            core.setOutput('site', process.env.SITE_NAME);
+
+  build:
+    name: ${{ needs.authorize.outputs.site }} PR preview build
+    needs: [authorize]
+    if: needs.authorize.result == 'success'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ needs.authorize.outputs.site }}
+      build_context: deploy-preview
+      source_ref: ${{ needs.authorize.outputs.source_ref }}
+      deploy: false
+      deploy_mode: draft
+      smoke: false
+      caller: manual-pr-build-${{ needs.authorize.outputs.pull_request_number }}
+      artifact_upload: true
+      artifact_name: pr-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}
+
+  deploy:
+    name: ${{ needs.authorize.outputs.site }} PR preview
+    needs: [authorize, build, revalidate]
+    if: >-
+      needs.authorize.result == 'success' &&
+      needs.build.result == 'success' &&
+      needs.revalidate.result == 'success'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: preview
+      site: ${{ needs.authorize.outputs.site }}
+      build_context: deploy-preview
+      source_ref: ${{ needs.authorize.outputs.source_ref }}
+      checkout_ref: ${{ needs.authorize.outputs.checkout_ref }}
+      deploy: true
+      deploy_mode: draft
+      smoke: true
+      caller: manual-pr-${{ needs.authorize.outputs.pull_request_number }}
+      artifact_download: true
+      artifact_name: pr-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}
+      pull_request_number: ${{ fromJSON(needs.authorize.outputs.pull_request_number) }}
+      preview_alias: pr-${{ needs.authorize.outputs.pull_request_number }}
+    secrets: inherit
+
+  revalidate:
+    name: Revalidate selected PR before preview upload
+    needs: [authorize, build]
+    if: needs.authorize.result == 'success' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Confirm the authorized PR head is still current
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
+          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
+              throw new Error('Pull request number must be a positive integer.');
+            }
+            const { data: pullRequest } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequestNumber,
+            });
+            const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            if (
+              pullRequest.state !== 'open' ||
+              pullRequest.base.ref !== 'main' ||
+              pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
+              pullRequest.head.repo?.full_name?.toLowerCase() !== fullName ||
+              pullRequest.user?.type !== 'User' ||
+              !['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
+              pullRequest.head.sha !== process.env.SOURCE_REF
+            ) {
+              throw new Error('PR preview requires the current head of an open, internal PR targeting main.');
+            }
+
+  deployment:
+    name: ${{ needs.authorize.outputs.site }} PR preview deployment
+    if: >-
+      always() &&
+      needs.authorize.result == 'success' &&
+      needs.deploy.result != 'cancelled'
+    needs: [authorize, deploy]
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the trusted PR preview deploy record
+        id: find_record
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SITE_NAME: ${{ needs.authorize.outputs.site }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const siteName = process.env.SITE_NAME;
+            const prefix = `netlify-pr-preview-record-${siteName}-${context.runId}-${process.env.RUN_ATTEMPT}-`;
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const deployJob = jobs.find(
+              (job) =>
+                (job.name === `${siteName} PR preview` ||
+                  job.name.startsWith(`${siteName} PR preview /`)) &&
+                job.conclusion === 'success',
+            );
+            const deployStartedAt = Date.parse(deployJob?.started_at ?? '');
+            if (!Number.isFinite(deployStartedAt)) {
+              core.notice(`No successful deploy job for ${siteName}; skipping its preview deployment.`);
+              return;
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100,
+            });
+            const trustedArtifacts = artifacts
+              .filter(
+                (artifact) =>
+                  artifact.name.startsWith(prefix) &&
+                  artifact.expired !== true &&
+                  Date.parse(artifact.created_at) > deployStartedAt,
+              )
+              .sort(
+                (left, right) =>
+                  Date.parse(right.created_at) - Date.parse(left.created_at),
+              );
+            const artifact = trustedArtifacts[0];
+            if (!artifact) {
+              core.notice(`No trusted deploy record for ${siteName}; skipping its preview deployment.`);
+              return;
+            }
+            core.setOutput('artifact_id', String(artifact.id));
+
+      - name: Download the trusted PR preview deploy record
+        if: always() && steps.find_record.outputs.artifact_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ steps.find_record.outputs.artifact_id }}
+          path: ${{ runner.temp }}/netlify-pr-preview-record
+
+      - name: Create the PR preview deployment
+        if: always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          RECORD_FILE: ${{ runner.temp }}/netlify-pr-preview-record/record.json
+          PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
+          SITE_NAME: ${{ needs.authorize.outputs.site }}
+          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { existsSync, readFileSync } = require('node:fs');
+            if (!existsSync(process.env.RECORD_FILE)) {
+              core.notice(`No successful deploy record for ${process.env.SITE_NAME}; skipping its preview deployment.`);
+              return;
+            }
+            const record = JSON.parse(readFileSync(process.env.RECORD_FILE, 'utf8'));
+            if (
+              record.pullRequestNumber !== Number(process.env.PULL_REQUEST_NUMBER) ||
+              !record.deployId ||
+              !record.deployUrl ||
+              record.siteName !== process.env.SITE_NAME ||
+              record.sourceRef !== process.env.SOURCE_REF
+            ) {
+              core.setFailed('PR preview upload did not return a complete deploy record.');
+              return;
+            }
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            const isCurrentInternalPullRequest = async () => {
+              const { data: pullRequest } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullRequestNumber,
+              });
+              const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+              return (
+                pullRequest.state === 'open' &&
+                pullRequest.base.ref === 'main' &&
+                pullRequest.base.repo?.full_name?.toLowerCase() === fullName &&
+                pullRequest.head.repo?.full_name?.toLowerCase() === fullName &&
+                pullRequest.user?.type === 'User' &&
+                ['OWNER', 'MEMBER'].includes(pullRequest.author_association) &&
+                pullRequest.head.sha === process.env.SOURCE_REF
+              );
+            };
+            if (!(await isCurrentInternalPullRequest())) {
+              core.notice('PR is no longer an open, internal PR at the authorized head; skipping its deployment record.');
+              return;
+            }
+            const environment = `pr-${process.env.PULL_REQUEST_NUMBER}-${record.siteName}`;
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: process.env.SOURCE_REF,
+              environment,
+              auto_merge: false,
+              required_contexts: [],
+              description: `${record.siteName} PR preview`,
+              transient_environment: true,
+              production_environment: false,
+            });
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deployment.data.id,
+              state: 'success',
+              environment_url: record.deployUrl,
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+            if (!(await isCurrentInternalPullRequest())) {
+              await github.rest.repos.createDeploymentStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                deployment_id: deployment.data.id,
+                state: 'inactive',
+              });
+            }
+
+  cleanup:
+    name: Remove closed PR preview for ${{ matrix.site }}
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        site:
+          - analytics
+          - assets
+          - calendar
+          - clips
+          - content
+          - design
+          - dispatch
+          - forms
+          - mail
+          - plan
+          - slides
+          - starter
+          - fw
+    concurrency:
+      group: netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/cleanup-netlify-pr-previews.ts
+            scripts/netlify-api-request.ts
+            scripts/netlify-pr-preview-targets.ts
+            scripts/netlify-prebuilt-target.ts
+            scripts/netlify-production-sites.json
+            templates/*/package.json
+            templates/*/netlify.toml
+            packages/docs/package.json
+            packages/docs/netlify.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Delete the PR's prebuilt deploys
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE_NAME: ${{ matrix.site }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/cleanup-netlify-pr-previews.ts \
+            --pr "${{ github.event.pull_request.number }}" \
+            --site "$SITE_NAME"

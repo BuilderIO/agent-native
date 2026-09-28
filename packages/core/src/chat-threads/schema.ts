@@ -10,6 +10,7 @@ export const chatThreads = table("chat_threads", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   scopeType: text("scope_type"),
+  // guard:allow-identity-column — opaque resource reference, not an account identity
   scopeId: text("scope_id"),
   scopeLabel: text("scope_label"),
   pinnedAt: bigint("pinned_at", { mode: "number" }),
@@ -30,7 +31,8 @@ export const CHAT_THREAD_SHARES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS chat_th
   principal_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'viewer',
   created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT now()
+  created_at TEXT NOT NULL DEFAULT now(),
+  notified_at TEXT
 )`;
 
 export const CHAT_THREAD_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS chat_thread_shares_resource_idx ON chat_thread_shares (resource_id)`;

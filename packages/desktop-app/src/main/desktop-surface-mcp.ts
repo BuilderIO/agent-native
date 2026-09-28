@@ -10,6 +10,11 @@ import { toNodeHandler } from "@modelcontextprotocol/node";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
+import {
+  desktopBrowserScreenshotToolResult,
+  type CaptureActiveDesktopBrowserScreenshot,
+} from "./desktop-browser-screenshot";
+
 const DESKTOP_SURFACE_MCP_PATH = "/mcp";
 
 export interface DesktopSurfaceApp {
@@ -34,6 +39,7 @@ export interface DesktopSurfaceMcpBridgeOptions {
   listApps: () => readonly DesktopSurfaceApp[];
   openApp: (request: DesktopSurfaceOpenAppRequest) => void;
   getActiveAppContext?: () => DesktopSurfaceActiveAppContext | null;
+  captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
 }
 
 export interface DesktopSurfaceMcpRegistration {
@@ -200,6 +206,23 @@ export class DesktopSurfaceMcpBridge {
             ? `The active workspace app is ${activeApp.appName}. Use its configured MCP tools for app operations and keep navigation in this app${activeApp.path ? ` at ${activeApp.path}` : ""}.`
             : "No workspace app is currently selected. Ask the user which app to use before making app-specific changes.",
         });
+      },
+    );
+    mcp.registerTool(
+      "browser_screenshot",
+      {
+        description:
+          "Capture the pixels of the currently active Agent-Native inline browser surface, including an app tab or chat-first browser sidebar. Inactive tabs are never selected.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      async () => {
+        const capture = this.options.captureActiveBrowserScreenshot;
+        if (!capture) {
+          throw new Error(
+            "Inline browser screenshots are unavailable in this desktop session.",
+          );
+        }
+        return desktopBrowserScreenshotToolResult(await capture());
       },
     );
     mcp.registerTool(

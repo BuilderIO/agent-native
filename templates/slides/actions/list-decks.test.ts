@@ -1,3 +1,4 @@
+import { registerErrorCaptureProvider } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const deckRows = [
@@ -46,6 +47,7 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => requestUserEmail,
+  getRequestContext: () => undefined,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -69,6 +71,19 @@ beforeEach(() => {
 });
 
 describe("list-decks", () => {
+  it("applies title search before pagination without reading slide bodies", async () => {
+    await action.run({ limit: 30, search: "Road%_map" });
+    expect(whereFn).toHaveBeenCalledWith({
+      and: [
+        { allowed: true },
+        undefined,
+        expect.objectContaining({ values: ["title_col", "road%_map"] }),
+      ],
+    });
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(limitFn).toHaveBeenCalledWith(31);
+  });
+
   it("returns canonical deck URLs for A2A artifact verification", async () => {
     const result = await action.run({});
 
@@ -113,8 +128,6 @@ describe("list-decks", () => {
   it("projects only metadata columns and never selects the deck body for light mode", async () => {
     const result = await action.run({ light: "true" });
 
-    // The `data` column (each deck's full slide JSON) must never appear in
-    // the light-mode projection — this is the poll/diff path's whole point.
     expect(selectFn).toHaveBeenCalledWith({
       id: "id_col",
       title: "title_col",
@@ -157,6 +170,99 @@ describe("list-decks", () => {
     expect(result.decks[0]).not.toHaveProperty("slides");
   });
 
+  it("keeps the list alive when one deck's data fails the SQL preview cast", async () => {
+    const goodRow = {
+      ...deckRows[0],
+      id: "deck_good",
+      title: "Good Deck",
+      data: JSON.stringify({
+        slides: [{ id: "slide-1" }],
+        aspectRatio: "16:9",
+      }),
+      updatedAt: "2026-05-03T00:00:00.000Z",
+    };
+    const badRow = {
+      ...deckRows[0],
+      id: "deck_bad",
+      title: "Corrupted Deck",
+      data: "not json",
+      updatedAt: "2026-05-02T00:00:00.000Z",
+    };
+    rowsForQuery = [goodRow, badRow];
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("invalid input syntax for type json"), {
+          code: "22P02",
+        }),
+      ),
+    );
+    const captured: Array<{ error: unknown; extra: unknown }> = [];
+    const unregister = registerErrorCaptureProvider("test", (error, ctx) => {
+      captured.push({ error, extra: ctx.extra });
+    });
+
+    try {
+      const result = await action.run({
+        light: "true",
+        includePreview: "true",
+      });
+
+      expect(result.count).toBe(2);
+      expect(result.decks.find((d) => d.id === "deck_good")).toMatchObject({
+        previewSlide: { id: "slide-1" },
+        aspectRatio: "16:9",
+      });
+      const badDeck = result.decks.find((d) => d.id === "deck_bad");
+      expect(badDeck).toMatchObject({
+        id: "deck_bad",
+        title: "Corrupted Deck",
+      });
+      expect(badDeck).not.toHaveProperty("previewSlide");
+      expect(captured).toHaveLength(2);
+      expect(captured[1]?.extra).toMatchObject({ deckId: "deck_bad" });
+    } finally {
+      unregister();
+    }
+  });
+
+  it("falls back when Postgres rejects an unsupported Unicode escape", async () => {
+    rowsForQuery = [
+      {
+        ...deckRows[0],
+        data: JSON.stringify({ slides: [{ id: "slide-1", text: "\u0000" }] }),
+      },
+    ];
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(
+        Object.assign(new Error("unsupported Unicode escape sequence"), {
+          code: "22P05",
+        }),
+      ),
+    );
+
+    const result = await action.run({
+      light: "true",
+      includePreview: "true",
+    });
+
+    expect(result.decks[0]?.previewSlide).toEqual({
+      id: "slide-1",
+      text: "\u0000",
+    });
+    expect(selectFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back on a non-JSON-cast failure, so a real outage isn't doubled with a heavier full-data scan", async () => {
+    orderByFn.mockImplementationOnce(() =>
+      Promise.reject(Object.assign(new Error("timeout"), { code: "57014" })),
+    );
+
+    await expect(
+      action.run({ light: "true", includePreview: "true" }),
+    ).rejects.toThrow("timeout");
+    expect(selectFn).toHaveBeenCalledTimes(1);
+  });
+
   it("can limit results to decks created by the current user", async () => {
     await action.run({ createdBy: "me" });
 
@@ -167,6 +273,7 @@ describe("list-decks", () => {
           strings: ["lower(trim(", ")) = ", ""],
           values: ["owner_email_col", "alice@example.com"],
         },
+        undefined,
       ],
     });
   });

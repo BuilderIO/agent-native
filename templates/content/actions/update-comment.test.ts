@@ -1,20 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory documentComments rows, filtered by mocked and()/eq() conditions —
-// same pattern as sync-notion-comments.test.ts, chosen so thread-wide
-// resolve/reopen updates (which touch multiple rows) are exercised for real.
 type Row = {
   id: string;
   documentId: string;
   threadId: string;
   parentId: string | null;
   content: string;
+  mentionsJson?: string | null;
   authorEmail: string;
   resolved: number;
   updatedAt: string;
 };
 
-const state = vi.hoisted(() => ({ rows: [] as Row[] }));
+const state = vi.hoisted(() => ({ rows: [] as Row[], locked: [] as string[] }));
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockGetUserEmail = vi.hoisted(() => vi.fn(() => "author@example.com"));
 const mockWriteAppState = vi.hoisted(() => vi.fn());
@@ -71,7 +69,7 @@ vi.mock("../server/db/index.js", () => {
     select: (projection?: Record<string, unknown>) => ({
       from: () => ({
         where: (cond: any) => ({
-          limit: async (n: number) => {
+          limit: (n: number) => {
             const matched = state.rows.filter((r) => matches(r, cond));
             const project = (row: Row) => {
               if (!projection) return row;
@@ -81,7 +79,13 @@ vi.mock("../server/db/index.js", () => {
               }
               return out;
             };
-            return matched.slice(0, n).map(project);
+            const result = matched.slice(0, n).map(project);
+            return Object.assign(Promise.resolve(result), {
+              for: async () => {
+                state.locked.push(...matched.map((row) => row.id));
+                return result;
+              },
+            });
           },
         }),
       }),
@@ -107,6 +111,7 @@ function run(args: {
   id: string;
   documentId?: string;
   content?: string;
+  mentions?: string;
   resolved?: boolean;
 }) {
   return (action as any).run(args);
@@ -115,6 +120,7 @@ function run(args: {
 beforeEach(() => {
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
+  state.locked = [];
   state.rows = [
     {
       id: "c-1",
@@ -152,7 +158,7 @@ beforeEach(() => {
 describe("update-comment (action) — reopen permission", () => {
   it("rejects an update without a mutation", async () => {
     await expect(run({ id: "c-1" })).rejects.toThrow(
-      "Provide content or resolved to update a comment",
+      "Provide content, mentions, or resolved to update a comment",
     );
     expect(mockAssertAccess).not.toHaveBeenCalled();
   });
@@ -170,7 +176,7 @@ describe("update-comment (action) — reopen permission", () => {
       "editor",
     );
     expect(state.rows[0].resolved).toBe(0);
-    expect(state.rows[1].resolved).toBe(0); // whole thread reopened
+    expect(state.rows[1].resolved).toBe(0);
   });
 
   it("rejects reopening for a caller with only viewer access", async () => {
@@ -197,8 +203,9 @@ describe("update-comment (action) — reopen permission", () => {
       "doc-1",
       "editor",
     );
-    expect(state.rows[1].resolved).toBe(1); // whole thread resolved
-    expect(state.rows[2].resolved).toBe(0); // sibling thread unchanged
+    expect(state.locked).toEqual(["c-1"]);
+    expect(state.rows[1].resolved).toBe(1);
+    expect(state.rows[2].resolved).toBe(0);
   });
 
   it("updates content and resolves the full thread in one transaction", async () => {
@@ -255,5 +262,54 @@ describe("update-comment (action) — reopen permission", () => {
       "doc-1",
       "commenter",
     );
+  });
+
+  it("matches comment authorship case-insensitively for commenter access", async () => {
+    state.rows[0].authorEmail = "Author@Example.COM";
+    mockGetUserEmail.mockReturnValue("author@example.com");
+
+    await run({ id: "c-1", content: "Updated with mixed-case identity" });
+
+    expect(mockAssertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "commenter",
+    );
+    expect(mockAssertAccess).not.toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+    );
+    expect(state.rows[0].content).toBe("Updated with mixed-case identity");
+  });
+
+  it("updates mention metadata with edited content and clears removed mentions", async () => {
+    await run({
+      id: "c-1",
+      content: "Hello @Sam",
+      mentions: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
+
+    expect(state.rows[0]).toMatchObject({
+      content: "Hello @Sam",
+      mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
+
+    await run({ id: "c-1", content: "Hello", mentions: "[]" });
+    expect(state.rows[0].mentionsJson).toBeNull();
+  });
+
+  it("rejects malformed mention metadata instead of silently clearing it", async () => {
+    state.rows[0].mentionsJson = JSON.stringify([
+      { email: "sam@example.com", name: "Sam" },
+    ]);
+
+    await expect(
+      run({ id: "c-1", content: "Broken", mentions: "{not-json" }),
+    ).rejects.toThrow("Comment mentions metadata is not valid JSON");
+    expect(state.rows[0]).toMatchObject({
+      content: "Original text",
+      mentionsJson: JSON.stringify([{ email: "sam@example.com", name: "Sam" }]),
+    });
   });
 });

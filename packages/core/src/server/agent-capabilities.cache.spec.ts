@@ -8,12 +8,14 @@ vi.mock("../a2a/client.js", () => ({
   A2AClient: class {
     constructor(readonly url: string) {}
     getAgentCard = getAgentCard;
+    resolveEndpointUrl = vi.fn(async () => `${this.url}/a2a`);
   },
   signA2AToken,
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => getRequestUserEmail(),
+  getRequestOrgId: () => undefined,
 }));
 
 const { loadAllCapabilities, loadCapabilities, _resetCapabilityCacheForTests } =
@@ -36,8 +38,6 @@ describe("peer capability card caching", () => {
     vi.useRealTimers();
   });
 
-  // Against a dev gateway each probe cold-starts the peer it touches, so a
-  // repeated probe is not just a wasted request — it spawns a dev server.
   it("probes a peer once across repeated calls inside the TTL", async () => {
     await loadCapabilities(PEER);
     await loadCapabilities(PEER);
@@ -64,8 +64,6 @@ describe("peer capability card caching", () => {
     expect(getAgentCard).toHaveBeenCalledTimes(2);
   });
 
-  // A peer that is still booting must not be reported skill-less for the full
-  // TTL, so failures expire far sooner than successes.
   it("retries an unreachable peer sooner than a reachable one", async () => {
     getAgentCard.mockRejectedValue(new Error("ECONNREFUSED"));
     const first = await loadCapabilities(PEER);
@@ -80,8 +78,6 @@ describe("peer capability card caching", () => {
     expect(second.skills).toEqual([{ id: "make-deck" }]);
   });
 
-  // Cards are fetched AS the caller, and an anonymous card lists fewer skills
-  // than an authenticated one — one caller must never be served another's view.
   it("does not share a cached card between callers", async () => {
     getRequestUserEmail.mockReturnValue("a@example.com");
     await loadCapabilities(PEER);
@@ -111,6 +107,17 @@ describe("peer capability card caching", () => {
     });
   });
 
+  it("supports an anonymous card probe without minting a caller token", async () => {
+    getRequestUserEmail.mockReturnValue("alice@example.com");
+
+    await loadCapabilities(PEER, { authenticate: false });
+
+    expect(signA2AToken).not.toHaveBeenCalled();
+    expect(getAgentCard).toHaveBeenCalledWith({
+      timeoutMs: expect.any(Number),
+    });
+  });
+
   it("strips an explicit A2A endpoint from the discovery audience", async () => {
     getRequestUserEmail.mockReturnValue("alice@example.com");
     const endpointPeer = {
@@ -129,5 +136,27 @@ describe("peer capability card caching", () => {
         audience: "https://workspace.example/slides",
       },
     );
+  });
+
+  it("does not probe hosted providers that have no inbound A2A card", async () => {
+    const managed = {
+      id: "anthropic-research",
+      name: "Anthropic Research",
+      description: "Research",
+      url: "https://api.anthropic.com",
+      color: "#2563eb",
+      kind: {
+        provider: "anthropic-managed-agents" as const,
+        agentId: "agt_fixture",
+        environmentId: "env_fixture",
+        credentialRef: "ANTHROPIC_API_KEY",
+      },
+    };
+
+    const result = await loadCapabilities(managed);
+
+    expect(result.skills).toEqual([]);
+    expect(result.cardDescription).toContain("native adapter");
+    expect(getAgentCard).not.toHaveBeenCalled();
   });
 });

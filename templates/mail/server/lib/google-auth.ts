@@ -11,6 +11,7 @@ import {
   getCredentialContext,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
+  getRequestContext,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
@@ -20,6 +21,7 @@ import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
+  GmailQuotaCooldownError,
   gmailGetProfile,
   gmailGetMessage,
   gmailGetThread,
@@ -74,6 +76,23 @@ type ManagedGmailClient = {
   refreshToken: string;
 };
 
+type ManagedGmailResolution =
+  | { ok: true; client: ManagedGmailClient | null }
+  | {
+      ok: false;
+      error: { email: "workspace"; error: string; retryable?: true };
+    };
+
+function isRetryableManagedGmailError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("retryable" in error && error.retryable === true) return true;
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      (error instanceof TypeError && error.message === "fetch failed"))
+  );
+}
+
 async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
   if (!getCredentialContext()) return null;
   const connection = await resolveWorkspaceConnectionForApp({
@@ -93,6 +112,39 @@ async function resolveManagedGmailClient(): Promise<ManagedGmailClient | null> {
     accessToken: credential.accessToken,
     refreshToken: "",
   };
+}
+
+async function resolveManagedGmailClientForOwner(
+  ownerEmail?: string,
+): Promise<ManagedGmailClient | null> {
+  if (!ownerEmail) return resolveManagedGmailClient();
+  return await runWithRequestContext(
+    { ...(getRequestContext() ?? {}), userEmail: ownerEmail },
+    () => resolveManagedGmailClient(),
+  );
+}
+
+async function resolveManagedGmailClientWithError(
+  ownerEmail?: string,
+): Promise<ManagedGmailResolution> {
+  try {
+    return {
+      ok: true,
+      client: await resolveManagedGmailClientForOwner(ownerEmail),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        email: "workspace",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Workspace Gmail connection failed",
+        ...(isRetryableManagedGmailError(error) ? { retryable: true } : {}),
+      },
+    };
+  }
 }
 
 export async function getOAuth2Credentials(owner?: string): Promise<{
@@ -138,43 +190,38 @@ const PERMANENT_REFRESH_ERRORS = [
   "invalid_client",
 ];
 
-function isPermanentRefreshError(message: string): boolean {
+export function isPermanentRefreshError(message: string): boolean {
   const m = message.toLowerCase();
   return PERMANENT_REFRESH_ERRORS.some((code) => m.includes(code));
 }
 
-async function getValidAccessToken(
+function isRetryableRefreshError(error: any): boolean {
+  const status = error?.response?.status ?? error?.status;
+  if (typeof status === "number") {
+    return status === 408 || status === 429 || (status >= 500 && status < 600);
+  }
+  if (error?.response) return false;
+  return error?.name === "AbortError" || error instanceof TypeError;
+}
+
+// Single-flight refresh per stored token row. Concurrent callers for the same
+// account (labels, emails, settings, google-status all fire on mount) must
+// await one in-flight `oauth2.refreshToken` instead of each racing their own
+// — the loser's write would otherwise stomp the winner's via last-writer-wins
+// `saveOAuthTokens`, silently dropping the account for that caller. Keyed by
+// accountId alone: within provider "google" a row is uniquely identified by
+// accountId (saveOAuthTokens/deleteOAuthTokens resolve owner from the
+// existing row when omitted), and some callers (getAuthStatus) don't pass an
+// owner — keying on owner too would split the exact concurrent callers this
+// exists to coalesce.
+const refreshInflight = new Map<string, Promise<string>>();
+
+async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
 ): Promise<string> {
-  if (!tokens.access_token && !tokens.refresh_token) {
-    // The stored record has no usable credentials at all — typically a row
-    // that failed to decrypt after a SECRETS_ENCRYPTION_KEY /
-    // BETTER_AUTH_SECRET rotation (core's parseStoredTokens returns `{}`
-    // instead of throwing). Unlike the missing-refresh-token path below, do
-    // NOT delete the row: a failed decrypt can also mean THIS process holds
-    // the wrong key (e.g. a dev server sharing a prod DB), and deleting
-    // would destroy tokens a correctly configured deployment can still
-    // decrypt. Throw so callers surface a reconnect instead of retrying.
-    throw new Error(
-      `No usable OAuth tokens for ${accountId} — please reconnect.`,
-    );
-  }
-
-  // If token is not expired (with 5-minute buffer), return it directly
-  if (
-    tokens.expiry_date &&
-    tokens.access_token &&
-    Date.now() < tokens.expiry_date - 5 * 60 * 1000
-  ) {
-    return tokens.access_token;
-  }
-
-  // Token is expired or about to expire — refresh it
   if (!tokens.refresh_token) {
-    // No refresh_token means we can never recover this account; drop it so
-    // the UI prompts a reconnect instead of showing a permanently-broken row.
     await deleteOAuthTokens("google", accountId);
     throw new Error(
       `No refresh token available for ${accountId} — please reconnect.`,
@@ -188,11 +235,10 @@ async function getValidAccessToken(
     refreshed = await oauth2.refreshToken(tokens.refresh_token);
   } catch (err: any) {
     if (isPermanentRefreshError(err?.message || "")) {
-      // Drop the dead row so isOAuthConnected returns false and the UI
-      // surfaces the connect banner instead of an empty-inbox illusion.
       await deleteOAuthTokens("google", accountId);
       throw err;
     }
+    if (!isRetryableRefreshError(err)) throw err;
     // Transient failure (network hiccup, 5xx, timeout). If the existing
     // token hasn't actually expired yet — we only entered this path
     // because we're inside the 5-minute pre-expiry buffer — fall back to
@@ -204,7 +250,9 @@ async function getValidAccessToken(
     ) {
       return tokens.access_token;
     }
-    throw err;
+    const retryableError = err instanceof Error ? err : new Error(String(err));
+    Object.assign(retryableError, { retryable: true });
+    throw retryableError;
   }
 
   const updatedTokens: GoogleTokens = {
@@ -223,6 +271,35 @@ async function getValidAccessToken(
   );
 
   return refreshed.access_token;
+}
+
+async function getValidAccessToken(
+  accountId: string,
+  tokens: GoogleTokens,
+  owner?: string,
+): Promise<string> {
+  if (!tokens.access_token && !tokens.refresh_token) {
+    throw new Error(
+      `No usable OAuth tokens for ${accountId} — please reconnect.`,
+    );
+  }
+
+  if (
+    tokens.expiry_date &&
+    tokens.access_token &&
+    Date.now() < tokens.expiry_date - 5 * 60 * 1000
+  ) {
+    return tokens.access_token;
+  }
+
+  const existing = refreshInflight.get(accountId);
+  if (existing) return existing;
+
+  const promise = refreshAccessToken(accountId, tokens, owner).finally(() => {
+    refreshInflight.delete(accountId);
+  });
+  refreshInflight.set(accountId, promise);
+  return promise;
 }
 
 export async function getAuthUrl(
@@ -249,8 +326,6 @@ function getWatchTopic(): string | null {
   return process.env.GMAIL_WATCH_TOPIC || null;
 }
 
-// Start a Gmail watch for the given access token. No-op when
-// GMAIL_WATCH_TOPIC env is unset (push isn't configured for this deploy).
 export async function startWatch(
   accessToken: string,
 ): Promise<{ historyId: string; expiration: string } | null> {
@@ -299,7 +374,6 @@ export async function exchangeCode(
     scope: tokenResponse.scope,
   };
 
-  // Determine the email address for this account
   const profile = await gmailGetProfile(tokens.access_token);
   const email = profile.emailAddress;
   if (!email) throw new Error("Google returned no email address");
@@ -328,7 +402,7 @@ export async function getClient(
     (account) => hasGmailScope(account.tokens),
   );
   if (accounts.length === 0) {
-    return resolveManagedGmailClient();
+    return resolveManagedGmailClientForOwner(email);
   }
 
   const account = accounts.find((a) => a.accountId === email) ?? accounts[0];
@@ -342,17 +416,6 @@ export async function getClient(
   return { accessToken, email: accountId };
 }
 
-/**
- * Look up an OAuth client by accountId regardless of ownership.
- *
- * `getClient()` filters by owner, which works for a user's primary account
- * (where `owner === accountId`) but returns null for added secondary accounts
- * (where `owner` is the primary email). Background jobs that iterate
- * `listOAuthAccounts("google")` — notably Gmail watch renewal — need to
- * refresh tokens for every stored account, not just the primary of each
- * owner. This helper scans all accounts and uses the stored `owner` (falling
- * back to `accountId`) when persisting refreshed tokens.
- */
 export async function getClientForAccount(
   accountId: string,
 ): Promise<{ accessToken: string; email: string } | null> {
@@ -365,11 +428,6 @@ export async function getClientForAccount(
   });
 }
 
-/**
- * Same as getClientForAccount but takes a pre-fetched account object to
- * avoid re-calling listOAuthAccounts. Use this inside loops that already
- * have the accounts list loaded (watch renewal, bootstrap).
- */
 export async function getClientFromAccount(account: {
   accountId: string;
   owner?: string;
@@ -388,17 +446,29 @@ export async function getClientFromAccount(account: {
   return { accessToken, email: account.accountId };
 }
 
-/**
- * Get OAuth credentials. When `forEmail` is provided, returns only that
- * user's credentials (multi-user mode). Otherwise returns an empty array.
- *
- * Refresh failures are swallowed per-account — the signature preserves
- * the "empty array means no usable client" contract that existing
- * callers (search-emails, view-screen, list-emails) rely on for graceful
- * "no Google account connected" fallbacks. Callers that need to surface
- * "all your tokens are dead" to the UI should use `getClientsWithErrors`
- * directly, which is already wired into `listGmailMessagesUncached`.
- */
+export async function getClientForConnectedAccount(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<{ accessToken: string; email: string } | null> {
+  const oauthAccount = (await listOAuthAccountsByOwner("google", ownerEmail))
+    .filter((account) => hasGmailScope(account.tokens))
+    .find(
+      (account) =>
+        account.accountId.toLowerCase() === accountEmail.toLowerCase(),
+    );
+  if (oauthAccount) {
+    return getClientFromAccount({
+      ...oauthAccount,
+      owner: ownerEmail,
+    });
+  }
+  const managed = await resolveManagedGmailClientForOwner(ownerEmail);
+  if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+    return { accessToken: managed.accessToken, email: managed.email };
+  }
+  return null;
+}
+
 export async function getClients(
   forEmail?: string,
 ): Promise<
@@ -408,19 +478,12 @@ export async function getClients(
   return clients;
 }
 
-/**
- * Same as `getClients`, but also returns per-account refresh errors so
- * callers can distinguish "no accounts connected" (empty errors) from
- * "all accounts failed to refresh" (errors populated). The mail list
- * handler uses this to return a 502 with the underlying reason instead
- * of silently rendering an empty inbox.
- */
 export async function getClientsWithErrors(
   forEmail?: string,
   accountEmails?: string[],
 ): Promise<{
   clients: Array<{ email: string; accessToken: string; refreshToken: string }>;
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; retryable?: true }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
   const requested = accountEmails
@@ -434,88 +497,135 @@ export async function getClientsWithErrors(
       hasGmailScope(account.tokens) &&
       (!requested || requested.has(account.accountId.toLowerCase())),
   );
+  const oauthAccountEmails = new Set(
+    accounts.map((account) => account.accountId.toLowerCase()),
+  );
+  const managedPromise =
+    !requested || [...requested].some((email) => !oauthAccountEmails.has(email))
+      ? resolveManagedGmailClientWithError(forEmail)
+      : null;
 
   const clients: Array<{
     email: string;
     accessToken: string;
     refreshToken: string;
   }> = [];
-  const errors: Array<{ email: string; error: string }> = [];
+  const errors: Array<{ email: string; error: string; retryable?: true }> = [];
 
-  for (const account of accounts) {
-    const tokens = account.tokens as unknown as GoogleTokens;
-    if (!tokens) continue;
+  const results = await Promise.all(
+    accounts.map(async (account) => {
+      const tokens = account.tokens as unknown as GoogleTokens;
+      if (!tokens) return null;
 
-    const accountId = account.accountId;
-    // Preserve the stored owner on token refresh to avoid ownership conflicts
-    const ownerForRefresh: string =
-      forEmail ??
-      ("owner" in account && typeof account.owner === "string"
-        ? account.owner
-        : undefined) ??
-      accountId;
+      const accountId = account.accountId;
+      const ownerForRefresh: string =
+        forEmail ??
+        ("owner" in account && typeof account.owner === "string"
+          ? account.owner
+          : undefined) ??
+        accountId;
 
-    try {
-      const accessToken = await getValidAccessToken(
-        accountId,
-        tokens,
-        ownerForRefresh,
-      );
+      try {
+        const accessToken = await getValidAccessToken(
+          accountId,
+          tokens,
+          ownerForRefresh,
+        );
+        return {
+          client: {
+            email: accountId,
+            accessToken,
+            refreshToken: tokens.refresh_token || "",
+          },
+        };
+      } catch (err: any) {
+        return {
+          error: {
+            email: accountId,
+            error: err?.message || "Unknown refresh error",
+            ...(err?.retryable === true ? { retryable: true as const } : {}),
+          },
+        };
+      }
+    }),
+  );
 
-      clients.push({
-        email: accountId,
-        accessToken,
-        refreshToken: tokens.refresh_token || "",
-      });
-    } catch (err: any) {
-      errors.push({
-        email: accountId,
-        error: err?.message || "Unknown refresh error",
-      });
-    }
+  for (const result of results) {
+    if (!result) continue;
+    if (result.client) clients.push(result.client);
+    else if (result.error) errors.push(result.error);
   }
 
-  if (clients.length === 0) {
-    try {
-      const managed = await resolveManagedGmailClient();
-      if (
-        managed &&
-        (!requested || requested.has(managed.email.toLowerCase()))
-      ) {
-        clients.push(managed);
+  if (managedPromise) {
+    const result = await managedPromise;
+    if (!result.ok) {
+      errors.push(result.error);
+    } else {
+      const managed = result.client;
+      if (managed) {
+        const managedEmail = managed.email.toLowerCase();
+        if (
+          (!requested || requested.has(managedEmail)) &&
+          !oauthAccountEmails.has(managedEmail)
+        ) {
+          clients.push(managed);
+        }
       }
-    } catch (err: any) {
-      errors.push({
-        email: "workspace",
-        error: err?.message || "Workspace Gmail connection failed",
-      });
     }
   }
 
   return { clients, errors };
 }
 
-/**
- * Check if a Google account is connected. When `forEmail` is provided,
- * checks only that specific account.
- */
 export async function isConnected(forEmail?: string): Promise<boolean> {
   if (!forEmail) return false;
   const accounts = await listOAuthAccountsByOwner("google", forEmail);
   if (accounts.some((account) => hasGmailScope(account.tokens))) return true;
-  return Boolean(await resolveManagedGmailClient());
+  return Boolean(await resolveManagedGmailClientForOwner(forEmail));
 }
 
 export async function getConnectedAccounts(
   forEmail?: string,
 ): Promise<string[]> {
-  if (!forEmail) return [];
-  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
-    (account) => hasGmailScope(account.tokens),
-  );
-  if (accounts.length > 0) return accounts.map((a) => a.accountId);
-  const managed = await resolveManagedGmailClient();
-  return managed ? [managed.email] : [];
+  const result = await getConnectedAccountsWithErrors(forEmail);
+  if (result.errors.length > 0) {
+    throw new Error(
+      result.errors
+        .map(({ error }) => error)
+        .filter(Boolean)
+        .join("; "),
+    );
+  }
+  return result.accounts;
+}
+
+export async function getConnectedAccountsWithErrors(
+  forEmail?: string,
+): Promise<{
+  accounts: string[];
+  errors: Array<{ email: string; error: string }>;
+}> {
+  if (!forEmail) return { accounts: [], errors: [] };
+  const [oauthAccounts, managedResult] = await Promise.all([
+    listOAuthAccountsByOwner("google", forEmail).then((accounts) =>
+      accounts.filter((account) => hasGmailScope(account.tokens)),
+    ),
+    resolveManagedGmailClientWithError(forEmail),
+  ]);
+  const accounts = oauthAccounts.map((account) => account.accountId);
+  if (!managedResult.ok) {
+    return { accounts, errors: [managedResult.error] };
+  }
+  const managed = managedResult.client;
+  if (
+    managed &&
+    !accounts.some(
+      (email) => email.toLowerCase() === managed.email.toLowerCase(),
+    )
+  ) {
+    accounts.push(managed.email);
+  }
+  return { accounts, errors: [] };
 }
 
 export interface GoogleAuthStatus {
@@ -527,12 +637,9 @@ export interface GoogleAuthStatus {
     photoUrl?: string;
     shared?: boolean;
   }>;
+  errors?: Array<{ email: string; error: string }>;
 }
 
-/**
- * Get the OAuth status. When `forEmail` is provided, only returns
- * status for that specific account (multi-user mode).
- */
 export async function getAuthStatus(
   forEmail?: string,
 ): Promise<GoogleAuthStatus> {
@@ -540,19 +647,17 @@ export async function getAuthStatus(
     (account) => hasGmailScope(account.tokens),
   );
 
-  if (oauthAccounts.length === 0) {
-    const managed = await resolveManagedGmailClient();
-    return managed
-      ? { connected: true, accounts: [{ email: managed.email, shared: true }] }
-      : { connected: false, accounts: [] };
-  }
-
   const accounts: Array<{
     email: string;
     displayName?: string;
     expiresAt?: string;
     photoUrl?: string;
+    shared?: boolean;
   }> = [];
+  const errors: Array<{ email: string; error: string }> = [];
+  const oauthAccountEmails = new Set(
+    oauthAccounts.map((account) => account.accountId.toLowerCase()),
+  );
   for (const account of oauthAccounts) {
     const tokens = account.tokens as unknown as GoogleTokens;
     if (!tokens) continue;
@@ -566,6 +671,11 @@ export async function getAuthStatus(
     try {
       accessToken = await getValidAccessToken(email, tokens);
     } catch (err) {
+      errors.push({
+        email,
+        error:
+          err instanceof Error ? err.message : "Google token refresh failed",
+      });
       console.warn(
         `[mail] skipping unusable Google OAuth row for ${email}:`,
         err instanceof Error ? err.message : err,
@@ -598,9 +708,20 @@ export async function getAuthStatus(
     });
   }
 
+  const managedResult = await resolveManagedGmailClientWithError(forEmail);
+  if (!managedResult.ok) {
+    errors.push(managedResult.error);
+  } else {
+    const managed = managedResult.client;
+    if (managed && !oauthAccountEmails.has(managed.email.toLowerCase())) {
+      accounts.push({ email: managed.email, shared: true });
+    }
+  }
+
   return {
     connected: accounts.length > 0,
     accounts,
+    ...(errors.length > 0 ? { errors } : {}),
   };
 }
 
@@ -618,13 +739,14 @@ export async function disconnect(email?: string): Promise<void> {
   }
 }
 
-// Short-TTL cache + in-flight coalescing for multi-account list fetches.
-// A single list call is 255 quota units (1 messages.list + 50 messages.get),
-// and the client refetch cadence plus multi-tab use can easily fire three or
-// four identical requests within a second. This layer absorbs those.
 type ListResult = {
   messages: any[];
-  errors: Array<{ email: string; error: string }>;
+  errors: Array<{
+    email: string;
+    error: string;
+    isQuotaError?: boolean;
+    retryAfterMs?: number;
+  }>;
   nextPageTokens?: Record<string, string>;
   resultSizeEstimate?: number;
 };
@@ -632,40 +754,97 @@ type ListResult = {
 type ListMode = "messages" | "threads";
 
 type ListOptions = {
-  /**
-   * Gmail's UI is thread-first. Thread mode uses users.threads.list so a
-   * conversation with several messages does not consume several slots and hide
-   * other conversations from the page.
-   */
   mode?: ListMode;
   threadFormat?: "full" | "metadata" | "minimal";
   messageFormat?: "full" | "metadata" | "minimal";
-  /**
-   * Search result order from threads.list is not enough to mimic Gmail's UI:
-   * an old thread can match because its first message has the search term,
-   * while the thread itself has a newer reply. Listing a wider candidate
-   * window is cheap (thread IDs only); we then hydrate metadata and rank by
-   * each thread's newest message time, which is what Gmail visibly sorts by.
-   */
   threadCandidateLimit?: number;
-  /**
-   * Cheap candidate source for regular inbox pagination. messages.list returns
-   * the newest matching messages, which catches old threads with fresh replies
-   * without hydrating a large metadata ranking window on every inbox poll.
-   */
   threadRecentMessageCandidateLimit?: number;
-  /**
-   * Restrict this read before OAuth refreshes or provider calls.  This is
-   * deliberately an account-id allow-list rather than a post-fetch filter:
-   * a Mail user can have several connected inboxes and an explicitly scoped
-   * read must not wake up the others.
-   */
   accountEmails?: string[];
 };
 
 const LIST_CACHE_TTL = 45_000;
 const listCache = new Map<string, { result: ListResult; expiresAt: number }>();
 const listInflight = new Map<string, Promise<ListResult>>();
+type InvalidationGeneration = {
+  value: number;
+  activeRequests: number;
+  lastUsedAt: number;
+};
+
+type InvalidationGenerationLease = {
+  entry: InvalidationGeneration;
+  value: number;
+};
+
+const MAX_INVALIDATION_GENERATIONS = 1_000;
+
+function getInvalidationGeneration(
+  generations: Map<string, InvalidationGeneration>,
+  key: string,
+): InvalidationGeneration {
+  const existing = generations.get(key);
+  if (existing) {
+    existing.lastUsedAt = Date.now();
+    return existing;
+  }
+  const created = { value: 0, activeRequests: 0, lastUsedAt: Date.now() };
+  generations.set(key, created);
+  return created;
+}
+
+function pruneInvalidationGenerations(
+  generations: Map<string, InvalidationGeneration>,
+): void {
+  const toDrop = generations.size - MAX_INVALIDATION_GENERATIONS;
+  if (toDrop <= 0) return;
+  const idle = Array.from(generations.entries())
+    .filter(([, entry]) => entry.activeRequests === 0)
+    .sort(([, a], [, b]) => a.lastUsedAt - b.lastUsedAt);
+  for (let i = 0; i < Math.min(toDrop, idle.length); i++) {
+    generations.delete(idle[i][0]);
+  }
+}
+
+function beginInvalidationGeneration(
+  generations: Map<string, InvalidationGeneration>,
+  key: string,
+): InvalidationGenerationLease {
+  const entry = getInvalidationGeneration(generations, key);
+  entry.activeRequests += 1;
+  pruneInvalidationGenerations(generations);
+  return { entry, value: entry.value };
+}
+
+function isCurrentInvalidationGeneration(
+  generations: Map<string, InvalidationGeneration>,
+  key: string,
+  lease: InvalidationGenerationLease,
+): boolean {
+  return (
+    generations.get(key) === lease.entry && lease.entry.value === lease.value
+  );
+}
+
+function endInvalidationGeneration(
+  generations: Map<string, InvalidationGeneration>,
+  lease: InvalidationGenerationLease,
+): void {
+  lease.entry.activeRequests -= 1;
+  lease.entry.lastUsedAt = Date.now();
+  pruneInvalidationGenerations(generations);
+}
+
+function invalidateGeneration(
+  generations: Map<string, InvalidationGeneration>,
+  key: string,
+): void {
+  const entry = getInvalidationGeneration(generations, key);
+  entry.value += 1;
+  entry.lastUsedAt = Date.now();
+  pruneInvalidationGenerations(generations);
+}
+
+const listInvalidationGenerations = new Map<string, InvalidationGeneration>();
 const THREAD_CANDIDATE_PAGE_TTL = 5 * 60 * 1000;
 const THREAD_CANDIDATE_PAGE_MAX = 25;
 const THREAD_CANDIDATE_PAGE_PREFIX = "__an_thread_candidates__:";
@@ -730,10 +909,6 @@ async function getStoredThreadCandidatePage(
   const { pages, prunedCount } = await readThreadCandidatePageStore(ownerEmail);
   const page = pages[key];
   if (!page) {
-    // Cache miss: only pay for the write-back if pruning actually removed
-    // stale entries. A plain miss (e.g. a synthetic token minted on another
-    // process, or a legitimately expired/evicted key) has nothing new to
-    // persist, so skip the SQL write and let this be a pure read.
     if (prunedCount > 0) {
       await writeThreadCandidatePageStore(ownerEmail, pages);
     }
@@ -861,8 +1036,6 @@ async function fetchThreadBatchWithRefill(
     format,
   );
 
-  // A missing thread part should not make search look incomplete when an
-  // individual retry can recover it.
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
   if (missing.length > 0) {
     const refills = await Promise.all(
@@ -970,7 +1143,13 @@ export async function listGmailMessages(
   const inflight = listInflight.get(key);
   if (inflight) return inflight;
 
-  const promise = (async (): Promise<ListResult> => {
+  const ownerKey = forEmail?.toLowerCase() ?? "";
+  const generationLease = beginInvalidationGeneration(
+    listInvalidationGenerations,
+    ownerKey,
+  );
+  let promise: Promise<ListResult>;
+  promise = (async (): Promise<ListResult> => {
     const result = await listGmailMessagesUncached(
       query,
       maxResults,
@@ -978,9 +1157,14 @@ export async function listGmailMessages(
       pageTokens,
       options,
     );
-    // Only cache successful responses. A full-failure result (empty + all
-    // accounts errored) would lock the user out of retrying during the TTL.
-    if (result.messages.length > 0 || result.errors.length === 0) {
+    if (
+      isCurrentInvalidationGeneration(
+        listInvalidationGenerations,
+        ownerKey,
+        generationLease,
+      ) &&
+      (result.messages.length > 0 || result.errors.length === 0)
+    ) {
       listCache.set(key, {
         result,
         expiresAt: Date.now() + LIST_CACHE_TTL,
@@ -988,80 +1172,63 @@ export async function listGmailMessages(
     }
     return result;
   })().finally(() => {
-    listInflight.delete(key);
+    if (listInflight.get(key) === promise) listInflight.delete(key);
+    endInvalidationGeneration(listInvalidationGenerations, generationLease);
   });
 
   listInflight.set(key, promise);
   return promise;
 }
 
-// Invalidate all listCache entries that would have included the given owner's
-// accounts. Called by the Pub/Sub push handler to surface changes to the UI
-// faster than the 20s listCache TTL.
 export function invalidateListCacheForOwner(ownerEmail: string): void {
-  // listCache keys are formatted as `${forEmail}::...` — delete matches.
-  const prefix = `${ownerEmail}::`;
+  const ownerKey = ownerEmail.toLowerCase();
+  invalidateGeneration(listInvalidationGenerations, ownerKey);
+  const prefix = `${ownerKey}::`;
   for (const key of listCache.keys()) {
-    if (key.startsWith(prefix)) listCache.delete(key);
+    if (key.toLowerCase().startsWith(prefix)) listCache.delete(key);
+  }
+  for (const key of listInflight.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) listInflight.delete(key);
   }
 }
 
-// Per-(account, label) history cache. After the first hydrate we keep the
-// fully-fetched messages in memory alongside Gmail's historyId. Subsequent
-// calls use gmailListHistory to fetch only the delta since that historyId —
-// dramatically cheaper than a full messages.list + per-id messages.get sweep
-// (one list = ~5 units + 50 gets = 255 units; a delta with no changes is ~2
-// units, and a typical delta with a handful of adds is 10–50 units).
 type HistoryEntry = {
   historyId: string;
   messages: any[];
-  // Pagination token from the initial hydrate's `messages.list` response.
-  // Preserved across deltas so the frontend's infinite-query can still
-  // page past the first window — otherwise the history-sync path would
-  // cap the inbox at `maxResults` even when older messages exist.
   nextPageToken?: string;
   updatedAt: number;
 };
 
 const historyCache = new Map<string, HistoryEntry>();
 
-// Bump historyCache watermark for an account so the next list call sees a
-// fresh delta. Also triggers a re-hydrate if the account isn't cached yet.
-// historyId is optional — if absent, the next delta call just uses the
-// existing watermark; if present, we replace the watermark so the delta is
-// bounded to "since Gmail told us something changed".
 export function bumpHistoryWatermark(email: string, historyId?: string): void {
-  if (!historyId) return;
-  // Update every cached entry for this email (across different maxResults).
-  const prefix = `${email}::`;
-  for (const [key, entry] of historyCache.entries()) {
-    if (!key.startsWith(prefix)) continue;
-    // Only advance if the new historyId is strictly greater — don't regress.
-    try {
-      if (BigInt(historyId) > BigInt(entry.historyId)) {
-        entry.historyId = historyId;
-      }
-    } catch {
-      // Non-numeric historyIds — skip; delta will still work with stale.
-    }
-  }
+  void historyId;
+  invalidateHistoryCacheForAccount(email);
 }
 
-// Per-key in-flight dedupe. Concurrent requests for the same
-// (email, label, maxResults) tuple share one computation — avoids two
-// callers both racing to apply a delta and stomping each other's cache
-// writes (or one failing and deleting the cache another just rebuilt).
 const historyInflight = new Map<
   string,
   Promise<{ messages: any[]; nextPageToken?: string }>
 >();
 
-// TTL + soft-cap eviction so long-lived servers don't hold full Gmail
-// message payloads forever. 1h TTL plus a 200-entry cap covers typical
-// multi-account setups; entries refresh on each successful fetch so
-// active inboxes stay warm while abandoned ones fall out.
 const HISTORY_CACHE_TTL_MS = 60 * 60 * 1000;
 const HISTORY_CACHE_MAX = 200;
+const historyInvalidationGenerations = new Map<
+  string,
+  InvalidationGeneration
+>();
+
+export function invalidateHistoryCacheForAccount(email: string): void {
+  const accountKey = email.toLowerCase();
+  invalidateGeneration(historyInvalidationGenerations, accountKey);
+  const prefix = `${accountKey}::`;
+  for (const key of historyCache.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) historyCache.delete(key);
+  }
+  for (const key of historyInflight.keys()) {
+    if (key.toLowerCase().startsWith(prefix)) historyInflight.delete(key);
+  }
+}
 
 function evictStaleHistoryCache(): void {
   const now = Date.now();
@@ -1069,7 +1236,6 @@ function evictStaleHistoryCache(): void {
     if (now - entry.updatedAt > HISTORY_CACHE_TTL_MS) historyCache.delete(key);
   }
   if (historyCache.size <= HISTORY_CACHE_MAX) return;
-  // Size-based LRU: drop the oldest-by-updatedAt until we're at cap.
   const entries = Array.from(historyCache.entries()).sort(
     (a, b) => a[1].updatedAt - b[1].updatedAt,
   );
@@ -1085,9 +1251,6 @@ function historyCacheKey(
   return `${email}::${labelId}::${maxResults}`;
 }
 
-// history.list requires a single labelId filter, so free-form search queries
-// and multi-label views can't use this path. For now, only the default inbox
-// view (the highest-volume polling case) is eligible.
 function historyLabelFor(query: string | undefined): string | null {
   const q = (query || "in:inbox").trim();
   if (q === "" || q === "in:inbox") return "INBOX";
@@ -1102,12 +1265,6 @@ function isHistoryEligible(
   return historyLabelFor(query);
 }
 
-/**
- * Initial hydrate: do a full list + per-message fetch, but capture the
- * account's historyId from profile.get *before* listing so any changes
- * that land mid-hydrate are replayed on the next delta (adds dedup via
- * existingById; label mutations are idempotent set-union).
- */
 async function hydrateAccountInbox(
   accessToken: string,
   email: string,
@@ -1135,10 +1292,6 @@ async function hydrateAccountInbox(
     "metadata",
   );
 
-  // Gmail's batch endpoint will return fewer sub-responses than sub-requests
-  // when it rate-limits mid-batch (or on transient transport issues). Refill
-  // any gaps with individual gets so we don't cache an incomplete inbox and
-  // then silently drop those messages from every subsequent delta.
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
   if (missing.length > 0) {
     const refills = await Promise.all(
@@ -1157,8 +1310,6 @@ async function hydrateAccountInbox(
     }
   }
 
-  // If refill still couldn't cover everything, abort rather than cache a
-  // partial window (gaps never show up in history deltas). Caller retries.
   const stillMissing = batchResults.filter((r) => !r.data).length;
   if (stillMissing > 0) {
     throw new Error(
@@ -1174,11 +1325,6 @@ async function hydrateAccountInbox(
   return { messages, historyId, nextPageToken };
 }
 
-/**
- * Incremental sync via gmailListHistory. Returns null if history is
- * unusable (404/expired/paginated-too-deep) so the caller can fall back
- * to a full re-hydrate.
- */
 async function applyHistoryDelta(
   accessToken: string,
   email: string,
@@ -1200,32 +1346,20 @@ async function applyHistoryDelta(
       maxResults: 500,
     });
   } catch (err: any) {
-    // 404 historyId-too-old, malformed response, etc. Caller re-hydrates.
     console.warn(`[history-sync] delta failed for ${email}: ${err.message}`);
     return null;
   }
 
-  // If Gmail paginates the delta it means a very large batch of changes
-  // accumulated; a full re-hydrate is likely cheaper and simpler than
-  // chasing page tokens (plus our primitive doesn't accept pageToken yet).
   if (history.nextPageToken) return null;
 
   const newHistoryId: string = history.historyId || entry.historyId;
 
-  // No changes → return cached messages as-is with refreshed historyId.
   if (!history.history || history.history.length === 0) {
     return { messages: entry.messages, historyId: newHistoryId };
   }
 
-  // Fold history records in chronological order so the FINAL label state
-  // for each message reflects the last event wins. Collapsing into
-  // unordered sets would drop the restore half of an archive-then-undo
-  // sequence within a single delta (and vice versa).
   const deleted = new Set<string>();
   const addedIds: string[] = [];
-  // Per-message flag: does this id currently carry `labelId`? undefined
-  // means no label event touched it in this delta (so preserve whatever
-  // the cache already has).
   const finalLabelOnWatched = new Map<string, boolean>();
   const netLabelDelta = new Map<
     string,
@@ -1269,8 +1403,6 @@ async function applyHistoryDelta(
     }
   }
 
-  // Keep existing messages unless deleted or their final watched-label
-  // state is explicitly `false` this delta.
   const kept: any[] = [];
   const existingById = new Map<string, any>();
   for (const m of entry.messages) {
@@ -1288,13 +1420,6 @@ async function applyHistoryDelta(
     kept.push(m);
   }
 
-  // Ids that need a full body fetch:
-  //   1. New messages (`messagesAdded`) not already cached.
-  //   2. Messages whose FINAL watched-label state is `true` but that we
-  //      don't have cached yet — e.g. a previously-archived message that
-  //      gets unarchived and re-enters the inbox via `labelAdded(INBOX)`,
-  //      or a message added then labeled within the same delta.
-  // Always skip anything deleted in this delta.
   const fetchSet = new Set<string>();
   for (const id of addedIds) {
     if (deleted.has(id)) continue;
@@ -1321,9 +1446,6 @@ async function applyHistoryDelta(
     fetched.push({ ...r.data, _accountEmail: email });
   }
 
-  // If any fetch failed we can't tell whether the missing body would have
-  // been kept or filtered — advancing historyId would permanently hide
-  // those messages until the next cold load. Force a full rehydrate.
   if (fetched.length < toFetch.length) return null;
 
   const merged = [...kept, ...fetched].sort((a, b) => {
@@ -1332,14 +1454,6 @@ async function applyHistoryDelta(
     return bd - ad;
   });
 
-  // If the previous window was already full and ANY removal happened in
-  // this delta, older messages in the account may need to be pulled
-  // forward to fill the vacated slots. The delta alone can't see those
-  // (gmailListHistory only reports messages touched since startHistoryId),
-  // so even if `merged.length` still equals `maxResults` because of a
-  // same-delta restore of an older message, the top-N ordering can be
-  // wrong. Bail to full rehydrate whenever the window was full and
-  // anything was removed.
   const anyRemoved =
     deleted.size > 0 ||
     Array.from(finalLabelOnWatched.values()).some((v) => v === false);
@@ -1358,12 +1472,17 @@ async function fetchAccountWithHistory(
   maxResults: number,
 ): Promise<{ messages: any[]; nextPageToken?: string }> {
   const cacheKey = historyCacheKey(email, labelId, maxResults);
+  const accountKey = email.toLowerCase();
 
-  // Dedupe concurrent callers on the same key so the cache isn't raced.
   const pending = historyInflight.get(cacheKey);
   if (pending) return pending;
 
-  const promise = (async () => {
+  const generationLease = beginInvalidationGeneration(
+    historyInvalidationGenerations,
+    accountKey,
+  );
+  let promise: Promise<{ messages: any[]; nextPageToken?: string }>;
+  promise = (async () => {
     evictStaleHistoryCache();
     const cached = historyCache.get(cacheKey);
 
@@ -1376,23 +1495,35 @@ async function fetchAccountWithHistory(
         maxResults,
       );
       if (delta) {
-        historyCache.set(cacheKey, {
-          historyId: delta.historyId,
-          messages: delta.messages,
-          // Preserve the original page token — deltas don't produce one,
-          // and page tokens referencing earlier `list` calls remain valid
-          // for Gmail's history-backed pagination window.
-          nextPageToken: cached.nextPageToken,
-          updatedAt: Date.now(),
-        });
+        if (
+          isCurrentInvalidationGeneration(
+            historyInvalidationGenerations,
+            accountKey,
+            generationLease,
+          )
+        ) {
+          historyCache.set(cacheKey, {
+            historyId: delta.historyId,
+            messages: delta.messages,
+            nextPageToken: cached.nextPageToken,
+            updatedAt: Date.now(),
+          });
+        }
         evictStaleHistoryCache();
         return {
           messages: delta.messages,
           nextPageToken: cached.nextPageToken,
         };
       }
-      // Delta unusable — drop cache and fall through to full hydrate.
-      historyCache.delete(cacheKey);
+      if (
+        isCurrentInvalidationGeneration(
+          historyInvalidationGenerations,
+          accountKey,
+          generationLease,
+        )
+      ) {
+        historyCache.delete(cacheKey);
+      }
     }
 
     const init = await hydrateAccountInbox(
@@ -1401,7 +1532,14 @@ async function fetchAccountWithHistory(
       query,
       maxResults,
     );
-    if (init.historyId) {
+    if (
+      init.historyId &&
+      isCurrentInvalidationGeneration(
+        historyInvalidationGenerations,
+        accountKey,
+        generationLease,
+      )
+    ) {
       historyCache.set(cacheKey, {
         historyId: init.historyId,
         messages: init.messages,
@@ -1412,7 +1550,9 @@ async function fetchAccountWithHistory(
     }
     return { messages: init.messages, nextPageToken: init.nextPageToken };
   })().finally(() => {
-    historyInflight.delete(cacheKey);
+    if (historyInflight.get(cacheKey) === promise)
+      historyInflight.delete(cacheKey);
+    endInvalidationGeneration(historyInvalidationGenerations, generationLease);
   });
 
   historyInflight.set(cacheKey, promise);
@@ -1447,9 +1587,6 @@ async function fetchAccountLegacy(
     format,
   );
 
-  // Gmail's batch endpoint can return per-part failures without failing the
-  // whole HTTP request. Refill those individually so list/search pages don't
-  // silently drop matching messages.
   const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
   if (missing.length > 0) {
     const refills = await Promise.all(
@@ -1511,13 +1648,6 @@ async function fetchAccountThreads(
       }
       return fetchThreadMessagesForIds(accessToken, email, threadIds, format);
     }
-    // Cache miss — the synthetic token was minted on a different process or
-    // the entry was evicted. Returning [] would silently end pagination.
-    // Fall through to a fresh first-page fetch instead so the user sees real
-    // results; we drop the historyId-sorted candidate window since we no
-    // longer have its bounds. Worst case: page 2 onwards repeats some of
-    // page 1, which is far better than a blank list on a serverless cold
-    // container.
     await deleteStoredThreadCandidatePage(
       candidateStoreOwner,
       cachedCandidatePage.key,
@@ -1644,10 +1774,6 @@ async function listGmailMessagesUncached(
     forEmail,
     options?.accountEmails,
   );
-  // Seed the per-fetch error list with refresh failures so a fully-dead
-  // connection (every account's refresh_token revoked or invalidated by a
-  // GOOGLE_CLIENT_ID rotation) reaches the handler — otherwise the list
-  // looks indistinguishable from "empty inbox" and the user sees no error.
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { messages: [], errors };
 
@@ -1712,7 +1838,13 @@ async function listGmailMessagesUncached(
           `[listGmailMessages] Error fetching from ${email}:`,
           error.message,
         );
-        errors.push({ email, error: error.message });
+        errors.push({
+          email,
+          error: error.message,
+          ...(error instanceof GmailQuotaCooldownError
+            ? { isQuotaError: true, retryAfterMs: error.retryAfterMs }
+            : {}),
+        });
         return [];
       }
     }),
@@ -1726,7 +1858,7 @@ async function listGmailMessagesUncached(
   };
 }
 
-function getHeader(
+export function getHeader(
   headers: Array<{ name?: string | null; value?: string | null }> | undefined,
   name: string,
 ): string {
@@ -1736,7 +1868,10 @@ function getHeader(
   );
 }
 
-function parseEmailAddress(raw: string): { name: string; email: string } {
+export function parseEmailAddress(raw: string): {
+  name: string;
+  email: string;
+} {
   const match = raw.match(/^(.+?)\s*<(.+?)>$/);
   if (match) {
     const name = match[1].trim();
@@ -1791,7 +1926,9 @@ function splitAddressList(raw: string): string[] {
   return addresses;
 }
 
-function parseAddressList(raw: string): Array<{ name: string; email: string }> {
+export function parseAddressList(
+  raw: string,
+): Array<{ name: string; email: string }> {
   if (!raw) return [];
   return splitAddressList(raw).map(parseEmailAddress);
 }
@@ -1801,7 +1938,6 @@ function getBody(payload: any): string {
     return Buffer.from(payload.body.data, "base64url").toString("utf-8");
   }
   if (payload.parts) {
-    // Prefer text/plain, fallback to text/html
     const textPart = payload.parts.find(
       (p: any) => p.mimeType === "text/plain",
     );
@@ -1810,7 +1946,6 @@ function getBody(payload: any): string {
     if (part?.body?.data) {
       return Buffer.from(part.body.data, "base64url").toString("utf-8");
     }
-    // Recurse into multipart
     for (const p of payload.parts) {
       const body = getBody(p);
       if (body) return body;
@@ -1828,7 +1963,6 @@ function getBodyHtml(payload: any): string | undefined {
     if (htmlPart?.body?.data) {
       return Buffer.from(htmlPart.body.data, "base64url").toString("utf-8");
     }
-    // Recurse into multipart
     for (const p of payload.parts) {
       const html = getBodyHtml(p);
       if (html) return html;
@@ -1837,21 +1971,26 @@ function getBodyHtml(payload: any): string | undefined {
   return undefined;
 }
 
-/** Build a map of Content-ID -> attachmentId from inline parts */
 function getInlineAttachments(
   payload: any,
-): Map<string, { attachmentId: string; mimeType: string }> {
-  const map = new Map<string, { attachmentId: string; mimeType: string }>();
+): Map<string, { attachmentId?: string; data?: string; mimeType: string }> {
+  const map = new Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >();
   function walk(part: any) {
     const headers = part.headers || [];
     const contentId = headers.find(
       (h: any) => h.name.toLowerCase() === "content-id",
     )?.value;
     const attachmentId = part.body?.attachmentId;
-    if (contentId && attachmentId) {
-      // Strip angle brackets: <image001> -> image001
-      const cid = contentId.replace(/^<|>$/g, "");
-      map.set(cid, { attachmentId, mimeType: part.mimeType || "image/png" });
+    const data = part.body?.data;
+    if (contentId && (attachmentId || data)) {
+      const cid = contentId.trim().replace(/^<|>$/g, "");
+      map.set(cid, {
+        ...(attachmentId ? { attachmentId } : { data }),
+        mimeType: part.mimeType || "image/png",
+      });
     }
     if (part.parts) {
       for (const p of part.parts) walk(p);
@@ -1861,17 +2000,30 @@ function getInlineAttachments(
   return map;
 }
 
-/** Replace cid: URLs in HTML with proxy API URLs */
 function replaceCidUrls(
   html: string,
   messageId: string,
-  inlineAttachments: Map<string, { attachmentId: string; mimeType: string }>,
+  inlineAttachments: Map<
+    string,
+    { attachmentId?: string; data?: string; mimeType: string }
+  >,
 ): string {
   if (inlineAttachments.size === 0) return html;
   return html.replace(/\bcid:([^\s"'<>]+)/g, (_match, cid) => {
-    const att = inlineAttachments.get(cid);
+    let decodedCid = cid;
+    try {
+      decodedCid = decodeURIComponent(cid);
+    } catch {
+      // coercion-ok: malformed CID escaping stays unresolved and visible.
+    }
+    const att = inlineAttachments.get(decodedCid) || inlineAttachments.get(cid);
     if (att) {
-      return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      if (att.attachmentId) {
+        return `/api/attachments?messageId=${encodeURIComponent(messageId)}&id=${encodeURIComponent(att.attachmentId)}&mimeType=${encodeURIComponent(att.mimeType)}`;
+      }
+      if (att.data) {
+        return `data:${att.mimeType};base64,${Buffer.from(att.data, "base64url").toString("base64")}`;
+      }
     }
     return _match;
   });
@@ -1890,11 +2042,6 @@ export async function fetchGmailLabelMap(
   return map;
 }
 
-// Gmail's real messages.batchModify endpoint (distinct from the multipart
-// /batch/gmail/v1 endpoint used by gmailBatchGetMessages/Threads) takes up to
-// 1000 message ids and one label add/remove set in a single JSON POST. Used
-// by bulk archive/star/mark-read so selecting many rows costs one Gmail call
-// instead of one per message.
 const GMAIL_BATCH_MODIFY_MAX_IDS = 1000;
 
 interface GmailBatchModifyResult {
@@ -1938,11 +2085,8 @@ async function gmailBatchModify(
 }
 
 export interface BatchModifyTarget {
-  /** Gmail message id to modify. */
   id: string;
-  /** Thread id, when known, so callers can invalidate the right thread cache. */
   threadId?: string;
-  /** Account that owns this message; falls back to ownerEmail's primary account. */
   accountEmail?: string;
 }
 
@@ -1951,13 +2095,6 @@ export interface BatchModifyByAccountResult {
   failed: Array<{ id: string; error: string }>;
 }
 
-/**
- * Apply the same label add/remove to many Gmail messages for one owner,
- * grouped into one messages.batchModify call per connected account instead
- * of one modify call per message. Falls back to per-account partial failure
- * reporting so callers can surface which ids didn't make it (e.g. a token
- * that failed to refresh for one secondary account).
- */
 export async function gmailBatchModifyByAccount(
   ownerEmail: string,
   targets: BatchModifyTarget[],
@@ -2013,7 +2150,11 @@ async function getDefaultOwnedAccountAccessToken(
       (candidate) =>
         candidate.accountId.toLowerCase() === ownerEmail.toLowerCase(),
     ) ?? accounts[0];
-  if (!account) throw new Error("No Google account connected");
+  if (!account) {
+    const managed = await resolveManagedGmailClientForOwner(ownerEmail);
+    if (managed) return managed.accessToken;
+    throw new Error("No Google account connected");
+  }
   const tokens = account.tokens as unknown as GoogleTokens;
   if (!tokens?.access_token && !tokens?.refresh_token) {
     throw new Error(`No valid access token for ${account.accountId}`);
@@ -2033,6 +2174,10 @@ async function getOwnedAccountAccessToken(
       candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),
   );
   if (!account) {
+    const managed = await resolveManagedGmailClientForOwner(ownerEmail);
+    if (managed && managed.email.toLowerCase() === accountEmail.toLowerCase()) {
+      return managed.accessToken;
+    }
     throw new Error(`Account ${accountEmail} is not connected for this user`);
   }
   const tokens = account.tokens as unknown as GoogleTokens;
@@ -2107,10 +2252,11 @@ export async function markAllUnreadReadForAccount(input: {
     undefined,
     ["UNREAD"],
   );
+  invalidateHistoryCacheForAccount(accountEmail);
+  invalidateListCacheForOwner(ownerEmail);
   for (const threadId of new Set(selected.map((message) => message.threadId))) {
     invalidateThreadCache(ownerEmail, threadId);
   }
-  invalidateListCacheForOwner(ownerEmail);
 
   let remaining: GmailMessageReference[];
   try {
@@ -2179,7 +2325,6 @@ export async function markAllUnreadReadForAccount(input: {
   };
 }
 
-/** Extract regular (non-inline) attachments from a Gmail message payload */
 function getAttachments(
   payload: any,
 ): Array<{ id: string; filename: string; mimeType: string; size: number }> {
@@ -2192,8 +2337,6 @@ function getAttachments(
   function walk(part: any) {
     const attachmentId = part.body?.attachmentId;
     const filename = part.filename;
-    // Only include parts with a filename and attachmentId (regular attachments)
-    // Skip inline images (they have Content-Disposition: inline or Content-ID)
     if (attachmentId && filename) {
       const headers = part.headers || [];
       const contentDisposition = headers
@@ -2202,7 +2345,6 @@ function getAttachments(
       const contentId = headers.find(
         (h: any) => h.name.toLowerCase() === "content-id",
       )?.value;
-      // Skip purely inline attachments (have content-id and inline disposition)
       const isInline = contentDisposition?.startsWith("inline") && contentId;
       if (!isInline) {
         attachments.push({
@@ -2221,15 +2363,12 @@ function getAttachments(
   return attachments;
 }
 
-// Cache of account email → display name (populated on first use per account)
 const accountDisplayNames = new Map<string, string>();
 
-/** Store a display name for a connected account email. */
 export function setAccountDisplayName(email: string, name: string) {
   if (email && name) accountDisplayNames.set(email.toLowerCase(), name);
 }
 
-/** Get the cached display name for a connected account email. */
 export function getAccountDisplayName(email: string): string | undefined {
   return accountDisplayNames.get(email.toLowerCase());
 }
@@ -2241,7 +2380,6 @@ export function gmailToEmailMessage(
 ): any {
   const headers = msg.payload?.headers || [];
   const from = parseEmailAddress(getHeader(headers, "From"));
-  // When Gmail returns just an email with no display name, use the cached profile name
   if (from.name === from.email) {
     const cached = accountDisplayNames.get(from.email.toLowerCase());
     if (cached) from.name = cached;
@@ -2282,14 +2420,8 @@ export function gmailToEmailMessage(
       !labels.includes("TRASH"),
     isTrashed: labels.includes("TRASH"),
     labelIds: labels
-      .filter(
-        (l: string) =>
-          // Only strip boolean-state labels (already captured as isRead/isStarred/etc.)
-          // Keep IMPORTANT and CATEGORY_* so they can be used as pinnable filters
-          !["UNREAD", "STARRED"].includes(l),
-      )
+      .filter((l: string) => !["UNREAD", "STARRED"].includes(l))
       .map((l: string) => {
-        // Map Gmail category labels to friendly lowercase IDs
         const categoryMap: Record<string, string> = {
           IMPORTANT: "important",
           CATEGORY_PERSONAL: "personal",
@@ -2308,7 +2440,6 @@ export function gmailToEmailMessage(
   };
 }
 
-/** Parse List-Unsubscribe and List-Unsubscribe-Post headers (RFC 2369 / RFC 8058) */
 function parseUnsubscribeHeaders(
   headers: Array<{ name?: string | null; value?: string | null }>,
 ): { unsubscribe?: { url?: string; mailto?: string; oneClick?: boolean } } {
@@ -2320,16 +2451,15 @@ function parseUnsubscribeHeaders(
     .toLowerCase()
     .includes("list-unsubscribe=one-click");
 
-  // Extract URLs from angle brackets: <https://...>, <mailto:...>
   const entries = raw.match(/<[^>]+>/g) || [];
   let url: string | undefined;
   let mailto: string | undefined;
   for (const entry of entries) {
-    const val = entry.slice(1, -1); // strip < >
+    const val = entry.slice(1, -1);
     if (val.startsWith("http://") || val.startsWith("https://")) {
       url = val;
     } else if (val.startsWith("mailto:")) {
-      mailto = val.slice(7); // strip "mailto:"
+      mailto = val.slice(7);
     }
   }
 

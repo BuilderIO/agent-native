@@ -1,5 +1,6 @@
 import path from "path";
 
+import { isActionContractError } from "@agent-native/core";
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
@@ -44,8 +45,6 @@ export default defineEventHandler(async (event) => {
         }),
     );
 
-    // Immediate exports stream in this request; durable URLs require optional
-    // blob storage and are intentionally a separate future capability.
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(
       bytes.byteOffset,
@@ -63,6 +62,13 @@ export default defineEventHandler(async (event) => {
       },
     });
   } catch (error) {
+    if (isActionContractError(error)) {
+      setResponseStatus(event, error.statusCode);
+      return {
+        error: error.message,
+        errorCode: error.errorCode,
+      };
+    }
     const message =
       error instanceof Error
         ? error.message

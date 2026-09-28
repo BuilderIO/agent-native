@@ -52,4 +52,27 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
     );
     expect(canvasSource).toContain('{ type: "embedded-canvas-pan-cancel" }');
   });
+
+  it("does not install editor capture handlers in Interact mode", () => {
+    expect(canvasSource).toContain(
+      "useEffect(() => {\n    if (interactMode) return;\n    const isInspectorTarget",
+    );
+    expect(canvasSource).toContain("if (interactMode) return;");
+    expect(canvasSource).toContain('if (tool !== "pen") return;');
+  });
+
+  it("centers focused Interact previews without changing edit-mode zoom anchoring", () => {
+    expect(canvasSource).toContain("centerInteractPreview?: boolean");
+    expect(canvasSource).toContain(
+      'zoomToCursor: deviceFrame === "none" && !centerInteractPreview',
+    );
+    expect(canvasSource).toContain("{centerInteractPreview ? (");
+    expect(canvasSource).toContain('justifyContent: "safe center"');
+    expect(canvasSource).toContain('transformOrigin: "top left"');
+    expect(canvasSource).toContain("previewWidthPx * (zoom / 100)");
+    expect(editorSource).toContain(
+      "centerInteractPreview={responsiveInteractActive}",
+    );
+    expect(editorSource).toContain("style={{ width: rightSidebarWidth }}");
+  });
 });

@@ -37,6 +37,8 @@ Why: version numbers alone are not a safe identity. Two branches that each indep
 
 Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
 
+Every migration must also be backward compatible, not just additive. Beta and production now migrate independently against the same shared database, so one lane's migration can run before the other lane's matching code deploy. A new `ADD COLUMN ... NOT NULL` with no `DEFAULT` breaks on the first existing row, and breaks any already-deployed `INSERT` that doesn't know the column exists yet — make the column nullable, give it a `DEFAULT`, or use a self-filling type (`SERIAL`, `GENERATED ... AS IDENTITY`), and backfill separately if it needs a real value. `guard:additive-migrations` enforces this.
+
 ### Core SQL Stores (auto-created, available in all templates)
 
 | Store               | Purpose                                              | Access                                     |
@@ -66,6 +68,31 @@ const rows = await db.select().from(tasks).where(eq(tasks.id, taskId));
 
 Outside a managed Drizzle scaffold, use `drizzle-orm/pg-core` so app schemas
 state their PostgreSQL types directly.
+
+#### Identity-shaped columns need a policy
+
+Member offboarding and email changes refuse to run while any column named
+`email`, `*_email`, `*scope_id`, `created_by`, `updated_by`, `invited_by`,
+`owner`, `principal_id`, `session_id`, or `user_id` has no policy. `owner_email`
+and `createSharesTable()` tables are handled for you. Declare every other one,
+including columns that are not member identities, from the app's database
+plugin graph (Clips does it in `server/db/index.ts`):
+
+```ts
+import { registerIdentityColumns } from "@agent-native/core/org";
+
+registerIdentityColumns([
+  // Access grant: follows an email change, ends with the membership.
+  { table: "space_members", column: "email", emailChange: "rekey", offboard: "delete", orgScope: { column: "space_id", references: { table: "spaces", column: "id", orgColumn: "org_id" } }, reason: "Space membership grants access." },
+  // Someone else's address: never rewritten.
+  { table: "meeting_participants", column: "email", emailChange: "retain", offboard: "retain", reason: "Attendee address from the calendar provider." },
+]);
+```
+
+Choose `delete` for grants, credentials, and pending tokens; `retain` for
+attribution, history, and third-party addresses; `transfer` only for owned
+data. A table without `org_id` needs `orgScope` or an organization-scoped
+removal leaves its rows alone.
 
 | Template     | Tables                                        |
 | ------------ | --------------------------------------------- |

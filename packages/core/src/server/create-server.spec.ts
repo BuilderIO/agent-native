@@ -21,7 +21,6 @@ describe("createServer", () => {
   });
 
   it("disables CORS when cors is false", () => {
-    // Should not throw
     const { app } = createServer({ cors: false });
     expect(app).toBeDefined();
   });
@@ -80,6 +79,36 @@ describe("createServer", () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
+      {
+        key: "DATABASE_URL",
+        label: "Database URL",
+        required: false,
+        configured: true,
+      },
+    ]);
+  });
+
+  it("marks non-credential env keys as non-secret without flagging credentials", async () => {
+    vi.stubEnv("ENABLE_BUILDER", "true");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    const { app } = createServer({
+      envKeys: [
+        { key: "ENABLE_BUILDER", label: "Enable Builder.io", secret: false },
+        { key: "DATABASE_URL", label: "Database URL" },
+      ],
+    });
+
+    const res = await app.request("http://localhost/_agent-native/env-status");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        key: "ENABLE_BUILDER",
+        label: "Enable Builder.io",
+        required: false,
+        configured: true,
+        secret: false,
+      },
       {
         key: "DATABASE_URL",
         label: "Database URL",
@@ -174,8 +203,6 @@ describe("createServer", () => {
   });
 });
 
-// Test parseEnvFile behavior by reimplementing and testing the same logic
-// since the function is private to the module
 describe("parseEnvFile (logic)", () => {
   function parseEnvFile(content: string): Map<string, string> {
     const vars = new Map<string, string>();

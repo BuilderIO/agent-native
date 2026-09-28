@@ -106,15 +106,26 @@ export default function ObservabilityPage() {
 
 Alle Daten beziehen sich auf den angemeldeten Benutzer. Es gibt heute keine benutzerübergreifende Admin-Ansicht.
 
-Das Dashboard verfügt über 5 Registerkarten:
+Das Dashboard verfügt über 6 Registerkarten:
 
-| Tab             | Was es zeigt                                                                                             |
-| --------------- | -------------------------------------------------------------------------------------------------------- |
-| **Übersicht**   | Wichtige Kennzahlen – Ausführungen, Kosten, Latenz, Tool-Erfolgsquote, Zufriedenheit, Bewertungsergebnis |
-| **Gespräche**   | Trace-Liste mit Drilldown auf einzelne Spans (agent_run, llm_call, tool_call)                            |
-| **Bewertungen** | Automatisierte Bewertungsergebnisse nach Kriterien und Trends im Zeitverlauf                             |
-| **Experimente** | A/B-Testliste mit Statusabzeichen, Variantenergebnisse mit Konfidenzintervallen                          |
-| **Feedback**    | Daumen hoch/abwärts Stream, Aufschlüsselung nach Kategorien, Frustrationswerte                           |
+| Tab                         | Was es zeigt                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Übersicht**               | Wichtige Kennzahlen – Ausführungen, Kosten, Latenz, Tool-Erfolgsquote, Zufriedenheit, Bewertungsergebnis |
+| **Gespräche**               | Trace-Liste mit Drilldown auf einzelne Spans (agent_run, llm_call, tool_call)                            |
+| **Bewertungen**             | Automatisierte Bewertungsergebnisse nach Kriterien und Trends im Zeitverlauf                             |
+| **Experimente**             | A/B-Testliste mit Statusabzeichen, Variantenergebnisse mit Konfidenzintervallen                          |
+| **Feedback**                | Daumen hoch/abwärts Stream, Aufschlüsselung nach Kategorien, Frustrationswerte                           |
+| **Menschliche Überprüfung** | Anfrage und Antwort prüfen, Feedback erfassen und eine Anweisungsänderung entwerfen                      |
+
+### Gesprächsdetails {#conversations}
+
+Im Tab „Gespräche“ sehen Sie aufgezeichnete Agentenläufe. Wählen Sie einen Lauf aus, um seine Spans aufzurufen, und klappen Sie einen Span auf, um erfasste Tool-Eingaben, Ausgaben, Fehler und Metadaten zu sehen. „Vollständige Unterhaltung öffnen“ springt zum zugehörigen Chat.
+
+Die Erfassung von Tool-Argumenten und -Ergebnissen ist standardmäßig deaktiviert. Aktivieren Sie `captureToolArgs` und `captureToolResults` in der `observability`-Konfiguration, um diese Inhalte zu speichern. Sensible Felder und Tool-Fehlermeldungen werden vor dem Speichern bereinigt.
+
+### Menschliche Überprüfung {#review}
+
+Der Tab „Menschliche Überprüfung“ zeigt die Anfrage und Antwort jedes Laufs. Sie können Feedback erfassen und einen Entwurf für eine Anweisungsänderung zur menschlichen Prüfung speichern. Der Entwurf ändert Anweisungen nicht automatisch.
 
 ## Benutzerfeedback {#feedback}
 

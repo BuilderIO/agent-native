@@ -1,12 +1,8 @@
+import { PROVIDER_TRANSIENT_REJECTION_ERROR_CODE } from "./error-detail.js";
 import { PROVIDER_ENV_VARS } from "./provider-env-vars.js";
 
 export const LLM_MISSING_CREDENTIALS_ERROR_CODE = "missing_credentials";
 
-/**
- * Set by {@link ../../server/credential-provider.js CredentialStoreUnavailableError}
- * when the credential store could not be read. Lives here so the classifier can
- * recognize it without importing server-only code into the browser bundle.
- */
 export const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE =
   "credential_store_unavailable";
 
@@ -21,19 +17,9 @@ const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
   "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.";
 
-/**
- * The one line a site visitor sees for every gateway rejection. Quota,
- * concurrency, a revoked token, a disabled gateway and an unreadable credential
- * store all read the same to someone with no account and no settings page.
- */
 export const GATEWAY_UNAVAILABLE_VISITOR_MESSAGE =
   "AI features aren't available on this site right now.";
 
-/**
- * Rewrite a gateway rejection for a visitor on a Builder-credits site: one
- * message, and the real reason preserved on `errorCode` for the site owner, who
- * is the only party who can act on it.
- */
 export function gatewayVisitorFacingError(errorCode?: string): {
   error: string;
   errorCode?: string;
@@ -67,9 +53,8 @@ export function isLlmCredentialError(
       ? String((error as { errorCode?: unknown }).errorCode ?? "")
       : "");
   if (code === LLM_MISSING_CREDENTIALS_ERROR_CODE) return true;
-  // "We could not read the credential store" is a retryable failure, not a
-  // setup problem. Telling this user to connect a provider is the bug.
   if (code === CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE) return false;
+  if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return false;
   if (LLM_REJECTED_CREDENTIAL_ERROR_CODES.has(code.toLowerCase())) return true;
 
   const message = getErrorMessage(error);
@@ -85,12 +70,6 @@ export function isLlmCredentialError(
 
 export function formatLlmCredentialErrorMessage(options?: {
   agentName?: string;
-  /**
-   * True when the reader is a visitor on a deployment that pays for its own AI:
-   * they have no Builder account, no Settings page and nothing to connect, so
-   * the owner-facing instructions name an action they cannot take. The real
-   * reason stays on the error code, which is where the owner reads it.
-   */
   visitorFacing?: boolean;
 }): string {
   if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;

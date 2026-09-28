@@ -1,5 +1,6 @@
 export {
   defineAppConfig,
+  enterpriseAuthAdaptersBuilt,
   getAppConfig,
   resetAppConfigForTests,
 } from "./store.js";

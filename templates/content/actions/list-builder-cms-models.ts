@@ -6,7 +6,7 @@ import { listBuilderCmsModels } from "./_builder-cms-read-client.js";
 
 export default defineAction({
   description:
-    "List Builder CMS models available to attach as read-only database sources. Uses configured Builder credentials and never writes to Builder.",
+    "List Builder CMS models available to attach as read-only collection sources. Uses configured Builder credentials and never writes to Builder.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

@@ -1,5 +1,5 @@
 import { IconLoader2, IconPlugConnected, IconX } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
@@ -17,9 +17,10 @@ import {
   isMcpConnectionSuggestionText,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
-import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
+import { McpIntegrationDialogDeferred } from "./McpIntegrationDialogDeferred.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
+  isMcpServersPending,
   useCreateMcpServer,
   useMcpServers,
   type McpServer,
@@ -31,7 +32,14 @@ export interface McpConnectionSuggestionProps {
   text: string;
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
+  requestedByAgent?: boolean;
+  /** Offer a composer connection card when the user names a known provider. */
+  requestedByUser?: boolean;
   integrations?: DefaultMcpIntegration[];
+  integrationId?: string;
+  onConnected?: () => void | Promise<void>;
+  onDismiss?: () => void | Promise<void>;
+  onOAuthStart?: (url: string) => void | Promise<void>;
 }
 
 const DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY =
@@ -81,16 +89,38 @@ export function findMcpConnectionSuggestionIntegration({
   text,
   contextText = "",
   variant = "composer",
+  requestedByAgent = false,
+  requestedByUser = false,
   integrations = getDefaultMcpIntegrations(),
+  integrationId,
 }: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  if (integrationId) {
+    const normalized = integrationId.trim().toLowerCase();
+    return (
+      integrations.find(
+        (integration) =>
+          integration.id.toLowerCase() === normalized ||
+          integration.provider.toLowerCase() === normalized,
+      ) ?? null
+    );
+  }
   const responseText = visibleUserAuthoredText(text);
   if (variant !== "response") {
-    return findMcpIntegrationForText(responseText, integrations);
+    if (requestedByUser) {
+      return findMcpIntegrationForText(responseText, integrations);
+    }
+    if (requestedByAgent) {
+      if (
+        !isMcpConnectionSuggestionText(responseText) &&
+        !isMcpConnectionFailureText(responseText)
+      ) {
+        return null;
+      }
+    } else {
+      return null;
+    }
   }
 
-  // A completed response may itself be the agent's request for setup. Prefer
-  // that provider, then fall back to the user's preceding provider mention for
-  // responses such as "I can't access it yet - please connect it.".
   if (
     isMcpConnectionSuggestionText(responseText) ||
     isMcpConnectionFailureText(responseText)
@@ -135,10 +165,16 @@ export function McpConnectionSuggestion({
   text,
   contextText = "",
   variant = "composer",
+  requestedByAgent = false,
+  requestedByUser = false,
   integrations: integrationOptions,
+  integrationId,
+  onConnected,
+  onDismiss,
+  onOAuthStart,
 }: McpConnectionSuggestionProps) {
   const t = useT();
-  const mcpServersQuery = useMcpServers();
+  const mcpServersQuery = useMcpServers({ defer: true });
   const createMcpServer = useCreateMcpServer();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [quickConnectIntegrationId, setQuickConnectIntegrationId] = useState<
@@ -149,6 +185,7 @@ export function McpConnectionSuggestion({
   );
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const oauthStartingRef = useRef(false);
   const integrations = useMemo(
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
@@ -159,9 +196,20 @@ export function McpConnectionSuggestion({
         text,
         contextText,
         variant,
+        requestedByAgent,
+        requestedByUser,
         integrations,
+        integrationId,
       }),
-    [contextText, integrations, text, variant],
+    [
+      contextText,
+      integrationId,
+      integrations,
+      requestedByAgent,
+      requestedByUser,
+      text,
+      variant,
+    ],
   );
   const apiFallback = integration
     ? getMcpIntegrationApiFallback(integration)
@@ -174,9 +222,11 @@ export function McpConnectionSuggestion({
     [mcpServersQuery.data],
   );
   const connected = integration ? isConnected(integration, servers) : false;
-  const hasOrg = Boolean(mcpServersQuery.data?.orgId);
+  const serversPending = isMcpServersPending(mcpServersQuery);
+  const hasOrg = !serversPending && Boolean(mcpServersQuery.data?.orgId);
   const canCreateOrgMcp = Boolean(
     hasOrg &&
+    !serversPending &&
     (mcpServersQuery.data?.role === "owner" ||
       mcpServersQuery.data?.role === "admin"),
   );
@@ -185,9 +235,14 @@ export function McpConnectionSuggestion({
     integration &&
     !connected &&
     !dismissedIds.includes(integration.id) &&
-    (variant === "composer" ||
+    (Boolean(integrationId) ||
+      variant === "composer" ||
       isMcpConnectionFailureText(text) ||
       isMcpConnectionSuggestionText(text));
+
+  useEffect(() => {
+    if (integration && connected) onConnected?.();
+  }, [connected, integration, onConnected]);
 
   useEffect(() => {
     setError(null);
@@ -221,8 +276,8 @@ export function McpConnectionSuggestion({
       <div
         className={
           variant === "response"
-            ? "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--response mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),750px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            ? "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--response mt-3 flex w-full max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "agent-mcp-connection-suggestion agent-mcp-connection-suggestion--composer agent-kit-composer-adjacent-width agent-kit-supporting-copy mx-auto mb-2 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2"
         }
         data-mcp-connection-suggestion={integration.id}
         data-mcp-connection-suggestion-variant={variant}
@@ -256,14 +311,25 @@ export function McpConnectionSuggestion({
         <button
           type="button"
           onClick={() => {
+            if (connecting) return;
+            setError(null);
+            setConnecting(true);
             setDismissedIds((current) =>
               current.includes(integration.id)
                 ? current
                 : [...current, integration.id],
             );
             rememberMcpSuggestionDismissal(integration.id);
+            void Promise.resolve(onDismiss?.())
+              .catch((cause: unknown) => {
+                setError(
+                  cause instanceof Error ? cause.message : String(cause),
+                );
+              })
+              .finally(() => setConnecting(false));
           }}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground"
+          disabled={connecting}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
           aria-label={t("mcpIntegrations.dismissSuggestion")}
         >
           <IconX className="h-3.5 w-3.5" />
@@ -273,29 +339,38 @@ export function McpConnectionSuggestion({
         <div
           className={
             variant === "response"
-              ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 max-w-[520px] text-[11px] text-destructive"
-              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer mx-auto mb-2 w-[min(calc(100%_-_1.5rem),750px)] text-[11px] text-destructive"
+              ? "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--response mt-1 w-full max-w-[520px] text-[11px] text-destructive"
+              : "agent-mcp-connection-suggestion-error agent-mcp-connection-suggestion-error--composer agent-kit-composer-adjacent-width agent-kit-caption-copy mx-auto mb-2 text-destructive"
           }
         >
           {error}
         </div>
       )}
-      <McpIntegrationDialog
+      <McpIntegrationDialogDeferred
         open={dialogOpen}
         onOpenChange={(open) => {
           setDialogOpen(open);
           if (!open) {
-            clearMcpConnectionResume();
+            if (!oauthStartingRef.current) clearMcpConnectionResume();
             setQuickConnectIntegrationId(null);
             setConnecting(false);
           }
         }}
         initialIntegrationId={integration.id}
         quickConnectIntegrationId={quickConnectIntegrationId}
+        presentation="modal"
         defaultScope="user"
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
+        onOAuthStart={
+          onOAuthStart
+            ? async (url) => {
+                oauthStartingRef.current = true;
+                await onOAuthStart(url);
+              }
+            : undefined
+        }
         onCreated={() => {
           setDismissedIds((current) =>
             current.includes(integration.id)
@@ -304,6 +379,7 @@ export function McpConnectionSuggestion({
           );
           saveMcpConnectionResume(variant === "response" ? contextText : text);
           notifyMcpConnectionComplete();
+          onConnected?.();
         }}
         integrations={integrations}
       />

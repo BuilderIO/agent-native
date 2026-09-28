@@ -1,11 +1,3 @@
-/**
- * Return the org members for a recording's organization so comment composers
- * can autocomplete @mentions against the right roster.
- *
- * Usage:
- *   pnpm action list-recording-mention-members --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { orgMembers } from "@agent-native/core/org";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
@@ -15,7 +7,7 @@ import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { isRecordingExpired } from "../server/lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 
 export default defineAction({
   description:
@@ -35,7 +27,12 @@ export default defineAction({
       organizationId: string;
     };
 
-    if (isRecordingExpired(rec.expiresAt)) {
+    if (
+      isRecordingExpiredForViewer({
+        expiresAt: rec.expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 

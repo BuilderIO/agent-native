@@ -16,14 +16,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import {
-  registerFirstRunOnboardingExtension,
-  type FirstRunOnboardingExtensionProps,
-} from "@agent-native/core/client/onboarding";
-import {
-  getThemeInitScript,
-  RequireSession,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -44,50 +37,28 @@ import {
   type EditorCommandGroup,
 } from "@/components/editor/editor-command-model";
 import { Layout as AppLayout } from "@/components/layout/Layout";
-import { FirstDeckOnboardingFlow } from "@/components/onboarding/FirstDeckOnboardingFlow";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 
-function FirstDeckOnboardingExtension(props: FirstRunOnboardingExtensionProps) {
-  return (
-    <DeckProvider>
-      <FirstDeckOnboardingFlow {...props} />
-    </DeckProvider>
-  );
-}
-
-registerFirstRunOnboardingExtension({
-  id: "slides-first-deck",
-  component: FirstDeckOnboardingExtension,
-});
-
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-slides",
+    app_name: "slides",
+    template_name: "slides",
   }),
 });
 
-/** Routes that render without the app shell (sidebar + AgentSidebar) */
 const BARE_ROUTES = new Set(["/slide"]);
-/** Route prefixes that render without the app shell */
 const BARE_PREFIXES = ["/share/", "/p/"];
-
-/**
- * Routes that use the shareable-content app shell. Deck editor links keep
- * that shell to avoid first-run onboarding, then use a route-local session
- * gate below so anonymous recipients reach the sign-in form first.
- */
-export function isShareableContentPath(pathname: string): boolean {
-  return isBareContentPath(pathname) || pathname.startsWith("/deck/");
-}
 
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
@@ -107,13 +78,10 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-// Key forces DeckProvider remount when code changes (HMR)
 const DECK_KEY = 3;
 
-/** Track whether we (the app) put the user into selection mode via a slide click */
 let weEnteredSelectionMode = false;
 
-/** Helper to send selection mode messages and track state */
 export function enterSelectionMode(
   type: "agentNative.enterStyleEditing" | "agentNative.enterTextEditing",
   data: { selector: string },
@@ -240,11 +208,18 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  const handleCommandMenuShortcut = useCallback(() => setCmdkOpen(true), []);
+  const location = useLocation();
+  const handleCommandMenuShortcut = useCallback(() => {
+    setCmdkOpen(true);
+  }, []);
+  const shouldHandleContentEditableCommandMenuShortcut = useCallback(
+    () => location.pathname !== "/home",
+    [location.pathname],
+  );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
     allowContentEditable: true,
+    shouldHandleContentEditable: shouldHandleContentEditableCommandMenuShortcut,
   });
-  const location = useLocation();
   const isDeckEditor = isDeckEditorPath(location.pathname);
   const editorCommands = getEditorCommands();
   const editorCommandGroups: Array<{
@@ -271,11 +246,33 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="slides"
+        chatStorageKey="slides"
       >
         <CommandMenu.Group heading={t("root.commandPresentations")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.searchDecks")}
-          </CommandMenu.Item>
+          {location.pathname !== "/templates" ? (
+            <CommandMenu.Item onSelect={() => navigate("/templates")}>
+              {t("templatesPage.title")}
+            </CommandMenu.Item>
+          ) : (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          )}
+          {isDeckEditor ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname === "/home" ? (
+            <CommandMenu.Item onSelect={() => navigate("/design-systems")}>
+              {t("navigation.designSystems")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/design-systems") ? (
+            <CommandMenu.Item onSelect={() => navigate("/home")}>
+              {t("navigation.decks")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
@@ -330,13 +327,12 @@ function AppContent() {
     </>
   );
 
-  return isDeckEditor ? <RequireSession>{content}</RequireSession> : content;
+  return content;
 }
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
 
   if (BARE_PREFIXES.some((p) => location.pathname.startsWith(p))) {
     return <Outlet />;
@@ -346,12 +342,13 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         defaultTheme="dark"
-        isPublicPath={isMarketingPath}
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={isShareableContentPath(location.pathname)}
+        sessionBypass={isBareContentPath(location.pathname)}
+        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

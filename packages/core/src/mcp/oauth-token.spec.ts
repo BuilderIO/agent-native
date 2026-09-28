@@ -1,14 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * oauth-token mints and verifies the signed JWT access tokens for the standard
- * remote MCP OAuth flow. Tokens are HS256 JWTs keyed on `A2A_SECRET` (falling
- * back to the better-auth secret). We mock only the secret provider and use the
- * REAL jose sign/verify so the audience binding, typ guard, scope guard, and
- * expiry are exercised as in production.
- */
-
 vi.mock("../server/better-auth-instance.js", () => ({
   getAuthSecret: () => "fallback-auth-secret",
 }));
@@ -19,6 +11,7 @@ import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
   normalizeOAuthScope,
+  parseMcpOAuthOrgIdClaim,
   scopeList,
   signMcpOAuthAccessToken,
   verifyMcpOAuthAccessToken,
@@ -133,6 +126,48 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     expect(result?.orgDomain).toBeUndefined();
   });
 
+  it("preserves an explicit Personal org claim as null", async () => {
+    const token = await signMcpOAuthAccessToken({
+      ...baseSign,
+      orgId: null,
+    });
+    const decoded = jose.decodeJwt(token);
+    expect(decoded.org_id).toBeNull();
+    const result = await verifyMcpOAuthAccessToken(token, RESOURCE);
+    expect(result?.orgId).toBeNull();
+  });
+
+  it.each([123, { id: "org-1" }, ""])(
+    "rejects a malformed org claim: %j",
+    async (orgId) => {
+      const token = await new jose.SignJWT({
+        typ: "agent-native-mcp-oauth",
+        sub: baseSign.ownerEmail,
+        org_id: orgId,
+        scope: baseSign.scope,
+        client_id: baseSign.clientId,
+        resource: baseSign.resource,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer(baseSign.issuer)
+        .setAudience(baseSign.resource)
+        .setExpirationTime("1h")
+        .setIssuedAt()
+        .sign(new TextEncoder().encode("fallback-auth-secret"));
+
+      expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+    },
+  );
+
+  it("distinguishes absent, Personal, and organization org claims", () => {
+    expect(parseMcpOAuthOrgIdClaim({})).toEqual({ orgId: undefined });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: null })).toEqual({ orgId: null });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: "org-1" })).toEqual({
+      orgId: "org-1",
+    });
+    expect(parseMcpOAuthOrgIdClaim({ org_id: 123 })).toBeNull();
+  });
+
   it("sets the typ marker, issuer, audience, jti, and an expiry", async () => {
     vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const token = await signMcpOAuthAccessToken(baseSign);
@@ -169,7 +204,6 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
   it("prefers A2A_SECRET over the better-auth secret for signing+verify", async () => {
     process.env.A2A_SECRET = "a2a-strong-secret";
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Verifies with the same A2A_SECRET active.
     expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).not.toBeNull();
     // A token signed under A2A_SECRET must fail once the secret changes.
     delete process.env.A2A_SECRET;
@@ -214,7 +248,6 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
   it("verifies when the request-derived resource is the minted audience", async () => {
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Primary resource is RESOURCE; alt is something else entirely.
     const result = await verifyMcpOAuthAccessToken(token, [
       RESOURCE,
       "https://other.agent-native.com/_agent-native/mcp",
@@ -224,7 +257,6 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
   it("normalises trailing slashes when comparing resource claims", async () => {
     const token = await signMcpOAuthAccessToken(baseSign);
-    // Add a trailing slash — must still match.
     const result = await verifyMcpOAuthAccessToken(token, [`${RESOURCE}/`]);
     expect(result).not.toBeNull();
   });
@@ -241,17 +273,13 @@ describe("verifyMcpOAuthAccessToken — audience array (host-drift tolerance)", 
 
 describe("verifyMcpOAuthAccessToken — secret rotation tolerance", () => {
   it("verifies a token signed with A2A_SECRET when A2A_SECRET is later removed (fallback to auth secret would fail, but secret-with-A2A was primary)", async () => {
-    // This assertion remains: removing A2A_SECRET means only fallback is tried.
-    // A token signed under a *different* A2A_SECRET is rejected.
     process.env.A2A_SECRET = "unique-a2a-secret";
     const token = await signMcpOAuthAccessToken(baseSign);
     delete process.env.A2A_SECRET;
-    // "fallback-auth-secret" != "unique-a2a-secret" → still rejected.
     expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
   });
 
   it("verifies a token signed with fallback-auth-secret after A2A_SECRET is later added", async () => {
-    // Token minted without A2A_SECRET (uses fallback-auth-secret).
     delete process.env.A2A_SECRET;
     const token = await signMcpOAuthAccessToken(baseSign);
     // Now A2A_SECRET is added to the deploy — the old token (signed with
@@ -347,8 +375,6 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   });
 
   it("rejects a token whose embedded resource claim mismatches the audience", async () => {
-    // aud matches the requested resource (so jose passes), but the inner
-    // `resource` claim was forged to a different value — must be rejected.
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
       sub: "owner@example.com",

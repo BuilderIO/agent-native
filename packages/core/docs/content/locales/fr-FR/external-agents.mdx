@@ -99,10 +99,10 @@ Chaque application Agent-Native expose une URL MCP canonique :
 https://<your-app>.agent-native.com/mcp
 ```
 
-Dans l'application, ouvrez **Settings → Integrations** et recherchez le nom
+Dans l'application, ouvrez **Settings → Connections → Integrations** et recherchez le nom
 d'hôte que vous connaissez déjà : Claude, Claude Cowork, Claude Code,
 Anthropic, ChatGPT, OpenAI, Codex, Grok ou xAI. L'unique résultat d'hôte
-externe ouvre **Settings → MCP** avec le guide le plus adapté déjà sélectionné.
+externe ouvre **Settings → MCP server** avec le guide le plus adapté déjà sélectionné.
 Copiez la **MCP server URL** et collez-la dans l'hôte d'IA. L'URL correspond à
 l'URL de base de l'application déployée suivie de `/mcp`.
 
@@ -128,14 +128,24 @@ Chaque application hébergée dispose également d'une page d'aide à l'adresse
 `https://&lt;app&gt;/mcp/connect` avec le URL copiable et
 onglets spécifiques à l'hôte pour Claude, ChatGPT, Cursor, Claude Code, Codex, Grok et autres.
 
+## Liens Content privés {#private-content-links}
+
+Un lien de partage Content privé peut identifier le document sans en exposer le contenu. Ajoutez l’URL `/mcp` de la même instance Content comme serveur MCP distant dans votre agent, authentifiez-vous avec votre compte Agent-Native, activez la connexion ou ses outils, puis relancez la demande initiale. La page `/mcp/connect` fournit les options de configuration, mais son ouverture seule n’installe pas la connexion.
+
+Ce parcours fonctionne avec tout hôte compatible MCP, notamment Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode et GitHub Copilot / VS Code. Les écrans et invites d’authentification varient selon l’hôte. Antigravity gère les serveurs distants dans **Settings → Customizations → Installed MCP Servers** ou dans sa configuration MCP ; la commande `connect` d’Agent-Native ne configure pas encore Antigravity.
+
+L’authentification identifie le compte connecté sans élargir ses autorisations. Un document public reste lisible depuis son lien de partage. Un document privé n’est lisible via MCP que si ce compte y a déjà accès. Si `get-document` renvoie « introuvable » après la connexion, cette réponse ne distingue pas une autorisation manquante d’un identifiant de document obsolète, supprimé ou invalide. Vérifiez le lien et l’accès du compte connecté avant de modifier les autorisations.
+
+La réinstallation du connecteur ou la modification du lien de partage public ne résout pas un refus d’autorisation confirmé du compte connecté.
+
 <a id="access-tab"></a>
 
 ### Le réglage MCP dans l'application {#mcp-settings}
 
-Les réglages standard de l'application incluent un onglet **MCP** à côté de
-**Integrations**. Il affiche l'URL MCP canonique de l'application, une fiche
+Les réglages incluent une page **MCP server** dans le groupe de
+l'application. Il affiche l'URL MCP canonique de l'application, une fiche
 d'agent A2A si elle est disponible et les mêmes guides que la page de connexion
-complète. Utilisez **Settings → MCP** comme point de départ ou ouvrez
+complète. Utilisez **Settings → MCP server** comme point de départ ou ouvrez
 `/mcp/connect` directement pour le flux complet et le repli par jeton.
 
 ### Claude et ChatGPT OAuth {#oauth}

@@ -1,4 +1,7 @@
-import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
+import {
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -68,7 +71,7 @@ describe("Clips share metadata", () => {
     });
   });
 
-  it("uses a video frame in crawler metadata when no thumbnail is stored", () => {
+  it("uses the branded image while a thumbnail is unavailable", () => {
     const meta = buildClipsShareMeta({
       origin: "https://clips.example.com",
       basePath: "/clips",
@@ -86,12 +89,35 @@ describe("Clips share metadata", () => {
 
     expect(meta).toContainEqual({
       property: "og:image",
-      content:
-        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
     });
     expect(meta).toContainEqual({
       name: "twitter:card",
       content: "summary_large_image",
+    });
+  });
+
+  it("advertises the JPEG MIME type for the default social image fallback", () => {
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      recording: {
+        id: "rec-1",
+        title: "Launch notes",
+        thumbnailUrl: null,
+        animatedThumbnailUrl: null,
+        visibility: "public",
+        status: "ready",
+        isLoomEmbedBacked: true,
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+    });
+    expect(meta).toContainEqual({
+      property: "og:image:type",
+      content: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE_TYPE,
     });
   });
 
@@ -127,7 +153,7 @@ describe("Clips share metadata", () => {
     ).toBe("animated");
   });
 
-  it("uses a public video frame when a recording has no stored thumbnail", () => {
+  it("uses the branded image when a public recording has no stored thumbnail", () => {
     const imageUrl = resolveClipsSocialImageUrl({
       recording: {
         id: "rec-1",
@@ -140,9 +166,7 @@ describe("Clips share metadata", () => {
       origin: "https://clips.example.com",
     });
 
-    expect(imageUrl).toBe(
-      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350",
-    );
+    expect(imageUrl).toBe(AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE);
   });
 
   it("keeps a valid fallback for legacy Loom embeds without thumbnails", () => {
@@ -174,6 +198,23 @@ describe("Clips share metadata", () => {
         origin: "https://clips.example.com",
       }),
     ).toBe("https://clips.example.com/api/thumbnail/rec-1");
+  });
+
+  it("versions proxied thumbnails when the recording changes", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "public",
+          status: "ready",
+          thumbnailUrl: "https://cdn.example.com/preview.jpg",
+          updatedAt: "2026-09-25T18:00:00.000Z",
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBe(
+      "https://clips.example.com/api/thumbnail/rec-1?v=2026-09-25T18%3A00%3A00.000Z",
+    );
   });
 
   it("does not expose generated frames for non-public recordings", () => {

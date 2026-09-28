@@ -213,6 +213,9 @@ describe("recurring jobs actions", () => {
       "jobs/daily.md",
       expect.stringContaining("enabled: false"),
     );
+    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    expect(updatedContent).toContain("createdBy: alice@example.com");
+    expect(updatedContent).toContain("Summarize my inbox.");
   });
 
   it("rejects an unauthorized mutation before writing", async () => {

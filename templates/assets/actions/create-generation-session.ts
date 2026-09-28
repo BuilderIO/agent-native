@@ -15,6 +15,7 @@ import {
   assertCanDraft,
   assertCanUseAssets,
   assertCanUseRuns,
+  draftProvenanceAccess,
   draftScopeForLibrary,
 } from "../server/lib/library-access.js";
 import { serializeGenerationSession } from "./_helpers.js";
@@ -55,8 +56,6 @@ export default defineAction({
       reuseLabels,
     };
     const draftAccess = await assertCanDraft(args.libraryId);
-    // Attaching a candidate or run to a session republishes it through the
-    // session read path, so inputs answer to the same author rule as reads.
     const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     if (args.collectionId) {
@@ -213,12 +212,7 @@ export default defineAction({
               },
             ],
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
     return {
       ...serializeGenerationSession(session),

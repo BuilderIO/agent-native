@@ -3,19 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   deleteCredential: vi.fn(),
   getScopedSettingRecord: vi.fn(),
+  hasCredential: vi.fn(),
   loadDashboardSeed: vi.fn(),
   putScopedSettingRecord: vi.fn(),
   resolveRequestScope: vi.fn(),
   saveCredential: vi.fn(),
   tryRequestCredentialContext: vi.fn(),
 }));
+const mockTrack = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mockTrack,
+}));
+
 vi.mock("../server/lib/credentials", () => ({
   deleteCredential: mocks.deleteCredential,
+  hasCredential: mocks.hasCredential,
   saveCredential: mocks.saveCredential,
 }));
 
@@ -42,11 +49,13 @@ describe("data source credential actions", () => {
   beforeEach(() => {
     mocks.deleteCredential.mockReset();
     mocks.getScopedSettingRecord.mockReset();
+    mocks.hasCredential.mockReset();
     mocks.loadDashboardSeed.mockReset();
     mocks.putScopedSettingRecord.mockReset();
     mocks.resolveRequestScope.mockReset();
     mocks.saveCredential.mockReset();
     mocks.tryRequestCredentialContext.mockReset();
+    mockTrack.mockReset();
 
     mocks.tryRequestCredentialContext.mockReturnValue({
       userEmail: "ada@example.com",
@@ -57,6 +66,7 @@ describe("data source credential actions", () => {
       orgId: "org-1",
     });
     mocks.getScopedSettingRecord.mockResolvedValue(null);
+    mocks.hasCredential.mockResolvedValue(false);
     mocks.loadDashboardSeed.mockReturnValue({ panels: [] });
   });
 
@@ -102,6 +112,45 @@ describe("data source credential actions", () => {
       { email: "ada@example.com", orgId: "org-1" },
       "sql-dashboard-google-analytics",
       { panels: [] },
+    );
+  });
+
+  it("tracks a connector only when credentials complete its required set", async () => {
+    const savedKeys = new Set<string>();
+    mocks.saveCredential.mockImplementation(async (key: string) => {
+      savedKeys.add(key);
+    });
+    mocks.hasCredential.mockImplementation(async (key: string) =>
+      savedKeys.has(key),
+    );
+
+    const vars = [
+      { key: "GA4_PROPERTY_ID", value: "1234" },
+      {
+        key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        value: JSON.stringify({
+          type: "service_account",
+          private_key: "private-key",
+          client_email: "service@example.iam.gserviceaccount.com",
+        }),
+      },
+    ];
+
+    await updateDataSourceCredentials.run({ vars });
+    await updateDataSourceCredentials.run({ vars });
+
+    expect(mockTrack).toHaveBeenCalledTimes(2);
+    expect(mockTrack).toHaveBeenNthCalledWith(
+      1,
+      "connector_added",
+      expect.objectContaining({ connector_name: "google-analytics" }),
+      undefined,
+    );
+    expect(mockTrack).toHaveBeenNthCalledWith(
+      2,
+      "connector_added",
+      expect.objectContaining({ connector_name: "gcloud" }),
+      undefined,
     );
   });
 

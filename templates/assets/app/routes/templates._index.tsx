@@ -4,8 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconDots, IconPlus, IconSearch, IconTrash } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { CreateTemplateDialog } from "@/components/library/CreateTemplateDialog";
@@ -147,6 +147,9 @@ function TemplateCard({
 export default function TemplatesIndexRoute() {
   const t = useT();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const routeRequestsSearchFocus = searchParams.get("focus") === "search";
   const [scope, setScope] = useState("all");
   const { data: librariesData } = useActionQuery("list-libraries", {
     compact: true,
@@ -167,6 +170,21 @@ export default function TemplatesIndexRoute() {
   const [duplicateTemplate, setDuplicateTemplate] = useState<any>(null);
   const [duplicateLibraryId, setDuplicateLibraryId] = useState("");
   const templates = Array.isArray(data?.templates) ? data.templates : [];
+  useEffect(() => {
+    if (!routeRequestsSearchFocus) return;
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("focus");
+          return next;
+        },
+        { replace: true },
+      );
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [routeRequestsSearchFocus, setSearchParams]);
   const filtered = useMemo(
     () =>
       templates.filter((template: any) =>
@@ -196,6 +214,7 @@ export default function TemplatesIndexRoute() {
         <div className="relative min-w-48 flex-1">
           <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchInputRef}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="ps-9"

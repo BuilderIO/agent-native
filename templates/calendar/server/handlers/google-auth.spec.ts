@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   setDesktopExchange: vi.fn(),
   setDesktopExchangeError: vi.fn(),
   setResponseStatus: vi.fn(),
+  wrapNetlifyPreviewGoogleOAuthState: vi.fn(),
 }));
 
 vi.mock("h3", () => ({
@@ -94,6 +95,7 @@ vi.mock("@agent-native/core/server", () => ({
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
+  wrapNetlifyPreviewGoogleOAuthState: mocks.wrapNetlifyPreviewGoogleOAuthState,
 }));
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
@@ -149,6 +151,9 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.wrapNetlifyPreviewGoogleOAuthState.mockImplementation(
+      (_event: unknown, state: string) => state,
+    );
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
     mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
@@ -250,7 +255,10 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
     expect(result).toEqual({
       url: "https://accounts.google.com/o/oauth2/v2/auth?scope=calendar&state=encoded-state",
@@ -268,7 +276,10 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.resolveOAuthRedirectUri).toHaveBeenCalledWith(
       expect.anything(),
       "/_agent-native/google/callback",
-      { allowRootCallback: true },
+      {
+        allowRootCallback: true,
+        useNetlifyPreviewGoogleOAuthRelay: true,
+      },
     );
   });
 

@@ -1,5 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -24,6 +26,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -132,10 +135,9 @@ async function copyVideo(
     failed: string;
   },
 ) {
-  try {
-    await navigator.clipboard.writeText(src);
+  if (await writeClipboardText(src)) {
     toast.success(copy.copied);
-  } catch {
+  } else {
     toast.error(copy.failed);
   }
 }
@@ -150,7 +152,11 @@ export function VideoBlock({
   getPos,
 }: NodeViewProps) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const [isHovered, setIsHovered] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
@@ -161,7 +167,10 @@ export function VideoBlock({
   const lightboxVideoRef = useRef<HTMLVideoElement>(null);
   const mediaBlockRef = useRef<HTMLDivElement>(null);
   const resizeStateRef = useRef<VideoResizeState | null>(null);
-  const isEditable = editor.isEditable;
+  const options = extension.options as ContentVideoOptions;
+  const canMutateMediaNow = () =>
+    editor.isEditable && (options.canMutateMedia?.() ?? true);
+  const isEditable = canMutateMediaNow();
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
   const sourceTab: VideoSourceTab =
@@ -171,13 +180,14 @@ export function VideoBlock({
   const width = normalizedVideoWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
-  const options = extension.options as ContentVideoOptions;
 
   function setSourcePanelOpen(open: boolean) {
+    if (!canMutateMediaNow()) return;
     updateAttributes({ sourcePanelOpen: open });
   }
 
   function setSourceTab(tab: VideoSourceTab) {
+    if (!canMutateMediaNow()) return;
     updateAttributes({ sourcePanelOpen: true, sourceTab: tab });
   }
 
@@ -219,6 +229,7 @@ export function VideoBlock({
   }
 
   function openReplacePanel() {
+    if (!canMutateMediaNow()) return;
     setVideoUrl("");
     setSourcePanelDismissed(false);
     updateAttributes({ sourcePanelOpen: true, sourceTab: "upload" });
@@ -234,6 +245,7 @@ export function VideoBlock({
   }
 
   function insertTranscriptPlaceholder() {
+    if (!canMutateMediaNow()) return null;
     if (!editor.schema.nodes.notionToggle) return null;
     const position = typeof getPos === "function" ? getPos() : null;
     if (typeof position !== "number") return null;
@@ -257,6 +269,7 @@ export function VideoBlock({
   }
 
   function handleTranscribe() {
+    if (!canMutateMediaNow()) return;
     const documentId = options.documentId;
     if (!documentId) {
       toast.error(t("editor.media.currentDocumentMissing"));
@@ -321,6 +334,7 @@ export function VideoBlock({
     event: ReactPointerEvent<HTMLButtonElement>,
     direction: ResizeDirection,
   ) {
+    if (!canMutateMediaNow()) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = mediaBlockRef.current?.getBoundingClientRect();
@@ -359,7 +373,7 @@ export function VideoBlock({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setDragWidth((currentWidth) => {
-        if (currentWidth) {
+        if (currentWidth && canMutateMediaNow()) {
           updateAttributes({ width: currentWidth });
         }
         return null;
@@ -379,11 +393,15 @@ export function VideoBlock({
   async function handleVideoFilePicked(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (!file) return;
+    if (!file || !fileStorageConfigured || !canMutateMediaNow()) return;
 
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
       const nextSrc = await uploadVideoFile(file);
+      if (editor.isDestroyed || !canMutateMediaNow()) {
+        toast.error(t("empty.genericError"), { id: toastId });
+        return;
+      }
       updateAttributes({
         src: nextSrc,
         sourcePanelOpen: false,
@@ -395,8 +413,18 @@ export function VideoBlock({
     }
   }
 
+  function requestVideoFilePicker() {
+    if (!isEditable || isUploading) return;
+    if (!fileStorageConfigured) {
+      setStorageSetupOpen(true);
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
   function handleEmbedLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canMutateMediaNow()) return;
     const nextSrc = videoUrl.trim();
     if (!nextSrc) return;
 
@@ -462,10 +490,15 @@ export function VideoBlock({
               type="button"
               variant="outline"
               className="w-full"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestVideoFilePicker}
             >
               {t("editor.media.uploadFile")}
             </Button>
+            <FileStorageStatusGate
+              status={fileUploadStatus}
+              open={storageSetupOpen}
+              onOpenChange={setStorageSetupOpen}
+            />
           </div>
         ) : (
           <form className="media-source-panel__body" onSubmit={handleEmbedLink}>
@@ -528,6 +561,7 @@ export function VideoBlock({
             ref={fileInputRef}
             type="file"
             accept="video/*"
+            disabled={!fileStorageConfigured}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"
@@ -571,6 +605,7 @@ export function VideoBlock({
           ref={fileInputRef}
           type="file"
           accept="video/*"
+          disabled={!fileStorageConfigured}
           className="hidden"
           tabIndex={-1}
           aria-hidden="true"
@@ -751,7 +786,7 @@ export function VideoBlock({
                     role="menuitem"
                     onClick={() => {
                       setMoreMenuOpen(false);
-                      deleteNode();
+                      if (canMutateMediaNow()) deleteNode();
                     }}
                   >
                     <span
@@ -766,6 +801,26 @@ export function VideoBlock({
               </Popover>
             </div>
           </>
+        ) : editor.isEditable && options.onVideoComment ? (
+          <div
+            className="media-block__toolbar"
+            data-visible={isHovered ? "true" : undefined}
+            aria-hidden={!isHovered}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleComment}
+                  className="media-block__toolbar-btn"
+                  aria-label={t("editor.media.commentOnVideo")}
+                >
+                  <IconMessageCircle size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("editor.comment")}</TooltipContent>
+            </Tooltip>
+          </div>
         ) : null}
 
         {isEditable && sourcePanelOpen ? renderSourcePanel(true) : null}

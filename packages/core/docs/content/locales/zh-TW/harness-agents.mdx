@@ -98,8 +98,8 @@ UI 與 [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes)；讓一個
 
 它們的執行時包是**可選的對等依賴項**並且延遲載入，因此
 從不使用安全帶的應用程式無需付費。每個轉接器都帶有一個
-`installPackage` 提示（例如`@ai-sdk/harness@canary
-@ai-sdk/harness-codex@canary`); `resolveAgentHarness`拋出一個明確的安裝
+`installPackage` 提示（例如`@ai-sdk/harness@latest
+@ai-sdk/harness-codex@latest`); `resolveAgentHarness`拋出一個明確的安裝
 如果缺少包，則會出現錯誤，並且 `isAgentHarnessPackageInstalled(entry)`
 讓您先檢查。
 
@@ -162,38 +162,20 @@ const custom = resolveAgentHarness("acp", {
 it) 並寫入發出 `file-change` 事件；終端方法未公布，
 因此代理使用自己的 shell。
 
-## Codex 驗證：程式碼 UI 與 Harness 沙箱 {#codex-auth}
+## Codex 驗證：程式碼 UI 與 Harness 轉接器 {#codex-auth}
 
-有兩個 Codex 表面，它們的驗證方式不同：
+Codex 有兩個表面：
 
-- **Agent-Native 程式碼/桌面** 在使用者電腦上執行 `codex exec`。如果
-  使用者已執行`codex login`，此本機執行重用任何 ChatGPT
-  透過訂閱或 API 金鑰驗證已安裝的Codex CLI 報告
-  `codex login status`.
-- **`ai-sdk-harness:codex`**載入`@ai-sdk/harness-codex`，它驅動Codex
-  透過 `@openai/codex-sdk` 進入線束沙箱。它不會默默地
-  繼承使用者的桌面 `~/.codex` 登入名，因為沙箱可能是遠端的
-  或孤立。對於可信/私人沙箱，請選取使用 `codexCliAuth: true`；
-  Agent-Native 將本機 Codex CLI auth 檔案複製到沙箱中
-  安全帶啟動。對於託管或共用沙箱，設定 API-key / gateway
-  改為驗證。
+- **Agent-Native 程式碼/桌面**在使用者電腦上執行 `codex exec`，並重用
+  `codex login status` 報告的本機 Codex CLI 登入。
+- **`ai-sdk-harness:codex`**在底層 Harness 支援時使用 AI SDK Harness 的原生
+  訂閱流程。無需額外設定：憑證保留在主機上，明確的 API 金鑰憑證優先，
+  並且不必將本機驗證檔案複製到沙箱即可傳遞產生的驗證。若只使用 AI Gateway，
+  請將 `harnessOptions.auth` 設為 `"ai-gateway"`；此模式不會讀取原生訂閱。
 
-因此，如果有人詢問哪個包帶有 Codex OAuth 路徑：用於本機編碼
-工作階段，使用`@agent-native/core` /桌面加上已安裝的
-`@openai/codex` CLI 和 `codex login`。對於沙盒 `ai-sdk-harness:codex`，
-將登入資訊複製到沙箱時使用顯式 `codexCliAuth` 選取加入
-可以接受。
-
-```ts
-const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
-  codexCliAuth: true,
-});
-```
-
-`codexCliAuth: true` 讀取為 `CODEX_HOME/auth.json` 或 `~/.codex/auth.json`。至
-指向不同的本機登入，透過
-`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` 或
-`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+內建 `ai-sdk-harness:codex` 轉接器僅支援 `permissionMode: "allow-all"`，因為這是
+穩定 Codex 執行階段唯一接受的模式。省略 `permissionMode` 即可使用此預設值；此
+轉接器會拒絕 `allow-reads` 和 `allow-edits`。
 
 ## 註冊並解析 {#register-resolve}
 
@@ -209,10 +191,14 @@ const adapter = resolveAgentHarness("ai-sdk-harness:codex");
 
 `resolveAgentHarness(name, config?)` 返回 `AgentHarnessAdapter`。
 可選的 `config` 被轉發到轉接器工廠 - 用於 AI SDK 轉接器
-對應到 `AiSdkHarnessAdapterOptions`（`label`、`description`，
-僅 `permissionMode`、`harnessOptions`、`agentOptions` 和 Codex
-`codexCliAuth`）。使用`listAgentHarnesses()`枚舉註冊的內容
+對應到 `AiSdkHarnessAdapterOptions`（`label`、`description`、
+`permissionMode`、`harnessOptions` 和 `agentOptions`）。使用
+`listAgentHarnesses()`枚舉註冊的內容
 一個選取器。
+
+對於使用沙箱的內建線束，請在註冊時透過 `agentOptions.sandbox` 傳入沙箱提供者。
+若要在程序重新啟動後重新恢復工作階段，提供者必須實作 `resumeSession`；呼叫端
+提供的 `sandbox` 工作階段僅適用於初始建立。
 
 ## 跑一圈 {#run-a-turn}
 
@@ -234,7 +220,7 @@ const run = startAgentHarnessRun({
     resumeState, // opaque value from a previous turn, if resuming
     instructions,
     sandbox, // required for sandboxed harnesses — see Sandbox Adapters
-    permissionMode: "allow-reads",
+    permissionMode: "allow-all",
     tools, // a narrow, intentional set of host tools (see below)
   },
   ownerEmail,

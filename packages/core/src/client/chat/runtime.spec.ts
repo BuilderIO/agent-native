@@ -7,7 +7,6 @@ import {
 import type { AgentChatRuntime as AgentChatRuntimeFromClientBarrel } from "../index.js";
 import type { AgentChatRuntime as AgentChatRuntimeFromChatBarrel } from "./index.js";
 import {
-  createAgentChatRuntimeAdapter,
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
@@ -228,6 +227,61 @@ describe("createHttpAgentChatRuntime", () => {
         .delta,
     ).toEqual({ type: "text", text: "Done" });
   });
+
+  it("preserves setup error codes from non-streaming HTTP failures", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              statusCode: 403,
+              statusMessage: "Connect an AI provider before chatting.",
+              data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+            }),
+            { status: 403, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Update the slide",
+      }),
+    ).rejects.toMatchObject({
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      status: 403,
+    });
+  });
+
+  it("lets a transport continue a paused turn with the previous input", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-1"))
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }], "run-2"));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: fetchMock as typeof fetch,
+      continueTurn: ({ continuation, previousTurn, startTurn }) =>
+        startTurn({
+          ...previousTurn,
+          prompt: continuation.prompt,
+        }),
+    });
+    const session = await runtime.createSession({ id: "thread-1" });
+    const first = await session.startTurn({ prompt: "Start" });
+    await drain(first.events);
+
+    const second = await session.continueTurn?.({ prompt: "Continue" });
+    expect(second).toBeDefined();
+    await drain(second!.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
+      prompt: "Continue",
+    });
+  });
 });
 
 describe("createAgentNativeChatRuntime", () => {
@@ -254,6 +308,16 @@ describe("createAgentNativeChatRuntime", () => {
           result: "ok",
         },
         { type: "thinking", text: "Double-checking the result." },
+        {
+          type: "suggestions",
+          suggestions: [
+            {
+              id: "review-result",
+              label: "Review result",
+              prompt: "Review the result in detail.",
+            },
+          ],
+        },
         { type: "done" },
       ]),
     );
@@ -285,6 +349,7 @@ describe("createAgentNativeChatRuntime", () => {
       "tool-start",
       "tool-done",
       "message-delta",
+      "suggestions",
       "message-done",
       "done",
     ]);
@@ -317,9 +382,577 @@ describe("createAgentNativeChatRuntime", () => {
           },
           { type: "text", text: "Looking" },
           { type: "reasoning", text: "Double-checking the result." },
+          {
+            type: "text",
+            text: "The agent completed the list forms action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
+          },
         ],
       },
     });
+    expect(events.at(-3)).toMatchObject({
+      type: "suggestions",
+      suggestions: [
+        {
+          id: "review-result",
+          label: "Review result",
+          prompt: "Review the result in detail.",
+        },
+      ],
+    });
+  });
+
+  it("forwards pending-selection suppression to the agent request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([{ type: "text", text: "Done" }, { type: "done" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-selection",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use this selection once",
+      metadata: { agentNativeSkipPendingSelectionContext: true },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use this selection once",
+      skipPendingSelectionContext: true,
+    });
+  });
+
+  it("keeps raw structured action results separate from display text", async () => {
+    const result = {
+      draft: { subject: "Launch notes" },
+      deepLink: "/_agent-native/open?composeDraftId=draft-1",
+    };
+    const resultText = JSON.stringify(result, null, 2);
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_start", id: "tool-1", tool: "manage-draft", input: {} },
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "manage-draft",
+          result: resultText,
+          chatUI: { renderer: "mail.draft-created" },
+          chatUIResult: result,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession()).startTurn({
+          prompt: "Create a draft",
+        })
+      ).events,
+    );
+    const toolDone = events.find((event) => event.type === "tool-done");
+
+    expect(toolDone).toMatchObject({
+      result,
+      resultText,
+      chatUI: { renderer: "mail.draft-created" },
+    });
+  });
+
+  it("exposes truthful rich capabilities for the Agent-Native stream", () => {
+    const runtime = createAgentNativeChatRuntime();
+
+    expect(runtime.capabilities.rich).toEqual({
+      annotations: false,
+      citations: false,
+      widgets: true,
+      clientEffects: false,
+      uploadProgress: false,
+      participants: true,
+      interactions: true,
+      tasks: true,
+      taskGroups: false,
+      extensions: true,
+      connectionRequests: true,
+    });
+  });
+
+  it("uses the configured streaming origin after minting a same-origin token", async () => {
+    const apiUrl = "/_agent-native/agent-chat";
+    const streamingUrl = "https://stream.example.test/agent-chat";
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${apiUrl}/stream-token`) {
+          return Response.json({ token: "short-lived-token" });
+        }
+        if (url === streamingUrl) {
+          return sseResponse([
+            { type: "text", text: "streamed" },
+            { type: "done" },
+          ]);
+        }
+        return sseResponse([
+          { type: "text", text: "primary" },
+          { type: "done" },
+        ]);
+      },
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      streamingUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const session = await runtime.createSession({
+      threadId: "thread-streaming",
+    });
+    await drain((await session.startTurn({ prompt: "Stream this" })).events);
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      `${apiUrl}/stream-token`,
+      streamingUrl,
+    ]);
+    const tokenRequest = fetchMock.mock.calls[0]?.[1];
+    const streamRequest = fetchMock.mock.calls[1]?.[1];
+    expect(tokenRequest).toMatchObject({
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+    expect(new Headers(streamRequest?.headers).get("Authorization")).toBe(
+      "Bearer short-lived-token",
+    );
+    expect(streamRequest?.credentials).toBe("omit");
+  });
+
+  it("falls back to the primary route when the streaming origin cannot connect", async () => {
+    const apiUrl = "/_agent-native/agent-chat";
+    const streamingUrl = "https://stream.example.test/agent-chat";
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${apiUrl}/stream-token`) {
+          return Response.json({ token: "short-lived-token" });
+        }
+        if (url === streamingUrl) throw new TypeError("Failed to fetch");
+        return sseResponse([
+          { type: "text", text: "primary" },
+          { type: "done" },
+        ]);
+      },
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl,
+      streamingUrl,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const session = await runtime.createSession({
+      threadId: "thread-fallback",
+    });
+    const events = await drain(
+      (await session.startTurn({ prompt: "Use fallback" })).events,
+    );
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      `${apiUrl}/stream-token`,
+      streamingUrl,
+      apiUrl,
+    ]);
+    expect(events.some((event) => event.type === "message-done")).toBe(true);
+  });
+
+  it("keeps legacy status events while adding structured activity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "activity",
+          id: "prepare-1",
+          label: "Preparing action input",
+          tool: "publish-release",
+          progressBytes: 512,
+          seq: 2,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Publish" }))
+        .events,
+    );
+
+    expect(events).toMatchObject([
+      {
+        type: "status",
+        message: "Preparing action input",
+        metadata: {
+          seq: 2,
+          tool: "publish-release",
+          progressBytes: 512,
+          compatibilityMirror: "activity",
+        },
+      },
+      {
+        type: "activity",
+        operation: "update",
+        activity: {
+          id: "prepare-1",
+          kind: "tool",
+          label: "Preparing action input",
+          status: "running",
+          metadata: {
+            seq: 2,
+            tool: "publish-release",
+            progressBytes: 512,
+          },
+        },
+      },
+      {
+        type: "message-start",
+        message: {
+          id: expect.any(String),
+          role: "assistant",
+          content: [],
+        },
+      },
+      {
+        type: "message-done",
+        message: {
+          id: expect.any(String),
+          role: "assistant",
+          metadata: {
+            custom: {
+              runWarning: {
+                errorCode: "final_response_missing",
+                message:
+                  "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+                recoverable: true,
+              },
+            },
+          },
+          content: [
+            {
+              type: "text",
+              text: "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+            },
+          ],
+        },
+      },
+      { type: "done" },
+    ]);
+  });
+
+  it("normalizes delegated-agent activity and task lifecycles without flattening them", async () => {
+    const snapshot = {
+      kind: "agent-native/agent-activity",
+      version: 1,
+      sequence: 4,
+      startedAt: 1_000,
+      updatedAt: 2_500,
+      durationMs: 1_500,
+      activePhase: "tool",
+      reasoning: ["Inspect the workspace"],
+      toolCalls: [{ name: "read-file", status: "running" }],
+    } as const;
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Planck",
+          status: "start",
+          agentCallId: "agent-call-1",
+          taskId: "remote-task-1",
+          seq: 1,
+        },
+        {
+          type: "agent_call_progress",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          state: "working",
+          elapsedSeconds: 12,
+          detail: "Reading the protocol contract",
+          seq: 2,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          text: "Found the runtime boundary.",
+          seq: 3,
+        },
+        {
+          type: "agent_call_activity",
+          agent: "Planck",
+          agentCallId: "agent-call-1",
+          snapshot,
+          seq: 4,
+        },
+        {
+          type: "agent_call",
+          agent: "Planck",
+          status: "done",
+          agentCallId: "agent-call-1",
+          taskId: "remote-task-1",
+          durationMs: 1_500,
+          terminalCode: "completed",
+          seq: 5,
+        },
+        {
+          type: "agent_task",
+          taskId: "local-task-1",
+          threadId: "thread-rich",
+          description: "Review runtime contracts",
+          status: "running",
+          seq: 6,
+        },
+        {
+          type: "agent_task_update",
+          taskId: "local-task-1",
+          preview: "Runtime contract located",
+          currentStep: "Map event types",
+          seq: 7,
+        },
+        {
+          type: "agent_task_complete",
+          taskId: "local-task-1",
+          summary: "Mapped the runtime contract.",
+          seq: 8,
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-rich",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-rich" })).startTurn({
+          prompt: "Review it",
+        })
+      ).events,
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "participant",
+      "interaction",
+      "task",
+      "participant",
+      "activity",
+      "interaction",
+      "activity",
+      "participant",
+      "interaction",
+      "task",
+      "task",
+      "task",
+      "task",
+      "message-start",
+      "message-done",
+      "done",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "participant",
+      operation: "register",
+      participant: {
+        id: "agent-call-1",
+        name: "Planck",
+        status: "working",
+        activeTaskId: "remote-task-1",
+      },
+    });
+    expect(events[4]).toMatchObject({
+      type: "activity",
+      activity: {
+        id: "agent-call-1:progress",
+        detail: "Reading the protocol contract",
+        data: { state: "working", elapsedSeconds: 12 },
+      },
+    });
+    expect(events[6]).toMatchObject({
+      type: "activity",
+      activity: {
+        id: "agent-call-1:activity",
+        data: snapshot,
+        metadata: { sequence: 4, durationMs: 1_500 },
+      },
+    });
+    expect(events[7]).toMatchObject({
+      type: "participant",
+      operation: "update",
+      participant: {
+        status: "completed",
+        metadata: { durationMs: 1_500, terminalCode: "completed" },
+      },
+    });
+    expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("surfaces native and MCP action renderers as composable widgets", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "tool_done",
+          id: "tool-1",
+          tool: "build-report",
+          result: "Report ready",
+          chatUI: {
+            renderer: "core.data-table",
+            title: "Report",
+          },
+          mcpApp: {
+            serverId: "analytics",
+            toolName: "build-report",
+            originalToolName: "build_report",
+            resourceUri: "ui://analytics/report",
+            toolInput: { reportId: "report-1" },
+            toolResult: { reportId: "report-1" },
+          },
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Build" }))
+        .events,
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "tool-done",
+      "widget",
+      "widget",
+      "message-start",
+      "message-done",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      type: "widget",
+      widget: {
+        id: "tool-1:chat-ui",
+        kind: "core.data-table",
+        title: "Report",
+        data: { toolCallId: "tool-1", toolName: "build-report" },
+      },
+    });
+    expect(events[2]).toMatchObject({
+      type: "widget",
+      widget: {
+        id: "tool-1:mcp-app",
+        kind: "mcp-app",
+        object: {
+          id: "ui://analytics/report",
+          kind: "mcp-resource",
+        },
+      },
+    });
+  });
+
+  it("forwards only explicit namespaced rich envelopes as extensions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "rich_event",
+          seq: 9,
+          event: {
+            namespace: "com.agent-native.review",
+            name: "checkpoint.created",
+            version: 1,
+            data: { state: "ready" },
+            references: [
+              {
+                kind: "trace",
+                id: "trace-1",
+                label: "Release trace",
+              },
+            ],
+            metadata: { actionId: "release-review" },
+          },
+        },
+        { type: "unregistered_future_event", payload: "ignored" },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Review" }))
+        .events,
+    );
+
+    expect(events).toEqual([
+      {
+        type: "extension",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        namespace: "com.agent-native.review",
+        name: "checkpoint.created",
+        version: 1,
+        data: { state: "ready" },
+        references: [{ kind: "trace", id: "trace-1", label: "Release trace" }],
+        metadata: { seq: 9, actionId: "release-review" },
+      },
+      {
+        type: "message-start",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        message: {
+          id: expect.any(String),
+          role: "assistant",
+          content: [],
+        },
+      },
+      {
+        type: "message-done",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        message: {
+          id: expect.any(String),
+          role: "assistant",
+          metadata: {
+            custom: {
+              runWarning: {
+                errorCode: "final_response_missing",
+                message:
+                  "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+                recoverable: true,
+              },
+            },
+          },
+          content: [
+            {
+              type: "text",
+              text: "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+            },
+          ],
+        },
+      },
+      {
+        type: "done",
+        sessionId: expect.any(String),
+        turnId: expect.any(String),
+        reason: "complete",
+      },
+    ]);
   });
 
   it("carries the model-side toolCallId from approval_required", async () => {
@@ -349,9 +982,8 @@ describe("createAgentNativeChatRuntime", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    const turn = await (
-      await runtime.createSession()
-    ).startTurn({ prompt: "run it" });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({ prompt: "run it" });
     const events = await drain(turn.events);
 
     expect(
@@ -362,449 +994,250 @@ describe("createAgentNativeChatRuntime", () => {
       toolName: "start-prospect-run",
       allowPersistentApproval: false,
     });
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      reason: "tool-use",
+    });
+    expect(session.continueTurn).toBeTypeOf("function");
   });
-});
 
-describe("createAgentChatRuntimeAdapter", () => {
-  it("emits exact first-party app/browser tools after completed tool calls", async () => {
-    const listeners = new Map<string, Set<(event: unknown) => void>>();
-    const fakeWindow = {
-      addEventListener(type: string, listener: (event: unknown) => void) {
-        const current = listeners.get(type) ?? new Set();
-        current.add(listener);
-        listeners.set(type, current);
-      },
-      removeEventListener(type: string, listener: (event: unknown) => void) {
-        listeners.get(type)?.delete(listener);
-      },
-      dispatchEvent(event: { type: string }) {
-        for (const listener of listeners.get(event.type) ?? []) listener(event);
-        return true;
-      },
-    };
-    class FakeCustomEvent {
-      readonly type: string;
-      readonly detail: unknown;
-
-      constructor(type: string, init: { detail: unknown }) {
-        this.type = type;
-        this.detail = init.detail;
-      }
-    }
-    vi.stubGlobal("window", fakeWindow);
-    vi.stubGlobal("CustomEvent", FakeCustomEvent);
-
-    const appDetails: unknown[] = [];
-    const browserDetails: unknown[] = [];
-    const unsubscribeApp = subscribeChatFirstOpenApp((detail) =>
-      appDetails.push(detail),
-    );
-    const unsubscribeBrowser = subscribeChatFirstOpenBrowser((detail) =>
-      browserDetails.push(detail),
-    );
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test runtime",
-      capabilities: { messages: { streaming: true } },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn() {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              yield {
-                type: "tool-done",
-                toolCallId: "app-1",
-                toolName: "open_app",
-                status: "completed",
-                resultText: JSON.stringify({
-                  app: "mail",
-                  path: "/inbox",
-                }),
-              };
-              yield {
-                type: "tool-done",
-                toolCallId: "evil-1",
-                toolName: "evil___open_app",
-                status: "completed",
-                resultText: JSON.stringify({
-                  app: "mail",
-                  path: "/phishing",
-                }),
-              };
-              yield {
-                type: "tool-done",
-                toolCallId: "browser-1",
-                toolName: "open_browser",
-                status: "completed",
-                resultText: JSON.stringify({
-                  url: "https://example.com/docs",
-                  title: "Docs",
-                }),
-              };
-              yield { type: "done", reason: "complete" };
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              events: events(),
-            };
+  it("resumes the exact approved tool call with false-valued arguments", async () => {
+    const approvedInput = { dryRun: false };
+    const approvalKey = 'publish-release:{"dryRun":false}';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Waiting for approval. " },
+          {
+            type: "tool_start",
+            id: "call-0",
+            tool: "read-release",
+            input: {},
           },
-        };
-      },
-    };
-
-    try {
-      await drain(
-        createAgentChatRuntimeAdapter(runtime).run({
-          messages: [],
-          abortSignal: new AbortController().signal,
-          runConfig: {},
-        } as any),
+          {
+            type: "tool_done",
+            id: "call-0",
+            tool: "read-release",
+            result: "Release lookup failed.",
+            isError: true,
+          },
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+          {
+            type: "tool_start",
+            id: "call-1",
+            tool: "publish-release",
+            input: approvedInput,
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            input: approvedInput,
+            approvalKey,
+            toolCallId: "call-1",
+          },
+          {
+            type: "tool_done",
+            id: "call-1",
+            tool: "publish-release",
+            result: "Awaiting human approval. This action did NOT execute.",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          { type: "text", text: "Release published." },
+          { type: "done" },
+        ]),
       );
-      expect(appDetails).toEqual([{ app: "mail", path: "/inbox" }]);
-      expect(browserDetails).toEqual([
-        { url: "https://example.com/docs", title: "Docs" },
-      ]);
-    } finally {
-      unsubscribeApp();
-      unsubscribeBrowser();
-      vi.unstubAllGlobals();
-    }
-  });
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approval",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approval",
+      threadId: "thread-approval",
+    });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    const firstEvents = await drain(first.events);
 
-  it("attaches approval to the call matching toolCallId, not the latest same-named call", async () => {
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test",
-      capabilities: {
-        messages: { streaming: true },
-        sessions: { create: true },
-      },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn() {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              // Two calls to the same action are in flight at once.
-              yield {
-                type: "tool-start",
-                toolCall: { id: "call-1", name: "start-prospect-run" },
-              };
-              yield {
-                type: "tool-start",
-                toolCall: { id: "call-2", name: "start-prospect-run" },
-              };
-              // The gate pauses the FIRST one.
-              yield {
-                type: "approval-request",
-                approvalId: "start-prospect-run:call-1",
-                toolCallId: "call-1",
-                toolName: "start-prospect-run",
-                message: "Approve this tool call?",
-                allowPersistentApproval: false,
-              };
-              yield { type: "done", reason: "complete" };
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              runId: "run-1",
-              events: events(),
-            };
-          },
-        };
-      },
-    };
-    const adapter = createAgentChatRuntimeAdapter(runtime);
-
-    const results = await drain(
-      adapter.run({
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        abortSignal: new AbortController().signal,
-        runConfig: {},
-      } as any),
-    );
-
-    const toolCalls = (results.at(-1)?.content ?? []).filter(
-      (part: any) => part.type === "tool-call",
-    ) as any[];
-    expect(toolCalls).toHaveLength(2);
-    expect(toolCalls[0]).toMatchObject({
-      toolCallId: "call-1",
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
       approval: {
-        approvalKey: "start-prospect-run:call-1",
-        allowPersistentApproval: false,
+        id: approvalKey,
+        approved: true,
       },
     });
-    expect(toolCalls[1].approval).toBeUndefined();
-  });
+    expect(continuation).toBeDefined();
+    const events = await drain(continuation!.events);
 
-  it("leaves an approval unattached when its call id matches nothing", async () => {
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test",
-      capabilities: {
-        messages: { streaming: true },
-        sessions: { create: true },
-      },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn() {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              yield {
-                type: "tool-start",
-                toolCall: { id: "call-2", name: "start-prospect-run" },
-              };
-              // Approval for a call this reader never saw. It must not latch
-              // onto call-2 just because the tool name matches.
-              yield {
-                type: "approval-request",
-                approvalId: "start-prospect-run:call-1",
-                toolCallId: "call-1",
-                toolName: "start-prospect-run",
-                message: "Approve this tool call?",
-              };
-              yield { type: "done", reason: "complete" };
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              runId: "run-1",
-              events: events(),
-            };
-          },
-        };
-      },
-    };
-    const adapter = createAgentChatRuntimeAdapter(runtime);
-
-    const results = await drain(
-      adapter.run({
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        abortSignal: new AbortController().signal,
-        runConfig: {},
-      } as any),
-    );
-
-    const toolCalls = (results.at(-1)?.content ?? []).filter(
-      (part: any) => part.type === "tool-call",
-    ) as any[];
-    const call2 = toolCalls.find((part) => part.toolCallId === "call-2");
-    expect(call2?.approval).toBeUndefined();
-    // And no phantom Approve/Deny card was invented for the unseen call.
-    expect(toolCalls).toHaveLength(1);
-  });
-
-  it("still synthesizes a card for a legacy approval with no call id", async () => {
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test",
-      capabilities: {
-        messages: { streaming: true },
-        sessions: { create: true },
-      },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn() {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              // An external runtime that never announced the call via
-              // tool-start still needs a visible gate.
-              yield {
-                type: "approval-request",
-                approvalId: "legacy-approval",
-                toolName: "send-email",
-                message: "Approve this tool call?",
-              };
-              yield { type: "done", reason: "complete" };
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              runId: "run-1",
-              events: events(),
-            };
-          },
-        };
-      },
-    };
-    const adapter = createAgentChatRuntimeAdapter(runtime);
-
-    const results = await drain(
-      adapter.run({
-        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-        abortSignal: new AbortController().signal,
-        runConfig: {},
-      } as any),
-    );
-
-    const toolCalls = (results.at(-1)?.content ?? []).filter(
-      (part: any) => part.type === "tool-call",
-    ) as any[];
-    expect(toolCalls).toHaveLength(1);
-    expect(toolCalls[0]).toMatchObject({
-      toolName: "send-email",
-      approval: { approvalKey: "legacy-approval" },
-    });
-  });
-
-  it("adapts runtime events into assistant-ui content", async () => {
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test",
-      capabilities: {
-        messages: { streaming: true },
-        sessions: { create: true },
-      },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn(input) {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              yield {
-                type: "message-delta",
-                messageId: "m1",
-                delta: {
-                  type: "reasoning",
-                  text: "Inspecting ",
-                  partId: "reasoning-1",
-                },
-              };
-              yield {
-                type: "message-delta",
-                messageId: "m1",
-                delta: { type: "text", text: input.prompt ?? "" },
-              };
-              yield {
-                type: "message-delta",
-                messageId: "m1",
-                delta: {
-                  type: "reasoning",
-                  text: "the runtime.",
-                  partId: "reasoning-1",
-                },
-              };
-              yield {
-                type: "tool-start",
-                toolCall: {
-                  id: "tool-1",
-                  name: "query",
-                  input: { q: "forms" },
-                },
-              };
-              yield {
-                type: "tool-done",
-                toolCallId: "tool-1",
-                toolName: "query",
-                status: "completed",
-                resultText: "34 rows",
-              };
-              yield { type: "done", reason: "complete" };
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              runId: "run-1",
-              events: events(),
-            };
-          },
-        };
-      },
-    };
-    const adapter = createAgentChatRuntimeAdapter(runtime);
-
-    const results = await drain(
-      adapter.run({
-        messages: [
-          {
-            role: "user",
-            content: [{ type: "text", text: "Show forms" }],
-          },
-        ],
-        abortSignal: new AbortController().signal,
-        runConfig: {},
-      } as any),
-    );
-
-    expect(results.at(-1)).toMatchObject({
-      content: [
-        { type: "reasoning", text: "Inspecting the runtime." },
-        { type: "text", text: "Show forms" },
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Approved. Go ahead and run the requested action.",
+      threadId: "thread-approval",
+      turnId: first.id,
+      internalContinuation: true,
+      approvedToolCalls: [approvalKey],
+      structuredHistory: expect.arrayContaining([
         {
-          type: "tool-call",
-          toolCallId: "tool-1",
-          toolName: "query",
-          result: "34 rows",
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-0",
+              content: "Release lookup failed.",
+              isError: true,
+            },
+          ],
         },
-      ],
-      metadata: { custom: { runtimeId: "external:test", runId: "run-1" } },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-1",
+              name: "publish-release",
+              input: approvedInput,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-1",
+              content: "Awaiting human approval. This action did NOT execute.",
+            },
+          ],
+        },
+      ]),
     });
-  });
-
-  it("does not reuse an already-aborted signal for explicit cancel", async () => {
-    const abortController = new AbortController();
-    let cancelInput: Parameters<NonNullable<AgentChatRuntimeTurn["cancel"]>>[0];
-    const abortError = new Error("aborted");
-    abortError.name = "AbortError";
-
-    const runtime: AgentChatRuntime = {
-      id: "external:test",
-      kind: "external-agent",
-      label: "Test runtime",
-      capabilities: {
-        messages: { streaming: true, history: true },
-        cancellation: { abortSignal: true, explicitCancel: true },
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.structuredHistory.slice(-6)).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Waiting for approval. " }],
       },
-      async createSession() {
-        return {
-          id: "session-1",
-          runtimeId: "external:test",
-          async startTurn() {
-            async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
-              throw abortError;
-            }
-            return {
-              id: "turn-1",
-              sessionId: "session-1",
-              runId: "run-1",
-              events: events(),
-              cancel: async (input) => {
-                cancelInput = input;
-                return { status: "cancelled" };
-              },
-            };
-          },
-        };
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-0", name: "read-release", input: {} },
+        ],
       },
-    };
-    const adapter = createAgentChatRuntimeAdapter(runtime);
-
-    abortController.abort();
-    const results = await drain(
-      adapter.run({
-        messages: [
+      {
+        role: "user",
+        content: [
           {
-            role: "user",
-            content: [{ type: "text", text: "Stop" }],
+            type: "tool-result",
+            toolCallId: "call-0",
+            content: "Release lookup failed.",
+            isError: true,
           },
         ],
-        abortSignal: abortController.signal,
-        runConfig: {},
-      } as any),
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Release lookup failed; requesting approval. ",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "publish-release",
+            input: approvedInput,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+          },
+        ],
+      },
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: "done",
+      reason: "complete",
+    });
+    const initialMessage = firstEvents.find(
+      (event) => event.type === "message-start",
     );
+    expect(initialMessage).toMatchObject({
+      type: "message-start",
+      message: { id: expect.any(String) },
+    });
+    expect(events.some((event) => event.type === "message-start")).toBe(false);
+    expect(events.find((event) => event.type === "message-done")).toMatchObject(
+      {
+        message: {
+          id:
+            initialMessage?.type === "message-start"
+              ? initialMessage.message.id
+              : undefined,
+          content: [
+            { type: "text", text: "Waiting for approval. " },
+            {
+              type: "text",
+              text: "Release lookup failed; requesting approval. ",
+            },
+            { type: "text", text: "Release published." },
+          ],
+        },
+      },
+    );
+  });
 
-    expect(results).toEqual([]);
-    expect(cancelInput).toEqual({ reason: "abort" });
+  it("resolves a denied approval without starting another agent run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "approval_required",
+          tool: "publish-release",
+          approvalKey: "publish-release:{}",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-denial",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-denial" });
+    const first = await session.startTurn({ prompt: "Publish it" });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: {
+        id: "publish-release:{}",
+        approved: false,
+      },
+    });
+    expect(continuation).toBeDefined();
+    expect(await drain(continuation!.events)).toEqual([
+      { type: "done", reason: "complete" },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

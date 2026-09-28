@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type RefObject,
 } from "react";
 
 import {
@@ -41,9 +42,38 @@ interface CommentComposerProps {
   "aria-label"?: string;
 }
 
-function resizeTextarea(element: HTMLTextAreaElement) {
+export function resizeCommentTextarea(element: HTMLTextAreaElement) {
+  const maxHeight = Math.round(window.innerHeight * 0.4);
   element.style.height = "auto";
-  element.style.height = `${element.scrollHeight}px`;
+  const height = Math.min(element.scrollHeight, maxHeight);
+  element.style.height = `${height}px`;
+  element.style.overflowY =
+    element.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
+export function useAutoResizeCommentTextarea(
+  textareaRef: RefObject<HTMLTextAreaElement | null>,
+  value: string,
+  rows: number,
+) {
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (element) resizeCommentTextarea(element);
+  }, [rows, textareaRef, value]);
+
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    if (!element) return;
+    const resize = () => resizeCommentTextarea(element);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(element);
+    window.addEventListener("resize", resize);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [rows, textareaRef]);
 }
 
 export const CommentComposer = forwardRef<
@@ -84,19 +114,7 @@ export const CommentComposer = forwardRef<
     if (autoFocus) innerRef.current?.focus();
   }, [autoFocus]);
 
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element) return;
-    resizeTextarea(element);
-  }, [rows, value]);
-
-  useLayoutEffect(() => {
-    const element = innerRef.current;
-    if (!element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => resizeTextarea(element));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [rows]);
+  useAutoResizeCommentTextarea(innerRef, value, rows);
 
   const filtered =
     query === null
@@ -259,7 +277,7 @@ export const CommentComposer = forwardRef<
             }}
             placeholder={placeholder}
             className={cn(
-              "w-full resize-none overflow-y-hidden bg-transparent placeholder:text-muted-foreground focus:outline-none",
+              "max-h-[40vh] w-full resize-none bg-transparent placeholder:text-muted-foreground focus:outline-none",
               className,
             )}
           />

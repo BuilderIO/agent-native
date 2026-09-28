@@ -32,13 +32,13 @@ Um bom modelo:
 Use o modelo de bate-papo quando quiser um aplicativo mínimo com a estrutura já instalada:
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 Para um workspace com vários aplicativos, execute o seletor e inclua o Chat com os modelos de domínio desejados:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 O Chat oferece autenticação, threads de bate-papo duráveis, recursos apoiados por PostgreSQL, ferramentas, estado do aplicativo, actions e sincronização de pesquisa. Você adiciona o modelo de domínio e o produto UI.
@@ -516,13 +516,13 @@ Antes de compartilhar:
 Os modelos da comunidade são instalados diretamente de um repositório público do GitHub. Coloque o aplicativo Agent-Native na raiz:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 Adicione `#branch`, `#tag` ou `#commit` para fixar uma revisão específica:
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 A CLI baixa apenas o código-fonte. Ela não instala dependências nem executa scripts do modelo. Modelos da comunidade são código de terceiros; revise o repositório, a licença, as dependências e os scripts antes de executar `pnpm install`.

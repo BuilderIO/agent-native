@@ -21,6 +21,7 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 
 import addBreakpoint from "./add-breakpoint.js";
 import removeBreakpoint from "./remove-breakpoint.js";
+import updateBreakpoint from "./update-breakpoint.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -103,5 +104,103 @@ describe("breakpoint designs.data mutations", () => {
       breakpointSet: { breakpoints: [{ id: "keep-me" }] },
     });
     expect(state.data.concurrentCanvasWrite).toEqual({ keep: true });
+  });
+
+  it("updates a breakpoint in place without dropping sibling data", async () => {
+    state.data = {
+      breakpointSet: {
+        id: "set-1",
+        breakpoints: [
+          { id: "phone", label: "Phone", widthPx: 360, prefix: "base" },
+          { id: "tablet", label: "Tablet", widthPx: 810, prefix: "md" },
+        ],
+      },
+      concurrentCanvasWrite: { keep: true },
+    };
+
+    const result = await updateBreakpoint.run({
+      designId: "design_1",
+      breakpointId: "phone",
+      label: "Mobile",
+      widthPx: 375,
+    });
+
+    expect(result).toMatchObject({
+      updated: true,
+      breakpoint: {
+        id: "phone",
+        label: "Mobile",
+        widthPx: 375,
+        prefix: "base",
+      },
+      breakpointSet: {
+        id: "set-1",
+        breakpoints: [
+          { id: "phone", widthPx: 375 },
+          { id: "tablet", widthPx: 810 },
+        ],
+      },
+    });
+    expect(state.data.concurrentCanvasWrite).toEqual({ keep: true });
+  });
+
+  it("leaves the set unchanged when the new width already exists", async () => {
+    state.data = {
+      breakpointSet: {
+        id: "set-1",
+        breakpoints: [
+          { id: "phone", label: "Phone", widthPx: 360, prefix: "base" },
+          { id: "tablet", label: "Tablet", widthPx: 810, prefix: "md" },
+        ],
+      },
+    };
+    const before = structuredClone(state.data);
+
+    const result = await updateBreakpoint.run({
+      designId: "design_1",
+      breakpointId: "phone",
+      widthPx: 810,
+    });
+
+    expect(result).toMatchObject({
+      updated: false,
+      reason: "A breakpoint with width 810px already exists.",
+    });
+    expect(state.data).toEqual(before);
+  });
+
+  it("refuses malformed breakpoint members without overwriting the set", async () => {
+    state.data = {
+      breakpointSet: {
+        id: "set-1",
+        breakpoints: [{ id: "phone", widthPx: 360 }],
+      },
+    };
+    const before = structuredClone(state.data);
+
+    const result = await updateBreakpoint.run({
+      designId: "design_1",
+      breakpointId: "phone",
+      widthPx: 375,
+    });
+
+    expect(result).toEqual({
+      updated: false,
+      reason: "Breakpoint set is invalid; refusing update.",
+    });
+    expect(state.data).toEqual(before);
+  });
+
+  it("reports a missing breakpoint set separately from invalid metadata", async () => {
+    const result = await updateBreakpoint.run({
+      designId: "design_1",
+      breakpointId: "phone",
+      widthPx: 375,
+    });
+
+    expect(result).toEqual({
+      updated: false,
+      reason: "Breakpoint 'phone' not found in the set.",
+    });
   });
 });

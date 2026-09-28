@@ -330,10 +330,10 @@ export function builderMetadataForSourceField(args: {
 
 export default defineAction({
   description:
-    "Create a local database property from an unmapped source field and bind the source field to that property.",
+    "Create a local collection property from an unmapped source field and bind the source field to that property.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceFieldId: z.string().describe("Source field mapping ID"),
     sourceId: z
       .string()
@@ -391,10 +391,6 @@ export default defineAction({
       throw new Error("The title source field is already mapped to Name.");
     }
 
-    // A federated secondary source's rows have no local document (they join by
-    // canonical key), so we don't materialize their values into
-    // documentPropertyValues — the read path overlays them per row at query
-    // time. Primary sources still copy values onto their backing documents.
     let federationRole: string | null = null;
     try {
       const parsed = JSON.parse(source.metadataJson ?? "{}") as {
@@ -406,11 +402,6 @@ export default defineAction({
     }
     const isSecondary = federationRole === "secondary";
 
-    // Keep the local snapshot, property definition, mapping, and materialized
-    // values atomic. The common complete-snapshot path needs one projected row
-    // read. If values are missing, that transaction exits before writes, the
-    // provider read happens outside it, and a second transaction re-reads the
-    // rows so concurrent source refreshes cannot be overwritten.
     const materializeProperty = (
       builderEntries: BuilderCmsSourceEntry[] | null,
     ) =>
@@ -681,8 +672,6 @@ export default defineAction({
     } catch (error) {
       if (!(error instanceof MissingBuilderFieldValuesError)) throw error;
 
-      // Read before retrying the transaction so a Builder outage cannot leave
-      // behind a cleanly reported but empty property.
       const builderRead = await readBuilderCmsContentEntries({
         model: source.sourceTable,
         fieldPaths: [field.sourceFieldKey],

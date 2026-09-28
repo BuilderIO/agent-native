@@ -2,6 +2,7 @@ import type { ActionRunContext } from "@agent-native/core/action";
 
 import { getDb } from "../db/index.js";
 import {
+  canonicalSeedLeafName,
   inferAutomationSource,
   type FactoryAutomationSource,
 } from "./factory-automation-config.js";
@@ -46,6 +47,15 @@ function sourceAllowsRole(
     return source === "slack" || source === "sentry" || source === "github";
   }
   return source === "github";
+}
+
+function leafMatchesGovernedName(
+  leafName: string,
+  names: ReadonlySet<string>,
+): boolean {
+  if (names.has(leafName)) return true;
+  const canonical = canonicalSeedLeafName(leafName);
+  return canonical != null && names.has(canonical);
 }
 
 function governedAutomationError(
@@ -109,7 +119,7 @@ export async function requireFactoryAutomation(
     definition.resource.content,
   );
   if (
-    !FACTORY_AUTOMATION_NAMES[role].has(leafName) &&
+    !leafMatchesGovernedName(leafName, FACTORY_AUTOMATION_NAMES[role]) &&
     !sourceAllowsRole(role, source)
   ) {
     throw governedAutomationError(role, lineage.triggerName, "role");

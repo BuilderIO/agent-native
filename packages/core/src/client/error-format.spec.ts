@@ -19,10 +19,13 @@ function interpolate(
     "agentChat.errorMessages.providerAuthentication":
       "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
     "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.creditsLimitReached":
+      "Du hast dein KI-Credit-Limit erreicht.",
     "agentChat.errorMessages.openBuilderSpaceSettings":
       "Builder-Space-Einstellungen öffnen",
     "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
-    "agentChat.errorMessages.upgradeAtBuilder": "Upgrade bei Builder.io",
+    "agentChat.errorMessages.addCreditsInBuilder":
+      "Credits bei Builder hinzufügen",
   };
   return (messages[key] ?? String(options.defaultValue ?? key)).replace(
     /{{\s*(\w+)\s*}}/g,
@@ -54,15 +57,28 @@ describe("formatChatErrorText", () => {
     ).toContain(`[Open Builder space settings](${BUILDER_SPACE_SETTINGS_URL})`);
   });
 
-  it("keeps quota errors on the billing CTA", () => {
+  it("shows quota copy and an upgrade CTA without error language", () => {
+    const text = formatChatErrorText(
+      "Monthly credits limit reached.",
+      agentNativeUpgradeUrl,
+      "credits-limit-monthly",
+    );
+
+    expect(text).toBe(
+      `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
+    );
+    expect(text).not.toMatch(/error|!/i);
+  });
+
+  it("treats a bare HTTP 402 as a credit limit", () => {
     expect(
       formatChatErrorText(
-        "Monthly credits limit reached.",
+        "Payment Required",
         agentNativeUpgradeUrl,
-        "credits-limit-monthly",
+        "http_402",
       ),
     ).toBe(
-      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
+      `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
     );
   });
 
@@ -74,9 +90,7 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    // The CTA is the only suffix — no Upgrade-at-Builder CTA on this error
-    // code, since it's not a quota/billing problem.
-    expect(text).not.toContain("[Upgrade at builder.io]");
+    expect(text).not.toContain("[Add credits in Builder]");
   });
 
   it("adds a Start-new-chat CTA for context_length_exceeded errors", () => {
@@ -87,7 +101,7 @@ describe("formatChatErrorText", () => {
     );
     expect(text).toContain(`[Start new chat](${NEW_CHAT_ACTION_HREF})`);
     expect(text).toMatch(/^Error: /);
-    expect(text).not.toContain("[Upgrade at builder.io]");
+    expect(text).not.toContain("[Add credits in Builder]");
   });
 
   it("adds a Start-new-chat CTA for input_too_long errors", () => {
@@ -106,10 +120,6 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(
       'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
     );
-    // Copy must not promise auto-recovery or suggest switching models — the
-    // server already retried once and the client skips auto-continuation
-    // for this code, and the error is almost always upstream so a different
-    // model lands on the same wall.
     expect(normalized.message).not.toMatch(/recover automatically/i);
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
@@ -144,6 +154,18 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it("normalizes a bare-403 transient rejection instead of the credential-rejected copy", () => {
+    const normalized = normalizeChatError(
+      "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+      "provider_transient_rejection",
+    );
+    expect(normalized.message).toBe(
+      "The AI provider temporarily refused this request. This usually clears within a minute — retry.",
+    );
+    expect(normalized.message).not.toMatch(/rejected the credential/i);
+    expect(normalized.message).not.toContain("403");
+  });
+
   it("formats provider rate limits as a plain retryable user message", () => {
     expect(
       formatChatErrorText(
@@ -157,10 +179,6 @@ describe("formatChatErrorText", () => {
   });
 
   it("normalizes the gateway's email-verification block into something actionable", () => {
-    // Arrives as a bare gateway 403 with no upgradeUrl, so with no case here
-    // it fell through to the raw upstream sentence under a generic "The agent
-    // hit an error" headline with no retry — a dead end, and in production the
-    // largest single cause of chat turns ending without an answer.
     const raw =
       "At least one user in this space must verify their email before using AI.";
     const normalized = normalizeChatError(raw, "email_verification_required");
@@ -171,19 +189,12 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(raw);
   });
 
-  // The engine keeps the real reason on `errorCode` so the site owner can
-  // diagnose it, and this is the layer that turns a code back into copy. Every
-  // code below has a mapping here or in `formatChatErrorText`, so without the
-  // guard the render boundary undoes the server's rewrite and the visitor reads
-  // the owner instruction again — the guarantee has to hold HERE, not only at
-  // the engine that chose the message.
   describe("a message the server already chose for a visitor", () => {
     const ownerCodes = [
       "builder_auth_error",
       "builder_model_unauthorized",
       "email_verification_required",
       "provider_config_error",
-      "credits-limit-reached",
       "rate_limit_exceeded",
       "gateway_not_enabled",
       "too_many_concurrent_requests",
@@ -202,8 +213,6 @@ describe("formatChatErrorText", () => {
         expect(normalized).toStrictEqual({
           message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
         });
-        // No owner CTA either: a link to Builder space settings is an action
-        // only the owner of an org the visitor is not in can take.
         expect(
           formatChatErrorText(
             GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
@@ -213,6 +222,24 @@ describe("formatChatErrorText", () => {
         ).toBe(`Error: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`);
       });
     }
+
+    it("shows the safe quota recovery for a visitor", () => {
+      expect(
+        normalizeChatError(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          "credits-limit-monthly",
+        ),
+      ).toEqual({ message: "You've reached your AI credits limit." });
+      expect(
+        formatChatErrorText(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          agentNativeUpgradeUrl,
+          "credits-limit-monthly",
+        ),
+      ).toBe(
+        `You've reached your AI credits limit.\n\n[Add credits in Builder](${agentNativeUpgradeUrl})`,
+      );
+    });
 
     it("still maps the same codes for an owner-facing message", () => {
       expect(
@@ -255,6 +282,41 @@ describe("formatChatErrorText", () => {
     expect(formatChatErrorText("401 status code (no body)")).toBe(
       "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
     );
+  });
+
+  it("normalizes bare provider 403 failures without exposing no-body status text", () => {
+    const normalized = normalizeChatError("403 status code (no body)");
+
+    expect(normalized.message).toBe(
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+    expect(normalized.details).toBe("403 status code (no body)");
+    expect(normalized.message).not.toContain("no body");
+    expect(formatChatErrorText("403 status code (no body)")).toBe(
+      "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+  });
+
+  it("normalizes structured provider 403 failures", () => {
+    const normalized = normalizeChatError("Forbidden", "http_403");
+
+    expect(normalized.message).toBe(
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+    expect(normalized.details).toBe("Forbidden");
+    expect(formatChatErrorText("Forbidden", undefined, "http_403")).toBe(
+      "Error: The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+  });
+
+  it("normalizes provider 403 codes parsed from JSON payloads", () => {
+    const raw = '{"error":{"type":"http_403","message":"Forbidden"}}';
+    const normalized = normalizeChatError(raw);
+
+    expect(normalized.message).toBe(
+      "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
+    );
+    expect(normalized.details).toBe(raw);
   });
 
   it("normalizes the stored credential failure marker without an error code", () => {
@@ -328,6 +390,74 @@ describe("Builder gateway internal-error envelope", () => {
       ),
     ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
+
+  it("is recognized by its envelope on any accompanying code", () => {
+    const reported =
+      "Sorry, this was caused by an internal error. " +
+      "ERROR ID: 64e08217e3f547c1a20311ef7cfecacf";
+    const normalized = normalizeChatError(reported, "invalid_request");
+
+    expect(normalized.message).not.toContain("ERROR ID");
+    expect(normalized.message).toContain("model gateway");
+    expect(normalized.details).toBe(reported);
+  });
+
+  it("does not claim a gateway internal error for unrelated prose", () => {
+    const normalized = normalizeChatError(
+      "Sorry, this was caused by an internal error.",
+      "invalid_request",
+    );
+
+    expect(normalized.message).not.toContain("model gateway");
+  });
+});
+
+describe("malformed provider request", () => {
+  it("names the attachment when a file part is rejected", () => {
+    const raw =
+      "Invalid 'input[0].content[1].file_url': string too long. " +
+      "Expected a string with maximum length 1048576, but got a string with length 3145728 instead.";
+    const normalized = normalizeChatError(raw, "invalid_request");
+
+    expect(normalized.message).not.toBe(raw);
+    expect(normalized.message.toLowerCase()).toContain("attached file");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("names the attachment when a media type is rejected", () => {
+    const raw =
+      "Invalid MIME type. Expected one of application/pdf, but got application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    expect(normalized.message.toLowerCase()).toContain("attached file");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("falls back to a generic malformed-request line without an attachment hint", () => {
+    const raw = "messages: final assistant content cannot end with whitespace";
+    const normalized = normalizeChatError(raw, "invalid_request");
+
+    expect(normalized.message).not.toBe(raw);
+    expect(normalized.message.toLowerCase()).not.toContain("attached file");
+    expect(normalized.message.toLowerCase()).toContain("rejected");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("keeps the visitor-rewritten message opaque", () => {
+    expect(
+      normalizeChatError(
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        "invalid_request",
+      ),
+    ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+  });
+
+  it("leaves a context-overflow invalid_request to the overflow lane", () => {
+    const raw = "prompt is too long: 250000 tokens > 200000 maximum";
+    const normalized = normalizeChatError(raw, "invalid_request_error");
+
+    expect(normalized.message).toBe(raw);
+  });
 });
 
 describe("localizeKnownChatErrorText", () => {
@@ -360,9 +490,9 @@ describe("localizeKnownChatErrorText", () => {
       "Builder-Space-Einstellungen öffnen",
     ],
     [
-      "Upgrade at builder.io",
+      "Add credits in Builder",
       "https://builder.io/upgrade",
-      "Upgrade bei Builder.io",
+      "Credits bei Builder hinzufügen",
     ],
   ])("localizes the %s action label", (label, href, localizedLabel) => {
     expect(

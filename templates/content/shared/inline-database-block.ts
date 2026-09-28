@@ -40,7 +40,7 @@ export const inlineDatabaseBlockConfig: BlockSpec<InlineDatabaseData> =
     mdx: inlineDatabaseMdx,
     Read: ServerReadStub,
     placement: ["block"],
-    label: "Database",
+    label: "Collection",
     description:
-      "A live inline database reference embedded in a page body. Stores ids only; the database rows stay in the referenced database document.",
+      "A live inline collection reference embedded in a page body. Stores ids only; the collection rows stay in the referenced collection document.",
   });

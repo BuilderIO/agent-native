@@ -15,7 +15,11 @@ import {
 
 function createFakeWindow(
   startHref = "https://example.com/dispatch/apps",
-  opts: { lockReload?: boolean; userAgent?: string } = {},
+  opts: {
+    lockReload?: boolean;
+    userAgent?: string;
+    viteDevRecovery?: boolean;
+  } = {},
 ) {
   const documentListeners = new Map<string, EventListener[]>();
   const windowListeners = new Map<string, EventListener[]>();
@@ -24,6 +28,9 @@ function createFakeWindow(
     href: startHref,
     get origin() {
       return new URL(fakeLocation.href).origin;
+    },
+    get hostname() {
+      return new URL(fakeLocation.href).hostname;
     },
     assign: vi.fn((href: string) => {
       fakeLocation.href = href;
@@ -89,6 +96,9 @@ function createFakeWindow(
         listener,
       ]);
     }),
+    ...(opts.viteDevRecovery
+      ? { __agentNativeViteDevRecoveryInstalled: true }
+      : {}),
   } as unknown as Window;
 
   return {
@@ -135,6 +145,23 @@ describe("route chunk recovery", () => {
       ),
     ).toBe(true);
     expect(isDynamicImportFailureMessage("plain network error")).toBe(false);
+  });
+
+  it("recovers local route failures without a transformed module env", () => {
+    const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
+      "http://127.0.0.1:9327/chat/chat-new",
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    fakeWindow.location.reload();
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "http://127.0.0.1:9327/chat/chat-new",
+    );
+    expect(originalReload).not.toHaveBeenCalled();
   });
 
   it("keeps a fresh intended navigation target for recovery", () => {
@@ -267,11 +294,8 @@ describe("route chunk recovery", () => {
     );
     expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
 
-    // React Router calls location.reload() after logging the route-module
-    // failure. If our best-effort reload patch sticks, it must not reload the
-    // old page; if it cannot stick in a real browser, the href is already fixed.
     fakeLocation.reload();
-    expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
     expect(originalReload).not.toHaveBeenCalled();
   });
 
@@ -515,7 +539,7 @@ describe("route chunk recovery", () => {
     expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to the original reload when there is no fresh target", () => {
+  it("bounds same-route React Router reloads when there is no fresh target", () => {
     const { fakeWindow, fakeLocation, originalReload } = createFakeWindow();
 
     installRouteChunkRecovery(fakeWindow);
@@ -524,9 +548,16 @@ describe("route chunk recovery", () => {
       "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
     );
     fakeLocation.reload();
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
-    expect(originalReload).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
+    expect(originalReload).not.toHaveBeenCalled();
   });
 
   it("reloads the current page once for a stale chunk, then respects the cooldown", () => {
@@ -539,12 +570,9 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/apps",
     );
 
-    // Within the cooldown window: do not reload again, so genuinely
-    // unreachable assets surface to Sentry instead of thrashing.
     expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
 
-    // After the cooldown a later stale chunk can recover again.
     expect(reloadForStaleChunk(fakeWindow, 20_000)).toBe(true);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(2);
   });
@@ -568,6 +596,84 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/apps",
     );
     expect(preventDefault).toHaveBeenCalled();
+  });
+
+  it("leaves Vite dev dynamic import recovery to the Vite handler", () => {
+    const { fakeWindow, fakeLocation, dispatchWindow } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/node_modules/.vite/deps/react.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("reloads the current route for React Router failures in Vite dev", () => {
+    const { fakeWindow, fakeLocation, originalReload } = createFakeWindow(
+      "https://example.com/dispatch/apps",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/apps-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/apps-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/apps",
+    );
+    expect(originalReload).not.toHaveBeenCalled();
+  });
+
+  it("does not replay a stale navigation target for Vite route failures", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument } = createFakeWindow(
+      "https://example.com/home",
+      { viteDevRecovery: true },
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/chat/chat-new",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    fakeWindow.console.error(
+      "Error loading route module `/chat/assets/route.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/home",
+    );
   });
 
   it("recoverFromStaleChunkError only recovers dynamic import failures", () => {

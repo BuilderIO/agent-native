@@ -78,6 +78,23 @@ export default defineAction({
         .boolean()
         .optional()
         .describe("Whether the calendar UI hides Saturday and Sunday"),
+      numberOfDays: z
+        .number()
+        .int()
+        .min(1)
+        .max(31)
+        .optional()
+        .describe("Number of days shown by the week-style calendar view"),
+      showDeclinedEvents: z
+        .boolean()
+        .optional()
+        .describe(
+          "Whether events declined by the current account stay visible",
+        ),
+      showWeekNumbers: z
+        .boolean()
+        .optional()
+        .describe("Whether month view shows week numbers"),
     })
     .refine(
       (args) =>
@@ -152,6 +169,10 @@ export default defineAction({
       const next = normalizeCalendarViewPreferences({
         ...current,
         hideWeekends: args.hideWeekends ?? current.hideWeekends,
+        numberOfDays: args.numberOfDays ?? current.numberOfDays,
+        showDeclinedEvents:
+          args.showDeclinedEvents ?? current.showDeclinedEvents,
+        showWeekNumbers: args.showWeekNumbers ?? current.showWeekNumbers,
         ...(colorMode ? { colorMode } : {}),
         ...(isValidCalendarColor(args.singleColor)
           ? { singleColor: args.singleColor }

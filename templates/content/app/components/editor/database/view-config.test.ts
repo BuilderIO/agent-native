@@ -7,6 +7,14 @@ import {
 } from "./view-config";
 
 describe("database form view config", () => {
+  it("preserves view icons when normalizing and duplicating views", () => {
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const view = createDatabaseView("Launch", "launch", { icon });
+    const config = normalizeClientDatabaseViewConfig({ views: [view] });
+    expect(config.views[0].icon).toEqual(icon);
+    expect(duplicateDatabaseView(config, view.id).views[1].icon).toEqual(icon);
+  });
+
   it("normalizes form questions, removes duplicate keys, and preserves order", () => {
     const config = normalizeClientDatabaseViewConfig({
       activeViewId: "form",
@@ -106,5 +114,46 @@ describe("database form view config", () => {
     );
     expect(duplicated.views).toHaveLength(2);
     expect(duplicated.views[1].formQuestions).toEqual(form.formQuestions);
+  });
+
+  it("normalizes and duplicates table column presentation state", () => {
+    const table = createDatabaseView("Table", "table", {
+      wrapCells: false,
+      columnWrapOverrides: { name: true, status: false },
+      frozenThroughColumnId: null,
+    });
+    const duplicated = duplicateDatabaseView(
+      {
+        activeViewId: table.id,
+        views: [table],
+        sorts: [],
+        filters: [],
+        columnWidths: {},
+      },
+      table.id,
+    );
+    expect(duplicated.views[1]).toMatchObject({
+      columnWrapOverrides: { name: true, status: false },
+      frozenThroughColumnId: null,
+    });
+
+    const normalized = normalizeClientDatabaseViewConfig({
+      activeViewId: "table",
+      views: [
+        {
+          ...table,
+          columnWrapOverrides: {
+            name: true,
+            status: "invalid",
+          } as unknown as Record<string, boolean>,
+          frozenThroughColumnId: "",
+        },
+      ],
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+    });
+    expect(normalized.views[0]?.columnWrapOverrides).toEqual({ name: true });
+    expect(normalized.views[0]?.frozenThroughColumnId).toBeUndefined();
   });
 });

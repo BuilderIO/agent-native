@@ -108,6 +108,7 @@ import {
   integrationDispatchScopeValue,
   isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchEnabledForTask,
+  isIntegrationDurableDispatchExplicitlyDisabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
   forgetIntegrationMemory,
@@ -116,6 +117,10 @@ import {
   rememberForIntegrationScope,
 } from "./integration-memory.js";
 import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
+import {
+  setMountedChannels,
+  type MountedChannels,
+} from "./mounted-channels.js";
 import {
   retryStuckPendingTasks,
   startPendingTasksRetryJob,
@@ -209,9 +214,6 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-// Timer-driven sweep only — the atomic DB claim inside
-// processDueA2AContinuations already makes concurrent calls (this timer, the
-// opportunistic post-dispatch sweep, etc.) safe.
 let a2aContinuationJob: IntervalJobHandle | null = null;
 let a2aContinuationStartupTimer: ReturnType<typeof setTimeout> | null = null;
 const A2A_CONTINUATION_SWEEP_INTERVAL_MS = 60_000;
@@ -389,15 +391,6 @@ export function createBuiltInIntegrationAdapters(): PlatformAdapter[] {
   return BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ create }) => create());
 }
 
-/**
- * Narrow the adapter set to `integrations.platforms`, when a deployment
- * declares one.
- *
- * A configured name that matches no adapter throws instead of being ignored:
- * the whole point of the allow-list is that the operator knows which platforms
- * are live, and silently mounting a set nobody named — or mounting nothing
- * because of a typo — is the failure this switch is supposed to prevent.
- */
 export function applyConfiguredPlatformAllowList(
   adapters: PlatformAdapter[],
 ): PlatformAdapter[] {
@@ -439,9 +432,6 @@ type IntegrationCredentialContext = {
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
 
-// One decline reply per sender + decline reason per window: during a Slack
-// API outage every message would otherwise get another identical "try again"
-// reply. Short enough that a persistent condition still reminds the sender.
 const DECLINE_NOTICE_DEDUPE_TTL_MS = 5 * 60 * 1_000;
 const SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
 
@@ -811,17 +801,6 @@ function remoteCommandPushPayload(
   };
 }
 
-/**
- * Creates a Nitro plugin that mounts messaging platform integration webhook routes.
- *
- * Routes:
- *   POST   /_agent-native/integrations/:platform/webhook  — receive platform webhooks
- *   GET    /_agent-native/integrations/status              — all integrations status
- *   GET    /_agent-native/integrations/:platform/status    — single platform status
- *   POST   /_agent-native/integrations/:platform/enable    — enable integration
- *   POST   /_agent-native/integrations/:platform/disable   — disable integration
- *   POST   /_agent-native/integrations/:platform/setup     — platform-specific setup
- */
 export function createIntegrationsPlugin(
   options?: IntegrationsPluginOptions,
 ): NitroPluginDef {
@@ -848,19 +827,10 @@ export function createIntegrationsPlugin(
     }
 
     const model = options?.model;
-    // Read the API key at REQUEST time, not plugin-init time. On Netlify
-    // Lambda the plugin module loads in a context where env vars from the
-    // site's runtime config may not yet be populated, so capturing at
-    // init can leave us with an empty string forever. The getter
-    // re-resolves on every webhook so freshly-set secrets work without
-    // a redeploy.
     const getApiKey = () => options?.apiKey ?? "";
 
-    // Build the system prompt
     const baseSystemPrompt = options?.systemPrompt ?? INTEGRATION_SYSTEM_PROMPT;
 
-    // Resolve actions — auto-include call-agent so the integration agent can
-    // delegate to other A2A apps, matching the behavior of the agent-chat plugin.
     const localActions = options?.actions ?? {};
     let callAgentEntry: Record<string, unknown> = {};
     try {
@@ -880,12 +850,6 @@ export function createIntegrationsPlugin(
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
-    // Keep the app's own actions visible on the first request to the model;
-    // defer the framework additions merged in above (integration memory,
-    // call-agent) behind the tool-search entry `handleWebhook` /
-    // `startGoogleDocsPoller` attach to `actions`. The run loop's mid-run
-    // tool expansion still lets the model discover and call them after a
-    // search — see `filterInitialEngineTools` / `expandActiveTools`.
     const initialToolNames = Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
@@ -904,10 +868,9 @@ export function createIntegrationsPlugin(
         .then(operation)
         .finally(release);
     };
-    const createGoogleDocsPollerOptions = (event?: any) => {
+    const createGoogleDocsPollerOptions = (requestBaseUrl?: string) => {
       const configuredBaseUrl = getAppConfig().integrations.webhookBaseUrl;
-      const baseUrl =
-        configuredBaseUrl || (event ? getBaseUrl(event) : undefined);
+      const baseUrl = configuredBaseUrl || requestBaseUrl;
       const webhookUrl = baseUrl
         ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
         : undefined;
@@ -923,11 +886,82 @@ export function createIntegrationsPlugin(
       };
     };
 
-    // Routes mounted under a platform's own name rather than reached through
-    // the `/:platform/...` catch-all. The catch-all 404s a platform the
-    // allow-list dropped because it resolves an adapter first; these are
-    // registered by literal path, so they would outlive the platform they
-    // belong to unless the same allow-list gates the registration.
+    const channels: MountedChannels = {
+      adapters,
+      webhookUrl: (baseUrl, platform) => `${baseUrl}${P}/${platform}/webhook`,
+      async setEnabled(platform, enabled, { actorEmail, baseUrl }) {
+        await saveIntegrationConfig(
+          platform,
+          { enabled },
+          "default",
+          actorEmail,
+        );
+        if (platform !== "google-docs") return;
+        await runGoogleDocsPollerTransition(
+          enabled
+            ? () =>
+                startGoogleDocsPoller(createGoogleDocsPollerOptions(baseUrl))
+            : stopGoogleDocsPoller,
+        );
+      },
+      async registerWebhook(platform, baseUrl) {
+        if (platform !== "telegram") {
+          return { ok: true, message: "No setup required" };
+        }
+        const webhookUrl = channels.webhookUrl(baseUrl, "telegram");
+        const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
+        const webhookSecret = await resolveSecret("TELEGRAM_WEBHOOK_SECRET");
+        if (!token || !webhookSecret) {
+          return {
+            ok: false,
+            statusCode: 400,
+            error:
+              "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
+          };
+        }
+        try {
+          const res = await fetch(
+            `https://api.telegram.org/bot${token}/setWebhook`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                url: webhookUrl,
+                secret_token: webhookSecret,
+              }),
+            },
+          );
+          const body = await res.text();
+          type TelegramSetWebhookResponse = {
+            ok?: boolean;
+            description?: string;
+            [key: string]: unknown;
+          };
+          let data: TelegramSetWebhookResponse | null = null;
+          try {
+            const parsed = JSON.parse(body);
+            if (parsed && typeof parsed === "object") {
+              data = parsed as TelegramSetWebhookResponse;
+            }
+          } catch {
+            // Keep provider and proxy failures distinguishable from a successful setup.
+            data = null;
+          }
+          if (!res.ok || data?.ok !== true) {
+            return {
+              ok: false,
+              statusCode: 502,
+              error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+            };
+          }
+          return { ok: true, webhookUrl, result: data };
+        } catch (err: any) {
+          return { ok: false, statusCode: 500, error: err.message };
+        }
+      },
+    };
+    setMountedChannels(channels);
+
     const allowedPlatforms = getAppConfig().integrations.platforms;
     const mountForPlatform = (
       platform: string,
@@ -962,9 +996,6 @@ export function createIntegrationsPlugin(
         await insertPendingTask({
           id: taskId,
           platform: incoming.platform,
-          // System notices are auxiliary delivery work, not the user's agent
-          // run. Give each notice its own queue lane so a retrying notice cannot
-          // block the real message task for this Slack/Telegram thread.
           externalThreadId: noticeThreadId,
           payload: JSON.stringify(payload),
           ownerEmail: `integration@${incoming.platform}`,
@@ -1062,26 +1093,6 @@ export function createIntegrationsPlugin(
       return null;
     }
 
-    /**
-     * Gate destructive integration writes (enable/disable, setup,
-     * setIntegrationConfig…) behind an org-owner/admin check.
-     *
-     * `integration_configs` is keyed `(platform, config_key)` with no
-     * owner column in the PRIMARY KEY — so this row is effectively
-     * deployment-wide. Any signed-in user toggling /enable or /disable
-     * would otherwise affect every other user (a regular org member could
-     * disable Slack/email org-wide, write a malicious allowlist for
-     * inbound email, etc.). This check enforces that only owners and
-     * admins of the user's active org may mutate integration config.
-     *
-     * Solo / no-org sessions (i.e. ctx.orgId == null) are allowed — that's
-     * the local-dev / single-user case where there's no privilege gradient
-     * to enforce. The deployment is single-tenant by definition there.
-     *
-     * Returns an `{ ok: true }` on pass, or `{ ok: false, error }` with the
-     * status already set on the event. The error string lines up with the
-     * status code (401 → "unauthorized"; 403 → admin-required message).
-     */
     async function checkOrgAdmin(
       event: any,
     ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -1091,7 +1102,6 @@ export function createIntegrationsPlugin(
         return { ok: false, error: "unauthorized" };
       }
       const ctx = await getOrgContext(event).catch(() => null);
-      // Solo (no org membership) — single-tenant flow, allow.
       if (!ctx?.orgId) return { ok: true };
       if (ctx.role === "owner" || ctx.role === "admin") return { ok: true };
       setResponseStatus(event, 403);
@@ -1102,7 +1112,6 @@ export function createIntegrationsPlugin(
       };
     }
 
-    // ─── Status endpoint (all integrations) ───────────────────────
     h3.use(
       `${P}/status`,
       defineEventHandler(async (event) => {
@@ -1135,12 +1144,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Task queue status (observability) ───────────────────────
-    // GET /_agent-native/integrations/task-queue/status
-    // Returns counts + recent failures for the integration_pending_tasks
-    // queue. Requires a normal session — this exposes operational data, not
-    // platform secrets. If the queue table doesn't exist yet (no inbound
-    // webhook has been processed), returns zeroed stats rather than 500.
     h3.use(
       `${P}/task-queue/status`,
       defineEventHandler(async (event) => {
@@ -1159,11 +1162,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Remote relay endpoints ──────────────────────────────────
-    // These routes allow a signed-in browser session to enqueue work for a
-    // registered remote device, and the device to claim/complete that work
-    // using its one-time-issued bearer token. State lives entirely in SQL so
-    // long polling can safely degrade to short polling on serverless hosts.
     h3.use(
       `${P}/remote/register`,
       defineEventHandler(async (event) => {
@@ -1882,7 +1880,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Durable pending-task recovery sweep ─────────────────────
     h3.use(
       `${P}/retry-stuck-tasks`,
       defineEventHandler(async (event) => {
@@ -1914,11 +1911,6 @@ export function createIntegrationsPlugin(
         }
         const webhookBaseUrl = getBaseUrl(event);
         const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
-          // Portable (fire-and-forget) dispatch loses tasks whenever the
-          // self-dispatch POST dies with the container, and the in-process
-          // retry interval does not survive a serverless freeze. Sweeping only
-          // durable scopes left those deployments with no recovery at all, so
-          // the queue is swept regardless of dispatch mode.
           retryStuckPendingTasks({
             webhookBaseUrl,
             limit: 20,
@@ -1954,12 +1946,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Process pending task (cross-platform task queue) ────────
-    // POST /_agent-native/integrations/process-task
-    // Internal endpoint invoked from the public webhook handler through either
-    // the portable self-dispatch path or an acknowledged background handoff.
-    // Auth: HMAC bearer signed with A2A_SECRET.
-    // Each invocation runs the agent loop in a fresh function execution.
     h3.use(
       `${P}/process-task`,
       defineEventHandler(async (event) => {
@@ -2008,7 +1994,6 @@ export function createIntegrationsPlugin(
           }
         }
 
-        // Atomic claim: only one invocation gets to process this task
         const dispatchOutcome =
           body[AGENT_BACKGROUND_PROCESSOR_FIELD] ===
           AGENT_BACKGROUND_PROCESSOR_INTEGRATION
@@ -2060,6 +2045,18 @@ export function createIntegrationsPlugin(
           !durableCampaignEnabled &&
           !confirmedDeliveryProof
         ) {
+          if (
+            !isIntegrationDurableDispatchExplicitlyDisabledForTask({
+              platform: task.platform,
+              externalThreadId: task.externalThreadId,
+              platformContext: task.dispatchScope
+                ? { channelId: task.dispatchScope }
+                : undefined,
+            })
+          ) {
+            setResponseStatus(event, 202);
+            return { ok: true, paused: "durable-runtime-unavailable" };
+          }
           await failDisabledIntegrationCampaignTask(task.id);
           const nextTask = await getNextPendingTaskForThread(
             task.platform,
@@ -2555,10 +2552,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Process deferred A2A continuation ──────────────────────────
-    // POST /_agent-native/integrations/process-a2a-continuation
-    // Internal endpoint invoked when call-agent timed out inside an
-    // integration processor but the remote A2A task kept running.
     h3.use(
       `${P}/process-a2a-continuation`,
       defineEventHandler(async (event) => {
@@ -2617,7 +2610,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Slack native action controls ─────────────────────────────
     mountForPlatform(
       "slack",
       `${P}/slack/interactions`,
@@ -2631,9 +2623,6 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 404);
           return "ok";
         }
-        // handleVerification caches the exact raw form bytes even though the
-        // body is not JSON; verifyWebhook then validates Slack's HMAC before
-        // any action value is parsed.
         await adapter.handleVerification(event);
         if (!(await adapter.verifyWebhook(event))) {
           setResponseStatus(event, 401);
@@ -2721,7 +2710,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Managed integration installations ───────────────────────
     h3.use(
       `${P}/installations`,
       defineEventHandler(async (event) => {
@@ -2929,7 +2917,6 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Managed Slack OAuth ──────────────────────────────────────
     mountForPlatform(
       "slack",
       `${P}/slack/manifest`,
@@ -3154,33 +3141,19 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Per-platform catch-all ───────────────────────────────────
-    // Handles: webhook, status, enable, disable, setup for each platform
     h3.use(
       `${P}`,
       defineEventHandler(async (event) => {
         const method = getMethod(event);
-        // event.path is stripped to the remainder after the mount prefix
         const raw = (event.path || "/").split("?")[0].replace(/^\//, "");
         const parts = raw.split("/").filter(Boolean);
 
-        // Already handled by the dedicated /status route above
         if (parts[0] === "status" && parts.length === 1) return;
-        // Already handled by the dedicated /task-queue/status route above
         if (parts[0] === "task-queue") return;
-        // Already handled by the dedicated /remote/* routes above
         if (parts[0] === "remote") return;
-        // Already handled by the dedicated /process-task route above
         if (parts[0] === "process-task") return;
-        // Already handled by the signed durable recovery route above
         if (parts[0] === "retry-stuck-tasks") return;
-        // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
-        // These are framework-owned control-plane routes, not integration
-        // platforms. The dedicated handlers above normally return a response
-        // before this catch-all runs, but keeping them reserved here prevents
-        // an unexpected mount fall-through from turning a valid control-plane
-        // request into a misleading "Unknown platform" response.
         if (
           parts[0] === "installations" ||
           parts[0] === "scopes" ||
@@ -3192,7 +3165,7 @@ export function createIntegrationsPlugin(
         }
 
         const platform = parts[0];
-        const action = parts[1]; // webhook, status, enable, disable, setup
+        const action = parts[1];
 
         if (!platform) {
           setResponseStatus(event, 404);
@@ -3205,7 +3178,6 @@ export function createIntegrationsPlugin(
           return { error: `Unknown platform: ${platform}` };
         }
 
-        // Set params for handlers that read them
         if (event.context) {
           event.context.params = {
             ...event.context.params,
@@ -3213,7 +3185,6 @@ export function createIntegrationsPlugin(
           };
         }
 
-        // ─── GET /:platform/status ─────────────────────────────
         if (action === "status" && method === "GET") {
           const ctx = await requireSessionContext(event);
           if (!ctx) return { error: "unauthorized" };
@@ -3235,11 +3206,8 @@ export function createIntegrationsPlugin(
           return status;
         }
 
-        // ─── POST /:platform/webhook ───────────────────────────
-        if (action === "webhook" && method === "POST") {
-          // Google Drive push notifications are opaque "something changed"
-          // pings. Verify the native channel token before forcing a Drive pull.
-          if (platform === "google-docs") {
+        if (action === "webhook" && (method === "GET" || method === "POST")) {
+          if (platform === "google-docs" && method === "POST") {
             const verified = await verifyGoogleDocsPushNotification({
               channelId: getRequestHeader(event, "x-goog-channel-id"),
               channelToken: getRequestHeader(event, "x-goog-channel-token"),
@@ -3267,19 +3235,20 @@ export function createIntegrationsPlugin(
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
 
-          // Let the adapter cache the raw request and identify setup
-          // challenges, but never return a challenge response until the
-          // provider signature has been verified.
           const verification = await withCredentialContext(
             credentialContext,
             () => adapter.handleVerification(event),
           );
 
-          // Verify the webhook signature BEFORE parsing. We pre-parse the
-          // body here (so handleWebhook can skip its second readBody, which
-          // hangs on streaming providers), and that means handleWebhook's
-          // own verifyWebhook step is bypassed. Without this call anyone
-          // could POST a forged Slack/Telegram/email payload.
+          if (method === "GET") {
+            if (verification.handled) {
+              setResponseStatus(event, 200);
+              return verification.response ?? "ok";
+            }
+            setResponseStatus(event, 403);
+            return { error: "Invalid webhook verification challenge" };
+          }
+
           const isValid = await withCredentialContext(credentialContext, () =>
             adapter.verifyWebhook(event),
           );
@@ -3310,9 +3279,6 @@ export function createIntegrationsPlugin(
                 adapter.hydrateIncomingIdentity!(incoming!),
               );
             } catch (err) {
-              // Identity hydration is best-effort for platforms that have an
-              // app-specific resolver. Slack's default DM resolver below will
-              // still fail closed when the identity is absent or unverified.
               console.warn(
                 `[integrations] Could not hydrate ${platform} sender identity:`,
                 err instanceof Error ? err.message : err,
@@ -3332,11 +3298,6 @@ export function createIntegrationsPlugin(
                 () => resolveDefaultIntegrationExecutionContext(incoming!),
               );
             } catch (err) {
-              // The legacy owner-only resolver predates org-bound identities
-              // and must not turn a rejected Slack DM into an authenticated
-              // owner run. Custom resolveExecutionContext is checked above and
-              // skips this default ladder entirely so apps can fully own auth
-              // without framework membership checks or identity side effects.
               const declined =
                 err instanceof IntegrationIdentityDeclinedError ? err : null;
               if (declined) {
@@ -3427,14 +3388,8 @@ export function createIntegrationsPlugin(
                 setResponseStatus(event, 200);
                 return "ok";
               }
-              // The anonymous tier must never be silent. (1) The agent run
-              // can tell: the note rides the serialized `incoming` into the
-              // queued task and surfaces via <integration-context>.
               incoming.identityNote =
                 "Caller is an unlinked Slack workspace member running with organization-wide visibility only; personal or privately-shared data is not accessible. They can get personal access by having an admin add their Slack email to the organization (or by reconnecting Slack with the users:read.email scope).";
-              // (2) The sender gets a one-time heads-up through the same
-              // durable SQL queue as agent work. The self-dispatch is only a
-              // latency optimization; the retry sweep guarantees delivery.
               if (adapter.sendSystemNotice) {
                 const senderEmail =
                   typeof incoming.senderEmail === "string" &&
@@ -3490,9 +3445,6 @@ export function createIntegrationsPlugin(
           }
           const result = await handleWebhook(event, {
             adapter,
-            // The processor reloads scoped resources immediately before the
-            // agent run. Avoid doing that work on the acknowledgement path,
-            // where providers such as Discord enforce a 3-second deadline.
             systemPrompt: baseSystemPrompt,
             actions,
             initialToolNames,
@@ -3510,110 +3462,36 @@ export function createIntegrationsPlugin(
           return result.body;
         }
 
-        // ─── POST /:platform/enable ────────────────────────────
-        if (action === "enable" && method === "POST") {
-          const adminCheck = await checkOrgAdmin(event);
-          if (adminCheck.ok === false) return { error: adminCheck.error };
-          // Stamp the org-admin who toggled this so downstream code can
-          // tell who is responsible — useful for audit logs even though
-          // the row itself remains deployment-wide.
-          const session = await getSession(event).catch(() => null);
-          await saveIntegrationConfig(
-            platform,
-            { enabled: true },
-            "default",
-            session?.email,
-          );
-          if (platform === "google-docs") {
-            await runGoogleDocsPollerTransition(() =>
-              startGoogleDocsPoller(createGoogleDocsPollerOptions(event)),
-            );
-          }
-          return { ok: true, platform, enabled: true };
-        }
-
-        // ─── POST /:platform/disable ───────────────────────────
-        if (action === "disable" && method === "POST") {
+        // ─── POST /:platform/enable|disable ────────────────────
+        if (
+          (action === "enable" || action === "disable") &&
+          method === "POST"
+        ) {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
           const session = await getSession(event).catch(() => null);
-          await saveIntegrationConfig(
-            platform,
-            { enabled: false },
-            "default",
-            session?.email,
-          );
-          if (platform === "google-docs") {
-            await runGoogleDocsPollerTransition(stopGoogleDocsPoller);
-          }
-          return { ok: true, platform, enabled: false };
+          const enabled = action === "enable";
+          await channels.setEnabled(platform, enabled, {
+            actorEmail: session?.email,
+            baseUrl: getBaseUrl(event),
+          });
+          return { ok: true, platform, enabled };
         }
 
-        // ─── POST /:platform/setup ─────────────────────────────
         if (action === "setup" && method === "POST") {
           const adminCheck = await checkOrgAdmin(event);
           if (adminCheck.ok === false) return { error: adminCheck.error };
-          if (platform === "telegram") {
-            const baseUrl = getBaseUrl(event);
-            const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
-            const ctx = await requireSessionContext(event);
-            if (!ctx) return { error: "unauthorized" };
-            const token = await withCredentialContext(
-              toCredentialContext(ctx),
-              () => resolveSecret("TELEGRAM_BOT_TOKEN"),
-            );
-            const webhookSecret = await withCredentialContext(
-              toCredentialContext(ctx),
-              () => resolveSecret("TELEGRAM_WEBHOOK_SECRET"),
-            );
-            if (!token || !webhookSecret) {
-              setResponseStatus(event, 400);
-              return {
-                error:
-                  "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
-              };
-            }
-            try {
-              const res = await fetch(
-                `https://api.telegram.org/bot${token}/setWebhook`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    url: webhookUrl,
-                    secret_token: webhookSecret,
-                  }),
-                },
-              );
-              const body = await res.text();
-              type TelegramSetWebhookResponse = {
-                ok?: boolean;
-                description?: string;
-                [key: string]: unknown;
-              };
-              let data: TelegramSetWebhookResponse | null = null;
-              try {
-                const parsed = JSON.parse(body);
-                if (parsed && typeof parsed === "object") {
-                  data = parsed as TelegramSetWebhookResponse;
-                }
-              } catch {
-                // Keep provider and proxy failures distinguishable from a successful setup.
-                data = null;
-              }
-              if (!res.ok || data?.ok !== true) {
-                setResponseStatus(event, 502);
-                return {
-                  error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
-                };
-              }
-              return { ok: true, platform, webhookUrl, result: data };
-            } catch (err: any) {
-              setResponseStatus(event, 500);
-              return { error: err.message };
-            }
+          const ctx = await requireSessionContext(event);
+          if (!ctx) return { error: "unauthorized" };
+          const registration = await withCredentialContext(
+            toCredentialContext(ctx),
+            () => channels.registerWebhook(platform, getBaseUrl(event)),
+          );
+          if (registration.ok === false) {
+            setResponseStatus(event, registration.statusCode);
+            return { error: registration.error };
           }
-          return { ok: true, platform, message: "No setup required" };
+          return { platform, ...registration };
         }
 
         setResponseStatus(event, 404);
@@ -3621,21 +3499,11 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // Serverless functions mount the same Nitro app as the durable workers,
-    // but they are not a stable host for recurring integration jobs. Starting
-    // these timers in every cold-started instance multiplies recovery sweeps
-    // and pollers against the shared database; scheduled/background workers
-    // own this work on hosted deployments.
     if (
       !isInBackgroundFunctionRuntime() &&
       !isInIntegrationRecoveryRuntime() &&
       !isServerlessRuntime()
     ) {
-      // ─── Start pending-tasks retry sweeper ────────────────────────
-      // Sweeps the integration_pending_tasks queue every 60s and re-fires the
-      // processor for any tasks that got stuck (initial dispatch lost or
-      // processor killed mid-flight). No-ops gracefully if the queue table
-      // hasn't been created yet on this deployment.
       startPendingTasksRetryJob({
         webhookBaseUrl: getAppConfig().integrations.webhookBaseUrl,
       });
@@ -3643,15 +3511,8 @@ export function createIntegrationsPlugin(
       startRemoteCommandsRetryJob();
       startRemotePushDeliveryJob();
 
-      // ─── Start Google Docs poller/push ────────────────────────────
       if (adapterMap.has("google-docs")) {
-        // Defer startup slightly so the server is fully ready
         setTimeout(() => {
-          // We don't know the base URL at plugin init time — it depends on
-          // the incoming request. For push mode, the webhook URL needs to be
-          // resolved. We pass it as a special option; the poller will attempt
-          // to register a watch when the first request reveals the base URL,
-          // or use the WEBHOOK_BASE_URL env var if set.
           void runGoogleDocsPollerTransition(() =>
             startGoogleDocsPoller(createGoogleDocsPollerOptions()),
           );
@@ -3666,12 +3527,8 @@ export function createIntegrationsPlugin(
   };
 }
 
-/**
- * Default integrations plugin — auto-mounts all adapters.
- */
 export const defaultIntegrationsPlugin = createIntegrationsPlugin();
 
-/** Extract base URL from the request */
 function getBaseUrl(event: any): string {
   try {
     const headers = event.node?.req?.headers || event.headers || {};

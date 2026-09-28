@@ -1,3 +1,4 @@
+import { parseIconValue } from "@agent-native/core/icons";
 import {
   accessFilter,
   assertAccess,
@@ -48,6 +49,7 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
 import { chunks } from "./_batch-utils.js";
 import { readBlocksFieldIdentities } from "./_blocks-field-identity.js";
 import {
@@ -73,6 +75,28 @@ type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
 type DbClient = ReturnType<typeof getDb>;
+
+async function sourceManagedPropertyIdsForDatabase(
+  db: DbClient,
+  databaseId: string,
+) {
+  const fields = await db
+    .select({
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+      readOnly: schema.contentDatabaseSourceFields.readOnly,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .innerJoin(
+      schema.contentDatabaseSources,
+      eq(
+        schema.contentDatabaseSources.id,
+        schema.contentDatabaseSourceFields.sourceId,
+      ),
+    )
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+  return contentDatabaseSourceManagedPropertyIds(fields);
+}
 
 export function nanoid(size = 12): string {
   const chars =
@@ -220,12 +244,13 @@ export function parseDatabaseViewConfig(
   value: string | null | undefined,
 ): ContentDatabaseViewConfig {
   if (!value) return defaultDatabaseViewConfig();
+  let parsed: Partial<ContentDatabaseViewConfig>;
   try {
-    const parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
-    return normalizeDatabaseViewConfig(parsed);
+    parsed = JSON.parse(value) as Partial<ContentDatabaseViewConfig>;
   } catch {
     return defaultDatabaseViewConfig();
   }
+  return normalizeDatabaseViewConfig(parsed);
 }
 
 export function serializeDatabaseViewConfig(
@@ -236,8 +261,9 @@ export function serializeDatabaseViewConfig(
 
 export function defaultDatabaseViewConfig(
   type: ContentDatabaseView["type"] = "table",
+  values: Partial<Omit<ContentDatabaseView, "id" | "name" | "type">> = {},
 ): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView({}, type);
+  const view = defaultDatabaseView(values, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -312,6 +338,7 @@ function defaultDatabaseView(
                   ? "Form"
                   : "Table",
     type: type === "sidebar" ? "table" : type,
+    icon: values.icon ?? null,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -321,10 +348,17 @@ function defaultDatabaseView(
     endDatePropertyId: values.endDatePropertyId ?? null,
     hiddenPropertyIds: values.hiddenPropertyIds ?? [],
     propertyOrderIds: values.propertyOrderIds ?? [],
+    tableColumnOrderIds: values.tableColumnOrderIds ?? [],
     collapsedGroupIds: values.collapsedGroupIds ?? [],
     hideEmptyGroups: values.hideEmptyGroups === true,
     calculations: values.calculations ?? {},
     wrapCells: values.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(
+      values.columnWrapOverrides,
+    ),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      values.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
@@ -354,6 +388,10 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
           : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
+    icon:
+      view.icon === undefined || view.icon === null
+        ? null
+        : parseIconValue(view.icon),
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
     filters: Array.isArray(view.filters)
       ? view.filters.filter(isDatabaseFilter)
@@ -374,10 +412,15 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
         : null,
     hiddenPropertyIds: normalizeStringList(view.hiddenPropertyIds),
     propertyOrderIds: normalizeStringList(view.propertyOrderIds),
+    tableColumnOrderIds: normalizeStringList(view.tableColumnOrderIds),
     collapsedGroupIds: normalizeStringList(view.collapsedGroupIds),
     hideEmptyGroups: view.hideEmptyGroups === true,
     calculations: normalizeCalculations(view.calculations),
     wrapCells: view.wrapCells === true,
+    columnWrapOverrides: normalizeColumnWrapOverrides(view.columnWrapOverrides),
+    frozenThroughColumnId: normalizeFrozenThroughColumnId(
+      view.frozenThroughColumnId,
+    ),
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
     formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
@@ -433,6 +476,31 @@ function normalizeCalculations(value: unknown) {
       typeof entry[0] === "string" && isDatabaseColumnCalculation(entry[1]),
   );
   return Object.fromEntries(entries);
+}
+
+function normalizeColumnWrapOverrides(value: unknown) {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  const entries = Object.entries(value);
+  if (
+    entries.some(
+      ([columnId, wrap]) => columnId.length === 0 || typeof wrap !== "boolean",
+    )
+  ) {
+    throw new Error("Database column wrap overrides must be a boolean map.");
+  }
+  return Object.fromEntries(entries) as Record<string, boolean>;
+}
+
+function normalizeFrozenThroughColumnId(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(
+    "Database frozen-through column must be a non-empty column ID or null.",
+  );
 }
 
 function isDatabaseColumnCalculation(
@@ -517,10 +585,6 @@ export async function listPropertiesForDocument(
     options,
   );
   if (!database) return [];
-  // Read path: PURE read. Seeding the primary Blocks field happens at create
-  // time and via the one-time startup repair (repairUnseededBlocksFields) —
-  // never here. A viewer opening a shared/legacy row must not trigger writes on
-  // another owner's database.
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
   });
@@ -585,6 +649,10 @@ export async function listPropertiesForDatabase(
     .orderBy(asc(schema.documentPropertyDefinitions.position));
 
   if (definitions.length === 0) return [];
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const values = valueDocument
     ? await db
@@ -603,9 +671,6 @@ export async function listPropertiesForDatabase(
       ? await databaseRowNumbersByDocumentId(databaseId)
       : new Map<string, number>();
 
-  // Additional (non-primary) Blocks fields keep their content in their own
-  // store, keyed by (documentId, propertyId). Load this row's contents up front
-  // so each Blocks field resolves to its OWN independent content.
   const blockContentByPropertyId = valueDocument
     ? await blockFieldContentsForDocument(valueDocument.id)
     : new Map<string, string>();
@@ -654,9 +719,7 @@ export async function listPropertiesForDatabase(
             databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
           })
         : valueDocument && isBlocksPropertyType(type)
-          ? // Each Blocks field reads from exactly one place: the primary from
-            // the document body, additional fields from their own store.
-            resolveBlocksFieldValue({
+          ? resolveBlocksFieldValue({
               options,
               documentBody: valueDocument.content,
               blockFieldContent: blockContentByPropertyId.get(definition.id),
@@ -672,6 +735,7 @@ export async function listPropertiesForDatabase(
         name: definition.name,
         type,
         description: definition.description,
+        icon: definition.icon ? parseIconValue(definition.icon) : null,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
@@ -686,7 +750,8 @@ export async function listPropertiesForDatabase(
       editable:
         includeContainerDerivedValues &&
         !definition.systemRole &&
-        !isComputedPropertyType(type),
+        !isComputedPropertyType(type) &&
+        !sourceManagedPropertyIds.has(definition.id),
       ...(valueDocument && isBlocksPropertyType(type)
         ? {
             blocksField: blocksFieldIdentityById.get(
@@ -778,6 +843,10 @@ export async function listPropertiesForDatabaseDocuments(
     for (const document of valueDocuments) result.set(document.id, []);
     return result;
   }
+  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
+    db,
+    databaseId,
+  );
 
   const documentIds = valueDocuments.map((document) => document.id);
   const propertyIds = definitions.map((definition) => definition.id);
@@ -898,7 +967,8 @@ export async function listPropertiesForDatabaseDocuments(
         value,
         editable:
           !definition.systemRole &&
-          !isComputedPropertyType(propertyDefinition.type),
+          !isComputedPropertyType(propertyDefinition.type) &&
+          !sourceManagedPropertyIds.has(definition.id),
         ...(isBlocksPropertyType(propertyDefinition.type)
           ? {
               blocksField: blocksFieldIdentityById.get(
@@ -1127,17 +1197,6 @@ export function normalizedValueJson(
   return serializePropertyValue(normalizePropertyValue(type, value));
 }
 
-// --- Blocks fields ---------------------------------------------------------
-//
-// Storage model: the default/primary "Content" Blocks field is backed by
-// `documents.content`. Every ADDITIONAL Blocks field stores its content in its
-// own row in `document_block_field_contents`, keyed by (documentId,
-// propertyId). This guarantees independence — no two Blocks fields ever share
-// content.
-
-// Load all additional-Blocks-field contents for a single document, keyed by
-// propertyId. The primary field is intentionally absent here (its content lives
-// on the document itself).
 export async function blockFieldContentsForDocument(
   documentId: string,
 ): Promise<Map<string, string>> {
@@ -1169,11 +1228,6 @@ export async function readBlockFieldContent(
   return row?.content ?? "";
 }
 
-// Upsert the content for an additional (non-primary) Blocks field.
-//
-// Atomic insert-or-update on the UNIQUE (document_id, property_id) index — no
-// read-then-write window. Two concurrent first-saves can no longer race into a
-// duplicate-key throw: the loser falls through to the conflict UPDATE branch.
 export async function writeBlockFieldContent(args: {
   documentId: string;
   propertyId: string;
@@ -1202,7 +1256,6 @@ export async function writeBlockFieldContent(args: {
     });
 }
 
-// Write the primary Blocks field's content — i.e. the document body.
 export async function writePrimaryBlocksContent(args: {
   documentId: string;
   content: string;
@@ -1220,7 +1273,6 @@ export async function writePrimaryBlocksContent(args: {
     .where(eq(schema.documents.id, args.documentId));
 }
 
-// Fetch a single property definition scoped to a database (and owner).
 export async function getPropertyDefinitionForDatabase(args: {
   propertyId: string;
   databaseId: string;
@@ -1240,9 +1292,6 @@ export async function getPropertyDefinitionForDatabase(args: {
   return definition ?? null;
 }
 
-// How many Blocks-type property definitions a database has. Used to drive the
-// solo (chromeless) vs. multi (headers + collapsible) rendering decision and
-// the "only Blocks field" delete warning.
 export async function countBlocksFieldsForDatabase(
   databaseId: string,
 ): Promise<number> {
@@ -1256,9 +1305,6 @@ export async function countBlocksFieldsForDatabase(
   ).length;
 }
 
-// The id of a database's existing primary Blocks definition, if any. Used to
-// adopt a legacy primary created by the old read-path seeder rather than
-// creating a duplicate.
 async function findExistingPrimaryBlocksDefinition(
   databaseId: string,
   db: DbClient = getDb(),
@@ -1279,16 +1325,6 @@ async function findExistingPrimaryBlocksDefinition(
   return primary?.id ?? null;
 }
 
-// Seed the primary "Content" Blocks field for a database exactly ONCE.
-//
-// `content_databases.primary_blocks_property_id` is the single source of truth
-// and the concurrency guard. The deterministic primary definition is inserted
-// before the database row is marked seeded, so we never publish blocks_seeded=1
-// before the definition row exists. Two concurrent calls converge on the same
-// property id and the loser returns the already-claimed id.
-//
-// Returns the primary property id (existing or newly created). Never reseeds a
-// database whose primary was intentionally deleted (blocks_seeded=1, id NULL).
 export async function seedDefaultBlocksField(args: {
   databaseId: string;
   ownerEmail: string;
@@ -1298,16 +1334,8 @@ export async function seedDefaultBlocksField(args: {
 }): Promise<string | null> {
   const db = args.db ?? getDb();
 
-  // Deterministic id keyed to the database so concurrent claimants converge on
-  // the same value; the UNIQUE primary-key on definitions also rejects a
-  // duplicate insert if two callers somehow both attempt it.
   const id = `blocks_primary_${args.databaseId}`;
 
-  // Legacy adoption: a database seeded by the OLD read-path safety net already
-  // has a primary "Content" definition but a NULL column (if the v52 backfill
-  // somehow didn't run for it). Adopt that existing definition instead of
-  // creating a second primary — guarantees the invariant even off the migration
-  // path. The atomic UPDATE (column still NULL) makes this race-safe.
   const existingPrimary = await findExistingPrimaryBlocksDefinition(
     args.databaseId,
     db,

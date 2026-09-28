@@ -1,12 +1,16 @@
 import { getDbExec } from "../db/client.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
+  assertDelegatedPolicyId,
   buildJobResourceContent,
   isRecoveredFactoryJob,
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
+  patchJobFrontmatterFields,
+  replaceJobResourceBody,
   type JobFrontmatter,
+  type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { deleteAutomationRuns } from "../jobs/run-history.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
@@ -21,6 +25,10 @@ import {
   type Resource,
 } from "../resources/store.js";
 import {
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+import {
   deleteAutomationWebhookToken,
   readAutomationWebhookPath,
   saveAutomationWebhookToken,
@@ -32,7 +40,6 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
-/** Conservative default for new scheduled automations when no cadence is given. */
 export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
@@ -51,7 +58,6 @@ export interface AutomationDefinition {
   };
   body: string;
   canUpdate: boolean;
-  /** Returned only to an actor who can update the webhook automation. */
   webhookPath?: string;
 }
 
@@ -75,6 +81,7 @@ export interface DefineAutomationInput {
   domain?: string;
   delegatedPolicyId?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   executionHostId?: string;
   executionEngine?: string;
   executionCwd?: string;
@@ -94,6 +101,7 @@ export interface UpdateAutomationInput {
   schedule?: string;
   timezone?: string;
   model?: string | null;
+  reasoningEffort?: ReasoningEffort | null;
   executionHostId?: string | null;
   executionEngine?: string | null;
   executionCwd?: string | null;
@@ -229,12 +237,6 @@ async function mutationAccess(
   };
 }
 
-/**
- * Compatibility adapters may expose both explicit automations and legacy
- * scheduled jobs. Keep their mutation authorization on the same boundary as
- * the canonical service without forcing legacy resources through the explicit
- * automation classifier.
- */
 export async function canUpdateAutomationResource(
   actorInput: AutomationActor,
   resource: Resource,
@@ -253,12 +255,6 @@ export async function canUpdateAutomationResource(
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
-/**
- * Factory is a shared team workspace: any current org member may queue Run now
- * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
- * `domain` / `appId` stay on the same team-member exception.
- */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
@@ -428,12 +424,20 @@ export async function defineAutomation(
   if (input.timezone && !isValidTimezone(input.timezone)) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
-  // Resolve now and persist it: a schedule whose zone is implicit means
-  // something different the moment it is read on a differently-zoned host.
   const timezone =
     input.triggerType === "schedule"
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
       : undefined;
+
+  if (
+    input.reasoningEffort !== undefined &&
+    !isReasoningEffort(input.reasoningEffort)
+  ) {
+    throw httpError(
+      `Invalid reasoning effort "${input.reasoningEffort}".`,
+      400,
+    );
+  }
 
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const executionHostId = normalizeExecutionTarget(
@@ -475,6 +479,7 @@ export async function defineAutomation(
         ? nextOccurrence(schedule, undefined, timezone).toISOString()
         : undefined,
     model: input.model?.trim() || undefined,
+    reasoningEffort: input.reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
@@ -520,6 +525,7 @@ export async function updateAutomation(
     );
   }
   const { meta } = definition;
+  const fields: JobFrontmatterPatch = {};
   if (input.schedule !== undefined) {
     if (meta.triggerType !== "schedule") {
       throw httpError("Only scheduled automations have a cron schedule.", 400);
@@ -528,6 +534,7 @@ export async function updateAutomation(
       throw httpError(`Invalid cron expression "${input.schedule}".`, 400);
     }
     meta.schedule = input.schedule;
+    fields.schedule = input.schedule;
   }
   if (input.timezone !== undefined) {
     if (!isValidTimezone(input.timezone)) {
@@ -537,6 +544,7 @@ export async function updateAutomation(
       throw httpError("Only scheduled automations have a timezone.", 400);
     }
     meta.timezone = input.timezone;
+    fields.timezone = input.timezone;
   }
   if (input.schedule !== undefined || input.timezone !== undefined) {
     meta.nextRun = nextOccurrence(
@@ -544,9 +552,11 @@ export async function updateAutomation(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = meta.nextRun;
   }
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
+    fields.enabled = input.enabled;
     if (
       input.enabled &&
       meta.triggerType === "schedule" &&
@@ -557,16 +567,41 @@ export async function updateAutomation(
         undefined,
         meta.timezone,
       ).toISOString();
+      fields.nextRun = meta.nextRun;
     }
   }
   if (input.condition !== undefined) {
     meta.condition = input.condition?.trim() || undefined;
+    fields.condition = meta.condition;
   }
   if (input.delegatedPolicyId !== undefined) {
     meta.delegatedPolicyId = input.delegatedPolicyId?.trim() || undefined;
+    try {
+      assertDelegatedPolicyId(meta.delegatedPolicyId);
+    } catch (error) {
+      throw httpError(
+        error instanceof Error ? error.message : String(error),
+        400,
+      );
+    }
+    fields.delegatedPolicyId = meta.delegatedPolicyId;
   }
   if (input.model !== undefined) {
     meta.model = input.model?.trim() || undefined;
+    fields.model = meta.model;
+  }
+  if (input.reasoningEffort !== undefined) {
+    if (
+      input.reasoningEffort !== null &&
+      !isReasoningEffort(input.reasoningEffort)
+    ) {
+      throw httpError(
+        `Invalid reasoning effort "${input.reasoningEffort}".`,
+        400,
+      );
+    }
+    meta.reasoningEffort = input.reasoningEffort ?? undefined;
+    fields.reasoningEffort = meta.reasoningEffort;
   }
   if (input.executionHostId !== undefined) {
     if (input.executionHostId && meta.triggerType !== "schedule") {
@@ -580,6 +615,7 @@ export async function updateAutomation(
       "execution_host_id",
       { opaque: true },
     );
+    fields.executionHostId = meta.executionHostId;
   }
   if (input.executionEngine !== undefined) {
     meta.executionEngine = normalizeExecutionTarget(
@@ -587,27 +623,36 @@ export async function updateAutomation(
       "execution_engine",
       { opaque: true },
     );
+    fields.executionEngine = meta.executionEngine;
   }
   if (input.executionCwd !== undefined) {
     meta.executionCwd = normalizeExecutionTarget(
       input.executionCwd,
       "execution_cwd",
     );
+    fields.executionCwd = meta.executionCwd;
   }
   if (input.mcpTools !== undefined) {
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
+    fields.mcpTools = meta.mcpTools;
   }
   if (input.scope === "organization") {
     meta.orgId = organizationIdFromResourceOwner(definition.resource.owner)!;
     meta.runAs = "creator";
+    fields.orgId = meta.orgId;
+    fields.runAs = meta.runAs;
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
+  let content = patchJobFrontmatterFields(definition.resource.content, fields);
+  if (input.body !== undefined) {
+    content = replaceJobResourceBody(content, body);
+  }
   await resourcePut(
     definition.resource.owner,
     definition.resource.path,
-    buildJobResourceContent(meta, body),
+    content,
   );
   return { ...definition, meta, body };
 }
@@ -628,8 +673,6 @@ export async function deleteAutomation(
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
-  // Names are reusable, so leaving history behind would attach these runs to
-  // whatever automation is created under the same name next.
   await deleteAutomationRuns(definition.resource.owner, name);
 }
 
@@ -643,14 +686,6 @@ export type AutomationExecutionIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
   | { ok: false; reason: string };
 
-/**
- * Resolve the identity used by an explicit automation run.
- *
- * Organization automations are visible through their organization owner, but
- * always execute as their immutable creator. Event dispatchers must also
- * require EventMeta.owner to equal `eventOwner`; organization visibility does
- * not make an event organization-wide.
- */
 export async function resolveAutomationExecutionIdentity(
   resourceOwner: string,
   meta: JobFrontmatter,

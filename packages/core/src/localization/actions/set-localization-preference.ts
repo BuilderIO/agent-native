@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "../../action-ui.js";
 import { defineAction } from "../../action.js";
 import {
   getUserSetting,
@@ -8,6 +12,7 @@ import {
 import {
   LOCALIZATION_SETTING_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   normalizeLocalePreference,
   normalizeLocalizationPreference,
   normalizeTimezonePreference,
@@ -16,22 +21,27 @@ import {
 
 export default defineAction({
   description:
-    "Set the current user's interface language and scheduling timezone. Locale is 'system' or a supported BCP-47 locale; timezone is 'system' or an IANA zone such as America/New_York.",
+    "Set the current user's interface language and scheduling timezone. Locale is 'system' or a valid BCP-47 locale registered by the app; timezone is 'system' or an IANA zone such as America/New_York.",
   schema: z.object({
     locale: z
       .string()
-      .describe("Language preference: 'system' or a supported BCP-47 locale.")
+      .describe(
+        "Language preference: 'system' or a valid BCP-47 locale registered by the app.",
+      )
       .optional(),
     timezone: z
       .string()
       .describe("Scheduling timezone: 'system' or an IANA zone name.")
       .optional(),
   }),
-  run: async (args, ctx): Promise<ResolvedLocalizationPreference> => {
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
+  run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
 
-    // Each field is optional, so merge onto what is stored instead of
-    // writing a partial record that silently resets the other one.
     const current = normalizeLocalizationPreference(
       await getUserSetting(ctx.userEmail, LOCALIZATION_SETTING_KEY),
     );
@@ -41,7 +51,7 @@ export default defineAction({
       const parsed = normalizeLocalePreference(args.locale);
       if (!parsed) {
         throw new Error(
-          `Unsupported locale. Use system, ${SUPPORTED_LOCALES.join(", ")}.`,
+          `Unsupported locale. Use system or a valid BCP-47 locale such as ${SUPPORTED_LOCALES[0]}.`,
         );
       }
       locale = parsed;
@@ -50,8 +60,6 @@ export default defineAction({
     let timezone = current.timezone;
     if (args.timezone !== undefined) {
       const parsed = normalizeTimezonePreference(args.timezone);
-      // Normalizing an unusable zone to "system" would quietly schedule the
-      // user in the host zone, which is the failure this field exists to fix.
       if (parsed === "system" && args.timezone.trim() !== "system") {
         throw new Error(
           `Unknown timezone "${args.timezone}". Use system or an IANA zone such as America/New_York.`,
@@ -64,7 +72,36 @@ export default defineAction({
       locale,
       timezone,
     };
+    const localeChanged = locale !== current.locale;
+    const timezoneChanged = timezone !== current.timezone;
+    if (!localeChanged && !timezoneChanged) return value;
+
     await putUserSetting(ctx.userEmail, LOCALIZATION_SETTING_KEY, value);
-    return value;
+
+    const localeLabel =
+      locale === "system" ? locale : localeDisplayName(locale);
+    const timezoneLabel =
+      timezone === "system"
+        ? timezone
+        : (new Intl.DateTimeFormat(locale === "system" ? undefined : locale, {
+            timeZone: timezone,
+            timeZoneName: "long",
+          })
+            .formatToParts(new Date())
+            .find((part) => part.type === "timeZoneName")?.value ?? timezone);
+
+    return {
+      ...value,
+      change: {
+        verb: "updated",
+        kind: "preference",
+        title: [
+          ...(localeChanged ? [localeLabel] : []),
+          ...(timezoneChanged ? [timezoneLabel] : []),
+        ]
+          .join(" · ")
+          .slice(0, 180),
+      },
+    };
   },
 });

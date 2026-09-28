@@ -1,12 +1,3 @@
-/**
- * create-visual-recap: sourceUrl persistence.
- *
- * Verifies that:
- * 1. A valid http(s) sourceUrl is stored on the plan row when provided on
- *    create (new recap).
- * 2. A valid sourceUrl is stored when replacing an existing recap (planId path).
- * 3. An invalid (non-URL) sourceUrl is rejected before the plan is written.
- */
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -177,7 +168,7 @@ beforeAll(async () => {
     CREATE TABLE plan_comments (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, parent_comment_id TEXT, section_id TEXT, kind TEXT NOT NULL DEFAULT 'comment', status TEXT NOT NULL DEFAULT 'open', anchor TEXT, message TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT 'human', author_email TEXT, author_name TEXT, resolution_target TEXT, mentions_json TEXT, resolved_by TEXT, resolved_at TEXT, consumed_at TEXT, deleted_at TEXT, deleted_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE plan_events (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, type TEXT NOT NULL, message TEXT NOT NULL, payload TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL);
     CREATE TABLE plan_versions (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL DEFAULT 'local@localhost', plan_id TEXT NOT NULL, title TEXT NOT NULL, snapshot_json TEXT NOT NULL, change_label TEXT, created_by TEXT NOT NULL DEFAULT 'agent', created_at TEXT NOT NULL, chat_context TEXT, summary_status TEXT, summary_source TEXT, block_count INTEGER, section_count INTEGER, has_canvas BOOLEAN, has_prototype BOOLEAN, preview_text TEXT);
-    CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE plan_shares (id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer', created_by TEXT NOT NULL, created_at TEXT NOT NULL, notified_at TEXT);
     CREATE UNIQUE INDEX plans_recap_idempotency_key_unique_idx
       ON plans(owner_email, COALESCE(org_id, ''), recap_idempotency_key)
       WHERE kind = 'recap' AND recap_idempotency_key IS NOT NULL;
@@ -427,7 +418,6 @@ describe("create-visual-recap: sourceUrl", () => {
   });
 
   it("stores sourceUrl when replacing an existing recap (planId path)", async () => {
-    // Create a recap without a sourceUrl first.
     const first = await asOwner(() =>
       createVisualRecap.run({ mdx: MINIMAL_MDX, visibility: "org" }),
     );
@@ -435,7 +425,6 @@ describe("create-visual-recap: sourceUrl", () => {
     const before = await rawPlan(planId);
     expect(before?.sourceUrl).toBeNull();
 
-    // Replace with a sourceUrl.
     await asOwner(() =>
       createVisualRecap.run({
         planId,
@@ -484,9 +473,6 @@ describe("create-visual-recap: sourceUrl", () => {
     );
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toMatch(/empty wireframes[\s\S]*empty-before/i);
-    // Malformed source is a CLIENT error: it must surface as a 422 (so the
-    // action route echoes the real message and the recap publisher does not
-    // retry a deterministic authoring error), NOT a generic 500.
     expect(error.statusCode).toBe(422);
 
     // guard:allow-unscoped -- test-only assertion reads the isolated temp DB.

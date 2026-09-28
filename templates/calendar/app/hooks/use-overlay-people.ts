@@ -2,7 +2,7 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { getNextOverlayColor } from "@/lib/overlay-colors";
+import { OVERLAY_EVENTS_BATCH_KEY } from "@/hooks/use-events";
 
 const OVERLAY_PEOPLE_KEY = ["action", "get-overlay-people", undefined] as const;
 
@@ -10,35 +10,30 @@ export function useOverlayPeople() {
   return useActionQuery<OverlayPerson[]>("get-overlay-people");
 }
 
+function invalidateOverlayStatusQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-host-overlay-status"],
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["action", "get-overlay-reciprocity"],
+  });
+}
+
 export function useAddOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (person: { email: string; name?: string }) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
-        [];
-      if (current.some((p) => p.email === person.email)) return current;
-      const color = getNextOverlayColor(current);
-      const updated = [...current, { ...person, color }];
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
+    mutationFn: (person: { email: string; name?: string }) =>
+      callAction<OverlayPerson[]>("add-overlay-person", person, {
+        method: "PUT",
+      }),
     onSuccess: (data) => {
-      queryClient.setQueryData(
-        ["action", "get-overlay-people", undefined],
-        data,
-      );
+      queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
       void queryClient.invalidateQueries({
         queryKey: ["action", "list-events"],
       });
+      invalidateOverlayStatusQueries(queryClient);
     },
   });
 }
@@ -46,24 +41,12 @@ export function useAddOverlayPerson() {
 export function useUpdateOverlayPersonColor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ email, color }: { email: string; color: string }) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(["action", "get-overlay-people", undefined]) ??
-        [];
-      const updated = current.map((p) =>
-        p.email === email ? { ...p, color } : p,
-      );
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
+    mutationFn: ({ email, color }: { email: string; color: string }) =>
+      callAction<OverlayPerson[]>(
+        "update-overlay-person-color",
+        { email, color },
+        { method: "PUT" },
+      ),
     onMutate: async ({ email, color }) => {
       await queryClient.cancelQueries({ queryKey: OVERLAY_PEOPLE_KEY });
       const previousPeople =
@@ -80,10 +63,8 @@ export function useUpdateOverlayPersonColor() {
         queryClient.setQueryData(OVERLAY_PEOPLE_KEY, context.previousPeople);
       }
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({
-        queryKey: OVERLAY_PEOPLE_KEY,
-      });
+    onSuccess: (data) => {
+      queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
     },
   });
 }
@@ -91,32 +72,22 @@ export function useUpdateOverlayPersonColor() {
 export function useRemoveOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (email: string) => {
-      const current: OverlayPerson[] =
-        queryClient.getQueryData(OVERLAY_PEOPLE_KEY) ?? [];
-      const updated = current.filter((p) => p.email !== email);
-      try {
-        await callAction<OverlayPerson[]>(
-          "update-overlay-people",
-          { people: updated },
-          { method: "PUT" },
-        );
-      } catch {
-        throw new Error("Failed to save");
-      }
-      return updated;
-    },
-    // Removal is instant. Dropping a person changes the events query key
-    // (overlayEmails), so the calendar shows the previous range's data as a
-    // placeholder while it refetches — we strip this person's events out of
-    // every cached range up front so they vanish immediately instead of
-    // lingering until the refetch lands. The user's own events stay put.
+    mutationFn: (email: string) =>
+      callAction<OverlayPerson[]>(
+        "remove-overlay-person",
+        { email },
+        { method: "PUT" },
+      ),
     onMutate: async (email: string) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
+      await queryClient.cancelQueries({ queryKey: OVERLAY_EVENTS_BATCH_KEY });
       const previousPeople =
         queryClient.getQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY);
       const previousEvents = queryClient.getQueriesData<CalendarEvent[]>({
         queryKey: ["action", "list-events"],
+      });
+      const previousBatchEvents = queryClient.getQueriesData<CalendarEvent[]>({
+        queryKey: OVERLAY_EVENTS_BATCH_KEY,
       });
 
       queryClient.setQueryData<OverlayPerson[]>(OVERLAY_PEOPLE_KEY, (old) =>
@@ -126,14 +97,21 @@ export function useRemoveOverlayPerson() {
         { queryKey: ["action", "list-events"] },
         (old) => old?.filter((e) => e.overlayEmail !== email),
       );
+      queryClient.setQueriesData<CalendarEvent[]>(
+        { queryKey: OVERLAY_EVENTS_BATCH_KEY },
+        (old) => old?.filter((e) => e.overlayEmail !== email),
+      );
 
-      return { previousPeople, previousEvents };
+      return { previousPeople, previousEvents, previousBatchEvents };
     },
     onError: (_err, _email, context) => {
       const ctx = context as
         | {
             previousPeople?: OverlayPerson[];
             previousEvents?: Array<
+              [readonly unknown[], CalendarEvent[] | undefined]
+            >;
+            previousBatchEvents?: Array<
               [readonly unknown[], CalendarEvent[] | undefined]
             >;
           }
@@ -146,9 +124,15 @@ export function useRemoveOverlayPerson() {
           queryClient.setQueryData(key, data);
         }
       }
+      if (ctx?.previousBatchEvents) {
+        for (const [key, data] of ctx.previousBatchEvents) {
+          queryClient.setQueryData(key, data);
+        }
+      }
     },
     onSuccess: (data) => {
       queryClient.setQueryData(OVERLAY_PEOPLE_KEY, data);
+      invalidateOverlayStatusQueries(queryClient);
     },
   });
 }

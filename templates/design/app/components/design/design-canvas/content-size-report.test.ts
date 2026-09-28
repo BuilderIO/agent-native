@@ -13,7 +13,6 @@ describe("appendContentSizeReporter", () => {
     );
     expect(out).toContain("data-agent-native-content-size-bridge");
     expect(out).toContain(CONTENT_SIZE_REPORT_MESSAGE_TYPE);
-    // Injected before the body closes so the script actually runs.
     expect(out.indexOf("content-size-bridge")).toBeLessThan(
       out.indexOf("</body>"),
     );
@@ -40,6 +39,24 @@ describe("appendContentSizeReporter", () => {
     expect(out).toContain("window.innerWidth");
     expect(out).toContain("window.innerHeight");
     expect(out).toContain("scrollHeight");
+  });
+
+  it("only measures natural body content for an explicit Hug screen", () => {
+    const out = appendContentSizeReporter(
+      "<html><body><main>x</main></body></html>",
+    );
+    expect(out).toContain("var measurement = measure(usesNaturalHeight());");
+    expect(out).toContain("function measure(includeNaturalHeight)");
+    expect(out).toContain(
+      "naturalHeight: includeNaturalHeight ? naturalMeasure() : null,",
+    );
+    expect(out).toContain("naturalHeight: naturalHeight");
+    expect(out).toContain('meta[data-agent-native-screen-height-mode="hug"]');
+    expect(out).toContain("Math.max(body.scrollHeight, body.offsetHeight)");
+    expect(out).toContain('body.querySelectorAll("*")');
+    expect(out).toContain(
+      "window.__agentNativeMeasureNaturalHeight = function ()",
+    );
   });
 
   it("stops viewport-relative content from chasing a growing iframe", () => {
@@ -79,20 +96,29 @@ describe("appendContentSizeReporter", () => {
     expect(next.acceptedHeight).toBe(1320);
   });
 
-  // Regression: html already carries earlier bridge scripts (e.g. editor-chrome's
-  // compiled escapeIdent helper contains a literal "$&") by the time this runs.
-  // A string second argument to String.replace treats "$&", "$'", "$`" as
-  // special substitution patterns instead of literal text, splicing the
-  // matched "</body>" into the middle of that prior script and truncating its
-  // <script> tag early — which silently killed selection/hover for every
-  // embedded screen. The reporter must insert its own text verbatim.
   it("does not treat $-patterns in preceding script content as replacement directives", () => {
     const priorScript = '<script>var re = "\\\\$&-$\'-$`";</script>';
     const out = appendContentSizeReporter(
       `<html><body>${priorScript}</body></html>`,
     );
     expect(out).toContain(priorScript);
-    // Only one real </body> should remain — none minted mid-script.
     expect(out.match(/<\/body>/g)?.length).toBe(1);
+  });
+
+  it("does not schedule a measurement for mutations confined to editor chrome", () => {
+    const out = appendContentSizeReporter("<body></body>");
+    expect(out).toContain("function touchesAuthoredContent(records)");
+    expect(out).toContain("if (isChromeNode(record.target)) continue;");
+    expect(out).toContain("if (!touchesAuthoredContent(records)) return;");
+    const chromeSelector = '"[data-agent-native-edit-overlay]"';
+    expect(out).toContain(`el.closest(${chromeSelector})`);
+    expect(out).toContain(`document.querySelectorAll(${chromeSelector})`);
+  });
+
+  it("treats a childList record as chrome only when every changed node is chrome", () => {
+    const out = appendContentSizeReporter("<body></body>");
+    expect(out).toContain('record.type === "childList" &&');
+    expect(out).toContain("allChromeNodes(record.addedNodes) &&");
+    expect(out).toContain("allChromeNodes(record.removedNodes)");
   });
 });

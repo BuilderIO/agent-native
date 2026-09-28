@@ -1,4 +1,7 @@
-import { AgentNativeIcon } from "@agent-native/core/client/ui";
+import {
+  AppSidebarFooter,
+  AppSidebarHeader,
+} from "@agent-native/core/client/ui";
 import {
   IconChartBar,
   IconChevronDown,
@@ -7,12 +10,10 @@ import {
   IconLoader2,
   IconStar,
   IconPencil,
-  IconSettings,
   IconFilter,
   IconGripVertical,
   IconBook2,
   IconDatabase,
-  IconSearch,
   IconArchive,
   IconActivity,
   IconHeartbeat,
@@ -52,7 +53,7 @@ import {
   type DashboardVisibility,
   type DashboardVisibilityFilter,
 } from "@/lib/dashboard-visibility";
-import { cn, shortcutModifierLabel } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   dashboards,
   hideDashboard,
@@ -70,7 +71,6 @@ type SidebarDashboard = {
   resourceId?: string;
   visibility?: Visibility;
   ownerEmail?: string | null;
-  /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
 
@@ -99,10 +99,8 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -125,6 +123,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FilterTriggerIndicator } from "@/components/ui/filter-trigger";
 import {
   Popover,
   PopoverTrigger,
@@ -137,7 +136,6 @@ import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
-  TooltipProvider,
 } from "@/components/ui/tooltip";
 import {
   useDashboardViews,
@@ -191,10 +189,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
-const bottomItems = [
-  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-];
 
 function getStoredBooleanPreference(key: string): boolean | null {
   if (typeof window === "undefined") return null;
@@ -285,7 +279,6 @@ function applyOrder<T extends { id: string }>(
       idToItem.delete(id);
     }
   }
-  // Append any new items not in the saved order
   for (const item of idToItem.values()) {
     ordered.push(item);
   }
@@ -340,6 +333,7 @@ function SidebarSectionSettingsPopover({
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const viewFiltered = visibilityFilter !== "all" || showHidden === true;
   const segmentedItemClass =
     "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
@@ -349,10 +343,15 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              className={cn(
+                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100",
+                viewFiltered ? "text-foreground opacity-100" : "opacity-0",
+              )}
               aria-label={settingsLabel}
             >
-              <IconFilter className="h-3.5 w-3.5" />
+              <FilterTriggerIndicator active={viewFiltered}>
+                <IconFilter className="h-3.5 w-3.5" />
+              </FilterTriggerIndicator>
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -481,11 +480,7 @@ function SidebarSectionSettingsPopover({
   );
 }
 
-// --- Visibility types and helpers ---
-
 type Visibility = DashboardVisibility;
-
-// --- Shared sortable row (used by both dashboards and analyses) ---
 
 function SortableRow({
   id,
@@ -515,10 +510,7 @@ function SortableRow({
   onToggleFavorite: (key: string) => void;
   onDelete: () => Promise<void> | void;
   onRename: (name: string) => Promise<void> | void;
-  /** When provided, the menu shows Archive as the primary destructive action
-   *  and Delete becomes a confirm-gated "Delete permanently". */
   onArchive?: () => Promise<void> | void;
-  /** When provided, the menu shows a Hide item (and Unhide when `hidden`). */
   onHide?: () => Promise<void> | void;
   onUnhide?: () => Promise<void> | void;
   hidden?: boolean;
@@ -914,8 +906,6 @@ function SortableRow({
     </div>
   );
 }
-
-// --- Dashboard item: wraps SortableRow + renders dashboard-specific subviews ---
 
 function SortableDashboardItem({
   d,
@@ -1550,8 +1540,6 @@ function restoreQuerySnapshots<T>(
   }
 }
 
-// --- Sidebar ---
-
 export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -1642,7 +1630,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [dashboardOrderState, setDashboardOrderState] = useState(() =>
     typeof window === "undefined" ? [] : getDashboardOrder(),
   );
-  // Server-backed favorites
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
@@ -1735,11 +1722,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [isAskRoute, navigate, toggleAskOpen],
   );
 
-  // Fold per-source counters into sidebar list query keys so agent-driven
-  // create/rename/archive/delete shows up without a manual refresh. We
-  // Domain counters keep these lists targeted. Folding the generic `action`
-  // counter into the keys makes unrelated background work cancel and restart
-  // both sidebar reads.
   const dashboardsSync = useSettledSyncVersion(
     useChangeVersions(["dashboards"]),
   );
@@ -1774,8 +1756,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     placeholderData: (prev) => prev,
   });
 
-  // Only the active dashboard can display saved views in the sidebar, so avoid
-  // issuing one request per dashboard on every sidebar mount.
   const { views: activeDashboardViews } = useDashboardViews(
     activeDashboardId ?? undefined,
   );
@@ -1879,11 +1859,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [auth?.email, visibleDashboards, dashFilter],
   );
 
-  // Group dashboards that declare a parentId beneath their parent. Nesting is
-  // intentionally one level deep: a dashboard only nests when its parent is
-  // itself top-level. Orphans (parent missing/filtered out), self-references,
-  // cycles, and deeper descendants all fall back to top level so nothing is
-  // ever hidden.
   const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
     const byId = new Map(filteredDashboards.map((d) => [d.id, d]));
     const hasValidParent = (d: SidebarDashboard) =>
@@ -1928,11 +1903,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (dashboardListReady) dashboardListHasRendered.current = true;
   }, [dashboardListReady]);
 
-  // The flattened id order exactly as rendered (each parent immediately
-  // followed by its nested children). Drag reordering must use this so the
-  // arrayMove indices match what the user sees; the raw `visibleDashboards`
-  // order interleaves children at their sorted positions and would move the
-  // wrong rows once a dashboard is nested.
   const dashboardRenderOrderIds = useMemo(
     () =>
       topLevelDashboards.flatMap((d) => [
@@ -1955,9 +1925,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         setHiddenIds(getHiddenDashboards());
         return;
       }
-      // Optimistic: remove from the sidebar query cache immediately so the row
-      // disappears without waiting for the DELETE round-trip. Snapshot the
-      // prior value so we can roll back on failure.
       const activeKey = ["sql-dashboards-sidebar", dashboardScope] as const;
       const prevActive = getQuerySnapshots<SqlDashboardListItem[]>(
         queryClient,
@@ -1985,8 +1952,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     async (d: SidebarDashboard) => {
       if (d.source === "analysis") return;
       if (d.source === "static") {
-        // Static dashboards can only be hidden, not archived; route to delete
-        // (which calls hideDashboard for static items).
         hideDashboard(d.id);
         setHiddenIds(getHiddenDashboards());
         return;
@@ -2239,33 +2204,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       href: "/data-dictionary",
       active: location.pathname.startsWith("/data-dictionary"),
     },
-    {
-      icon: IconSettings,
-      label: t("navigation.settings"),
-      href: "/settings",
-      active: location.pathname === "/settings",
-    },
   ];
 
-  const footerSearch = (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-        >
-          <IconSearch className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()} K`,
-        })}
-      </TooltipContent>
-    </Tooltip>
-  );
   const footerCollapse = !mobile ? (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -2277,16 +2217,16 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               ? t("sidebar.expandSidebar")
               : t("sidebar.collapseSidebar")
           }
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+          className="flex size-9 shrink-0 items-center justify-center rounded-md bg-transparent text-primary hover:bg-accent/60 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {effectiveCollapsed ? (
-            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftExpand className="size-4 rtl:-scale-x-100" />
           ) : (
-            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+            <IconLayoutSidebarLeftCollapse className="size-4 rtl:-scale-x-100" />
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top">
+      <TooltipContent side="right">
         {effectiveCollapsed
           ? t("sidebar.expandSidebar")
           : t("sidebar.collapseSidebar")}
@@ -2297,7 +2237,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <FeedbackButton
       variant={effectiveCollapsed ? "icon" : "sidebar"}
       side="right"
-      className={effectiveCollapsed ? "h-8 w-8" : "min-w-0"}
     />
   );
 
@@ -2305,7 +2244,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
       style={
-        mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
+        mobile ? undefined : { width: effectiveCollapsed ? 56 : sidebarWidth }
       }
     >
       {!mobile && !effectiveCollapsed && (
@@ -2316,7 +2255,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            appId="analytics"
+            brandHref="/home"
+            collapsed={true}
+          />
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2326,14 +2271,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       to={item.href}
                       onClick={item.onClick}
                       aria-label={item.label}
-                      className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
-                        item.active
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
-                      )}
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className="size-4 text-primary" />
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">{item.label}</TooltipContent>
@@ -2341,48 +2280,44 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
-          <SidebarFooterActions
-            collapsed
+          <AppSidebarFooter
+            collapsed={true}
+            collapsible={false}
             feedback={footerFeedback}
-            search={footerSearch}
-            collapse={footerCollapse}
+            orgSwitcher={
+              <OrgSwitcher
+                compact
+                className="!size-9 !p-0 [&>svg]:!size-4 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"
+              />
+            }
+            footerExtras={
+              <>
+                <DevDatabaseLink />
+                {footerCollapse}
+              </>
+            }
           />
         </>
       ) : (
         <>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
-            <Link
-              to="/home"
-              className="flex min-w-0 flex-1 items-center gap-2 font-semibold"
-            >
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-[17px] w-[30px] shrink-0 text-sidebar-foreground"
-              />
-              <span className="text-lg font-bold tracking-tight">
-                {t("navigation.brand")}
-              </span>
-            </Link>
-          </div>
+          <AppSidebarHeader
+            brandName={t("navigation.brand")}
+            appId="analytics"
+            brandHref="/home"
+            collapsed={false}
+          />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
-            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3">
               {/* Ask section */}
-              <div className="order-1 group/section min-w-0 space-y-1">
-                <div
-                  className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
-                    isAskRoute
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
-                  )}
-                >
+              <div className="order-1 group/section min-w-0 space-y-0.5">
+                <div className="flex w-full min-w-0 items-center">
                   <Link
                     to="/ask"
                     onClick={handleAskClick}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-xs text-primary"
                   >
-                    <IconMessageCircle className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconMessageCircle className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.ask")}
                     </span>
                   </Link>
@@ -2421,88 +2356,98 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/sessions"
                 className={cn(
-                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-4 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/sessions")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconPlayerPlay className="h-4 w-4" />
-                {t("navigation.sessions")}
+                <IconPlayerPlay className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.sessions")}
+                </span>
               </Link>
 
               {/* Monitoring link */}
               <Link
                 to="/monitoring"
                 className={cn(
-                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-5 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/monitoring")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconHeartbeat className="h-4 w-4" />
-                {t("navigation.monitoring")}
+                <IconHeartbeat className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.monitoring")}
+                </span>
               </Link>
 
               {/* Agents link */}
               <Link
                 to="/agents"
                 className={cn(
-                  "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-6 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/agents")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconActivity className="h-4 w-4" />
-                {t("navigation.agents")}
+                <IconActivity className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.agents")}
+                </span>
               </Link>
 
               {/* Data Sources link */}
               <Link
                 to="/data-sources"
                 className={cn(
-                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-7 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname === "/data-sources"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconDatabase className="h-4 w-4" />
-                {t("navigation.dataSources")}
+                <IconDatabase className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataSources")}
+                </span>
               </Link>
 
               {/* Data Dictionary link */}
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/data-dictionary")
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
                 )}
               >
-                <IconBook2 className="h-4 w-4" />
-                {t("navigation.dataDictionary")}
+                <IconBook2 className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.dataDictionary")}
+                </span>
               </Link>
 
               {/* Dashboards section */}
-              <div className="order-2 group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-0.5">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
+                    "group flex w-full min-w-0 items-center rounded transition-colors",
                     isAdhocActive
-                      ? "text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-primary hover:bg-accent/60",
                   )}
                 >
                   <Link
                     to="/dashboards"
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-start"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-start text-xs text-primary"
                   >
-                    <IconChartBar className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">
+                    <IconChartBar className="size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-primary">
                       {t("navigation.dashboards")}
                     </span>
                   </Link>
@@ -2673,41 +2618,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium">
-              <nav className="flex min-w-0 flex-col gap-1 pb-1">
-                {bottomItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = location.pathname === item.href;
-                  return (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
-                        isActive
-                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                          : "text-muted-foreground hover:bg-sidebar-accent/50",
-                      )}
-                    >
-                      <Icon className="h-4 w-4" />
-                      <span className="truncate">{t(item.labelKey)}</span>
-                    </Link>
-                  );
-                })}
-              </nav>
-
-              <div className="space-y-2 pt-2">
-                <OrgSwitcher />
-                <DevDatabaseLink />
-                <TooltipProvider delayDuration={200}>
-                  <SidebarFooterActions
-                    feedback={footerFeedback}
-                    search={footerSearch}
-                    collapse={footerCollapse}
-                    className="px-0 py-0"
-                  />
-                </TooltipProvider>
-              </div>
+            <div className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3">
+              <AppSidebarFooter
+                collapsed={false}
+                collapsible={false}
+                feedback={footerFeedback}
+                className="space-y-1 px-2"
+                orgSwitcher={
+                  <OrgSwitcher className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary" />
+                }
+                footerExtras={
+                  <>
+                    <DevDatabaseLink />
+                    {footerCollapse}
+                  </>
+                }
+              />
             </div>
           </div>
         </>

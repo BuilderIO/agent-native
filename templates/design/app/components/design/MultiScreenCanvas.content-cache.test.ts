@@ -3,15 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   getCachedScreenContentNode,
+  getPreviewUrl,
   pruneResolvedMetadataCache,
   pruneScreenContentCache,
   resolveScreenMetadataCached,
 } from "./multi-screen/screen-content-cache";
 import type { FrameGeometry } from "./multi-screen/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeScreen(id: string, content: string) {
   return { id, filename: `${id}.html`, content };
@@ -40,9 +37,6 @@ function makeGeometry(overrides: Partial<FrameGeometry> = {}): FrameGeometry {
   return { x: 0, y: 0, width: 320, height: 640, ...overrides };
 }
 
-/** Fake renderScreenContent that returns a fresh (unique-identity) node per
- *  call and records its calls, so tests can assert both node identity reuse
- *  and that the underlying render was actually skipped on cache hits. */
 function makeRender() {
   const calls: unknown[][] = [];
   const render = (screen: unknown, metadata: unknown, geometry: unknown) => {
@@ -51,10 +45,6 @@ function makeRender() {
   };
   return { render, calls };
 }
-
-// ---------------------------------------------------------------------------
-// getCachedScreenContentNode (PF21 — screenContentById per-screen cache)
-// ---------------------------------------------------------------------------
 
 describe("getCachedScreenContentNode", () => {
   it("retains an evicted screen's cached node and prunes it only on deletion", () => {
@@ -71,8 +61,6 @@ describe("getCachedScreenContentNode", () => {
       render,
     );
 
-    // LRU eviction removes the mounted iframe, not this lightweight content
-    // descriptor. A revisit therefore reuses the identical React node.
     pruneScreenContentCache(cache, new Set(["s1"]));
     const revisited = getCachedScreenContentNode(
       cache,
@@ -189,7 +177,6 @@ describe("getCachedScreenContentNode", () => {
 
     expect(resized).not.toBe(first);
     expect(calls.length).toBe(2);
-    // And the new size is itself cached.
     const resizedAgain = getCachedScreenContentNode(
       cache,
       screen,
@@ -239,9 +226,6 @@ describe("getCachedScreenContentNode", () => {
       geometry,
       render,
     );
-    // Fresh-but-value-equal metadata object (resolveScreenMetadataCached
-    // normally guarantees a stable object, but the content cache must not
-    // depend on that) → still a hit.
     const equalMetadata = getCachedScreenContentNode(
       cache,
       screen,
@@ -252,7 +236,6 @@ describe("getCachedScreenContentNode", () => {
     expect(equalMetadata).toBe(first);
     expect(calls.length).toBe(1);
 
-    // A real metadata change (e.g. preview URL appears) → regenerate.
     const changedMetadata = getCachedScreenContentNode(
       cache,
       screen,
@@ -302,6 +285,45 @@ describe("getCachedScreenContentNode", () => {
     expect(b.calls.length).toBe(1);
   });
 
+  it("invalidates a cached node when a transient runtime request changes", () => {
+    const cache = new Map();
+    const { render, calls } = makeRender();
+    const screen = makeScreen("s1", "<html>a</html>");
+    const metadata = makeMetadata();
+    const geometry = makeGeometry();
+
+    const first = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+      { cacheKey: "insert:none" },
+    );
+    const afterRequest = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+      { cacheKey: "insert:42" },
+    );
+
+    expect(afterRequest).not.toBe(first);
+    expect(calls).toHaveLength(2);
+
+    const afterStableRequest = getCachedScreenContentNode(
+      cache,
+      screen,
+      metadata,
+      geometry,
+      render,
+      { cacheKey: "insert:42" },
+    );
+    expect(afterStableRequest).toBe(afterRequest);
+    expect(calls).toHaveLength(2);
+  });
+
   it("caches screens independently — one screen's change never touches siblings", () => {
     const cache = new Map();
     const { render, calls } = makeRender();
@@ -325,7 +347,6 @@ describe("getCachedScreenContentNode", () => {
     );
     expect(calls.length).toBe(2);
 
-    // Resize A only: B's cached node survives untouched.
     const nodeA2 = getCachedScreenContentNode(
       cache,
       screenA,
@@ -345,10 +366,6 @@ describe("getCachedScreenContentNode", () => {
     expect(calls.length).toBe(3);
   });
 });
-
-// ---------------------------------------------------------------------------
-// resolveScreenMetadataCached (PF20 — per-screen resolveScreenMetadata memo)
-// ---------------------------------------------------------------------------
 
 describe("resolveScreenMetadataCached", () => {
   it("returns the identical result object for unchanged inputs", () => {
@@ -391,17 +408,29 @@ describe("resolveScreenMetadataCached", () => {
     );
 
     expect(second).not.toBe(first);
-    // The recompute is real: localhost content flips the derived source.
     expect(first.source).toBe("inline");
     expect(second.source).toBe("localhost");
+  });
+
+  it("treats legacy imported screens as fixed-height overviews", () => {
+    const cache = new Map();
+    const screen = makeScreen("s1", "<html>imported</html>");
+    const metadata = resolveScreenMetadataCached(
+      cache,
+      screen,
+      { sourceType: "figma-import", width: 1440, height: 900 },
+      undefined,
+      "none",
+    );
+
+    expect(metadata.heightMode).toBe("fixed");
+    expect(metadata.heightPinned).toBe(true);
   });
 
   it("treats fresh-but-value-equal metadata inputs as cache hits", () => {
     const cache = new Map();
     const screen = makeScreen("s1", "<html>hello</html>");
 
-    // DesignEditor's getScreenMetadata-style callers build a fresh object
-    // literal per call — identity comparison alone would never hit.
     const first = resolveScreenMetadataCached(
       cache,
       screen,
@@ -500,7 +529,6 @@ describe("resolveScreenMetadataCached", () => {
 
     expect(mobile).not.toBe(none);
     expect(mobile.width).not.toBe(none.width);
-    // And the new device frame is itself cached.
     const mobileAgain = resolveScreenMetadataCached(
       cache,
       screen,
@@ -509,5 +537,20 @@ describe("resolveScreenMetadataCached", () => {
       "mobile",
     );
     expect(mobileAgain).toBe(mobile);
+  });
+});
+
+describe("getPreviewUrl", () => {
+  it("treats only a bare http(s) URL as a preview URL", () => {
+    expect(getPreviewUrl("  http://localhost:3000/route  ")).toBe(
+      "http://localhost:3000/route",
+    );
+    expect(
+      getPreviewUrl("<!doctype html><a href='http://localhost:3000'>x</a>"),
+    ).toBeUndefined();
+    expect(getPreviewUrl("http://localhost:3000/<div>glued</div>")).toBe(
+      undefined,
+    );
+    expect(getPreviewUrl("mailto:someone@example.com")).toBeUndefined();
   });
 });

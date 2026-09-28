@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import * as jose from "jose";
 
 import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { resolveVercelDeploymentProtectionHeaders } from "../server/deployment-protection.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
@@ -11,66 +12,42 @@ import {
 } from "../shared/test-traffic.js";
 import { canonicalA2AAudience } from "./audience.js";
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
+import { RemoteAgentCredentialRejectedError } from "./remote-agent-auth.js";
 import type {
   A2AApprovedAction,
   A2ACorrelationMetadata,
   A2ASourceContextReference,
   A2AReadOnlyActionResult,
   AgentCard,
+  A2AProtocolVersion,
+  Artifact,
   JsonRpcRequest,
   JsonRpcResponse,
   Message,
+  Part,
   Task,
 } from "./types.js";
-
-/**
- * A workspace serves every app from one gateway on loopback, so sibling A2A
- * targets are private addresses by construction and the SSRF guard cannot tell
- * them apart from an attack. Trust only origins this deployment configured for
- * itself — never a value that arrived on a request.
- */
-function workspacePrivateOrigins(): string[] {
-  const config = getAppConfig();
-  // No trimming or blank-dropping here: the config layer trims string values
-  // and `a2a.allowedOrigins` rejects empty entries, so the only thing left to
-  // drop is an unset optional.
-  const origins = [
-    config.workspace.gatewayUrl,
-    config.app.url,
-    ...config.a2a.allowedOrigins,
-  ].filter((value): value is string => value !== undefined);
-
-  // The gateway also hands each child the sibling manifest, and siblings are
-  // reached on their own loopback ports rather than through the gateway.
-  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      const apps = Array.isArray(parsed?.apps)
-        ? parsed.apps
-        : Array.isArray(parsed)
-          ? parsed
-          : [];
-      for (const app of apps) {
-        const url = app?.url ?? app?.origin ?? app?.baseUrl;
-        if (typeof url === "string" && url) origins.push(url);
-        const port = app?.port;
-        if (typeof port === "number" && Number.isFinite(port)) {
-          origins.push(`http://127.0.0.1:${port}`);
-        }
-      }
-    } catch {
-      // A malformed manifest must not disable the SSRF guard.
-    }
-  }
-  return origins;
-}
+import { workspacePrivateOrigins } from "./workspace-private-origins.js";
 
 const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_A2A_DISCOVERY_TIMEOUT_MS = 3_000;
 const MAX_A2A_RPC_ATTEMPTS = 3;
 const A2A_RPC_RETRY_BASE_MS = 100;
+const A2A_CARD_CACHE_TTL_MS = 30_000;
 export const MAX_A2A_CALLER_RESPONSE_CHARS = 32_768;
+
+interface AgentCardCacheEntry {
+  card: AgentCard;
+  expiresAt: number;
+}
+
+const agentCardCache = new Map<string, AgentCardCacheEntry>();
+const agentCardRequests = new Map<string, Promise<AgentCard>>();
+
+export function clearA2ACardCache(): void {
+  agentCardCache.clear();
+  agentCardRequests.clear();
+}
 
 export class A2ATaskTimeoutError extends Error {
   readonly taskId: string;
@@ -91,18 +68,85 @@ export class A2ATaskTimeoutError extends Error {
   }
 }
 
+export type A2AProtocolErrorCode =
+  | "a2a_invalid_json"
+  | "a2a_missing_jsonrpc"
+  | "a2a_invalid_jsonrpc"
+  | "a2a_no_jsonrpc_interface"
+  | "a2a_insecure_endpoint";
+
+export class A2AProtocolError extends Error {
+  readonly errorCode: A2AProtocolErrorCode;
+  readonly code: A2AProtocolErrorCode;
+  readonly url?: string;
+  readonly responseText?: string;
+
+  constructor(
+    message: string,
+    errorCode: A2AProtocolErrorCode,
+    options?: { url?: string; responseText?: string },
+  ) {
+    super(message);
+    this.name = "A2AProtocolError";
+    this.errorCode = errorCode;
+    this.code = errorCode;
+    this.url = options?.url;
+    this.responseText = options?.responseText;
+  }
+}
+
+export class A2AMissingJsonRpcResponseError extends A2AProtocolError {
+  constructor(url: string, responseText?: string) {
+    super(
+      `A2A response from ${url} is missing a JSON-RPC 2.0 envelope`,
+      "a2a_missing_jsonrpc",
+      { url, responseText },
+    );
+    this.name = "A2AMissingJsonRpcResponseError";
+  }
+}
+
+export class A2AJsonRpcResponseError extends A2AProtocolError {
+  constructor(
+    message: string,
+    options?: { url?: string; responseText?: string },
+  ) {
+    super(message, "a2a_invalid_jsonrpc", options);
+    this.name = "A2AJsonRpcResponseError";
+  }
+}
+
+export class A2ANoJsonRpcInterfaceError extends A2AProtocolError {
+  readonly interfaces: string[];
+
+  constructor(interfaces: string[]) {
+    const listed = interfaces.length > 0 ? interfaces.join(", ") : "none";
+    super(
+      `A2A v1.0 card has no JSON-RPC interface (found: ${listed})`,
+      "a2a_no_jsonrpc_interface",
+    );
+    this.name = "A2ANoJsonRpcInterfaceError";
+    this.interfaces = interfaces;
+  }
+}
+
+export class A2AInsecureEndpointError extends A2AProtocolError {
+  constructor(url: string) {
+    super(
+      `A2A credentialed requests require HTTPS (or loopback HTTP): ${url}`,
+      "a2a_insecure_endpoint",
+      { url },
+    );
+    this.name = "A2AInsecureEndpointError";
+  }
+}
+
 export type A2ATerminalTaskErrorState =
   | "failed"
   | "canceled"
   | "input-required"
   | "completed";
 
-/**
- * Preserves a receiver's terminal protocol state across the text-oriented
- * callAgent convenience boundary. Callers can distinguish a real answer from
- * failure, cancellation, approval/input, and an invalid empty completion
- * without parsing English prose.
- */
 export class A2ATaskTerminalError extends Error {
   readonly taskId: string;
   readonly state: A2ATerminalTaskErrorState;
@@ -129,7 +173,6 @@ export class A2ATaskTerminalError extends Error {
   }
 }
 
-/** Keep both the answer lead and artifact/source tail within caller context. */
 export function boundA2ACallerResponseText(value: string): string {
   if (value.length <= MAX_A2A_CALLER_RESPONSE_CHARS) return value;
   const marker =
@@ -139,15 +182,6 @@ export function boundA2ACallerResponseText(value: string): string {
   return value.slice(0, headChars) + marker + value.slice(-tailChars);
 }
 
-/**
- * Sign a JWT for A2A cross-app identity verification.
- *
- * Uses an org-level secret by default for direct org-secret workflows. Callers
- * that are doing ordinary hosted cross-app delegation can set
- * `preferGlobalSecret` so deployments with a shared A2A_SECRET don't depend on
- * every app database having an identical org row. The token contains the
- * caller's email as `sub`, so the receiving app can verify who's calling.
- */
 export async function signA2AToken(
   email: string,
   orgDomain?: string,
@@ -179,8 +213,6 @@ export async function signA2AToken(
 
   const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),
-    // `sub` / `org_domain` are spread AFTER extraClaims so a caller-supplied
-    // map can never override the verified identity claims.
     sub: email,
     ...(orgDomain ? { org_domain: orgDomain } : {}),
   })
@@ -198,14 +230,24 @@ export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
   return !!process.env.A2A_SECRET?.trim() || !orgSecret;
 }
 
+interface A2AEndpointCandidate {
+  url: string;
+  protocolVersion?: A2AProtocolVersion;
+  streaming?: boolean;
+  tenant?: string;
+}
+
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
   private apiKeyAttempts: Array<string | undefined>;
-  private endpointCandidates: string[] = [];
+  private endpointCandidates: A2AEndpointCandidate[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
   private transportHeaders?: Record<string, string>;
+  private cardUrl?: string;
+  private protocolVersion?: A2AProtocolVersion;
+  private streaming?: boolean;
 
   constructor(
     baseUrl: string,
@@ -214,14 +256,23 @@ export class A2AClient {
       requestTimeoutMs?: number;
       fallbackApiKeys?: string[];
       transportHeaders?: Record<string, string>;
+      cardUrl?: string;
+      agentCardUrl?: string;
+      protocolVersion?: A2AProtocolVersion;
+      a2aVersion?: A2AProtocolVersion;
     },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
     this.baseUrl = explicitEndpoint?.baseUrl ?? normalized;
+    this.protocolVersion = options?.protocolVersion ?? options?.a2aVersion;
     if (explicitEndpoint) {
-      this.endpointCandidates = [explicitEndpoint.endpointUrl];
-      this.endpointResolved = true;
+      this.endpointCandidates = [
+        {
+          url: explicitEndpoint.endpointUrl,
+          protocolVersion: this.protocolVersion,
+        },
+      ];
     }
     this.apiKey = apiKey;
     this.apiKeyAttempts = uniqueAuthTokens([
@@ -235,29 +286,41 @@ export class A2AClient {
         ? { [SYNTHETIC_TRAFFIC_HEADER]: SYNTHETIC_TRAFFIC_BETA_E2E }
         : {}),
     };
+    const configuredCardUrl = options?.cardUrl ?? options?.agentCardUrl;
+    this.cardUrl = configuredCardUrl
+      ? (normalizeUrl(configuredCardUrl, this.baseUrl) ?? configuredCardUrl)
+      : undefined;
+    this.endpointResolved = Boolean(explicitEndpoint && !this.cardUrl);
   }
 
-  /**
-   * Detect which A2A path the target agent uses.
-   * Agent-Native apps use /_agent-native/a2a, external agents may use /a2a.
-   */
   async resolveEndpoint(): Promise<void> {
     await this.ensureEndpointCandidates();
     if (this.endpointCandidates.length <= 1) return;
 
-    for (const endpoint of this.endpointCandidates) {
+    for (const candidate of this.endpointCandidates) {
+      const endpoint = candidate.url;
       try {
+        const headers = this.transportHeadersFor(endpoint);
         const res = await ssrfSafeFetch(
           endpoint,
-          { method: "OPTIONS" },
-          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+          {
+            method: "OPTIONS",
+            headers,
+          },
+          {
+            maxRedirects: 3,
+            allowedPrivateOrigins: workspacePrivateOrigins(),
+            ...(headers["x-vercel-protection-bypass"]
+              ? { followRedirects: false }
+              : {}),
+          },
         );
         if (res.status !== 404 && res.status !== 405) {
-          this.endpointCandidates = [endpoint];
+          this.endpointCandidates = [candidate];
           return;
         }
         if (res.status === 405) {
-          this.endpointCandidates = [endpoint];
+          this.endpointCandidates = [candidate];
           return;
         }
       } catch {
@@ -266,27 +329,33 @@ export class A2AClient {
     }
   }
 
-  /** Resolve the card-advertised endpoint without sending an RPC request. */
   async resolveEndpointUrl(timeoutMs?: number): Promise<string> {
     await this.ensureEndpointCandidates(timeoutMs);
-    const endpoint = this.endpointCandidates[0];
+    const endpoint = this.endpointCandidates[0]?.url;
     if (!endpoint) throw new Error("No A2A endpoint candidates available");
     return endpoint;
   }
 
-  /** Replace caller credentials without discarding resolved endpoint fallbacks. */
   setAuthentication(apiKey?: string, fallbackApiKeys: string[] = []): void {
     this.apiKey = apiKey;
     this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
   }
 
-  private headers(apiKey = this.apiKey): Record<string, string> {
+  private headers(
+    apiKey = this.apiKey,
+    targetUrl = this.baseUrl,
+    protocolVersion = this.protocolVersion,
+  ): Record<string, string> {
     const h: Record<string, string> = {
       "Content-Type": "application/json",
       ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
     };
     if (apiKey) {
       h["Authorization"] = `Bearer ${apiKey}`;
+    }
+    if (protocolVersion) {
+      h["A2A-Version"] = protocolVersion;
     }
     return h;
   }
@@ -304,12 +373,7 @@ export class A2AClient {
     params: Record<string, unknown>,
     options?: { requestTimeoutMs?: number; deadlineMs?: number },
   ): Promise<JsonRpcResponse> {
-    const body: JsonRpcRequest = {
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method,
-      params,
-    };
+    const requestId = Date.now();
 
     const discoveryTimeoutMs = resolveA2ADiscoveryTimeoutMs(
       options?.requestTimeoutMs ?? this.requestTimeoutMs,
@@ -318,7 +382,19 @@ export class A2AClient {
     await this.ensureEndpointCandidates(discoveryTimeoutMs);
     let lastError: Error | null = null;
 
-    for (const url of this.endpointCandidates) {
+    for (const candidate of this.endpointCandidates) {
+      const url = candidate.url;
+      const body: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: requestId,
+        method: a2aWireMethod(method, candidate.protocolVersion),
+        params: a2aWireParams(
+          method,
+          params,
+          candidate.protocolVersion,
+          candidate.tenant,
+        ),
+      };
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
         const maxAttempts = isRetrySafeA2ARpc(
           method,
@@ -346,6 +422,7 @@ export class A2AClient {
               body,
               this.apiKeyAttempts[i],
               requestTimeoutMs,
+              candidate.protocolVersion,
             );
           } catch (error) {
             lastError =
@@ -376,11 +453,12 @@ export class A2AClient {
               break;
             }
             try {
-              const parsed = JSON.parse(text) as JsonRpcResponse;
-              this.endpointCandidates = [url];
+              const parsed = parseJsonRpcResponse(text, url);
+              this.endpointCandidates = [candidate];
               this.markApiKeySucceeded(this.apiKeyAttempts[i]);
               return parsed;
             } catch (error) {
+              if (error instanceof A2AProtocolError) throw error;
               lastError = new Error(
                 `A2A response was not valid JSON: ${
                   error instanceof Error ? error.message : String(error)
@@ -399,6 +477,13 @@ export class A2AClient {
           }
 
           const text = await res.text();
+          if (res.status === 401 || res.status === 403) {
+            lastError = new RemoteAgentCredentialRejectedError({
+              status: res.status,
+            });
+            if (i < this.apiKeyAttempts.length - 1) break;
+            throw lastError;
+          }
           lastError = new Error(`A2A request failed (${res.status}): ${text}`);
           if (
             i < this.apiKeyAttempts.length - 1 &&
@@ -427,26 +512,71 @@ export class A2AClient {
 
   async getAgentCard(options?: {
     timeoutMs?: number;
-    /**
-     * Identity token for the card fetch. The anonymous card can only advertise
-     * publicly-safe actions, which is a disjoint set from what `actions/invoke`
-     * runs — so a sibling that discovers anonymously is told there is nothing
-     * callable. Pass a token to see the invocable set.
-     */
     token?: string;
+    cardUrl?: string;
   }): Promise<AgentCard> {
+    const cardUrl =
+      options?.cardUrl ??
+      this.cardUrl ??
+      `${this.baseUrl}/.well-known/agent-card.json`;
+    const cacheScope = options?.token
+      ? createHash("sha256")
+          .update(
+            `${getRequestContext()?.userEmail ?? ""}\u0000${getRequestContext()?.orgId ?? ""}\u0000${options.token}`,
+          )
+          .digest("hex")
+      : "anonymous";
+    const cacheKey = `${cardUrl}\u0000${cacheScope}`;
+    const cached = agentCardCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.card;
+    const inFlight = agentCardRequests.get(cacheKey);
+    if (inFlight) return inFlight;
+    const request = this.fetchAgentCard(cardUrl, options);
+    agentCardRequests.set(cacheKey, request);
+    try {
+      const card = await request;
+      agentCardCache.set(cacheKey, {
+        card,
+        expiresAt: Date.now() + A2A_CARD_CACHE_TTL_MS,
+      });
+      return card;
+    } finally {
+      agentCardRequests.delete(cacheKey);
+    }
+  }
+
+  private async fetchAgentCard(
+    cardUrl: string,
+    options?: { timeoutMs?: number; token?: string },
+  ): Promise<AgentCard> {
+    assertCredentialedA2AUrl(cardUrl, Boolean(options?.token));
+    const headers: Record<string, string> = {
+      ...this.transportHeadersFor(cardUrl),
+      ...(options?.token ? { Authorization: `Bearer ${options.token}` } : {}),
+      ...(this.protocolVersion ? { "A2A-Version": this.protocolVersion } : {}),
+    };
     const res = await ssrfSafeFetch(
-      `${this.baseUrl}/.well-known/agent-card.json`,
+      cardUrl,
       {
         ...(options?.timeoutMs
           ? { signal: AbortSignal.timeout(options.timeoutMs) }
           : {}),
-        ...(options?.token
-          ? { headers: { Authorization: `Bearer ${options.token}` } }
+        headers,
+      },
+      {
+        maxRedirects: options?.token ? 0 : 3,
+        allowedPrivateOrigins: workspacePrivateOrigins(),
+        ...(options?.token || headers["x-vercel-protection-bypass"]
+          ? { followRedirects: false }
           : {}),
       },
-      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
+    if ((res.status === 401 || res.status === 403) && options?.token) {
+      throw new RemoteAgentCredentialRejectedError({
+        status: res.status,
+        tokenUrl: cardUrl,
+      });
+    }
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
     }
@@ -460,18 +590,8 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Per-request transport cap, bounded by deadlineMs when both exist. */
       requestTimeoutMs?: number;
-      /** Absolute end-to-end deadline shared with async polling. */
       deadlineMs?: number;
-      /**
-       * If true, ask the server to return the task immediately in `working`
-       * state and process the handler in the background. The caller should
-       * then poll `getTask(taskId)` until `completed` / `failed` / `canceled`.
-       *
-       * Use this when you expect the handler may exceed a synchronous
-       * serverless request budget.
-       */
       async?: boolean;
     },
   ): Promise<Task> {
@@ -501,12 +621,9 @@ export class A2AClient {
       );
     }
 
-    return response.result as Task;
+    return normalizeA2ATaskResult(response.result, response.id);
   }
 
-  /**
-   * Poll for a task by id. Used in async mode after `send({ async: true })`.
-   */
   async getTask(
     taskId: string,
     opts?: { requestTimeoutMs?: number; deadlineMs?: number },
@@ -524,14 +641,9 @@ export class A2AClient {
         `A2A error (${response.error.code}): ${response.error.message}`,
       );
     }
-    return response.result as Task;
+    return normalizeA2ATaskResult(response.result, response.id);
   }
 
-  /**
-   * Execute one receiver-approved read-only action without starting the
-   * receiver's agent loop. The receiver still owns validation, credentials,
-   * request scoping, and the explicit action exposure decision.
-   */
   async invokeAction(
     action: string,
     input: Record<string, unknown> = {},
@@ -551,15 +663,6 @@ export class A2AClient {
     return response.result as A2AReadOnlyActionResult;
   }
 
-  /**
-   * Send a message in async mode and poll until the task reaches a terminal
-   * state. This is the recommended path on serverless hosts with short
-   * function timeouts (Netlify, Vercel) where a synchronous LLM-driven A2A
-   * call can exceed the gateway limit.
-   *
-   * Each individual fetch returns quickly; long-running work happens on the
-   * receiving side and is checked via `tasks/get`.
-   */
   async sendAndWait(
     message: Message,
     opts?: {
@@ -567,17 +670,9 @@ export class A2AClient {
       metadata?: Record<string, unknown>;
       idempotencyKey?: string;
       approvedActions?: A2AApprovedAction[];
-      /** Time to wait after submission for completion. Default 5 min. */
       timeoutMs?: number;
-      /**
-       * Optional separate budget for agent-card discovery and the initial
-       * async message submission. When omitted, timeoutMs remains the shared
-       * end-to-end deadline for backwards compatibility.
-       */
       submissionTimeoutMs?: number;
-      /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
-      /** Called with each polled task — useful for surfacing progress. */
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
@@ -609,19 +704,11 @@ export class A2AClient {
     });
   }
 
-  /**
-   * Continue waiting for an existing async task without submitting a second
-   * message. Use this after a bounded caller-side wait expires but the remote
-   * task is still working.
-   */
   async waitForTask(
     taskId: string,
     opts?: {
-      /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
-      /** Poll interval. Default 2s. */
       pollIntervalMs?: number;
-      /** Called with each successfully polled task. */
       onUpdate?: (task: Task) => void;
     },
   ): Promise<Task> {
@@ -690,29 +777,64 @@ export class A2AClient {
     message: Message,
     opts?: { contextId?: string; metadata?: Record<string, unknown> },
   ): AsyncGenerator<Task> {
-    const body: JsonRpcRequest = {
-      jsonrpc: "2.0",
-      id: Date.now(),
-      method: "message/stream",
-      params: {
-        message,
+    await this.ensureEndpointCandidates();
+    const params = {
+      message,
+      contextId: opts?.contextId,
+      metadata: opts?.metadata,
+    };
+    const preferredCandidate = this.endpointCandidates[0];
+    if (this.streaming === false || preferredCandidate?.streaming === false) {
+      yield await this.send(message, {
         contextId: opts?.contextId,
         metadata: opts?.metadata,
-      },
-    };
+      });
+      return;
+    }
 
-    await this.ensureEndpointCandidates();
+    const requestId = Date.now();
     let res: Response | null = null;
     let lastError: Error | null = null;
+    let selectedCandidate: A2AEndpointCandidate | undefined;
     for (const candidate of this.endpointCandidates) {
+      const body: JsonRpcRequest = {
+        jsonrpc: "2.0",
+        id: requestId,
+        method: a2aWireMethod("message/stream", candidate.protocolVersion),
+        params: a2aWireParams(
+          "message/stream",
+          params,
+          candidate.protocolVersion,
+          candidate.tenant,
+        ),
+      };
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
-        res = await this.postJson(candidate, body, this.apiKeyAttempts[i]);
+        try {
+          res = await this.postJson(
+            candidate.url,
+            body,
+            this.apiKeyAttempts[i],
+            this.requestTimeoutMs,
+            candidate.protocolVersion,
+          );
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          throw lastError;
+        }
         if (res.ok) {
           this.endpointCandidates = [candidate];
+          selectedCandidate = candidate;
           this.markApiKeySucceeded(this.apiKeyAttempts[i]);
           break;
         }
         const text = await res.text();
+        if (res.status === 401 || res.status === 403) {
+          lastError = new RemoteAgentCredentialRejectedError({
+            status: res.status,
+          });
+          if (i < this.apiKeyAttempts.length - 1) continue;
+          throw lastError;
+        }
         lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
         if (
           i < this.apiKeyAttempts.length - 1 &&
@@ -729,34 +851,100 @@ export class A2AClient {
       throw lastError ?? new Error("No A2A endpoint candidates available");
     }
 
+    const candidate = selectedCandidate ?? this.endpointCandidates[0];
+    const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.includes("application/json")) {
+      const text = await res.text();
+      let response: JsonRpcResponse;
+      try {
+        response = parseJsonRpcResponse(text, candidate?.url ?? "A2A endpoint");
+      } catch (error) {
+        if (isA2AStreamingUnsupportedError(error)) {
+          yield await this.send(message, {
+            contextId: opts?.contextId,
+            metadata: opts?.metadata,
+          });
+          return;
+        }
+        throw error;
+      }
+      if (response.error) {
+        if (isA2AStreamingUnsupportedError(response.error)) {
+          yield await this.send(message, {
+            contextId: opts?.contextId,
+            metadata: opts?.metadata,
+          });
+          return;
+        }
+        throw new Error(
+          `A2A error (${response.error.code}): ${response.error.message}`,
+        );
+      }
+      yield normalizeA2ATaskResult(response.result, response.id);
+      return;
+    }
+
     const reader = res.body?.getReader();
-    if (!reader) throw new Error("No response body");
+    if (!reader) {
+      throw new Error("A2A stream response did not include a readable body");
+    }
 
     const decoder = new TextDecoder();
     let buffer = "";
+    let sawEvent = false;
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        buffer += decoder.decode();
+        const finalLine = buffer.replace(/\r$/, "");
+        if (finalLine.startsWith("data: ")) {
+          const json = finalLine.slice(6).trim();
+          if (json) {
+            const response = parseJsonRpcResponse(
+              json,
+              candidate?.url ?? "A2A endpoint",
+            );
+            if (response.error) {
+              throw new Error(
+                `A2A error (${response.error.code}): ${response.error.message}`,
+              );
+            }
+            sawEvent = true;
+            yield normalizeA2ATaskResult(response.result, response.id);
+          }
+        }
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
 
       for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const json = line.slice(6).trim();
+        const normalizedLine = line.replace(/\r$/, "");
+        if (!normalizedLine.startsWith("data: ")) continue;
+        const json = normalizedLine.slice(6).trim();
         if (!json) continue;
 
-        const response: JsonRpcResponse = JSON.parse(json);
+        const response = parseJsonRpcResponse(
+          json,
+          candidate?.url ?? "A2A endpoint",
+        );
         if (response.error) {
+          if (!sawEvent && isA2AStreamingUnsupportedError(response.error)) {
+            yield await this.send(message, {
+              contextId: opts?.contextId,
+              metadata: opts?.metadata,
+            });
+            return;
+          }
           throw new Error(
             `A2A error (${response.error.code}): ${response.error.message}`,
           );
         }
-        if (response.result) {
-          yield response.result as Task;
-        }
+        sawEvent = true;
+        yield normalizeA2ATaskResult(response.result, response.id);
       }
     }
   }
@@ -765,25 +953,90 @@ export class A2AClient {
     if (this.endpointResolved) return;
     this.endpointResolved = true;
 
-    const candidates: string[] = [];
-    addDefaultEndpointCandidates(candidates, this.baseUrl);
+    const candidates: A2AEndpointCandidate[] = this.endpointCandidates.length
+      ? [...this.endpointCandidates]
+      : [];
+    if (candidates.length === 0)
+      addDefaultEndpointCandidates(candidates, this.baseUrl);
 
     try {
-      const card = await this.getAgentCard({ timeoutMs });
-      const cardUrl = normalizeUrl(card.url, this.baseUrl);
-      if (cardUrl) {
-        const explicitEndpoint = splitExplicitA2AEndpoint(cardUrl);
-        if (explicitEndpoint) {
-          candidates.unshift(explicitEndpoint.endpointUrl);
-        } else {
-          addDefaultEndpointCandidates(candidates, cardUrl);
+      const card = await this.getAgentCard({
+        timeoutMs,
+        ...(this.apiKey ? { token: this.apiKey } : {}),
+      });
+      this.streaming = card.capabilities?.streaming;
+      const interfaceHint = selectJsonRpcInterface(
+        card,
+        this.baseUrl,
+        this.protocolVersion,
+      );
+      const advertisedV1Interfaces = Array.isArray(card.supportedInterfaces)
+        ? card.supportedInterfaces
+        : [];
+      const isV1Card =
+        card.protocolVersion?.startsWith("1.") ||
+        this.protocolVersion?.startsWith("1.") ||
+        advertisedV1Interfaces.some((entry) =>
+          entry.protocolVersion?.startsWith("1."),
+        );
+      if (isV1Card && !interfaceHint) {
+        throw new A2ANoJsonRpcInterfaceError(
+          advertisedV1Interfaces.map((entry) => {
+            const binding =
+              typeof entry.protocolBinding === "string"
+                ? entry.protocolBinding
+                : "unknown";
+            const version =
+              typeof entry.protocolVersion === "string"
+                ? entry.protocolVersion
+                : "unknown";
+            return `${binding} ${version}`;
+          }),
+        );
+      }
+      if (interfaceHint) {
+        assertCredentialedA2AUrl(
+          interfaceHint.url,
+          hasA2ACredentials(this.apiKeyAttempts, this.transportHeaders),
+        );
+        this.protocolVersion ??= interfaceHint.protocolVersion;
+        candidates.unshift({
+          url: interfaceHint.url,
+          protocolVersion: interfaceHint.protocolVersion,
+          streaming: this.streaming,
+          tenant: interfaceHint.tenant,
+        });
+      } else {
+        const cardUrl = normalizeUrl(card.url, this.baseUrl);
+        if (cardUrl) {
+          const explicitEndpoint = splitExplicitA2AEndpoint(cardUrl);
+          if (explicitEndpoint) {
+            candidates.unshift({
+              url: explicitEndpoint.endpointUrl,
+              protocolVersion: card.protocolVersion ?? this.protocolVersion,
+              streaming: this.streaming,
+            });
+          } else {
+            addDefaultEndpointCandidates(
+              candidates,
+              cardUrl,
+              card.protocolVersion ?? this.protocolVersion,
+              this.streaming,
+            );
+          }
         }
       }
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof A2AProtocolError ||
+        error instanceof RemoteAgentCredentialRejectedError
+      ) {
+        throw error;
+      }
       // Agent cards are discovery hints. Fall back to conventional endpoints.
     }
 
-    this.endpointCandidates = unique(candidates);
+    this.endpointCandidates = uniqueEndpointCandidates(candidates);
   }
 
   private async postJson(
@@ -791,6 +1044,7 @@ export class A2AClient {
     body: JsonRpcRequest,
     apiKey = this.apiKey,
     requestTimeoutMs = this.requestTimeoutMs,
+    protocolVersion = this.protocolVersion,
   ): Promise<Response> {
     const controller = requestTimeoutMs ? new AbortController() : undefined;
     const timer =
@@ -798,19 +1052,35 @@ export class A2AClient {
         ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
+      const headers = this.headers(apiKey, url, protocolVersion);
+      const credentialed = hasA2ACredentials(apiKey ? [apiKey] : [], headers);
+      assertCredentialedA2AUrl(url, credentialed);
       return await ssrfSafeFetch(
         url,
         {
           method: "POST",
-          headers: this.headers(apiKey),
+          headers,
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
+        {
+          maxRedirects: credentialed ? 0 : 3,
+          allowedPrivateOrigins: workspacePrivateOrigins(),
+          ...(credentialed || headers["x-vercel-protection-bypass"]
+            ? { followRedirects: false }
+            : {}),
+        },
       );
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  private transportHeadersFor(targetUrl: string): Record<string, string> {
+    return {
+      ...(this.transportHeaders ?? {}),
+      ...resolveVercelDeploymentProtectionHeaders(targetUrl),
+    };
   }
 }
 
@@ -844,9 +1114,21 @@ function splitExplicitA2AEndpoint(
   return null;
 }
 
-function addDefaultEndpointCandidates(candidates: string[], baseUrl: string) {
+function addDefaultEndpointCandidates(
+  candidates: A2AEndpointCandidate[],
+  baseUrl: string,
+  protocolVersion?: A2AProtocolVersion,
+  streaming?: boolean,
+) {
   const base = baseUrl.replace(/\/$/, "");
-  candidates.push(`${base}/_agent-native/a2a`, `${base}/a2a`);
+  candidates.push(
+    {
+      url: `${base}/_agent-native/a2a`,
+      protocolVersion,
+      streaming,
+    },
+    { url: `${base}/a2a`, protocolVersion, streaming },
+  );
 }
 
 function normalizeUrl(
@@ -861,6 +1143,524 @@ function normalizeUrl(
   } catch {
     return null;
   }
+}
+
+function hasA2ACredentials(
+  apiKeys: Array<string | undefined>,
+  headers?: Record<string, string>,
+): boolean {
+  if (apiKeys.some((value) => typeof value === "string" && value.length > 0)) {
+    return true;
+  }
+  return Object.keys(headers ?? {}).some((name) =>
+    /^(authorization|api[-_]key|x-api[-_]key|x-api[-_]token)$/i.test(name),
+  );
+}
+
+function assertCredentialedA2AUrl(url: string, credentialed: boolean): void {
+  if (!credentialed) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol === "https:") return;
+  if (parsed.protocol === "http:" && isLoopbackHostname(parsed.hostname)) {
+    return;
+  }
+  throw new A2AInsecureEndpointError(url);
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  );
+}
+
+function selectJsonRpcInterface(
+  card: AgentCard,
+  baseUrl: string,
+  configuredProtocolVersion?: A2AProtocolVersion,
+): {
+  url: string;
+  protocolVersion: A2AProtocolVersion;
+  tenant?: string;
+} | null {
+  const supportedInterfaces = Array.isArray(card.supportedInterfaces)
+    ? card.supportedInterfaces
+    : [];
+  const cardIsV1 =
+    card.protocolVersion?.startsWith("1.") ||
+    configuredProtocolVersion?.startsWith("1.") ||
+    supportedInterfaces.some((entry) =>
+      entry.protocolVersion?.startsWith("1."),
+    );
+  for (const candidate of supportedInterfaces) {
+    const entry = candidate as unknown as Record<string, unknown>;
+    const binding = String(
+      entry.protocolBinding ?? entry.protocol_binding ?? "",
+    ).toUpperCase();
+    if (binding !== "JSONRPC") continue;
+    const url = normalizeUrl(
+      typeof entry.url === "string" ? entry.url : undefined,
+      baseUrl,
+    );
+    if (!url) continue;
+    const protocolVersion =
+      typeof entry.protocolVersion === "string"
+        ? entry.protocolVersion
+        : typeof entry.protocol_version === "string"
+          ? entry.protocol_version
+          : (card.protocolVersion ?? configuredProtocolVersion);
+    if (!protocolVersion) continue;
+    return {
+      url,
+      protocolVersion,
+      ...(typeof entry.tenant === "string" ? { tenant: entry.tenant } : {}),
+    };
+  }
+
+  const additionalInterfaces = cardIsV1
+    ? []
+    : Array.isArray(card.additionalInterfaces)
+      ? card.additionalInterfaces
+      : [];
+  for (const candidate of additionalInterfaces) {
+    const entry = candidate as unknown as Record<string, unknown>;
+    const binding = String(
+      entry.protocolBinding ?? entry.protocol_binding ?? entry.transport ?? "",
+    ).toUpperCase();
+    if (binding && binding !== "JSONRPC") continue;
+    const url = normalizeUrl(
+      typeof entry.url === "string" ? entry.url : undefined,
+      baseUrl,
+    );
+    if (!url) continue;
+    const protocolVersion =
+      typeof entry.protocolVersion === "string"
+        ? entry.protocolVersion
+        : typeof entry.protocol_version === "string"
+          ? entry.protocol_version
+          : (card.protocolVersion ?? configuredProtocolVersion ?? "0.3");
+    return {
+      url,
+      protocolVersion,
+      ...(typeof entry.tenant === "string" ? { tenant: entry.tenant } : {}),
+    };
+  }
+
+  const preferredTransport = card.preferredTransport?.toUpperCase();
+  if (
+    !cardIsV1 &&
+    card.url &&
+    (!preferredTransport || preferredTransport === "JSONRPC")
+  ) {
+    const url = normalizeUrl(card.url, baseUrl);
+    if (url) {
+      return {
+        url,
+        protocolVersion:
+          card.protocolVersion ?? configuredProtocolVersion ?? "0.3",
+      };
+    }
+  }
+  return null;
+}
+
+function a2aWireMethod(
+  method: string,
+  protocolVersion?: A2AProtocolVersion,
+): string {
+  if (!protocolVersion?.startsWith("1.")) return method;
+  return (
+    (
+      {
+        "message/send": "SendMessage",
+        "message/stream": "SendStreamingMessage",
+        "tasks/get": "GetTask",
+        "tasks/cancel": "CancelTask",
+      } as Record<string, string>
+    )[method] ?? method
+  );
+}
+
+function a2aWireParams(
+  method: string,
+  params: Record<string, unknown>,
+  protocolVersion?: A2AProtocolVersion,
+  tenant?: string,
+): Record<string, unknown> {
+  if (!protocolVersion?.startsWith("1.")) {
+    return params;
+  }
+  const { async: _async, contextId, message, ...rest } = params;
+  const wireParams: Record<string, unknown> = {
+    ...rest,
+    ...(tenant ? { tenant } : {}),
+  };
+  if (message !== undefined) {
+    wireParams.message = toV1Message(message, contextId);
+  } else if (contextId !== undefined) {
+    wireParams.contextId = contextId;
+  }
+  if (method === "message/send" && params.async === true) {
+    const configuration = isRecord(wireParams.configuration)
+      ? wireParams.configuration
+      : {};
+    wireParams.configuration = { ...configuration, returnImmediately: true };
+  }
+  return wireParams;
+}
+
+function toV1Message(
+  value: unknown,
+  contextId?: unknown,
+): Record<string, unknown> {
+  const message = isRecord(value) ? value : {};
+  const parts = Array.isArray(message.parts) ? message.parts.map(toV1Part) : [];
+  return {
+    ...message,
+    messageId:
+      typeof message.messageId === "string" && message.messageId
+        ? message.messageId
+        : randomUUID(),
+    ...(contextId !== undefined && message.contextId === undefined
+      ? { contextId }
+      : {}),
+    role:
+      message.role === "user"
+        ? "ROLE_USER"
+        : message.role === "agent"
+          ? "ROLE_AGENT"
+          : message.role,
+    parts,
+  };
+}
+
+function toV1Part(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const { type, file, ...rest } = value;
+  if (type === "text") return rest;
+  if (type === "file" && isRecord(file)) {
+    const { bytes, uri, name, mimeType } = file;
+    return {
+      ...(bytes ? { raw: bytes } : uri ? { url: uri } : {}),
+      ...(name ? { filename: name } : {}),
+      ...(mimeType ? { mediaType: mimeType } : {}),
+    };
+  }
+  if (type === "data") return { data: value.data };
+  return rest;
+}
+
+function parseJsonRpcResponse(text: string, url: string): JsonRpcResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new A2AProtocolError(
+      `A2A response was not valid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      "a2a_invalid_json",
+      { url, responseText: boundProtocolResponseText(text) },
+    );
+  }
+
+  if (!isRecord(parsed) || !("jsonrpc" in parsed)) {
+    throw new A2AMissingJsonRpcResponseError(
+      url,
+      boundProtocolResponseText(text),
+    );
+  }
+  if (parsed.jsonrpc !== "2.0") {
+    throw new A2AJsonRpcResponseError(
+      `A2A response from ${url} does not use JSON-RPC 2.0`,
+      { url, responseText: boundProtocolResponseText(text) },
+    );
+  }
+  if (!("id" in parsed)) {
+    throw new A2AJsonRpcResponseError(
+      `A2A response from ${url} is missing a JSON-RPC id`,
+      { url, responseText: boundProtocolResponseText(text) },
+    );
+  }
+  if (!("result" in parsed) && !("error" in parsed)) {
+    throw new A2AJsonRpcResponseError(
+      `A2A response from ${url} has neither a result nor an error`,
+      { url, responseText: boundProtocolResponseText(text) },
+    );
+  }
+  if (
+    "error" in parsed &&
+    (!isRecord(parsed.error) ||
+      typeof parsed.error.code !== "number" ||
+      typeof parsed.error.message !== "string")
+  ) {
+    throw new A2AJsonRpcResponseError(
+      `A2A response from ${url} has an invalid JSON-RPC error`,
+      { url, responseText: boundProtocolResponseText(text) },
+    );
+  }
+  return parsed as unknown as JsonRpcResponse;
+}
+
+function boundProtocolResponseText(text: string): string {
+  return text.length <= 4_096 ? text : `${text.slice(0, 4_096)}…`;
+}
+
+function isA2AStreamingUnsupportedError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const code = error.code;
+  const message = typeof error.message === "string" ? error.message : "";
+  return (
+    code === -32601 ||
+    code === -32004 ||
+    /stream(?:ing)?[^a-z]*(?:not supported|unsupported|unavailable)/i.test(
+      message,
+    )
+  );
+}
+
+function normalizeA2ATaskResult(
+  value: unknown,
+  responseId: string | number | null,
+): Task {
+  if (isRecord(value) && isA2ATaskLike(value)) {
+    return normalizeA2ATask(value);
+  }
+  if (isRecord(value) && isRecord(value.task) && isA2ATaskLike(value.task)) {
+    return normalizeA2ATask(value.task);
+  }
+  if (isRecord(value) && isRecord(value.message)) {
+    const id =
+      typeof responseId === "string" || typeof responseId === "number"
+        ? String(responseId)
+        : `a2a-${Date.now()}`;
+    return {
+      id,
+      status: {
+        state: "completed",
+        message: normalizeA2AMessage(value.message),
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+  if (isRecord(value) && value.kind === "status-update") {
+    if (typeof value.taskId !== "string" || !isRecord(value.status)) {
+      throw new A2AJsonRpcResponseError(
+        "A2A status update is missing a task id or status",
+      );
+    }
+    return normalizeA2ATask({
+      id: value.taskId,
+      ...(typeof value.contextId === "string"
+        ? { contextId: value.contextId }
+        : {}),
+      status: value.status,
+    });
+  }
+  if (isRecord(value) && isRecord(value.statusUpdate)) {
+    const update = value.statusUpdate;
+    if (typeof update.taskId !== "string" || !isRecord(update.status)) {
+      throw new A2AJsonRpcResponseError(
+        "A2A status update is missing a task id or status",
+      );
+    }
+    return normalizeA2ATask({
+      id: update.taskId,
+      ...(typeof update.contextId === "string"
+        ? { contextId: update.contextId }
+        : {}),
+      status: update.status,
+    });
+  }
+  if (isRecord(value) && isRecord(value.artifactUpdate)) {
+    const update = value.artifactUpdate;
+    if (
+      typeof update.taskId !== "string" ||
+      !isRecord(update.artifact) ||
+      !Array.isArray(update.artifact.parts)
+    ) {
+      throw new A2AJsonRpcResponseError(
+        "A2A artifact update is missing a task id or artifact",
+      );
+    }
+    return {
+      id: update.taskId,
+      ...(typeof update.contextId === "string"
+        ? { contextId: update.contextId }
+        : {}),
+      status: {
+        state: "working",
+        timestamp: new Date().toISOString(),
+      },
+      artifacts: [normalizeA2AArtifact(update.artifact)],
+    };
+  }
+  if (isRecord(value) && value.kind === "artifact-update") {
+    if (
+      typeof value.taskId !== "string" ||
+      !isRecord(value.artifact) ||
+      !Array.isArray(value.artifact.parts)
+    ) {
+      throw new A2AJsonRpcResponseError(
+        "A2A artifact update is missing a task id or artifact",
+      );
+    }
+    return {
+      id: value.taskId,
+      ...(typeof value.contextId === "string"
+        ? { contextId: value.contextId }
+        : {}),
+      status: {
+        state: "working",
+        timestamp: new Date().toISOString(),
+      },
+      artifacts: [normalizeA2AArtifact(value.artifact)],
+    };
+  }
+  throw new A2AJsonRpcResponseError(
+    "A2A JSON-RPC result is not a task or message",
+  );
+}
+
+function normalizeA2ATask(value: Record<string, unknown>): Task {
+  const status = value.status as Record<string, unknown>;
+  const state = normalizeA2ATaskState(status.state);
+  return {
+    ...(value as unknown as Task),
+    ...(Array.isArray(value.history)
+      ? { history: value.history.map(normalizeA2AMessage) }
+      : {}),
+    ...(Array.isArray(value.artifacts)
+      ? { artifacts: value.artifacts.map(normalizeA2AArtifact) }
+      : {}),
+    status: {
+      ...(status as unknown as Task["status"]),
+      state,
+      ...(isRecord(status.message)
+        ? { message: normalizeA2AMessage(status.message) }
+        : {}),
+    },
+  };
+}
+
+function normalizeA2AMessage(value: Record<string, unknown>): Message {
+  const role = value.role;
+  return {
+    ...(value as unknown as Message),
+    role:
+      role === "ROLE_USER" || role === "user"
+        ? "user"
+        : role === "ROLE_AGENT" || role === "agent"
+          ? "agent"
+          : "agent",
+    parts: Array.isArray(value.parts)
+      ? value.parts.map(normalizeA2APart)
+      : Array.isArray(value.content)
+        ? value.content.map(normalizeA2APart)
+        : [],
+  };
+}
+
+function normalizeA2AArtifact(value: Record<string, unknown>): Artifact {
+  return {
+    ...(value as Record<string, unknown>),
+    parts: Array.isArray(value.parts) ? value.parts.map(normalizeA2APart) : [],
+  };
+}
+
+function normalizeA2APart(value: unknown): Part {
+  if (!isRecord(value)) return { type: "text" as const, text: "" };
+  if (value.type === "text" && typeof value.text === "string") {
+    return { type: "text", text: value.text };
+  }
+  if (value.type === "file" && isRecord(value.file)) {
+    return {
+      type: "file",
+      file: {
+        ...(typeof value.file.name === "string"
+          ? { name: value.file.name }
+          : {}),
+        ...(typeof value.file.mimeType === "string"
+          ? { mimeType: value.file.mimeType }
+          : {}),
+        ...(typeof value.file.bytes === "string"
+          ? { bytes: value.file.bytes }
+          : {}),
+        ...(typeof value.file.uri === "string" ? { uri: value.file.uri } : {}),
+      },
+    };
+  }
+  if (value.type === "data" && isRecord(value.data)) {
+    return { type: "data", data: value.data };
+  }
+  if (value.kind === "text" || typeof value.text === "string") {
+    return { type: "text" as const, text: String(value.text ?? "") };
+  }
+  if (value.kind === "file" || "raw" in value || "url" in value) {
+    return {
+      type: "file" as const,
+      file: {
+        ...(typeof value.filename === "string" ? { name: value.filename } : {}),
+        ...(typeof value.mediaType === "string"
+          ? { mimeType: value.mediaType }
+          : {}),
+        ...(typeof value.raw === "string" ? { bytes: value.raw } : {}),
+        ...(typeof value.url === "string" ? { uri: value.url } : {}),
+      },
+    };
+  }
+  if (value.kind === "data" || "data" in value) {
+    return {
+      type: "data" as const,
+      data: (value.data ?? {}) as Record<string, unknown>,
+    };
+  }
+  return { type: "text" as const, text: "" };
+}
+
+function normalizeA2ATaskState(value: unknown): Task["status"]["state"] {
+  if (typeof value !== "string") {
+    throw new A2AJsonRpcResponseError("A2A task status has no valid state");
+  }
+  const normalized = value
+    .replace(/^TASK_STATE_/i, "")
+    .toLowerCase()
+    .replace(/_/g, "-");
+  if (
+    normalized === "submitted" ||
+    normalized === "working" ||
+    normalized === "processing" ||
+    normalized === "completed" ||
+    normalized === "failed" ||
+    normalized === "canceled" ||
+    normalized === "input-required" ||
+    normalized === "auth-required"
+  ) {
+    return normalized === "auth-required" ? "input-required" : normalized;
+  }
+  if (normalized === "rejected") return "failed";
+  throw new A2AJsonRpcResponseError(
+    `A2A task status has unsupported state: ${value}`,
+  );
+}
+
+function isA2ATaskLike(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.id === "string" &&
+    isRecord(value.status) &&
+    typeof value.status.state === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function shouldTryNextEndpoint(status: number): boolean {
@@ -933,11 +1733,6 @@ function resolveA2ARequestTimeoutMs(
     : Math.min(configuredMs, remainingMs);
 }
 
-/**
- * Agent-card discovery is only a hint because first-party endpoints have
- * conventional paths. Preserve most of a bounded call's deadline for the
- * actual message instead of letting a cold or unavailable card consume it.
- */
 function resolveA2ADiscoveryTimeoutMs(
   configuredMs: number | undefined,
   deadlineMs: number | undefined,
@@ -998,8 +1793,26 @@ function safelyNotifyA2AUpdate(
   }
 }
 
-function unique(values: string[]): string[] {
-  return Array.from(new Set(values));
+function uniqueEndpointCandidates(
+  candidates: A2AEndpointCandidate[],
+): A2AEndpointCandidate[] {
+  const byUrl = new Map<string, A2AEndpointCandidate>();
+  for (const candidate of candidates) {
+    const existing = byUrl.get(candidate.url);
+    byUrl.set(
+      candidate.url,
+      existing
+        ? {
+            url: existing.url,
+            protocolVersion:
+              existing.protocolVersion ?? candidate.protocolVersion,
+            streaming: existing.streaming ?? candidate.streaming,
+            tenant: existing.tenant ?? candidate.tenant,
+          }
+        : candidate,
+    );
+  }
+  return [...byUrl.values()];
 }
 
 function uniqueAuthTokens(
@@ -1024,70 +1837,33 @@ function isA2AAuthRejectionResponse(status: number, text: string): boolean {
   );
 }
 
-/**
- * One-shot convenience function: send a text message and get a text response.
- *
- * When A2A_SECRET is set and userEmail is provided, outbound calls are signed
- * with a JWT so the receiving app can cryptographically verify the caller's
- * identity (instead of blindly trusting metadata).
- */
 export async function callAgent(
   url: string,
   text: string,
   opts?: {
     apiKey?: string;
-    /** Additional bearer tokens to try in order after apiKey during rotation. */
     apiKeyFallbacks?: string[];
-    /** Additional transport metadata. Receivers must not use it as identity. */
     metadata?: Record<string, unknown>;
-    /** Trusted server-side headers to carry across the A2A transport. */
     transportHeaders?: Record<string, string>;
+    cardUrl?: string;
+    agentCardUrl?: string;
+    protocolVersion?: A2AProtocolVersion;
+    a2aVersion?: A2AProtocolVersion;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
-    /** Origin used to build links back to the receiving app. */
     requestOrigin?: string;
-    /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
-    /** Opaque provenance reference resolved by the receiver through Dispatch. */
     sourceContext?: A2ASourceContextReference;
-    /** Bounded telemetry-only lineage forwarded to the receiving app. */
     correlation?: A2ACorrelationMetadata;
-    /** Stable caller-generated key for one message submission. */
     idempotencyKey?: string;
-    /**
-     * Use async/poll instead of a single blocking POST. Recommended for
-     * cross-app calls that may exceed a synchronous serverless request budget.
-     * Defaults to true so callers get safe behavior out of the box.
-     */
     async?: boolean;
-    /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
-    /** Separate budget for discovery and initial async submission. */
     submissionTimeoutMs?: number;
-    /**
-     * Existing async task to keep polling. When set, no new message is sent.
-     * This prevents a caller-side timeout from duplicating downstream work.
-     */
     taskId?: string;
-    /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
-    /**
-     * Return receiver-verified artifact text from the last polled task when
-     * the call times out. Defaults to true for backwards compatibility.
-     * Callers that can continue polling the remote task separately should set
-     * this to false so the A2ATaskTimeoutError (and its taskId) is preserved.
-     */
     returnRecoverableArtifactsOnTimeout?: boolean;
-    /**
-     * Called with each successfully polled task while an async call is still
-     * in flight (see `A2AClient.sendAndWait`). Fires once per real poll
-     * round-trip that returns a task — including the terminal poll — so
-     * callers can surface genuine remote liveness/progress. Not called when a
-     * poll fetch throws (remote unresponsive) or when the task completes
-     * synchronously on submit. Only threaded through for async calls.
-     */
     onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
@@ -1098,15 +1874,7 @@ export async function callAgent(
   if (opts?.sourceContext) metadata.sourceContext = opts.sourceContext;
   Object.assign(metadata, sanitizeA2ACorrelationMetadata(opts?.correlation));
 
-  // Default to async + poll. The receiving A2A server's `_process-task` route
-  // runs the handler in a fresh function execution (cross-platform queue
-  // pattern), so async mode now works on every host instead of relying on
-  // detached promises that get killed on Netlify/Vercel. Callers that
-  // explicitly want a single-shot blocking POST can pass `async: false`.
   const useAsync = opts?.async ?? true;
-  // A stable per-call key makes retrying a submission safe even when this
-  // invocation has no durable parent turn id. If the receiver committed the
-  // task but the response was lost, the retry reuses the task.
   const effectiveIdempotencyKey =
     opts?.idempotencyKey ?? (opts?.taskId ? undefined : `auto:${randomUUID()}`);
   const message: Message = {
@@ -1125,6 +1893,8 @@ export async function callAgent(
       const client = new A2AClient(url, apiKeyAttempts[i], {
         fallbackApiKeys,
         transportHeaders: opts?.transportHeaders,
+        cardUrl: opts?.cardUrl ?? opts?.agentCardUrl,
+        protocolVersion: opts?.protocolVersion ?? opts?.a2aVersion,
       });
       let task: Task;
       if (useAsync) {
@@ -1160,9 +1930,6 @@ export async function callAgent(
         });
       }
 
-      // Preserve the receiver's typed terminal state. Failed, canceled, and
-      // input-required tasks are not successful text answers, even when the
-      // receiver attached a friendly explanatory message.
       const responseMessage = task.status.message;
       const responseText = responseMessage
         ? extractMessageText(responseMessage)
@@ -1243,6 +2010,10 @@ export async function callAction(
     orgSecret?: string;
     requestTimeoutMs?: number;
     correlation?: A2ACorrelationMetadata;
+    cardUrl?: string;
+    agentCardUrl?: string;
+    protocolVersion?: A2AProtocolVersion;
+    a2aVersion?: A2AProtocolVersion;
   },
 ): Promise<A2AReadOnlyActionResult> {
   const actionName = action.trim();
@@ -1262,6 +2033,8 @@ export async function callAction(
   const client = new A2AClient(url, discoveryApiKeyAttempts[0], {
     fallbackApiKeys: discoveryFallbackApiKeys,
     requestTimeoutMs: opts?.requestTimeoutMs,
+    cardUrl: opts?.cardUrl ?? opts?.agentCardUrl,
+    protocolVersion: opts?.protocolVersion ?? opts?.a2aVersion,
   });
   const endpointUrl = await client.resolveEndpointUrl(opts?.requestTimeoutMs);
   const invocationAudience = normalizeA2AAudience(endpointUrl);
@@ -1344,6 +2117,12 @@ function normalizeA2AAudience(url: string): string {
 }
 
 function isA2AAuthRejection(err: unknown): boolean {
+  if (
+    err instanceof RemoteAgentCredentialRejectedError ||
+    (isRecord(err) && err.code === "credential_rejected")
+  ) {
+    return true;
+  }
   const message = err instanceof Error ? err.message : String(err ?? "");
   return /A2A request failed \(401\)|A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
     message,

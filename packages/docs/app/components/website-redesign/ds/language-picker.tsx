@@ -12,6 +12,7 @@ import {
   DOCS_LOCALE_METADATA,
   DOCS_LOCALES,
   browserDocsLocale,
+  docsLocaleFromSegment,
   docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
@@ -29,12 +30,6 @@ function preferenceLabel(preference: string) {
   return preference;
 }
 
-// Same locale-switching logic as ../../DocsLanguagePicker, restyled against
-// the `--b-*` redesign tokens instead of the main site's shadcn Popover so it
-// matches the rest of this header rather than looking like a foreign control.
-// The menu is absolutely positioned with no portal and no collision detection,
-// so a footer instance has to be told to open upward or it lands below the
-// fold, unreachable.
 export function LanguagePicker(props: LanguagePickerProps) {
   const openUpward = props.openUpward === true;
   const { preference } = useLocale();
@@ -81,7 +76,9 @@ export function LanguagePicker(props: LanguagePickerProps) {
 
   function localeForPreference(value: string) {
     const nextPreference = normalizeLocalizationPreference(value).locale;
-    return nextPreference === "system" ? systemLocale : nextPreference;
+    return nextPreference === "system"
+      ? systemLocale
+      : (docsLocaleFromSegment(nextPreference) ?? systemLocale);
   }
 
   function hrefForPreference(value: string) {

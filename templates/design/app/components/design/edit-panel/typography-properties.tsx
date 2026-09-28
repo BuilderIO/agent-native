@@ -1,4 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { VisualFontFamilyPicker } from "@agent-native/toolkit/design-tweaks";
 import {
   IconAlignCenter,
@@ -18,12 +20,15 @@ import {
   IconSquare,
   IconStrikethrough,
   IconTextSize,
+  IconUpload,
   IconUnderline,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -36,12 +41,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { uploadFont, type UploadedFont } from "@/lib/font-upload";
 import { cn } from "@/lib/utils";
 
 import { ScrubInput } from "../inspector";
@@ -58,12 +65,12 @@ import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
 import { roundToOneDecimal } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
-import type { StyleChangeHandler } from "./style-change-types";
-import {
-  optionValue,
-  parseNumericValue,
-  resolveLineHeight,
-} from "./style-options";
+import type {
+  StyleChangeMeta,
+  StyleChangeHandler,
+  StylesChangeHandler,
+} from "./style-change-types";
+import { optionValue, parseNumericValue } from "./style-options";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
@@ -71,8 +78,16 @@ import {
   isKnownFontWeight,
   isTextDecorationLineActive,
   nextTextDecorationLineValue,
+  letterSpacingScrubCssValue,
+  parseLetterSpacingInput,
+  parseLineHeightInput,
+  resolveLetterSpacingFieldValue,
   resolveFixedResizeDimension,
   resolveFontFamilyFieldValue,
+  resolveLineHeightFieldValue,
+  sortFontFamilyOptions,
+  textTruncationLineCount,
+  textTruncationStyleChanges,
   TEXT_CASE_OPTIONS,
   type TextDecorationLineToken,
   type TextResizeMode,
@@ -116,12 +131,6 @@ function TextResizeControls({
 
 type TypographyDetailsTab = "basics" | "details";
 
-/**
- * The tab bar's "Basics"/"Details" buttons are a real tab list (not the
- * static, non-interactive spans this replaced) — see the module-level note
- * near `TypographyDetailsPopover` for why the third "Variable" tab was
- * dropped instead of wired up.
- */
 function TypographyDetailsTabButton({
   label,
   active,
@@ -148,18 +157,6 @@ function TypographyDetailsTabButton({
   );
 }
 
-/**
- * Text decoration (underline/strikethrough) and case (none/uppercase/
- * lowercase/capitalize) live here, in the popover's "Details" tab, rather
- * than as a 5th always-visible row in the compact panel above — matching
- * Figma, which tucks these into the same type-details flyout instead of the
- * always-on compact type row. Deliberately NOT duplicating line-height /
- * letter-spacing here even though Figma's flyout also shows them: this
- * panel's compact row (see TypographyProperties below) already exposes both
- * as always-visible, directly-editable fields, so a second live-editable
- * copy of the exact same property here would be redundant clutter and an
- * easy source of two-inputs-fighting-the-same-value bugs, not a feature.
- */
 function TypographyDetailsPopover({
   resizeMode,
   onResizeModeChange,
@@ -170,6 +167,13 @@ function TypographyDetailsPopover({
   textCase,
   textCaseIsMixed,
   onTextCaseChange,
+  truncationEnabled,
+  truncationLineCount,
+  truncationMixed,
+  truncationToggleDisabled,
+  truncationLineCountDisabled,
+  onTruncationEnabledChange,
+  onTruncationLineCountChange,
 }: {
   resizeMode: TextResizeMode;
   onResizeModeChange: (mode: TextResizeMode) => void;
@@ -180,6 +184,13 @@ function TypographyDetailsPopover({
   textCase: string;
   textCaseIsMixed: boolean;
   onTextCaseChange: (value: string) => void;
+  truncationEnabled: boolean;
+  truncationLineCount: number;
+  truncationMixed: boolean;
+  truncationToggleDisabled: boolean;
+  truncationLineCountDisabled: boolean;
+  onTruncationEnabledChange: (enabled: boolean) => void;
+  onTruncationLineCountChange: (value: number, meta: StyleChangeMeta) => void;
 }) {
   const t = useT();
   const applePlatform = useApplePlatform();
@@ -187,6 +198,7 @@ function TypographyDetailsPopover({
     formatShortcutLabel(binding, applePlatform);
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TypographyDetailsTab>("basics");
+  const truncationSwitchId = useId();
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -217,6 +229,7 @@ function TypographyDetailsPopover({
         side="left"
         align="end"
         sideOffset={8}
+        data-design-chrome-region="right-panel"
         className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
       >
         <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
@@ -250,6 +263,37 @@ function TypographyDetailsPopover({
                 onResizeModeChange={onResizeModeChange}
               />
             </div>
+            <div className="flex items-center justify-between gap-3">
+              <Label
+                htmlFor={truncationSwitchId}
+                className="design-sidebar-field-label text-muted-foreground"
+              >
+                {t("editPanel.typographyDetails.truncateText")}
+              </Label>
+              <Switch
+                id={truncationSwitchId}
+                aria-label={t("editPanel.typographyDetails.truncateText")}
+                checked={truncationEnabled && !truncationMixed}
+                disabled={truncationToggleDisabled}
+                onCheckedChange={onTruncationEnabledChange}
+              />
+            </div>
+            {truncationEnabled && !truncationMixed ? (
+              <ScrubInput
+                label={t("editPanel.typographyDetails.maxLines")}
+                ariaLabel={t("editPanel.typographyDetails.maxLines")}
+                value={truncationLineCount}
+                onChange={onTruncationLineCountChange}
+                min={1}
+                max={100}
+                step={1}
+                precision={0}
+                disabled={truncationLineCountDisabled}
+                className="w-full gap-0"
+                labelClassName="h-6 min-w-6 justify-center rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px]"
+                inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3 p-4 !text-[11px]">
@@ -318,41 +362,81 @@ function TypographyDetailsPopover({
   );
 }
 
-/** Text element properties */
 export function TypographyProperties({
   element,
   onStyleChange,
+  onStylesChange,
+  designId,
+  onFontUploaded,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+  designId?: string;
+  onFontUploaded?: (font: UploadedFont) => void | Promise<void>;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const canUploadFonts =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
+  const fontUploadInputRef = useRef<HTMLInputElement>(null);
+  const [fontUploading, setFontUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  const fileStorageMissing =
+    fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadFonts) setStorageSetupOpen(false);
+  }, [canUploadFonts]);
   const styles = element.computedStyles;
-  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
-    value: option.value,
-    label: t(`editPanel.fontFamilies.${option.key}`),
-  }));
-  // Mixed-selection guards: a multi-selection with differing values injects
-  // the MIXED_VALUE sentinel string into these computedStyles fields (see
-  // mixedElementFromSelection/sameOrMixed). Parsing that sentinel with
-  // parseNumericValue/Number() silently yields 0/NaN-fallback instead of
-  // reflecting "differs across selection", which previously showed a
-  // fabricated 0 (size), 1.2 (line-height), or blank (tracking) rather than
-  // the Mixed state ScrubInput already knows how to render — same pattern as
-  // the rotation field above.
+  const baseFontFamilyOptions = sortFontFamilyOptions([
+    ...FONT_FAMILY_OPTIONS.map((option) => ({
+      value: option.value,
+      label:
+        option.label ??
+        (option.key
+          ? t(`editPanel.fontFamilies.${option.key}`)
+          : displayFontFamilyName(option.value)),
+    })),
+  ]);
   const fontFamilyIsMixed = isMixedValue(styles.fontFamily);
   const fontWeightIsMixed = isMixedValue(styles.fontWeight);
   const fontSizeIsMixed = isMixedValue(styles.fontSize);
   const lineHeightIsMixed = isMixedValue(styles.lineHeight);
   const letterSpacingIsMixed = isMixedValue(styles.letterSpacing);
   const textTransformIsMixed = isMixedValue(styles.textTransform);
+  const letterSpacingField = resolveLetterSpacingFieldValue(
+    authoredStyleValue(element, "letterSpacing"),
+    styles.letterSpacing,
+  );
+  const lineHeightField = resolveLineHeightFieldValue(
+    authoredStyleValue(element, "lineHeight"),
+    styles.lineHeight,
+    styles.fontSize,
+    styles.resolvedLineHeightPx,
+  );
+  const lineClampIsMixed = isMixedValue(styles.webkitLineClamp);
+  const truncationLineCount = lineClampIsMixed
+    ? null
+    : textTruncationLineCount(authoredStyleValue(element, "webkitLineClamp"));
+  const truncationEnabled = truncationLineCount !== null;
+  const applyTextTruncation = (
+    enabled: boolean,
+    lineCount: number,
+    meta?: StyleChangeMeta,
+  ) => {
+    const changes = textTruncationStyleChanges(
+      enabled,
+      lineCount,
+      element.inlineStyles,
+    );
+    if (!changes) {
+      toast.error(t("editPanel.typographyDetails.restoreError"));
+      return;
+    }
+    onStylesChange?.(changes, meta);
+  };
 
-  // Text decoration (underline/strikethrough) reads through the bridge's
-  // clean `textDecorationLine` computed longhand (never the composite
-  // `textDecoration` shorthand string, which also carries style/color) but
-  // WRITES commit through the "textDecoration" property name — see
-  // nextTextDecorationLineValue's doc comment in typography-helpers.ts for
-  // why the longhand isn't on the persisted-source style allow-list.
   const underlineActive = isTextDecorationLineActive(
     styles.textDecorationLine,
     "underline",
@@ -367,39 +451,51 @@ export function TypographyProperties({
       nextTextDecorationLineValue(styles.textDecorationLine, line),
     );
   };
-  // Mixed-selection guard mirrors fontWeight/fontFamily above: an
-  // indeterminate case across the selection renders with none of the four
-  // options highlighted rather than guessing one element's value.
   const textCase = textTransformIsMixed
     ? "none"
     : optionValue(TEXT_CASE_OPTIONS, styles.textTransform, "none");
   const setTextCase = (value: string) => onStyleChange("textTransform", value);
 
-  // resolveFontFamilyFieldValue returns the MIXED_VALUE sentinel unchanged
-  // when the selection differs so the Select below can render it as an
-  // explicit disabled placeholder (matching fontWeight's pattern just below)
-  // instead of a normal, clickable option that could commit the literal
-  // string "Mixed" as a font-family value.
   const fontFamily = resolveFontFamilyFieldValue(styles.fontFamily);
-  const fontFamilyOptions = fontFamilyIsMixed
-    ? baseFontFamilyOptions
-    : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily)
+  const fontFamilyOptions = sortFontFamilyOptions(
+    fontFamilyIsMixed
       ? baseFontFamilyOptions
-      : [
-          {
-            value: fontFamily,
-            label: displayFontFamilyName(styles.fontFamily || fontFamily),
-          },
-          ...baseFontFamilyOptions,
-        ];
+      : FONT_FAMILY_OPTIONS.some((option) => option.value === fontFamily) ||
+          displayFontFamilyName(fontFamily).toLowerCase() === "lato"
+        ? baseFontFamilyOptions
+        : [
+            {
+              value: fontFamily,
+              label: displayFontFamilyName(styles.fontFamily || fontFamily),
+            },
+            ...baseFontFamilyOptions,
+          ],
+  );
+  const handleFontUpload = async (file: File) => {
+    if (!canUploadFonts || !designId || !onFontUploaded) return;
+    setFontUploading(true);
+    try {
+      const uploaded = await uploadFont(file, designId);
+      await onFontUploaded(uploaded);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("promptDialog.failedToUploadFile"),
+      );
+    } finally {
+      setFontUploading(false);
+    }
+  };
+  const requestFontUpload = () => {
+    if (fontUploading) return;
+    if (canUploadFonts) fontUploadInputRef.current?.click();
+    else setStorageSetupOpen(true);
+  };
   const baseFontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
   }));
-  // Non-mixed but not one of the nine standard notches (e.g. a variable-font
-  // weight like "550") needs the same synthesized-option treatment as an
-  // unknown font family — otherwise the Select's value matches no item and
-  // renders blank even though the real weight is still applied.
   const currentFontWeight = styles.fontWeight || "400";
   const fontWeightOptions =
     fontWeightIsMixed || isKnownFontWeight(currentFontWeight)
@@ -410,18 +506,6 @@ export function TypographyProperties({
         ];
   const textAlign = styles.textAlign || "left";
 
-  // M1 · Text resizing mode (auto-width / auto-height / fixed). the design
-  // editor's text nodes always expose this segment. Read authored
-  // (inlineStyles) values, not computed ones: an absolutely-positioned
-  // element's computed width/height always resolve to a real px value even
-  // when the author never set them, so "auto" and "a specific 200px" were
-  // indistinguishable before — every text node misread as "fixed". Falls
-  // back to the computed-style heuristic for older payloads that predate
-  // inlineStyles. Convention (matches DesignEditor primitive creation and
-  // setResizeMode below): auto-width = width unset/max-content + pre-wrap;
-  // auto-height = fixed width + height unset/auto; fixed = both fixed. A
-  // drag-created box (display:flex, explicit width+height, whiteSpace
-  // unset→normal) correctly falls through to "fixed".
   const authoredResizeWidth = authoredStyleValue(element, "width");
   const authoredResizeHeight = authoredStyleValue(element, "height");
   const authoredWhiteSpace = authoredStyleValue(element, "whiteSpace");
@@ -443,10 +527,6 @@ export function TypographyProperties({
       : !heightIsAuto && !widthIsAuto
         ? "fixed"
         : "auto-height";
-  // Fall back to the element's actual current on-screen size (not an
-  // arbitrary constant) when there's no real authored size yet — converting
-  // auto-width/auto-height text to "fixed" must preserve its current
-  // rendered size instead of visibly snapping it to a hardcoded default.
   const currentWidth = resolveFixedResizeDimension(
     styles.width,
     widthIsAuto,
@@ -473,18 +553,6 @@ export function TypographyProperties({
     }
   };
 
-  // M2 · Vertical text alignment (top / middle / bottom). For an auto-layout
-  // text container (display:flex) this maps to whichever flex property
-  // controls the vertical/cross axis — justifyContent when flex-direction is
-  // column, alignItems when row (the DesignEditor drag-created default; see
-  // primitive creation, which sets display:flex + alignItems:center with no
-  // explicit flex-direction, i.e. row). For any non-flex display,
-  // `verticalAlign` is a no-op: it only affects how an inline/inline-block/
-  // table-cell box sits relative to *sibling* line-box content, not how its
-  // own content sits within its own box — exactly the case for point text
-  // (inline-block). So instead of ever writing verticalAlign, convert the
-  // element to flex the same way a drag-created box is authored, then read/
-  // write through the row-axis property (alignItems) like that default.
   const display = (styles.display || "").toLowerCase();
   const isFlexText = display.includes("flex");
   const isColumnFlexText =
@@ -500,9 +568,6 @@ export function TypographyProperties({
         ? "bottom"
         : "top";
   const setVerticalAlign = (mode: "top" | "middle" | "bottom") => {
-    // Converting a non-flex element matches the drag-created fixed-size text
-    // box exactly: display:flex, default (row) flex-direction — so the
-    // vertical axis is alignItems, same as the pre-existing row case below.
     if (!isFlexText) onStyleChange("display", "flex");
     const cssValue =
       mode === "middle"
@@ -523,17 +588,75 @@ export function TypographyProperties({
           dropdown instead). */}
       <InspectorGrid layout="field-action">
         <InspectorGridCell span={28} className="h-6 overflow-hidden">
-          <VisualFontFamilyPicker
-            label={t("editPanel.labels.font")}
-            value={fontFamily}
-            options={fontFamilyOptions}
-            mixed={fontFamilyIsMixed}
-            mixedLabel={MIXED_VALUE}
-            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-            onChange={(value) => onStyleChange("fontFamily", value)}
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <VisualFontFamilyPicker
+                label={t("editPanel.labels.font")}
+                value={fontFamily}
+                options={fontFamilyOptions}
+                mixed={fontFamilyIsMixed}
+                mixedLabel={MIXED_VALUE}
+                searchable
+                searchPlaceholder={t("root.commandSearch")}
+                contentProps={{
+                  "data-design-chrome-region": "right-panel",
+                }}
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+                onChange={(value) => onStyleChange("fontFamily", value)}
+              />
+            </div>
+            {designId && onFontUploaded ? (
+              <>
+                <input
+                  ref={fontUploadInputRef}
+                  type="file"
+                  accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+                  className="sr-only"
+                  aria-label={t("promptDialog.uploadFile")}
+                  disabled={!canUploadFonts}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void handleFontUpload(file);
+                  }}
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      disabled={fontUploading}
+                      aria-label={t("promptDialog.uploadFile")}
+                      className="size-6 shrink-0"
+                      onClick={requestFontUpload}
+                    >
+                      <IconUpload className="size-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("promptDialog.uploadFile")}
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
         </InspectorGridCell>
       </InspectorGrid>
+      <FileStorageSetupPopover
+        open={
+          storageSetupOpen &&
+          (fileStorageMissing || !fileUploadStatus.isSuccess)
+        }
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
 
       {/* Row 2: weight + size side by side */}
       <InspectorGrid className="items-center" layout="action-pair">
@@ -545,7 +668,7 @@ export function TypographyProperties({
             <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent data-design-chrome-region="right-panel">
               {fontWeightIsMixed ? (
                 <SelectItem
                   value={MIXED_VALUE}
@@ -609,17 +732,25 @@ export function TypographyProperties({
               label={t("editPanel.labels.lineHeight")}
               ariaLabel={t("editPanel.labels.lineHeight")}
               icon={IconLineHeight}
-              value={
-                lineHeightIsMixed
-                  ? 0
-                  : resolveLineHeight(styles.lineHeight, styles.fontSize)
-              }
+              value={lineHeightIsMixed ? 0 : lineHeightField.value}
+              textValue={lineHeightIsMixed ? undefined : lineHeightField.text}
+              unit={lineHeightField.unit}
               mixed={lineHeightIsMixed}
               onChange={(value, meta) =>
-                onStyleChange("lineHeight", String(Math.max(0.1, value)), meta)
+                onStyleChange(
+                  "lineHeight",
+                  `${Math.max(0, value)}${lineHeightField.unit}`,
+                  meta,
+                )
               }
-              min={0.1}
-              step={0.1}
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLineHeightInput(draft, lineHeightField);
+                if (!parsed) return { accepted: false };
+                onStyleChange("lineHeight", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              min={0}
+              step={1}
               precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
@@ -637,19 +768,29 @@ export function TypographyProperties({
               label={t("editPanel.labels.tracking")}
               ariaLabel={t("editPanel.labels.tracking")}
               icon={IconLetterSpacing}
-              value={
-                letterSpacingIsMixed
-                  ? 0
-                  : styles.letterSpacing
-                    ? parseNumericValue(styles.letterSpacing)
-                    : 0
+              value={letterSpacingIsMixed ? 0 : letterSpacingField.value}
+              textValue={
+                letterSpacingIsMixed ? undefined : letterSpacingField.text
               }
               mixed={letterSpacingIsMixed}
               onChange={(value, meta) =>
-                onStyleChange("letterSpacing", `${value}px`, meta)
+                onStyleChange(
+                  "letterSpacing",
+                  letterSpacingScrubCssValue(value, letterSpacingField.unit),
+                  meta,
+                )
               }
-              unit="px"
-              precision={1}
+              onTextCommit={(draft, meta) => {
+                const parsed = parseLetterSpacingInput(
+                  draft,
+                  letterSpacingField,
+                );
+                if (!parsed) return { accepted: false };
+                onStyleChange("letterSpacing", parsed.cssValue, meta);
+                return { accepted: true, displayValue: parsed.text };
+              }}
+              unit={letterSpacingField.unit}
+              precision={2}
               className="w-full gap-0"
               labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] !text-[11px] [&>span]:hidden"
               inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
@@ -732,6 +873,23 @@ export function TypographyProperties({
             textCase={textCase}
             textCaseIsMixed={textTransformIsMixed}
             onTextCaseChange={setTextCase}
+            truncationEnabled={truncationEnabled}
+            truncationLineCount={truncationLineCount ?? 1}
+            truncationMixed={lineClampIsMixed}
+            truncationToggleDisabled={
+              lineClampIsMixed ||
+              !onStylesChange ||
+              (!truncationEnabled && resizeMode === "fixed")
+            }
+            truncationLineCountDisabled={
+              !onStylesChange || resizeMode === "fixed"
+            }
+            onTruncationEnabledChange={(enabled) =>
+              applyTextTruncation(enabled, truncationLineCount ?? 1)
+            }
+            onTruncationLineCountChange={(value, meta) =>
+              applyTextTruncation(true, value, meta)
+            }
           />
         </InspectorGridCell>
       </InspectorGrid>

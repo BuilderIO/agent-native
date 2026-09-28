@@ -11,5 +11,5 @@ export {
   type CommandMenuProps,
   type CommandShortcutProps,
 } from "../CommandMenu.js";
-export { focusAgentChat } from "../AgentPanel.js";
+export { focusAgentChat } from "../AgentSidebar.js";
 export * from "../../navigation/index.js";

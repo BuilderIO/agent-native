@@ -1,0 +1,74 @@
+---
+title: "Clipes: Conversar com o Agent"
+description: "O que o agente vê quando você está no Clipes, prompts organizados por tarefa, e como ele recorre a actions menos comuns, como a memória de tela do Rewind."
+search: "Clipes agente prompts conversar com o agente contexto consciência de tela"
+---
+
+# Conversar com o Agent
+
+Tudo no Clipes está disponível para o agente através das mesmas actions que a interface usa, então qualquer coisa que você pode clicar, você também pode pedir em linguagem natural. Esta página cobre como o agente vê sua tela, prompts úteis por tarefa, e onde ele recorre a actions menos comuns. Veja [Clipes](/docs/template-clips) para a visão geral.
+
+## Como o agente vê sua tela
+
+Com uma gravação aberta, o agente sabe exatamente qual é, até o painel lateral que você está vendo (comentários, transcrição ou insights) e o carimbo de data e hora em que você está pausado. É por isso que "adicione um comentário aqui" ou "corte isso até a parte boa" é resolvido corretamente sem que você precise nomear a gravação ou o horário.
+
+Navegando pela biblioteca, o agente também sabe o que você está vendo lá: a pasta atual, sua pesquisa, e quais gravações você selecionou se estiver no modo de seleção.
+
+Uma coisa que o agente não pode fazer em seu nome: iniciar uma gravação. Os navegadores só concedem acesso ao microfone e à tela depois que uma pessoa clica em algo, então "grave minha tela" leva você direto ao gravador em vez de iniciar a captura invisivelmente em segundo plano.
+
+## Prompts úteis por tarefa
+
+Cada prompt abaixo se torna uma action real sobre sua biblioteca real, a mesma que a interface lê e escreve. Aqui está um exemplo prático:
+
+<Comparison>
+
+### :blue: Você pergunta
+
+"Resuma este clipe para uma atualização de produto."
+
+### :green: O que acontece
+
+Esta é uma pergunta somente leitura. O agente lê a transcrição da gravação que você tem aberta e responde diretamente no chat. Nada muda na sua tela, já que nada foi criado ou movido.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Capturar e importar
+
+- **"Grave minha tela."** O agente abre o gravador para você. Iniciar a captura em si ainda é seu clique, já que o navegador exige isso.
+- **"Importe este link do Loom."** Cole a URL e a gravação entra na sua biblioteca assim que a importação terminar.
+
+### Organizar e limpar
+
+- **"Regenere o título e o resumo."** O agente reescreve ambos a partir da transcrição atual.
+- **"Adicione capítulos. Esse é longo."** Os marcadores de capítulo aparecem na linha do tempo imediatamente.
+- **"Corrija a palavra mal transcrita em 1:42."** O agente corrige a transcrição no local.
+- **"Encontre o clipe onde discutimos o plano de lançamento."** Uma pergunta somente leitura. O agente pesquisa em todas as transcrições da sua biblioteca e responde no chat.
+
+### Editar
+
+_Com uma gravação aberta, "isso" é resolvido para o clipe que você está vendo._
+
+- **"Corte os primeiros 10 segundos."** O corte aparece na linha do tempo imediatamente, e nada é recodificado até você exportar.
+- **"Remova os 'ahn' e 'é' e recosture."** O agente encontra as palavras de preenchimento na transcrição e aplica o mesmo tipo de corte.
+- **"Combine esses três clipes em um só, nessa ordem."** O agente os costura juntos, preservando a transcrição e os capítulos.
+
+### Compartilhar e revisar
+
+- **"Quem está assistindo a este clipe?"** Uma pergunta somente leitura. O agente responde com contagens de visualizações, divididas entre pessoas e outros agentes lendo a transcrição.
+- **"Compartilhe isso com a equipe de design, apenas visualização."** A visibilidade e o acesso da gravação são atualizados imediatamente.
+
+</Cards>
+
+## Actions menos comuns
+
+Nem toda capacidade do Clipes é uma action de primeira classe que o agente já tem pré-carregada. As actions de memória de tela do Rewind são um bom exemplo, já que só importam depois que você ativa o Rewind. Quando uma solicitação precisa de uma dessas, o agente pesquisa pela ferramenta certa pelo nome antes de chamá-la, da mesma forma que você poderia pesquisar em uma paleta de comandos em vez de memorizar cada atalho. Você normalmente vai notar isso como uma breve pausa em solicitações que vão além das tarefas cotidianas de biblioteca e edição.
+
+## Próximos passos
+
+- [**Clipes**](/docs/template-clips) — a visão geral e o que ele substitui
+- [**Funcionalidades**](/docs/template-clips-features) — cada área de funcionalidade, com passos de configuração para cada uma
+- [**Clipes em um workspace com múltiplos apps**](/docs/template-clips-integrations) — clipes legíveis por agentes, exportação para o Brain e evidência de chamada para CRM
+- [**Guia do desenvolvedor**](/docs/template-clips-developers) — todas as actions, o modelo de dados e como estender o aplicativo
+- [**Context Awareness**](/docs/context-awareness) — como o agente sabe o clipe atual e a posição de reprodução

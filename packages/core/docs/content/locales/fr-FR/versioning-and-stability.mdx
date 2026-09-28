@@ -1,0 +1,32 @@
+---
+title: Versions et stabilité
+description: Comprendre les versions nightly et stables, la compatibilité avant 1.0, les migrations et les versions épinglées des modèles.
+---
+
+# Versions et stabilité
+
+Les packages Agent-Native sont antérieurs à la version 1.0. Le processus fournit des snapshots nightly, des versions stables, des outils de migration et des contrôles doctor. Une version alpha ou bêta ne garantit pas une prise en charge en production.
+
+## Canaux de publication
+
+Les fusions dans `main` publient des snapshots nightly sous le tag npm `nightly`, sans déplacer `latest`. Les versions stables sont coordonnées avec Changesets. Les exécutions planifiées préparent des versions patch du lundi au jeudi à midi, heure du Pacifique. Chaque exécution ne garantit pas une publication.
+
+## Compatibilité avant 1.0
+
+Les versions patch visent les corrections et améliorations compatibles. Les versions minor peuvent ajouter des fonctions et modifier des comportements ou API encore en alpha ou bêta. Les versions major sont réservées aux changements incompatibles de grande portée. Consultez les notes de version et les étapes de migration avant la mise à niveau.
+
+`migration-manifest.json` consigne les déplacements d’imports et les changements de noms lorsqu’une migration est prise en charge. Prévisualisez le codemod, vérifiez le diff, puis appliquez-le :
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+Les chemins supprimés peuvent rester temporairement sous forme de modules tombstone avec des instructions. Aucune durée de conservation fixe n’est définie.
+
+## Versions des modèles et objectifs
+
+La CLI épingle `@agent-native/core` sur la version exacte du modèle utilisé. Mettez-le à niveau avec les outils de migration plutôt qu’en remplaçant manuellement la version par `latest`.
+
+L’objectif actuel est une bêta vers la mi-octobre 2026 et la version 1.0 avant la fin de 2026. Ce sont des objectifs, pas des engagements. Signalez les erreurs reproductibles avec la version du package, le fournisseur de base de données et la sortie de migration.

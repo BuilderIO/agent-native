@@ -23,9 +23,15 @@ import {
   getCreativeContext,
   type CreativeContextServerContext,
 } from "./context.js";
+import { gateCreativeContextActions } from "./labs.js";
 import { createCreativeContextMediaPlugin } from "./media.js";
 import { registerCreativeContextPromptProvider } from "./prompt-provider.js";
 import { getCreativeContextResourcePath } from "./resource-paths.js";
+
+export {
+  assertCreativeContextLabEnabled,
+  isCreativeContextLabAvailable,
+} from "./labs.js";
 
 export interface CreativeContextSetupOptions extends Partial<
   Omit<CreativeContextServerContext, "connectorContext">
@@ -35,7 +41,7 @@ export interface CreativeContextSetupOptions extends Partial<
   continuationDispatcher?: CreativeContextImportContinuationDispatcher;
 }
 
-registerPackageActions(creativeContextActions);
+registerPackageActions(gateCreativeContextActions(creativeContextActions));
 registerWorkspaceConnectionLifecycleListener(async (event) => {
   await handleWorkspaceConnectionLifecycle(event);
 });
@@ -103,6 +109,7 @@ export function setupCreativeContext(
   configureCreativeContext({
     getDb: options.getDb,
     schema: options.schema,
+    labKey: options.labKey,
     vectorAdapter: options.vectorAdapter,
     connectors: options.connectors,
     projections: options.projections,
@@ -155,7 +162,7 @@ export {
   type RenderedDesignExtractionStatus,
 } from "../connectors/rendered-design.js";
 export { serializePrivateBlobHandle } from "../connectors/private-artifacts.js";
-export { resolveNativeContextCloneReference } from "../store/contexts.js";
+export { resolveNativeContextCloneReference } from "./native-context-clone.js";
 export {
   CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,
   CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,

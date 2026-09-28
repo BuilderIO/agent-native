@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "Build a customer feedback survey",
     suggestionSubmissions: "Show submissions by day",
     suggestionExport: "Export responses to CSV",
+    topSignal: "Top signal",
+    draftFollowUp: "Draft a follow-up",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",
@@ -374,6 +376,10 @@ const messages = {
     responseSubmitted: "Response submitted",
     noFields: "This form has no fields yet.",
     failedSubmit: "Failed to submit form",
+    uncheckablePattern:
+      "This form's rule for {label} can't be checked. Ask the form owner to fix it.",
+    patternTooLong:
+      "The value for {label} is too long to check against this form's rule.",
   },
   responseInsights: {
     unavailable: "Insights unavailable",

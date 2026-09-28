@@ -25,7 +25,7 @@ actions behind approvals.
 Scaffold your own copy and run it:
 
 ```bash
-npx @agent-native/core@latest create my-dispatch --standalone --template dispatch
+npx --yes @agent-native/core@latest create my-dispatch --standalone --template dispatch
 cd my-dispatch
 pnpm install
 pnpm dev

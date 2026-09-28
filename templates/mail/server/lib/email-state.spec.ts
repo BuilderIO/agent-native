@@ -1,9 +1,3 @@
-/**
- * Tests for email-state.ts — the shared server functions for email state
- * changes (archive, unarchive, star, trash, untrash, mark read, mark thread
- * read). Each test verifies the superset behaviour merged from the prior
- * action and REST handler implementations.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const localStoreMocks = vi.hoisted(() => ({
@@ -11,6 +5,16 @@ const localStoreMocks = vi.hoisted(() => ({
   readLocalEmails: vi.fn(),
   writeLocalEmails: vi.fn(),
   withLocalEmailMutationLock: vi.fn(),
+}));
+
+const inboxStoreSyncMocks = vi.hoisted(() => ({
+  syncInboxLabelDelta: vi.fn(),
+}));
+
+const inboxStoreMocks = vi.hoisted(() => ({
+  findThreadIdsByMessageIds: vi.fn(),
+  findAccountForThread: vi.fn(),
+  findAccountForMessage: vi.fn(),
 }));
 
 import {
@@ -22,11 +26,11 @@ import {
   markAllLocalUnreadRead,
   markRead,
   markThreadRead,
+  resolveMutationAccounts,
+  resolveMutationAccount,
+  resolveAccountEmail,
+  getAccountToken,
 } from "./email-state.js";
-
-// ---------------------------------------------------------------------------
-// Module mocks
-// ---------------------------------------------------------------------------
 
 vi.mock("@agent-native/core/settings", () => ({
   getSettingsEmitter: () => ({ emit: vi.fn() }),
@@ -51,6 +55,8 @@ vi.mock("./google-api.js", () => ({
 
 vi.mock("./google-auth.js", () => ({
   isConnected: vi.fn(),
+  getConnectedAccountsWithErrors: vi.fn(),
+  getClientForConnectedAccount: vi.fn(),
 }));
 
 vi.mock("./local-email-store.js", () => ({
@@ -66,6 +72,16 @@ vi.mock("./thread-cache.js", () => ({
   THREAD_CACHE_TTL: 300_000,
 }));
 
+vi.mock("./inbox-store-sync.js", () => ({
+  syncInboxLabelDelta: inboxStoreSyncMocks.syncInboxLabelDelta,
+}));
+
+vi.mock("./inbox-store.js", () => ({
+  findThreadIdsByMessageIds: inboxStoreMocks.findThreadIdsByMessageIds,
+  findAccountForThread: inboxStoreMocks.findAccountForThread,
+  findAccountForMessage: inboxStoreMocks.findAccountForMessage,
+}));
+
 import {
   getOAuthTokens,
   listOAuthAccountsByOwner,
@@ -79,7 +95,11 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
 } from "./google-api.js";
-import { isConnected } from "./google-auth.js";
+import {
+  getClientForConnectedAccount,
+  getConnectedAccountsWithErrors,
+  isConnected,
+} from "./google-auth.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -87,12 +107,9 @@ import {
 } from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
 const OWNER = "owner@example.com";
 const ACCT = "connected@example.com";
+const ACCT2 = "connected2@example.com";
 const ACCESS_TOKEN = "access-token-abc";
 const MSG_ID = "msg-001";
 const THREAD_ID = "thread-xyz";
@@ -143,6 +160,45 @@ function mockAccounts() {
   } as any);
 }
 
+function mockTwoAccounts() {
+  vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+    {
+      accountId: ACCT,
+      owner: OWNER,
+      tokens: {
+        access_token: ACCESS_TOKEN,
+        expiry_date: Date.now() + 3600_000,
+      },
+    },
+    {
+      accountId: ACCT2,
+      owner: OWNER,
+      tokens: {
+        access_token: ACCESS_TOKEN,
+        expiry_date: Date.now() + 3600_000,
+      },
+    },
+  ] as any);
+  vi.mocked(getOAuthTokens).mockResolvedValue({
+    access_token: ACCESS_TOKEN,
+    expiry_date: Date.now() + 3600_000,
+  } as any);
+}
+
+function mockManaged(email = ACCT) {
+  vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
+  vi.mocked(getConnectedAccountsWithErrors).mockResolvedValue({
+    accounts: [email],
+    errors: [],
+  });
+  vi.mocked(getClientForConnectedAccount).mockImplementation(
+    async (_owner, accountEmail) =>
+      accountEmail.toLowerCase() === email.toLowerCase()
+        ? { accessToken: ACCESS_TOKEN, email }
+        : null,
+  );
+}
+
 function mockLocalEmails(
   emails = makeLocalEmails(),
   labels = [{ id: "inbox", name: "Inbox", unreadCount: 1, totalCount: 2 }],
@@ -188,11 +244,11 @@ beforeEach(() => {
       return next;
     },
   );
+  inboxStoreSyncMocks.syncInboxLabelDelta.mockResolvedValue(undefined);
+  inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(new Map());
+  inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
+  inboxStoreMocks.findAccountForMessage.mockResolvedValue(null);
 });
-
-// ---------------------------------------------------------------------------
-// archiveEmail
-// ---------------------------------------------------------------------------
 
 describe("archiveEmail", () => {
   describe("local mode", () => {
@@ -211,7 +267,6 @@ describe("archiveEmail", () => {
         .mocked(putUserSetting)
         .mock.calls.find(([, k]) => k === "local-emails")!;
       const emails = (written as any).emails;
-      // Both messages in the thread must be archived
       expect(emails.filter((e: any) => e.isArchived)).toHaveLength(2);
       expect(emails.every((e: any) => !e.labelIds.includes("inbox"))).toBe(
         true,
@@ -387,10 +442,6 @@ describe("archiveEmail", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// unarchiveEmail
-// ---------------------------------------------------------------------------
-
 describe("unarchiveEmail", () => {
   describe("local mode", () => {
     it("unarchives entire thread and adds inbox label", async () => {
@@ -443,10 +494,6 @@ describe("unarchiveEmail", () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// toggleStar
-// ---------------------------------------------------------------------------
 
 describe("toggleStar", () => {
   describe("local mode", () => {
@@ -536,12 +583,25 @@ describe("toggleStar", () => {
 
       expect(invalidateThreadCache).toHaveBeenCalledWith(OWNER, "hint-thread");
     });
+
+    it("mirrors the store with message scope, not thread scope (only this message starred)", async () => {
+      mockConnected(true);
+      mockAccounts();
+      vi.mocked(gmailModifyMessage).mockResolvedValue({
+        threadId: THREAD_ID,
+      } as any);
+
+      await toggleStar({ id: MSG_ID, ownerEmail: OWNER, isStarred: true });
+
+      expect(inboxStoreSyncMocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+        OWNER,
+        ACCT,
+        [THREAD_ID],
+        expect.objectContaining({ scope: "message", messageIds: [MSG_ID] }),
+      );
+    });
   });
 });
-
-// ---------------------------------------------------------------------------
-// trashEmail
-// ---------------------------------------------------------------------------
 
 describe("trashEmail", () => {
   describe("local mode", () => {
@@ -599,10 +659,6 @@ describe("trashEmail", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// untrashEmail
-// ---------------------------------------------------------------------------
-
 describe("untrashEmail", () => {
   describe("local mode", () => {
     it("clears isTrashed and restores inbox label on entire thread", async () => {
@@ -653,10 +709,6 @@ describe("untrashEmail", () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// markRead
-// ---------------------------------------------------------------------------
 
 describe("markRead", () => {
   describe("local mode", () => {
@@ -733,6 +785,24 @@ describe("markRead", () => {
         MSG_ID,
         undefined,
         ["UNREAD"],
+      );
+    });
+
+    it("mirrors the store with message scope, not thread scope (only this message read)", async () => {
+      mockConnected(true);
+      mockAccounts();
+      vi.mocked(gmailModifyMessage).mockResolvedValue({} as any);
+      inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(
+        new Map([[MSG_ID, THREAD_ID]]),
+      );
+
+      await markRead({ id: MSG_ID, ownerEmail: OWNER, isRead: true });
+
+      expect(inboxStoreSyncMocks.syncInboxLabelDelta).toHaveBeenCalledWith(
+        OWNER,
+        ACCT,
+        [THREAD_ID],
+        expect.objectContaining({ scope: "message", messageIds: [MSG_ID] }),
       );
     });
   });
@@ -908,10 +978,6 @@ describe("markAllLocalUnreadRead", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// markThreadRead
-// ---------------------------------------------------------------------------
-
 describe("markThreadRead", () => {
   describe("local mode", () => {
     it("sets isRead on all thread messages and recomputes label counts", async () => {
@@ -943,7 +1009,6 @@ describe("markThreadRead", () => {
         isRead: true,
       });
 
-      // No write calls needed since nothing changed
       expect(
         vi
           .mocked(putUserSetting)
@@ -992,5 +1057,244 @@ describe("markThreadRead", () => {
         undefined,
       );
     });
+
+    it("resolves the account from the synced store when accountEmail is omitted", async () => {
+      mockConnected(true);
+      mockTwoAccounts();
+      inboxStoreMocks.findAccountForThread.mockResolvedValue(ACCT2);
+      vi.mocked(gmailModifyThread).mockResolvedValue({} as any);
+
+      const result = await markThreadRead({
+        threadId: THREAD_ID,
+        ownerEmail: OWNER,
+        isRead: true,
+      });
+
+      expect(inboxStoreMocks.findAccountForThread).toHaveBeenCalledWith(
+        OWNER,
+        THREAD_ID,
+      );
+      expect(result).toEqual({ threadId: THREAD_ID, isRead: true });
+      expect(gmailModifyThread).toHaveBeenCalledWith(
+        ACCESS_TOKEN,
+        THREAD_ID,
+        undefined,
+        ["UNREAD"],
+      );
+    });
+
+    it("falls back to the owner's sole connected account when the store has no hit", async () => {
+      mockConnected(true);
+      mockAccounts();
+      inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
+      vi.mocked(gmailModifyThread).mockResolvedValue({} as any);
+
+      const result = await markThreadRead({
+        threadId: THREAD_ID,
+        ownerEmail: OWNER,
+        isRead: true,
+      });
+
+      expect(result).toEqual({ threadId: THREAD_ID, isRead: true });
+      expect(gmailModifyThread).toHaveBeenCalledWith(
+        ACCESS_TOKEN,
+        THREAD_ID,
+        undefined,
+        ["UNREAD"],
+      );
+    });
+
+    it("throws a clear error for an unknown thread with multiple connected accounts", async () => {
+      mockConnected(true);
+      mockTwoAccounts();
+      inboxStoreMocks.findAccountForThread.mockResolvedValue(null);
+
+      await expect(
+        markThreadRead({
+          threadId: THREAD_ID,
+          ownerEmail: OWNER,
+          isRead: true,
+        }),
+      ).rejects.toThrow(
+        `Cannot determine which connected account owns thread ${THREAD_ID}; pass accountEmail`,
+      );
+      expect(gmailModifyThread).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("resolveMutationAccounts", () => {
+  it("passes an explicit accountEmail through without a store lookup", async () => {
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", accountEmail: ACCT },
+    ]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT }]);
+    expect(unresolved).toEqual([]);
+    expect(inboxStoreMocks.findAccountForThread).not.toHaveBeenCalled();
+    expect(inboxStoreMocks.findAccountForMessage).not.toHaveBeenCalled();
+  });
+
+  it("resolves a missing accountEmail from the store via threadId", async () => {
+    inboxStoreMocks.findAccountForThread.mockResolvedValue(ACCT2);
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", threadId: THREAD_ID },
+    ]);
+
+    expect(resolved).toEqual([
+      { id: "m1", threadId: THREAD_ID, accountEmail: ACCT2 },
+    ]);
+  });
+
+  it("resolves a missing accountEmail from the store via message id", async () => {
+    inboxStoreMocks.findAccountForMessage.mockResolvedValue(ACCT2);
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [{ id: "m1" }]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT2 }]);
+  });
+
+  it("falls back to the owner's sole connected account when the store has no hit", async () => {
+    mockAccounts();
+
+    const { resolved } = await resolveMutationAccounts(OWNER, [{ id: "m1" }]);
+
+    expect(resolved).toEqual([{ id: "m1", accountEmail: ACCT }]);
+  });
+
+  it("reports (never guesses) a target that can't be resolved with multiple connected accounts", async () => {
+    mockTwoAccounts();
+
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1" },
+    ]);
+
+    expect(resolved).toEqual([]);
+    expect(unresolved).toEqual([
+      {
+        id: "m1",
+        error: expect.stringContaining(
+          "Cannot determine which connected account",
+        ),
+      },
+    ]);
+  });
+
+  it("resolves each target independently, mixing hits and misses", async () => {
+    mockTwoAccounts();
+    inboxStoreMocks.findAccountForThread.mockImplementation(
+      async (_owner: string, threadId: string) =>
+        threadId === "known-thread" ? ACCT2 : null,
+    );
+
+    const { resolved, unresolved } = await resolveMutationAccounts(OWNER, [
+      { id: "m1", threadId: "known-thread" },
+      { id: "m2", threadId: "unknown-thread" },
+      { id: "m3", accountEmail: ACCT },
+    ]);
+
+    expect(resolved).toEqual([
+      { id: "m1", threadId: "known-thread", accountEmail: ACCT2 },
+      { id: "m3", accountEmail: ACCT },
+    ]);
+    expect(unresolved).toEqual([{ id: "m2", error: expect.any(String) }]);
+  });
+});
+
+describe("managed workspace grant (no OAuth rows)", () => {
+  const MANAGED = "managed@example.com";
+
+  it("resolveAccountEmail accepts the managed grant's email", async () => {
+    mockManaged(MANAGED);
+
+    await expect(resolveAccountEmail(MANAGED, OWNER)).resolves.toBe(MANAGED);
+  });
+
+  it("resolveAccountEmail still rejects an email that isn't the managed grant either", async () => {
+    mockManaged(MANAGED);
+
+    await expect(
+      resolveAccountEmail("someone-else@example.com", OWNER),
+    ).rejects.toThrow("Account not owned by current user");
+  });
+
+  it("getAccountToken falls back to the managed client's access token", async () => {
+    mockManaged(MANAGED);
+
+    await expect(getAccountToken(MANAGED, OWNER)).resolves.toBe(ACCESS_TOKEN);
+  });
+
+  it("resolveMutationAccount falls back to the managed grant when it's the owner's sole connected account", async () => {
+    mockManaged(MANAGED);
+
+    await expect(resolveMutationAccount(OWNER, undefined)).resolves.toBe(
+      MANAGED,
+    );
+  });
+
+  it("archiveEmail (loop path) succeeds for a managed-only account", async () => {
+    mockConnected(true);
+    mockManaged(MANAGED);
+    vi.mocked(gmailGetMessage).mockResolvedValue({
+      threadId: THREAD_ID,
+      labelIds: ["INBOX"],
+    } as any);
+    vi.mocked(gmailModifyThread).mockResolvedValue({} as any);
+
+    const result = await archiveEmail({ id: MSG_ID, ownerEmail: OWNER });
+
+    expect(result).toEqual({
+      id: MSG_ID,
+      threadId: THREAD_ID,
+      isArchived: true,
+    });
+    expect(gmailModifyThread).toHaveBeenCalledWith(
+      ACCESS_TOKEN,
+      THREAD_ID,
+      undefined,
+      ["INBOX"],
+    );
+  });
+
+  it("markRead (loop path) succeeds for a managed-only account", async () => {
+    mockConnected(true);
+    mockManaged(MANAGED);
+    vi.mocked(gmailModifyMessage).mockResolvedValue({} as any);
+    inboxStoreMocks.findThreadIdsByMessageIds.mockResolvedValue(
+      new Map([[MSG_ID, THREAD_ID]]),
+    );
+
+    const result = await markRead({
+      id: MSG_ID,
+      ownerEmail: OWNER,
+      isRead: true,
+    });
+
+    expect(result).toEqual({ id: MSG_ID, isRead: true });
+    expect(gmailModifyMessage).toHaveBeenCalledWith(
+      ACCESS_TOKEN,
+      MSG_ID,
+      undefined,
+      ["UNREAD"],
+    );
+  });
+
+  it("untrashEmail (resolveMutationAccount + getAccountToken path) succeeds for a managed-only account", async () => {
+    mockConnected(true);
+    mockManaged(MANAGED);
+    vi.mocked(gmailGetMessage).mockResolvedValue({
+      threadId: THREAD_ID,
+    } as any);
+    vi.mocked(gmailUntrashThread).mockResolvedValue({} as any);
+
+    const result = await untrashEmail({ id: MSG_ID, ownerEmail: OWNER });
+
+    expect(result).toEqual({
+      id: MSG_ID,
+      threadId: THREAD_ID,
+      isTrashed: false,
+    });
+    expect(gmailUntrashThread).toHaveBeenCalledWith(ACCESS_TOKEN, THREAD_ID);
   });
 });

@@ -72,7 +72,7 @@ const placementSchema = z.discriminatedUnion("placement", [
 ]);
 
 export const databaseBlockTargetSchema = databaseMutationTargetSchema.extend({
-  itemId: z.string().min(1).describe("Exact database membership row ID"),
+  itemId: z.string().min(1).describe("Exact collection membership row ID"),
   rowDocumentId: z.string().min(1).describe("Exact row page ID"),
   propertyId: z.string().min(1).describe("Exact Blocks property ID"),
 });
@@ -121,8 +121,6 @@ const mutateDatabaseBlockOperationSchema = z.discriminatedUnion("operation", [
 
 type MutationInput = z.infer<typeof mutateDatabaseBlockOperationSchema>;
 
-// Agent tool registration requires a top-level object schema. Keep the
-// discriminated union as the exact validator for operation-specific fields.
 export const mutateDatabaseBlockSchema = z
   .object({
     ...mutationEnvelopeSchema.shape,

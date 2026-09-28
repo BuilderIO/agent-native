@@ -117,6 +117,7 @@ export interface ScreenMemoryExportResult {
 }
 
 export interface FeatureConfig {
+  configVersion: number;
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
   voiceEnabled: boolean;

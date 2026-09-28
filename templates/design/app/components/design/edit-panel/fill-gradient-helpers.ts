@@ -1,9 +1,17 @@
 import {
   alphaToOpacity,
+  defaultGradientEndColor,
   parseCssColor,
   rgbaToCss,
   withColorOpacity,
 } from "@shared/color-utils";
+import {
+  gradientStopWithFillOpacity,
+  gradientFillInterpolation,
+  readGradientFillOpacity,
+  splitCssLayers,
+} from "@shared/gradient-opacity";
+export { splitCssLayers } from "@shared/gradient-opacity";
 
 import {
   type DesignFillRow,
@@ -18,6 +26,7 @@ export const FILL_LAYER_PREFIX = "layer:";
 
 interface ParsedGradientLayer {
   type: DesignGradientType;
+  opacity?: number;
   prefix?: string;
   stops: DesignGradientStop[];
 }
@@ -71,7 +80,7 @@ export function buildFillRows(
       type: gradient ? "gradient" : "image",
       value: layer,
       swatch: layer,
-      opacity: gradient ? averageGradientOpacity(gradient.stops) : 100,
+      opacity: gradient?.opacity ?? 100,
       selected: selectedFillId === fillLayerId(index),
     });
   });
@@ -79,28 +88,6 @@ export function buildFillRows(
   return rows;
 }
 
-export function averageGradientOpacity(stops: DesignGradientStop[]): number {
-  if (!stops.length) return 100;
-  const total = stops.reduce((sum, stop) => {
-    const parsed = parseCssColor(stop.color);
-    return sum + (stop.opacity ?? (parsed ? alphaToOpacity(parsed.a) : 100));
-  }, 0);
-  return Math.round(total / stops.length);
-}
-
-/**
- * Marker used to non-destructively hide a single backgroundImage layer
- * (gradient or image). CSS strips comments from computed style values — a
- * trailing comment appended to a backgroundImage layer does not survive
- * getComputedStyle (verified: browsers normalize/serialize computed values
- * without their source comments) — so we can't tag the layer text itself.
- * Instead we pair the untouched original layer with a zero-size
- * background-size entry at the same index: `background-size: 0px 0px` makes
- * that layer render nothing while backgroundImage keeps the exact original
- * CSS text. Both backgroundImage and backgroundSize are real, valid,
- * positionally-paired CSS lists that DO round-trip through computed style,
- * so hiding survives reselect/reload with no React state stash required.
- */
 const HIDDEN_LAYER_SIZE_MARKER = "0px 0px";
 
 export function isLayerHiddenBySize(sizeEntry: string | undefined): boolean {
@@ -109,19 +96,6 @@ export function isLayerHiddenBySize(sizeEntry: string | undefined): boolean {
   );
 }
 
-/**
- * Rewrites the background-size list so `index` is hidden/shown via the
- * zero-size marker, padding shorter lists with "auto" (the CSS default) so
- * every other layer keeps rendering at its current/default size.
- *
- * `restoreValue` is the size to bring back when un-hiding (`hidden: false`).
- * Without it, re-showing always reset the layer to "auto", permanently
- * discarding whatever custom cover/contain/percentage size the layer had
- * before it was hidden — callers should capture the layer's own size entry
- * before hiding it (it's about to be overwritten with the marker) and pass
- * it back in here on the show path. Defaults to "auto" so existing callers
- * that don't have a stashed value keep today's behavior.
- */
 export function withLayerSizeMarker(
   sizeLayers: string[],
   layerCount: number,
@@ -129,47 +103,9 @@ export function withLayerSizeMarker(
   hidden: boolean,
   restoreValue?: string,
 ): string {
-  const next = Array.from(
-    { length: layerCount },
-    (_, i) => sizeLayers[i] || "auto",
-  );
+  const next = alignCssLayerValues(sizeLayers, layerCount, "auto");
   next[index] = hidden ? HIDDEN_LAYER_SIZE_MARKER : restoreValue || "auto";
   return joinCssLayers(next);
-}
-
-export function splitCssLayers(value: string): string[] {
-  const trimmed = value.trim();
-  // CSS-wide keywords represent the property's default/inherited value as a
-  // whole; they are not real comma-stack layers and cannot legally be
-  // preserved beside a new gradient/image (`url(...), initial` invalidates
-  // the entire declaration). Shorthand-authored page backgrounds commonly
-  // surface as `initial` through CSSStyleDeclaration, so normalize these to
-  // an empty editable layer stack before adding a real fill.
-  if (
-    !trimmed ||
-    trimmed === "none" ||
-    /^(?:initial|inherit|unset|revert|revert-layer)$/i.test(trimmed)
-  ) {
-    return [];
-  }
-  const layers: string[] = [];
-  let depth = 0;
-  let start = 0;
-
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const char = trimmed[index];
-    if (char === "(") depth += 1;
-    if (char === ")") depth = Math.max(0, depth - 1);
-    if (char === "," && depth === 0) {
-      const layer = trimmed.slice(start, index).trim();
-      if (layer) layers.push(layer);
-      start = index + 1;
-    }
-  }
-
-  const finalLayer = trimmed.slice(start).trim();
-  if (finalLayer) layers.push(finalLayer);
-  return layers;
 }
 
 export function joinCssLayers(layers: string[]): string {
@@ -177,7 +113,6 @@ export function joinCssLayers(layers: string[]): string {
   return cleaned.length ? cleaned.join(", ") : "none";
 }
 
-/** One fill layer's index-aligned parallel CSS values. */
 export interface FillLayerArrays {
   backgroundImage: string[];
   backgroundSize: string[];
@@ -185,19 +120,6 @@ export interface FillLayerArrays {
   backgroundPosition: string[];
 }
 
-/**
- * Removes the layer at `index` from all four index-aligned parallel fill
- * arrays (image/size/repeat/position) together, returning a single patch of
- * joined CSS layer-list strings ready to commit as one atomic style change.
- *
- * Splicing only `backgroundImage`/`backgroundSize` (as a previous version of
- * `removeLayer` did) and leaving `backgroundRepeat`/`backgroundPosition`
- * untouched shifts every remaining layer's index relative to those two
- * arrays, silently re-pairing each of them with the *next* layer's original
- * repeat/position. Splicing all four together — the same pattern
- * `reorderFillLayers` already uses for permutation — keeps every remaining
- * layer's size/repeat/position aligned with its own image after the removal.
- */
 export function removeFillLayerAtIndex(
   layers: FillLayerArrays,
   index: number,
@@ -208,17 +130,75 @@ export function removeFillLayerAtIndex(
   | "backgroundPosition",
   string
 > {
-  const withoutIndex = (values: string[]) =>
-    values.filter((_, layerIndex) => layerIndex !== index);
+  if (index < 0 || index >= layers.backgroundImage.length) {
+    return {
+      backgroundImage: joinCssLayers(layers.backgroundImage),
+      backgroundSize: joinCssLayers(layers.backgroundSize),
+      backgroundRepeat: joinCssLayers(layers.backgroundRepeat),
+      backgroundPosition: joinCssLayers(layers.backgroundPosition),
+    };
+  }
+  const layerCount = layers.backgroundImage.length;
+  const withoutIndex = (values: string[], fallback: string) =>
+    alignCssLayerValues(values, layerCount, fallback).filter(
+      (_, layerIndex) => layerIndex !== index,
+    );
   return {
-    backgroundImage: joinCssLayers(withoutIndex(layers.backgroundImage)),
-    backgroundSize: joinCssLayers(withoutIndex(layers.backgroundSize)),
-    backgroundRepeat: joinCssLayers(withoutIndex(layers.backgroundRepeat)),
-    backgroundPosition: joinCssLayers(withoutIndex(layers.backgroundPosition)),
+    backgroundImage: joinCssLayers(
+      layers.backgroundImage.filter((_, layerIndex) => layerIndex !== index),
+    ),
+    backgroundSize: joinCssLayers(withoutIndex(layers.backgroundSize, "auto")),
+    backgroundRepeat: joinCssLayers(
+      withoutIndex(layers.backgroundRepeat, "repeat"),
+    ),
+    backgroundPosition: joinCssLayers(
+      withoutIndex(layers.backgroundPosition, "0% 0%"),
+    ),
   };
 }
 
-/** One image-fill layer's four index-aligned CSS values. */
+export function reorderFillLayerArrays(
+  layers: FillLayerArrays,
+  from: number,
+  to: number,
+): Record<
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const layerCount = layers.backgroundImage.length;
+  if (
+    from < 0 ||
+    from >= layerCount ||
+    to < 0 ||
+    to >= layerCount ||
+    from === to
+  ) {
+    return {
+      backgroundImage: joinCssLayers(layers.backgroundImage),
+      backgroundSize: joinCssLayers(layers.backgroundSize),
+      backgroundRepeat: joinCssLayers(layers.backgroundRepeat),
+      backgroundPosition: joinCssLayers(layers.backgroundPosition),
+    };
+  }
+  const reorder = (values: string[], fallback: string) => {
+    const next = alignCssLayerValues(values, layerCount, fallback);
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved!);
+    return next;
+  };
+  return {
+    backgroundImage: joinCssLayers(reorder(layers.backgroundImage, "none")),
+    backgroundSize: joinCssLayers(reorder(layers.backgroundSize, "auto")),
+    backgroundRepeat: joinCssLayers(reorder(layers.backgroundRepeat, "repeat")),
+    backgroundPosition: joinCssLayers(
+      reorder(layers.backgroundPosition, "0% 0%"),
+    ),
+  };
+}
+
 export interface ImageFillLayerStyles {
   backgroundImage: string;
   backgroundSize: string;
@@ -226,14 +206,16 @@ export interface ImageFillLayerStyles {
   backgroundPosition: string;
 }
 
-/**
- * Sets one image-fill layer's four index-aligned CSS values at `index`,
- * preserving every sibling layer's own image/size/repeat/position — the
- * image-fill analog of `removeFillLayerAtIndex`/`reorderFillLayers`. `index`
- * may be one past the current layer count to append a new layer. Shorter
- * parallel arrays are padded with each property's CSS default (mirrors
- * `addFillLayerPatch`'s defaults) so sibling layers keep rendering unchanged.
- */
+export function alignCssLayerValues(
+  values: string[],
+  layerCount: number,
+  fallback: string,
+) {
+  return Array.from({ length: layerCount }, (_, index) =>
+    values.length ? values[index % values.length]! : fallback,
+  );
+}
+
 export function setImageFillLayerPatch(
   layers: FillLayerArrays,
   index: number,
@@ -246,12 +228,19 @@ export function setImageFillLayerPatch(
   string
 > {
   const layerCount = Math.max(layers.backgroundImage.length, index + 1);
-  const buildLayer = (existing: string[], fallback: string, override: string) =>
-    joinCssLayers(
+  const existingLayerCount = layers.backgroundImage.length;
+  const buildLayer = (
+    existing: string[],
+    fallback: string,
+    override: string,
+  ) => {
+    const aligned = alignCssLayerValues(existing, existingLayerCount, fallback);
+    return joinCssLayers(
       Array.from({ length: layerCount }, (_, i) =>
-        i === index ? override : existing[i] || fallback,
+        i === index ? override : (aligned[i] ?? fallback),
       ),
     );
+  };
   return {
     backgroundImage: buildLayer(
       layers.backgroundImage,
@@ -265,7 +254,7 @@ export function setImageFillLayerPatch(
     ),
     backgroundRepeat: buildLayer(
       layers.backgroundRepeat,
-      "no-repeat",
+      "repeat",
       imageStyles.backgroundRepeat,
     ),
     backgroundPosition: buildLayer(
@@ -276,24 +265,6 @@ export function setImageFillLayerPatch(
   };
 }
 
-/**
- * Full patch-building logic behind `ColorInput`'s image-fill handler.
- *
- * Previously, editing the base fill row's image (via `ImageFillControls` ->
- * `DesignColorPicker.onImageFillChange`) always replaced the *whole*
- * `backgroundImage`/`backgroundSize`/`backgroundRepeat`/`backgroundPosition`
- * properties with a single-layer patch (see `imageFillToBackgroundStyles`),
- * silently discarding any other gradient/image layers already stacked below
- * it — there was no layer-index-aware merge at all.
- *
- * When `layerIndex` is a real index (editing an existing layer's own image),
- * only that layer's four values are overwritten, preserving every sibling —
- * see `setImageFillLayerPatch`. When `layerIndex` is `null` (the base
- * solid/text row switching its paint type to Image, with no layer selected
- * yet), the image becomes a new layer PREPENDED above the existing layer
- * stack — mirroring `solidToGradientPatch`'s solid -> gradient conversion —
- * instead of clobbering the whole background stack.
- */
 export function imageFillChangePatch(
   layers: FillLayerArrays,
   layerIndex: number | null,
@@ -308,6 +279,7 @@ export function imageFillChangePatch(
   if (layerIndex !== null) {
     return setImageFillLayerPatch(layers, layerIndex, imageStyles);
   }
+  const existingLayerCount = layers.backgroundImage.length;
   return {
     backgroundImage: joinCssLayers([
       imageStyles.backgroundImage,
@@ -315,15 +287,23 @@ export function imageFillChangePatch(
     ]),
     backgroundSize: joinCssLayers([
       imageStyles.backgroundSize,
-      ...layers.backgroundSize,
+      ...alignCssLayerValues(layers.backgroundSize, existingLayerCount, "auto"),
     ]),
     backgroundRepeat: joinCssLayers([
       imageStyles.backgroundRepeat,
-      ...layers.backgroundRepeat,
+      ...alignCssLayerValues(
+        layers.backgroundRepeat,
+        existingLayerCount,
+        "repeat",
+      ),
     ]),
     backgroundPosition: joinCssLayers([
       imageStyles.backgroundPosition,
-      ...layers.backgroundPosition,
+      ...alignCssLayerValues(
+        layers.backgroundPosition,
+        existingLayerCount,
+        "0% 0%",
+      ),
     ]),
   };
 }
@@ -335,7 +315,7 @@ export function imageFillChangePatch(
  * already there. The only exception is a genuinely empty fill state (no
  * visible base solid AND no existing background layers) — there "+" just
  * reveals the hidden base solid instead of stacking an empty default
- * gradient on top of nothing.
+ * fill on top of nothing.
  *
  * Previously the caller only checked whether the base solid had visible
  * alpha, so an element with an existing gradient/image layer stack but a
@@ -345,6 +325,9 @@ export function imageFillChangePatch(
  * opposite of what "+" is supposed to do, and it reintroduced the exact
  * phantom-second-fill problem `solidToGradientPatch` exists to avoid.
  */
+// guard:allow-raw-color — Figma's new-fill paint; hex because solid layers need a parseable colour.
+const NEW_FILL_COLOR = "#d9d9d9";
+
 export function addFillLayerPatch(params: {
   backgroundColor: string | undefined;
   backgroundLayers: string[];
@@ -361,22 +344,20 @@ export function addFillLayerPatch(params: {
   } = params;
 
   if (!colorHasVisibleAlpha(backgroundColor) && backgroundLayers.length === 0) {
-    return { backgroundColor: cssColorOrFallback(backgroundColor, "#ffffff") };
+    return {
+      backgroundColor: cssColorOrFallback(backgroundColor, NEW_FILL_COLOR),
+    };
   }
 
-  const nextLayer = defaultGradientLayer(
-    "linear",
-    backgroundColor || "#ffffff",
-  );
+  const fillColor =
+    colorHasVisibleAlpha(backgroundColor) && backgroundColor
+      ? backgroundColor
+      : NEW_FILL_COLOR;
+  const nextLayer = buildSolidFillLayer(fillColor);
   if (backgroundLayers.length === 0) {
     return { backgroundImage: nextLayer };
   }
 
-  // Prepending a layer without also prepending matching entries to the
-  // other three index-aligned parallel arrays (size/repeat/position) would
-  // shift every existing layer's index by one, silently re-pairing each of
-  // them with the *previous* layer's size/repeat/position (same class of
-  // bug `removeFillLayerAtIndex` above fixes for removal).
   return {
     backgroundImage: joinCssLayers([nextLayer, ...backgroundLayers]),
     backgroundSize: joinCssLayers(["auto", ...backgroundSizeLayers]),
@@ -385,16 +366,6 @@ export function addFillLayerPatch(params: {
   };
 }
 
-/**
- * Patch for removing just the base solid/text fill row — the row shown when
- * the base color has visible alpha, or always for a text fill. Must only
- * clear that one property, never `backgroundImage`, so any other stacked
- * gradient/image layers (each rendered as its own row with its own
- * independent remove button — see `removeFillLayerAtIndex`) are left
- * untouched. This used to also zero `backgroundImage` whenever the caller
- * had `onStylesChange` available, silently deleting every other fill layer
- * any time the base row's own remove button was clicked.
- */
 export function removeBaseFillPatch(
   fillProperty: "color" | "backgroundColor" | "fill",
 ): Record<string, string> {
@@ -415,7 +386,53 @@ export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
     .filter((stop): stop is DesignGradientStop => Boolean(stop));
 
   if (!stops.length) return null;
-  return { type, prefix, stops };
+  const fill = readGradientFillOpacity(stops);
+  return {
+    type,
+    prefix,
+    stops: fill.stops.map((stop) => normalizeGradientStop(stop)),
+    ...(fill.opacity !== 100 ? { opacity: fill.opacity } : {}),
+  };
+}
+
+export function buildSolidFillLayer(colorValue: string): string {
+  const parsed = parseCssColor(colorValue);
+  if (!parsed) throw new Error(`Invalid solid fill color: ${colorValue}`);
+  return `linear-gradient(${rgbaToCss(parsed)} 0 0)`;
+}
+
+export function parseSolidFillLayer(layer: string): string | null {
+  const match = layer.trim().match(/^linear-gradient\((.*)\)$/i);
+  if (!match) return null;
+  const stops = splitCssLayers(match[1] ?? "");
+  if (stops.length === 1) {
+    const [stop] = stops;
+    if (!stop) return null;
+    const color = readLeadingColor(stop);
+    if (!color || !/^0\s+0$/.test(stop.slice(color.raw.length).trim()))
+      return null;
+    const parsed = parseCssColor(color.value);
+    return parsed ? rgbaToCss(parsed) : null;
+  }
+
+  if (stops.length !== 2) return null;
+  const firstColor = readLeadingColor(stops[0] ?? "");
+  const secondColor = readLeadingColor(stops[1] ?? "");
+  if (!firstColor || !secondColor) return null;
+  if (
+    stopPosition(stops[0] ?? "", firstColor.raw) !== "0px" ||
+    stopPosition(stops[1] ?? "", secondColor.raw) !== "0px"
+  ) {
+    return null;
+  }
+  const first = parseCssColor(firstColor.value);
+  const second = parseCssColor(secondColor.value);
+  if (!first || !second || rgbaToCss(first) !== rgbaToCss(second)) return null;
+  return rgbaToCss(first);
+}
+
+function stopPosition(stop: string, rawColor: string): string {
+  return stop.slice(rawColor.length).trim();
 }
 
 function parseGradientStop(
@@ -425,7 +442,6 @@ function parseGradientStop(
 ): DesignGradientStop | null {
   const color = readLeadingColor(part);
   if (!color) return null;
-  const parsed = parseCssColor(color.value);
   const remaining = part.slice(color.raw.length);
   const positionMatch = remaining.match(/(-?\d+(?:\.\d+)?)%/);
   const position = positionMatch
@@ -436,8 +452,16 @@ function parseGradientStop(
 
   return {
     id: `stop-${index}`,
-    color: parsed ? rgbaToCss(parsed) : color.value,
+    color: color.value,
     position,
+  };
+}
+
+function normalizeGradientStop<T extends DesignGradientStop>(stop: T): T {
+  const parsed = parseCssColor(stop.color);
+  return {
+    ...stop,
+    color: parsed ? rgbaToCss(parsed) : stop.color,
     opacity: parsed ? alphaToOpacity(parsed.a) : 100,
   };
 }
@@ -452,14 +476,6 @@ function readLeadingColor(part: string): { raw: string; value: string } | null {
   }
   const functionName = trimmed.match(/^[a-z][a-z0-9-]*\(/i);
   if (!functionName) {
-    // Bare CSS color keyword — e.g. `linear-gradient(red, blue)` — not just
-    // hex/rgb/hsl/function colors. Gradients written by hand or generated
-    // from named-color CSS are common, and without this branch the leading
-    // stop was silently misread as a gradient *prefix* (the first stop's
-    // color was dropped, corrupting an otherwise-valid 2-stop gradient into
-    // a broken 1-stop one with a garbage prefix). Require the matched word to
-    // actually parse as a color so direction/shape prefix keywords ("to",
-    // "circle", "closest-side", "from", "at", …) are never misclassified.
     const word = trimmed.match(/^[a-z]+\b/i);
     if (word && parseCssColor(word[0])) {
       return { raw: word[0], value: word[0] };
@@ -486,13 +502,17 @@ function gradientTypeFromCss(
   layer: string,
 ): DesignGradientType {
   if (functionName.toLowerCase() === "conic") return "angular";
-  // Recognize both diamond serializations — EditPanel's "closest-corner" and
-  // GradientEditor's "ellipse closest-side" — so a diamond authored in either
-  // place round-trips as diamond instead of flipping to radial.
   if (/closest-corner/i.test(layer) || /ellipse\s+closest-side/i.test(layer))
     return "diamond";
   if (functionName.toLowerCase() === "radial") return "radial";
   return "linear";
+}
+
+export function gradientShortLabel(type: DesignGradientType): string {
+  if (type === "radial") return "Radial"; // i18n-ignore design inspector paint row
+  if (type === "angular") return "Angular"; // i18n-ignore design inspector paint row
+  if (type === "diamond") return "Diamond"; // i18n-ignore design inspector paint row
+  return "Linear"; // i18n-ignore design inspector paint row
 }
 
 export function gradientLabel(type: DesignGradientType): string {
@@ -512,14 +532,22 @@ function defaultGradientPrefix(type: DesignGradientType): string {
   if (type === "radial") return "circle at 50% 50%";
   if (type === "angular") return "from 0deg at 50% 50%";
   if (type === "diamond") return "closest-corner at 50% 50%";
-  return "90deg";
+  return "180deg";
 }
 
 export function buildGradientLayer(
   type: DesignGradientType,
   stops: DesignGradientStop[],
   prefix = defaultGradientPrefix(type),
+  fillOpacity = 100,
 ): string {
+  const interpolation = /\bin\s/.test(prefix)
+    ? ""
+    : gradientFillInterpolation(
+        stops.map((stop) => stop.color),
+        fillOpacity,
+      );
+  const gradientPrefix = interpolation ? `${prefix} ${interpolation}` : prefix;
   const stopList = [...stops]
     .sort((a, b) => a.position - b.position)
     .map((stop) => {
@@ -528,29 +556,31 @@ export function buildGradientLayer(
       const color = parsed
         ? rgbaToCss(withColorOpacity(parsed, opacity))
         : stop.color;
-      return `${color} ${clampNumber(stop.position, 0, 100)}%`;
+      return `${gradientStopWithFillOpacity(color, fillOpacity)} ${clampNumber(stop.position, 0, 100)}%`;
     })
     .join(", ");
 
   if (type === "radial" || type === "diamond") {
-    return `radial-gradient(${prefix}, ${stopList})`;
+    return `radial-gradient(${gradientPrefix}, ${stopList})`;
   }
-  if (type === "angular") return `conic-gradient(${prefix}, ${stopList})`;
-  return `linear-gradient(${prefix}, ${stopList})`;
+  if (type === "angular")
+    return `conic-gradient(${gradientPrefix}, ${stopList})`;
+  return `linear-gradient(${gradientPrefix}, ${stopList})`;
 }
 
 export function defaultGradientStops(colorValue: string): DesignGradientStop[] {
   const parsed =
     parseCssColor(cssColorOrFallback(colorValue, "#000000")) ??
     parseCssColor("#000000");
-  const start = parsed ? rgbaToCss(withColorOpacity(parsed, 100)) : "#000000";
-  const end = parsed
-    ? rgbaToCss(withColorOpacity(parsed, 0))
-    : "rgba(0, 0, 0, 0)";
-
+  const opaque = withColorOpacity(parsed ?? { r: 0, g: 0, b: 0, a: 1 }, 100);
   return [
-    { id: "stop-0", color: start, position: 0, opacity: 100 },
-    { id: "stop-1", color: end, position: 100, opacity: 0 },
+    { id: "stop-0", color: rgbaToCss(opaque), position: 0, opacity: 100 },
+    {
+      id: "stop-1",
+      color: rgbaToCss(defaultGradientEndColor(opaque)),
+      position: 100,
+      opacity: 100,
+    },
   ];
 }
 
@@ -561,26 +591,30 @@ export function defaultGradientLayer(
   return buildGradientLayer(type, defaultGradientStops(colorValue));
 }
 
-/**
- * Atomic patch for switching a solid fill to a gradient paint type: prepends
- * a default gradient layer built from the current solid color AND clears the
- * solid backgroundColor underneath it.
- */
 export function solidToGradientPatch(
   colorValue: string,
-  backgroundLayers: string[],
+  layers: FillLayerArrays,
   type: DesignGradientType,
-): { backgroundImage: string; backgroundColor: string } {
+): Record<
+  | "backgroundColor"
+  | "backgroundImage"
+  | "backgroundSize"
+  | "backgroundRepeat"
+  | "backgroundPosition",
+  string
+> {
+  const index = layers.backgroundImage.length;
+  const converted = setImageFillLayerPatch(layers, index, {
+    backgroundImage: defaultGradientLayer(
+      type,
+      cssColorOrFallback(colorValue, "#000000"), // guard:allow-raw-color — missing source paint converts to a concrete canvas fill.
+    ),
+    backgroundSize: "auto",
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "0% 0%",
+  });
   return {
-    backgroundImage: joinCssLayers([
-      defaultGradientLayer(type, cssColorOrFallback(colorValue, "#000000")),
-      ...backgroundLayers,
-    ]),
-    // Convert the solid fill into the gradient instead of stacking the
-    // gradient on top of it — leaving backgroundColor set kept a second
-    // real fill alive (the default gradient fades to alpha-0, so the old
-    // solid showed through) and the Fill panel correctly-but-confusingly
-    // listed two rows for what the user meant as one type switch.
+    ...converted,
     backgroundColor: "transparent",
   };
 }

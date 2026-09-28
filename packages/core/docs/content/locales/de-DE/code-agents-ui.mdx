@@ -158,16 +158,16 @@ codex login status
 Desktop und CLI lesen `codex login status` und führen `codex exec` aus, also
 Verwenden Sie das von Ihnen installierte ChatGPT-Abonnement oder die API-Schlüsselauthentifizierung wieder.
 berichte. Dies ist unabhängig vom `@ai-sdk/harness-codex`-Paket, das von
-[Harness Agents](/docs/harness-agents); Der Kabelbaumadapter kann lokal kopieren
-Codex CLI authentifiziert sich nur dann in einer vertrauenswürdigen Sandbox, wenn `codexCliAuth: true` aktiviert ist
-explizit aktiviert.
+[Harness Agents](/docs/harness-agents) verwendet wird; dieser Adapter löst jetzt
+unterstützte native Abonnement-Anmeldedaten auf dem Host auf, ohne die lokale
+Authentifizierungsdatei in die Sandbox zu kopieren.
 
 ## Browser-Host
 
 Die alte versteckte `code`-Vorlage wurde entfernt. Um eine vom Browser gehostete Codeoberfläche zu erstellen, erstellen Sie eine normale App und mounten das freigegebene UI-Paket mit einer Host-Implementierung:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install

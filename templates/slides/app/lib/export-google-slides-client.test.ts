@@ -10,9 +10,12 @@ const requestString = (value: unknown) =>
         ? value.url
         : (JSON.stringify(value) ?? "");
 
-const { buildDeckPptxBlobMock } = vi.hoisted(() => ({
-  buildDeckPptxBlobMock: vi.fn(),
-}));
+const { buildDeckPptxBlobMock, retargetPptxForGoogleSlidesMock } = vi.hoisted(
+  () => ({
+    buildDeckPptxBlobMock: vi.fn(),
+    retargetPptxForGoogleSlidesMock: vi.fn(async (blob: Blob) => blob),
+  }),
+);
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/slides${path}`,
@@ -21,6 +24,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 
 vi.mock("./export-pptx-client", () => ({
   buildDeckPptxBlob: buildDeckPptxBlobMock,
+}));
+
+vi.mock("./pptx-google-slides", () => ({
+  retargetPptxForGoogleSlides: retargetPptxForGoogleSlidesMock,
 }));
 
 import {
@@ -40,7 +47,6 @@ const serverPptxResponse = () =>
     },
   });
 
-/** The file the Drive upload actually carried, as text. */
 async function uploadedPptxText() {
   const call = vi
     .mocked(fetch)
@@ -113,13 +119,16 @@ describe("exportDeckToGoogleSlides", () => {
       exportDeckToGoogleSlides("Quarterly Review", [{ id: "slide-1" }]),
     ).resolves.toEqual({ url: "https://docs.google.com/d/new" });
 
-    expect(buildDeckPptxBlobMock).toHaveBeenCalledTimes(1);
+    expect(buildDeckPptxBlobMock).toHaveBeenCalledWith(
+      "Quarterly Review",
+      [{ id: "slide-1" }],
+      undefined,
+      { target: "google-slides" },
+    );
     expect(await uploadedPptxText()).toBe("pptx");
   });
 
   it("uploads the server-built PPTX when the caller supplies one", async () => {
-    // dom-to-pptx rasterizes every custGeom shape, so a source-imported deck
-    // must reach Drive as the server's vector build, not the browser's.
     vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
       const url = requestString(input);
       return url.endsWith("/_agent-native/google-docs/status")
@@ -148,6 +157,7 @@ describe("exportDeckToGoogleSlides", () => {
       "/slides/api/exports/pptx",
       expect.objectContaining({ body: JSON.stringify({ deckId: "deck-1" }) }),
     );
+    expect(retargetPptxForGoogleSlidesMock).toHaveBeenCalledTimes(1);
     expect(await uploadedPptxText()).toBe("PK-server-vector");
   });
 
@@ -173,7 +183,6 @@ describe("exportDeckToGoogleSlides", () => {
       ),
     ).rejects.toThrow(guard);
 
-    // No silent downgrade: neither the browser exporter nor Drive was reached.
     expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledTimes(2);

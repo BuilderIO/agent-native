@@ -10,9 +10,6 @@ import {
   type ResponsiveInteractBarProps,
 } from "./ResponsiveInteractBar";
 
-// Only the keys this bar reads — full catalog coverage across locales is
-// verified by `guard:i18n-catalogs`, not here (same convention as
-// BreakpointBar.test.tsx).
 const CATALOG_MESSAGES = {
   designEditor: {
     modes: {
@@ -42,11 +39,9 @@ function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
           deviceName: "Desktop",
           width: 1440,
           height: 900,
-          zoom: 100,
           onDeviceChange: vi.fn(),
           onWidthChange: vi.fn(),
           onHeightChange: vi.fn(),
-          onZoomChange: vi.fn(),
           onModeChange: vi.fn(),
           canAnnotate: true,
           onClose: vi.fn(),
@@ -57,9 +52,6 @@ function renderBar(props: Partial<ResponsiveInteractBarProps> = {}): string {
   );
 }
 
-// Hiding the bottom toolbar during Interact closed the two-view bypass but
-// left "Exit responsive preview" as the only way out — Edit and Annotate were
-// not in the DOM at all. This bar carries them instead.
 describe("ResponsiveInteractBar mode exits", () => {
   it("offers Edit and Annotate alongside Close", () => {
     const markup = renderBar();
@@ -69,6 +61,33 @@ describe("ResponsiveInteractBar mode exits", () => {
     expect(markup).toContain('aria-label="Exit responsive preview"');
     expect(markup).toContain("tabler-icon-transform-point");
     expect(markup).toContain("tabler-icon-scribble");
+  });
+
+  it("shows the exit control's label as visible text, not just a tooltip", () => {
+    const markup = renderBar();
+    const exitButtonStart = markup.indexOf(
+      'aria-label="Exit responsive preview"',
+    );
+    const exitButtonEnd = markup.indexOf("</button>", exitButtonStart);
+
+    expect(exitButtonStart).toBeGreaterThan(-1);
+    expect(markup.slice(exitButtonStart, exitButtonEnd)).toContain(
+      "Exit responsive preview",
+    );
+  });
+
+  it("reserves the pinned Close width without rendering a second control", () => {
+    const markup = renderBar({ showClose: false });
+
+    expect(markup).toContain('aria-label="Edit"');
+    expect(markup).not.toContain('aria-label="Exit responsive preview"');
+    expect(markup).toContain(
+      'aria-hidden="true" class="invisible flex shrink-0 items-center pl-1"',
+    );
+    expect(markup).toMatch(
+      /<button class="[^"]*h-7[^"]*shrink-0[^"]*gap-1\.5[^"]*px-2[^"]*!text-\[12px\][^"]*" disabled="" tabindex="-1">/,
+    );
+    expect(markup).toContain("Exit responsive preview");
   });
 
   it("hides Annotate for a caller without edit access", () => {
@@ -88,8 +107,9 @@ describe("ResponsiveInteractBar mode exits", () => {
         ),
       );
     }
-    expect(markup).toMatch(
-      /<button[^>]*class="[^"]*shrink-0[^"]*"[^>]*>100\.0%/,
+    expect(markup).not.toContain("100.0%");
+    expect(markup).toContain(
+      'class="flex shrink-0 items-center bg-[var(--design-editor-panel-bg)] pl-1"',
     );
   });
 });

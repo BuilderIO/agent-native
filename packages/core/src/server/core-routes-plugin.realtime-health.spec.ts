@@ -55,14 +55,11 @@ describe("health: realtime", () => {
     const { realtime } = await runDbHealthProbe(okExec);
     expect(realtime.transport).toBe("hosted");
     expect(realtime.registered).toBe(true);
-    // This endpoint is public and the channel id is half the auth story.
     expect(realtime.channelHash).toHaveLength(8);
     expect(JSON.stringify(realtime)).not.toContain("rt_abc");
   });
 
   it("reports an injected pipeline channel too", async () => {
-    // Drive the real resolvers rather than mocking them — these are the env
-    // vars a pipeline deploy actually carries.
     process.env.BUILDER_PROJECT_ID = "proj_pipeline";
     process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET = "s".repeat(64);
     const { realtime } = await runDbHealthProbe(okExec);
@@ -71,13 +68,6 @@ describe("health: realtime", () => {
   });
 
   it("never self-registers for an app the pipeline half-provisioned", async () => {
-    // This endpoint is PUBLIC and resolving registers on a miss. Falling back
-    // on the project id alone would let one anonymous curl POST a pipeline
-    // app's database credential to the gateway and start a duplicate channel
-    // tailing a database Builder already tails — `resolveBuilderBranchProjectId`
-    // also returns "" for an unreadable settings row, so a Neon blip is enough.
-    // Either half injected means the pipeline owns this app; the fix for the
-    // missing half is a redeploy.
     process.env.BUILDER_PROJECT_ID = "proj_pipeline";
     const { realtime } = await runDbHealthProbe(okExec);
     expect(realtime.registered).toBe(false);
@@ -112,18 +102,12 @@ describe("health: realtime", () => {
       unavailable: true,
     });
 
-    // The genuinely-unconfigured case must NOT carry the marker, or the two
-    // are indistinguishable again.
     mockRegistered.mockResolvedValue(null);
     const absent = await runDbHealthProbe(okExec);
     expect(absent.realtime.unavailable).toBeUndefined();
   });
 
   it("reports an unreachable gateway even though registration fails soft", async () => {
-    // Self-registration resolves to `null` for BOTH "the org is not in the
-    // rollout" and "we never reached the gateway". Only the second is
-    // `unavailable`, and reading it off the resolver's return value alone
-    // cannot tell them apart.
     mockRegistered.mockResolvedValue(null);
     mockUnavailable.mockReturnValue(true);
     const { realtime } = await runDbHealthProbe(okExec);
@@ -135,10 +119,6 @@ describe("health: realtime", () => {
   });
 
   it("bounds the realtime resolution the same way it bounds the DB probe", async () => {
-    // The gateway POST bounds itself, but the DB reads on the way to it do
-    // not. Against a black-holed Postgres the probe times out on SELECT 1 and
-    // would then hang here on the same dead pool — the unbounded /health await
-    // that took the docs site down, one layer further in.
     vi.useFakeTimers();
     try {
       mockRegistered.mockReturnValue(new Promise(() => {}));

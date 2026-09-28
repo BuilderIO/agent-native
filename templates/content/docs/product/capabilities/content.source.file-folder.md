@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.source.file-folder"
 name: "Files and folders as Sources"
-user_promise: "Open a selected file tree as a Source without forcing heterogeneous files into one Database schema."
+user_promise: "Open a selected file tree as a Source without forcing heterogeneous files into one Collection schema."
 primary_user_job: "Browse and work with a local folder through Content while retaining file identity, hierarchy, device limits, and source ownership."
 kind: "primitive"
 state: "exploring"
@@ -38,7 +38,7 @@ A developer selects a documentation folder. Content shows a source-root hierarch
 ## Product contract
 
 - A folder Source retains selected-root, relative hierarchy, file identity, representation kind, baseline, and provenance without exporting raw paths or handles to shared clients.
-- Files may map to different Content representations or remain opaque/unavailable; no common Database schema is assumed.
+- Files may map to different Content representations or remain opaque/unavailable; no common Collection schema is assumed.
 - Physical reads, watches, writes, rename/delete behavior, conflict, and bridge availability follow adapter and local-bridge policy.
 - Removing a connection stops future source access without silently deleting external originals.
 
@@ -62,7 +62,7 @@ Current implementation adds opaque Desktop grants, recursive Markdown materializ
 
 ## Proof plan
 
-1. Define folder/file representation and hierarchy contract independent of one Database schema.
+1. Define folder/file representation and hierarchy contract independent of one Collection schema.
 2. Test file lifecycle, path redaction, bridge absence, conflicts, and disconnect.
 3. Verify selection, browse, sync, external change, and repair through the interface.
 

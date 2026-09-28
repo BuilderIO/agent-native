@@ -166,6 +166,7 @@ action의 `run()` 본문은 일반적인 서버 코드이므로, 흔히 몇 개�
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Say hello from the local agent.",
   schema: z.object({

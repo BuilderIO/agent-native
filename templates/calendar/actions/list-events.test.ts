@@ -52,6 +52,7 @@ const schemaMock = vi.hoisted(() => ({
     slug: "bookingLinks.slug",
     title: "bookingLinks.title",
     color: "bookingLinks.color",
+    conferencing: "bookingLinks.conferencing",
   },
   bookingLinkShares: {},
   bookings: {
@@ -64,7 +65,11 @@ const schemaMock = vi.hoisted(() => ({
     eventTitle: "bookings.eventTitle",
     notes: "bookings.notes",
     meetingLink: "bookings.meetingLink",
+    meetingLinkPending: "bookings.meetingLinkPending",
     googleEventId: "bookings.googleEventId",
+    zoomNeedsReview: "bookings.zoomNeedsReview",
+    zoomMeetingId: "bookings.zoomMeetingId",
+    zoomAccountId: "bookings.zoomAccountId",
     status: "bookings.status",
     createdAt: "bookings.createdAt",
   },
@@ -87,11 +92,17 @@ function createDbMock({
       slug: "intro",
       title: "Intro call",
       color: "#5B9BD5",
+      conferencing: null,
     },
   ],
   bookings = [],
 }: {
-  links?: Array<{ slug: string; title: string; color?: string }>;
+  links?: Array<{
+    slug: string;
+    title: string;
+    color?: string;
+    conferencing?: string | null;
+  }>;
   bookings?: Array<Record<string, unknown>>;
 } = {}) {
   return {
@@ -116,7 +127,11 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
     eventTitle: "Steve + Nikoline",
     notes: null,
     meetingLink: "https://example.com/meet",
+    meetingLinkPending: false,
     googleEventId: "google-event-1",
+    zoomNeedsReview: false,
+    zoomMeetingId: null,
+    zoomAccountId: null,
     status: "confirmed",
     createdAt: "2026-06-12T10:13:39.746Z",
     ...overrides,
@@ -173,6 +188,71 @@ describe("listCalendarEvents booking merge", () => {
         title: "Steve + Nikoline",
         source: "local",
         googleEventId: undefined,
+      },
+    ]);
+  });
+
+  it("hides an ambiguous Zoom booking from the calendar while review is needed", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ googleEventId: null, zoomNeedsReview: true })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
+  });
+
+  it("hides legacy Zoom bookings whose review flag predates the migration", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        links: [
+          {
+            slug: "intro",
+            title: "Intro call",
+            color: "#5B9BD5",
+            conferencing: JSON.stringify({ type: "zoom" }),
+          },
+        ],
+        bookings: [bookingRow({ googleEventId: null })],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toEqual([]);
+  });
+
+  it("exposes a persisted pending meeting link on the host calendar event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [
+          bookingRow({
+            googleEventId: null,
+            meetingLink: null,
+            meetingLinkPending: true,
+          }),
+        ],
+      }),
+    );
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toMatchObject([
+      {
+        id: "booking:booking-1",
+        meetingLink: undefined,
+        meetingLinkPending: true,
       },
     ]);
   });
@@ -235,6 +315,45 @@ describe("listCalendarEvents booking merge", () => {
       googleEventId: "google-event-1",
     });
   });
+
+  it("preserves pending meeting state on the authoritative Google event", async () => {
+    getDbMock.mockReturnValue(
+      createDbMock({
+        bookings: [bookingRow({ meetingLink: null, meetingLinkPending: true })],
+      }),
+    );
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-google-event-1",
+          title: "Steve + Nikoline",
+          description: "",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          location: "",
+          allDay: false,
+          source: "google",
+          googleEventId: "google-event-1",
+          calendarPrimary: true,
+          createdAt: "2026-06-12T10:13:39.746Z",
+          updatedAt: "2026-06-12T10:13:39.746Z",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await listCalendarEvents({
+      from: "2026-06-17",
+      to: "2026-06-18",
+    });
+
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      id: "google-google-event-1",
+      source: "google",
+      meetingLinkPending: true,
+    });
+  });
 });
 
 describe("list-events inventory contract", () => {
@@ -268,6 +387,77 @@ describe("list-events inventory contract", () => {
     expect(Array.isArray(result)).toBe(true);
   });
 
+  it("does not apply a legacy bare id when multiple Google accounts make it ambiguous", async () => {
+    getOwnedAccountEmailsMock.mockResolvedValue([
+      "steve@example.com",
+      "other@example.com",
+    ]);
+    getUserSettingMock.mockResolvedValue({
+      timezone: "UTC",
+      hiddenEventKeys: ["google-legacy-event"],
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-legacy-event",
+          googleEventId: "legacy-event",
+          title: "Legacy event",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["google"],
+      },
+      { caller: "frontend" },
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("google-legacy-event");
+  });
+
+  it("still applies a legacy bare id for an unfiltered single-account primary event", async () => {
+    getUserSettingMock.mockResolvedValue({
+      timezone: "UTC",
+      hiddenEventKeys: ["google-legacy-event"],
+    });
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        {
+          id: "google-legacy-event",
+          googleEventId: "legacy-event",
+          title: "Legacy event",
+          start: "2026-06-17T16:00:00.000Z",
+          end: "2026-06-17T16:30:00.000Z",
+          allDay: false,
+          source: "google",
+          accountEmail: "steve@example.com",
+        },
+      ],
+      errors: [],
+    });
+
+    const result = await (listEventsAction as any).run(
+      {
+        from: "2026-06-17",
+        to: "2026-06-18",
+        sources: ["google"],
+      },
+      { caller: "frontend" },
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("returns compact coverage-aware inventory to MCP", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
@@ -283,7 +473,11 @@ describe("list-events inventory contract", () => {
           source: "google",
           accountEmail: "steve@example.com",
           attendees: [
-            { email: "guest@example.com", responseStatus: "accepted" },
+            {
+              email: "guest@example.com",
+              responseStatus: "accepted",
+              additionalGuests: 2,
+            },
           ],
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
@@ -307,8 +501,8 @@ describe("list-events inventory contract", () => {
       id: "event-1",
       source: "google",
       accountEmail: "steve@example.com",
-      attendeeCount: 1,
-      attendeeStatusCounts: { accepted: 1 },
+      attendeeCount: 3,
+      attendeeStatusCounts: { accepted: 3 },
     });
     expect(result.items[0]).not.toHaveProperty("description");
   });
@@ -493,6 +687,13 @@ describe("list-events inventory contract", () => {
     expect(result.items.map((item: any) => item.source)).toEqual(
       expect.arrayContaining(["google", "booking"]),
     );
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "google-google-calendar:opaque-google-event-1",
+        calendarSourceKey: "google-calendar:opaque",
+        calendarReadOnly: true,
+      }),
+    );
   });
 
   it("reports a failed ICS source instead of treating it as empty success", async () => {
@@ -574,6 +775,53 @@ describe("list-events inventory contract", () => {
     expect(result.items[0]).not.toHaveProperty("description");
   });
 
+  it("scopes cached ICS events by feed and bounds process memory", async () => {
+    let currentFeeds = [
+      {
+        id: "feed-a",
+        name: "Feed A",
+        url: "https://calendar.example.test/shared.ics",
+        color: "blue",
+      },
+    ];
+    getUserSettingMock.mockImplementation(async (_email: string, key: string) =>
+      key === "external-calendars" ? currentFeeds : null,
+    );
+    fetchICalEventsMock.mockResolvedValue([]);
+    const args = {
+      from: "2026-06-17",
+      to: "2026-06-18",
+      sources: ["ics"],
+    };
+    const readFeeds = () =>
+      (listEventsAction as any).run(args, { caller: "mcp" });
+
+    await readFeeds();
+    currentFeeds = [
+      {
+        id: "feed-b",
+        name: "Feed B",
+        url: "https://calendar.example.test/shared.ics",
+        color: "red",
+      },
+    ];
+    await readFeeds();
+    expect(fetchICalEventsMock).toHaveBeenCalledTimes(2);
+
+    const feeds = Array.from({ length: 201 }, (_, index) => ({
+      id: `bounded-feed-${index}`,
+      name: `Feed ${index}`,
+      url: `https://calendar.example.test/${index}.ics`,
+      color: "blue",
+    }));
+    currentFeeds = feeds;
+    await (listEventsAction as any).run(args, { caller: "mcp" });
+    currentFeeds = [feeds[0]!];
+    await (listEventsAction as any).run(args, { caller: "mcp" });
+
+    expect(fetchICalEventsMock).toHaveBeenCalledTimes(204);
+  });
+
   it("reports requested overlays when Google is disconnected", async () => {
     isConnectedMock.mockResolvedValue(false);
     getOwnedAccountEmailsMock.mockResolvedValue([]);
@@ -623,6 +871,8 @@ describe("list-events inventory contract", () => {
           googleEventId: "overlay-1",
           accountEmail: "healthy@example.com",
           overlayEmail: "person@example.com",
+          calendarPrimary: false,
+          calendarReadOnly: true,
           createdAt: "2026-06-12T10:13:39.746Z",
           updatedAt: "2026-06-12T10:13:39.746Z",
         },
@@ -661,6 +911,14 @@ describe("list-events inventory contract", () => {
     expect(result.sourceCoverage).toEqual([
       { source: "overlay", id: "person@example.com", status: "ok" },
     ]);
+    expect(result.items).toContainEqual(
+      expect.objectContaining({
+        id: "overlay-person@example.com-overlay-1",
+        source: "overlay",
+        overlayEmail: "person@example.com",
+        calendarReadOnly: true,
+      }),
+    );
     expect(result.coverageComplete).toBe(false);
     expect(result.complete).toBe(false);
   });
@@ -749,9 +1007,6 @@ describe("list-events inventory contract", () => {
         bookings: [bookingRow({ googleEventId: "event-1" })],
       }),
     );
-    // Primary Google read succeeds but genuinely has no matching event
-    // (e.g. it was cancelled upstream) - a fully successful, authoritative
-    // read with zero events, not a failure.
     listGoogleEventsMock.mockResolvedValue({ events: [], errors: [] });
     listOverlayEventsMock.mockResolvedValue({
       events: [],
@@ -767,9 +1022,6 @@ describe("list-events inventory contract", () => {
       overlayEmails: ["person@example.com"],
     });
 
-    // An unrelated overlay-account error must not make the caller's own
-    // (successful) Google read look non-authoritative and resurrect a
-    // local booking fallback for an event Google no longer has.
     expect(
       result.events.filter((event) => event.googleEventId === "event-1"),
     ).toHaveLength(0);

@@ -3,7 +3,7 @@ record_type: "capability"
 spec_version: 2
 id: "content.source.catalog"
 name: "Sources catalog"
-user_promise: "One governed top-level Content Database makes approved local, provider, and native Sources discoverable without hiding their scope, authority, or freshness."
+user_promise: "One governed top-level Content Collection makes approved local, provider, and native Sources discoverable without hiding their scope, authority, or freshness."
 primary_user_job: "Find and choose the right authorized Source for a Query, capture flow, or connection while understanding what it can do."
 kind: "primitive"
 state: "approved_shape"
@@ -17,7 +17,7 @@ related_features:
     "content.feature.move-without-starting-over",
   ]
 roadmap_boundary: "feature"
-acceptance_summary: "A governed Sources Database retains stable identity, owner, scope, approval, adapter capabilities, synchronization policy, freshness, grant reference, and write gates; authorized Query and capture flows select from it without treating a catalog row as provider or filesystem authority."
+acceptance_summary: "A governed Sources Collection retains stable identity, owner, scope, approval, adapter capabilities, synchronization policy, freshness, grant reference, and write gates; authorized Query and capture flows select from it without treating a catalog row as provider or filesystem authority."
 proof_requirements:
   [
     "Access-scoped catalog creation, discovery, approval, revocation, and selection through UI and Actions",
@@ -50,9 +50,9 @@ colleague who cannot see one of them.
 
 ## Product contract
 
-### A governed top-level database
+### A governed top-level collection
 
-- Sources is a top-level governed Content Database, parallel to other reusable
+- Sources is a top-level governed Content Collection, parallel to other reusable
   catalogs. Its rows represent native, local, and provider Sources rather than
   Pages, credentials, or copied provider records.
 - Each row has stable identity plus owner, personal/workspace/organization

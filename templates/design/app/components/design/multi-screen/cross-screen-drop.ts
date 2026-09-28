@@ -14,6 +14,25 @@ import type {
   Point,
 } from "./types";
 
+export function isPointerInsideSourceIframe(args: {
+  iframeX: number;
+  iframeY: number;
+  viewportW: number;
+  viewportH: number;
+  frameWidth?: number;
+  frameHeight?: number;
+}): boolean {
+  const width = args.frameWidth ?? args.viewportW;
+  const height = args.frameHeight ?? args.viewportH;
+  const scaleX =
+    args.frameWidth !== undefined ? width / Math.max(1, args.viewportW) : 1;
+  const scaleY =
+    args.frameHeight !== undefined ? height / Math.max(1, args.viewportH) : 1;
+  const x = args.iframeX * scaleX;
+  const y = args.iframeY * scaleY;
+  return x >= 0 && y >= 0 && x <= width && y <= height;
+}
+
 export function isFinitePoint(value: unknown): value is Point {
   if (!value || typeof value !== "object") return false;
   const point = value as Record<string, unknown>;
@@ -153,8 +172,6 @@ export function getCrossScreenDropGuideStyle(args: {
       borderRadius: 999,
       boxShadow: "0 0 0 1px var(--design-editor-accent-color)",
       transform: rotation ? `rotate(${rotation}deg)` : undefined,
-      // Rotate the insertion line around the anchor rect's center, not its
-      // own center, so before/after edges stay attached to a rotated target.
       transformOrigin: rotation
         ? `${left + width / 2 - lineLeft}px ${height / 2}px`
         : undefined,
@@ -178,11 +195,6 @@ export function getCrossScreenDropGuideStyle(args: {
   };
 }
 
-/**
- * Fixed on-screen size for the cursor ghost shown when the source iframe did
- * not report the dragged layer's size. Screen-space on purpose: scaling it by
- * zoom rendered a 1.6px dot on a 10% board.
- */
 export const COMPACT_CROSS_SCREEN_GHOST_PX = 16;
 
 export function getCrossScreenGhostStyle(args: {
@@ -191,9 +203,6 @@ export function getCrossScreenGhostStyle(args: {
   scale: number;
 }): CSSProperties {
   const { boardX, boardY, width: boardWidth, height: boardHeight } = args.ghost;
-  // A reported size is board-space and tracks zoom; the compact fallback is
-  // already screen-space, so it is centred on the point rather than offset by
-  // a constant that only lined up at 100% zoom.
   const width = boardWidth
     ? Math.max(1, boardWidth * args.scale)
     : COMPACT_CROSS_SCREEN_GHOST_PX;

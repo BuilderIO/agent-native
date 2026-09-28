@@ -1,7 +1,17 @@
-import type { BookingHost, BookingLink } from "../../shared/api.js";
+import { z } from "zod";
+
+import type {
+  BookingHost,
+  BookingLink,
+  ConferencingConfig,
+} from "../../shared/api.js";
 import { schema } from "../db/index.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value));
 
 function stripCrlf(value: unknown): string {
   return (
@@ -26,6 +36,33 @@ function parseJson<T>(value: string | null, fallback: T): T {
     return JSON.parse(value) as T;
   } catch {
     return fallback;
+  }
+}
+
+const conferencingConfigSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("none"), url: z.string().optional() }),
+  z.object({ type: z.literal("google_meet"), url: z.string().optional() }),
+  z.object({ type: z.literal("zoom"), url: z.string().optional() }),
+  z.object({
+    type: z.literal("custom"),
+    url: httpUrlSchema,
+  }),
+]);
+
+export function parseBookingConferencingConfig(
+  value: string | null | undefined,
+):
+  | { status: "absent" }
+  | { status: "invalid" }
+  | { status: "valid"; config: ConferencingConfig } {
+  if (value == null) return { status: "absent" };
+  try {
+    const parsed = conferencingConfigSchema.safeParse(JSON.parse(value));
+    return parsed.success
+      ? { status: "valid", config: parsed.data }
+      : { status: "invalid" };
+  } catch {
+    return { status: "invalid" };
   }
 }
 
@@ -98,6 +135,14 @@ export function getBookingLinkRequiredHostEmails(
     if (!emails.includes(host.email)) emails.push(host.email);
   }
   return emails;
+}
+
+export function isBookingLinkHost(
+  row: Pick<typeof schema.bookingLinks.$inferSelect, "hosts" | "ownerEmail">,
+  userEmail: unknown,
+): boolean {
+  const email = normalizeBookingHostEmail(userEmail);
+  return !!email && getBookingLinkRequiredHostEmails(row).includes(email);
 }
 
 export function rowToBookingLink(

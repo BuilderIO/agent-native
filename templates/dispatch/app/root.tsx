@@ -1,4 +1,7 @@
-import { configureTracking } from "@agent-native/core/client/analytics";
+import {
+  configureTracking,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
@@ -12,7 +15,10 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import {
+  Layout as AppLayout,
+  RequireDispatchAccess,
+} from "@agent-native/dispatch/components";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -128,10 +134,6 @@ function DbSyncSetup() {
   return null;
 }
 
-/**
- * Reads ?thread=<id> from the URL on mount and opens that thread in the
- * full-page chat route.
- */
 function useThreadDeepLink() {
   const navigate = useNavigate();
   const handled = useRef(false);
@@ -177,33 +179,68 @@ function ThemeToggleItem() {
   );
 }
 
-function AppContent() {
-  const location = useLocation();
-  if (location.pathname === "/") return <Outlet />;
-  return <PrivateAppContent />;
+function PrivateAppContent() {
+  return (
+    <RequireDispatchAccess>
+      <PrivateAppShell />
+    </RequireDispatchAccess>
+  );
 }
 
-function PrivateAppContent() {
+function PrivateAppShell() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const t = useT();
   const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const commandMenuOpenRef = useRef(false);
+  const openCommandMenu = useCallback(() => {
+    if (!commandMenuOpenRef.current) {
+      trackEvent("dispatch_command_menu_opened", {
+        app_name: "dispatch",
+        template_name: "dispatch",
+      });
+      commandMenuOpenRef.current = true;
+    }
+    setCmdkOpen(true);
+  }, []);
+  useCommandMenuShortcut(openCommandMenu);
+  const handleCommandMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) openCommandMenu();
+      else commandMenuOpenRef.current = false;
+      setCmdkOpen(open);
+    },
+    [openCommandMenu],
+  );
   return (
     <>
       <DbSyncSetup />
       <CommandMenu
         open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
+        onOpenChange={handleCommandMenuOpenChange}
         changelog={changelog}
         changelogKey="dispatch"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
+          {location.pathname === "/home" ||
+          location.pathname === "/overview" ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/automations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/destinations")}>
+              {t("settings.openDelivery")}
+            </CommandMenu.Item>
+          ) : null}
+          {location.pathname.startsWith("/destinations") ? (
+            <CommandMenu.Item onSelect={() => navigate("/automations")}>
+              {t("settings.openAutomations")}
+            </CommandMenu.Item>
+          ) : null}
           <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
             <IconHierarchy2 size={16} />
             {t("root.openAgent")}
-          </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
@@ -222,13 +259,11 @@ function PrivateAppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingHome = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingHome}
+        skeletonLayout="launchpad"
         toaster={
           <Toaster
             richColors
@@ -238,9 +273,9 @@ export default function Root() {
             mobileOffset={{ bottom: 44, left: 16 }}
           />
         }
-        i18n={{ catalog: i18nCatalog, persistPreference: !isMarketingHome }}
+        i18n={{ catalog: i18nCatalog }}
       >
-        <AppContent />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

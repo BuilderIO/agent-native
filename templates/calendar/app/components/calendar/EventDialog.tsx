@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { withCalendarEventSourceIdentity } from "@/lib/calendar-event-identity";
 import { getEventDisplayColor } from "@/lib/event-colors";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 import {
@@ -38,7 +39,7 @@ interface EventDialogProps {
   event: CalendarEvent | null;
   open: boolean;
   onClose: () => void;
-  onDelete?: (eventId: string) => void;
+  onDelete?: (event: CalendarEvent) => void;
 }
 
 export function EventDialog({
@@ -72,7 +73,6 @@ export function EventDialog({
     }
   }, [event]);
 
-  // Keyboard shortcuts inside the dialog
   const isTyping = useCallback((e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     return (
@@ -87,13 +87,11 @@ export function EventDialog({
 
     function handleKeyDown(e: KeyboardEvent) {
       if (!event) return;
-      // Edit shortcut
       if (e.key === "e" && !editing && !isTyping(e)) {
         e.preventDefault();
         setEditing(true);
         return;
       }
-      // Delete shortcut
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         !editing &&
@@ -103,7 +101,6 @@ export function EventDialog({
         void handleDelete();
         return;
       }
-      // Save with Cmd/Ctrl+Enter when editing
       if (editing && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         void handleSave();
@@ -135,12 +132,15 @@ export function EventDialog({
     });
     if (!guestNotification) return;
     updateEvent.mutate(
-      {
-        id: event.id,
-        accountEmail: event.accountEmail,
-        ...updates,
-        ...guestNotification,
-      },
+      withCalendarEventSourceIdentity(
+        {
+          id: event.id,
+          accountEmail: event.accountEmail,
+          ...updates,
+          ...guestNotification,
+        },
+        event,
+      ),
       {
         onSuccess: () => {
           toast.success(t("eventDialog.eventUpdated"));
@@ -155,7 +155,7 @@ export function EventDialog({
   async function handleDelete() {
     if (!event) return;
     if (onDelete) {
-      onDelete(event.id);
+      onDelete(event);
       onClose();
     } else {
       const guestNotification = await promptGuestNotification({

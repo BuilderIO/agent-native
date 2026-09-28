@@ -10,7 +10,12 @@ import {
 } from "@tabler/icons-react";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 
+import { STANDARD_APP_ROUTES } from "../../navigation/index.js";
+import { appMountedPath } from "../api-path.js";
+import { useT } from "../i18n.js";
+import { useOrg } from "../org/hooks.js";
 import type { ResourceView } from "../resources/ResourcesPanel.js";
+import { AgentDirectorySection } from "../settings/AgentDirectorySection.js";
 import { AgentsSection } from "../settings/AgentsSection.js";
 import { cn } from "../utils.js";
 import { AgentJobsTab } from "./AgentJobsTab.js";
@@ -25,7 +30,8 @@ export type AgentWorkspaceTab =
   | "overview"
   | "resources"
   | "automations"
-  | "agents";
+  | "agents"
+  | "directory";
 
 const RESOURCE_TABS: Array<{
   id: ResourceView;
@@ -53,6 +59,19 @@ const HUB_TABS: Array<{
 ];
 
 const RESOURCE_IDS = new Set(RESOURCE_TABS.map((tab) => tab.id));
+
+/** Settings' automations, with the viewer's real organization role. */
+function WorkspaceAutomations() {
+  const { data: org } = useOrg();
+  return (
+    <AgentJobsTab
+      scope="user"
+      canManageOrg={!org?.orgId || org.role === "owner" || org.role === "admin"}
+      organizationId={org?.orgId}
+      hideHeader
+    />
+  );
+}
 
 function normalizeHash(value: string): string {
   return decodeURIComponent(value.replace(/^#/, "")).toLowerCase();
@@ -122,7 +141,10 @@ function ResourceContent({ resource }: { resource: ResourceView }) {
                   window.history.pushState(
                     null,
                     "",
-                    `/settings/agent/resources/${tab.id}${window.location.search}`,
+                    `${appMountedPath(
+                      `/settings/agent/resources/${tab.id}`,
+                      STANDARD_APP_ROUTES.settings,
+                    )}${window.location.search}`,
                   );
                   window.dispatchEvent(new Event("popstate"));
                 }
@@ -176,6 +198,7 @@ export function AgentWorkspaceContent({
   activeTab: AgentWorkspaceTab;
   className?: string;
 }) {
+  const t = useT();
   const [{ resource }, setState] = useState(initialHubState);
 
   useEffect(() => {
@@ -198,13 +221,19 @@ export function AgentWorkspaceContent({
           ? "Schedule and manage agent tasks."
           : activeTab === "agents"
             ? "Connect agents to delegate work from chat."
-            : "Configure how your agent works, what it knows, and what it can do.";
+            : activeTab === "directory"
+              ? t("agentChat.agents.directoryPageHint")
+              : "Configure how your agent works, what it knows, and what it can do.";
 
   return (
     <div className={cn("w-full space-y-6", className)}>
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          {activeTab === "overview" ? "Agent" : page?.label}
+          {activeTab === "directory"
+            ? t("agentChat.agents.directoryTab")
+            : activeTab === "overview"
+              ? "Agent"
+              : page?.label}
         </h1>
         <p className="text-sm leading-5 text-muted-foreground">
           {pageDescription}
@@ -219,10 +248,11 @@ export function AgentWorkspaceContent({
             <div className="h-48 animate-pulse rounded-xl border border-border bg-muted/20" />
           }
         >
-          <AgentJobsTab scope="user" canManageOrg hideHeader />
+          <WorkspaceAutomations />
         </Suspense>
       )}
       {activeTab === "agents" && <AgentsSection />}
+      {activeTab === "directory" && <AgentDirectorySection />}
     </div>
   );
 }

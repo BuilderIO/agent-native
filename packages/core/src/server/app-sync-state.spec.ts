@@ -8,7 +8,6 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-/** Minimal DbExec-shaped mock that records the ids inserted into sync_events. */
 function makeDb(insertedIds?: string[]) {
   return {
     execute: vi.fn(
@@ -60,7 +59,6 @@ describe("AppSyncState multi-app isolation", () => {
     a.recordChange({ source: "action", type: "change", key: "a2" });
 
     expect(a.getChangesSince(0).events.map((e) => e.key)).toEqual(["a1", "a2"]);
-    // App B shares no buffer and no version space with A.
     expect(b.getChangesSince(0).events).toEqual([]);
     expect(b.getVersion()).toBe(0);
     expect(a.getVersion()).toBeGreaterThan(0);
@@ -103,12 +101,11 @@ describe("AppSyncState multi-app isolation", () => {
       deterministicEventIds: true,
     });
 
-    // Same logical event + dedupe signal, but different per-instance versions.
     await a.persistSyncEvent(baseEvent({ version: 111 }), "app-state|500");
     await b.persistSyncEvent(baseEvent({ version: 999 }), "app-state|500");
 
     expect(idsA[0]).toBeTruthy();
-    expect(idsA[0]).toBe(idsB[0]); // version excluded → collides → ON CONFLICT dedupes
+    expect(idsA[0]).toBe(idsB[0]);
   });
 
   it("keeps random ids when deterministic mode is off (default)", async () => {
@@ -125,11 +122,42 @@ describe("AppSyncState multi-app isolation", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
+  it("persists a transactional change before publishing it", async () => {
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const schemaDb = makeDb();
+    const transaction = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 1 })),
+    };
+    const state = new AppSyncState({
+      getDb: () => schemaDb,
+      isPostgres: () => false,
+    });
+    const change = await state.prepareTransactionalChange({
+      source: "collab",
+      type: "change",
+      key: "doc-1",
+      resourceType: "document",
+      resourceId: "doc-1",
+    });
+    expect(change.isPersisted()).toBe(false);
+
+    expect(state.getChangesSince(0).events).toEqual([]);
+    const persisted = await change.persist(transaction);
+    expect(change.isPersisted()).toBe(true);
+    expect(state.getChangesSince(0).events).toEqual([]);
+    expect(transaction.execute).toHaveBeenCalledOnce();
+    expect(persisted.resourceId).toBe("doc-1");
+
+    change.publish();
+    expect(state.getChangesSince(0).events).toMatchObject([
+      { source: "collab", resourceId: "doc-1" },
+    ]);
+  });
+
   it("does not reuse an org-A access decision under an org-B session", async () => {
     const flush = async () => {
       for (let i = 0; i < 5; i++) await Promise.resolve();
     };
-    // Resource is allowed only in org-a.
     const resolveAccess = vi.fn(
       async (_rt: string, _rid: string, ctx: { orgId: string | undefined }) =>
         ctx.orgId === "org-a" ? { ok: true } : null,
@@ -138,14 +166,12 @@ describe("AppSyncState multi-app isolation", () => {
       getDb: () => makeDb(),
       resolveAccess,
     });
-    // Owned by someone else + resource-scoped → forces the access-aware branch.
     const event = {
       owner: "other@x",
       resourceType: "doc",
       resourceId: "d1",
     };
 
-    // org-a: first call misses (fail-closed), then the cached allow lands.
     expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(false);
     await flush();
     expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(true);

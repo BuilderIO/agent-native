@@ -1,3 +1,5 @@
+import type { IconValue } from "@agent-native/core/icons";
+
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type { NfmFidelityReport } from "./nfm";
 import type {
@@ -23,11 +25,12 @@ export interface ContentContextPathEntry {
 
 export interface Document {
   id: string;
+  spaceId?: string | null;
   parentId: string | null;
   title: string;
   content: string;
   description?: string;
-  icon: string | null;
+  icon: IconValue | string | null;
   position: number;
   isFavorite: boolean;
   hideFromSearch: boolean;
@@ -37,6 +40,7 @@ export interface Document {
   accessRole?: DocumentAccessRole;
   canView?: boolean;
   canComment?: boolean;
+  canSuggest?: boolean;
   canEdit?: boolean;
   canManage?: boolean;
   source?: DocumentSourceInfo;
@@ -47,9 +51,9 @@ export interface Document {
   contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
-  /** Opaque token for optimistic document-body reconciliation. */
   revision?: string;
   bodyRevision?: number;
+  collabContentRevision?: string | null;
   contentHash?: string;
   contentFidelity?: NfmFidelityReport;
 }
@@ -87,6 +91,12 @@ export interface DocumentSyncStatus {
   warnings: string[];
 }
 
+export interface NotionMcpConnectionStatus {
+  connected: boolean;
+  servers: Array<{ id: string; name: string; url: string; scope: string }>;
+  unreadableScopes: string[];
+}
+
 export interface NotionConnectionStatus {
   connected: boolean;
   workspaceName: string | null;
@@ -94,6 +104,8 @@ export interface NotionConnectionStatus {
   authUrl: string | null;
   error?: "missing_credentials";
   mode?: "oauth" | null;
+  mcp?: NotionMcpConnectionStatus;
+  statusSummary?: string;
 }
 
 export interface LinkNotionPageRequest {
@@ -108,21 +120,31 @@ export interface ResolveDocumentSyncConflictRequest {
   direction: "pull" | "push";
 }
 
+export interface DocumentCreateResult extends Document {
+  spaceId: string;
+}
+
 export interface DocumentCreateRequest {
   id?: string;
   spaceId?: string;
+  spaceName?: string;
   title?: string;
   parentId?: string | null;
   content?: string;
   description?: string;
-  icon?: string;
+  icon?: IconValue | string;
 }
 
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
+  historySessionId?: string;
+  editorSessionId?: string;
+  editorEditGeneration?: number;
+  editorSnapshotTitle?: string;
+  editorSnapshotContent?: string;
   description?: string;
-  icon?: string | null;
+  icon?: IconValue | string | null;
   isFavorite?: boolean;
   loadedUpdatedAt?: string;
   loadedContentWasEmpty?: boolean;
@@ -136,11 +158,38 @@ export interface DocumentUpdateResponse extends Document {
 export interface DocumentMoveRequest {
   parentId?: string | null;
   position?: number;
+  spaceId?: string;
 }
 
 export interface DocumentListResponse {
   documents: Document[];
   pagination: DocumentDiscoveryPagination;
+}
+
+export interface ContentNavigationPathEntry {
+  id: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+  isFavorite: boolean;
+  visibility?: "private" | "org" | "public";
+  accessRole?: DocumentAccessRole;
+  canView?: boolean;
+  canComment?: boolean;
+  canEdit?: boolean;
+  canManage?: boolean;
+  source?: DocumentSourceInfo;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentNavigationContext {
+  mode: "database" | "local-files";
+  document: Document;
+  path: ContentNavigationPathEntry[];
+  workspaceFilesDatabaseId: string | null;
 }
 
 export interface DocumentDiscoveryPagination {
@@ -159,7 +208,7 @@ export interface DocumentTreeNode extends Document {
 export interface NotionSearchResult {
   id: string;
   title: string;
-  icon: string | null;
+  icon: IconValue | string | null;
   url: string;
   lastEditedTime: string | null;
 }
@@ -196,6 +245,7 @@ export interface DocumentPropertyDefinition {
   name: string;
   type: DocumentPropertyType;
   description?: string;
+  icon?: IconValue | null;
   visibility: DocumentPropertyVisibility;
   options: DocumentPropertyOptions;
   position: number;
@@ -230,6 +280,7 @@ export interface ConfigureDocumentPropertyRequest {
   name: string;
   type: DocumentPropertyType;
   description?: string;
+  icon?: IconValue | null;
   visibility?: DocumentPropertyVisibility;
   options?: DocumentPropertyOptions;
   naturalKey?: boolean;
@@ -348,7 +399,6 @@ export type ContentDatabaseFilterMode = "and" | "or";
 export type ContentDatabaseOpenPagesIn = "preview" | "full_page";
 
 export interface ContentDatabaseFormQuestion {
-  /** "name" is the row page title; every other key is a property definition id. */
   key: string;
   enabled: boolean;
   required: boolean;
@@ -358,6 +408,7 @@ export interface ContentDatabaseView {
   id: string;
   name: string;
   type: ContentDatabaseViewType;
+  icon?: IconValue | null;
   sorts: ContentDatabaseSort[];
   filters: ContentDatabaseFilter[];
   filterMode?: ContentDatabaseFilterMode;
@@ -367,10 +418,13 @@ export interface ContentDatabaseView {
   endDatePropertyId?: string | null;
   hiddenPropertyIds?: string[];
   propertyOrderIds?: string[];
+  tableColumnOrderIds?: string[];
   collapsedGroupIds?: string[];
   hideEmptyGroups?: boolean;
   calculations?: Record<string, ContentDatabaseColumnCalculation>;
   wrapCells?: boolean;
+  columnWrapOverrides?: Record<string, boolean>;
+  frozenThroughColumnId?: string | null;
   rowDensity?: ContentDatabaseRowDensity;
   openPagesIn?: ContentDatabaseOpenPagesIn;
   formQuestions?: ContentDatabaseFormQuestion[];
@@ -401,7 +455,6 @@ export interface OrderedMembershipRef {
 
 export interface ContentSidebarViewOrder {
   mode: ContentSidebarOrderMode;
-  /** Retained while a computed mode is active so Custom can be restored. */
   itemIds: string[];
 }
 
@@ -413,7 +466,6 @@ export interface ContentDatabasePersonalViewOverrides {
     sorts: ContentDatabaseSort[];
     filters: ContentDatabaseFilter[];
     filterMode: ContentDatabaseFilterMode;
-    /** Personal-only ordering for this database's Files sidebar. */
     sidebarOrder?: ContentSidebarViewOrder;
   }>;
 }
@@ -432,6 +484,7 @@ export interface ContentDatabaseMembership {
   databaseId: string | null;
   databaseDocumentId: string | null;
   databaseTitle: string | null;
+  systemRole?: string | null;
   position: number | null;
   sourceId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
@@ -488,10 +541,9 @@ export interface ContentDatabaseItem {
   document: Document;
   position: number;
   properties: DocumentProperty[];
+  workspaceFilesDatabaseId?: string | null;
   bodyHydration?: ContentDatabaseBodyHydration;
   sourceRecord?: ContentDatabaseSourceRow;
-  // Federation (NEXT): the row's normalized join key, and the read-only columns
-  // a secondary source contributes on top of it. Absent for non-federated rows.
   canonicalKey?: string | null;
   sourceOverlays?: ContentDatabaseSourceOverlay[];
   rowRevision?: string;
@@ -552,9 +604,6 @@ export interface ContentDatabaseRowMutationResult {
   createdItem?: ContentDatabaseItem;
 }
 
-// A secondary source's read-only contribution to a federated row, matched on the
-// canonical key. Kept separate from the primary `sourceRecord` so the existing
-// change-set / diff machinery (primary-only, write-oriented) is untouched.
 export interface ContentDatabaseSourceOverlay {
   sourceId: string;
   sourceName: string;
@@ -694,7 +743,6 @@ export interface ContentDatabaseSourceFieldChange {
   sourceFieldKey: string;
   currentValue: DocumentPropertyValue;
   proposedValue: DocumentPropertyValue;
-  /** Exact provider-native JSON value; review continues to show proposedValue. */
   builderValueJson?: string;
 }
 
@@ -755,15 +803,11 @@ export interface ContentDatabaseSourceChangeSet {
   updatedAt: string;
 }
 
-// A typed join record (NEXT). Only `identity` is built now; the `reference`
-// shape is reserved so lookups drop in later with no schema change.
 export type ContentDatabaseSourceJoinKind = "identity" | "reference";
 
 export interface ContentDatabaseSourceJoin {
   kind: ContentDatabaseSourceJoinKind;
-  // The related collection for a reference join; null for identity.
   collection: string | null;
-  // identity → the canonical-key expression; reference → e.g. "{Author}".
   localExpr: string;
   remoteKeyField: string;
   normalizationFormula: string;
@@ -771,8 +815,6 @@ export interface ContentDatabaseSourceJoin {
 
 export type ContentDatabaseSourceRole = "primary" | "secondary";
 
-// A column's source binding (stored now, display-primary only — write fan-out is
-// LATER). A "mirror" column keeps multiple sources in sync once live writes land.
 export interface ContentDatabaseColumnBinding {
   propertyId: string | null;
   localFieldKey: string | null;
@@ -781,16 +823,12 @@ export interface ContentDatabaseColumnBinding {
   sourceFieldKey: string;
 }
 
-// The shared key space the database's rows are identified by (for display).
 export interface ContentDatabaseCanonicalKey {
   propertyId: string | null;
   label: string;
   type: string;
 }
 
-// Per-source federation config, stored on each source's metadataJson. The
-// primary additionally carries the database-level `canonicalKey` descriptor; a
-// secondary carries its `columnBindings`.
 export interface ContentDatabaseSourceFederation {
   role: ContentDatabaseSourceRole;
   keyField: string;
@@ -849,8 +887,8 @@ export interface ContentDatabaseSource {
   rows: ContentDatabaseSourceRow[];
   changeSets: ContentDatabaseSourceChangeSet[];
   projection?: {
-    rows: "complete" | "page";
-    changeSets: "complete" | "page";
+    rows: "complete" | "page" | "omitted";
+    changeSets: "complete" | "page" | "omitted";
   };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
 }
@@ -903,13 +941,13 @@ export interface NotionDatabaseSourcesResponse {
 }
 
 export interface ContentDatabaseResponse {
+  configurationRevision?: string;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
   contextPath?: ContentContextPathEntry[];
-  // All attached sources (NEXT). `source` stays as `sources[0] ?? null` for
-  // back-compat; multi-source consumers read `sources`.
   sources?: ContentDatabaseSource[];
   pagination?: {
     offset: number;
@@ -935,7 +973,6 @@ export interface ContentDatabaseResponse {
   timings?: BuilderActionTiming[];
   tableQueryMode?: "server" | "client-required";
   mutationContract?: ContentDatabaseMutationContract;
-  /** Client-only optimistic state while real provider rows are being attached. */
   attachPreview?: {
     sourceTable: string;
     fetchedAt: string;
@@ -948,6 +985,39 @@ export type ContentDatabaseItemsPageResponse = Pick<
   ContentDatabaseResponse,
   "items" | "source" | "sources" | "pagination" | "tableQueryMode"
 >;
+
+export type ContentDatabaseNavigationSort =
+  | "custom"
+  | "name"
+  | "created"
+  | "last_edited";
+
+export interface ContentDatabaseNavigationItem {
+  membershipId: string;
+  membershipPosition: number;
+  documentId: string;
+  parentId: string | null;
+  title: string;
+  icon: string | null;
+  type: "page" | "database";
+  hasChildren: boolean;
+  spaceId: string | null;
+  sourceKind: string | null;
+  isFavorite: boolean;
+  canEdit: boolean;
+  canManage: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContentDatabaseNavigationPageResponse {
+  items: ContentDatabaseNavigationItem[];
+  pagination: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
 
 export interface BuilderActionTiming {
   name: string;
@@ -976,6 +1046,7 @@ export interface ContentDatabaseSourceFieldPropertyResponse {
 }
 
 export interface CreateDatabaseRequest {
+  idempotencyKey?: string;
   documentId?: string;
   newDocumentId?: string;
   spaceId?: string;
@@ -988,6 +1059,8 @@ export interface CreateInlineDatabaseRequest {
   hostDocumentId: string;
   title?: string;
   description?: string;
+  newDocumentId?: string;
+  ownerBlockId?: string;
 }
 
 export interface CreateInlineDatabaseResponse {
@@ -1022,6 +1095,8 @@ export interface SubmitContentDatabaseFormRequest {
   databaseId: string;
   viewId?: string;
   title?: string;
+  content?: string;
+  propertyEntries?: Array<{ property: string; value: unknown }>;
   propertyValues?: Record<string, unknown>;
 }
 
@@ -1032,6 +1107,8 @@ export interface SubmitContentDatabaseFormResponse {
   createdDocumentId: string;
   urlPath: string;
   deepLink: string;
+  submittedProperties: Array<{ propertyId: string; name: string }>;
+  submittedContent: boolean;
   verified: true;
 }
 
@@ -1067,7 +1144,6 @@ export interface UpdateDatabaseItemsResponse {
 }
 
 export interface MoveDatabaseItemRequest {
-  /** Required with itemId for unambiguous membership moves. */
   databaseId?: string;
   itemId?: string;
   documentId?: string;
@@ -1079,7 +1155,6 @@ export interface UpdateContentDatabaseViewRequest {
   viewConfig: ContentDatabaseViewConfig;
 }
 
-// The committed canonical-key join when adding a second source.
 export interface ContentDatabaseSourceJoinRequest {
   canonicalKey: { propertyId?: string | null; label: string; type?: string };
   primary: { keyField: string; normalizationFormula: string };
@@ -1093,12 +1168,9 @@ export interface AttachContentDatabaseSourceRequest {
   sourceType?: ContentDatabaseSourceType;
   sourceName?: string;
   sourceTable?: string;
-  /** Projected Builder model fields already visible in the model picker. */
   builderFieldPaths?: string[];
-  /** "items" adds more rows; "details" joins fields onto existing rows. */
   relationshipMode?: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
-  /** "add" attaches an additional row-union source; "replace" (default) re-links the primary. */
   mode?: "replace" | "add";
   limit?: number;
   offset?: number;
@@ -1133,7 +1205,6 @@ export interface ChangeContentDatabaseSourceRoleRequest {
   databaseId?: string;
   documentId?: string;
   sourceId: string;
-  /** "items" adds more rows; "details" joins fields onto existing rows. */
   relationshipMode: "items" | "details";
   join?: ContentDatabaseSourceJoinRequest;
   limit?: number;
@@ -1159,9 +1230,28 @@ export interface ContentSystemCollectionSummary {
 }
 
 export interface ContentDatabaseDescriptionResponse {
+  configurationRevision?: string;
+  mutationContract?: ContentDatabaseMutationContract;
+  setupContract?: ContentDatabaseSetupContract;
   database: ContentDatabase;
   contextPath: ContentContextPathEntry[];
   properties: DocumentProperty[];
+}
+
+export interface ContentDatabaseSetupContract {
+  target: { spaceId: string; databaseId: string; databaseDocumentId: string };
+  databaseUrl: string;
+  viewUrls: Array<{ viewId: string; url: string }>;
+  supportedPropertyTypes: string[];
+  canEditSchema: boolean;
+  canEditViews: boolean;
+  canManageLifecycle: boolean;
+  sourceComposition: "unsupported";
+  properties: Array<{
+    propertyId: string;
+    editable: boolean;
+    reason: string | null;
+  }>;
 }
 
 export interface ListContentDatabasesResponse {
@@ -1171,6 +1261,8 @@ export interface ListContentDatabasesResponse {
 }
 
 export interface TrashedContentDatabaseSummary {
+  spaceId?: string | null;
+  configurationRevision?: string;
   databaseId: string;
   title: string;
   documentId: string;
@@ -1181,6 +1273,8 @@ export interface TrashedContentDatabaseSummary {
 
 export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
 }
 
 export interface TrashedDocumentSummary {
@@ -1250,7 +1344,6 @@ export interface BindContentDatabaseSourceFieldRequest {
   databaseId?: string;
   documentId?: string;
   sourceFieldId: string;
-  // Target column to bind the source field to, or null to unbind.
   propertyId: string | null;
 }
 
@@ -1449,14 +1542,12 @@ export interface ContentDatabaseSourceReviewRowSummary {
   databaseItemId: string | null;
   documentId: string | null;
   title: string;
-  /** Existing Builder entry targeted by this write; null for new drafts. */
   targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
   riskReasons: string[];
   conflictState: ContentDatabaseSourceConflictState;
-  /** Resolved write effect for this row — drives plain-language UI labels. */
   effect: BuilderCmsWriteEffect;
   execution: ContentDatabaseSourceExecution | null;
 }
@@ -1504,11 +1595,6 @@ export interface PreviewBuilderSourceReviewResponse {
 
 export interface PrepareBuilderSourceReviewResponse {
   review: ContentDatabaseSourceReviewPayload;
-  /**
-   * Maps the operator-selected diff identities to the immutable change-set
-   * identities prepared for execution. These differ when a cancelled or
-   * otherwise closed synthetic diff is reviewed again as a new revision.
-   */
   preparedChangeSetMappings: Array<{
     requestedChangeSetId: string;
     preparedChangeSetId: string;

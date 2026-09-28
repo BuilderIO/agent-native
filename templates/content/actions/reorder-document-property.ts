@@ -13,14 +13,14 @@ import {
 
 export default defineAction({
   description:
-    "Reorder a property definition within its database by moving it before or after another property. Used for reordering Blocks fields on the page.",
+    "Reorder a property definition within its collection by moving it before or after another property. Used for reordering Blocks fields on the page.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
     databaseId: z
       .string()
       .optional()
       .describe(
-        "Database ID that owns the properties; omit only for context-free entry points",
+        "Collection ID that owns the properties; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID to move"),
     targetPropertyId: z.string().describe("Property to position relative to"),

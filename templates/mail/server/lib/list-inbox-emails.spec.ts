@@ -1,14 +1,3 @@
-/**
- * Tests for list-inbox-emails.ts — the shared Gmail listing core called by
- * both the `list-emails` agent action and the REST `listEmails` handler.
- *
- * Before this file existed, the two callers re-implemented Gmail
- * query-build + pagination + thread-scoping independently and drifted: the
- * REST handler filtered out snoozed threads and handled Gmail 429/quota
- * errors gracefully, the agent action did neither. These tests pin down the
- * merged (superset) behaviour so that regression can't creep back in for
- * either caller.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./google-auth.js", () => ({
@@ -35,7 +24,6 @@ function rawMessage(id: string, threadId: string, overrides: any = {}) {
   return { id, threadId, _accountEmail: OWNER, ...overrides };
 }
 
-/** Minimal EmailMessage-shaped stand-in for gmailToEmailMessage's output. */
 function emailFor(raw: any, overrides: any = {}) {
   return {
     id: raw.id,
@@ -195,6 +183,8 @@ describe("listInboxEmails", () => {
         {
           email: OWNER,
           error: "429: rateLimitExceeded — retry in 90s",
+          isQuotaError: true,
+          retryAfterMs: 90_000,
         },
       ],
     } as any);
@@ -212,8 +202,62 @@ describe("listInboxEmails", () => {
     expect(result.isQuotaError).toBe(true);
     expect(result.retryAfterSeconds).toBe(90);
     expect(result.message).toContain(OWNER);
-    // The 429 short-circuit must happen before the snooze lookup.
     expect(getSnoozedThreadIds).not.toHaveBeenCalled();
+  });
+
+  it("floors a sub-second remaining cooldown to 1s instead of advertising 0s", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: OWNER,
+          error: "429: rateLimitExceeded — retry shortly",
+          isQuotaError: true,
+          retryAfterMs: 400,
+        },
+      ],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "inbox",
+      limit: 50,
+      accountTokens: accountTokens(),
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.retryAfterSeconds).toBe(1);
+  });
+
+  it("classifies a jargon-free quota-cooldown message via isQuotaError, not message text", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [
+        {
+          email: OWNER,
+          error:
+            "Email service is briefly busy and will be ready again in about 45s.",
+          isQuotaError: true,
+          retryAfterMs: 45_000,
+        },
+      ],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "all",
+      label: "2-tasks/pylon",
+      limit: 25,
+      accountTokens: accountTokens(),
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure result");
+    expect(result.isQuotaError).toBe(true);
+    expect(result.retryAfterSeconds).toBe(45);
   });
 
   it("returns a non-quota failure result (no retryAfterSeconds) for other Gmail errors", async () => {

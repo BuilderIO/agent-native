@@ -166,6 +166,7 @@ chat-first 應用程式中的第一個操作可以非常小。在 Chat 範本中
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Say hello from the local agent.",
   schema: z.object({

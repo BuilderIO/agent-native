@@ -1,10 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import {
-  _resetEmbedChromeForTests,
-  isEmbedChromeRequested,
-} from "./embed-chrome";
+import { isEmbedChromeRequested } from "./embed-chrome";
 
 function setUrl(href: string): void {
   window.history.replaceState(null, "", href);
@@ -12,8 +9,7 @@ function setUrl(href: string): void {
 
 describe("isEmbedChromeRequested", () => {
   beforeEach(() => {
-    _resetEmbedChromeForTests();
-    window.sessionStorage.clear();
+    setUrl("/");
   });
 
   afterEach(() => {
@@ -25,30 +21,27 @@ describe("isEmbedChromeRequested", () => {
     expect(isEmbedChromeRequested()).toBe(false);
   });
 
-  it("does not leak the flag to a different embed in the same tab", () => {
+  it("reads the flag independently for a different embed in the same tab", () => {
     setUrl("/visual-edit/d1?embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);
 
-    _resetEmbedChromeForTests();
     setUrl("/visual-edit/d2?editorView=overview");
     expect(isEmbedChromeRequested()).toBe(false);
   });
 
-  it("drops the flag on an in-tab navigation to another design", () => {
+  it("clears the flag when the same design returns to a host-owned URL", () => {
     setUrl("/visual-edit/d1?embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);
 
-    // Deliberately no reset: an SPA navigation keeps the module alive.
-    setUrl("/visual-edit/d2?editorView=overview");
+    setUrl("/visual-edit/d1?editorView=overview");
     expect(isEmbedChromeRequested()).toBe(false);
   });
 
-  it("survives the editor rewriting its own URL", () => {
+  it("stays enabled when the editor preserves the flag while rewriting its URL", () => {
     setUrl("/visual-edit/d1?editorView=overview&embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);
 
-    _resetEmbedChromeForTests();
-    setUrl("/design/d1?view=overview&zoom=33");
+    setUrl("/design/d1?view=overview&zoom=33&embedChrome=1");
     expect(isEmbedChromeRequested()).toBe(true);
   });
 });

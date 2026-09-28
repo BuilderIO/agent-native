@@ -1,5 +1,5 @@
 import { IconBrandGithub } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useLocation } from "react-router";
 
 import { hasLocalizedDoc } from "./docs-content";
@@ -8,10 +8,28 @@ import {
   docsLocaleFromPathname,
   docsSlugFromPathname,
 } from "./docs-locale";
+import { resolveFragmentRedirect } from "./docs-slug-redirects";
 import DocsPrevNext from "./DocsPrevNext";
 import DocsSidebar from "./DocsSidebar";
 import MobileDocsNav from "./MobileDocsNav";
 import TableOfContents from "./TableOfContents";
+
+function useLegacyFragmentRedirect(pathname: string, hash: string) {
+  useEffect(() => {
+    if (!hash) return;
+    const slug = docsSlugFromPathname(pathname);
+    if (!slug) return;
+    const target = resolveFragmentRedirect(slug, hash);
+    if (!target) return;
+    if (target.startsWith("/docs/")) {
+      window.location.replace(target);
+      return;
+    }
+    window.location.hash = target;
+    const id = target.slice(1);
+    document.getElementById(id)?.scrollIntoView();
+  }, [pathname, hash]);
+}
 
 interface TocItem {
   id: string;
@@ -23,12 +41,6 @@ interface TocItem {
 const GITHUB_EDIT_BASE_URL =
   "https://github.com/BuilderIO/agent-native/edit/main/packages/core/docs/content";
 
-/**
- * Resolves the GitHub "edit this page" URL from the current route pathname
- * alone (no route-level plumbing needed): points at the locale override file
- * under `content/locales/<locale>/<slug>.mdx` when one exists for the current
- * locale, otherwise the canonical English `content/<slug>.mdx`.
- */
 export function docsEditUrlForPathname(pathname: string): string | undefined {
   const slug = docsSlugFromPathname(pathname);
   if (!slug) return undefined;
@@ -51,6 +63,7 @@ export default function DocsLayout({
 }) {
   const location = useLocation();
   const editUrl = docsEditUrlForPathname(location.pathname);
+  useLegacyFragmentRedirect(location.pathname, location.hash);
 
   return (
     <div className="mx-auto flex w-full max-w-site px-0 lg:px-6">

@@ -5,6 +5,7 @@ import {
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
   resolveNetlifyApiContext,
+  resolveNetlifyEnvScopes,
   resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
@@ -21,9 +22,6 @@ describe("isAllowedHostedTemplateEnvKey", () => {
   it("allows the browser-restricted Google Picker configuration", () => {
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);
-    // Google OAuth credentials must never sync from a template's local .env to
-    // a hosted site: local holds a dev client, hosted runs the shared production
-    // one. Syncing them took beta sign-in down fleet-wide on 2026-08-20.
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_SIGN_IN_CLIENT_ID")).toBe(
       false,
     );
@@ -90,16 +88,16 @@ describe("normalizeProductionUrlEntry", () => {
     ).toEqual({ value, normalized: false });
   });
 
-  it("uses the current starter deployment origin for the chat source template", () => {
+  it("uses the Chat production origin for the chat source template", () => {
     expect(
       normalizeProductionUrlEntry(
         "starter",
         "production",
         "APP_URL",
-        "https://chat.agent-native.com",
+        "https://starter.agent-native.com",
       ),
     ).toEqual({
-      value: "https://starter.agent-native.com",
+      value: "https://chat.agent-native.com",
       normalized: true,
     });
   });
@@ -128,6 +126,24 @@ describe("resolveNetlifyApiContext", () => {
   it("preserves ordinary Netlify contexts", () => {
     expect(resolveNetlifyApiContext("deploy-preview")).toBe("deploy-preview");
     expect(resolveNetlifyApiContext("production")).toBe("production");
+  });
+});
+
+describe("resolveNetlifyEnvScopes", () => {
+  it("limits the fleet-wide Sentry upload token to builds", () => {
+    expect(
+      resolveNetlifyEnvScopes("SENTRY_AUTH_TOKEN", [
+        "builds",
+        "functions",
+        "runtime",
+      ]),
+    ).toEqual(["builds"]);
+  });
+
+  it("preserves configured scopes for other keys", () => {
+    expect(
+      resolveNetlifyEnvScopes("SENTRY_DSN", ["functions", "runtime"]),
+    ).toEqual(["functions", "runtime"]);
   });
 });
 

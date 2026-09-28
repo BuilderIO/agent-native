@@ -30,17 +30,7 @@ function blocksOf(content: PlanContent | null | undefined): PlanBlock[] {
   return Array.isArray(content?.blocks) ? content!.blocks : [];
 }
 
-/**
- * Inline chat renderer for the `visual-answer` action (and any action that
- * returns `{ plan: { content } }` keyed to the `plan.visual-answer` renderer).
- * Renders the published visual answer's diagram/wireframe/api-spec/data-model/
- * etc. blocks read-only, INSIDE the conversation, registry-driven so custom
- * registered plan blocks render here too. The full editable surface stays one
- * click away via the deep link.
- */
 export default function VisualAnswerInline({ context }: ToolRendererProps) {
-  // While the tool is still running there is no result yet — let the default
-  // running pill show instead of an empty card.
   if (context.isRunning) return null;
 
   const result = asResult(context.resultJson);
@@ -52,8 +42,6 @@ export default function VisualAnswerInline({ context }: ToolRendererProps) {
     plan?.title?.trim() || content?.title?.trim() || "Visual answer";
   const brief = plan?.brief?.trim() || content?.brief?.trim() || "";
 
-  // Nothing renderable (older result shape or a publish-only fallback): defer to
-  // the action's link affordance rather than showing a broken empty card.
   if (blocks.length === 0) return null;
 
   const ctx = createPlanBlockRenderContext({ editingDisabled: true });

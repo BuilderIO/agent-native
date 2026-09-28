@@ -9,7 +9,7 @@ Todo aplicativo nativo do agente é multilocatário pronto para uso. Organizaç�
 
 ## O que você ganha de graça {#free}
 
-Um novo andaime `npx @agent-native/core@latest create` já vem com:
+Um novo andaime `npx --yes @agent-native/core@latest create` já vem com:
 
 - **Registro e login do usuário** — consulte [Authentication](/docs/authentication).
 - **Organizações** — os usuários criam organizações e convidam membros por e-mail. Cada organização é um locatário totalmente isolado.
@@ -62,9 +62,9 @@ Se você estiver avaliando agente nativo para um CRM, rastreador de projeto, cai
 
 </Diagram>
 
-## O alternador organizacional UI {#org-switcher}
+## O menu da conta {#org-switcher}
 
-O org-switcher e os membros UI são renderizados em cada modelo sem código extra. Eles conduzem as rotas REST da organização principal em `/_agent-native/org/*` (criar organização, alternar organização, listar/convidar/remover membros, alterar funções, definir domínio de e-mail permitido). Os usuários escolhem a organização ativa no switcher; o painel de membros lida com convites e mudanças de função.
+O menu da conta (`OrgSwitcher`, na parte inferior da barra lateral) e as páginas de organização nas Configurações são renderizados em cada modelo sem código extra. Eles usam as rotas REST principais da organização em `/_agent-native/org/*` (criar organização, alternar organização, listar/convidar/remover membros, alterar funções, definir o domínio de e-mail permitido). Os usuários escolhem a organização ativa no menu da conta; **Settings › Organization › Members** cuida dos convites e das mudanças de função.
 
 Este é o módulo `org/` da própria estrutura, não o plugin de organização do Better Auth (que não foi registrado intencionalmente). A superfície completa de gerenciamento organizacional — `createOrganization`, as rotas REST e wrappers `defineAction` criados por modelo, como `invite-member` — está documentada em [Authentication → Organizations](/docs/authentication#organizations).
 
@@ -122,3 +122,7 @@ Este é o mesmo pipeline usado para escopo por usuário. Para a mecânica de ní
 - [**Authentication**](/docs/authentication#organizations) — sessões, provedores sociais e superfície de gerenciamento organizacional
 - [**Security — Data Scoping**](/docs/security#data-scoping) — isolamento no nível SQL, contrato `ownableColumns()` e proteções de acesso
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — hospede vários aplicativos Agent-Native em um monorepo com autenticação compartilhada e RBAC
+
+## Modelo de isolamento
+
+Use `accessFilter()` e `assertAccess()` para leituras e gravações no servidor. O escopo SQL do agente cria views temporárias filtradas para tabelas próprias. `pnpm guards` inclui a verificação de consultas sem escopo. RLS ainda não é uma camada ativa e está planejado como reforço após a versão 1.0. Consulte [Implantações administradas](/docs/administered-deployments).

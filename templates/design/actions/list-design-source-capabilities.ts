@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core/action";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8,7 +7,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { DESIGN_CAPABILITY_NAMES } from "../shared/design-source-capabilities.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   designConnectionIdFromData,
   designSourceTypeFromData,
@@ -29,6 +28,7 @@ export default defineAction({
       .describe("Design project ID to fetch source capabilities for"),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
@@ -38,16 +38,10 @@ export default defineAction({
 
     const db = getDb();
 
-    // Resolve source type from the design's data blob.  The `sourceType`
-    // field lives inside `designs.data` as a JSON key (set by connect-localhost
-    // and the fusion upgrade flow), falling back to "inline" when absent.
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
     const capabilities = resolveSourceCapabilities(sourceType);
 
-    // Collect active localhost capabilities from the design's stored connection,
-    // if any, so that a bridge handshake that has already proven readFile
-    // is reflected here too.
     let connectionCapabilities: Record<string, { status: string }> = {};
     if (sourceType === "localhost") {
       try {
@@ -55,8 +49,10 @@ export default defineAction({
           typeof rawData === "string" ? JSON.parse(rawData) : {};
         const connectionId = designConnectionIdFromData(rawDesignData);
 
-        if (connectionId && getRequestUserEmail()) {
-          const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
+        if (connectionId) {
+          const { ownerEmail, orgId } = await resolveLocalhostConnectionScope({
+            designId,
+          });
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,
@@ -77,7 +73,6 @@ export default defineAction({
             try {
               const parsed: unknown = JSON.parse(conn.capabilities);
               if (Array.isArray(parsed)) {
-                // Bridge capabilities are DesignBridgeCapability[] with operation + status.
                 for (const entry of parsed) {
                   if (
                     entry !== null &&
@@ -103,8 +98,6 @@ export default defineAction({
       }
     }
 
-    // Merge proven bridge capabilities (only for capabilities that exist in
-    // DESIGN_CAPABILITY_NAMES and only when the bridge reports "available").
     const merged = { ...capabilities };
     for (const capName of DESIGN_CAPABILITY_NAMES) {
       const bridgeEntry = connectionCapabilities[capName];
@@ -113,7 +106,6 @@ export default defineAction({
       }
     }
 
-    // Flatten to a list for easy agent consumption.
     const capabilityList = DESIGN_CAPABILITY_NAMES.map((name) => ({
       name,
       ...merged[name],

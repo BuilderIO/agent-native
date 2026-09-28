@@ -1,21 +1,3 @@
-/**
- * BuilderEngine — HTTP client for the Builder.io managed LLM gateway.
- *
- * The gateway accepts an Anthropic-shaped request body and streams events as
- * JSONL. This engine translates the framework's EngineStreamOptions into the
- * gateway request, parses the streamed events into EngineEvent items, and
- * maps gateway error responses (402 quota, 403 disabled, 401 auth, 429
- * concurrency) into structured stop events that carry an upgrade URL when
- * the chat UI needs to prompt the user to upgrade.
- *
- * Interactive users authenticate with Builder OAuth. Existing connections may
- * keep using BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY until they reconnect.
- * When neither is present, credentials come from the gateway lane
- * (`resolveBuilderGatewayCredentialsDetailed`): the user's own Builder
- * connection, otherwise the deployment's Builder-credits pair. Base URL is
- * overridable via BUILDER_GATEWAY_BASE_URL.
- */
-
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -33,15 +15,19 @@ import {
 } from "../../server/credential-provider.js";
 import {
   getRequestOrgId,
+  getRequestRunContext,
   getRequestUserEmail,
 } from "../../server/request-context.js";
-import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import { builderSubscriptionUpgradeUrl } from "../../shared/builder-link-tracking.js";
 import {
   allowsSamplingParams,
-  isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import {
+  clearBuilderCreditLimitNotice,
+  sendBuilderCreditLimitNotice,
+} from "../../usage/builder-credit-notice.js";
 import { isInBackgroundFunctionRuntime } from "../durable-background.js";
 import { BUILDER_MODEL_CONFIG } from "../model-config.js";
 import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
@@ -54,10 +40,14 @@ import {
   classifyTerminalErrorCode,
   canonicalizeBuilderGatewayErrorCode,
   describeErrorWithCauses,
+  extractRetryAfterMs,
+  isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isCreditsLimitErrorCode,
   isProviderConnectionErrorMessage,
+  PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
@@ -97,18 +87,9 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Keep the foreground hosted gateway timeout below the synchronous serverless
-// wall so the agent loop can append a continuation and persist terminal state
-// before the host hard-kills the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-/**
- * Netlify background functions have a 15-minute wall. Keep the Builder gateway
- * ceiling below that, but above the run-manager's 13-minute soft-timeout so
- * durable background runs checkpoint before this timer wins.
- */
 const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
-/** Local and non-hosted runtimes have no synchronous serverless wall. */
 const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
   MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
@@ -128,49 +109,50 @@ export const BUILDER_GATEWAY_STREAM_ENDED_ERROR_CODE =
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
-/**
- * Bucket an Anthropic `thinking.budgetTokens` value into the gateway's
- * legacy three-level `reasoning_effort` enum.
- *
- * The thresholds are chosen to align with typical Anthropic extended-thinking
- * budgets we see in the wild:
- *   • < 2000  → short one-step reasoning ("low")
- *   • 2000–8000 → multi-step thinking ("medium")
- *   • ≥ 8000  → deep planning / long chains ("high")
- *
- * 8000 is Anthropic's documented default in our framework (see
- * engine/types.ts:195), so callers that don't explicitly set
- * `budgetTokens` map to "high" via the default. If the gateway later
- * exposes more granular knobs or different thresholds, revisit this map.
- */
 function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
   if (budgetTokens < 2000) return "low";
   if (budgetTokens < 8000) return "medium";
   return "high";
 }
 
-/**
- * Build the URL the chat UI should link to when a user hits a quota error.
- *
- * We can't deep-link to a per-org billing page from `BUILDER_ORG_NAME` because
- * that field is the org's display name (e.g. "Nicholas kipchumba Space"), not
- * a URL-safe slug or id. URL-encoding the display name produces segments like
- * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
- * router treats as unknown and silently bounces to `/app/projects`. The
- * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic subscription page. Agent-Native attribution lets Builder
- * skip generic onboarding for new users who land there from an upgrade CTA.
- */
 async function buildUpgradeUrl(): Promise<string> {
-  const url = new URL("https://builder.io/account/subscription");
-  url.searchParams.set("signupSource", "agent-native");
-  url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
-  url.searchParams.set("agentNativeFlow", "connect_llm");
-  url.searchParams.set("framework", "agent-native");
-  applyBuilderUtmTrackingParams(url.searchParams, {
-    content: "gateway_quota_upgrade",
+  return builderSubscriptionUpgradeUrl("gateway_quota_upgrade");
+}
+
+async function notifyBuilderCreditLimit(): Promise<void> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return;
+  const promise = sendBuilderCreditLimitNotice({
+    ownerEmail,
+    orgId: getRequestOrgId(),
   });
-  return url.toString();
+  const waitUntil = getRequestRunContext()?.waitUntil;
+  if (waitUntil) {
+    try {
+      waitUntil(promise);
+      return;
+    } catch (error) {
+      console.warn("[builder-engine] could not register credit email", error);
+    }
+  }
+  await promise;
+}
+
+function isExplicitBuilderCreditsLimitCode(errorCode?: string): boolean {
+  return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
+}
+
+async function clearBuilderCreditLimitAfterSuccess(): Promise<void> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return;
+  try {
+    await clearBuilderCreditLimitNotice(ownerEmail, getRequestOrgId());
+  } catch (error) {
+    console.warn(
+      "[builder-engine] could not clear credit limit notice after success",
+      error,
+    );
+  }
 }
 
 interface GatewayErrorBody {
@@ -183,23 +165,14 @@ interface GatewayErrorBody {
   };
 }
 
-/**
- * Credentials captured by a durable caller that cannot rely on ambient
- * request context staying attached to a later run-manager callback.
- */
 export interface BuilderEngineCredentials {
   privateKey: string | null;
   publicKey: string | null;
   userId?: string | null;
   orgName?: string | null;
-  /** Which lane these came from, when the capturing caller knew. */
   lane?: BuilderGatewayLane | null;
 }
 
-/**
- * `isBuilderGatewayDeployConfigured()` must gate both answers: it owns the
- * dev-preview exclusion, and a captured lane cannot substitute for it.
- */
 function isBuilderCreditsLane(creds: BuilderEngineCredentials): boolean {
   if (!isBuilderGatewayDeployConfigured()) return false;
   return creds.lane ? creds.lane === "gateway-deploy" : true;
@@ -241,8 +214,6 @@ class BuilderEngine implements AgentEngine {
         }
       }
     }
-    // Prefer OAuth when present. If OAuth custody exists but is unusable,
-    // do not silently fall back to a legacy private key for the same user.
     const authHeader = oauthAccess
       ? `Bearer ${oauthAccess.accessToken}`
       : !hasStoredOAuth && creds.privateKey
@@ -262,9 +233,6 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
-    // The Builder gateway has an "auto" fallback mode, but Agent-Native owns
-    // model selection. Always send a concrete model so the gateway cannot
-    // select an organization-level override or another fallback model.
     const requestedModel = opts.model.trim();
     const model =
       requestedModel.length === 0 || requestedModel === "auto"
@@ -287,16 +255,9 @@ class BuilderEngine implements AgentEngine {
           : undefined),
     );
 
-    // Apply prompt caching to system + tools (stable prefix) and to the last
-    // user message (moving cache breakpoint so growing history gets cached
-    // across tool-loop iterations at ~90% off input cost).
-    // Templates can opt out by setting providerOptions.anthropic.cacheControl=false.
     const cacheEnabled =
       opts.providerOptions?.anthropic?.cacheControl !== false;
 
-    // System: split into a stable block carrying the breakpoint and a volatile
-    // tail (resources, app extras, model overlay, runtime context) without one,
-    // so mid-turn resource churn no longer invalidates system + tools.
     const { stable, volatile } = splitSystemPromptForCache(
       opts.systemPrompt ?? "",
     );
@@ -313,7 +274,6 @@ class BuilderEngine implements AgentEngine {
         : stable + volatile
       : undefined;
 
-    // Tools: add cache_control to the last tool definition.
     let cachedTools = tools;
     if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
@@ -322,10 +282,6 @@ class BuilderEngine implements AgentEngine {
       cachedTools[cachedTools.length - 1] = last;
     }
 
-    // Messages: add a moving cache breakpoint on the last user message's last
-    // content block so the entire conversation prefix is cached. Stays on the
-    // default 5m TTL — it moves every iteration, so a longer-lived entry would
-    // only pay the higher write premium.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
       let lastUserIdx = -1;
@@ -349,19 +305,11 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
-    // The gateway turns `reasoning_effort` into Anthropic thinking on the
-    // Claude lane, and Anthropic rejects any temperature but 1 once thinking is
-    // on — the Opus 4.7+ / Sonnet 5 families reject the sampling parameters
-    // outright. Effort defaults to High for every reasoning-capable Claude
-    // model, so a caller that only asked for `temperature: 0` was building a
-    // request that always 400s. GPT and Gemini lanes keep their temperature.
     const samplingAllowed = allowsSamplingParams({
       model,
       thinkingEnabled: Boolean(reasoningEffort) && /claude/i.test(model),
     });
 
-    const gptToolsRequireExplicitNoReasoning =
-      cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
       model,
       messages: cachedMessages,
@@ -375,27 +323,9 @@ class BuilderEngine implements AgentEngine {
       ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
-      // OpenAI rejects `reasoning_effort` alongside function tools on Chat
-      // Completions ("Function tools with reasoning_effort are not supported
-      // for <model> in /v1/chat/completions … or set reasoning_effort to
-      // 'none'"), and the gateway routes GPT models there. Every chat on a
-      // gpt-5.x model failed deterministically because of this. Omitting the
-      // field does NOT help — OpenAI then applies the model's own default
-      // effort and rejects identically; only the explicit "none" clears it.
-      // Same guard as the ai-sdk engine's forced-Chat-Completions path.
-      ...(reasoningEffort || gptToolsRequireExplicitNoReasoning
-        ? {
-            reasoning_effort: gptToolsRequireExplicitNoReasoning
-              ? "none"
-              : reasoningEffort,
-          }
-        : {}),
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
-    // Measured once, from the exact string that goes on the wire, and carried
-    // on every error stop below. A gateway rejection tells us nothing about
-    // what we sent, so without this an oversized or malformed request and a
-    // gateway outage are the same capture.
     const payload = JSON.stringify(body);
     const requestShape: EngineRequestShape = {
       model,
@@ -409,13 +339,11 @@ class BuilderEngine implements AgentEngine {
       "messages",
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
-    // OAuth tokens carry Space identity in the JWT `org` claim. Sending a
-    // client-supplied apiKey/public key is legacy private-key behavior only.
     if (spaceId && !oauthAccess) gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
-      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} org=${orgLabel}`,
+      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
     );
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
@@ -481,12 +409,6 @@ class BuilderEngine implements AgentEngine {
         return;
       }
 
-      // A successful gateway call proves the connected credentials are valid
-      // again. Clear any prior auth-failure marker so status / chat-card
-      // surfaces stop flagging the connection as broken. This is the only
-      // self-healing path for workspace/env-managed credentials, which never
-      // flow through writeBuilderCredentials. OAuth failures are not tracked
-      // with the legacy private-key fingerprint marker.
       if (!oauthAccess) {
         try {
           const legacyCreds =
@@ -559,19 +481,13 @@ interface GatewayErrorStopDetails {
   error: string;
   errorCode?: string;
   upgradeUrl?: string;
-  /** HTTP status the gateway answered with, when it is known. */
   statusCode?: number;
-  /** True for a throttle the same request can recover from by retrying. */
   providerRetryable?: boolean;
+  retryAfterMs?: number;
 }
 
-/**
- * Gateway statuses another attempt can clear. 402/401/403 quota and auth
- * rejections are absent on purpose — they are terminal until someone acts.
- */
 const RETRYABLE_GATEWAY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
 
-/** Read against the RAW reply: on the credits lane the message is replaced. */
 const TRANSIENT_UPSTREAM_PATTERN =
   /overloaded|rate_limit|rate limit reached|too many requests|\b429\b|\b529\b|\b502\b|\b503\b|\b504\b|resource_exhausted|quota exceeded|socket hang up|connection reset|temporarily unavailable|timeout/i;
 
@@ -582,24 +498,10 @@ function isTransientGatewayFailure(
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
     return true;
   }
-  // The gateway's unhandled-500 envelope, which reaches the in-stream error
-  // frame with no status at all. Without this it read as terminal there while
-  // the identical body read as retryable when it arrived as an HTTP 500.
   if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
-/**
- * EVERY terminal `reason: "error"` this module emits must go through here,
- * including those with no HTTP response behind them. A branch building its own
- * stop literal ships owner copy to a visitor; `gateway-error-retryability.spec.ts`
- * fails on a second literal in this file.
- *
- * On the credits lane the message collapses to one visitor line, so
- * `statusCode` / `providerRetryable` / `contextOverflow` are the only retry
- * signals downstream may read: keyword coupling to the message turns a retryable
- * throttle into a dead turn on credits sites alone.
- */
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
   creditsLane: boolean | undefined,
@@ -610,7 +512,12 @@ function gatewayErrorStop(
     type: "stop",
     reason: "error",
     ...(creditsLane
-      ? gatewayVisitorFacingError(errorCode)
+      ? {
+          ...gatewayVisitorFacingError(errorCode),
+          ...(isCreditsLimitErrorCode(errorCode) && upgradeUrl
+            ? { upgradeUrl }
+            : {}),
+        }
       : {
           error,
           ...(errorCode ? { errorCode } : {}),
@@ -619,8 +526,6 @@ function gatewayErrorStop(
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
       : {}),
-    // Absent before the request is built (missing credentials): a stop with no
-    // shape means nothing was sent, not that the payload measured zero.
     ...(requestShape ? { requestShape } : {}),
     ...retry,
   };
@@ -667,10 +572,6 @@ async function* emitHttpError(
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
-  // Read the body once as text and then try to parse — calling `.json()`
-  // and then `.text()` as a fallback fails because the body stream is
-  // already consumed (TypeError: Body has already been read), so we'd
-  // silently lose non-JSON error payloads like HTML proxy 502s.
   let errBody: GatewayErrorBody = {};
   const rawText = await response.text().catch(() => "");
   if (rawText) {
@@ -684,15 +585,27 @@ async function* emitHttpError(
   const code =
     canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
     `http_${status}`;
+  const retryAfterMs = extractRetryAfterMs({
+    responseHeaders: Object.fromEntries(response.headers.entries()),
+  });
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-    gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
+    gatewayErrorStop(
+      retryAfterMs !== undefined && details.retryAfterMs === undefined
+        ? { ...details, retryAfterMs }
+        : details,
+      opts.creditsLane,
+      opts.requestShape,
+    );
 
-  // Belt-and-suspenders: 402 without a structured `credits-limit` code
-  // (e.g. bare proxy response) still means quota → show upgrade CTA.
-  if (code.startsWith("credits-limit") || status === 402) {
+  const quotaErrorCode =
+    status === 402 && !isCreditsLimitErrorCode(code) ? "http_402" : code;
+  if (isCreditsLimitErrorCode(code) || status === 402) {
+    if (isExplicitBuilderCreditsLimitCode(quotaErrorCode)) {
+      await notifyBuilderCreditLimit();
+    }
     yield stop({
       error: message,
-      errorCode: code,
+      errorCode: quotaErrorCode,
       upgradeUrl: await buildUpgradeUrl(),
     });
     return;
@@ -716,7 +629,13 @@ async function* emitHttpError(
     });
     return;
   }
-  if (status === 403 && isBuilderCredentialAuthError(message)) {
+  if (
+    status === 403 &&
+    ((opts.recordLegacyCredentialFailure === false &&
+      code === "http_403" &&
+      /^(?:forbidden|builder gateway returned 403)$/i.test(message.trim())) ||
+      isBuilderCredentialAuthError(message))
+  ) {
     await recordAuthFailureForCurrentLane({
       recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
       oauthScope: opts.oauthScope,
@@ -732,19 +651,24 @@ async function* emitHttpError(
     return;
   }
   if (status === 403) {
+    if (code === "http_403" && isBareProviderRejectionMessage(message)) {
+      yield stop({
+        error:
+          "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying.",
+        errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+        statusCode: 403,
+        providerRetryable: true,
+      });
+      return;
+    }
     yield stop({ error: message, errorCode: code });
     return;
   }
   if (code === "rate_limit_exceeded") {
-    // The daily cap shares 429 with the transient throttle below and must not
-    // loop, so it carries NEITHER retry field: a bare `statusCode: 429` reads as
-    // retryable on its own.
     yield stop({ error: message, errorCode: code });
     return;
   }
   if (status === 429 || code === "too_many_concurrent_requests") {
-    // Daily gateway caps use `rate_limit_exceeded` above and must not loop;
-    // this branch is the transient concurrency throttle, which does.
     yield stop({
       error: message,
       errorCode: code,
@@ -763,10 +687,6 @@ async function* emitHttpError(
   });
 }
 
-// Yields one non-empty JSONL line at a time. Flushes any trailing content
-// after the stream ends so a final event without a newline terminator
-// isn't silently dropped — some gateway proxies close the connection on
-// a complete line and the client must still process it.
 async function* readJsonlLines(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   abortSignal?: AbortSignal,
@@ -785,9 +705,6 @@ async function* readJsonlLines(
       if (line) yield line;
     }
   }
-  // Flush any bytes the streaming decoder buffered for an incomplete multibyte
-  // sequence at the end of the stream; otherwise a trailing multibyte char in
-  // the final chunk is silently dropped from the last line.
   buffer += decoder.decode();
   const tail = buffer.trim();
   if (tail) yield tail;
@@ -841,10 +758,6 @@ async function* parseJsonlStream(
 
   const toolInputs = createStreamedToolInputState();
 
-  // The gateway can announce a tool call through `tool-call-delta` frames and
-  // then die before the terminal `tool-call` frame. Assemble what streamed, or
-  // hand the model an in-band error — never end the turn advertising a call
-  // that was silently dropped.
   const recoverUndeliveredToolCalls = (): EngineEvent[] => {
     const events = finalizeStreamedToolInputs(toolInputs);
     for (const event of events) {
@@ -886,8 +799,6 @@ async function* parseJsonlStream(
         return;
       }
 
-      // Heartbeats are transport-level keepalives, not proof the model is
-      // producing output — every other parsed event counts as first progress.
       if (event?.type !== "heartbeat") {
         captureContext.onFirstEvent?.();
       }
@@ -960,6 +871,20 @@ async function* parseJsonlStream(
         case "usage": {
           const cacheWrite =
             (event.cacheCreatedTokens ?? 0) + (event.cacheCreated1hTokens ?? 0);
+          if (
+            event.creditsUsed !== undefined &&
+            (!Number.isFinite(event.creditsUsed) || event.creditsUsed < 0)
+          ) {
+            yield gatewayErrorStop(
+              {
+                error: "Builder gateway returned invalid credit usage",
+                errorCode: "builder_gateway_error",
+              },
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
+            return;
+          }
           yield {
             type: "usage",
             inputTokens: event.inputTokens ?? 0,
@@ -968,6 +893,9 @@ async function* parseJsonlStream(
               ? { cacheReadTokens: event.cacheInputTokens }
               : {}),
             ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
+            ...(event.creditsUsed !== undefined
+              ? { builderCreditsUsed: event.creditsUsed }
+              : {}),
           };
           break;
         }
@@ -991,8 +919,6 @@ async function* parseJsonlStream(
               providerRetryable: true,
             });
           } else if (reason === "invalid_request") {
-            // errorCode has no retry-trigger keywords, so isRetryableError
-            // won't loop on broken history.
             const errMsg =
               event.error ||
               event.message ||
@@ -1006,13 +932,17 @@ async function* parseJsonlStream(
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} error=${errMsg}`,
             );
-            yield stop({ error: errMsg, errorCode: errCode });
+            if (isExplicitBuilderCreditsLimitCode(errCode)) {
+              await notifyBuilderCreditLimit();
+            }
+            yield stop({
+              error: errMsg,
+              errorCode: errCode,
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
+            });
           } else if (reason === "error") {
-            // Surface every diagnostic the gateway gave us so the user (and
-            // our logs) get more than a bare "Gateway error". The gateway
-            // sometimes emits an error stop event with no message — most
-            // commonly when the upstream provider rejects the model for
-            // this account (Opus quotas have hit this in practice).
             const explicitErrMsg = event.error || event.message || event.detail;
             const errMsg =
               explicitErrMsg ??
@@ -1034,26 +964,25 @@ async function* parseJsonlStream(
               Boolean(explicitErrMsg) &&
               !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
-            // Providers can report a bare "Connection error." or AI SDK's
-            // retry-wrapped "Cannot connect to API" without a gateway code.
-            // Tag both as network errors so retries can recover the turn.
             const isProviderConnectionError =
               typeof explicitErrMsg === "string" &&
               isProviderConnectionErrorMessage(String(explicitErrMsg));
+            const isBareRejection =
+              (gatewayErrCode === undefined || gatewayErrCode === "http_403") &&
+              Boolean(explicitErrMsg) &&
+              isBareProviderRejectionMessage(String(errMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
               : isModelAuthError
                 ? BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE
                 : isProviderConnectionError
                   ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
-                  : (gatewayErrCode ??
-                    (!explicitErrMsg
-                      ? "builder_gateway_error"
-                      : // A detailed in-stream error the gateway left uncoded:
-                        // classify the RAW sentence here, because run persistence
-                        // would otherwise do it downstream on the visitor line and
-                        // record `unknown` on the credits lane alone.
-                        classifyTerminalErrorCode(String(errMsg))));
+                  : isBareRejection
+                    ? PROVIDER_TRANSIENT_REJECTION_ERROR_CODE
+                    : (gatewayErrCode ??
+                      (!explicitErrMsg
+                        ? "builder_gateway_error"
+                        : classifyTerminalErrorCode(String(errMsg))));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
@@ -1067,12 +996,9 @@ async function* parseJsonlStream(
                 message: String(errMsg),
               });
             }
-            // No-detail gateway errors are opaque to the chat client — the
-            // only way to debug them is from the gateway side. Capture rich
-            // tags here (model, gatewayOrigin, requestId) so the gateway
-            // team can search Sentry by requestId or filter by model. The
-            // downstream run-manager will also capture the EngineError once
-            // it's thrown, but without these tags.
+            if (isExplicitBuilderCreditsLimitCode(errCode)) {
+              await notifyBuilderCreditLimit();
+            }
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({
                 requestId: gatewayRequestId,
@@ -1082,17 +1008,17 @@ async function* parseJsonlStream(
               });
             }
             yield stop({
-              error: String(errMsg),
+              error: isBareRejection
+                ? "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying."
+                : String(errMsg),
               ...(errCode ? { errorCode: errCode } : {}),
-              // The upstream provider giving up ("Overloaded", a bare 529) is
-              // retryable, and the raw text is the only place it says so — a
-              // stop event carries no status.
-              ...(isTransientGatewayFailure(String(errMsg))
+              ...(isCreditsLimitErrorCode(errCode)
+                ? { upgradeUrl: await buildUpgradeUrl() }
+                : {}),
+              ...(isBareRejection ? { statusCode: 403 } : {}),
+              ...(isBareRejection || isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
                 : {}),
-              // requestId rides the stop event whether or not the gateway sent a
-              // message: a message like "...ERROR ID: <hex>" is as opaque as no
-              // message at all, and this is the only key that reaches upstream.
               ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
@@ -1101,6 +1027,7 @@ async function* parseJsonlStream(
             reason === "max_tokens" ||
             reason === "stop_sequence"
           ) {
+            await clearBuilderCreditLimitAfterSuccess();
             yield { type: "stop", reason };
           } else {
             yield stop({ error: `Unknown stop reason: ${reason}` });
@@ -1109,12 +1036,10 @@ async function* parseJsonlStream(
         }
 
         default:
-          // Unknown event type — ignore for forward compat.
           break;
       }
     }
 
-    // Stream ended without a stop event — synthesize one so callers don't hang.
     flushPending();
     yield* recoverUndeliveredToolCalls();
     yield { type: "assistant-content", parts };
@@ -1152,9 +1077,6 @@ async function* parseJsonlStream(
       captureContext.requestShape,
     );
   } finally {
-    // Release the reader on every exit path — early returns (invalid JSONL,
-    // stop event) and generator abandonment both leave the underlying
-    // Response body locked otherwise. cancel() also closes the socket.
     try {
       await reader.cancel();
     } catch {
@@ -1286,14 +1208,6 @@ function getBuilderGatewayTimeoutMs(): number {
   return Math.min(parsed, maxMs);
 }
 
-/**
- * Two-stage abort deadline: until the first real stream event arrives, the
- * effective deadline is min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) —
- * a wedged gateway that never streams anything gets cut off in ~2 minutes
- * instead of riding the full flat timeout. Once `markFirstEvent()` fires, the
- * timer reschedules for whatever remains of the original total deadline, so
- * a request that starts streaming still gets the full budget it always did.
- */
 function createGatewayAbortSignal(
   parentSignal: AbortSignal,
   totalTimeoutMs: number,
@@ -1339,8 +1253,6 @@ function createGatewayAbortSignal(
     markFirstEvent: () => {
       if (firstEventSeen || timedOut) return;
       firstEventSeen = true;
-      // The first-event window was already the binding constraint (total
-      // timeout <= it) — nothing to reschedule.
       if (firstEventDeadlineMs >= totalTimeoutMs) return;
       clearTimeout(timeout);
       const remainingMs = Math.max(
@@ -1376,13 +1288,6 @@ function isBuilderCredentialAuthError(message: string): boolean {
   );
 }
 
-/**
- * Stricter than {@link isBuilderCredentialAuthError} for errors that arrive
- * inside an already-authenticated stream, where a bare "unauthorized" is far
- * more likely to be a per-model entitlement rejection than a bad credential.
- * Misreading one there disconnects Builder for every model, including the ones
- * that still work.
- */
 function isBuilderCredentialAuthErrorInStream(message: string): boolean {
   if (!isBuilderCredentialAuthError(message)) return false;
   const lowerMessage = message.toLowerCase();
@@ -1412,11 +1317,6 @@ function normalizeBuilderGatewayFetchError(
   return message;
 }
 
-/**
- * Derived from the RAW error before `gatewayErrorStop` replaces the message: on
- * the credits lane run-manager has no text left to classify at persistence time,
- * and a run persisted as `unknown` reads as "do not attempt recovery".
- */
 function createBuilderGatewayTimeoutStop(
   err: unknown,
   timedOut: boolean,
@@ -1426,9 +1326,6 @@ function createBuilderGatewayTimeoutStop(
 ): EngineEvent {
   const error = normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs);
   if (timedOut) {
-    // Deliberately no `providerRetryable`: the timeout spent the whole request
-    // budget, so the recovery is a fresh invocation (the client's
-    // `builder_gateway_timeout` continuation), never an in-call retry.
     return gatewayErrorStop(
       { error, errorCode: "builder_gateway_timeout" },
       creditsLane,
@@ -1492,8 +1389,6 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
-    // Anthropic SDK's APIConnectionError default ("Connection error.") is
-    // often forwarded by the Builder gateway as a stop event with no code.
     text.includes("connection error") ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
@@ -1544,13 +1439,6 @@ function captureBuilderGatewayTransportError(
   });
 }
 
-/**
- * Capture a Builder-gateway no-detail stop event to Sentry with the request
- * context the run-manager doesn't have. The gateway emits
- * `{type:"stop",reason:"error",requestId:"..."}` with no diagnostic — the
- * only way to debug it is from the gateway side, so we surface model,
- * gatewayOrigin, and requestId as searchable tags.
- */
 function captureBuilderGatewayNoDetailError(context: {
   requestId?: string;
   model: string;

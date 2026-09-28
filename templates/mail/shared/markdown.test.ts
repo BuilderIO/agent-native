@@ -79,6 +79,16 @@ describe("renderInlineMarkdown", () => {
     );
     expect(html).not.toContain("&gt;");
   });
+
+  it("renders mailto links imported from Gmail signatures", () => {
+    expect(
+      renderInlineMarkdown(
+        "Email [Steve](mailto:steve@example.com) or <mailto:help@example.com>.",
+      ),
+    ).toBe(
+      'Email <a href="mailto:steve@example.com" target="_blank" rel="noopener noreferrer">Steve</a> or <a href="mailto:help@example.com" target="_blank" rel="noopener noreferrer">mailto:help@example.com</a>.',
+    );
+  });
 });
 
 describe("renderPlainTextLinks", () => {

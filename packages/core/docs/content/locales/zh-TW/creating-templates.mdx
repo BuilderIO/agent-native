@@ -32,13 +32,13 @@ Toolkit 與 Templates 都是可選的。範本不等於框架本身，Toolkit �
 當您想要一個框架連線已就位的最小應用程式時，請使用聊天範本：
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 對於具有多個應用程式的工作區，執行選取器並包含與您想要的任何域範本的聊天：
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 聊天為您提供驗證、持久聊天對話串、PostgreSQL 支援的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
@@ -512,13 +512,13 @@ export default defineNitroPlugin(() => {
 社群範本可直接從公開 GitHub 儲存庫安裝。請將 Agent-Native 應用程式放在儲存庫根目錄：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 如需固定特定版本，可加入 `#branch`、`#tag` 或 `#commit`：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 CLI 只下載原始碼，不會安裝相依套件或執行範本指令碼。社群範本屬於第三方程式碼；執行 `pnpm install` 前請檢查儲存庫、授權、相依套件和安裝指令碼。

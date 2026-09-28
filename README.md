@@ -20,7 +20,7 @@ Agent-Native is an open-source TypeScript framework for building agents that pai
 ## Quick start
 
 ```bash
-npx @agent-native/core@latest create my-agent --standalone --template chat
+npx --yes @agent-native/core@latest create my-agent --standalone --template chat
 ```
 
 Follow the [getting started guide](https://agent-native.com/docs/getting-started) for a full intro to the framework.
@@ -47,6 +47,7 @@ Create `actions/hello.ts`:
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+// One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
 export default defineAction({
   description: "Return a friendly greeting.",
   schema: z.object({
@@ -76,13 +77,19 @@ See Agent-Native in action:
 
 https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 
+<br />
+
 ## Open-source agents
 
 Start from one of these agents or use it as an example for your own.
 
+<br />
+
 <table>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Clips**
 
@@ -95,8 +102,12 @@ Start from one of these agents or use it as an example for your own.
 
 Record and understand meetings, screens, and voice notes.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Design**
 
@@ -109,8 +120,12 @@ Record and understand meetings, screens, and voice notes.
 
 Generate and refine interactive designs.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Slides**
 
@@ -123,10 +138,14 @@ Generate and refine interactive designs.
 
 Create and edit on-brand presentations.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Analytics**
 
@@ -139,8 +158,12 @@ Create and edit on-brand presentations.
 
 Ask questions of your data and build dashboards.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Calendar**
 
@@ -153,8 +176,12 @@ Ask questions of your data and build dashboards.
 
 Find time, schedule events, and manage bookings.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Mail**
 
@@ -167,10 +194,14 @@ Find time, schedule events, and manage bookings.
 
 Prioritize email, draft replies, and follow up.
 
+<br />
+
 </td>
 </tr>
 <tr>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Assets**
 
@@ -183,8 +214,12 @@ Prioritize email, draft replies, and follow up.
 
 Create and organize on-brand media.
 
+<br />
+
 </td>
 <td width="33%" align="center" valign="top">
+
+<br />
 
 **Content**
 
@@ -197,8 +232,27 @@ Create and organize on-brand media.
 
 Draft, organize, and publish content.
 
+<br />
+
 </td>
-<td width="33%"></td>
+<td width="33%" align="center" valign="top">
+
+<br />
+
+**Plans**
+
+<a href="https://agent-native.com/apps/plan/">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe89439e917044fc9ac9663737e35bf1f?format=webp&width=800">
+<img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F98427229c8c84c30afee56172503c294?format=webp&width=800" alt="Plans app screenshot" width="100%">
+</picture>
+</a>
+
+Create and review visual plans with diagrams, wireframes, and prototypes.
+
+<br />
+
+</td>
 </tr>
 </table>
 

@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconBuildingCommunity,
@@ -50,6 +53,7 @@ export default function DeckCard({
   onSetWorkspaceDefault,
 }: DeckCardProps) {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const firstSlide = deck.previewSlide ?? deck.slides?.[0];
   const previewFrameStyle = getDeckListingPreviewFrameStyle(deck.aspectRatio);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -99,16 +103,16 @@ export default function DeckCard({
   };
 
   return (
-    <div className="group relative">
+    <div className="agent-template-library-card group relative min-w-0">
       <Link
         to={`/deck/${deck.id}`}
-        className="block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
+        className="agent-template-library-primary block overflow-hidden rounded-xl border border-transparent bg-card transition-[background-color,border-color] duration-200 hover:border-border hover:bg-accent/30"
         onClick={(e) => {
           if (isRenaming) e.preventDefault();
         }}
       >
         {/* Slide Preview */}
-        <div className="relative flex aspect-video items-center justify-center overflow-hidden bg-muted/30">
+        <div className="agent-template-library-preview relative flex items-center justify-center bg-muted/30">
           {firstSlide && (
             <div className="relative overflow-hidden" style={previewFrameStyle}>
               <SlideRenderer
@@ -122,7 +126,7 @@ export default function DeckCard({
         </div>
 
         {/* Info */}
-        <div className="p-4">
+        <div className="agent-template-library-caption">
           <div className="flex items-center gap-2 min-w-0">
             {isRenaming ? (
               <input
@@ -200,11 +204,6 @@ export default function DeckCard({
                 pendingRenameRef.current = false;
                 setIsRenaming(true);
               }
-              // Opening a modal dialog while this menu is still tearing down
-              // leaves `pointer-events: none` stuck on <body>: two dismissable
-              // layers overlap and the survivor never restores the style. Wait
-              // for the menu to finish closing, and keep focus off the trigger
-              // so the dialog owns it.
               if (pendingWorkspaceDefaultRef.current) {
                 e.preventDefault();
                 pendingWorkspaceDefaultRef.current = false;
@@ -245,16 +244,18 @@ export default function DeckCard({
               <IconShare2 className="w-3.5 h-3.5 me-2" />
               {t("share.title")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setMenuOpen(false);
-                setContextOpen(true);
-              }}
-            >
-              <IconPlus className="w-3.5 h-3.5 me-2" />
-              {t("creativeContext.addToContext" /* i18n-key-ignore */)}
-            </DropdownMenuItem>
+            {creativeContextEnabled ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  setContextOpen(true);
+                }}
+              >
+                <IconPlus className="w-3.5 h-3.5 me-2" />
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+              </DropdownMenuItem>
+            ) : null}
             {canSetWorkspaceDefault && onSetWorkspaceDefault && (
               <DropdownMenuItem
                 onSelect={(event) => {
@@ -284,20 +285,22 @@ export default function DeckCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <CreativeContextShareSheet
-        open={contextOpen}
-        onOpenChange={setContextOpen}
-        resource={{
-          appId: "slides",
-          resourceType: "deck",
-          resourceId: deck.id,
-          title: deck.title,
-          updatedAt: deck.updatedAt,
-          visibility: deck.visibility,
-          preview: { kind: "document", label: "Deck" },
-        }}
-        canManage={deck.createdByMe}
-      />
+      {creativeContextEnabled ? (
+        <CreativeContextShareSheet
+          open={contextOpen}
+          onOpenChange={setContextOpen}
+          resource={{
+            appId: "slides",
+            resourceType: "deck",
+            resourceId: deck.id,
+            title: deck.title,
+            updatedAt: deck.updatedAt,
+            visibility: deck.visibility,
+            preview: { kind: "document", label: "Deck" },
+          }}
+          canManage={deck.createdByMe}
+        />
+      ) : null}
       <ShareDialog deck={deck} open={shareOpen} onOpenChange={setShareOpen} />
     </div>
   );

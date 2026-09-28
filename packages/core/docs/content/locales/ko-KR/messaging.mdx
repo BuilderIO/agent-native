@@ -11,7 +11,7 @@ description: "Slack, Microsoft Teams, Discord 인터랙션, 이메일, Telegram 
 >
 > Teams에는 `MICROSOFT_TEAMS_APP_ID`, `MICROSOFT_TEAMS_APP_PASSWORD`, `MICROSOFT_TEAMS_ALLOWED_TENANT_IDS`가 필요합니다. Discord에는 `DISCORD_APPLICATION_ID`와 `DISCORD_PUBLIC_KEY`가 필요합니다. Telegram에는 `TELEGRAM_WEBHOOK_SECRET`, WhatsApp에는 `WHATSAPP_APP_SECRET`도 필요합니다.
 
-> **디스패치 템플릿을 사용하십니까?** 이 모든 것이 **설정 → 메시지**에 연결되어 있습니다. 각 플랫폼을 연결하려면 클릭하세요. 자신만의 템플릿을 사용자 정의하거나 구축하지 않는 한 이 페이지의 나머지 부분을 읽을 필요가 없습니다. [Dispatch](/docs/dispatch) 또는 [Dispatch template reference](/docs/template-dispatch)를 참조하세요.
+> **디스패치 템플릿을 사용하십니까?** 이 모든 것이 **관리 → 메시지**에 연결되어 있습니다. 각 플랫폼을 연결하려면 클릭하세요. 자신만의 템플릿을 사용자 정의하거나 구축하지 않는 한 이 페이지의 나머지 부분을 읽을 필요가 없습니다. [Dispatch](/docs/dispatch) 또는 [Dispatch template reference](/docs/template-dispatch)를 참조하세요.
 
 ## 당신이 할 수 있는 일 {#what-you-can-do}
 
@@ -135,7 +135,7 @@ Slack 앱에는 하나의 이벤트 API 요청 URL가 있습니다. 동일한 Sl
 
 ### 관리형 Add to Slack
 
-관리형 OAuth가 권장 설정입니다. **설정 → 메시징**에서 **Agent manifest**를 선택해
+관리형 OAuth가 권장 설정입니다. **관리 → 메시징**에서 **Agent manifest**를 선택해
 호스트별 `agent-native-slack-manifest.json`을 다운로드한 뒤 Slack의 **App Manifest**에서
 가져오세요. 이 매니페스트는 현재 `agent_view` 환경과 DM을 위한 쓰기 가능한 **Messages**
 탭을 활성화합니다. 다음 Bot Token Scopes가 포함되었는지 확인하세요.
@@ -171,7 +171,7 @@ Interactivity Request URL은
 `https://your-app.example.com/_agent-native/integrations/slack/interactions`로 설정합니다.
 `app_home_opened`, `app_context_changed`, `app_mention`, `message.im`을 구독하세요.
 `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`을
-설정한 뒤 **설정 → 메시징**에서 **Add to Slack**을 선택합니다. 설치별 토큰은
+설정한 뒤 **관리 → 메시징**에서 **Add to Slack**을 선택합니다. 설치별 토큰은
 암호화되고 대화 키는 작업 공간, 앱, 채널, 스레드별로 분리됩니다.
 
 매니페스트, 범위, 이벤트, Agent view 또는 Messages 탭을 변경한 뒤에는 Slack 앱을 다시
@@ -490,7 +490,7 @@ export default defineAction({
 
 - **에이전트 1명, 받은편지함 1개.** 모든 채널(Slack, 이메일, Telegram, WhatsApp)이 Dispatch로 전달됩니다. 통합은 한 번만 설정하면 됩니다.
 - **대리인 파견.** "지난주 가입 요약"을 요청 — 파견에서 분석 에이전트를 호출합니다. "Alice에게 답장 초안 작성"을 요청하세요 — Dispatch가 메일 에이전트에 전화를 겁니다.
-- **구성이 아닌 클릭.** Dispatch의 **설정 → 메시징** 페이지에는 env-var 필드가 내장된 모든 플랫폼에 대한 연결 버튼이 있습니다.
+- **구성이 아닌 클릭.** Dispatch의 **관리 → 메시징** 페이지에는 env-var 필드가 내장된 모든 플랫폼에 대한 연결 버튼이 있습니다.
 
 오케스트레이터가 필요하지 않은 경우 단일 템플릿에서 이 페이지의 환경 변수를 사용하여 메시지를 직접 연결할 수 있습니다.
 

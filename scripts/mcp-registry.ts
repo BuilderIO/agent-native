@@ -18,7 +18,7 @@ const DEFAULT_OUTPUT_DIRECTORY = ".tmp/mcp-registry";
 const REGISTRY_SCHEMA =
   "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 const REPOSITORY_URL = "https://github.com/BuilderIO/agent-native";
-const REGISTRY_NAMESPACE = "io.github.builderio";
+const REGISTRY_NAMESPACE = "io.github.BuilderIO";
 const registrySchema = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "mcp-registry/server.schema.json"), "utf8"),
 ) as Record<string, unknown>;

@@ -83,6 +83,10 @@ Each form has a `settings` JSON object:
 | `anonymous`        | boolean | Suppress IP, submitter identity, chat/run ids, page URL, and client-surface metadata for every response |
 | `integrations`     | array   | Webhook/Slack/Discord/Google Sheets notification configs |
 
+`emailOnNewResponses` sends through the configured email provider
+(`RESEND_API_KEY` / `SENDGRID_API_KEY`). A submission still succeeds when
+delivery fails, so check server logs when a notification never arrives.
+
 For a genuinely anonymous form, set `anonymous: true` when creating the form.
 Do not describe an ordinary published form as anonymous: published forms accept
 public responses, but only anonymous mode suppresses identifying and source

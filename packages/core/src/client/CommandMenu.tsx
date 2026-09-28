@@ -1,20 +1,4 @@
-/**
- * CommandMenu — reusable command palette with agent chat fallback.
- *
- * Features:
- * - Anchored to top of viewport (not centered)
- * - Falls back to agent chat when no command matches
- * - Opens agent sidebar automatically when sending prompts
- * - Customizable commands via children
- *
- * Usage:
- *   <CommandMenu open={open} onOpenChange={setOpen}>
- *     <CommandMenu.Group heading="Actions">
- *       <CommandMenu.Item onSelect={() => doThing()}>Do thing</CommandMenu.Item>
- *     </CommandMenu.Group>
- *   </CommandMenu>
- */
-
+import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import {
   Command as CommandPrimitive,
   CommandGroup as CommandGroupPrimitive,
@@ -30,31 +14,52 @@ import {
   IconInfoCircle,
   IconMessage,
   IconHistory,
+  IconLogout,
+  IconSettings,
 } from "@tabler/icons-react";
 import React, {
   createContext,
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type ReactNode,
 } from "react";
 
-import { parseChangelog } from "../changelog/parse.js";
 import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { sendToAgentChat } from "./agent-chat.js";
-import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import {
+  getChangelogLatestId,
+  useChangelogSeen,
+} from "./changelog/use-changelog-seen.js";
+import { BuilderSetupCard } from "./chat/run-recovery.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
+import { LazyChunkErrorBoundary } from "./lazy-chunk-error-boundary.js";
+import { signOut, SIGN_OUT_SEARCH_TERMS } from "./sign-out.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  chatModelSelectionStorageKey,
+  useChatModels,
+} from "./use-chat-models.js";
+import {
+  getSettingsShortcutHint,
+  openSettingsPage,
+} from "./use-settings-shortcut.js";
 import { cn } from "./utils.js";
 
-// ─── Context ────────────────────────────────────────────────────────────────
+const LazyChangelogDialog = lazy(async () => {
+  const { ChangelogDialog } = await import("./changelog/Changelog.js");
+  return { default: ChangelogDialog };
+});
 
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
+  registerNestedDialog: (dismiss: () => void) => () => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -65,11 +70,17 @@ function useCommandMenuContext() {
   return ctx;
 }
 
-// ─── Hooks ──────────────────────────────────────────────────────────────────
+export function useCommandMenuNestedDialog(dismiss: (() => void) | null) {
+  const { registerNestedDialog } = useCommandMenuContext();
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
 
-/**
- * Opens the agent sidebar (dispatches event that AgentSidebar listens for)
- */
+  useEffect(() => {
+    if (!dismiss) return;
+    return registerNestedDialog(() => dismissRef.current?.());
+  }, [dismiss !== null, registerNestedDialog]);
+}
+
 export function openAgentSidebar() {
   window.dispatchEvent(new Event("agent-panel:open"));
 }
@@ -88,10 +99,6 @@ export function openAgentSettings(
   }
 
   openAgentSidebar();
-  // Voice mode unmounts the chat surface while its dock is collapsed, so its
-  // settings listener does not exist until opening the sidebar remounts it.
-  // Deliver after the open-state render can commit instead of racing React's
-  // concurrent remount. Non-visual runtimes fall back to the next task.
   const dispatchSettings = () => {
     window.dispatchEvent(
       new CustomEvent("agent-panel:open-settings", {
@@ -115,15 +122,10 @@ export function focusAgentChat() {
   openAgentSidebar();
 }
 
-/**
- * Sends a prompt to the agent and opens the sidebar
- */
 export function submitToAgent(message: string) {
   focusAgentChat();
   sendToAgentChat({ message, submit: true });
 }
-
-// ─── Sub-components ─────────────────────────────────────────────────────────
 
 interface CommandGroupProps {
   heading?: string;
@@ -161,7 +163,6 @@ function CommandItem({
     }
 
     onOpenChange(false);
-    // Small delay to let dialog close animation start
     setTimeout(onSelect, 50);
   };
 
@@ -254,42 +255,41 @@ function CommandDocsGroup({ docs, heading = "Docs" }: CommandDocsGroupProps) {
   );
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+const SETTINGS_SEARCH_TERMS = [
+  "settings",
+  "preferences",
+  "account",
+  "profile",
+  "integrations",
+];
+
+function isApplePlatform(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent)
+  );
+}
 
 export interface CommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
-  /** Render app-specific dynamic results from the current search value. */
   renderResults?: (search: string) => ReactNode;
-  /** Placeholder text for the search input */
+  renderContent?: (options: {
+    search: string;
+    renderList: (results?: ReactNode) => ReactNode;
+  }) => ReactNode;
   placeholder?: string;
-  /** Text shown when no results match (before showing agent fallback) */
+  inputLabel?: string;
   emptyText?: string;
-  /** Whether to show the "Ask AI" fallback when no commands match. Default: true */
   showAgentFallback?: boolean;
-  /** Custom class for the dialog content */
+  chatStorageKey?: string;
+  clearSearchOnEscape?: boolean;
+  onCloseAutoFocus?: (event: Event) => void;
   className?: string;
-  /**
-   * Raw CHANGELOG.md contents. When provided, the menu shows a built-in
-   * "What's new" entry that opens an in-app changelog dialog (with an unseen
-   * dot for new releases). Pass your app's own file:
-   *   import changelog from "../CHANGELOG.md?raw";
-   *   <CommandMenu ... changelog={changelog} />
-   */
   changelog?: string;
-  /** Label for the built-in changelog entry. Default: "What's new". */
   changelogLabel?: string;
-  /**
-   * Stable key used to remember which release a user has already seen (for the
-   * unseen dot). Defaults to the document title's host app; set explicitly when
-   * multiple apps share an origin.
-   */
   changelogKey?: string;
-  /**
-   * Whether to show the built-in "About Agent-Native" entry. Defaults to true
-   * for app-shell menus that provide a changelog; set false for local menus.
-   */
   showAbout?: boolean;
 }
 
@@ -298,9 +298,14 @@ export function CommandMenu({
   onOpenChange,
   children,
   renderResults,
+  renderContent,
   placeholder = "Type a command or ask AI...",
+  inputLabel = placeholder,
   emptyText: _emptyText = "No commands found.",
   showAgentFallback = true,
+  chatStorageKey,
+  clearSearchOnEscape = false,
+  onCloseAutoFocus,
   className,
   changelog,
   changelogLabel = "What's new",
@@ -308,41 +313,52 @@ export function CommandMenu({
   showAbout: showAboutProp,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
+  const models = useChatModels({
+    enabled: open && showAgentFallback,
+    storageKey: chatModelSelectionStorageKey(chatStorageKey),
+  });
+  const shouldCheckProviderStatus =
+    showAgentFallback && !isLocalRuntimeEngine(models.selectedEngine);
+  const agentEngineConfigured = useAgentEngineConfigured(
+    shouldCheckProviderStatus,
+  );
+  const providerStatus = shouldCheckProviderStatus
+    ? agentEngineConfigured.state
+    : "configured";
+  const chatReady = providerStatus === "configured";
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const nestedDialogsRef = useRef<Array<() => void>>([]);
   const t = useT();
+  const registerNestedDialog = useCallback((dismiss: () => void) => {
+    nestedDialogsRef.current.push(dismiss);
+    return () => {
+      nestedDialogsRef.current = nestedDialogsRef.current.filter(
+        (registered) => registered !== dismiss,
+      );
+    };
+  }, []);
 
-  // Built-in "What's new" changelog surface (only active when `changelog` is
-  // passed). The dialog is rendered alongside the menu so it survives the menu
-  // closing; the unseen dot persists per browser via localStorage.
   const [changelogOpen, setChangelogOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const hasChangelog =
     typeof changelog === "string" && changelog.trim().length > 0;
   const showAbout = showAboutProp ?? hasChangelog;
-  const changelogEntries = useMemo(
-    () => (hasChangelog ? parseChangelog(changelog as string) : []),
-    [hasChangelog, changelog],
-  );
-  const latestChangelogId = changelogEntries[0]?.id;
+  const latestChangelogId = getChangelogLatestId(changelog);
   const { unseen: changelogUnseen, markSeen: markChangelogSeen } =
     useChangelogSeen(changelogKey ?? "app", latestChangelogId);
 
   const openChangelog = useCallback(() => {
     onOpenChange(false);
     markChangelogSeen();
-    // Let the menu close before the dialog opens (avoids overlay flicker).
     setTimeout(() => setChangelogOpen(true), 50);
   }, [onOpenChange, markChangelogSeen]);
 
   const openAbout = useCallback(() => {
     onOpenChange(false);
-    // Let the menu close before the dialog opens (avoids overlay flicker).
     setTimeout(() => setAboutOpen(true), 50);
   }, [onOpenChange]);
 
-  // Focus input when opening; clear search while closed so reopen never renders
-  // dynamic results for the previous query.
   useEffect(() => {
     if (!open) {
       setSearch("");
@@ -351,7 +367,6 @@ export function CommandMenu({
 
     if (open) {
       setSearch("");
-      // Wait for render then focus
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
@@ -359,15 +374,19 @@ export function CommandMenu({
   }, [open]);
 
   const handleSubmitToAgent = useCallback(() => {
-    onOpenChange(false);
     if (!search.trim()) {
+      onOpenChange(false);
       focusAgentChat();
       return;
     }
+    if (!chatReady) return;
+    onOpenChange(false);
     submitToAgent(search.trim());
-  }, [search, onOpenChange]);
+  }, [chatReady, search, onOpenChange]);
+  const retryProviderStatus = useCallback(() => {
+    window.dispatchEvent(new Event("agent-engine:configured-changed"));
+  }, []);
 
-  // The built-in "What's new" row matches changelog-ish search terms.
   const changelogRowMatches =
     !search ||
     [
@@ -417,14 +436,43 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showAboutRow = showAbout && aboutRowMatches;
+  const settingsLabel = t("settingsShortcut.command");
+  const showSettingsRow =
+    !search ||
+    [settingsLabel, ...SETTINGS_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleOpenSettings = useCallback(() => {
+    onOpenChange(false);
+    openSettingsPage();
+  }, [onOpenChange]);
+  const signOutLabel = t("agentChat.auth.logOut");
+  const showSignOutRow =
+    !search ||
+    [signOutLabel, ...SIGN_OUT_SEARCH_TERMS]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const handleSignOut = useCallback(() => {
+    onOpenChange(false);
+    void signOut();
+  }, [onOpenChange]);
 
-  // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
     return React.Children.map(nodes, (child) => {
       if (!React.isValidElement(child)) return child;
       const props = child.props as Record<string, unknown>;
 
-      // If it's a CommandGroup, filter its children
+      if (child.type === React.Fragment) {
+        const fragmentChildren = filterChildren(props.children as ReactNode);
+        if (React.Children.count(fragmentChildren) === 0) return null;
+        return React.cloneElement(child, {
+          ...props,
+          children: fragmentChildren,
+        } as Record<string, unknown>);
+      }
+
       if (child.type === CommandGroup) {
         const groupChildren = filterChildren(props.children as ReactNode);
         const hasChildren = React.Children.count(groupChildren) > 0;
@@ -447,7 +495,6 @@ export function CommandMenu({
         } as Record<string, unknown>);
       }
 
-      // If it's a CommandItem, check if it matches search
       if (child.type === CommandItem) {
         if (!search) return child;
         const text = getTextContent(props.children as ReactNode).toLowerCase();
@@ -461,9 +508,8 @@ export function CommandMenu({
         return null;
       }
 
-      // If it's a separator, keep it (will be cleaned up later if needed)
       if (child.type === CommandSeparator) {
-        return search ? null : child; // Hide separators when searching
+        return search ? null : child;
       }
 
       return child;
@@ -477,29 +523,189 @@ export function CommandMenu({
       (child.type === CommandGroup || child.type === CommandDocsGroup),
   );
   const dynamicResults = open ? renderResults?.(search) : null;
-  const hasDynamicResults = Boolean(dynamicResults);
+
+  const renderList = (results: ReactNode = dynamicResults) => (
+    <CommandListPrimitive>
+      {results}
+      {hasResults && filteredChildren}
+
+      {showSettingsRow && (
+        <>
+          {hasResults && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleOpenSettings}
+            >
+              <IconSettings className="h-4 w-4 text-muted-foreground" />
+              <span>{settingsLabel}</span>
+              <CommandShortcutPrimitive>
+                {getSettingsShortcutHint(isApplePlatform())}
+              </CommandShortcutPrimitive>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showChangelogRow && (
+        <>
+          {(hasResults || showSettingsRow) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openChangelog}
+            >
+              <IconHistory className="h-4 w-4 text-muted-foreground" />
+              <span>{changelogLabel}</span>
+              {changelogUnseen && (
+                <span
+                  className="ms-auto h-2 w-2 rounded-full bg-primary"
+                  aria-label="New updates available"
+                />
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAboutRow && (
+        <>
+          {(hasResults || showSettingsRow || showChangelogRow) && (
+            <CommandSeparator />
+          )}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={openAbout}
+            >
+              <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+              <span>{aboutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showSignOutRow && (
+        <>
+          {(hasResults ||
+            showSettingsRow ||
+            showChangelogRow ||
+            showAboutRow) && <CommandSeparator />}
+          <div className="p-1">
+            <CommandItemPrimitive
+              className="cursor-pointer gap-2 py-2"
+              onSelect={handleSignOut}
+            >
+              <IconLogout className="h-4 w-4 text-muted-foreground rtl:-scale-x-100" />
+              <span>{signOutLabel}</span>
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+
+      {showAgentFallback && (
+        <>
+          {(hasResults ||
+            showSettingsRow ||
+            showChangelogRow ||
+            showAboutRow ||
+            showSignOutRow ||
+            Boolean(results)) && <CommandSeparator />}
+          <div className="p-1">
+            {providerStatus === "missing" ? (
+              <BuilderSetupCard attached fullWidth layout="sidebar" />
+            ) : providerStatus === "unknown" ||
+              providerStatus === "unavailable" ? (
+              <div
+                className="mb-1 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+                role="status"
+              >
+                <span>
+                  {providerStatus === "unknown"
+                    ? t("agentChat.setup.checkingProvider")
+                    : t("agentChat.setup.providerStatusUnavailable")}
+                </span>
+                {providerStatus === "unavailable" ? (
+                  <button
+                    type="button"
+                    className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+                    onClick={retryProviderStatus}
+                  >
+                    {t("agentChat.common.retry")}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <CommandItemPrimitive
+              className={cn(
+                "gap-2 py-2",
+                chatReady ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+              )}
+              disabled={!chatReady}
+              onSelect={handleSubmitToAgent}
+            >
+              <IconMessage className="h-4 w-4 text-muted-foreground" />
+              <span>
+                {search.trim() ? (
+                  <>
+                    Ask AI:{" "}
+                    <span className="text-muted-foreground">"{search}"</span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Ask AI anything...
+                  </span>
+                )}
+              </span>
+              {search.trim() && (
+                <span className="ms-auto text-xs text-muted-foreground">↵</span>
+              )}
+            </CommandItemPrimitive>
+          </div>
+        </>
+      )}
+    </CommandListPrimitive>
+  );
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && nestedDialogsRef.current.length > 0) return;
+          onOpenChange(nextOpen);
+        }}
+      >
         <DialogContent
           ref={containerRef}
           aria-describedby={undefined}
+          onEscapeKeyDown={(event) => {
+            const dismissNested = nestedDialogsRef.current.at(-1);
+            if (dismissNested) {
+              event.preventDefault();
+              queueMicrotask(dismissNested);
+              return;
+            }
+            if (clearSearchOnEscape && search.length > 0) {
+              event.preventDefault();
+              setSearch("");
+            }
+          }}
           hideClose
           motion="instant"
-          overlayClassName="fixed inset-0 z-50 bg-black/50 backdrop-blur-none transition-none"
+          overlayClassName="fixed inset-0 backdrop-blur-none transition-none"
           overlayStyle={{
-            zIndex: 50,
             backgroundColor: "rgb(0 0 0 / 0.5)",
             backdropFilter: "none",
             animation: "none",
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
+          onCloseAutoFocus={onCloseAutoFocus}
           style={{
             animation: "none",
             transition: "none",
@@ -511,107 +717,37 @@ export function CommandMenu({
             shouldFilter={false}
             className="h-auto rounded-lg"
           >
-            <CommandMenuContext.Provider value={{ search, onOpenChange }}>
+            <CommandMenuContext.Provider
+              value={{ search, onOpenChange, registerNestedDialog }}
+            >
               {/* Search input */}
               <CommandInputPrimitive
                 ref={inputRef}
                 value={search}
                 onValueChange={setSearch}
                 placeholder={placeholder}
+                aria-label={inputLabel}
               />
 
-              {/* Command list */}
-              <CommandListPrimitive>
-                {dynamicResults}
-                {hasResults && filteredChildren}
-
-                {/* What's new — built-in changelog entry */}
-                {showChangelogRow && (
-                  <>
-                    {hasResults && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openChangelog}
-                      >
-                        <IconHistory className="h-4 w-4 text-muted-foreground" />
-                        <span>{changelogLabel}</span>
-                        {changelogUnseen && (
-                          <span
-                            className="ms-auto h-2 w-2 rounded-full bg-primary"
-                            aria-label="New updates available"
-                          />
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* About Agent-Native — built-in framework diagnostics entry */}
-                {showAboutRow && (
-                  <>
-                    {(hasResults || showChangelogRow) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={openAbout}
-                      >
-                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
-                        <span>{aboutLabel}</span>
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-
-                {/* Ask AI — always visible at the bottom */}
-                {showAgentFallback && (
-                  <>
-                    {(hasResults ||
-                      showChangelogRow ||
-                      showAboutRow ||
-                      hasDynamicResults) && <CommandSeparator />}
-                    <div className="p-1">
-                      <CommandItemPrimitive
-                        className="cursor-pointer gap-2 py-2"
-                        onSelect={handleSubmitToAgent}
-                      >
-                        <IconMessage className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {search.trim() ? (
-                            <>
-                              Ask AI:{" "}
-                              <span className="text-muted-foreground">
-                                "{search}"
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              Ask AI anything...
-                            </span>
-                          )}
-                        </span>
-                        {search.trim() && (
-                          <span className="ms-auto text-xs text-muted-foreground">
-                            ↵
-                          </span>
-                        )}
-                      </CommandItemPrimitive>
-                    </div>
-                  </>
-                )}
-              </CommandListPrimitive>
+              {open && renderContent
+                ? renderContent({ search, renderList })
+                : open && renderList()}
             </CommandMenuContext.Provider>
           </CommandPrimitive>
         </DialogContent>
       </Dialog>
 
-      {hasChangelog && (
-        <ChangelogDialog
-          open={changelogOpen}
-          onOpenChange={setChangelogOpen}
-          markdown={changelog as string}
-          title={changelogLabel}
-        />
+      {hasChangelog && changelogOpen && (
+        <LazyChunkErrorBoundary fallback={null}>
+          <Suspense fallback={null}>
+            <LazyChangelogDialog
+              open
+              onOpenChange={setChangelogOpen}
+              markdown={changelog as string}
+              title={changelogLabel}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       {showAbout && (
@@ -621,7 +757,6 @@ export function CommandMenu({
   );
 }
 
-// Helper to extract text content from React children
 function getTextContent(children: ReactNode): string {
   if (typeof children === "string") return children;
   if (typeof children === "number") return String(children);
@@ -640,14 +775,11 @@ function getTextContent(children: ReactNode): string {
   return "";
 }
 
-// Attach sub-components
 CommandMenu.Group = CommandGroup;
 CommandMenu.Item = CommandItem;
 CommandMenu.DocsGroup = CommandDocsGroup;
 CommandMenu.Shortcut = CommandShortcut;
 CommandMenu.Separator = CommandSeparator;
-
-// ─── Keyboard Hook ──────────────────────────────────────────────────────────
 
 export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
 
@@ -657,19 +789,35 @@ export function openCommandMenu() {
   }
 }
 
-/**
- * Hook to handle Cmd+K (or Ctrl+K) to open the command menu
- */
 export function useCommandMenuShortcut(
   onOpen: () => void,
-  options: { allowContentEditable?: boolean } = {},
+  options: {
+    allowContentEditable?: boolean;
+    shouldHandleContentEditable?: (event: KeyboardEvent) => boolean;
+  } = {},
 ) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        // Don't trigger if user is typing in a native form control.
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "k"
+      ) {
         const target = e.target instanceof HTMLElement ? e.target : null;
         const isContentEditable = target?.isContentEditable;
+        if (
+          isContentEditable &&
+          options.allowContentEditable &&
+          options.shouldHandleContentEditable &&
+          !options.shouldHandleContentEditable(e)
+        ) {
+          return;
+        }
+
+        e.preventDefault();
+        e.stopPropagation();
+
         if (
           target?.tagName === "INPUT" ||
           target?.tagName === "TEXTAREA" ||
@@ -678,7 +826,6 @@ export function useCommandMenuShortcut(
         ) {
           return;
         }
-        e.preventDefault();
         onOpen();
       }
     };
@@ -690,7 +837,11 @@ export function useCommandMenuShortcut(
       document.removeEventListener("keydown", handleKeyDown, useCapture);
       window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
     };
-  }, [onOpen, options.allowContentEditable]);
+  }, [
+    onOpen,
+    options.allowContentEditable,
+    options.shouldHandleContentEditable,
+  ]);
 }
 
 export type {

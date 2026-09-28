@@ -36,6 +36,14 @@ describe("Slides share migrations", () => {
     const exec = getDbExec();
 
     await exec.execute(`
+      CREATE TABLE decks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        updated_at TEXT
+      )
+    `);
+    await exec.execute(`
       CREATE TABLE deck_shares (
         id TEXT PRIMARY KEY,
         resource_id TEXT NOT NULL,
@@ -171,6 +179,19 @@ describe("Slides share migrations", () => {
         expect.objectContaining({ name: "change_group" }),
       ]),
     );
+
+    const { rows: deckColumns } = await exec.execute(
+      `SELECT column_name AS name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'decks'`,
+    );
+    expect(deckColumns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "last_write_client_id" }),
+        expect.objectContaining({ name: "last_write_client_sequence" }),
+        expect.objectContaining({ name: "last_write_revision" }),
+      ]),
+    );
     const { rows: versionIndexes } = await exec.execute(
       `SELECT indexname AS name
        FROM pg_indexes
@@ -179,6 +200,21 @@ describe("Slides share migrations", () => {
     );
     expect(versionIndexes).toEqual([
       { name: "deck_versions_deck_owner_change_group_uidx" },
+    ]);
+
+    const { rows: commentIndexes } = await exec.execute(
+      `SELECT indexname AS name
+       FROM pg_indexes
+       WHERE schemaname = 'public'
+         AND indexname IN (
+           'slide_comments_deck_created_idx',
+           'slide_comments_deck_slide_created_idx'
+         )
+       ORDER BY indexname`,
+    );
+    expect(commentIndexes).toEqual([
+      { name: "slide_comments_deck_created_idx" },
+      { name: "slide_comments_deck_slide_created_idx" },
     ]);
 
     await expect(

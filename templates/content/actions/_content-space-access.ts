@@ -1,4 +1,5 @@
-import { getDbExec } from "@agent-native/core/db";
+import { ActionContractError } from "@agent-native/core/action";
+import { getDbExec, type DbExec } from "@agent-native/core/db";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
@@ -22,7 +23,11 @@ type ContentOrganizationMembership = {
 
 export function normalizeContentSpaceEmail(email: string): string {
   const normalized = email.trim().toLowerCase();
-  if (!normalized) throw new Error("no authenticated user");
+  if (!normalized)
+    throw new ActionContractError("Sign in to select a Content space.", {
+      errorCode: "UNAUTHORIZED",
+      statusCode: 401,
+    });
   return normalized;
 }
 
@@ -55,8 +60,6 @@ export async function getContentOrganizationMembership(
   options: { db?: any } = {},
 ): Promise<{ role: string; name: string; createdBy: string } | null> {
   if (options.db) {
-    // Load the canonical tables only for transaction-scoped checks to avoid
-    // initializing auth timers elsewhere.
     const { organizations, orgMembers } =
       await import("@agent-native/core/org");
     const [row] = await options.db
@@ -128,10 +131,20 @@ export async function getContentOrganizationMembership(
   });
 }
 
-export async function listContentOrganizationMemberships(userEmail: string) {
+export async function listContentOrganizationMemberships(
+  userEmail: string,
+  transaction?: DbExec,
+) {
+  if (transaction) {
+    const relation = await transaction.execute({
+      sql: "SELECT to_regclass('org_members') AS relation",
+      args: [],
+    });
+    if (!relation.rows[0]?.relation) return [];
+  }
   let result;
   try {
-    result = await getDbExec().execute({
+    result = await (transaction ?? getDbExec()).execute({
       sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS name,
                  o.created_by AS "createdBy",
                  o.identity_authority AS "identityAuthority",
@@ -190,18 +203,28 @@ export async function resolveContentSpaceAccess(
   options: { db?: any } = {},
 ): Promise<ContentSpaceAccess> {
   const userEmail = getRequestUserEmail();
-  if (!userEmail) throw new Error("no authenticated user");
+  if (!userEmail)
+    throw new ActionContractError("Sign in to select a Content space.", {
+      errorCode: "UNAUTHORIZED",
+      statusCode: 401,
+    });
   const normalizedUserEmail = normalizeContentSpaceEmail(userEmail);
   const [space] = await (options.db ?? getDb())
     .select()
     .from(schema.contentSpaces)
     .where(eq(schema.contentSpaces.id, spaceId));
   if (!space || space.archivedAt)
-    throw new Error(`Content space "${spaceId}" not found`);
+    throw new ActionContractError("Content space not found.", {
+      errorCode: "SPACE_NOT_FOUND",
+      statusCode: 404,
+    });
 
   if (!space.orgId) {
     if (normalizeContentSpaceEmail(space.ownerEmail) !== normalizedUserEmail) {
-      throw new Error(`Not authorized for Content space "${spaceId}"`);
+      throw new ActionContractError("Content space not found.", {
+        errorCode: "SPACE_NOT_FOUND",
+        statusCode: 404,
+      });
     }
     return {
       space,
@@ -216,7 +239,10 @@ export async function resolveContentSpaceAccess(
     options,
   );
   if (!membership)
-    throw new Error(`Not authorized for Content space "${spaceId}"`);
+    throw new ActionContractError("Content space not found.", {
+      errorCode: "SPACE_NOT_FOUND",
+      statusCode: 404,
+    });
   const role: ContentSpaceRole =
     membership.role === "owner"
       ? "owner"
@@ -229,12 +255,16 @@ export async function resolveContentSpaceAccess(
     membership.role !== "admin" &&
     membership.role !== "member"
   ) {
-    throw new Error(
-      `Contributor access is required for Content space "${spaceId}"`,
+    throw new ActionContractError(
+      "Contributor access is required for this Content space.",
+      { errorCode: "FORBIDDEN", statusCode: 403 },
     );
   }
   if (requiredRole === "editor" && role === "viewer") {
-    throw new Error(`Editor access is required for Content space "${spaceId}"`);
+    throw new ActionContractError(
+      "Editor access is required for this Content space.",
+      { errorCode: "FORBIDDEN", statusCode: 403 },
+    );
   }
   return {
     space,

@@ -21,7 +21,8 @@ export type PullRequestCheckState =
   | "in_progress"
   | "passed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "informational";
 
 export interface PullRequestCheckObservation {
   name: string;

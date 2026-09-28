@@ -57,9 +57,6 @@ export function FigmaPasteImagesNotice({
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const figInputRef = useRef<HTMLInputElement>(null);
-  // Portal the popover into this toast rather than <body>: the toaster sits at
-  // z-index 999999999 and a popover at 290 would render underneath any toast
-  // still on screen -- including the success toast raised by the same import.
   const [noticeEl, setNoticeEl] = useState<HTMLDivElement | null>(null);
 
   async function handleFigSelected(event: React.ChangeEvent<HTMLInputElement>) {
@@ -100,9 +97,6 @@ export function FigmaPasteImagesNotice({
         ),
       });
     } catch (error) {
-      // `hydrateImagesFromFig` rejects on transport, timeout, an unreadable
-      // response or a failed chunk. Without this the rejection escaped
-      // silently and left the notice sitting open with no explanation.
       toast.error(t("designEditor.import.figmaHydrationFigError"), {
         description:
           error instanceof Error ? error.message : t("common.genericError"),
@@ -120,6 +114,13 @@ export function FigmaPasteImagesNotice({
       ref={setNoticeEl}
       className="w-full rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg"
     >
+      <input
+        ref={figInputRef}
+        type="file"
+        accept=".fig"
+        className="hidden"
+        onChange={(event) => void handleFigSelected(event)}
+      />
       <div className="flex items-center gap-2 px-1">
         <IconPhotoOff className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs">
@@ -147,13 +148,6 @@ export function FigmaPasteImagesNotice({
             sideOffset={8}
             className="w-56 origin-[--radix-popover-content-transform-origin] p-1"
           >
-            <input
-              ref={figInputRef}
-              type="file"
-              accept=".fig"
-              className="hidden"
-              onChange={(event) => void handleFigSelected(event)}
-            />
             <button
               type="button"
               className={rowClass}

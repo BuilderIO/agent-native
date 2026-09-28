@@ -1,5 +1,367 @@
 # @agent-native/dispatch
 
+## 0.39.0
+
+### Minor Changes
+
+- 108074a: Standardize full-page AgentKit chat homes and restore the Dispatch workspace app launcher.
+
+### Patch Changes
+
+- 08fec9a: Allow Desktop workspace sign-in to mint shared app sessions when Dispatch pane SSO is off.
+- Release all public npm packages with a patch version bump.
+- a20f0b4: Fix member offboarding and email-change rekey on migrated app databases. Apps declare their own identity columns with `registerIdentityColumns()` from `@agent-native/core/org`, share tables made by `createSharesTable()` are recognized by shape, Better Auth sessions keyed by `user_id` are revoked, and org member routes log the underlying failure instead of discarding it.
+- a20f0b4: Usage estimates read the organization's default model instead of the old deployment-wide `agent-engine` row.
+- a20f0b4: Add the {App} › Channels page to the redesigned Settings (behind the `settings-redesign` flag): Slack, Google Docs, Telegram, WhatsApp, Discord, Microsoft Teams, and Email, each with its state, a page with the adapter's own required variables, the webhook URL to copy, and setup that only owners and admins can run. Owners and admins save, replace, and remove a channel's credentials there in any app, stored as the organization's workspace secrets, so a template no longer has to declare channel keys. New core actions `list-messaging-channels` and `manage-messaging-channel` (`save-credentials`, `enable`, `disable`, `remove-credentials`, `register-webhook`) back the page, so the agent can set up and switch channels too; the `/integrations/:platform/enable|disable|setup` routes share the same operations. `EnvKeyConfig` gains `deploymentOnly` for keys the runtime reads only from the environment, which Google Docs' service account key sets. Google Docs joins the channel catalog. Apps can add their own settings to a channel's page with `registerChannelSettingsExtensions`, and Clips shows its Slack link previews there. The old Integrations panel now lists the variables each adapter reports instead of a hardcoded set, which listed the wrong WhatsApp keys and missed Telegram's webhook secret. Dispatch's Messaging page uses the shared channel helpers from core.
+- a20f0b4: Dispatch's Settings page has one implementation: `@agent-native/dispatch/routes/pages/settings` exports `DispatchSettingsPage({ changelog })`, and the Dispatch template renders it with its own changelog. With `settings-redesign` on, the Dispatch layout renders Settings full width, Members keeps the Dispatch access column, and Dispatch › General shows a Workspace group (Chat-first workspace, Resources, Connect apps) while core Preferences owns the interface language. The route's default export now matches the template's page: it gains the Account and Integrations tabs, links Resources to `/workspace`, and drops the Delivery card and page title wrapper.
+- a20f0b4: Settings polish follow-ups:
+  - `@agent-native/core/client/settings` now exports `KeyValueDialog` (with `KeyValueDialogMode` and `KeyValueDialogProps`) and the `ApiKeyEntry` and `ApiKeysListing` types, so an app page can add or replace a key in place instead of sending people to Settings › API keys.
+  - `NewKeyMenu` takes `size` (`xs`, `sm`, or `default`) and `variant` props and no longer restyles its trigger; `triggerClassName` is for layout only. The default is `xs` secondary, the group heading action size. The sub-agent dialog's credential picker uses the dialog control size, and the Dispatch Vault's New button uses `size="default"` instead of size classes.
+  - The custom integration dialog shows "Connecting…" and "Testing…" beside the spinner while a connect or test runs.
+  - Removed catalog keys that nothing reads anymore: `agentChat.settings.storage.missing`, `agentChat.settings.storage.missingPublicUrl`, `agentChat.settingsOrg.invite.close`, `agentChat.settingsShell.account.newEmailPlaceholder`, and `agentChat.settingsSubAgents.browseDirectory`.
+
+- 9199a7f: Standardize chat home suggestions and restore the compact Dispatch app grid.
+- a20f0b4: Move the toolkit's Button, Switch, Select, and Input to shadcn new-york-v4 sizing. Buttons are 36px by default and 32px at `sm`, with new `xs`, `icon-xs`, `icon-sm`, and `icon-lg` sizes. `outline` is now the v4 bordered outline (`border bg-background shadow-xs`, with `bg-input/30` in dark mode) instead of an accent fill, and a new `outline-destructive` variant (outline with red text) marks destructive row actions; it maps to the design-system `danger` intent with `outline` emphasis. Switch is 32x18 with a `size` prop (`sm` is 24x14), SelectTrigger and Input take `size="sm" | "default"` (32px or 36px), Toggle is 36px (`sm` 32px), and TabsList is 36px. Alert sets `text-sm` on the root, so titles are 14px, and AlertDescription uses relaxed leading. Adds the shadcn `InputGroup` (`InputGroupAddon`, `InputGroupInput`, `InputGroupButton`, `InputGroupText`, `InputGroupTextarea`) for fields with icons or inline actions. Dispatch's local Button, Switch, Input, Tabs, Toggle, and AlertDialog now re-export the toolkit's, so its tabs and toggles follow the same heights and its confirm dialogs stack above toolkit dialogs. The Dispatch app search matches the 32px toolbar buttons beside it. Settings row, retry, and group-heading buttons use `outline` instead of `secondary`; dialog Cancel buttons stay `secondary`.
+- Updated dependencies
+- Updated dependencies [a20f0b4]
+  - @agent-native/toolkit@0.23.0
+
+## 0.38.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [880740b]
+- Updated dependencies [55c9666]
+- Updated dependencies [55c9666]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.3
+
+## 0.38.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/toolkit@0.22.2
+
+## 0.38.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [7e8a10a]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.1
+
+## 0.38.12
+
+### Patch Changes
+
+- 7eb9cbb: Scope provider credentials to their endpoints, coalesce workspace app access checks, and support desktop authenticator sign-in.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [dbb10d5]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+- Updated dependencies [39a89d0]
+  - @agent-native/toolkit@0.22.0
+
+## 0.38.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [6ff4d47]
+  - @agent-native/toolkit@0.21.3
+
+## 0.38.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [2ba6541]
+  - @agent-native/toolkit@0.21.2
+
+## 0.38.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.21.1
+
+## 0.38.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [21fdd86]
+- Updated dependencies [4917d34]
+- Updated dependencies
+- Updated dependencies [ac01083]
+- Updated dependencies [21fdd86]
+- Updated dependencies [185e25d]
+  - @agent-native/toolkit@0.21.0
+
+## 0.38.7
+
+### Patch Changes
+
+- a10ae73: Limit Dispatch app launchers to apps connected to the current workspace and clarify that usage alerts notify at a threshold without limiting spend.
+- fbd85b3: Allow hosts to customize the Dispatch sidebar name and icon through the exported `Layout` and `NavContent` components while preserving the existing Dispatch branding by default.
+- Release all public npm packages with a patch version bump.
+- 973e7d5: Stop deleting workspace app registry rows when an app is missing from the current deployment's manifest. Deployments that share one database (production, beta, local development) each see a different app list, so this removed access for apps that were still live elsewhere. Removing an app from the registry is now only done by archiving it.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.9
+
+## 0.38.6
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.20.8
+
+## 0.38.5
+
+### Patch Changes
+
+- 5ed3eb0: Report a taken workspace app id as a typed `app-id-taken` result instead of an unhandled 500. `startWorkspaceAppCreation` checked for an id collision in two places — a cross-member guard and the reservation itself — and neither was inside a `try`, so the message each one built (naming the conflict and, for an in-flight creation, its owner) was replaced by a generic "Internal server error" in the create-app UI and in chat. Both collision paths now throw `WorkspaceAppIdTakenError`, the caller converts only that error into `{ mode: "app-id-taken", conflict, owner, message }`, and registry/storage failures keep propagating. `workspace-template-card` previously fell through to a success toast for any mode it did not recognize and now reports this one as an error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [2427195]
+- Updated dependencies [d43305d]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.7
+
+## 0.38.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [e973e00]
+  - @agent-native/toolkit@0.20.6
+
+## 0.38.3
+
+### Patch Changes
+
+- a6d554d: Add the searchable app directory and mounted standalone app support to the workspace.
+- 8057255: Isolate Dispatch "All apps" workspace resources per organization so one organization's edits no longer overwrite what another organization's agents read.
+- 6c59bb1: Fix Slack integration runs so deployment bot credentials are selected safely, verified Slack identities retain their user context, local app delegation reaches sibling apps, structured Content intake cannot silently drop supplied fields, and progress streams complete without leaving threads stuck as working.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [58b0779]
+- Updated dependencies [3ecc476]
+- Updated dependencies
+- Updated dependencies [15ec2fb]
+  - @agent-native/toolkit@0.20.5
+
+## 0.38.2
+
+### Patch Changes
+
+- ffafd84: Keep the Apps page readable when the hosted workspace registry denies a read. A
+  gateway authorization denial now falls back to the deployment-owned manifest
+  without persisting or reconciling unverified access rows.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ede9f7]
+- Updated dependencies
+- Updated dependencies [ffafd84]
+- Updated dependencies [424d0cd]
+  - @agent-native/toolkit@0.20.4
+
+## 0.38.1
+
+### Patch Changes
+
+- c9e5889: Fix `import-agent-pack`, `import-agent`, and `connect-external-agent` throwing an unhandled 500 when given invalid input (a non-agent-pack file, malformed JSON, a malformed endpoint URL, or a duplicate destination). These now return a clean, actionable validation error instead.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [901376b]
+- Updated dependencies [b35949b]
+- Updated dependencies [116c315]
+- Updated dependencies
+  - @agent-native/toolkit@0.20.3
+
+## 0.38.0
+
+### Minor Changes
+
+- 99e1584: Expose the opt-in labs flag for the Connect Apps surface.
+
+### Patch Changes
+
+- bd9b451: Infer a root home route for workspace apps that do not define a `/home` route, and keep local and autonomous app discovery aligned with the deployed registry.
+- Release all public npm packages with a patch version bump.
+- c9cb7de: Remove retired Macros app references from dispatch and toolkit surfaces.
+- Updated dependencies
+- Updated dependencies [c9cb7de]
+  - @agent-native/toolkit@0.20.2
+
+## 0.37.0
+
+### Minor Changes
+
+- 0d80d8d: Support multiple app roles per organization member, invitation role pre-assignment, and organization-admin-editable app permission mappings.
+
+  The additive migration drops only the prior unique index on `(org_id, app_id, LOWER(email))` and replaces it with one including `role`; it does not change or delete assignment rows.
+
+  The new array-based client fields are additive for this minor release: `role`, `myRole`, and the deprecated `useSetAppMemberRole` adapter remain available while callers migrate to `roles`, `myRoles`, and `useSetAppMemberRoles`.
+
+### Patch Changes
+
+- bd46fc2: Fix the "Import an agent" pickers offering files the import cannot read. The
+  "Choose folder" input never received `webkitdirectory`, because the effect that
+  set it ran before Radix mounted the tab panel and left the ref null, so the
+  button opened an unfiltered multi-file picker instead of a folder picker. The
+  attribute is now set declaratively. "Choose file" also accepted any file the
+  user selected past the `accept` hint and pasted the decoded bytes into the
+  definition field; it now rejects unsupported files. Both pickers and
+  `normalizeAgentPack` share one list of importable extensions, and skipped
+  folder files are summarized instead of listed one per line.
+- c509af1: Treat an agent pack response that is missing its `files` array as unreadable
+  instead of spreading it during render. The throw escaped to the router error
+  boundary and replaced the whole page with "Something went wrong", so the Agent
+  pack dialog could never report the failure. The dialog now stays open and says
+  the pack could not be read, and an empty pack is still distinct from an
+  unreadable one.
+- 09bcc96: Give a tool that stops on a missing integration something to click. `connectRequiredResult()` from `@agent-native/core/shared` is the shared shape a gated tool spreads into its own result, and chat renders a Connect control by matching that shape rather than by knowing the tool's name, so a newly gated tool gets the affordance without an allow-list entry.
+
+  Dispatch app creation was the reported case: every Builder authorization failure collapsed into the transient `builder-error` reason ("try again in a moment") even when the real cause was a disconnected Builder account, so the agent narrated a dead end and the `builder-not-connected` Connect control that the create-app popover and `NewWorkspaceAppFlow` already implement could never render. `startWorkspaceAppCreation` (and `remix-workspace-template` through it) now classifies a missing Builder connection as `builder-not-connected` with a connect action attached, and keeps an unreadable credential store as its own retryable `credential-store-unavailable` reason.
+
+  Because the renderer matches by shape, a card can arrive from an MCP server or a remote A2A agent, so the contract only accepts a root-relative path or an absolute http(s) URL as a connect target and drops anything else before it reaches an `href`.
+
+  A Builder API call that comes back 401 now raises a `builder_not_connected` contract error instead of a plain one, so a credential revoked upstream also reaches the Connect action rather than retry prose. A 403 stays an ordinary error, since Builder also returns it for a Space membership problem where reconnecting is the wrong advice.
+
+  The blocker card asks for a reconnect rather than showing a Connected badge, because Builder can revoke a credential upstream without that landing in the local connection status.
+
+- a57a72b: Bound Neon Drizzle transaction acquisition and keep hosted workspace registry authorization failures visible instead of silently falling back to an incomplete local app list.
+- Release all public npm packages with a patch version bump.
+- 1233458: Use beta Dispatch SSO for Google sign-in from immutable Netlify deploy previews.
+- 5b75762: Support passing validated file and URL attachments to Builder workspace app creation runs.
+- Updated dependencies [9f08f5d]
+- Updated dependencies [cd40555]
+- Updated dependencies [1f43d89]
+- Updated dependencies [25dc407]
+- Updated dependencies [e32e1d5]
+- Updated dependencies
+- Updated dependencies [657bba1]
+- Updated dependencies [25dc407]
+- Updated dependencies [6ba23d3]
+  - @agent-native/toolkit@0.20.1
+
+## 0.36.2
+
+### Patch Changes
+
+- c7688dd: Give the chat-first rail one owner for active state so exactly one entry ever
+  reads as active. `activeAppId` alone could not distinguish "no surface resolved
+  yet" from "a nav surface is active with no app selected", so every app icon kept
+  its in-color active treatment whenever Search Chats, Scheduled, Integrations, or
+  New chat owned the main area. Search Chats was worse: it rendered outside the
+  tablist with hover-only styling and no `ChatFirstPrimaryTab` member, so it could
+  never show an active state at all.
+
+  `ChatFirstPrimaryTab` now includes `search`, `ChatFirstAppsRail` accepts
+  `activeTab`, and both the rail and the primary navigation derive their
+  active/inactive presentation from the shared `chatFirstActiveSurface`,
+  `chatFirstAppIconState`, and `chatFirstNavTabActive` helpers.
+
+- 97564cd: Add reusable AppSidebar in toolkit and core, support top-left configurable alpha badges, and update app layouts to match the new sidebar design.
+- 71e22e1: Add canonical cross-app and lifecycle tracking signals across templates.
+- 210c7d0: Keep Dispatch covered by the AgentKit framework changeset contract.
+- 048bbe1: Stop the usage dashboard from reporting zero spend for the signed-in user when usage rows carry no organization id. `token_usage.org_id` is filled from the request context, so recurring jobs, automations, and every row written before that column was populated are NULL, and the org-equality read filter hid them from a query already narrowed to that user. Unattributed rows are admitted only for the viewer's own usage; workspace roll-ups and admin-selected members keep strict organization equality, so unattributed spend is never claimed for an organization that cannot be shown to own it.
+- b9bda76: Prevent repeated transient inline submissions, allow inline frames to shrink to content, route workspace apps to their authenticated homes, preserve sibling-app navigation from chat handoffs, and coalesce active-run cursor updates.
+- Release all public npm packages with a patch version bump.
+- 4515fe2: Settings gets a top-level API keys tab for every app, with a provider-tile empty state and a "+ New" menu that searches the keys the app declares or adds a custom one; the Integrations tab becomes one alphabetical provider list (MCP, messaging platforms, and Email together) with Builder.io featured at the top, and the two tabs link to each other. The Dispatch Vault uses the same "+ New" key picker. OpenRouter, Google Gemini, Groq, Mistral, and Cohere keys are registered so they appear wherever keys are added.
+- 5c40943: Tell MCP hosts to route granted app requests through their existing Dispatch connection.
+- Updated dependencies [210c7d0]
+- Updated dependencies [743039f]
+- Updated dependencies [bd3e96e]
+- Updated dependencies [b83d472]
+- Updated dependencies [875f793]
+- Updated dependencies [97564cd]
+- Updated dependencies [64e6346]
+- Updated dependencies [64e6346]
+- Updated dependencies [a30a54d]
+- Updated dependencies [587297c]
+- Updated dependencies
+- Updated dependencies [210c7d0]
+- Updated dependencies [7a9238c]
+- Updated dependencies [ccad889]
+  - @agent-native/toolkit@0.20.0
+
+## 0.36.1
+
+### Patch Changes
+
+- b7c56a1: Settings → Integrations → Keys now reports the value each app actually uses and where it comes from (personal, workspace, Vault, or environment) instead of only the row it wrote itself, so keys synced from the Dispatch Vault no longer look unset. The "+ New" menu keeps a custom-key row visible and turns typed text into a custom key. The Dispatch Vault add/edit dialogs are key-first, and its access card explains how apps see Vault keys.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [35eb1e6]
+- Updated dependencies [4676e71]
+- Updated dependencies
+  - @agent-native/toolkit@0.19.7
+
+## 0.36.0
+
+### Minor Changes
+
+- 774e549: Add scoped DAU and WAU trends and tabbed Dispatch metrics navigation.
+- 46391ca: Store the rendered HTML/text body of every transactional email send alongside the existing send-log record, and show it in the Dispatch send log detail dialog so an org admin can see exactly what was sent, not just the redacted provider request. Magic links, password-reset/verification links, JWT-shaped tokens, and OTP/verification codes are redacted from the body before it is persisted, since `email_log` is org-admin readable. The list query never returns bodies (fetched lazily per row via a new `get-email-log-body` action once a row is opened), and the sandboxed HTML preview now carries a restrictive CSP so a body can't load remote tracking images/styles.
+
+### Patch Changes
+
+- b6bd189: Suppress telemetry for `+autoz` QA identities across the shared tracking paths.
+- 840cb6c: Add recipient, sender, and template inclusion and exclusion filters to the transactional email send log action and Dispatch controls.
+- 554c771: Keep share dialogs readable while additive migrations are pending, and let
+  ordinary iframe pages load cross-origin subresources. Improve new-project setup
+  and Slack identity recovery guidance. Keep Cloudflare Workers builds below the
+  static-header rule limit, allow local Ollama endpoints on local non-production
+  servers, surface provider-setting errors, keep one PGlite client across dev
+  reload realms, permit the optional terminal build in fresh scaffolds, and
+  clarify standalone deployment.
+- 4822dad: Preserve Vite assets for colliding workspace app ids and reconcile deployed app registry records.
+- Release all public npm packages with a patch version bump.
+- 934301f: Give Dispatch app cards a subtle surface and remove hover feedback from their non-clickable containers.
+- 4822dad: Restore Dispatch access for all authenticated organization members.
+- e89b114: Keep Google and email authentication as the only visible sign-in choices while optionally bootstrapping a Dispatch session and local cross-app session after sign-in. The handoff uses a short-lived, one-time server-side handle and preserves existing local accounts and cookies.
+- 6b397ca: Create and persist a Builder project from the starter template when no project ID is configured.
+- Updated dependencies [e8b291e]
+- Updated dependencies [4915b82]
+- Updated dependencies
+- Updated dependencies [3bde94f]
+  - @agent-native/toolkit@0.19.6
+
+## 0.35.0
+
+### Minor Changes
+
+- 48a4eca: Add a durable audit trail for every transactional email send attempt. The shared `sendEmail()` transport now records the outbound request payload (with auth links and message bodies redacted) and the raw provider response/status for both successes and failures, so Dispatch can show exactly what was sent, to whom, and why a send failed. The `list-email-log` action gained filters for recipient, sender, status, provider, and date range with stable pagination, and a new searchable "Send log" section was added to `/admin/transactional-email`. Magic-link sign-in emails are now tagged with a `core.magic-link` template id so they show up alongside other auth emails in the catalog and send log.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- c050912: Search fields that draw their own clear button no longer also show WebKit's native cancel widget, so only one clear control renders.
+- Updated dependencies
+- Updated dependencies [58d9dc3]
+  - @agent-native/toolkit@0.19.5
+
 ## 0.34.0
 
 ### Minor Changes
@@ -680,216 +1042,5 @@
 ### Patch Changes
 
 - 405e17e: Gate connected-agent mutations to workspace owners and admins instead of issuing failed shared-resource writes for organization members.
-
-## 0.24.2
-
-### Patch Changes
-
-- 3eb5bdb: Surface app-creation settings authorization failures as HTTP 403 with the real message instead of a generic internal server error.
-
-## 0.24.1
-
-### Patch Changes
-
-- b3b4580: Align Dispatch app-row actions with shared open-in-new-tab and add-app menus.
-- b3b4580: Add workspace group management and Dispatch-scoped administrator access controls.
-- b3b4580: Hide untracked and confusing creation metadata from app settings popovers.
-- b3b4580: Make pending workspace apps full-width, hide branch IDs, and link directly to Builder.
-- b3b4580: Collapse the Dispatch sidebar when a workspace app opens in its embedded app surface.
-- b3b4580: Show workspace app error documents in the Dispatch iframe when embed-session setup fails.
-- b3b4580: Make spreadsheet-backed app creation preserve bounded source provenance and require confirmation when workbook formatting or candidate inputs and outputs are ambiguous.
-- b3b4580: Clarify personal MCP connections, workspace provider access, and legacy credential key scope.
-- Updated dependencies [b3b4580]
-- Updated dependencies [b3b4580]
-  - @agent-native/toolkit@0.14.1
-
-## 0.24.0
-
-### Minor Changes
-
-- aa17e22: Add a personal-first LLM usage investigation view with daily trends, prompt attribution, and agent review handoff.
-
-### Patch Changes
-
-- aa17e22: Use Plan's blue accent for generated app icons instead of a disabled-looking gray.
-- aa17e22: Open workspace apps at their registered app URL instead of treating the workspace mount path as an in-app document route.
-- aa17e22: Keep metadata-only workspace app edits from starting new Builder branches, and use canonical home URLs when launching built-in connected apps.
-- aa17e22: Make the Dispatch logo return to the Overview page when clicked.
-- aa17e22: Add an Admin link to Dispatch settings navigation.
-- aa17e22: Hide the current Dispatch app from the shared app switcher while keeping other workspace apps available.
-- aa17e22: Accept human-friendly names when creating workspace apps and normalize them into URL-safe ids.
-- aa17e22: Keep completed Dispatch app handoffs in the chat-first app pane instead of rendering a nested app shell inside the conversation.
-- aa17e22: Recover embedded workspace apps when their one-time session expires and keep account name editing available while profile data loads.
-- Updated dependencies [aa17e22]
-  - @agent-native/toolkit@0.14.0
-
-## 0.23.5
-
-### Patch Changes
-
-- 62a17be: Add the authenticated, nonce-only completion route used by packaged Desktop clients during cross-app identity federation.
-
-  Let Dispatch register rollout-gated identity routes on its primary auth guard so security checks remain unconditional while the capability is default-off.
-
-## 0.23.4
-
-### Patch Changes
-
-- 7c5888c: Render integrations and scheduled work as first-class, chrome-less Electron control-plane pages.
-- 7c5888c: Hide the generic Chat starter from Dispatch's default app launchers.
-- 7c5888c: Open new workspace app requests in a fresh coding chat and guide missing AI setup through Builder or custom keys.
-- Updated dependencies [7c5888c]
-  - @agent-native/toolkit@0.13.10
-
-## 0.23.3
-
-### Patch Changes
-
-- a426c4f: Make Chat-first New chat, Integrations, and Scheduled navigation behave as selected tabs across Dispatch and Desktop, with Integrations promoted out of Settings into a full-page surface.
-- a426c4f: Fix Dispatch app navigation, sidebar selection state, embed-session refreshes, and app-list spacing.
-
-## 0.23.2
-
-### Patch Changes
-
-- 44ac2c4: Require explicit Slack mentions before dispatching channel turns.
-
-## 0.23.1
-
-### Patch Changes
-
-- dab8787: Keep Builder Visual Editor links out of chat-first browser iframes so branch links open without CSP framing errors.
-- dab8787: Widen full-page chat composers and conversation rails to use up to 1000px when space is available.
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-- Updated dependencies [dab8787]
-  - @agent-native/toolkit@0.13.9
-
-## 0.23.0
-
-### Minor Changes
-
-- c41fd16: Polish the Electron and Dispatch chat-first app surfaces with a fuller layout, simpler app lists, and inline workspace-app opening.
-
-### Patch Changes
-
-- c41fd16: Keep granted Dispatch app surfaces available from the Chat-first workspace panel.
-- c41fd16: Route Dispatch overview prompts into the full-page chat surface instead of the agent sidebar.
-- Updated dependencies [c41fd16]
-  - @agent-native/toolkit@0.13.8
-
-## 0.22.1
-
-### Patch Changes
-
-- c29fcb7: Keep the Admin and Settings links visible in the chat-first Dispatch sidebar.
-
-## 0.22.0
-
-### Minor Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-### Patch Changes
-
-- 061896a: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
-- 061896a: Use the Toolkit header store and mobile hook through Dispatch compatibility paths.
-- 061896a: Improve Thread Debug with diagnosis-first failure triage and retained run evidence.
-- Updated dependencies [061896a]
-  - @agent-native/toolkit@0.13.7
-
-## 0.21.0
-
-### Minor Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-### Patch Changes
-
-- cf16fae: Make turn-into-app Builder handoffs autonomous by choosing recommended defaults and recording non-blocking assumptions instead of stopping for questions.
-- Updated dependencies [cf16fae]
-  - @agent-native/toolkit@0.13.6
-
-## 0.20.4
-
-### Patch Changes
-
-- e959709: Export `runDispatchMigrations` so a consuming app can own dispatch schema in a release-time migration step instead of at server startup.
-- e959709: Scope workspace automations to their owning app by default, keep Dispatch's all-apps view explicit, and expose failed run threads for troubleshooting.
-
-## 0.20.3
-
-### Patch Changes
-
-- Updated dependencies [a107169]
-  - @agent-native/toolkit@0.13.5
-
-## 0.20.2
-
-### Patch Changes
-
-- 6071f7d: Provision and reuse the connected Builder workspace project automatically for hosted Turn Into App requests.
-- 6071f7d: Keep language selection in Settings instead of the Dispatch header.
-
-## 0.20.1
-
-### Patch Changes
-
-- c440e50: Route Turn Into App requests from Claude Web, ChatGPT Web, and web Projects to Builder through Dispatch instead of building in the host sandbox.
-
-## 0.20.0
-
-### Minor Changes
-
-- 1d5bab1: Simplify the Dispatch Admin overview and Apps catalog with shared icon cards, app colors, and lighter progressive disclosure.
-
-## 0.19.2
-
-### Patch Changes
-
-- Updated dependencies [da40677]
-  - @agent-native/toolkit@0.13.4
-
-## 0.19.1
-
-### Patch Changes
-
-- db62d66: Consolidate every MCP setting on `createAgentChatPlugin` under one `mcp: {}` option, and add `mcp.catalog: "app"`.
-
-  `mcp` accepts `enabled`, `catalog`, `connectorCatalog`, `externalAgents`, `builtinCrossAppTools`, `title`, `description`, `websiteUrl`, and `icons`. The top-level `disableMcp`, `mcpServerInfo`, `connectorCatalog`, and `externalAgents` stay accepted for one minor and are deprecated; the nested value wins, and setting both forms to disagreeing values throws at plugin init rather than booting an app with an MCP surface nobody chose (same contract as `resolveFrameworkTools`). `disableMcp: true` and `mcp.enabled: false` are normalized as inverses, so a correctly migrated app is not read as a conflict.
-
-  Two behavior fixes come with it:
-  - `builtinCrossAppTools` had no route through the plugin at all — it was reachable only by calling `mountMCP` directly. That is why `frameworkTools: "minimal"` and `workspaceApps: false` could never remove the cross-app builtins (`list_apps`, `open_app`, `ask_app`, `ask_app_status`, `create_embed_session`, `create_workspace_app`, `list_templates`) from an app using the normal plugin entry point: the MCP layer merges them downstream of the `frameworkTools` filter. `mcp.builtinCrossAppTools: false` is now the switch.
-  - A2A read the connector policy straight off the raw plugin options, so `mcp.connectorCatalog` would have narrowed the MCP surface while A2A kept serving the old one. `filterDirectA2AActions` / `buildAuthenticatedAgentA2ASkills` now take the resolved shape, so the two external surfaces cannot diverge.
-
-  `mcp.catalog: "app"` serves external callers exactly the app's own tool registry, flat — the same actions the in-app agent holds, with no cross-app builtins, no `ask-agent`, no `tool-search`, and no compact/connector trimming. `externalAgents.denyActions` and the OAuth scope filter still apply, since both are explicit removals rather than catalog tiering, and the dev-open surface split is unchanged (an unauthenticated loopback probe still gets `actions`, not `productionActions`). Weigh the token cost before setting it: an app registering ~100 actions puts every schema in the caller's context on `tools/list`, which is what the compact default exists to avoid.
-
-  Also folds the per-tier `tools/call` gate into one rule — the advertised set is the callable surface on every tier except the explicit `--full-catalog` opt-in — so adding a tier can no longer default to "everything callable" by omission.
-
-  `tool-search` is fixed on both ends over MCP. It is dropped entirely from every flat catalog (`mcp.catalog: "app"` and the `--full-catalog` opt-in), where every tool is already listed beside it and it could only describe its own neighbours. On the trimmed catalogs, where it does earn its place, it is now scoped to the advertised set: previously it closed over the app's whole registry while `tools/call` accepted only the advertised subset, so it answered with names that came straight back as "Unknown tool". `attachToolSearch`, `searchToolRegistry`, `createToolSearchEntry`, `TOOL_SEARCH_ACTION_NAME`, `resolveFrameworkTools`, `filterFrameworkToolGroups`, and `frameworkGroupEnabled` are now exported from `@agent-native/core/server`, so a standalone `mountMCP` plugin can compose the same surface the agent-chat plugin does instead of hand-rolling a copy that drifts.
-
-## 0.19.0
-
-### Minor Changes
-
-- 8f10ada: Move Dispatch management and operator tools into a dedicated Admin control plane.
-
-## 0.18.0
-
-### Minor Changes
-
-- d3f8794: Add a compact workspace app rail to Dispatch navigation for ready workspace apps.
-
-### Patch Changes
-
-- d3f8794: Restrict shared Vault values and mutations to workspace owners and admins while keeping safe key requests available to members.
-- Updated dependencies [d3f8794]
-  - @agent-native/toolkit@0.13.3
-
-## 0.17.6
-
-### Patch Changes
-
-- abb0cf5: Use canonical semantic settings routes for Dispatch team navigation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

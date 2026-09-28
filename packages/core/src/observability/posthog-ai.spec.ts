@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -24,11 +25,6 @@ function captureEvents(): TrackingEvent[] {
   return events;
 }
 
-/**
- * Load the tracking + emission modules fresh, mirroring production startup:
- * the built-in PostHog provider is registered whenever `POSTHOG_API_KEY` is
- * set, and its `flush()` is what drains the shared send queue.
- */
 async function freshModules() {
   vi.resetModules();
   const registry = await import("../tracking/registry.js");
@@ -104,8 +100,6 @@ describe("emitAiFeedbackSurveyEvent", () => {
     ).toBe(true);
     await mod.flushTracking();
 
-    // The generic registry saw nothing — free-text feedback stays with PostHog
-    // instead of fanning out to Mixpanel/Amplitude/webhooks.
     expect(mod.events).toHaveLength(0);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -123,6 +117,44 @@ describe("emitAiFeedbackSurveyEvent", () => {
       $ai_session_id: "thread-1",
       feedback_type: "text",
     });
+  });
+
+  it("suppresses direct PostHog survey events for +autoz identities", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    expect(
+      mod.emitAiFeedbackSurveyEvent({
+        ...base,
+        userId: "signup+autoz-run-1@example.com",
+      }),
+    ).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("suppresses direct PostHog survey events for synthetic traffic", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
+    vi.stubEnv("POSTHOG_API_KEY", "phc_test");
+    const mod = await freshModules();
+
+    await runWithRequestContext({ isSyntheticTraffic: true }, () =>
+      expect(
+        mod.emitAiFeedbackSurveyEvent({
+          ...base,
+          userId: "alice@example.test",
+        }),
+      ).toBe(false),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("answers the rating question with PostHog's choice index, not a label", async () => {
@@ -144,14 +176,10 @@ describe("emitAiFeedbackSurveyEvent", () => {
     const [up, down, followUp] = fetchMock.mock.calls.map(
       (call) => JSON.parse(call[1].body).properties,
     );
-    // 1 = thumbs up, 2 = thumbs down, on the survey's first question.
     expect(up.$survey_response).toBe(1);
     expect(down.$survey_response).toBe(2);
-    // The free text answers the follow-up question, never the rating.
     expect(followUp.$survey_response_1).toBe("cited the wrong doc");
     expect(followUp).not.toHaveProperty("$survey_response");
-    // A thumbs-down opens that follow-up, so the response stays open until the
-    // text lands under the same submission id.
     expect(up.$survey_completed).toBe(true);
     expect(down.$survey_completed).toBe(false);
     expect(followUp.$survey_completed).toBe(true);
@@ -166,7 +194,6 @@ describe("boundAiContent", () => {
   });
 
   it("keeps the last user message and says how much it dropped", () => {
-    // ~2KB each, far past the ceiling in total.
     const messages = Array.from({ length: 200 }, (_, index) => ({
       role: index % 2 === 0 ? "user" : "assistant",
       content: `message ${index} ${"x".repeat(2000)}`,
@@ -178,8 +205,6 @@ describe("boundAiContent", () => {
     const kept = result.value as Array<{ role: string; content: string }>;
 
     expect(result.truncated).toBe(true);
-    // The marker, then what was asked. Nothing else: keeping as much as fits
-    // would ship the ceiling on every event.
     expect(kept).toHaveLength(2);
     expect(kept[0].content).toMatch(
       /^\[\d+ message\(s\) omitted: \d+ bytes exceeded the \d+-byte/,
@@ -195,7 +220,6 @@ describe("boundAiContent", () => {
     expect(result.truncated).toBe(true);
     expect(kept).toHaveLength(1);
     expect(kept[0].content).toContain("omitted");
-    // Never a silently shortened version of the real content.
     expect(JSON.stringify(result.value)).not.toContain("xxxx");
   });
 
@@ -247,10 +271,6 @@ describe("toAiErrorDetail", () => {
 });
 
 describe("toPostHogMessages", () => {
-  // The engine has no `tool` role, so a tool result rides inside a `user`
-  // message. PostHog reads OpenAI/Anthropic conventions and recognized none of
-  // this shape — it rendered the raw JSON, which is what a tool call showing an
-  // escaped blob and no output looks like.
   it("lifts engine tool results out of the user turn into `tool` messages", () => {
     const normalized = toPostHogMessages([
       { role: "user", content: [{ type: "text", text: "make the report" }] },
@@ -302,7 +322,6 @@ describe("toPostHogMessages", () => {
     ]);
   });
 
-  // The whole point of pairing: the id on the call is the id on the result.
   it("keeps the model's call id on both halves of a tool call", () => {
     const [, call, result] = toPostHogMessages([
       { role: "user", content: [{ type: "text", text: "go" }] },
@@ -330,8 +349,6 @@ describe("toPostHogMessages", () => {
     expect(call.content).toBe("");
   });
 
-  // A base64 attachment is megabytes and renders as nothing in PostHog, but it
-  // spends the byte ceiling that keeps the rest of the conversation visible.
   it("replaces attachment bodies with a marker naming what was there", () => {
     const [message] = toPostHogMessages([
       {
@@ -360,10 +377,6 @@ describe("toPostHogMessages", () => {
     ]);
   });
 
-  // Normalizing is what makes the byte-ceiling rescue in `boundAiContent` find
-  // the question: before it, every tool result was a `user` message, so the
-  // "last user message" it kept was the last tool result and the question was
-  // dropped from every oversized generation.
   it("lets the truncation rescue keep the question, not the last tool result", () => {
     const filler = Array.from({ length: 100 }, () => ({
       role: "user",

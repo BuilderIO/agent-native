@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import type { Browser, BrowserContext } from "@playwright/test";
 
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import { type BetaSite, originFor } from "./fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
@@ -79,15 +80,6 @@ export function authStatePath(appId: string): string {
   return path.join(AUTH_DIR, `${appId}.json`);
 }
 
-/**
- * Marker written by global setup once the authenticated lane is fully ready.
- *
- * A file rather than an env var: Playwright runs specs in separate worker
- * processes, and `process.env` mutation is banned repo-wide because it is
- * process-scoped state that leaks across concurrent work. A file is the same
- * handoff without the footgun, and it is already gitignored alongside the
- * session state it accompanies.
- */
 export function laneMarkerPath(): string {
   return path.join(AUTH_DIR, "lane-ready");
 }
@@ -105,12 +97,16 @@ export function authedLaneReady(): boolean {
   return existsSync(laneMarkerPath());
 }
 
-/** The identity every authenticated spec asserts it is running as. */
 export function expectedEmail(): string {
   const email = process.env.BETA_E2E_EMAIL?.trim();
   if (!email) {
     throw new Error(
       "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
+    );
+  }
+  if (!isAutozQaEmail(email)) {
+    throw new Error(
+      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
     );
   }
   return email;
@@ -159,17 +155,12 @@ function hasPerAppSessionToken(): boolean {
   );
 }
 
-/** True when this run has been given something to authenticate with. */
 export function hasSessionCredentials(): boolean {
   return Boolean(
     sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
   );
 }
 
-/**
- * Explain, in the terms someone fixing it needs, why no authenticated run is
- * possible. Called at the one point where the run decides to stop.
- */
 export function missingCredentialsMessage(): string {
   return [
     "No beta session credential was supplied, so no authenticated spec can run.",
@@ -209,7 +200,6 @@ export function sessionFailureReason(options: {
   return `The beta host returned no authenticated identity (HTTP ${options.status}).`;
 }
 
-/** Read the live session the way the app itself would, from inside the page. */
 async function readSessionIdentity(
   context: BrowserContext,
   origin: string,
@@ -239,11 +229,6 @@ async function readSessionIdentity(
   return { identity, status: response.status(), body: body.slice(0, 400) };
 }
 
-/**
- * Produce a signed-in context for one beta app and persist its storage state.
- *
- * Throws unless the resulting session resolves to `BETA_E2E_EMAIL`.
- */
 export async function bootstrapAppSession(
   browser: Browser,
   site: BetaSite,
@@ -267,11 +252,6 @@ export async function bootstrapAppSession(
 
   try {
     if (token) {
-      // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
-      // token for this host's own session cookie on any request carrying it.
-      //
-      // Navigate a real browser page so Set-Cookie is persisted by the same
-      // cookie jar that is saved and reused by the authenticated specs.
       const page = await context.newPage();
       const exchangeSession = async () => {
         const response = await page.goto(
@@ -297,7 +277,6 @@ export async function bootstrapAppSession(
           promoted = await exchangeSession();
         }
       } catch {
-        // Keep the live query token out of Playwright's error and report text.
         await page.close();
         throw new Error(`${origin} failed while exchanging the session token.`);
       }
@@ -348,7 +327,6 @@ export async function bootstrapAppSession(
   }
 }
 
-/** Persist a capture-time storage state for reuse as a secret. */
 export function writeCapturedState(appId: string, state: string): string {
   mkdirSync(AUTH_DIR, { recursive: true });
   const file = authStatePath(appId);

@@ -1,12 +1,13 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isDefaultTitle } from "@shared/title-source";
+import { IconEdit } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { cn } from "@/lib/utils";
 
 interface EditableRecordingTitleProps {
@@ -180,6 +181,7 @@ export function EditableRecordingTitle({
   if (editing) {
     return (
       <Input
+        size="sm"
         ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -203,7 +205,7 @@ export function EditableRecordingTitle({
           commitTitle();
         }}
         placeholder={t("editableTitle.placeholder")}
-        className={cn("h-8 w-full min-w-0", inputClassName)}
+        className={cn("w-full min-w-0", inputClassName)}
         disabled={updateTitle.isPending}
       />
     );
@@ -221,13 +223,14 @@ export function EditableRecordingTitle({
         startEditing();
       }}
       className={cn(
-        "-mx-1 flex min-w-0 max-w-full cursor-text items-center rounded px-1 text-start",
+        "group/title -mx-1 flex min-w-0 max-w-full cursor-text items-center gap-1 rounded px-1 text-start",
         "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className,
       )}
       aria-label={t("editableTitle.editLabel")}
     >
       <span className="min-w-0 flex-1 truncate">{content}</span>
+      <IconEdit className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/title:opacity-70 group-focus-visible/title:opacity-70" />
     </button>
   );
 }

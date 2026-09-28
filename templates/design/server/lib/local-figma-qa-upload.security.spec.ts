@@ -76,9 +76,19 @@ describe("local Figma QA upload security contract", () => {
     expect(second).not.toBeNull();
     expect(first).not.toBe(second);
     expect(
+      localFigmaQaAssetPath(
+        "first-owner@example.test",
+        "0f0f0f0f-1111-4222-8333-444444444444.svg",
+        rootDir,
+      ),
+    ).not.toBeNull();
+    expect(
       localFigmaQaAssetPath("first-owner@example.test", "../x.png", rootDir),
     ).toBeNull();
     expect(localFigmaQaAssetMimeType(assetId)).toBe("image/png");
+    expect(
+      localFigmaQaAssetMimeType("0f0f0f0f-1111-4222-8333-444444444444.svg"),
+    ).toBe("image/svg+xml");
   });
 
   it("accepts only bounded image MIME types", async () => {

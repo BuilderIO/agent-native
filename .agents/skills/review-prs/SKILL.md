@@ -1,10 +1,10 @@
 ---
 name: review-prs
 description: >-
-  Review recent BuilderIO/agent-native pull requests, approve eligible PRs from
-  liamdebeasi, approve other safe internal fixes under the internal-author and
-  owner exceptions, merge safe Dependabot updates, skip drafts, and recap
-  every disposition. Use for scheduled or manual PR review sweeps.
+  Review recent BuilderIO/agent-native human pull requests, apply internal
+  auto-approval exceptions, and assess other PRs for merge readiness, requested
+  updates, external reply drafts, and UI screenshot evidence. Use for scheduled
+  or manual PR sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -13,11 +13,10 @@ metadata:
 
 # Review Pull Requests
 
-Review the newest relevant pull requests in `BuilderIO/agent-native`. Approve
-safe fixes from verified BuilderIO organization members under the internal
-author policy below. Treat approval as a trust decision, and merge only the
-narrow Dependabot exception below. Never approve an external or unverified
-author.
+Review the newest relevant human pull requests in `BuilderIO/agent-native`.
+Approve safe fixes from verified BuilderIO organization members under the
+internal author policy below. Treat approval as a trust decision. Never
+approve an external or unverified author.
 
 ## Selection and evidence
 
@@ -28,22 +27,30 @@ new commit, review, comment, or check result; otherwise do not create duplicate
 review noise.
 
 Before selecting a PR for review, read only enough metadata to determine its
-draft state and current review summary:
+author and draft state:
+
+ - Ignore every bot-authored PR, including Dependabot and
+   `builder-io-integration[bot]`, and ignore every PR authored by the exact
+   login `steve8708`. Do not inspect their diff, checks, reviews, membership,
+   or source links; do not take any review or merge action; and do not add
+   them to the end-of-run recap.
 
  - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
- - Ignore ordinary PRs that already have a current, non-dismissed `APPROVED`
-   review, including bot approvals. This exclusion applies even when the PR
-   has newer commits, comments, reviews, or check results; do not re-review it
-   or add it to the recap. A non-draft PR authored by the exact Dependabot
-   login remains eligible for the merge gate below even when it already has an
-   approval; do not submit a duplicate approval.
 
-Only the remaining non-draft, unapproved PRs enter the ordinary evidence
-sweep below. Eligible Liam PRs with only older-head approvals also enter the
-sweep so the current head can be approved; non-draft Dependabot candidates
-also enter the merge evidence sweep even when they already have an approval.
+ - For remaining human PRs, read the current review summary to determine
+   whether the PR already has a current, non-dismissed `APPROVED` review.
+
+ - Ignore human PRs only when their current, non-dismissed `APPROVED` review
+   targets the current PR head and no newer commit, comment, review, or check
+   result exists. A current-head approval does not suppress re-review after a
+   later event; do not add the PR to the recap unless that re-review changes
+   its disposition.
+
+Only the remaining non-draft, unapproved human PRs enter the ordinary
+evidence sweep below. Eligible Liam PRs with only older-head approvals also
+enter the sweep so the current head can be approved.
 
 For every PR you inspect, read:
 
@@ -111,8 +118,7 @@ The verified owner exceptions are:
 
  - Alice (`3mdistal`) - Content
  - Nick (`NKoech123`) - Slides
- - Shomix (`shomix`) - Clips, only when the PR is specific to the Clips
-   app
+ - Shomix (`shomix`, GitHub user ID `100691266`) - any app or framework area
  - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
    app
  - Sid (`sidmohanty11`) - Design
@@ -133,12 +139,14 @@ Factory app paths and Factory-owned actions, instructions, locales, or tests.
 Shared framework changes that materially affect other apps, Slack ingestion,
 core runtime, or deployment remain on the standard gate.
 
-For a verified PR authored by Shomix (`shomix`) and limited to Clips app or
-template behavior, including supporting shared framework or Desktop plumbing
-required by that Clips feature, auto-approve by default. This includes that
-owner's UX changes, refactors, failed or pending checks, and ordinary unresolved
-human or bot feedback. The owner exception overrides the normal UX-owner,
-narrow-refactor, check, and review-resolution gates.
+For a verified PR authored by Shomix (`shomix`, GitHub user ID `100691266`),
+auto-approve by default regardless of app scope, UX implications, refactors,
+failed or pending checks, or ordinary unresolved human or bot feedback. Verify
+both the login and immutable GitHub user ID; do not rely on the mutable login
+alone. This exception does not waive the ultra-scary safety gate, the
+external-author prohibition, or the independent review requirement for PRs
+changing review or approval policy, agent-safety instructions, membership
+verification, or CI/deployment security controls.
 
 For a verified PR authored by Sid, or by Enzo (`enzoames`) when the PR is
 Factory-specific, auto-approve by default, including that owner's UX changes,
@@ -223,51 +231,88 @@ For a PR that passes the applicable gate, submit one GitHub approval review and
 record the approval URL in the recap. Do not add a tag, assignment, mention,
 or explanatory comment unless the invocation explicitly asks for it.
 
-For a non-draft PR whose GitHub author login is exactly `dependabot[bot]` (or
-the exact `dependabot` login returned by GitHub), use the merge exception below
-instead of the membership gate. Branch-protection approvals still apply. Do
-not infer Dependabot from a title, branch name, or author association.
-
-## Dependabot merge exception
-
-The user has authorized this review skill to merge safe Dependabot PRs. A
-qualifying Dependabot PR may skip the ordinary babysit soak, but it must still
-meet branch-protection requirements. Merge it only when every condition below
-is true:
-
-1. The PR is in `BuilderIO/agent-native`, is not a draft, is mergeable with no
-   conflict, and its update is patch or minor rather than a major upgrade. A
-   minor update qualifies only when both its current and proposed major
-   versions are at least `1`; dependencies on major version `0` are patch-only
-   for this exception.
-2. The complete diff changes only dependency manifests and their lockfiles.
-   The manifest changes are dependency-version changes only, with no scripts,
-   resolutions, package-manager/runtime, workflow, generated source, or other
-   configuration edits.
-3. All required checks are successful. No required lane is pending, skipped,
-   neutral, unknown, failing, or unavailable, and no active review is
-   `CHANGES_REQUESTED` or leaves an unresolved review thread. Any required
-   approving review must be from a verified BuilderIO human member who is not
-   the PR author or a bot. If it is absent, verify the approver's GitHub user
-   type is `User` and `gh api orgs/BuilderIO/members/<login>` succeeds, then
-   have that reviewer submit one current-head approval; do not duplicate an
-   existing approval. If the approver or membership cannot be verified, flag
-   the PR.
-4. The dependency change has no credible auth, permission, tenant-isolation,
-   secret, data-loss, remote-code-execution, SSRF, payment, deployment, or
-   other ultra-scary production risk. If the dependency or diff touches one of
-   those boundaries, flag it for human review.
-
-Use the expected head SHA with `gh pr merge <number> --squash --match-head-commit <sha>`, use the normal protected merge path rather than an
-admin bypass, and re-read the PR after the merge to record the merged SHA and
-result. A failed or unavailable safety check means flagged, never “probably
-safe.”
+Bot-authored PRs, including Dependabot, are outside this skill's review and
+merge scope and must remain completely untouched.
 
 For a PR that fails any applicable gate, do not submit an approval. Flag the
 exact concern and the evidence needed to resolve it. External PRs may be
-inspected and recapped, but never approved; non-Dependabot external PRs are
-never auto-merged. If GitHub or organization membership is unavailable,
-preserve the no-approval outcome and name the missing check.
+inspected and recapped, but never approved or auto-merged. If GitHub or
+organization membership is unavailable, preserve the no-approval outcome and
+name the missing check.
+
+## Non-auto-approved PR handoff
+
+For every human PR that does not receive an approval under the policies above,
+including external PRs, provide a maintainer handoff in addition to the approval
+disposition. A merge-readiness recommendation is separate from a GitHub
+approval or merge action: this skill never merges a PR, and external authors
+remain ineligible for approval. Use the BuilderIO membership API; a confirmed
+nonmember is external, while lookup or visibility failures leave membership
+unknown. Only prepare author-facing reply drafts for authors verified as
+external. Never draft a reply for a verified BuilderIO member, including a
+thank-you; report requested updates or missing UX evidence in the recap
+instead. If membership is unknown, do not treat the author as external or
+draft a reply.
+
+Classify the PR as **Ready to merge by Steve's bar**, **Needs updates**,
+**Ready on code and CI; screenshot requested**, or **Cannot assess**. Recommend
+ready only when the current head looks sound, every required check has passed,
+and actionable human or automated review findings have a verified fix or an
+evidence-backed terminal disposition. An active human `CHANGES_REQUESTED`
+review or unresolved actionable human request blocks readiness; resolved,
+superseded, or non-actionable threads do not. Do not treat missing human
+approval or `reviewDecision: REVIEW_REQUIRED` alone as a blocker to Steve's readiness
+recommendation. Report separately if GitHub's branch protection still blocks
+the actual merge. Conflicts, pending or failed required checks, active
+actionable bot findings, credible safety concerns, or an otherwise material
+code issue mean **Needs updates** or **Cannot assess**. Report skipped,
+unknown, and non-required checks accurately; never describe them as passing.
+
+For every verified external PR needing a code update or screenshot evidence,
+draft a concise reply that names the concrete change or evidence requested and
+links the relevant review thread or check when useful. Before drafting, inspect
+the PR timeline, commits, and review threads for all actionable requests from
+the exact login `steve8708`. If any request remains unaddressed, do not draft or
+post another author-facing comment. In particular, if the latest PR activity is
+Steve asking for an update and no later contributor reply or relevant commit
+addresses it, mark the PR as waiting and do not add another comment. A
+contributor commit or substantive reply clears only the requests it actually
+addresses; an unrelated commit or bare acknowledgment does not. Mark the PR as
+waiting on the contributor and link each outstanding request. Once all prior
+requests are addressed, reassess the current head and draft only the remaining
+code or screenshot requests. This also applies when another comment or bot
+event is newer than Steve's request; bot activity alone does not reopen the
+handoff.
+
+If no prior Steve request is awaiting an update and this would be Steve's first
+comment on that PR, begin the draft by thanking the contributor. Do not repeat
+a thank-you on a follow-up. Do not draft a duplicate request when an existing
+Steve comment already covers it; link or summarize that request instead.
+Drafts are for the user to review and are never posted by this skill unless
+the current invocation explicitly authorizes posting.
+
+For UX evidence, inspect the actual diff for new or changed user-facing UI,
+including visible copy, layout, navigation, controls, settings, interaction,
+loading states, accessibility behavior, and user-facing defaults. Check the PR
+body and conversation for screenshots of the changed product UI. Report which
+surface changed and whether screenshots are present. If UI changed and no
+product screenshot is available, mark the screenshot as requested so Steve can
+review the change. Include the screenshot request in an external-author draft
+only when the reply gate above allows a new comment. For internal PRs, report
+the missing screenshot without drafting a comment. A generated recap graphic
+or demo clip does not count as a screenshot of the changed UI. If the PR has no
+user-facing UI change, say so rather than requesting screenshots.
+
+If GitHub is unavailable before the diff, body, and conversation can be
+inspected, report UX evidence as **Unknown / unable to inspect**; do not infer
+that the PR has no UI change.
+
+Do not apply these extra author-reply and screenshot asks to PRs that were
+auto-approved under an explicit exception; keep their existing recap and
+approval behavior unchanged.
+
+This handoff is measured by `pr-review-handoff`; first-contact thanks also
+contribute to the existing `feedback-reply-tone` measure.
 
 ## Worktrees and PR provenance
 
@@ -275,34 +320,50 @@ A worktree-created branch is a normal, valid PR source. Do not ask an agent to
 copy its changes into the shared checkout before reviewing or approving. Read
 the remote PR diff as the source of truth. If this skill needs to update a PR
 from a worktree, keep all GitHub and Git commands in that worktree's cwd and
-current branch, publish the complete nonignored snapshot with
-`corepack pnpm ship:push`, and update the existing PR instead of creating a
-second one. Never reset, rebase, stash, or overwrite local work without
-explicit authorization.
+current branch, batch all currently known actionable fixes into one complete
+snapshot, and publish it with `corepack pnpm ship:push -m` plus a subject
+naming the actual fix (for example, `fix: deduplicate chat start checkpoints`).
+The helper refuses an omitted or generic subject. Update the existing PR
+instead of creating a second one. Never reset, rebase, stash, or overwrite
+local work without explicit authorization.
+
+Rebase or merge `origin/main` only when GitHub reports an actual conflict; for
+a shared branch, prefer a normal merge. Never sync just to clear a behind
+count or restart checks.
 
 ## End-of-run recap
 
-Every run ends with a succinct row for every PR that entered the evidence
+Every run ends with a succinct row for every human PR that entered the evidence
 sweep, including approved, flagged, external, duplicate, already handled, and
-unavailable cases. Include the PR link, author and membership result, decision,
-the relevant issue or source link, checks or review links, and the reason. Do
-not add rows for drafts or PRs excluded because they already had an approval;
-those are ignored completely.
+unavailable cases. Include the PR link, author and membership result, review
+disposition, merge-readiness recommendation, UX/screenshot status, relevant
+issue or source link, checks or review links, and the reason. For each
+non-auto-approved external PR that needs an update or screenshot, include its
+draft reply in a separate section, or mark it waiting on the contributor with
+a link to Steve's outstanding request. For internal PRs, report the needed
+update or screenshot without drafting an author-facing reply. Do not add rows
+for bots, `steve8708`, drafts, or human PRs excluded because they already had
+an approval; those are ignored completely.
 
 Use this shape:
 
 ```md
 ## PR review
 
-| PR | Author / org status | Decision | Why and evidence |
-| --- | --- | --- | --- |
-| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Flagged / Skipped | ... |
+| PR | Author / org status | Review disposition | Merge readiness | UX / screenshot | Author-facing reply | Why and evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| [#123](...) | `@name` - BuilderIO member / external / unverified | Approved / Not approved / Skipped | Ready by Steve's bar / Ready on code and CI; screenshot requested / Needs updates / Cannot assess | Unknown / unable to inspect; No UI; UI - screenshot present or needed | Draft / Waiting on contributor / Internal - no draft / Not needed | ... |
 
 Unavailable or unverified: ...
 ```
 
 Keep the recap short, link every claim, and distinguish “not approved because
-external” from “not reviewed because GitHub was unavailable.”
+external” from “not reviewed because GitHub was unavailable.” Also distinguish
+the review disposition from merge readiness, and distinguish product-code or
+CI blockers from a repository rule requiring human approval. A PR can be
+**Ready to merge by Steve's bar** while GitHub still reports a human-review
+requirement; state that restriction without treating it as a required review
+for Steve's recommendation.
 
 ## Related skills
 

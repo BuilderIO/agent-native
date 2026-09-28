@@ -9,6 +9,11 @@ import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 
 const MAX_DATA_CAS_ATTEMPTS = 5;
 const MAX_DATA_OPERATION_SOURCES = 128;
+const NUMERIC_DESIGN_DATA_MAPS = new Set([
+  "canvasFrames",
+  "screenMetadata",
+  "localhostScreens",
+]);
 const FORBIDDEN_DATA_PATH_SEGMENTS = new Set([
   "__proto__",
   "constructor",
@@ -90,9 +95,6 @@ type DataOperation = z.infer<typeof dataOperationSchema>;
 
 type DataOperationRevisions = Record<string, number>;
 
-/**
- * Normalize affected-row metadata from PGlite and hosted Postgres.
- */
 function affectedRowCount(result: unknown): number | undefined {
   const candidate = result as
     | {
@@ -122,9 +124,6 @@ function parsePersistedDataRecord(
   designId: string,
   raw: string | null | undefined,
 ): Record<string, unknown> {
-  // Legacy rows may contain SQL NULL despite the current NOT NULL schema.
-  // Malformed/non-object non-null values are corruption, not an empty design:
-  // fail loud so a patch can never silently erase the unreadable payload.
   if (raw == null) return {};
   try {
     const parsed = JSON.parse(raw);
@@ -170,8 +169,6 @@ function withDataOperationRevision(
   revision: number,
 ): DataOperationRevisions {
   const next = { ...revisions };
-  // Refresh insertion order for the active source so the bounded record keeps
-  // recently active tabs and evicts abandoned sessions first.
   delete next[source];
   next[source] = revision;
   while (Object.keys(next).length > MAX_DATA_OPERATION_SOURCES) {
@@ -182,14 +179,6 @@ function withDataOperationRevision(
   return next;
 }
 
-/**
- * Apply path-addressed map operations without mutating the parsed source.
- *
- * This is intentionally not a generic recursive merge. A missing key can mean
- * either "the caller read before a peer added it" or "delete this key", so
- * inferring deletion from omission would resurrect or erase frames. Explicit
- * set/delete operations keep both intents unambiguous and CAS-retryable.
- */
 function applyDataOperations(
   designId: string,
   raw: string | null | undefined,
@@ -237,6 +226,39 @@ function applyDataOperations(
   return JSON.stringify(root);
 }
 
+function validatePersistedDataSnapshot(
+  raw: string,
+  touchedMaps?: ReadonlySet<string>,
+  touchedCanvasFrameIds?: ReadonlySet<string>,
+): void {
+  const parsed = JSON.parse(raw);
+  if (!isRecord(parsed)) return;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (
+      touchedMaps &&
+      NUMERIC_DESIGN_DATA_MAPS.has(key) &&
+      !touchedMaps.has(key)
+    ) {
+      continue;
+    }
+    if (key === "canvasFrames" && touchedCanvasFrameIds) {
+      if (!isRecord(value)) {
+        const message = numericDesignDataWriteError([key], value);
+        if (message) throw new Error(message);
+        continue;
+      }
+      for (const [frameId, frame] of Object.entries(value)) {
+        if (!touchedCanvasFrameIds.has(frameId)) continue;
+        const message = numericDesignDataWriteError([key, frameId], frame);
+        if (message) throw new Error(message);
+      }
+      continue;
+    }
+    const message = numericDesignDataWriteError([key], value);
+    if (message) throw new Error(message);
+  }
+}
+
 export default defineAction({
   description:
     "Update an existing design project. Requires editor access. " +
@@ -244,7 +266,11 @@ export default defineAction({
     "For map entries such as canvasFrames, use dataOperations " +
     "with explicit set/delete paths instead of a full data snapshot. " +
     "Dimensions and positions (x, y, width, height, rotation, z) are " +
-    "numbers. String values are rejected.",
+    "numbers. String values are rejected. Renderable screens created by " +
+    "create-file or generate-design are auto-placed, so omit canvasFrames " +
+    "unless intentionally placing or moving a frame. Full placement objects " +
+    "must provide complete numeric geometry; path-addressed updates may change " +
+    "individual numeric fields.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),
@@ -321,9 +347,6 @@ export default defineAction({
         });
       }
     }),
-  // Advertised to the model only; `schema` above stays the validator. Drops
-  // operationSource/operationRevision, which order writes from one browser tab
-  // and have no meaning for an agent call.
   agentInputSchema: z.object({
     id: z.string().describe("Design ID"),
     title: z.string().optional().describe("New title"),
@@ -457,14 +480,30 @@ export default defineAction({
             })
           : data!;
       }
+      const touchedMaps = dataOperations
+        ? new Set(dataOperations.map((operation) => operation.path[0]))
+        : (() => {
+            const parsed = JSON.parse(data!);
+            return new Set(isRecord(parsed) ? Object.keys(parsed) : []);
+          })();
+      const touchedCanvasFrameIds = dataOperations
+        ? (() => {
+            const ids = dataOperations
+              .filter(
+                (operation) =>
+                  operation.path[0] === "canvasFrames" &&
+                  operation.path.length > 1,
+              )
+              .map((operation) => operation.path[1]!);
+            return ids.length > 0 ? new Set(ids) : undefined;
+          })()
+        : undefined;
+      validatePersistedDataSnapshot(
+        nextData,
+        touchedMaps,
+        touchedCanvasFrameIds,
+      );
 
-      // Compare-and-swap on the exact data snapshot. Transactions at the
-      // default isolation level do not make a read-merge-write safe: two
-      // transactions can both read the same JSON and the later UPDATE can
-      // overwrite the first. Explicit operations are safe to re-apply to the
-      // latest row; a legacy full snapshot is ambiguous, so a conflict fails
-      // loud instead of guessing whether missing nested keys mean stale data
-      // or intentional deletion.
       const revisionCondition =
         operationSource !== undefined
           ? existing.dataOperationRevisions == null

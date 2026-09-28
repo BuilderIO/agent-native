@@ -1,11 +1,3 @@
-/**
- * Serve a recording thumbnail from the same origin as the public player.
- *
- * Thumbnail providers may return expiring or hotlink-protected URLs. Public
- * share pages already proxy video through `/api/video/:recordingId`; using the
- * same contract here keeps embeds and crawler previews reliable.
- */
-
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
@@ -18,6 +10,7 @@ import {
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
@@ -32,8 +25,16 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../../lib/pending-redactions.js";
+import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
-import { verifySharePassword } from "../../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../../lib/share-password.js";
 
 const FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
@@ -50,11 +51,14 @@ const SAFE_RASTER_IMAGE_TYPES = new Set([
 
 type ThumbnailRecording = {
   id: string;
+  editsJson?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   password?: string | null;
+  sharePasswordVersion?: string | null;
+  updatedAt?: string | null;
   visibility?: string | null;
 };
 
@@ -81,9 +85,18 @@ function isHttpsRequest(event: H3Event): boolean {
   );
 }
 
-function renewProtectedMediaCookie(event: H3Event, recordingId: string): void {
+function renewProtectedMediaCookie(
+  event: H3Event,
+  recordingId: string,
+  password: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
+): void {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      sharePasswordVersion,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -147,6 +160,18 @@ function imageResponse(
   return new Response(body, { status, headers });
 }
 
+function defaultSocialImageResponse(): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+      "Cache-Control": "private, max-age=0, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 async function fetchThumbnail(sourceUrl: string): Promise<Response> {
   let currentUrl = sourceUrl;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
@@ -207,11 +232,14 @@ async function loadRecording(recordingId: string, event: H3Event) {
     const [row] = await getDb()
       .select({
         id: schema.recordings.id,
+        editsJson: schema.recordings.editsJson,
         thumbnailUrl: schema.recordings.thumbnailUrl,
         animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
+        sharePasswordVersion: schema.recordings.sharePasswordVersion,
+        updatedAt: schema.recordings.updatedAt,
         visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
@@ -258,12 +286,19 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       const { recording } = loaded;
-      if (recording.expiresAt) {
-        const expires = new Date(recording.expiresAt).getTime();
-        if (Number.isFinite(expires) && expires < Date.now()) {
-          setResponseStatus(event, 410);
-          return { error: "Recording has expired" };
-        }
+      if (
+        isRecordingExpiredForViewer({
+          expiresAt: recording.expiresAt,
+          viewerIsOwner: loaded.role === "owner",
+        })
+      ) {
+        setResponseStatus(event, 410);
+        return { error: "Recording has expired" };
+      }
+
+      if (isHeldForRedaction(recording.editsJson, loaded.role)) {
+        setResponseStatus(event, 409);
+        return { error: REDACTION_HOLD_MESSAGE };
       }
 
       const query = getQuery(event) as {
@@ -274,37 +309,42 @@ export default defineEventHandler(async (event: H3Event) => {
       if (recording.password && loaded.role !== "owner") {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
+        const scopedRecordingId = getRecordingAccessTokenResourceId(
+          recordingId,
+          recording.password,
+          recording.sharePasswordVersion,
+        );
         const password =
           typeof query.password === "string" ? query.password : "";
         const allowed =
-          (queryToken && verifyShortLivedToken(queryToken, recordingId).ok) ||
-          (cookieToken && verifyShortLivedToken(cookieToken, recordingId).ok) ||
+          (queryToken &&
+            verifyShortLivedToken(queryToken, scopedRecordingId).ok) ||
+          (cookieToken &&
+            verifyShortLivedToken(cookieToken, scopedRecordingId).ok) ||
           (password && verifySharePassword(password, recording.password));
         if (!allowed) {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
-        renewProtectedMediaCookie(event, recordingId);
+        renewProtectedMediaCookie(
+          event,
+          recordingId,
+          recording.password,
+          recording.sharePasswordVersion,
+        );
       }
 
       const sourceUrl =
         query.animated === "1"
           ? recording.animatedThumbnailUrl || recording.thumbnailUrl
           : recording.thumbnailUrl || recording.animatedThumbnailUrl;
-      if (!sourceUrl) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
-      }
+      if (!sourceUrl) return defaultSocialImageResponse();
 
       if (sourceUrl.startsWith("data:")) {
-        return (
-          dataUrlResponse(sourceUrl) ??
-          imageResponse(null, "text/plain; charset=utf-8", 415)
-        );
+        return dataUrlResponse(sourceUrl) ?? defaultSocialImageResponse();
       }
       if (isRecursiveThumbnailUrl(sourceUrl, recordingId)) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
+        return defaultSocialImageResponse();
       }
 
       let resolvedSourceUrl = sourceUrl;
@@ -326,17 +366,23 @@ export default defineEventHandler(async (event: H3Event) => {
               extra: { recordingId },
             },
           );
-          setResponseStatus(event, 502);
-          return { error: "The recording thumbnail could not be loaded." };
         }
-        return response;
+        const contentType = response.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase();
+        return response.ok &&
+          contentType &&
+          SAFE_RASTER_IMAGE_TYPES.has(contentType)
+          ? response
+          : defaultSocialImageResponse();
       } catch (error) {
         captureRouteError(error, {
           route: "api/thumbnail",
           extra: { recordingId },
         });
-        setResponseStatus(event, 502);
-        return { error: "The recording thumbnail could not be loaded." };
+        return defaultSocialImageResponse();
       }
     },
   );

@@ -1,21 +1,67 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   aiSdkHarnessPartToEvents,
-  createCodexCliAuthSandboxHook,
-  normalizeCodexCliAuthConfig,
+  createNativeSession,
+  resolveAiSdkHarnessPermissionMode,
+  toAiSdkToolApprovalContinuation,
 } from "./ai-sdk-adapter.js";
 
-const tempDirs: string[] = [];
+describe("AI SDK harness session setup", () => {
+  it("uses Codex's supported default and rejects unsupported modes", () => {
+    expect(resolveAiSdkHarnessPermissionMode("codex")).toBe("allow-all");
+    expect(resolveAiSdkHarnessPermissionMode("claude-code")).toBe(
+      "allow-reads",
+    );
+    expect(() =>
+      resolveAiSdkHarnessPermissionMode("codex", "allow-reads"),
+    ).toThrow(/allow-all/);
+  });
 
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  it("passes the stable session resume contract to HarnessAgent", async () => {
+    const createSession = vi.fn().mockResolvedValue({ id: "native-session" });
+    const resumeState = { type: "resume-session", data: {} };
+    const sandboxSession = { id: "sandbox-session" };
+
+    await createNativeSession(
+      { createSession },
+      {
+        sessionId: "agent-session",
+        resumeState,
+        sandbox: sandboxSession,
+      },
+    );
+
+    expect(createSession).toHaveBeenCalledWith({
+      sessionId: "agent-session",
+      resumeFrom: resumeState,
+      sandboxSession,
+    });
+  });
+
+  it("maps framework approvals to the stable Harness continuation shape", () => {
+    expect(
+      toAiSdkToolApprovalContinuation({
+        id: "approval-1",
+        approved: false,
+        message: "Not this time",
+      }),
+    ).toEqual({
+      type: "tool-approval-response",
+      approvalId: "approval-1",
+      approved: false,
+      reason: "Not this time",
+    });
+  });
+
+  it("does not silently start a fresh session without a resume id", async () => {
+    await expect(
+      createNativeSession(
+        { createSession: vi.fn() },
+        { resumeState: { type: "resume-session", data: {} } },
+      ),
+    ).rejects.toThrow(/requires sessionId/);
+  });
 });
 
 describe("aiSdkHarnessPartToEvents", () => {
@@ -23,6 +69,15 @@ describe("aiSdkHarnessPartToEvents", () => {
     expect(
       aiSdkHarnessPartToEvents({ type: "text-delta", text: "hi" }),
     ).toEqual([{ type: "text-delta", text: "hi" }]);
+    expect(
+      aiSdkHarnessPartToEvents({ type: "text-delta", delta: "stable hi" }),
+    ).toEqual([{ type: "text-delta", text: "stable hi" }]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "reasoning-delta",
+        delta: "stable thought",
+      }),
+    ).toEqual([{ type: "thinking-delta", text: "stable thought" }]);
     expect(
       aiSdkHarnessPartToEvents({
         type: "tool-call",
@@ -55,14 +110,25 @@ describe("aiSdkHarnessPartToEvents", () => {
         result: "ok",
       },
     ]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-input-start",
+        id: "t1",
+        toolName: "bash",
+      }),
+    ).toEqual([]);
   });
 
   it("maps approval, file, compaction, finish, and error parts", () => {
     expect(
       aiSdkHarnessPartToEvents({
         type: "tool-approval-request",
-        id: "approval-1",
-        toolName: "write",
+        approvalId: "approval-1",
+        toolCall: {
+          toolCallId: "tool-1",
+          toolName: "write",
+          input: { path: "README.md" },
+        },
         message: "Approve write?",
       }),
     ).toEqual([
@@ -71,14 +137,43 @@ describe("aiSdkHarnessPartToEvents", () => {
         id: "approval-1",
         tool: "write",
         message: "Approve write?",
-        input: undefined,
+        input: { path: "README.md" },
       },
     ]);
+    const toolCalls = new Map<string, { name: string; input?: unknown }>();
+    aiSdkHarnessPartToEvents(
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "write",
+        input: { path: "src/app.ts" },
+      },
+      toolCalls,
+    );
+    expect(
+      aiSdkHarnessPartToEvents(
+        {
+          type: "tool-approval-request",
+          approvalId: "approval-2",
+          toolCallId: "tool-2",
+        },
+        toolCalls,
+      ),
+    ).toEqual([
+      {
+        type: "approval-request",
+        id: "approval-2",
+        tool: "write",
+        message: "Harness is waiting for approval",
+        input: { path: "src/app.ts" },
+      },
+    ]);
+    expect(toolCalls.size).toBe(0);
     expect(
       aiSdkHarnessPartToEvents({
         type: "file-change",
         path: "README.md",
-        operation: "update",
+        event: "modify",
       }),
     ).toEqual([
       {
@@ -92,6 +187,42 @@ describe("aiSdkHarnessPartToEvents", () => {
       { type: "compaction", summary: undefined },
     ]);
     expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-call",
+        toolCallId: "file-1",
+        toolName: "fileChange",
+        input: { event: "modify", path: "src/app.ts" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([
+      {
+        type: "file-change",
+        path: "src/app.ts",
+        operation: "update",
+      },
+    ]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-result",
+        toolCallId: "file-1",
+        toolName: "fileChange",
+        output: { event: "modify", path: "src/app.ts" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([]);
+    expect(
+      aiSdkHarnessPartToEvents({
+        type: "tool-result",
+        toolCallId: "compact-1",
+        toolName: "compaction",
+        output: { trigger: "auto", summary: "trimmed context" },
+        dynamic: true,
+        providerExecuted: true,
+      }),
+    ).toEqual([{ type: "compaction", summary: "trimmed context" }]);
+    expect(
       aiSdkHarnessPartToEvents({ type: "finish", finishReason: "stop" }),
     ).toEqual([{ type: "done", reason: "stop" }]);
     expect(
@@ -102,92 +233,3 @@ describe("aiSdkHarnessPartToEvents", () => {
     ).toEqual([{ type: "error", error: "boom" }]);
   });
 });
-
-describe("codexCliAuth sandbox hook", () => {
-  it("copies local Codex CLI auth into the sandbox before an existing hook runs", async () => {
-    const authDir = makeTempDir();
-    const authPath = path.join(authDir, "auth.json");
-    const authJson = JSON.stringify({
-      auth_mode: "chatgpt",
-      tokens: { access_token: "access", refresh_token: "refresh" },
-    });
-    fs.writeFileSync(authPath, authJson);
-    const writes: Array<{ path: string; content: string }> = [];
-    const runs: string[] = [];
-    const existingHook = vi.fn();
-    const hook = createCodexCliAuthSandboxHook(
-      { authJsonPath: authPath },
-      existingHook,
-    );
-
-    await hook({
-      session: {
-        async run(options) {
-          runs.push(options.command);
-          if (options.command === 'printf "%s" "$HOME"') {
-            return { stdout: "/home/sandbox", exitCode: 0 };
-          }
-          return { stdout: "", exitCode: 0 };
-        },
-        async writeTextFile(options) {
-          writes.push({ path: options.path, content: options.content });
-        },
-      },
-      sessionWorkDir: "/home/sandbox/codex-session",
-    });
-
-    expect(writes).toEqual([
-      {
-        path: "/home/sandbox/.codex/auth.json",
-        content: authJson,
-      },
-    ]);
-    expect(runs).toContain(
-      "mkdir -p '/home/sandbox/.codex' && chmod 700 '/home/sandbox/.codex'",
-    );
-    expect(runs).toContain("chmod 600 '/home/sandbox/.codex/auth.json'");
-    expect(existingHook).toHaveBeenCalledOnce();
-  });
-
-  it("throws a codex login hint when the local auth file is missing", async () => {
-    const hook = createCodexCliAuthSandboxHook({
-      authJsonPath: path.join(makeTempDir(), "missing-auth.json"),
-    });
-
-    await expect(
-      hook({
-        session: {
-          async run() {
-            return { stdout: "/home/sandbox", exitCode: 0 };
-          },
-          async writeTextFile() {},
-        },
-        sessionWorkDir: "/home/sandbox/codex-session",
-      }),
-    ).rejects.toThrow(/Run `codex login`/);
-  });
-
-  it("resolves the default auth path from CODEX_HOME before ~/.codex", () => {
-    const previousCodexHome = process.env.CODEX_HOME; // guard:allow-env-credential -- test covers local auth-directory path selection.
-    process.env.CODEX_HOME = "/tmp/codex-home"; // guard:allow-env-credential -- test covers local auth-directory path selection.
-
-    try {
-      expect(normalizeCodexCliAuthConfig(true)).toEqual({
-        codexHome: "/tmp/codex-home",
-        authJsonPath: "/tmp/codex-home/auth.json",
-      });
-    } finally {
-      if (previousCodexHome === undefined)
-        delete process.env.CODEX_HOME; // guard:allow-env-credential -- restore local auth-directory path env in test.
-      else process.env.CODEX_HOME = previousCodexHome; // guard:allow-env-credential -- restore local auth-directory path env in test.
-    }
-  });
-});
-
-function makeTempDir(): string {
-  const dir = fs.mkdtempSync(
-    path.join(os.tmpdir(), "agent-native-codex-auth-"),
-  );
-  tempDirs.push(dir);
-  return dir;
-}

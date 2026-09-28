@@ -10,6 +10,7 @@ export type FactoryPollCursor = {
   lastSlackTs: string | null;
   slackHistoryCursor: string | null;
   lastSentrySeenAt: string | null;
+  babysitQueueCursor: string | null;
 };
 
 function pollCursorRowId(
@@ -47,6 +48,7 @@ export async function readFactoryPollCursor(
     lastSlackTs: row.lastSlackTs,
     slackHistoryCursor: row.slackHistoryCursor,
     lastSentrySeenAt: row.lastSentrySeenAt,
+    babysitQueueCursor: row.babysitQueueCursor ?? null,
   };
 }
 
@@ -61,6 +63,7 @@ export async function writeFactoryPollCursor(
     lastSlackTs?: string | null;
     slackHistoryCursor?: string | null;
     lastSentrySeenAt?: string | null;
+    babysitQueueCursor?: string | null;
   },
 ): Promise<void> {
   const now = new Date().toISOString();
@@ -80,6 +83,7 @@ export async function writeFactoryPollCursor(
       lastSlackTs: input.lastSlackTs ?? null,
       slackHistoryCursor: input.slackHistoryCursor ?? null,
       lastSentrySeenAt: input.lastSentrySeenAt ?? null,
+      babysitQueueCursor: input.babysitQueueCursor ?? null,
       createdAt: now,
       updatedAt: now,
       ownerEmail: input.ownerEmail,
@@ -91,6 +95,7 @@ export async function writeFactoryPollCursor(
         lastSlackTs: input.lastSlackTs ?? null,
         slackHistoryCursor: input.slackHistoryCursor ?? null,
         lastSentrySeenAt: input.lastSentrySeenAt ?? null,
+        babysitQueueCursor: input.babysitQueueCursor ?? null,
         updatedAt: now,
         ownerEmail: input.ownerEmail,
       },

@@ -27,6 +27,19 @@ describe("player thumbnail URLs", () => {
     ).toBe("/clips/api/thumbnail/rec-1?t=media-token");
   });
 
+  it("uses the animated proxy route when requested", () => {
+    expect(
+      resolvePlayerThumbnailUrl(
+        {
+          id: "rec-1",
+          thumbnailUrl: "https://cdn.example.com/thumb.jpg",
+          animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+        },
+        { animated: true },
+      ),
+    ).toBe("/api/thumbnail/rec-1?animated=1");
+  });
+
   it("returns null when no thumbnail exists", () => {
     expect(resolvePlayerThumbnailUrl({ id: "rec-1" })).toBeNull();
   });

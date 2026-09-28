@@ -491,9 +491,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
     }
   });
 
-  // The insert path copies markup into the running DOM and leaves the subject
-  // where it was, which is only correct for a board primitive. Applying it to
-  // any stored screen turns an ordinary move into a silent duplicate.
   it("reinterprets a drop into a live screen as an insert only from the board", () => {
     expect(
       resolveRuntimeStructureMoveExecutionMode({
@@ -521,7 +518,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
     const cases: Array<
       [Parameters<typeof resolveRuntimeStructureMoveExecutionMode>[0], string]
     > = [
-      // Stored → stored stays a plain source edit, live-ness unset.
       [
         {
           subjectRuntimeOnly: false,
@@ -531,7 +527,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "source-edit",
       ],
-      // A board drop onto a stored screen is still a stored move, not an insert.
       [
         {
           subjectRuntimeOnly: false,
@@ -542,7 +537,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "source-edit",
       ],
-      // Board → live is the one insert route.
       [
         {
           subjectRuntimeOnly: false,
@@ -554,8 +548,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "screen-bridge-insert",
       ],
-      // Board → live where the subject is itself a runtime node is a move
-      // between two running apps, not new markup.
       [
         {
           subjectRuntimeOnly: true,
@@ -565,10 +557,8 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
           sourceScreenIsBoard: true,
           targetScreenIsLive: true,
         },
-        "semantic-handoff",
+        "screen-bridge-insert",
       ],
-      // Stored → live: the destination has no editable stored document, so it
-      // may never fall back to the source-edit path.
       [
         {
           subjectRuntimeOnly: false,
@@ -579,7 +569,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "semantic-handoff",
       ],
-      // Live → live, same screen: the fast in-iframe bridge still owns it.
       [
         {
           subjectRuntimeOnly: true,
@@ -590,7 +579,6 @@ describe("resolveRuntimeStructureMoveExecutionMode", () => {
         },
         "screen-bridge",
       ],
-      // Live → different live screen: one screen-scoped bridge cannot span it.
       [
         {
           subjectRuntimeOnly: true,
@@ -638,7 +626,7 @@ describe("pending React source anchors", () => {
     });
   });
 
-  it("keeps an absolute Fiber path only in local state and redacts it from prompts", () => {
+  it("keeps a bounded absolute Fiber path marked outside the connected root", () => {
     const anchor = reactSourceAnchorForPendingEdit({
       info: {
         provenance: {
@@ -675,9 +663,10 @@ describe("pending React source anchors", () => {
       ],
     });
 
-    expect(prompt).not.toContain("/Users/private");
+    expect(prompt).toContain("/Users/private/work/app/Card.tsx");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
     expect(prompt).toContain('"line": 4');
-    expect(prompt).not.toContain('"sourceFile"');
+    expect(prompt).toContain('"sourceFile"');
   });
 
   it("resolves absolute provenance against the authenticated connection root", () => {
@@ -924,7 +913,7 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"relPath": "app/components/Card.tsx"');
     expect(prompt).toContain('"relPath": "app/components/Hero.tsx"');
     expect(prompt).not.toContain("/Users/example/project");
-    expect(prompt.match(/"runtimeMultiplicity": 1/g)).toHaveLength(6);
+    expect(prompt.match(/"runtimeMultiplicity": 1/g)).toHaveLength(10);
     expect(prompt).toContain('"semanticHandoff"');
     expect(prompt).toContain('"executionMode": "coding-agent"');
     expect(prompt).toContain('"operation": "reparent"');
@@ -982,7 +971,7 @@ describe("pending React source anchors", () => {
     expect(prompt).toContain('"x": 300');
   });
 
-  it("includes a safe handoff failure without leaking an unresolved absolute path", () => {
+  it("includes a safe handoff failure with an unresolved path marked outside the root", () => {
     const prompt = formatPendingVisualStylePrompt({
       edits: [],
       liveEdits: [
@@ -1016,8 +1005,9 @@ describe("pending React source anchors", () => {
 
     expect(prompt).toContain('"semanticHandoffFailure"');
     expect(prompt).toContain('"code": "unsafe-source-path"');
-    expect(prompt).toContain("does not include a safe project-relative path");
-    expect(prompt).not.toContain("/Users/private");
+    expect(prompt).toContain("app-authored owner path");
+    expect(prompt).toContain("/Users/private/work/app/Card.tsx");
+    expect(prompt).toContain('"sourcePathStatus": "outside-connected-root"');
   });
 });
 
@@ -1054,10 +1044,6 @@ describe("pending localhost structure history", () => {
   });
 });
 
-// The owner call site is the whole point of distinguishing `.map()` siblings:
-// their own JSX line is identical, and only the owner location names the file
-// and line a coding agent has to open. The handoff used to carry ownerKey
-// alone, which says WHICH instance without saying where it comes from.
 describe("owner provenance survives the coding-agent handoff", () => {
   const mappedInfo = {
     provenance: {
@@ -1096,7 +1082,7 @@ describe("owner provenance survives the coding-agent handoff", () => {
     });
   });
 
-  it("redacts the absolute owner path and labels the owner position honestly", () => {
+  it("keeps the absolute owner path marked outside the connected root", () => {
     const anchor = reactSourceAnchorForPendingEdit({
       info: mappedInfo,
       rootPath: "/Users/example/project",
@@ -1110,16 +1096,19 @@ describe("owner provenance survives the coding-agent handoff", () => {
     });
     expect(JSON.stringify(redacted)).not.toContain("/Users/example");
 
-    // No safe project-relative owner path yet: drop the owner LOCATION rather
-    // than leak the Fiber path, but keep the identity fields that are not
-    // locations — the key is still what separates the siblings.
     const unresolved = redactReactSourceAnchor(
       reactSourceAnchorForPendingEdit({ info: mappedInfo }),
     );
     expect(unresolved?.ownerRelPath).toBeUndefined();
-    expect(unresolved?.ownerLine).toBeUndefined();
+    expect(unresolved).toMatchObject({
+      ownerSourceFile: "/Users/example/project/src/App.jsx",
+      ownerSourcePathStatus: "outside-connected-root",
+      ownerLine: 55,
+      ownerColumn: 51,
+      ownerMethod: "debug-stack",
+    });
     expect(unresolved?.ownerKey).toBe("b");
-    expect(JSON.stringify(unresolved)).not.toContain("/Users/example");
+    expect(JSON.stringify(unresolved)).toContain("/Users/example/project");
   });
 
   it("emits the owner site on the exact anchor with its own precision", () => {
@@ -1133,8 +1122,6 @@ describe("owner provenance survives the coding-agent handoff", () => {
             rootPath: "/Users/example/project",
           })!,
           id: "subject",
-          // An authored element position with a transformed owner position:
-          // one shared precision field would overstate one of the two.
           method: "data-attribute",
         },
       ],

@@ -82,7 +82,7 @@ DATABASE_URL=pglite:./data/pglite
 
 ### قاعدة بيانات الإنتاج {#production}
 
-اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة PostgreSQL مستضافة:
+اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة PostgreSQL مستضافة. تشمل الخيارات المُدارة الشائعة [Neon](/docs/neon) و[Supabase](/docs/supabase) و[Amazon RDS for PostgreSQL](/docs/aws-rds) و[Cloud SQL for PostgreSQL](/docs/cloud-sql) و[Azure Database for PostgreSQL](/docs/azure-postgresql). استخدم دليل [Plain Postgres](/docs/postgres) للخدمات المُدارة الأخرى وخوادم PostgreSQL ذاتية الاستضافة:
 
 ```bash
 # Neon Postgres
@@ -98,6 +98,8 @@ DATABASE_URL=pglite:./data/pglite
 ```
 
 يهيئ إطار العمل Drizzle لـ PostgreSQL باستخدام `DATABASE_URL`.
+
+يحدّ إطار العمل الاتصالات في كل تجمّع. القيم الافتراضية هي 20 لعمليات Node.js طويلة العمر، و2 لوظائف serverless الأمامية، و4 لوظائف serverless الخلفية، و1 للعاملين المجدولين منخفضي الاتصال. عيّن `AGENT_NATIVE_DB_POOL_MAX` لتجاوز حدّ كل تجمّع في عملاء Neon وPostgreSQL القياسيين. قدّر إجمالي الاتصالات عبر مثيلات الوظائف النشطة وعمليات Node.js والتطبيقات وعناوين قواعد البيانات المختلفة. لكل عملية تجمّعاتها الخاصة. أبقِ المجموع دون حد قاعدة البيانات أو مجمّع الاتصالات، مع ترك سعة للترحيلات والإدارة والعملاء الآخرين. استخدم عنوان المجمّع الذي يوفّره المزود عند توفره. للتطبيقات ذات العمليات الكثيرة على PostgreSQL ذاتي الاستضافة، فكّر في PgBouncer بوضع تجميع المعاملات.
 
 ### قاعدة بيانات مُدارة من Builder.io {#builder-managed}
 

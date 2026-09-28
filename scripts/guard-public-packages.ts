@@ -2,26 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
+
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 
-const npmPublishAllowlist = new Set([
-  "@agent-native/core",
-  "@agent-native/creative-context",
-  "@agent-native/dispatch",
-  "@agent-native/pinpoint",
-  "@agent-native/recap-cli",
-  "@agent-native/scheduling",
-  "@agent-native/skills",
-  "@agent-native/toolkit",
-]);
+const npmPublishAllowlist = new Set(NPM_PUBLISH_PACKAGE_NAMES);
 
-// Packages that are NOT published to npm and therefore exempt from the
-// publish-readiness checks below. Apps are private. Workspace-only libraries are
-// consumed through `workspace:` and must stay ignored by changesets until npm
-// trusted publishing is configured for them.
 const workspaceOnlyPackageAllowlist = new Set([
   "@agent-native/agent-browser-extension",
   "@agent-native/agent-chrome-extension",
@@ -110,8 +99,6 @@ function dependencyProtocolFailures(
   if (!dependencies) return [];
   return Object.entries(dependencies)
     .filter(([dep, version]) => {
-      // pnpm rewrites catalog references to their publishable semver ranges
-      // during pack and publish, just like workspace protocol references.
       if (/^catalog:/.test(version)) return false;
       if (/^workspace:/.test(version)) {
         return !npmPublishAllowlist.has(dep);
@@ -134,9 +121,6 @@ function localWorkspaceDependencyFailures(
     .filter(([dep, version]) => {
       if (!workspacePackageNames.has(dep)) return false;
       if (version === "workspace:*") return false;
-      // Published deps may use workspace:^ so pnpm pack rewrites it to a
-      // caret range (e.g. ^0.4.3), letting consumers dedupe against a
-      // compatible version instead of an exact pin.
       if (version === "workspace:^" && npmPublishAllowlist.has(dep)) {
         return false;
       }

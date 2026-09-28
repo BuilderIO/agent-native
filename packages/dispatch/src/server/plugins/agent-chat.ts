@@ -4,6 +4,7 @@ import { createAgentChatPlugin } from "@agent-native/core/server";
 import { dispatchActions } from "../../actions/index.js";
 import {
   workspaceAppActionRouteAuth,
+  WORKSPACE_APP_CLAIM_ACTION_PATH,
   WORKSPACE_APPS_ACTION_PATH,
 } from "../lib/workspace-app-action-auth.js";
 
@@ -39,6 +40,7 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "dispatch",
+  connectApps: true,
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
@@ -48,19 +50,16 @@ export default createAgentChatPlugin({
       "list-dispatch-usage-metrics",
     ],
   },
-  // Without this, AGENT_ORG_ID is never set on agent action calls and every
-  // row written through the frontend (vault secrets, destinations, workspace
-  // resources) lands with org_id=NULL — breaking data isolation across orgs.
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  // Read actions directly from the package's own action map rather than from
-  // a build-time-generated `.generated/actions-registry.ts` (the latter is a
-  // template-only construct that the Vite plugin emits next to actions/).
   actions: dispatchActions,
   actionRouteAuth: workspaceAppActionRouteAuth,
-  actionRoutePublicPaths: [WORKSPACE_APPS_ACTION_PATH],
+  actionRoutePublicPaths: [
+    WORKSPACE_APPS_ACTION_PATH,
+    WORKSPACE_APP_CLAIM_ACTION_PATH,
+  ],
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the central dispatch for this workspace.
 

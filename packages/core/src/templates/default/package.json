@@ -49,5 +49,6 @@
     "tsx": "^4.20.3",
     "typescript-7": "catalog:",
     "vite": "8.1.0"
-  }
+  },
+  "packageManager": "pnpm@10.29.1"
 }

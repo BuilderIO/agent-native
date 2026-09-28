@@ -29,6 +29,7 @@ import {
 
 import * as AppStore from "../app-store";
 import { readCookieHeaderForUrl } from "../cookie-header";
+import type { CaptureActiveDesktopBrowserScreenshot } from "../desktop-browser-screenshot";
 import {
   DesktopSurfaceMcpBridge,
   type DesktopSurfaceMcpRegistration,
@@ -75,6 +76,9 @@ let relayPromise: Promise<RelayState> | null = null;
 let desktopTerminalPromise: ReturnType<typeof createDesktopTerminal> | null =
   null;
 let ipcRegistered = false;
+let captureActiveBrowserScreenshot:
+  | CaptureActiveDesktopBrowserScreenshot
+  | undefined;
 
 function tomlString(value: string): string {
   return JSON.stringify(value);
@@ -381,10 +385,6 @@ export default function (pi) {
 }
 `;
 
-/**
- * Main-process capability relay. Provider CLIs see only a loopback bearer;
- * app auth stays here and is never serialized into their config or argv.
- */
 export class DesktopTerminalMcpRelay {
   private readonly bearerToken = randomBytes(32).toString("base64url");
   private readonly bearerHash = hashTerminalToken(this.bearerToken);
@@ -826,6 +826,7 @@ function contextFromTerminalQuery(
 async function createDesktopTerminalSession(
   command: string,
   rawContext: DesktopTerminalContext | null,
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
 ) {
   const context = normalizeDesktopTerminalContext(rawContext);
   const appConfig = context
@@ -857,6 +858,7 @@ async function createDesktopTerminalSession(
       win.webContents.send(IPC.DESKTOP_CHAT_OPEN_APP, request);
     },
     getActiveAppContext: () => appContext,
+    captureActiveBrowserScreenshot: captureScreenshot,
   });
   let appMcpRelay: DesktopTerminalMcpRelay | undefined;
   let claudeConfigPath: string | undefined;
@@ -901,8 +903,6 @@ async function createDesktopTerminalSession(
             },
           };
         } catch (error) {
-          // App MCP is an optional capability. A signed-out or unavailable
-          // guest must not prevent the local desktop terminal from starting.
           console.warn("[desktop-terminal] app tools unavailable", {
             appId: appConfig.id,
             reason: error instanceof Error ? error.message : "unknown error",
@@ -972,7 +972,9 @@ async function createDesktopTerminalSession(
   }
 }
 
-async function createDesktopTerminal() {
+async function createDesktopTerminal(
+  captureScreenshot?: CaptureActiveDesktopBrowserScreenshot,
+) {
   const token = randomUUID().replaceAll("-", "");
   const terminal = await createPtyWebSocketServer({
     appDir: resolveDesktopTerminalCwd(),
@@ -991,7 +993,7 @@ async function createDesktopTerminal() {
     getSessionSetup: (
       command: string,
       context: DesktopTerminalContext | null,
-    ) => createDesktopTerminalSession(command, context),
+    ) => createDesktopTerminalSession(command, context, captureScreenshot),
     logPrefix: "[desktop-terminal]",
   } as Parameters<typeof createPtyWebSocketServer>[0]);
   app.once("before-quit", () => terminal.close());
@@ -999,7 +1001,9 @@ async function createDesktopTerminal() {
 }
 
 function ensureDesktopTerminal() {
-  desktopTerminalPromise ??= createDesktopTerminal().catch((error) => {
+  desktopTerminalPromise ??= createDesktopTerminal(
+    captureActiveBrowserScreenshot,
+  ).catch((error) => {
     desktopTerminalPromise = null;
     throw error;
   });
@@ -1085,9 +1089,6 @@ export function resolveTargetUrl(
 ): URL | null {
   try {
     const target = new URL(targetPath, "http://desktop-chat.invalid");
-    // Check the normalized URL, not the raw path. Otherwise
-    // /_agent-native/../ can pass the prefix check before escaping the
-    // relay's route boundary.
     if (!target.pathname.startsWith(RELAY_ALLOWED_PREFIX)) return null;
     const base = new URL(baseUrl);
     const basePath = base.pathname.replace(/\/+$/, "");
@@ -1337,8 +1338,13 @@ function ensureRelay(): Promise<RelayState> {
   return relayPromise;
 }
 
-export function registerDesktopChatIpc(): void {
+export function registerDesktopChatIpc(
+  options: {
+    captureActiveBrowserScreenshot?: CaptureActiveDesktopBrowserScreenshot;
+  } = {},
+): void {
   if (ipcRegistered) return;
+  captureActiveBrowserScreenshot = options.captureActiveBrowserScreenshot;
   ipcRegistered = true;
   ipcMain.handle(
     IPC.DESKTOP_CHAT_GET_API_URL,

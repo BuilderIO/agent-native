@@ -1,12 +1,8 @@
-/**
- * Framework-owned S3-compatible object storage provider.
- *
- * The onboarding form writes these keys to scoped secrets. A public base URL
- * is required because chat attachments need stable URLs that remain usable
- * after the request and across later turns in the thread.
- */
-
 import { resolveSecret } from "../server/credential-provider.js";
+import {
+  listFileUploadProviders,
+  registerFileUploadProvider,
+} from "./registry.js";
 import type { FileUploadProvider } from "./types.js";
 
 interface S3Config {
@@ -306,6 +302,24 @@ export const s3FileUploadProvider: FileUploadProvider = {
   name: "S3-compatible object storage",
   isConfigured: () => readEnvConfig() !== null,
   isConfiguredForRequest: async () => (await readRequestConfig()) !== null,
+  isOwnedUrl: async (value) => {
+    const config = await readRequestConfig();
+    if (!config) return false;
+    try {
+      const url = new URL(value);
+      const publicUrl = new URL(config.publicBaseUrl);
+      const basePath = publicUrl.pathname.replace(/\/+$/, "");
+      return (
+        url.origin === publicUrl.origin &&
+        (basePath === "" ||
+          url.pathname === basePath ||
+          url.pathname.startsWith(`${basePath}/`))
+      );
+    } catch {
+      // coercion-ok: malformed URLs are an explicit not-owned result.
+      return false;
+    }
+  },
   upload: async ({ data, filename, mimeType }) => {
     const config = await readRequestConfig();
     if (!config) {
@@ -330,3 +344,14 @@ export const s3FileUploadProvider: FileUploadProvider = {
     return deleteObject(config, id);
   },
 };
+
+export function ensureS3FileUploadProvider(): void {
+  if (
+    listFileUploadProviders().some(
+      (provider) => provider.id === s3FileUploadProvider.id,
+    )
+  ) {
+    return;
+  }
+  registerFileUploadProvider(s3FileUploadProvider);
+}

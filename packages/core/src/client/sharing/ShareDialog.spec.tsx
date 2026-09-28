@@ -119,6 +119,26 @@ describe("ShareDialog primitive normalization", () => {
     );
   });
 
+  it("shows the title without a redundant single Link tab", async () => {
+    await renderDialog(vi.fn(), {
+      shareUrl: "https://share.example.test/doc-1",
+    });
+
+    expect(document.body.textContent).toContain("Quarterly plan");
+    expect(document.body.querySelector('[role="tablist"]')).toBeNull();
+  });
+
+  it("keeps the tab row below the dialog close control", async () => {
+    await renderDialog(vi.fn(), {
+      shareUrl: "https://share.example.test/doc-1",
+      embedUrl: "https://embed.example.test/doc-1",
+    });
+
+    expect(
+      document.body.querySelector('[role="tablist"]')?.className,
+    ).toContain("mt-10");
+  });
+
   it("keeps individual access on the primary link surface", async () => {
     await renderDialog(vi.fn(), {
       shareUrl: "https://share.example.test/doc-1",

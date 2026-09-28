@@ -5,9 +5,12 @@ import {
   IconUsersGroup,
   IconArchive,
   IconTrash,
+  IconLink,
 } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
+import { type ComponentType, type ReactNode, useState } from "react";
+import { Link, useNavigate } from "react-router";
 
+import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -17,6 +20,8 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+
+import { buildLibraryActionHrefs } from "./library-action-hrefs";
 
 type EmptyKind =
   | "library"
@@ -38,6 +43,42 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
 };
 
 const CTA_KINDS = new Set<EmptyKind>(["library", "folder", "space"]);
+const BACK_TO_LIBRARY_KINDS = new Set<EmptyKind>([
+  "shared",
+  "archive",
+  "trash",
+]);
+
+interface AppEmptyStateProps {
+  icon: ComponentType<{ className?: string }>;
+  title: ReactNode;
+  description?: ReactNode;
+  content?: ReactNode;
+}
+
+export function AppEmptyState({
+  icon: Icon,
+  title,
+  description,
+  content,
+}: AppEmptyStateProps) {
+  return (
+    <Empty className="min-h-64 px-6 py-12 md:p-12">
+      <EmptyHeader className="w-full max-w-xl">
+        <EmptyMedia variant="icon">
+          <Icon />
+        </EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription>{description}</EmptyDescription>
+        ) : null}
+      </EmptyHeader>
+      {content ? (
+        <EmptyContent className="gap-2">{content}</EmptyContent>
+      ) : null}
+    </Empty>
+  );
+}
 
 interface EmptyStateProps {
   kind: EmptyKind;
@@ -56,6 +97,7 @@ export function EmptyState({
   const t = useT();
   const Icon = ICONS[kind];
   const hasCta = CTA_KINDS.has(kind);
+  const [loomImportOpen, setLoomImportOpen] = useState(false);
 
   const handleCta = () => {
     if (onCtaClick) {
@@ -69,22 +111,43 @@ export function EmptyState({
     }
   };
 
+  const { recordHref } = buildLibraryActionHrefs({ spaceId, folderId });
+
+  const content = hasCta ? (
+    <div className="flex flex-col items-center gap-2">
+      <Button onClick={handleCta} size="sm">
+        {t(`empty.${kind}.cta`)}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-2"
+        onClick={() => setLoomImportOpen(true)}
+      >
+        <IconLink />
+        {t("preRecord.importLoom")}
+      </Button>
+      <ImportLoomDialog
+        open={loomImportOpen}
+        onOpenChange={setLoomImportOpen}
+        spaceId={spaceId}
+        folderId={folderId}
+        recordHref={recordHref}
+      />
+    </div>
+  ) : BACK_TO_LIBRARY_KINDS.has(kind) ? (
+    <Button asChild size="sm">
+      <Link to="/library">{t("recordingPage.backToLibrary")}</Link>
+    </Button>
+  ) : null;
+
   return (
-    <Empty className="min-h-full rounded-none py-20">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Icon />
-        </EmptyMedia>
-        <EmptyTitle>{t(`empty.${kind}.title`)}</EmptyTitle>
-        <EmptyDescription>{t(`empty.${kind}.body`)}</EmptyDescription>
-      </EmptyHeader>
-      {hasCta ? (
-        <EmptyContent>
-          <Button onClick={handleCta} size="sm">
-            {t(`empty.${kind}.cta`)}
-          </Button>
-        </EmptyContent>
-      ) : null}
-    </Empty>
+    <AppEmptyState
+      icon={Icon}
+      title={t(`empty.${kind}.title`)}
+      description={t(`empty.${kind}.body`)}
+      content={content}
+    />
   );
 }

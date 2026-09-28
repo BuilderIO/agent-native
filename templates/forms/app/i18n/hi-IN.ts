@@ -43,6 +43,8 @@ const messages = {
     suggestionSurvey: "ग्राहक feedback survey बनाएं",
     suggestionSubmissions: "दिन के हिसाब से submissions दिखाएं",
     suggestionExport: "Responses को CSV में export करें",
+    topSignal: "मुख्य संकेत",
+    draftFollowUp: "फ़ॉलो-अप प्रश्न का मसौदा लिखें",
   },
   sidebar: {
     collapseSidebar: "साइडबार समेटें",
@@ -347,6 +349,10 @@ const messages = {
     responseSubmitted: "जवाब सबमिट हुआ",
     noFields: "इस फॉर्म में अभी कोई फ़ील्ड नहीं है।",
     failedSubmit: "फॉर्म सबमिट करने में विफल",
+    uncheckablePattern:
+      "इस फ़ॉर्म में {label} का नियम जाँचा नहीं जा सकता। कृपया फ़ॉर्म स्वामी से इसे ठीक करने को कहें।",
+    patternTooLong:
+      "{label} का मान बहुत लंबा है, इसलिए इस फ़ॉर्म के नियम से जाँचा नहीं जा सकता।",
   },
   responseInsights: {
     unavailable: "इनसाइट उपलब्ध नहीं",

@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 
 import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
 
+import { fail } from "../action.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
+  resolveBuilderLegacyRequestAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "./builder-api-auth.js";
+import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
+import {
+  FeatureNotConfiguredError,
   getBuilderProxyOrigin,
   resolveSecret,
-  resolveBuilderCredentials,
 } from "./credential-provider.js";
 import {
   canonicalGitHubRepoUrl,
@@ -19,9 +25,6 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-// GCS resumable uploads require every chunk except the last to be a multiple
-// of 256 KiB. 16 MiB is the recommended default and keeps very large `.fig`
-// files off a single unbounded request body.
 const GCS_CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
 const RETRYABLE_INDEX_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -38,20 +41,6 @@ export interface BuilderDesignSystemCodeFileInput {
   filename: string;
   content: string;
   mimeType?: string;
-  /**
-   * How `content` is encoded. Defaults to `"utf8"` (existing behavior,
-   * unchanged for every current text-file caller). Pass `"base64"` for
-   * binary files -- most importantly `.fig` (a zip/kiwi binary container,
-   * never valid UTF-8 text). Without this, a `.fig` upload silently
-   * corrupts: `mimeTypeForBuilderDesignSystemFilename` already special-cases
-   * `.fig` as `application/octet-stream`, but the actual byte pipeline ran
-   * every file through `TextEncoder().encode()` regardless, which mangles
-   * any byte >= 0x80 in a binary-as-string payload (or, if the caller
-   * base64-encoded first with no decode step here, stores the literal
-   * base64 text instead of the decoded binary). Callers sending `.fig`/PDF/
-   * other binary bytes must base64-encode `content` and set this to
-   * `"base64"`.
-   */
   encoding?: "utf8" | "base64";
 }
 
@@ -61,7 +50,6 @@ export interface BuildBuilderDesignSystemIndexFilesOptions {
   designMdFilename?: string;
   maxCodeFiles?: number;
   maxTotalCodeBytes?: number;
-  /** Default keeps legacy best-effort code indexing; upload/chat surfaces should fail loudly. */
   overflowBehavior?: "skip" | "throw";
 }
 
@@ -123,9 +111,16 @@ export interface BuilderDesignSystemHydratedReference extends BuilderDesignSyste
   docs: BuilderDesignSystemDocument[];
   tokenValues: Record<string, string>;
   docCount: number;
-  /** True only when Builder explicitly confirms that indexing is complete. */
   completionConfirmed?: boolean;
 }
+
+export type BuilderDesignSystemDocumentCountResult =
+  | { ok: true; docCount: number }
+  | {
+      ok: false;
+      reason: "unreachable" | "invalid-response";
+      detail: string;
+    };
 
 export interface BuilderDesignSystemIndexOptions {
   projectName?: string;
@@ -138,7 +133,6 @@ export interface BuilderDesignSystemIndexOptions {
   devToolsVersion?: string;
 }
 
-/** A durable, replayable GitHub source configuration for a Builder DSI kit. */
 export interface BuilderDesignSystemGitHubSource {
   repoUrl: string;
   ref?: string;
@@ -167,14 +161,99 @@ export type BuilderDesignSystemStatus =
   | "failed"
   | "cancelled";
 
-interface BuilderDesignSystemCredentials {
-  privateKey: string;
-  publicKey: string;
-  userId: string | null;
-}
-
 interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
+}
+
+export interface BuilderDesignSystemTierLimit {
+  status: "ok" | "unavailable";
+  plan: string | null;
+  current: number | null;
+  max: number | null;
+  atMax: boolean;
+  codeIndexingAllowed: boolean;
+  upgradeUrl: string | null;
+}
+
+interface TierLimitResponseBody {
+  plan?: unknown;
+  current?: unknown;
+  currentCount?: unknown;
+  max?: unknown;
+  maxAllowed?: unknown;
+  atMax?: unknown;
+  codeIndexingAllowed?: unknown;
+  allowCodeIndexing?: unknown;
+  upgradeUrl?: unknown;
+}
+
+const DESIGN_SYSTEM_CODE_INDEXING_ALLOWED_PLANS = new Set(["enterprise"]);
+
+function designSystemTierLimitFromBody(
+  body: TierLimitResponseBody,
+): Omit<BuilderDesignSystemTierLimit, "status"> {
+  const plan =
+    typeof body.plan === "string" && body.plan.trim()
+      ? body.plan.trim().toLowerCase()
+      : null;
+  const current =
+    typeof body.current === "number"
+      ? body.current
+      : typeof body.currentCount === "number"
+        ? body.currentCount
+        : null;
+  const max =
+    typeof body.max === "number"
+      ? body.max
+      : typeof body.maxAllowed === "number"
+        ? body.maxAllowed
+        : null;
+  const atMax =
+    typeof body.atMax === "boolean"
+      ? body.atMax
+      : typeof current === "number" && typeof max === "number"
+        ? current >= max
+        : false;
+  const codeIndexingAllowed =
+    typeof body.codeIndexingAllowed === "boolean"
+      ? body.codeIndexingAllowed
+      : typeof body.allowCodeIndexing === "boolean"
+        ? body.allowCodeIndexing
+        : plan != null && DESIGN_SYSTEM_CODE_INDEXING_ALLOWED_PLANS.has(plan);
+  const upgradeUrl =
+    typeof body.upgradeUrl === "string" && body.upgradeUrl.trim()
+      ? body.upgradeUrl.trim()
+      : null;
+  return { plan, current, max, atMax, codeIndexingAllowed, upgradeUrl };
+}
+
+function parseTierLimitErrorBody(text: string): TierLimitResponseBody {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text) as Record<string, unknown>;
+  } catch (parseError) {
+    // coercion-ok: 402 body isn't guaranteed to be JSON; every field this
+    // feeds into is optional and null-safe downstream.
+    return {};
+  }
+  const nested = parsed.error;
+  return (
+    nested && typeof nested === "object" ? nested : parsed
+  ) as TierLimitResponseBody;
+}
+
+function designSystemTierLimitMessage(
+  limit: Omit<BuilderDesignSystemTierLimit, "status">,
+): string {
+  const planLabel = limit.plan ? " for the " + limit.plan + " plan" : "";
+  const maxLabel =
+    typeof limit.max === "number" ? " (max " + limit.max + ")" : "";
+  return (
+    "You have reached your design-system limit" +
+    planLabel +
+    maxLabel +
+    ". Upgrade to create another design system."
+  );
 }
 
 interface IndexResponse {
@@ -349,11 +428,6 @@ function normalizedGitHubSource(source: BuilderDesignSystemGitHubSource): {
   return { source: normalized, reference: { ...reference, ref } };
 }
 
-/**
- * Resolve an explicitly scoped/ref'd GitHub source into bounded file uploads.
- * Native Builder public-repo sources are preferred for unscoped public repos;
- * this path exists so branch, folder, and private-repo imports are replayable.
- */
 export async function collectBuilderDesignSystemGitHubFiles(
   input: BuilderDesignSystemGitHubSource,
 ): Promise<BuilderDesignSystemGitHubFileCollection> {
@@ -493,15 +567,17 @@ async function isPublicGitHubSource(
 export async function fetchBuilderDesignSystemDecodeJobStatus(
   jobId: string,
 ): Promise<BuilderDesignSystemDecodeJobStatus> {
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  const url = makeBuilderDesignSystemUrl(
-    "decode-jobs/" + encodeURIComponent(jobId),
-    credentials,
+  const response = await requestBuilderDesignSystem(
+    "builder:designsystem:read",
+    (authorization) =>
+      fetchWithTimeout(
+        makeBuilderDesignSystemUrl(
+          "decode-jobs/" + encodeURIComponent(jobId),
+          authorization,
+        ),
+        { method: "GET", headers: makeBuilderHeaders(authorization) },
+      ),
   );
-  const response = await fetchWithTimeout(url, {
-    method: "GET",
-    headers: makeBuilderHeaders(credentials),
-  });
   await assertOk(response, "Builder design-system decode-job status failed");
   return (await response.json()) as BuilderDesignSystemDecodeJobStatus;
 }
@@ -511,24 +587,20 @@ export interface BuilderDesignSystemRecord {
   branchName?: string;
 }
 
-/**
- * Looks up the project + branch a Builder-indexed design system lives on.
- * `builderUrl` is frozen at index time and often falls back to the docs page
- * because the Fusion branch isn't cut yet -- this lets a caller resolve the
- * real project/branch preview link later, once it exists.
- */
 export async function fetchBuilderDesignSystemRecord(
   designSystemId: string,
 ): Promise<BuilderDesignSystemRecord | null> {
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  const url = makeBuilderDesignSystemUrl(
-    encodeURIComponent(designSystemId),
-    credentials,
+  const response = await requestBuilderDesignSystem(
+    "builder:designsystem:read",
+    (authorization) =>
+      fetchWithTimeout(
+        makeBuilderDesignSystemUrl(
+          encodeURIComponent(designSystemId),
+          authorization,
+        ),
+        { method: "GET", headers: makeBuilderHeaders(authorization) },
+      ),
   );
-  const response = await fetchWithTimeout(url, {
-    method: "GET",
-    headers: makeBuilderHeaders(credentials),
-  });
   if (response.status === 404) return null;
   await assertOk(response, "Builder design-system lookup failed");
   const json = (await response.json()) as {
@@ -540,6 +612,60 @@ export async function fetchBuilderDesignSystemRecord(
     branchName:
       typeof json.branchName === "string" ? json.branchName : undefined,
   };
+}
+
+export async function fetchBuilderDesignSystemTierLimit(): Promise<BuilderDesignSystemTierLimit> {
+  try {
+    const response = await requestBuilderDesignSystem(
+      "builder:designsystem:read",
+      (authorization) =>
+        fetchWithTimeout(
+          makeBuilderDesignSystemUrl("tier-limit", authorization),
+          { method: "GET", headers: makeBuilderHeaders(authorization) },
+        ),
+    );
+    if (!response.ok) {
+      return {
+        status: "unavailable",
+        plan: null,
+        current: null,
+        max: null,
+        atMax: false,
+        codeIndexingAllowed: false,
+        upgradeUrl: null,
+      };
+    }
+    const body = (await response.json()) as TierLimitResponseBody;
+    const limit = designSystemTierLimitFromBody(body);
+    return {
+      status: "ok",
+      ...limit,
+      upgradeUrl: limit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+    };
+  } catch {
+    return {
+      status: "unavailable",
+      plan: null,
+      current: null,
+      max: null,
+      atMax: false,
+      codeIndexingAllowed: false,
+      upgradeUrl: null,
+    };
+  }
+}
+
+export async function assertBuilderDesignSystemCodeIndexingAllowed(): Promise<void> {
+  const tierLimit = await fetchBuilderDesignSystemTierLimit();
+  if (tierLimit.status === "ok" && tierLimit.codeIndexingAllowed) return;
+  fail("Code and repository indexing requires the Builder Enterprise plan.", {
+    statusCode: 403,
+    errorCode: "design_system_code_indexing_forbidden",
+    details: {
+      plan: tierLimit.plan,
+      upgradeUrl: tierLimit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+    },
+  });
 }
 
 function trimTrailingSlash(value: string): string {
@@ -563,22 +689,31 @@ function getBuilderAppHost(): string {
 
 function makeBuilderDesignSystemUrl(
   path: string,
-  credentials: BuilderDesignSystemCredentials,
+  authorization: BuilderRequestAuthorization,
 ): URL {
   const base = `${trimTrailingSlash(getBuilderDesignSystemsBaseUrl())}/`;
   const url = new URL(path.replace(/^\/+/, ""), base);
-  url.searchParams.set("apiKey", credentials.publicKey);
-  if (credentials.userId) url.searchParams.set("userId", credentials.userId);
+  if (authorization.legacyPublicKey) {
+    url.searchParams.set("apiKey", authorization.legacyPublicKey);
+    if (authorization.userId)
+      url.searchParams.set("userId", authorization.userId);
+  }
   return url;
 }
 
 function makeBuilderHeaders(
-  credentials: BuilderDesignSystemCredentials,
+  authorization: BuilderRequestAuthorization,
 ): Record<string, string> {
   return {
-    Authorization: `Bearer ${credentials.privateKey}`,
-    "x-builder-api-key": credentials.publicKey,
-    ...(credentials.userId ? { "x-builder-user-id": credentials.userId } : {}),
+    Authorization: authorization.authorization,
+    ...(authorization.legacyPublicKey
+      ? {
+          "x-builder-api-key": authorization.legacyPublicKey,
+          ...(authorization.userId
+            ? { "x-builder-user-id": authorization.userId }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -619,9 +754,6 @@ export function buildBuilderDesignSystemIndexFiles({
     encoding?: "utf8" | "base64",
   ) {
     const normalizedName = filename.replace(/^\/+/, "") || "code.txt";
-    // `.fig`/PDF/other binary payloads must round-trip through base64, not
-    // UTF-8 -- TextEncoder().encode() on a binary-as-string payload mangles
-    // any byte >= 0x80. See BuilderDesignSystemCodeFileInput.encoding.
     const data =
       encoding === "base64"
         ? new Uint8Array(Buffer.from(content, "base64"))
@@ -666,9 +798,16 @@ export function buildBuilderDesignSystemIndexFiles({
   return files;
 }
 
-async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSystemCredentials> {
-  const credentials = await resolveBuilderCredentials();
-  if (!credentials.privateKey || !credentials.publicKey) {
+async function resolveBuilderDesignSystemAuthorization(
+  requiredScope: BuilderOAuthPermissionScope,
+): Promise<BuilderRequestAuthorization> {
+  const authorization = await resolveBuilderRequestAuthorization({
+    requiredScope,
+  });
+  if (
+    !authorization ||
+    (authorization.source === "legacy" && !authorization.legacyPublicKey)
+  ) {
     throw new FeatureNotConfiguredError({
       requiredCredential: "BUILDER_PRIVATE_KEY",
       message:
@@ -676,11 +815,61 @@ async function resolveBuilderDesignSystemCredentials(): Promise<BuilderDesignSys
       builderConnectUrl: "/_agent-native/builder/connect",
     });
   }
-  return {
-    privateKey: credentials.privateKey,
-    publicKey: credentials.publicKey,
-    userId: credentials.userId ?? null,
-  };
+  return authorization;
+}
+
+/**
+ * Builder's `/design-systems/v1` surface advertises
+ * `builder:designsystem:read`/`:write` in its OAuth resource metadata but does
+ * not serve those routes to an OAuth bearer yet: it answers `403
+ * route_not_enabled`, and without the legacy `apiKey`/`x-builder-api-key` pair
+ * it cannot resolve a space at all (`403 Space ID is required`). Both are
+ * route-capability answers, not "this user may not do that" answers, so they
+ * are the only two signatures that may downgrade to a legacy key. Anything
+ * else -- an expired grant, a missing scope -- must keep failing as itself.
+ */
+const BUILDER_DESIGN_SYSTEM_OAUTH_UNSUPPORTED =
+  /route[_\s-]?not[_\s-]?enabled|space id is required/i;
+
+async function builderDesignSystemOAuthRejection(
+  response: Response,
+): Promise<string | null> {
+  if (response.status !== 401 && response.status !== 403) return null;
+  const body = await parseErrorBody(response.clone());
+  return BUILDER_DESIGN_SYSTEM_OAUTH_UNSUPPORTED.test(body) ? body : null;
+}
+
+async function requestBuilderDesignSystem(
+  requiredScope: BuilderOAuthPermissionScope,
+  makeRequest: (
+    authorization: BuilderRequestAuthorization,
+  ) => Promise<Response>,
+): Promise<Response> {
+  const authorization =
+    await resolveBuilderDesignSystemAuthorization(requiredScope);
+  const response = await makeRequest(authorization);
+  if (authorization.source !== "oauth") return response;
+
+  const rejection = await builderDesignSystemOAuthRejection(response);
+  if (!rejection) return response;
+
+  const legacy = await resolveBuilderLegacyRequestAuthorization();
+  if (!legacy?.legacyPublicKey) {
+    if (response.body) await response.body.cancel();
+    fail(
+      "Builder design-system indexing is not reachable with a Builder OAuth connection yet — Builder answered " +
+        `${response.status} ${rejection} for /design-systems/v1. ` +
+        "Save both BUILDER_PRIVATE_KEY and BUILDER_PUBLIC_KEY in Settings > Secrets to index with Builder, " +
+        "or create the design system locally with create-design-system from the sources you already supplied.",
+      {
+        errorCode: "builder_design_system_oauth_unsupported",
+        statusCode: 503,
+        details: { builderStatus: response.status, builderError: rejection },
+      },
+    );
+  }
+  if (response.body) await response.body.cancel();
+  return makeRequest(legacy);
 }
 
 function mimeTypeForFile(file: BuilderDesignSystemIndexFile): string {
@@ -727,7 +916,45 @@ async function assertOk(response: Response, label: string): Promise<void> {
   );
 }
 
-// GCS reports the highest committed byte in a `Range: bytes=0-<end>` header.
+async function assertBuilderDesignSystemIndexOk(
+  response: Response,
+): Promise<void> {
+  if (response.ok) return;
+
+  if (response.status === 402) {
+    // coercion-ok: still report the 402 as a tier-limit failure with a
+    // generic message if the body cannot be read, instead of masking it.
+    const text = await response.text().catch(() => "");
+    const body = parseTierLimitErrorBody(text);
+    const limit = designSystemTierLimitFromBody(body);
+    fail(designSystemTierLimitMessage(limit), {
+      statusCode: 402,
+      errorCode: "design_system_tier_limit_exceeded",
+      details: {
+        plan: limit.plan,
+        current: limit.current,
+        max: limit.max,
+        upgradeUrl: limit.upgradeUrl ?? designSystemTierUpgradeUrl(),
+      },
+    });
+  }
+
+  const message = await parseErrorBody(response);
+  if (
+    response.status === 409 &&
+    /design system name already exists in this scope/i.test(message)
+  ) {
+    fail(
+      "A design system with this name already exists. Choose a different name and try again.",
+      { statusCode: 409, errorCode: "design_system_name_conflict" },
+    );
+  }
+
+  throw new Error(
+    `Builder design-system indexing failed (${response.status}): ${message}`,
+  );
+}
+
 function committedOffsetFromRange(response: Response): number | null {
   const match = response.headers.get("Range")?.match(/bytes=0-(\d+)/);
   return match ? parseInt(match[1], 10) + 1 : null;
@@ -815,9 +1042,6 @@ async function uploadToResumableUrl(
     return;
   }
 
-  // A failed PUT may have still landed at GCS, so the local offset can't be
-  // trusted after an error — only GCS's committed-offset response is
-  // authoritative.
   let offset = 0;
   let retries = 0;
   while (offset < total) {
@@ -896,6 +1120,14 @@ export function builderProjectBranchUrl(
   return withBuilderUtmTrackingParams(host + path, {
     campaign: "product",
     content: "design_system_intelligence",
+  });
+}
+
+export function designSystemTierUpgradeUrl(): string {
+  const host = trimTrailingSlash(getBuilderAppHost());
+  return withBuilderUtmTrackingParams(`${host}/account/subscription`, {
+    campaign: "product",
+    content: "design_system_tier_limit",
   });
 }
 
@@ -1152,14 +1384,57 @@ function normalizeBuilderDesignSystemStatus(
   }
 }
 
-function isConfirmedBuilderDesignSystemStatus(value: unknown): boolean {
-  const status = normalizeBuilderDesignSystemStatus(value);
-  return status === "ready" || status === "complete" || status === "completed";
+export function isBuilderDesignSystemReadyByCount(docCount: number): boolean {
+  return docCount > 0;
+}
+
+export async function fetchBuilderDesignSystemDocumentCount(
+  designSystemId: string,
+): Promise<BuilderDesignSystemDocumentCountResult> {
+  let response: Response;
+  try {
+    response = await requestBuilderDesignSystem(
+      "builder:designsystem:read",
+      (authorization) => {
+        const url = makeBuilderDesignSystemUrl(
+          encodeURIComponent(designSystemId),
+          authorization,
+        );
+        url.searchParams.set("includeDocumentCount", "true");
+        return fetchWithTimeout(url, {
+          method: "GET",
+          headers: makeBuilderHeaders(authorization),
+        });
+      },
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "unreachable",
+      detail:
+        error instanceof Error
+          ? error.message
+          : "Builder design-system document count request failed.",
+    };
+  }
+  if (!response.ok) {
+    const body = await parseErrorBody(response);
+    return {
+      ok: false,
+      reason: "unreachable",
+      detail:
+        "Builder answered " +
+        response.status +
+        " for the design-system document count: " +
+        body,
+    };
+  }
+  const json = await response.json();
+  return { ok: true, docCount: json.docCount ?? 0 };
 }
 
 interface BuilderDesignSystemDocsResponse {
   docs: BuilderDesignSystemDocument[];
-  completionConfirmed: boolean;
   status?: BuilderDesignSystemStatus;
 }
 
@@ -1167,30 +1442,31 @@ async function fetchBuilderDesignSystemDocsResponse(
   designSystemId: string,
   options: BuilderDesignSystemDocsOptions,
 ): Promise<BuilderDesignSystemDocsResponse> {
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  const url = makeBuilderDesignSystemUrl(
-    `${encodeURIComponent(designSystemId)}/docs`,
-    credentials,
+  const response = await requestBuilderDesignSystem(
+    "builder:designsystem:read",
+    (authorization) => {
+      const url = makeBuilderDesignSystemUrl(
+        `${encodeURIComponent(designSystemId)}/docs`,
+        authorization,
+      );
+      if (options.page !== undefined)
+        url.searchParams.set("page", String(options.page));
+      if (options.pageSize !== undefined)
+        url.searchParams.set("pageSize", String(options.pageSize));
+      if (options.minimal !== undefined)
+        url.searchParams.set("minimal", options.minimal ? "true" : "false");
+      if (options.type?.trim())
+        url.searchParams.set("type", options.type.trim());
+      return fetchWithTimeout(url, {
+        method: "GET",
+        headers: makeBuilderHeaders(authorization),
+      });
+    },
   );
-  if (options.page !== undefined)
-    url.searchParams.set("page", String(options.page));
-  if (options.pageSize !== undefined)
-    url.searchParams.set("pageSize", String(options.pageSize));
-  if (options.minimal !== undefined)
-    url.searchParams.set("minimal", options.minimal ? "true" : "false");
-  if (options.type?.trim()) url.searchParams.set("type", options.type.trim());
-
-  const response = await fetchWithTimeout(url, {
-    method: "GET",
-    headers: makeBuilderHeaders(credentials),
-  });
   await assertOk(response, "Builder design-system docs fetch failed");
   const json = (await response.json()) as unknown;
   if (Array.isArray(json)) {
-    return {
-      docs: json.map(normalizeBuilderDesignSystemDocument),
-      completionConfirmed: false,
-    };
+    return { docs: json.map(normalizeBuilderDesignSystemDocument) };
   }
   if (!json || typeof json !== "object") {
     throw new Error(
@@ -1209,15 +1485,8 @@ async function fetchBuilderDesignSystemDocsResponse(
     typeof rawStatus === "string"
       ? normalizeBuilderDesignSystemStatus(rawStatus)
       : undefined;
-  const isTerminalFailure =
-    status === "error" || status === "failed" || status === "cancelled";
   return {
     docs: rawDocs.map(normalizeBuilderDesignSystemDocument),
-    completionConfirmed:
-      !isTerminalFailure &&
-      (envelope.complete === true ||
-        envelope.completed === true ||
-        isConfirmedBuilderDesignSystemStatus(status)),
     ...(status ? { status } : {}),
   };
 }
@@ -1241,9 +1510,19 @@ export async function hydrateBuilderDesignSystemReference(
     options.pageSize && options.pageSize > 0
       ? options.pageSize
       : DEFAULT_BUILDER_DOC_PAGE_SIZE;
+  const count = await fetchBuilderDesignSystemDocumentCount(
+    reference.builderDesignSystemId,
+  );
+  if (!count.ok) {
+    throw new Error(
+      "Builder design-system document count could not be read (" +
+        count.reason +
+        "): " +
+        count.detail,
+    );
+  }
   const docs: BuilderDesignSystemDocument[] = [];
   let page = Math.max(0, options.page ?? 0);
-  let completionConfirmed = false;
   let builderStatus = reference.builderStatus;
   for (let pageNumber = 0; pageNumber < MAX_BUILDER_DOC_PAGES; pageNumber++) {
     const response = await fetchBuilderDesignSystemDocsResponse(
@@ -1251,7 +1530,6 @@ export async function hydrateBuilderDesignSystemReference(
       { ...options, page, pageSize },
     );
     docs.push(...response.docs);
-    completionConfirmed ||= response.completionConfirmed;
     builderStatus = response.status ?? builderStatus;
     if (response.docs.length < pageSize || options.minimal) break;
     page += 1;
@@ -1273,34 +1551,29 @@ export async function hydrateBuilderDesignSystemReference(
     ...(builderStatus ? { builderStatus } : {}),
     docs,
     tokenValues,
-    docCount: docs.length,
-    completionConfirmed:
-      completionConfirmed ||
-      isConfirmedBuilderDesignSystemStatus(builderStatus),
+    docCount: count.docCount,
+    completionConfirmed: isBuilderDesignSystemReadyByCount(count.docCount),
   };
 }
 
-/**
- * Opens signed resumable-upload slots for `.fig`/code/design attachments so
- * the browser can stream each file's bytes straight to GCS. Large `.fig`
- * files must not ride through the app server as one request body -- the
- * serverless host caps request bodies well below Figma export sizes.
- */
 export async function startBuilderDesignSystemUpload(
   attachments: BuilderDesignSystemUploadAttachment[],
 ): Promise<BuilderDesignSystemUploadSlot[]> {
   if (attachments.length === 0) return [];
-  const credentials = await resolveBuilderDesignSystemCredentials();
-  const uploadStart = await fetchWithTimeout(
-    makeBuilderDesignSystemUrl("upload/start", credentials),
-    {
-      method: "POST",
-      headers: {
-        ...makeBuilderHeaders(credentials),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ attachments }),
-    },
+  const uploadStart = await requestBuilderDesignSystem(
+    "builder:designsystem:write",
+    (authorization) =>
+      fetchWithTimeout(
+        makeBuilderDesignSystemUrl("upload/start", authorization),
+        {
+          method: "POST",
+          headers: {
+            ...makeBuilderHeaders(authorization),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ attachments }),
+        },
+      ),
   );
   await assertOk(uploadStart, "Builder design-system upload start failed");
   const uploadJson = (await uploadStart.json()) as UploadStartResponse;
@@ -1316,11 +1589,6 @@ export async function startBuilderDesignSystemUpload(
   return slots;
 }
 
-/**
- * Finalizes indexing from already-resolved sources (uploaded file tokens,
- * public repos, connected projects). Callers that stream uploads from the
- * browser pass the returned `uploadToken`s as `file` sources here.
- */
 export async function indexBuilderDesignSystem(
   options: BuilderDesignSystemIndexFromSourcesOptions,
 ): Promise<BuilderDesignSystemIndexResult> {
@@ -1329,29 +1597,32 @@ export async function indexBuilderDesignSystem(
       "Provide at least one .fig/code/text file or a GitHub repository URL to index with Builder.",
     );
   }
-  const credentials = await resolveBuilderDesignSystemCredentials();
   const idempotencyKey = `agent-native-dsi-${randomUUID()}`;
-  const index = await fetchBuilderDesignSystemIndex(
-    makeBuilderDesignSystemUrl("index", credentials),
-    {
-      method: "POST",
-      headers: {
-        ...makeBuilderHeaders(credentials),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sources: options.sources,
-        ...(options.projectName?.trim()
-          ? { designSystemName: options.projectName.trim() }
-          : {}),
-        ...(options.devToolsVersion?.trim()
-          ? { devToolsVersion: options.devToolsVersion.trim() }
-          : {}),
-      }),
-    },
-    idempotencyKey,
+  const index = await requestBuilderDesignSystem(
+    "builder:designsystem:write",
+    (authorization) =>
+      fetchBuilderDesignSystemIndex(
+        makeBuilderDesignSystemUrl("index", authorization),
+        {
+          method: "POST",
+          headers: {
+            ...makeBuilderHeaders(authorization),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sources: options.sources,
+            ...(options.projectName?.trim()
+              ? { designSystemName: options.projectName.trim() }
+              : {}),
+            ...(options.devToolsVersion?.trim()
+              ? { devToolsVersion: options.devToolsVersion.trim() }
+              : {}),
+          }),
+        },
+        idempotencyKey,
+      ),
   );
-  await assertOk(index, "Builder design-system indexing failed");
+  await assertBuilderDesignSystemIndexOk(index);
   const indexed = (await index.json()) as IndexResponse;
   if (!indexed.designSystemId) {
     throw new Error(
@@ -1360,9 +1631,6 @@ export async function indexBuilderDesignSystem(
   }
 
   const jobId = indexed.jobId ?? "";
-  // The `.fig` decode job creates the Fusion branch asynchronously, so
-  // `/index` usually can't return a branchUrl yet — the caller polls the
-  // decode-job status endpoint for it once the job completes.
   const branchUrl = indexed.branchUrl?.trim() || null;
 
   return {
@@ -1380,12 +1648,6 @@ export async function indexBuilderDesignSystem(
   };
 }
 
-/**
- * Server-side indexing for in-memory files (the agent action's small inline
- * payloads). Uploads each file server->GCS in resumable chunks, then
- * finalizes. Browser callers should instead stream via
- * `startBuilderDesignSystemUpload` + `indexBuilderDesignSystem`.
- */
 export async function startBuilderDesignSystemIndex(
   options: BuilderDesignSystemIndexOptions,
 ): Promise<BuilderDesignSystemIndexResult> {

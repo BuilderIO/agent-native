@@ -51,4 +51,19 @@ describe("prepareLiveScreenLayerDrop", () => {
       }),
     ).toEqual({ status: "unsupported", reason: "node-unresolved" });
   });
+
+  it("refuses a duplicated source node identity instead of extracting its first match", () => {
+    const duplicated = `<!doctype html><html><body>
+      <section data-agent-native-node-id="group" data-origin="first">First</section>
+      <article data-agent-native-node-id="group" data-origin="second">Second</article>
+    </body></html>`;
+
+    expect(
+      prepareLiveScreenLayerDrop({
+        sourceContent: duplicated,
+        destinationContent: LIVE_URL,
+        nodeId: "group",
+      }),
+    ).toEqual({ status: "unsupported", reason: "node-unresolved" });
+  });
 });

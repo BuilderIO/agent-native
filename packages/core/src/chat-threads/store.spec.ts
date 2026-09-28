@@ -31,7 +31,7 @@ import {
   setThreadArchived,
   threadScopeMismatch,
   setThreadPinned,
-  setThreadQueuedMessages,
+  mutateThreadQueuedMessages,
   updateThreadData,
 } from "./store.js";
 
@@ -108,7 +108,6 @@ describe("chat thread store", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
-        // Legacy message_count backfill probe — no legacy rows in these tests.
         return { rows: [], rowsAffected: 0 };
       }
       if (/WHERE thread_data LIKE \?/i.test(sql)) {
@@ -160,7 +159,7 @@ describe("chat thread store", () => {
           thread_data: args[0],
           title: args[1],
           preview: args[2],
-          message_count: args[3],
+          message_count: args[3] === null ? row.message_count : args[3],
           updated_at: args[4],
         };
         return { rows: [], rowsAffected: 1 };
@@ -301,6 +300,45 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("counts AgentKit-only messages when saving thread history", async () => {
+    const agentKitMessages = [
+      { id: "user-1", role: "user", parts: [] },
+      { id: "assistant-1", role: "assistant", parts: [] },
+    ];
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { messages: agentKitMessages },
+    });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { messages: agentKitMessages },
+      }),
+      "Thread",
+      "Done.",
+      0,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("preserves a title committed while message persistence was stale", async () => {
+    row!.title = "Generated chat title";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "",
+      "Done.",
+      2,
+    );
+
+    expect(row!.title).toBe("Generated chat title");
+  });
+
   it("throws after exhausted thread-data conflicts by default", async () => {
     conflictEveryThreadDataUpdate = true;
 
@@ -389,34 +427,58 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
-  it("lets queued-message clears win while preserving concurrent assistant messages", async () => {
-    row!.thread_data = JSON.stringify({
-      queuedMessages: [{ id: "queued-1", text: "next" }],
-      messages: [{ message: userMessage, parentId: null }],
+  it("reapplies queued-message appends after a cross-process CAS conflict", async () => {
+    const first = { id: "queued-1", text: "First" };
+    const concurrent = { id: "queued-2", text: "Second" };
+    const appended = { id: "queued-3", text: "Third", threadId: "thread-1" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [first] });
+
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [first, concurrent] }),
+        updated_at: 2,
+      };
+    };
+
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "append",
+      message: appended,
     });
+
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      first,
+      concurrent,
+      appended,
+    ]);
+    expect(row!.preview).toBe("make this slide better");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("removes only the requested queue item after a concurrent append", async () => {
+    const removed = { id: "queued-1", text: "Remove this" };
+    const remaining = { id: "queued-2", text: "Keep this" };
+    const concurrent = { id: "queued-3", text: "Added in another tab" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [removed, remaining] });
 
     conflictOnce = () => {
       row = {
         ...row!,
         thread_data: JSON.stringify({
-          queuedMessages: [{ id: "queued-1", text: "next" }],
-          messages: [
-            { message: userMessage, parentId: null },
-            { message: assistantMessage, parentId: "user-1" },
-          ],
+          queuedMessages: [removed, remaining, concurrent],
         }),
-        message_count: 2,
         updated_at: 2,
       };
     };
 
-    await setThreadQueuedMessages("thread-1", []);
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "remove",
+      messageId: removed.id,
+    });
 
-    const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toEqual([]);
-    expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
-      "user-1",
-      "assistant-1",
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      remaining,
+      concurrent,
     ]);
   });
 
@@ -486,8 +548,6 @@ describe("chat thread store", () => {
 
     await searchThreads("user@example.com", "100%_done");
 
-    // Match the search query specifically (its WHERE has the ESCAPE clause),
-    // not the legacy-count backfill probe that also reads from chat_threads.
     const searchCall = executeMock.mock.calls.find(([query]) => {
       const sql = typeof query === "string" ? query : query.sql;
       return (
@@ -542,9 +602,7 @@ describe("chat thread store", () => {
     });
     expect(listCall).toBeTruthy();
     const sql = (listCall![0] as { sql: string }).sql;
-    // The list SELECT must NOT pull the heavy thread_data blob...
     expect(sql).not.toContain("thread_data");
-    // ...and the "has messages" filter is the maintained column, no LIKE scan.
     expect(sql).toContain("message_count > 0");
     expect(sql).not.toMatch(/thread_data LIKE/i);
     expect(sql).toContain("chat_thread_shares");
@@ -656,11 +714,9 @@ describe("chat thread store", () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     });
 
-    // Default: archived thread is hidden from listThreads.
     const defaultList = await listThreads("user@example.com", { limit: 10 });
     expect(defaultList.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it again.
     const listWithArchived = await listThreads("user@example.com", {
       limit: 10,
       includeArchived: true,
@@ -670,11 +726,9 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Default: archived thread is hidden from searchThreads.
     const defaultSearch = await searchThreads("user@example.com", "Thread");
     expect(defaultSearch.map((t) => t.id)).toEqual(["thread-active"]);
 
-    // includeArchived: true surfaces it in search too.
     const searchWithArchived = await searchThreads(
       "user@example.com",
       "Thread",
@@ -686,7 +740,6 @@ describe("chat thread store", () => {
       "thread-archived",
     ]);
 
-    // Unarchiving restores the thread to the default list.
     const unarchived = await setThreadArchived("thread-archived", false);
     expect(unarchived).toBe(true);
     expect(archivedRow.archived_at).toBeNull();
@@ -700,8 +753,6 @@ describe("chat thread store", () => {
   });
 
   it("keeps the legacy message_count repair out of table bootstrap", async () => {
-    // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
     const updates: Array<{ count: number; id: string }> = [];
     let repairScans = 0;
@@ -711,7 +762,6 @@ describe("chat thread store", () => {
       if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
         return { rows: [], rowsAffected: 0 };
       }
-      // The legacy backfill probe: a row that has messages but count = 0.
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
         repairScans++;
         return {
@@ -774,7 +824,7 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
-  it("forks from a client snapshot when the source thread is not persisted yet", async () => {
+  it("limits forked AgentKit history to retained messages and clears active runs", async () => {
     const rows = new Map<string, ChatThreadRow>();
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
@@ -867,11 +917,172 @@ describe("chat thread store", () => {
     });
 
     const sourceRepo = {
+      messages: [],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          { id: "assistant-1", role: "assistant", parts: [] },
+          { id: "user-2", role: "user", parts: [] },
+          { id: "assistant-2", role: "assistant", parts: [] },
+        ],
+        events: [
+          {
+            id: "event-source-started",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:01.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-source-activity",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:02.000Z",
+            type: "activity.started",
+            activity: {
+              id: "activity-source",
+              kind: "tool",
+              label: "Create release",
+              status: "running",
+              runId: "run-source",
+            },
+          },
+          {
+            id: "event-source-message",
+            threadId: "thread-unflushed",
+            runId: "run-source",
+            sequence: 3,
+            occurredAt: "2026-09-26T00:00:03.000Z",
+            type: "message.completed",
+            message: { id: "assistant-1", role: "assistant", parts: [] },
+          },
+          {
+            id: "event-later-started",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:04.000Z",
+            type: "run.started",
+          },
+          {
+            id: "event-later-message",
+            threadId: "thread-unflushed",
+            runId: "run-later",
+            sequence: 2,
+            occurredAt: "2026-09-26T00:00:05.000Z",
+            type: "message.completed",
+            message: { id: "assistant-2", role: "assistant", parts: [] },
+          },
+        ],
+        runs: [
+          {
+            id: "run-source",
+            threadId: "thread-unflushed",
+            status: "running",
+            activeMessageId: "assistant-1",
+            lastSequence: 3,
+          },
+          {
+            id: "run-later",
+            threadId: "thread-unflushed",
+            status: "completed",
+            activeMessageId: "assistant-2",
+            lastSequence: 2,
+          },
+        ],
+        activeRunIds: ["run-source", "run-later"],
+        toolCalls: [
+          {
+            id: "tool-retained-message",
+            name: "publish",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-1",
+          },
+          {
+            id: "tool-retained-run",
+            name: "read",
+            status: "completed",
+            runId: "run-source",
+          },
+          {
+            id: "tool-later-message",
+            name: "publish-later",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-2",
+          },
+          {
+            id: "tool-later-run",
+            name: "read-later",
+            status: "completed",
+            runId: "run-later",
+          },
+          {
+            id: "tool-unscoped",
+            name: "unscoped",
+            status: "completed",
+          },
+        ],
+        suggestions: [
+          {
+            id: "suggestion-later",
+            label: "Later suggestion",
+            runId: "run-later",
+          },
+          { id: "suggestion-unscoped", label: "Unscoped suggestion" },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: { id: "kept", kind: "test", data: {} },
+          },
+          {
+            messageId: "assistant-2",
+            widget: { id: "dropped", kind: "test", data: {} },
+          },
+        ],
+      },
+    };
+    const fullSourceRepo = {
+      ...sourceRepo,
       messages: [
         { message: userMessage, parentId: null },
         { message: assistantMessage, parentId: "user-1" },
+        {
+          message: {
+            id: "user-2",
+            role: "user",
+            content: [{ type: "text", text: "Later question" }],
+          },
+          parentId: "assistant-1",
+        },
+        {
+          message: {
+            id: "assistant-2",
+            role: "assistant",
+            content: [{ type: "text", text: "Later answer" }],
+            metadata: { runId: "run-later" },
+          },
+          parentId: "user-2",
+        },
       ],
     };
+    rows.set("thread-unflushed", {
+      id: "thread-unflushed",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "Later answer",
+      thread_data: JSON.stringify(fullSourceRepo),
+      message_count: 4,
+      created_at: 0,
+      updated_at: 0,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+    });
 
     const forked = await forkThread("thread-unflushed", "user@example.com", {
       id: "thread-forked",
@@ -880,16 +1091,71 @@ describe("chat thread store", () => {
         title: "Thread",
         preview: "make this slide better",
         messageCount: 2,
+        fromMessageId: "assistant-1",
         scope: { type: "dashboard", id: "dash-1", label: "Pipeline" },
       },
     });
 
     expect(forked?.id).toBe("thread-forked");
-    expect(rows.get("thread-unflushed")?.message_count).toBe(2);
-    expect(rows.get("thread-unflushed")?.scope_type).toBe("dashboard");
+    expect(rows.get("thread-unflushed")?.message_count).toBe(4);
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
-    ).toHaveLength(2);
+    ).toHaveLength(0);
+    const forkedAgentKit = JSON.parse(
+      rows.get("thread-forked")!.thread_data,
+    ).agentKit;
+    expect(
+      forkedAgentKit.messages.map((message: { id: string }) => message.id),
+    ).toEqual(["user-1", "assistant-1"]);
+    expect(
+      forkedAgentKit.events.map((event: { id: string }) => event.id),
+    ).toEqual([
+      "event-source-started",
+      "event-source-activity",
+      "event-source-message",
+    ]);
+    expect(forkedAgentKit.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: "thread-forked" }),
+        expect.objectContaining({
+          type: "activity.completed",
+          activity: expect.objectContaining({ status: "cancelled" }),
+        }),
+      ]),
+    );
+    expect(forkedAgentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "run-source",
+        threadId: "thread-forked",
+        status: "cancelled",
+      }),
+    ]);
+    expect(forkedAgentKit.widgets).toEqual([
+      expect.objectContaining({ messageId: "assistant-1" }),
+    ]);
+    expect(
+      forkedAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual(["tool-retained-message", "tool-retained-run"]);
+    expect(forkedAgentKit.suggestions).toEqual([]);
+    expect(forkedAgentKit.activeRunIds).toEqual([]);
+
+    const fullFork = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked-full",
+    });
+    expect(fullFork?.id).toBe("thread-forked-full");
+    const fullForkAgentKit = JSON.parse(
+      rows.get("thread-forked-full")!.thread_data,
+    ).agentKit;
+    expect(
+      fullForkAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual([
+      "tool-retained-message",
+      "tool-retained-run",
+      "tool-later-message",
+      "tool-later-run",
+      "tool-unscoped",
+    ]);
+    expect(fullForkAgentKit.suggestions).toHaveLength(2);
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
@@ -977,6 +1243,20 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
     ).toHaveLength(2);
+
+    const scopedFork = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked-scoped",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "",
+        messageCount: 2,
+        fromMessageId: "assistant-1",
+      },
+    });
+
+    expect(scopedFork?.preview).toBe("");
+    expect(rows.get("thread-forked-scoped")?.preview).toBe("");
   });
 
   it("ignores stale snapshots when the persisted row is fresher", async () => {
@@ -1058,7 +1338,6 @@ describe("chat thread store", () => {
       },
     });
 
-    // Fresh persisted data wins.
     expect(forked?.messageCount).toBe(2);
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
@@ -1146,7 +1425,6 @@ describe("adoptThreadScopeIfUnscoped", () => {
         return { rows: [], rowsAffected: 0 };
       }
       if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
-        // Honour the compare-and-set guard the real statement carries.
         if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
           return { rows: [], rowsAffected: 0 };
         }

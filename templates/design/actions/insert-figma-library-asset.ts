@@ -7,6 +7,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+} from "../server/lib/figma-import-errors.js";
+import {
   readLiveSourceFile,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
@@ -165,8 +169,9 @@ export default defineAction({
   run: async (args, context) => {
     const target = await resolveTarget(args);
     if (!target.designId) {
-      throw new Error(
+      failFigmaImport(
         "No active design found. Open a design or pass designId.",
+        FIGMA_IMPORT_ERROR_CODES.targetInvalid,
       );
     }
 
@@ -197,22 +202,15 @@ export default defineAction({
       requestedFile && isHtmlFile(requestedFile)
         ? requestedFile
         : (files.find(isHtmlFile) ?? null);
-    if (!file) throw new Error("No editable HTML design file found.");
+    if (!file) {
+      failFigmaImport(
+        "No editable HTML design file found.",
+        FIGMA_IMPORT_ERROR_CODES.targetInvalid,
+      );
+    }
     await assertAccess("design", file.designId, "editor");
     await snapshotDesignBeforeAgentEdit(file.designId, context);
 
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for update-file: a diff computed from a stale base, char-diffed
-    // into a collab doc that has since moved on, corrupts or drops the
-    // other writer's change). See update-file.ts and apply-source-edit.ts
-    // for the identical pattern. writeInlineSourceFile/readLiveSourceFile
-    // only ever dereference file.id (and content/filename for the read); the
-    // createdAt/updatedAt fields aren't selected above and aren't needed.
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,

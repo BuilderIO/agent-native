@@ -3,7 +3,10 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { gmailGetMessage } from "../server/lib/google-api.js";
+import {
+  gmailGetMessage,
+  GmailQuotaCooldownError,
+} from "../server/lib/google-api.js";
 import {
   getClientsWithErrors,
   isConnected,
@@ -87,6 +90,7 @@ export default defineAction({
           }
         : email;
     } catch (err: any) {
+      if (err instanceof GmailQuotaCooldownError) throw err;
       if (err?.message?.includes("404")) throw new Error("Email not found.");
       throw new Error(err?.message ?? "Gmail API error");
     }

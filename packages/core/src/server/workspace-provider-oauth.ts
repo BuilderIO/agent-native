@@ -17,7 +17,11 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
-import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import {
+  OAuthAccountOwnedByOtherUserError,
+  saveOAuthTokens,
+  setOAuthDisplayName,
+} from "../oauth-tokens/store.js";
 import { getRegisteredAppRoles, resolveAppRole } from "../org/app-roles.js";
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
@@ -32,6 +36,7 @@ import {
   safeReturnPath,
 } from "./auth.js";
 import { resolveSecret } from "./credential-provider.js";
+import { canonicalFrameworkPathname } from "./framework-route-prefix.js";
 import {
   decodeOAuthState,
   encodeOAuthState,
@@ -80,6 +85,8 @@ const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
 const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
+  "This account is already linked to another user. Choose a different account to connect.";
 
 export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
@@ -175,18 +182,6 @@ export function createWorkspaceProviderOAuthHandler(
   );
 }
 
-/**
- * Fails an OAuth step in whatever form the caller can actually read.
- *
- * Both ends of this flow are top-level browser navigations —
- * `startWorkspaceProviderOAuth` assigns `window.location`, onboarding cards
- * link straight to `/start`, and the provider redirects the browser to
- * `/callback` — so a bare `{ error }` body replaces whatever the user was
- * looking at with raw JSON and no way back. On the callback that lands them
- * there *after* they have already consented. Anything asking for HTML gets the
- * error page the sign-in callbacks already use; a programmatic caller still
- * gets JSON and the same status.
- */
 export function oauthFlowFailure(
   event: H3Event,
   status: number,
@@ -196,6 +191,18 @@ export function oauthFlowFailure(
   const accept = getRequestHeader(event, "accept") ?? "";
   if (!accept.includes("text/html")) return { error: message };
   return oauthErrorPage(message, status);
+}
+
+function oauthAccountOwnershipFailure(
+  event: H3Event,
+  error: unknown,
+): Response | { error: string } | null {
+  if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
+  return oauthFlowFailure(
+    event,
+    error.statusCode,
+    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
+  );
 }
 
 export async function handleWorkspaceProviderOAuthStart(
@@ -260,7 +267,8 @@ export async function handleWorkspaceProviderOAuthStart(
       return oauthFlowFailure(event, 400, "Invalid OAuth redirect URI.");
     }
     if (
-      parsedRedirectUri.pathname !== "/_agent-native/google/callback" ||
+      canonicalFrameworkPathname(parsedRedirectUri.pathname) !==
+        "/_agent-native/google/callback" ||
       parsedRedirectUri.search ||
       parsedRedirectUri.hash
     ) {
@@ -334,6 +342,7 @@ export async function handleWorkspaceProviderOAuthStart(
         state,
         challenge,
         loginHint: session.email,
+        includeGrantedScopes: providerId !== "google_calendar",
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -467,12 +476,18 @@ export async function handleWorkspaceProviderOAuthCallback(
           session.email,
           identity.accountId,
         );
-        await saveOAuthTokens(
-          provider.oauth!.provider,
-          accountId,
-          tokens,
-          session.email,
-        );
+        try {
+          await saveOAuthTokens(
+            provider.oauth!.provider,
+            accountId,
+            tokens,
+            session.email,
+          );
+        } catch (error) {
+          const response = oauthAccountOwnershipFailure(event, error);
+          if (response) return response;
+          throw error;
+        }
         await setOAuthDisplayName(
           provider.oauth!.provider,
           accountId,
@@ -555,6 +570,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   challenge: string;
   authorizationUrl?: string;
   loginHint?: string;
+  includeGrantedScopes?: boolean;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
@@ -578,7 +594,10 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   }
   if (isGoogleWorkspaceOAuthProvider(input.provider.id)) {
     url.searchParams.set("access_type", "offline");
-    url.searchParams.set("include_granted_scopes", "true");
+    url.searchParams.set(
+      "include_granted_scopes",
+      String(input.includeGrantedScopes ?? true),
+    );
     url.searchParams.set("prompt", "consent select_account");
     if (input.loginHint) url.searchParams.set("login_hint", input.loginHint);
   }
@@ -1353,11 +1372,6 @@ function methodNotAllowed(event: H3Event) {
   return oauthFlowFailure(event, 405, "Method not allowed");
 }
 
-/**
- * Losing the session mid-flow is the most likely way a real user reaches this,
- * and it happens on a navigation — so it needs the same readable page as every
- * other failure here rather than a bare 401 body.
- */
 function unauthorized(event: H3Event) {
   return oauthFlowFailure(event, 401, "Authentication required");
 }
@@ -1399,7 +1413,7 @@ async function requireWorkspaceProviderOAuthAccess(
         userEmail: context.email,
         orgId: context.orgId,
       });
-      if (role.status === "assigned" && role.role === "admin") {
+      if (role.status === "assigned" && role.roles.includes("admin")) {
         return { ...context, oauthScope: "app" };
       }
     }

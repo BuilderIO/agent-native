@@ -225,6 +225,8 @@ export function brainFinalResponseGuard(
 ): AgentLoopFinalResponseGuardResult | null {
   if (context.executionMode === "plan") return null;
 
+  const hasFinalText = context.text.trim().length > 0;
+
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   const companyKnowledgeQuestion = isCompanyKnowledgeQuestion(requestText);
@@ -235,7 +237,7 @@ export function brainFinalResponseGuard(
   const askBrain = latestAskBrainResult(context.toolResults);
   if (correctionFollowUp) {
     if (
-      askBrain.hasCitations ||
+      (askBrain.hasCitations && hasFinalText) ||
       (!companyKnowledgeQuestion && isSafeCorrectionResponse(context.text))
     ) {
       return null;
@@ -252,7 +254,10 @@ export function brainFinalResponseGuard(
 
   if (!companyKnowledgeQuestion) return null;
 
-  if (askBrain.hasCitations || isSafeUnverifiedResponse(context.text)) {
+  if (
+    (askBrain.hasCitations && hasFinalText) ||
+    isSafeUnverifiedResponse(context.text)
+  ) {
     return null;
   }
 

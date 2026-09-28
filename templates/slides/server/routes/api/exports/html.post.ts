@@ -1,5 +1,6 @@
 import path from "path";
 
+import { isActionContractError } from "@agent-native/core";
 import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseHeader, setResponseStatus } from "h3";
 
@@ -45,12 +46,15 @@ export default defineEventHandler(async (event) => {
       `attachment; filename="${path.basename(result.filename)}"`,
     );
 
-    // Return the in-memory HTML string directly. Writing to disk first
-    // would break on serverless: a separate /api/exports/:filename GET
-    // would hit a different Lambda's empty filesystem and 404 with
-    // "file doesn't exist on site".
     return result.html;
   } catch (error) {
+    if (isActionContractError(error)) {
+      setResponseStatus(event, error.statusCode);
+      return {
+        error: error.message,
+        errorCode: error.errorCode,
+      };
+    }
     const message =
       error instanceof Error
         ? error.message

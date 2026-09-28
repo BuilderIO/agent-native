@@ -138,7 +138,9 @@ describe("WorkspaceAppCard", () => {
       document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ).find((item) => item.textContent?.includes("Open in new tab"));
     expect(newTabItem).not.toBeUndefined();
-    expect(newTabItem?.getAttribute("href")).toBe("/analytics");
+    expect(newTabItem?.getAttribute("href")).toBe(
+      "https://analytics.agent-native.com/home",
+    );
     expect(newTabItem?.getAttribute("target")).toBe("_blank");
     const openMenu = document.querySelector<HTMLElement>('[role="menu"]');
     expect(openMenu?.className).toContain("w-48");
@@ -188,6 +190,7 @@ describe("WorkspaceAppCard", () => {
                   id: "feedback-leaderboard",
                   name: "Feedback leaderboard",
                   path: "/feedback-leaderboard",
+                  homePath: "/",
                   url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
                   status: "ready",
                 }}
@@ -211,6 +214,60 @@ describe("WorkspaceAppCard", () => {
       await act(async () => openButton?.click());
       expect(topWindow.location.href).toBe(
         "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+      );
+    } finally {
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        value: originalParent,
+      });
+      Object.defineProperty(window, "top", {
+        configurable: true,
+        value: originalTop,
+      });
+    }
+  });
+
+  it("opens Dispatch at its overview route instead of applying the app home", async () => {
+    frameState.inBuilderFrame = true;
+    const originalParent = window.parent;
+    const originalTop = window.top;
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <TooltipProvider>
+              <WorkspaceAppCard
+                app={{
+                  id: "dispatch",
+                  name: "Dispatch",
+                  path: "/dispatch",
+                  homePath: "/home",
+                  isDispatch: true,
+                  status: "ready",
+                }}
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(".app-open-actions__primary")
+          ?.click(),
+      );
+      expect(topWindow.location.href).toBe(
+        "http://localhost:3000/dispatch/overview",
       );
     } finally {
       Object.defineProperty(window, "parent", {

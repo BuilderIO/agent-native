@@ -10,6 +10,7 @@ import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-inbox-threads",
   "list-emails",
   "search-emails",
   "get-email",
@@ -30,6 +31,9 @@ const INITIAL_TOOL_NAMES = [
   "update-mail-settings",
   "manage-automations",
   "manage-email-rules",
+  "apply-ai-filter",
+  "refine-ai-filter",
+  "record-ai-priority-feedback",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",
@@ -40,11 +44,6 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
-  // A delegated (A2A) turn served from the foreground gets the 40s
-  // serverless wall, and "I ran out of time before finishing this step"
-  // was 39% of this fleet's failed inbound A2A tasks — clustered at
-  // 35-46s, the wall to the second. Opting in routes the task to the
-  // background worker, as content, slides and analytics already do.
   durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
@@ -52,9 +51,6 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  // Enable sandboxed JavaScript execution so Mail agents can fetch, paginate,
-  // and reduce provider data through providerFetch() without us hardcoding one
-  // action per Gmail, Google Calendar, or CRM endpoint.
   codeExecution: { production: "sandboxed" },
   mentionProviders: {
     emails: {
@@ -66,14 +62,12 @@ export default createAgentChatPlugin({
             view: query ? "all" : "inbox",
           });
           if (query) params.set("q", query);
-          // Build URL from the incoming request's host to avoid port mismatches
           const host =
             event?.node?.req?.headers?.host ||
             `localhost:${process.env.PORT || process.env.NITRO_PORT || "8080"}`;
           const proto =
             event?.node?.req?.headers?.["x-forwarded-proto"] || "http";
           const url = `${proto}://${host}/api/emails?${params.toString()}`;
-          // Forward cookies so auth middleware passes
           const cookie = event?.node?.req?.headers?.cookie || "";
           const res = await fetch(url, {
             headers: cookie ? { cookie } : {},
@@ -107,7 +101,7 @@ Some less-common tool schemas are loaded on demand. Use tool-search with a speci
 
 ## Deterministic Mail Reads
 
-For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen.
+For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen. For the inbox view specifically, call list-inbox-threads instead of list-emails: it returns the same tab bar, counts, and rows the human sees from one synced-store read; list-emails/search-emails remain for every other view or an ad hoc query.
 
 Available operations:
 - List and search emails
@@ -157,19 +151,23 @@ Be concise and helpful. When summarizing emails, include sender, subject, and a 
 
 Use manage-automations for recurring or event-triggered automations shown in Settings > Automations. For a new schedule, confirm the summary with the user, then define it with the schedule, timezone, and email actions it should run. Use an event trigger when it should run only when something changes.
 
-Use manage-email-rules for natural-language rules that process each new inbox email, such as auto-labeling newsletters or starring messages from a manager. These are separate from recurring or event-triggered automations.
+Use manage-email-rules for natural-language rules that process inbox mail. First inspect existing rules when a request may refine one; update the matching rule instead of adding a duplicate. For a new AI rule, use action "create" with one plain-language sentence and mode "tag", "important", "filter", or "archive". To update a matching AI rule, pass its id, mode, and revised sentence. Tag mode also needs a short tagName. These rules use the same AI-filter settings and automatically apply to up to 200 recent Inbox threads from the last 14 days; report a queued run as queued and only report counts returned by the action. AI tags are pinned as inbox tabs by default. The user can hide a tag tab from the tab cog without deleting its rule.
+
+When the user says "filter out messages like this", use the open thread/message from the current screen as the example and create a filter rule from its sender and content; do not ask them to restate visible context. For "prioritize mail from my boss", create an Important rule from the described sender/person. Use apply-ai-filter with mode "keep" or "filter" when the user corrects a specific message, and use refine-ai-filter to update the applicable existing rule from checked examples. Use record-ai-priority-feedback for a specific important/not-important correction, including its email id and account email when known. If a user asks to stop or change an existing behavior, inspect and edit that rule through manage-email-rules. After any rule change, report the resulting mode and sentence, the backfill status/counts, and settingsHref so the user can continue in Inbox rules.
 
 Sending email from an automation is opt-in. Mail keeps "Allow automations to send emails automatically" off by default. When it is off, an automation may draft or queue an email, but a real send remains approval-gated. Turning it on lets event-triggered automations send without asking for approval each time; it does not remove approval from normal interactive sends.
 
 Examples:
-- User says "auto-label newsletters" \u2192 create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
-- User says "archive marketing emails" \u2192 create rule with condition "marketing or promotional email" and action archive
-- User says "star emails from alice@example.com" \u2192 create rule with condition "from alice@example.com" and action star
+- User says "auto-label newsletters" \u2192 create with mode "tag", tagName "Newsletters", sentence "from a newsletter or marketing mailing list"
+- User says "prioritize emails from my manager" \u2192 create with mode "important" and sentence "from my manager"
+- User says "archive marketing emails" \u2192 create with mode "archive" and sentence "marketing or promotional email"
+- User says "filter these cold sales pitches" \u2192 create with mode "filter" and a sentence grounded in the selected email
+- User says "star emails from alice@example.com" \u2192 create a legacy automation rule with condition "from alice@example.com" and action star
 
 Rules are evaluated by a low-cost text model, preferring GPT-5.6 Luna when a Luna-capable provider is available, and run every minute + when the user opens the app.
 Use trigger-automations to force immediate processing.
 
-Available action types: label (with labelName), archive, mark_read, star, trash.
+AI-filter rules support label (with labelName) and archive. Legacy automation rules support mark_read, star, and trash.
 
 ## Composing vs Replying
 
@@ -182,15 +180,17 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 
 ## Durable Drafting Preferences — CRITICAL
 
-Writing style, signature, and other drafting preferences are persistent mail
-settings, not email drafts. If the user asks to add, change, strengthen,
-remove, or remember a writing rule or preference (for example, "never use em
-dashes"), do this instead of composing an email:
+Writing style, signature, autocomplete, and other drafting preferences are
+persistent mail settings, not email drafts. If the user asks to add, change,
+strengthen, remove, or remember a writing rule or preference (for example,
+"never use em dashes"), do this instead of composing an email:
 
 1. Run \`get-mail-settings\`.
-2. Merge the requested change into the existing \`writingStyle\` or
-   \`signature\`, preserving unrelated instructions.
-3. Run \`update-mail-settings\` with the complete merged value.
+2. Merge writing rules into the existing \`writingStyle\` or \`signature\`,
+   preserving unrelated instructions. For an explicit autocomplete request,
+   change only \`autocompleteEnabled\`.
+3. Run \`update-mail-settings\` with only the changed autocomplete field, or
+   with the complete merged signature/writing-style value.
 4. Confirm the returned setting was updated.
 
 Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a

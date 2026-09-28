@@ -646,13 +646,13 @@ describe("list-content-databases", () => {
             spaceId,
             databaseId: feedbackDatabaseId,
           }),
-        ).rejects.toThrow(/Not authorized for Content space/);
+        ).rejects.toThrow(/Content space not found/);
         await expect(
           listContentDatabasesAction.run({
             spaceId,
             includeSystemCollections: true,
           }),
-        ).rejects.toThrow(/Not authorized for Content space/);
+        ).rejects.toThrow(/Content space not found/);
       },
     );
   });

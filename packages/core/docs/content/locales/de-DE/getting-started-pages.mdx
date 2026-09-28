@@ -15,8 +15,8 @@ Sie Fachdaten speichern müssen.
 
 Der Entwicklungsserver liest Routendateien beim Start. Erstellen Sie
 `app/routes/text-analyses.tsx` und starten Sie `pnpm dev` neu, falls es bereits
-läuft. Die Route ist dann unter
-`http://localhost:8080/text-analyses` verfügbar.
+läuft. Öffnen Sie die von `pnpm dev` ausgegebene lokale URL und hängen Sie
+`/text-analyses` an; der Port kann sich ändern, wenn 8080 bereits belegt ist.
 
 ```tsx filename="app/routes/text-analyses.tsx"
 import { useActionQuery } from "@agent-native/core/client/hooks";
@@ -63,7 +63,7 @@ export default function TextAnalysesRoute() {
 verwendet. Die Seite benötigt weder eine benutzerdefinierte API-Route noch eine
 zweite Datenschicht oder SQL.
 
-Öffnen Sie `http://localhost:8080/text-analyses` oder bitten Sie den Agenten:
+Öffnen Sie die ausgegebene lokale URL mit angehängtem `/text-analyses` oder bitten Sie den Agenten:
 
 > Navigate to `/text-analyses`.
 

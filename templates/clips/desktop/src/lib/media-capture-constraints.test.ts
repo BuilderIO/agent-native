@@ -68,6 +68,11 @@ describe("desktop media capture constraints", () => {
     expect(isMediaConstraintFailure(new Error("Permission denied"))).toBe(
       false,
     );
+    expect(
+      isMediaConstraintFailure(
+        new DOMException("Could not start video source", "NotReadableError"),
+      ),
+    ).toBe(false);
   });
 
   it("uses browser voice processing by default and supports an explicit raw path", () => {
@@ -111,6 +116,33 @@ describe("desktop media capture constraints", () => {
     });
     expect(getUserMedia.mock.calls[1]?.[0]).toMatchObject({
       audio: { deviceId: { exact: "new-mic-id" } },
+      video: false,
+    });
+  });
+
+  it("retries another mic when the selected input cannot start", async () => {
+    const fallbackStream = { id: "fallback-audio" } as unknown as MediaStream;
+    const getUserMedia = mockGetUserMedia(
+      vi
+        .fn()
+        .mockRejectedValueOnce(
+          new DOMException("Could not start audio source", "NotReadableError"),
+        )
+        .mockResolvedValueOnce(fallbackStream),
+      vi.fn(async () => [
+        {
+          kind: "audioinput",
+          deviceId: "usb-webcam-mic",
+          label: "USB Webcam Microphone",
+        },
+      ]),
+    );
+
+    await expect(
+      getAudioStreamWithFallback("headset-mic", "Headset Microphone"),
+    ).resolves.toBe(fallbackStream);
+    expect(getUserMedia.mock.calls[1]?.[0]).toMatchObject({
+      audio: { deviceId: { exact: "usb-webcam-mic" } },
       video: false,
     });
   });

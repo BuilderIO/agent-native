@@ -1,10 +1,15 @@
 import {
   isResolvedEngineUsableForRequest,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { getSetting } from "@agent-native/core/settings";
+import {
+  getJevContextCredentials,
+  isJevEnabled,
+  readDeployCredentialEnv,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 export interface AutomationModelSettings {
   engine?: string;
@@ -13,6 +18,8 @@ export interface AutomationModelSettings {
 
 export const DEFAULT_AUTOMATION_ENGINE = "builder";
 export const DEFAULT_AUTOMATION_MODEL = "gpt-5-6-luna";
+export const TYPESAFE_AUTOMATION_ENGINE = "typesafe";
+export const TYPESAFE_AUTOMATION_MODEL = "jev-latest";
 
 const CHEAP_MODEL_CANDIDATES: AutomationModelSettings[] = [
   { engine: DEFAULT_AUTOMATION_ENGINE, model: DEFAULT_AUTOMATION_MODEL },
@@ -54,14 +61,43 @@ async function resolveEngineDefaultModel(
   });
 }
 
-/**
- * Prefer Luna for background text classification when a Luna-capable provider
- * is actually configured. An app's explicit automation setting always wins;
- * this is only the no-override default.
- */
 export async function resolveDefaultAutomationModel(
   ownerEmail: string,
 ): Promise<AutomationModelSettings> {
+  const jevAvailability = await runWithRequestContext(
+    { userEmail: ownerEmail },
+    async () => {
+      try {
+        return {
+          status: "checked" as const,
+          enabled: await isJevEnabled(
+            await getJevContextCredentials(ownerEmail),
+          ),
+        };
+      } catch (error) {
+        return { status: "error" as const, error };
+      }
+    },
+  );
+  if (jevAvailability.status === "error") {
+    console.warn(
+      "[automation-model] Jev availability check failed; using the configured model.",
+      jevAvailability.error,
+    );
+  }
+  if (jevAvailability.status === "checked" && jevAvailability.enabled) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+  if (readDeployCredentialEnv("TYPESAFE_API_KEY")?.trim()) {
+    return {
+      engine: TYPESAFE_AUTOMATION_ENGINE,
+      model: TYPESAFE_AUTOMATION_MODEL,
+    };
+  }
+
   for (const candidate of CHEAP_MODEL_CANDIDATES) {
     if (
       candidate.engine &&
@@ -71,7 +107,7 @@ export async function resolveDefaultAutomationModel(
     }
   }
 
-  const agentEngine = (await getSetting("agent-engine")) as {
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
     engine?: string;
     model?: string;
   } | null;
@@ -87,8 +123,34 @@ export async function resolveDefaultAutomationModel(
     };
   }
 
-  // Leave engine selection to resolveEngine so a configured non-Luna provider
-  // remains usable when none of the preferred Luna engines is connected.
+  return {};
+}
+
+export async function resolveTextAutomationModelSettings(
+  ownerEmail: string,
+): Promise<AutomationModelSettings> {
+  for (const candidate of CHEAP_MODEL_CANDIDATES) {
+    if (
+      candidate.engine &&
+      (await canResolveEngine(ownerEmail, candidate.engine))
+    ) {
+      return candidate;
+    }
+  }
+
+  const agentEngine = (await readDefaultAgentEngineSetting()) as {
+    engine?: string;
+    model?: string;
+  } | null;
+  if (agentEngine?.engine || agentEngine?.model) {
+    const model =
+      agentEngine.model ??
+      (agentEngine.engine
+        ? await resolveEngineDefaultModel(ownerEmail, agentEngine.engine)
+        : undefined);
+    return { engine: agentEngine.engine, model };
+  }
+
   return {};
 }
 
@@ -96,6 +158,8 @@ export async function resolveAutomationModelSettings(
   ownerEmail: string,
   settings: AutomationModelSettings | null | undefined,
 ): Promise<AutomationModelSettings> {
+  if (settings?.engine && settings.model) return settings;
+
   const defaults = await resolveDefaultAutomationModel(ownerEmail);
   if (!settings?.engine && !settings?.model) return defaults;
 

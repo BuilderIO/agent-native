@@ -16,6 +16,8 @@ import {
   documentQueryKey,
   filterDocumentTreeDocuments,
   isDocumentUpdateConflict,
+  isDocumentUpdateSuperseded,
+  isFavoritesDatabaseCache,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
   patchDocumentCaches,
@@ -405,6 +407,11 @@ describe("mergeDocumentIntoListDocumentsCache", () => {
 });
 
 describe("optimistic document favorites", () => {
+  it("does not treat an unavailable database cache entry as a Favorites response", () => {
+    expect(
+      isFavoritesDatabaseCache({ available: false, reason: "missing" }),
+    ).toBe(false);
+  });
   it("updates array and object list caches without disturbing other pages", () => {
     const favorite = { ...doc("a", null), isFavorite: true };
     expect(
@@ -447,6 +454,39 @@ describe("optimistic document favorites", () => {
     expect(updated.items[0].document.isFavorite).toBe(true);
     expect(updated.items[1].document.isFavorite).toBe(false);
     expect(database.items[0].document.isFavorite).toBe(false);
+  });
+
+  it("updates flat navigation rows without treating them as database rows", () => {
+    const navigation = {
+      items: [
+        {
+          membershipId: "item-a",
+          membershipPosition: 0,
+          documentId: "a",
+          title: "A",
+          icon: null,
+          isFavorite: false,
+        },
+        {
+          membershipId: "item-b",
+          membershipPosition: 1,
+          documentId: "b",
+          title: "B",
+          icon: null,
+          isFavorite: false,
+        },
+      ],
+      pagination: { hasMore: false, limit: 20, nextCursor: null },
+    } as any;
+
+    const updated = patchDocumentInDatabaseCache(navigation, "a", {
+      isFavorite: true,
+    })!;
+    expect(updated.items[0]).toMatchObject({
+      documentId: "a",
+      isFavorite: true,
+    });
+    expect(updated.items[1]).toBe(navigation.items[1]);
   });
 
   it("removes unfavorited pages from a cached Favorites database", () => {
@@ -604,12 +644,37 @@ describe("optimistic document titles", () => {
       "get-content-database",
       { databaseId: "files" },
     ] as const;
+    const databasePageKey = [
+      "action",
+      "query-content-database-items",
+      {
+        documentId: "files-page",
+        limit: 100,
+        tableQuery: {
+          search: "",
+          filters: [],
+          sorts: [{ key: "name", direction: "asc" }],
+          filterMode: "and",
+        },
+      },
+    ] as const;
     queryClient.setQueryData(documentQueryKey("a"), doc("a", null));
     queryClient.setQueryData(
       ["action", "list-documents", undefined],
       [doc("a", null)],
     );
     queryClient.setQueryData(databaseKey, {
+      items: [
+        {
+          id: "item-a",
+          databaseId: "files",
+          position: 0,
+          document: doc("a", null),
+          properties: [],
+        },
+      ],
+    });
+    queryClient.setQueryData(databasePageKey, {
       items: [
         {
           id: "item-a",
@@ -645,6 +710,9 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
     ).toBe("Saved body");
+    expect(
+      queryClient.getQueryData<any>(databasePageKey)?.items[0].document.title,
+    ).toBe("Page one");
   });
 
   it("patches Page-owned fields across contexts without exchanging memberships", () => {
@@ -746,6 +814,23 @@ describe("mergeDocumentIntoDocumentCache", () => {
       bodyRevision: 2,
       contentHash: "hash-2",
     });
+  });
+
+  it("updates suggestion eligibility only when the response carries it", () => {
+    const current = { ...doc("page", null), canSuggest: true };
+
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        title: "Updated without capability projection",
+      }),
+    ).toMatchObject({ canSuggest: true });
+    expect(
+      mergeDocumentIntoDocumentCache(current, {
+        ...doc("page", null),
+        canSuggest: false,
+      }),
+    ).toMatchObject({ canSuggest: false });
   });
 
   it("never copies membership or hydration context between query variants", () => {
@@ -859,6 +944,31 @@ describe("isDocumentUpdateConflict", () => {
   });
 });
 
+describe("isDocumentUpdateSuperseded", () => {
+  it("recognizes a settled editor generation", () => {
+    expect(
+      isDocumentUpdateSuperseded({
+        superseded: true,
+        id: "doc-1",
+        document: { ...doc("doc-1", null), urlPath: "/page/doc-1" } as any,
+        editorSessionId: "tab-one",
+        editGeneration: 4,
+        discardedGeneration: 4,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a normal saved document as superseded", () => {
+    expect(
+      isDocumentUpdateSuperseded({
+        ...doc("doc-1", null),
+        urlPath: "/page/doc-1",
+        softDeletedDatabaseIds: [],
+      } as any),
+    ).toBe(false);
+  });
+});
+
 describe("seedDatabaseItemDocumentCaches", () => {
   it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
@@ -899,6 +1009,12 @@ describe("seedDatabaseItemDocumentCaches", () => {
     };
 
     seedDatabaseItemDocumentCaches(queryClient, item);
+    expect(
+      queryClient
+        .getQueryCache()
+        .find({ queryKey: documentPropertiesQueryKey("row-page", "database") })
+        ?.isStaleByTime(30_000),
+    ).toBe(true);
 
     expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
       undefined,

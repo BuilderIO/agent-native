@@ -54,7 +54,7 @@ const NETLIFY_BETA_SITES = JSON.parse(
 const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
 const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
 const NETLIFY_SITE_PRODUCTION_URLS = new Map([
-  ["starter", "https://starter.agent-native.com"],
+  ["starter", "https://chat.agent-native.com"],
 ]);
 const NETLIFY_BETA_SITE_BY_NAME = new Map(
   NETLIFY_BETA_SITES.flatMap((site) => {
@@ -80,12 +80,11 @@ const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
 const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
+const ENV_SCOPES_BY_KEY = new Map([["SENTRY_AUTH_TOKEN", ["builds"]]]);
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
-  // Hosted harnesses are tools-only; app config still controls which
-  // deployments expose the runtime picker.
   ["AGENT_NATIVE_HOSTED_HARNESS", "true"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
@@ -113,18 +112,18 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
-  // Google OAuth credentials are deliberately NOT synced. A template's local
-  // .env holds a developer's dev-tier client, while hosted sites run the shared
-  // production client; syncing overwrote live secrets with dev ones and took
-  // beta sign-in down fleet-wide. Manage these in Netlify only.
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
+  "LAUNCHDARKLY_SDK_KEY",
   "NEON_AUTH_BASE_URL",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SENTRY_SERVER_DSN",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
@@ -134,17 +133,40 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES = ["VITE_"];
 const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "DATABASE_URL",
   "FIGMA_ACCESS_TOKEN",
+  "LAUNCHDARKLY_SDK_KEY",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "SENDGRID_API_KEY",
+  "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
   "SENTRY_SERVER_DSN",
 ]);
+// Sentry build-time upload credentials are one org/project shared by every
+// hosted site, unlike SENTRY_DSN which can vary per site. LaunchDarkly's SDK
+// key is the same: one project shared fleet-wide. Pulling them from the
+// invoking shell (rather than each template's committed .env) means the
+// token is never written to disk in this repo.
+const FLEET_WIDE_ENV_KEYS = [
+  "SENTRY_AUTH_TOKEN",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
+  "LAUNCHDARKLY_SDK_KEY",
+];
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
   "AMPLITUDE_API_KEY",
   "DEMO_MODE",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GEMINI_API_KEY",
+  "GROQ_API_KEY",
+  "JEV_API_KEY",
+  "MISTRAL_API_KEY",
+  "COHERE_API_KEY",
   "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TYPESAFE_API_KEY",
+  "VOYAGE_API_KEY",
   "VITE_AMPLITUDE_API_KEY",
 ]);
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_PREFIXES = ["BUILDER_"];
@@ -164,6 +186,8 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
+  "SENTRY_ORG",
+  "SENTRY_PROJECT",
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
   "ZOOM_CLIENT_ID",
@@ -209,6 +233,11 @@ Options:
                            GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
                            hosted Agent-Native analytics configuration unless an
                            env source overrides them.
+                           SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT, and
+                           LAUNCHDARKLY_SDK_KEY are read from this shell's
+                           environment (not any template .env) since they're
+                           the same for every hosted site.
+                           SENTRY_AUTH_TOKEN is always scoped to builds only.
   --help                  Show this help.
 
 Known templates:
@@ -364,6 +393,8 @@ function findClosingDoubleQuote(value: string): number {
   return -1;
 }
 
+const FLEET_WIDE_ENV_KEY_SET = new Set(FLEET_WIDE_ENV_KEYS);
+
 function loadTemplateEnv(template: string, sources: string[]) {
   const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
@@ -376,9 +407,19 @@ function loadTemplateEnv(template: string, sources: string[]) {
     const relativePath = path.relative(REPO_ROOT, filePath);
     foundSources.push(relativePath);
     for (const [key, value] of parseEnvFile(filePath)) {
+      // Fleet-wide keys are shell-only (see FLEET_WIDE_ENV_KEYS below): a
+      // template file's value for one of them is never eligible, so it can't
+      // sync a stale or developer-local credential when the shell key is
+      // simply unset.
+      if (FLEET_WIDE_ENV_KEY_SET.has(key)) continue;
       values.set(key, value);
       sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);
     }
+  }
+
+  for (const key of FLEET_WIDE_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) values.set(key, value);
   }
 
   return { foundSources, sourcesByKey, values };
@@ -485,8 +526,6 @@ export function normalizeProductionUrlEntry(
     return { value, normalized: false };
   }
 
-  // This syncs first-party Netlify sites. A local workspace URL must never
-  // become a hosted auth origin because Google validates the exact URI.
   return { value: targetUrl, normalized: true };
 }
 
@@ -495,10 +534,14 @@ function isBetaContext(context: string): boolean {
 }
 
 export function resolveNetlifyApiContext(context: string): string {
-  // The dedicated beta projects promote their beta branch as the project's
-  // production branch. Their beta runtime therefore reads production-scoped
-  // values, not generic branch-deploy values.
   return isBetaContext(context) ? "production" : context;
+}
+
+export function resolveNetlifyEnvScopes(
+  key: string,
+  scopes: string[],
+): string[] {
+  return ENV_SCOPES_BY_KEY.get(key) ?? scopes;
 }
 
 function siteIdForContext(site: TemplateSite, context: string): string {
@@ -745,7 +788,7 @@ async function main() {
         accountId: options.accountId!,
         context: options.context,
         key,
-        scopes: options.scopes,
+        scopes: resolveNetlifyEnvScopes(key, options.scopes),
         siteId: targetSiteId,
         token: token!,
         value,

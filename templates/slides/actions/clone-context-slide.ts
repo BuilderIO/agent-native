@@ -8,6 +8,7 @@ import {
   validateCompiledNativeHtml,
 } from "@agent-native/creative-context";
 import {
+  assertCreativeContextLabEnabled,
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
   recordGenerationCreativeContext,
@@ -104,9 +105,10 @@ export default defineAction({
   },
   http: false,
   run: async ({ deckId, itemId, itemVersionId, position, slideId }) => {
-    const contextState = (await readAppState("creative-context").catch(
-      () => null,
-    )) as { contextMode?: "auto" | "off" } | null;
+    await assertCreativeContextLabEnabled();
+    const contextState = (await readAppState("creative-context")) as {
+      contextMode?: "auto" | "off";
+    } | null;
     if (contextState?.contextMode === "off") {
       throw new Error(
         "Creative Context is off. Enable it before cloning a library slide.",

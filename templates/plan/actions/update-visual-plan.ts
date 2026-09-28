@@ -10,6 +10,7 @@ import {
   resolveAccess,
   roleSatisfies,
 } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -52,6 +53,7 @@ import {
 import {
   agentPlanIncrementalContentPatchesSchema,
   applyPlanContentPatches,
+  findBlock,
   planContentPatchesSchema,
   planContentSchema,
   type PlanBlock,
@@ -92,22 +94,6 @@ function blockExcerpt(block: PlanBlock | null) {
   };
 }
 
-function findContentBlock(
-  blocks: PlanBlock[],
-  blockId: string,
-): PlanBlock | null {
-  for (const block of blocks) {
-    if (block.id === blockId) return block;
-    if (block.type === "tabs") {
-      for (const tab of block.data.tabs) {
-        const match = findContentBlock(tab.blocks, blockId);
-        if (match) return match;
-      }
-    }
-  }
-  return null;
-}
-
 function contentPatchTargetId(patch: PlanContentPatch) {
   if ("blockId" in patch) return patch.blockId;
   if ("screenId" in patch) return patch.screenId;
@@ -123,12 +109,6 @@ function contentPatchTargetId(patch: PlanContentPatch) {
   return null;
 }
 
-/**
- * Real block ids an agent content edit touched, for the plan-presence recent-edit
- * highlight (`{ kind: "paths", paths }`). Prefers per-patch targets; for a
- * whole-content or `replace-blocks` rewrite it falls back to the resulting
- * top-level block ids. Deduped, capped so the awareness payload stays small.
- */
 function affectedPlanBlockIds(
   patches: PlanContentPatch[],
   nextContent: PlanContent | null,
@@ -408,11 +388,11 @@ function contentPatchDetails(input: {
     const targetId = contentPatchTargetId(patch);
     const beforeBlock =
       "blockId" in patch && input.before
-        ? findContentBlock(input.before.blocks, patch.blockId)
+        ? findBlock(input.before.blocks, patch.blockId)
         : null;
     const afterBlock =
       "blockId" in patch && input.after
-        ? findContentBlock(input.after.blocks, patch.blockId)
+        ? findBlock(input.after.blocks, patch.blockId)
         : patch.op === "append-block"
           ? patch.block
           : null;
@@ -449,6 +429,55 @@ function contentPatchDetails(input: {
   });
 }
 
+function canvasSurfaceProjection(content: PlanContent) {
+  return (content.canvas?.frames ?? []).flatMap((frame) => {
+    const referencedBlock = frame.blockId
+      ? findBlock(content.blocks, frame.blockId)
+      : null;
+    const wireframe =
+      frame.wireframe ??
+      (referencedBlock?.type === "wireframe" ? referencedBlock.data : null);
+    const legacyWireframe =
+      frame.legacyWireframe ??
+      (referencedBlock?.type === "legacy-wireframe"
+        ? referencedBlock.data
+        : null);
+    if (!wireframe && !legacyWireframe) return [];
+    return {
+      label: frame.label ?? referencedBlock?.title ?? null,
+      surface:
+        frame.surface ??
+        wireframe?.surface ??
+        (legacyWireframe?.viewport === "phone" ? "mobile" : undefined) ??
+        "desktop",
+      wireframe,
+      legacyWireframe,
+    };
+  });
+}
+
+function surfaceParityWarnings(
+  before: PlanContent | null,
+  after: PlanContent | null,
+) {
+  const beforeProjection = before ? canvasSurfaceProjection(before) : [];
+  const afterProjection = after ? canvasSurfaceProjection(after) : [];
+  if (beforeProjection.length === 0 && afterProjection.length === 0) {
+    return [];
+  }
+  const prototypeChanged =
+    JSON.stringify(before?.prototype) !== JSON.stringify(after?.prototype);
+  if (
+    !prototypeChanged ||
+    JSON.stringify(beforeProjection) !== JSON.stringify(afterProjection)
+  ) {
+    return [];
+  }
+  return [
+    "This update changes the prototype while leaving the visible canvas unchanged. Patch the matching canvas frame(s) too, or pass allowSurfaceMismatch: true only for an intentional single-surface edit.",
+  ];
+}
+
 const CONTENT_DESCRIPTION =
   "Destructive full structured content replacement. Read the latest plan first and pass its updatedAt as expectedUpdatedAt. Prefer granular contentPatches for ordinary edits; use this only for intentional broad restructuring.";
 const CONTENT_PATCHES_DESCRIPTION =
@@ -480,8 +509,6 @@ function compactAgentWriteResult(
   };
 }
 
-// Named so `agentInputSchema` below can `.extend()` it with compact
-// `content`/`contentPatches` fields instead of duplicating every other key.
 const updateVisualPlanSchema = z.object({
   planId: z.string().describe("Plan ID"),
   title: z.string().optional().describe("Plan title."),
@@ -510,6 +537,13 @@ const updateVisualPlanSchema = z.object({
     .default(false)
     .describe(
       "Explicit confirmation for a full content replacement or replace-blocks call that removes existing block IDs, collapses a nonempty canvas to zero frames, or collapses a nonempty prototype to zero screens. Keep false for normal rewrites. Set true only after reviewing the latest plan and intentionally accepting those losses; expectedUpdatedAt is still required.",
+    ),
+  allowSurfaceMismatch: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Explicit confirmation for an intentional single-surface prototype edit when a visible canvas also exists. Keep false for normal UI revisions so stale canvas content is rejected before writing.",
     ),
   html: z
     .string()
@@ -553,9 +587,6 @@ const updateVisualPlanSchema = z.object({
     .describe("Short label saved as the version-history snapshot label."),
 });
 
-// ADVERTISED-ONLY: agent edits to an existing plan must stay incremental. The
-// runtime schema above still accepts full replacements for the browser editor
-// and explicit callers that have intentionally chosen that workflow.
 const agentUpdateVisualPlanSchema = updateVisualPlanSchema
   .omit({ content: true, html: true, markdown: true, sections: true })
   .extend({
@@ -580,7 +611,7 @@ export default defineAction({
     isConsequential: true,
     title: "Update Visual Plan",
     description:
-      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed.",
+      "Patch structured plan content, add visual sections, record comments, or mark feedback consumed. When canvas and prototype coexist, patch both visible surfaces; mismatches are rejected before writing unless allowSurfaceMismatch is explicitly true.",
   },
   mcpApp: {
     compactCatalog: true,
@@ -596,9 +627,6 @@ export default defineAction({
   run: async (args, ctx) => {
     const requesterEmail = getRequestUserEmail();
     const requesterName = getRequestUserName();
-    // Only surface AI presence for genuine agent invocations (in-app tool loop /
-    // A2A → "tool"; external MCP agents → "mcp"). The browser editor autosaves
-    // through this same action as "frontend" and must NOT light the agent flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
     const onlyAddsNewComments =
@@ -627,17 +655,6 @@ export default defineAction({
         : requesterEmail;
 
     if (onlyReviewerCommentWork) {
-      // Commenting on a plan (including a public-link plan) requires an
-      // agent-native account. The two synthetic anonymous identities must NOT be
-      // able to comment — only a real account (or the local single-user identity
-      // in local mode) can:
-      //   - Anonymous public-link viewers (`public-*@agent-native.local`, minted
-      //     by resolvePublicPlanViewerOwner) can read a public plan but not
-      //     comment.
-      //   - Legacy hosted guest authors (`guest-*@agent-native.guest`) cannot
-      //     comment; create/update authoring now requires a real account.
-      // This keeps "anyone with the link can view; accounts can create, comment,
-      // and share".
       if (isAnonymousPublicViewer(requesterEmail)) {
         throw new ForbiddenError(
           "Commenting on a plan requires an agent-native account. Sign in to leave a comment.",
@@ -681,10 +698,12 @@ export default defineAction({
       args.content !== undefined || hasReplaceBlocksPatch;
     let nextContent =
       args.content !== undefined ? normalizePlanContent(args.content) : null;
+    let surfaceWarnings: string[] = [];
     let versionAtLoad: string | null = null;
     let bundleAtLoad: Awaited<ReturnType<typeof loadPlanBundle>> | null = null;
 
     if (
+      args.status !== undefined ||
       args.content !== undefined ||
       args.contentPatches.length > 0 ||
       args.html !== undefined ||
@@ -732,6 +751,9 @@ export default defineAction({
         args.contentPatches,
       );
     }
+    const normalizedContentAtLoad = bundleAtLoad?.plan.content
+      ? planContentSchema.parse(bundleAtLoad.plan.content)
+      : null;
     if (
       isDestructiveStructuredWrite &&
       !args.allowDestructive &&
@@ -747,6 +769,12 @@ export default defineAction({
           `Destructive structured replacement would ${warnings.join(" and ")}. Reload and review the latest plan, then pass allowDestructive: true with its expectedUpdatedAt only if those losses are intentional.`,
         );
       }
+    }
+    surfaceWarnings = nextContent
+      ? surfaceParityWarnings(normalizedContentAtLoad, nextContent)
+      : [];
+    if (surfaceWarnings.length > 0 && !args.allowSurfaceMismatch) {
+      throw new Error(surfaceWarnings.join(" "));
     }
     const sourceBundleForMarkdown =
       nextContent && args.markdown === undefined
@@ -778,6 +806,14 @@ export default defineAction({
     );
     const nextTitle = args.title ?? metadataPatch?.title;
     const nextBrief = args.brief ?? metadataPatch?.brief;
+    const contentChanged =
+      nextContent !== null &&
+      JSON.stringify(nextContent) !== JSON.stringify(normalizedContentAtLoad);
+    const contentPatchChanged =
+      args.contentPatches.length > 0 &&
+      (contentChanged ||
+        (nextTitle !== undefined && nextTitle !== bundleAtLoad?.plan.title) ||
+        (nextBrief !== undefined && nextBrief !== bundleAtLoad?.plan.brief));
     const planPatch = {
       ...(nextTitle !== undefined ? { title: nextTitle } : {}),
       ...(nextBrief !== undefined ? { brief: nextBrief } : {}),
@@ -851,9 +887,6 @@ export default defineAction({
       pendingCommentInserts.push(comment);
     }
     if (onlyUpdatesCommentStatuses && pendingCommentInserts.length > 0) {
-      // A client-minted id with status "open" is a new insert, not a missing
-      // resolve target. Only throw when the caller tried to close/reopen a
-      // comment that does not exist in the DB.
       if (pendingCommentInserts.some((c) => c.status !== "open")) {
         throw new Error("Comment status update target was not found.");
       }
@@ -878,9 +911,6 @@ export default defineAction({
         : null;
     const commentsBeforeInserts = bundleForCommentInserts?.comments ?? [];
 
-    // Validate that any sectionId referenced by a new comment actually exists on
-    // this plan. A bogus or cross-plan sectionId would silently store a dangling
-    // FK; reject early with a clear message instead.
     if (bundleForCommentInserts) {
       const validSectionIds = new Set(
         (bundleForCommentInserts.sections ?? []).map((s) => s.id),
@@ -931,10 +961,27 @@ export default defineAction({
       args.status !== undefined ||
       args.currentFocus !== undefined ||
       args.html !== undefined ||
-      args.content !== undefined ||
-      args.contentPatches.length > 0 ||
+      (args.content !== undefined && contentChanged) ||
+      contentPatchChanged ||
       args.markdown !== undefined ||
       args.sections.length > 0;
+    const hasPersistedPlanChanges =
+      hasPlanAuthoringChanges ||
+      pendingCommentInserts.length > 0 ||
+      existingCommentUpdates.length > 0 ||
+      args.consumedCommentIds.length > 0;
+    const diffCount =
+      args.contentPatches.length +
+      args.sections.length +
+      [
+        args.title,
+        args.brief,
+        args.status,
+        args.currentFocus,
+        args.html,
+        args.content,
+        args.markdown,
+      ].filter((value) => value !== undefined).length;
     if (!onlyReviewerCommentWork && hasPlanAuthoringChanges) {
       await createPlanVersionSnapshot(args.planId, {
         force: true,
@@ -943,11 +990,6 @@ export default defineAction({
       });
     }
 
-    // Async transactions are safe on both supported runtimes through
-    // createGetDb's shared Postgres transaction surface.
-    // See restore-plan-version.ts for the same pattern. The leading
-    // optimistic-lock UPDATE still guards concurrent writes; a thrown error
-    // (e.g. the zero-rows-affected conflict below) rolls back the whole block.
     await db.transaction(async (tx) => {
       // guard:allow-unscoped -- gated above by editor access, or by public
       // viewer access plus new-open-human-comment / canvas-review-markup validation.
@@ -1065,10 +1107,6 @@ export default defineAction({
                   sectionId: comment.sectionId ?? null,
                   kind: comment.kind,
                   status: comment.status,
-                  // Preserve stored anchor/resolutionTarget/mentionsJson when the
-                  // caller omits them (e.g. a mixed resolve+consume request that
-                  // only carries { id, status, message }). Only overwrite when the
-                  // input explicitly provides a value.
                   anchor:
                     comment.anchor !== undefined
                       ? (metadata?.anchor ?? null)
@@ -1115,24 +1153,22 @@ export default defineAction({
           );
       }
 
-      await tx.insert(schema.planEvents).values({
-        id: newId("evt"),
-        planId: args.planId,
-        type: "plan.updated",
-        message:
-          !onlyReviewerCommentWork && args.note
-            ? args.note
-            : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
-        payload: JSON.stringify(reviewEventPayload),
-        createdBy: onlyReviewerCommentWork ? "human" : "agent",
-        createdAt: now,
-      });
+      if (hasPersistedPlanChanges) {
+        await tx.insert(schema.planEvents).values({
+          id: newId("evt"),
+          planId: args.planId,
+          type: "plan.updated",
+          message:
+            !onlyReviewerCommentWork && args.note
+              ? args.note
+              : `Updated ${args.sections.length} section(s), ${args.comments.length} comment(s).`,
+          payload: JSON.stringify(reviewEventPayload),
+          createdBy: onlyReviewerCommentWork ? "human" : "agent",
+          createdAt: now,
+        });
+      }
     });
 
-    // Make an agent content edit visible on the plan-presence doc: light the AI
-    // avatar in the header PresenceBar and glow the patched block(s) for ~6s.
-    // Best-effort — never fail the save on presence. Gated to authoring changes
-    // and agent callers (a human editor's autosave routes through here too).
     if (isAgentCaller && hasPlanAuthoringChanges) {
       try {
         const blockIds = affectedPlanBlockIds(args.contentPatches, nextContent);
@@ -1157,6 +1193,19 @@ export default defineAction({
     }
 
     const bundle = await loadPlanBundle(args.planId);
+    if (hasPlanAuthoringChanges) {
+      track(
+        "plan_updated",
+        {
+          app_name: "plan",
+          template_name: "plan",
+          output_id: bundle.plan.id,
+          output_type: bundle.plan.kind,
+          diff_count: diffCount,
+        },
+        ctx,
+      );
+    }
     await notifyPlanCommentRecipients({
       bundle,
       insertedCommentIds,
@@ -1164,7 +1213,6 @@ export default defineAction({
     }).catch((error) => {
       console.warn("[update-visual-plan] comment notification failed:", error);
     });
-    // Emit plan.commented for any newly inserted comments
     if (insertedCommentIds.length > 0) {
       const newComments = bundle.comments.filter((c) =>
         insertedCommentIds.includes(c.id),
@@ -1183,29 +1231,34 @@ export default defineAction({
         ownerEmail: bundle.access.ownerEmail,
       });
     }
-    // Emit plan.status.changed when the status was explicitly changed
-    if (args.status) {
+    if (
+      args.status &&
+      bundleAtLoad?.plan.status !== undefined &&
+      args.status !== bundleAtLoad.plan.status
+    ) {
       emitPlanStatusChanged({
         planId: bundle.plan.id,
         title: bundle.plan.title,
         kind: bundle.plan.kind,
-        oldStatus: null, // status before update is not re-fetched here; use null as unknown-prior
+        oldStatus: bundleAtLoad.plan.status,
         newStatus: bundle.plan.status,
         changedBy: requesterEmail,
         ownerEmail: bundle.access.ownerEmail,
       });
     }
     const local = isLocalPlanRuntime()
-      ? await writePlanLocalFiles({
-          planId: bundle.plan.id,
-          title: bundle.plan.title,
-          brief: bundle.plan.brief,
-          content: bundle.plan.content,
-          url: planPath(bundle.plan.id, bundle.plan.kind),
-          referencedBlockIds: referencedBlockIdsForPlanComments(
-            bundle.comments,
-          ),
-        })
+      ? hasPersistedPlanChanges
+        ? await writePlanLocalFiles({
+            planId: bundle.plan.id,
+            title: bundle.plan.title,
+            brief: bundle.plan.brief,
+            content: bundle.plan.content,
+            url: planPath(bundle.plan.id, bundle.plan.kind),
+            referencedBlockIds: referencedBlockIdsForPlanComments(
+              bundle.comments,
+            ),
+          })
+        : null
       : null;
     if (isAgentCaller) {
       return {
@@ -1215,6 +1268,7 @@ export default defineAction({
           statusChanged: args.status !== undefined,
           contentPatchOps: args.contentPatches.map((patch) => patch.op),
           commentCount: insertedCommentIds.length,
+          ...(surfaceWarnings.length > 0 ? { warnings: surfaceWarnings } : {}),
         }),
         ...(local?.written ? { localFiles: local } : {}),
       };

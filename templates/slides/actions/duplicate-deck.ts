@@ -46,9 +46,6 @@ export default defineAction({
     const now = new Date().toISOString();
     const deckData = JSON.parse(source.data);
 
-    // New IDs for all slides so edits to the copy don't collide with the
-    // original. A caller that already rendered an optimistic copy supplies the
-    // ids it used; anything it did not cover still gets a fresh one.
     const slides = deckData.slides || [];
     const originalSlideIds = slides.map((slide: { id?: unknown }) =>
       typeof slide.id === "string" ? slide.id : null,
@@ -67,16 +64,6 @@ export default defineAction({
       deckData,
       repairDeckSlideReferences(deckData, slides, originalSlideIds),
     );
-    if (
-      deckData.sourceImport &&
-      typeof deckData.sourceImport === "object" &&
-      !Array.isArray(deckData.sourceImport)
-    ) {
-      deckData.sourceImport = {
-        ...deckData.sourceImport,
-        editableSnapshot: true,
-      };
-    }
     deckData.title = newTitle;
     deckData.createdAt = now;
     deckData.updatedAt = now;

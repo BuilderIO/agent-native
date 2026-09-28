@@ -12,17 +12,15 @@ import {
 } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import {
+  createGoogleAccountEventId,
+  parseGoogleAccountEventId,
+} from "../shared/google-calendar-sources.js";
 
 export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
-/**
- * Read a `cliBoolean` field the way the schema will. A `needsApproval`
- * predicate is handed the raw tool input, before the schema runs, so
- * `dryRun: "false"` still arrives as the truthy string `"false"`. Testing it
- * with `!value` there would wave a real delete through as a dry run.
- */
 export function rawCliBoolean(value: unknown): boolean {
   return value === true || value === "true";
 }
@@ -89,6 +87,7 @@ export const attendeeObjectInput = z.object({
   email: z.string(),
   displayName: z.string().optional(),
   optional: cliBoolean.optional(),
+  additionalGuests: z.coerce.number().int().nonnegative().optional(),
   comment: z.string().optional(),
   responseStatus: z
     .enum(["accepted", "declined", "tentative", "needsAction"])
@@ -106,6 +105,7 @@ export type NormalizedAttendee = {
   email: string;
   displayName?: string;
   optional?: boolean;
+  additionalGuests?: number;
   comment?: string;
   responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizer?: boolean;
@@ -130,6 +130,9 @@ export function normalizeAttendees(
       email: a.email,
       ...(a.displayName ? { displayName: a.displayName } : {}),
       ...(a.optional === true ? { optional: true } : {}),
+      ...(a.additionalGuests !== undefined
+        ? { additionalGuests: a.additionalGuests }
+        : {}),
       ...(a.comment ? { comment: a.comment } : {}),
       ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}),
       ...(a.organizer === true ? { organizer: true } : {}),
@@ -137,12 +140,6 @@ export function normalizeAttendees(
     }));
 }
 
-/**
- * Google Calendar's UI always lists the organizer in Guests when inviting
- * others. The insert API does not — unless we include the organizer/self
- * email in `attendees`. Call this when creating/publishing an event that
- * already has guests so AN matches GCal.
- */
 export function ensureOrganizerInAttendees(
   attendees: NormalizedAttendee[] | undefined,
   organizerEmail: string,
@@ -185,10 +182,62 @@ export function requireActionUserEmail(): string {
 }
 
 export function normalizeGoogleEventId(id: string): string {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (accountEvent) return accountEvent.googleEventId;
   return id.startsWith("google-") ? id.slice("google-".length) : id;
 }
 
+export function googleEventResultId(
+  inputId: string,
+  googleEventId: string,
+  accountEmail: string,
+): string {
+  return parseGoogleAccountEventId(inputId)
+    ? createGoogleAccountEventId({ accountEmail, googleEventId })
+    : `google-${googleEventId}`;
+}
+
+export function resolveGoogleEventAccountEmail(
+  id: string,
+  accountEmail: string | undefined,
+): string | undefined {
+  const accountEvent = parseGoogleAccountEventId(id);
+  if (!accountEvent) return accountEmail;
+  if (
+    accountEmail &&
+    accountEmail.trim().toLowerCase() !== accountEvent.accountEmail
+  ) {
+    throw new Error("Google event account does not match the selected account");
+  }
+  return accountEvent.accountEmail;
+}
+
+export function resolveBulkGoogleEventAccountEmail(
+  ids: string[],
+  accountEmail: string | undefined,
+): string | undefined {
+  const scopedCount = ids.filter((id) => parseGoogleAccountEventId(id)).length;
+  if (scopedCount > 0 && scopedCount !== ids.length) {
+    throw new Error(
+      "Bulk event ids cannot mix account-scoped and legacy Google ids",
+    );
+  }
+  const accounts = new Set(
+    ids
+      .map((id) => resolveGoogleEventAccountEmail(id, accountEmail))
+      .filter((email): email is string => !!email)
+      .map((email) => email.trim().toLowerCase()),
+  );
+  if (accounts.size > 1) {
+    throw new Error("Bulk event ids must belong to one Google account");
+  }
+  return accounts.values().next().value ?? accountEmail;
+}
+
 export function normalizeWritableGoogleEventId(id: string): string {
+  if (id.startsWith("overlay-") && id.slice("overlay-".length).includes("@")) {
+    throw new Error("Overlay Google calendar events are read-only");
+  }
   if (id.startsWith("google-google-calendar:")) {
     throw new Error("Shared Google calendar events are read-only");
   }
@@ -261,6 +310,9 @@ export function undeletableEventReason(
   }
   if (event.source === "local") {
     return 'Is a booking; cancel the booking with "cancel-booking" instead';
+  }
+  if (event.overlayEmail) {
+    return "Comes from an overlaid Google calendar, which is read-only";
   }
   if (event.calendarReadOnly) {
     return "Comes from a read-only Google calendar source";
@@ -645,6 +697,26 @@ function allDaySpanDays(start: string, end: string): number {
     Number(endDate.slice(8, 10)),
   );
   return Math.round((endMs - startMs) / 86_400_000);
+}
+
+export function validateEventTimeOrder(args: {
+  allDay?: boolean;
+  start: string;
+  end: string;
+}) {
+  if (args.allDay === true) return;
+  const startMs = Date.parse(args.start);
+  const endMs = Date.parse(args.end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    throw new Error(
+      `Event start and end must be valid timestamps: ${args.start} to ${args.end}`,
+    );
+  }
+  if (endMs <= startMs) {
+    throw new Error(
+      `Event end must be after its start: ${args.start} to ${args.end}`,
+    );
+  }
 }
 
 export function validateStatusEventTiming(args: {

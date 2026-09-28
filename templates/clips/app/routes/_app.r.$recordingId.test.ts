@@ -8,12 +8,31 @@ function readRoute(name: string): string {
 }
 
 describe("direct recording route shell cue", () => {
+  it("fences manual finalize retries to the loaded upload identity", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "uploadAttemptId: recording?.uploadAttemptId ?? null",
+    );
+    expect(route).toContain(
+      "uploadGenerationId: recording?.uploadGenerationId ?? null",
+    );
+  });
+
   it("prefers public-share timestamps over legacy owner timestamps", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
 
     expect(route).toContain('searchParams.get("at") ?? searchParams.get("t")');
     expect(route).toContain("requestedPlaybackRef.current");
     expect(route).toContain("playerRef.current?.seek(requestedStartMs)");
+  });
+
+  it("preserves only public playback state in the anonymous legacy redirect", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain("buildShareContinuationQuery");
+    expect(route).toContain("legacyShareQuery");
+    expect(route).toContain('searchParams.get("panel")');
   });
 
   it("clamps route playback state before exposing it", () => {
@@ -29,6 +48,14 @@ describe("direct recording route shell cue", () => {
       "const playbackMs = resolveStartMs(currentMs, recording?.durationMs)",
     );
     expect(shareRoute).toContain("currentMs={playbackMs}");
+  });
+
+  it("keeps timestamped comments outside the clipped video frame", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      'className="relative aspect-video w-full bg-card shadow-sm ring-1 ring-border sm:rounded-2xl"',
+    );
   });
 
   it("surfaces recording cleanup before advanced workflow submenus", () => {
@@ -57,6 +84,10 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("startAiRequestToast");
     expect(route).toContain("completeAiRequestToast");
     expect(route).toContain("failAiRequestToast");
+    expect(route).toContain(
+      "activeAiRequestRef.current.requestedAt !== aiRequestStatus.requestedAt",
+    );
+    expect(route).toContain("requestedAt: result?.requestedAt ?? null");
     expect(route).toContain("duration: Number.POSITIVE_INFINITY");
     expect(route).toContain("transcriptPendingObservedRef.current = true");
     expect(route).toContain(
@@ -102,7 +133,7 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain('className="flex shrink-0 items-center gap-2"');
     expect(toolbar).toContain('className="flex items-center gap-2"');
     const contentColumnStart = route.indexOf(
-      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[calc(177.778dvh-35.556rem)]"',
+      'className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-0 sm:gap-4 lg:max-w-[min(100%,1600px,calc(177.778dvh-35.556rem))]"',
     );
     const contentColumn = route.slice(
       contentColumnStart,
@@ -113,24 +144,45 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "gap-0 sm:gap-4 sm:px-5 sm:pb-5 sm:pt-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden",
     );
-    expect(contentColumn).toContain("renderCommentsSection()");
+    expect(route).toContain(
+      "Let the viewer grow on wide displays without pushing the",
+    );
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+    expect(commentsSectionStart).toBeGreaterThan(-1);
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
+    expect(commentsSection).not.toContain('t("playerSettings.comments")');
     expect(toolbar).not.toContain("renderSidebarToggleButton()");
     expect(toolbar).not.toContain("renderPanelTabs()");
     expect(route).toContain("<ViewerTabsList");
-    expect(route).toContain('<ViewerTabsTrigger value="comments">');
+    expect(route).toContain('value="comments"');
+    expect(route).toContain('useState<SidePanel | null>("comments")');
     expect(route).toContain('<ViewerTabsTrigger value="transcript">');
-    expect(route).toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).toContain('<ViewerTabsTrigger value="debug">');
     expect(route).toContain('<ViewerTabsTrigger value="settings">');
+    expect(route).toContain("isFullBrowserDiagnostics");
+    expect(route).toContain("<BrowserDiagnosticsPanel");
     expect(route).not.toContain("<ToggleGroup");
     expect(route).toContain('value={panel ?? "comments"}');
     expect(route).toContain('if (value === "comments")');
     expect(route).toContain("openCommentsPanel();");
+    expect(route).toContain('value="comments"');
+    expect(route).toContain("forceMount");
+    expect(route).toContain("data-[state=inactive]:hidden");
     expect(route).not.toContain("IconLayoutSidebarRightCollapse");
     expect(route).not.toContain("IconLayoutSidebarRightExpand");
     expect(route).not.toContain("closeSidePanel");
     expect(route).not.toContain("lastToolbarPanelRef");
     expect(route).toContain(
-      '!editing && !isCompactLayout && panel && panel !== "comments"',
+      "!editing && !isCompactLayout && !globalAgentSidebarOpen && panel",
     );
     const mobilePanelStart = route.indexOf('id="clip-activity-panel"');
     const mobilePanel = route.slice(
@@ -139,12 +191,8 @@ describe("direct recording route shell cue", () => {
     );
     expect(mobilePanelStart).toBeGreaterThan(-1);
     expect(mobilePanel).toContain("RecordingSidePanel");
-    expect(mobilePanel).toContain('panel === "comments"');
-    expect(mobilePanel).toContain("renderCommentsSection(true)");
+    expect(mobilePanel).toContain("renderSidePanel(true)");
     expect(mobilePanel).toContain("{renderPanelTabs()}");
-    expect(mobilePanel.indexOf("{renderPanelTabs()}")).toBeLessThan(
-      mobilePanel.indexOf('panel === "comments"'),
-    );
     const sidePanelStart = route.indexOf("{/* Side panel */}");
     const sidePanel = route.slice(sidePanelStart, route.indexOf("</Tabs>"));
     expect(sidePanelStart).toBeGreaterThan(-1);
@@ -165,7 +213,7 @@ describe("direct recording route shell cue", () => {
     );
     expect(sidePanelFrame).toContain("data-recording-side-panel");
     expect(sidePanelFrame).toContain("border-y border-border bg-background");
-    expect(sidePanelFrame).toContain("lg:bg-sidebar");
+    expect(sidePanelFrame).toContain("lg:bg-background");
     expect(sidePanelFrame).toContain("lg:me-4");
     expect(sidePanelFrame).toContain("lg:rounded-xl");
     expect(sidePanelFrame).not.toContain("IconX");
@@ -173,30 +221,57 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain(
       "overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto]",
     );
+    expect(route).toContain(
+      'ViewerTabsList className="min-w-0 shrink-0 bg-background"',
+    );
+
+    const shareRoute = readRoute("share.$shareId.tsx");
+    expect(shareRoute).toContain("forceMount");
+    expect(shareRoute).toContain("data-[state=inactive]:hidden");
 
     const viewerControls = readFileSync(
       resolve(process.cwd(), "app/components/player/viewer-controls.tsx"),
       "utf8",
     );
+    const tabs = readFileSync(
+      resolve(process.cwd(), "app/components/ui/tabs.tsx"),
+      "utf8",
+    );
     expect(viewerControls).toContain('variant="line"');
+    expect(viewerControls).toContain("min-h-10");
+    expect(viewerControls).toContain("w-fit max-w-full");
+    expect(viewerControls).toContain("flex-none");
+    expect(viewerControls).toContain("data-[state=active]:after:bottom-0");
+    expect(viewerControls).toContain("data-[state=active]:after:inset-x-2");
+    expect(tabs).toContain("transition-all");
+    expect(tabs).toContain("after:transition-opacity");
     expect(viewerControls).not.toContain("group-focus-visible:ring-2");
     expect(viewerControls).not.toContain("hover:bg-muted/50");
   });
 
-  it("embeds Agent in the recording panel without mounting a second rail", () => {
+  it("uses the global Agent sidebar for recording context", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
+    const appRoute = readRoute("_app.tsx");
     const layout = readFileSync(
       resolve(process.cwd(), "app/components/library/library-layout.tsx"),
       "utf8",
     );
+    const commandMenu = readFileSync(
+      resolve(process.cwd(), "app/components/clips-command-menu.tsx"),
+      "utf8",
+    );
 
-    expect(route).toContain('<ViewerTabsTrigger value="agent">');
-    expect(route).toContain('value="agent"');
-    expect(route).toContain("<AgentPanel");
-    expect(route).toContain('scope={{ type: "recording", id: recording.id }}');
+    expect(route).not.toContain('<ViewerTabsTrigger value="agent">');
+    expect(route).not.toContain("<AgentPanel");
+    expect(route).toContain("focusAgentChat");
+    expect(route).toContain("requestAgentSidebarOpen");
+    expect(route).toContain("SIDEBAR_STATE_CHANGE_EVENT");
+    expect(route).toContain("useGlobalAgentSidebarOpen");
+    expect(route).toContain("!globalAgentSidebarOpen");
     expect(route).toContain("openAgentPanel");
-    expect(route).not.toContain("openGlobalAgentPanel");
     expect(route).not.toContain("<LibraryLayout");
+    expect(appRoute).toContain("<LibraryLayout>");
+    expect(appRoute).not.toContain("showAgentSidebar");
     expect(layout).toContain("<AgentSidebar");
     expect(layout).toContain(
       'className="agent-layout-main-surface flex min-h-0 min-w-0 flex-1 flex-col"',
@@ -204,18 +279,23 @@ describe("direct recording route shell cue", () => {
     expect(layout).toContain("showCollapseButton={isMobile}");
     expect(layout).toContain("<AgentToggleButton");
     expect(layout).toContain("showWhenOpen");
-    expect(layout).toContain("<IconLayoutSidebarRight");
+    expect(layout).not.toContain("IconLayoutSidebarRight");
     expect(layout).toContain("<ClipsAgentToggleButton />");
-    expect(layout).toContain("[&>.agent-sidebar-shell]:h-full");
-    expect(layout).toContain("showAgentSidebar = true");
-    expect(layout).toContain("{showAgentSidebar ? (");
+    expect(layout).toContain("[--agent-native-viewport-height:100%]");
+    expect(layout).not.toContain("[&>.agent-sidebar-shell]:h-full");
+    expect(layout).not.toContain("showAgentSidebar");
+    expect(layout).toContain("scope={recordingScope}");
+    expect(layout).toContain('t("recordingPage.askAboutClip")');
+    expect(layout).toContain('t("recordingPage.summarizeClip")');
+    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_PARAM");
+    expect(commandMenu).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
     expect(route).toContain("<PageHeader>");
-    expect(route).toContain("<BreadcrumbList");
-    expect(route).toContain("<BreadcrumbLink asChild>");
-    expect(route).toContain("<BreadcrumbPage");
-    expect(route).toContain("<BreadcrumbSeparator");
-    expect(route).toContain('to="/library"');
-    expect(route).toContain("recordingFolder.spaceId");
+    expect(route).toContain("<PageBreadcrumb items={recordingBreadcrumbItems}");
+    expect(route).not.toContain('from "@/components/ui/breadcrumb"');
+    expect(route).toContain('to: "/library"');
+    expect(route).toContain('to: "/spaces"');
+    expect(route).toContain("folder.spaceId");
+    expect(route).toContain("folder: recordingFolder");
     expect(route).toContain("{recordingActions}");
     expect(route).toContain("fallback={ownerInitial}");
     expect(route).toContain("{recording.description}");
@@ -243,5 +323,73 @@ describe("direct recording route shell cue", () => {
     expect(route).toContain("recording.hasPassword === true");
     expect(route).toContain("const shouldFallbackToShare =");
     expect(route).toContain("playerDataUnauthorized && !session");
+  });
+
+  it("opens ?panel=comments even while the recording is still loading", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const effectStart = route.indexOf('if (panelParam === "comments") {');
+    const effectEnd = route.indexOf("return;", effectStart);
+    const effect = route.slice(effectStart, effectEnd);
+
+    const normalizedEffect = effect.replace(/\s+/g, " ");
+    expect(normalizedEffect).not.toContain(
+      'setPanel(recording?.enableComments ? "comments" : "transcript")',
+    );
+    expect(normalizedEffect).toContain(
+      'setPanel( recording && !recording.enableComments ? "transcript" : "comments", )',
+    );
+  });
+
+  it("keeps the mobile comments tab scrollable inside its fixed-height rail", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const commentsSectionStart = route.indexOf(
+      "const renderCommentsSection = (compact = false) =>",
+    );
+    const commentsSection = route.slice(
+      commentsSectionStart,
+      route.indexOf("const renderSidePanel", commentsSectionStart),
+    );
+
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-5 pt-4"',
+    );
+    expect(commentsSection).toContain(
+      '"flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-3"',
+    );
+  });
+
+  it("keeps the redesign comments preview fixture read-only", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+
+    expect(route).toContain(
+      "recordingId === VIEWER_REDESIGN_PREVIEW_ID\n      ? VIEWER_PREVIEW_COMMENTS",
+    );
+    expect(route).toContain(
+      "role != null && recordingId !== VIEWER_REDESIGN_PREVIEW_ID",
+    );
+    expect(route).not.toContain("persistedPreviewReplies");
+  });
+
+  it("badges the Debug tab with an unviewed count instead of an always-on dot", () => {
+    const route = readRoute("_app.r.$recordingId.tsx");
+    const debugTabStart = route.indexOf('<ViewerTabsTrigger value="debug">');
+    const debugTab = route.slice(
+      debugTabStart,
+      route.indexOf("</ViewerTabsTrigger>", debugTabStart),
+    );
+
+    expect(debugTabStart).toBeGreaterThan(-1);
+    expect(route).toContain(
+      'import { useUnviewedDebugEventCount } from "@/hooks/use-unviewed-debug-event-count";',
+    );
+    expect(route).toContain("const unviewedDebugEventCount =");
+    expect(route).toContain('panel === "debug",');
+    expect(debugTab).toContain("unviewedDebugEventCount > 0");
+    expect(debugTab).toContain("<Badge");
+    expect(debugTab).toContain('variant="secondary"');
+    expect(debugTab).toContain('t("browserDiagnostics.unviewedCount"');
+    expect(debugTab).toContain("{unviewedDebugEventCount}");
+    expect(route).not.toContain("hasBrowserDiagnosticFailures");
+    expect(route).not.toContain("browserDiagnostics.failuresPresent");
   });
 });

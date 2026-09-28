@@ -1,4 +1,3 @@
-import { appPath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -19,9 +18,10 @@ import {
   IconBolt,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useAiSetupHref } from "@/components/settings/settings-links";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isExcluded, parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
@@ -46,14 +47,14 @@ export interface TranscriptPanelProps {
   segments: TranscriptSegment[];
   fullText?: string | null;
   durationMs?: number | null;
+  editsJson?: string | null;
   currentMs: number;
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
   recordingTitle?: string;
-  /** Called when the user asks us to retry transcription after fixing an error. */
+  audience?: "creator" | "viewer";
   onRetry?: () => void;
-  /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
 }
@@ -145,20 +146,27 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     segments,
     fullText,
     durationMs,
+    editsJson,
     currentMs,
     onSeek,
     status,
     failureReason,
     recordingTitle,
+    audience = "creator",
     onRetry,
     onRegenerate,
     isRegenerating = false,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const visibleSegments = useMemo(() => {
+    const edits = parseEdits(editsJson);
+    return segments.filter((segment) => !isExcluded(segment.startMs, edits));
+  }, [editsJson, segments]);
 
   const displaySegments = useMemo<TranscriptSegment[]>(() => {
-    if (segments.length > 0) return mergeTranscriptSegmentsForDisplay(segments);
+    if (segments.length > 0)
+      return mergeTranscriptSegmentsForDisplay(visibleSegments);
     const text = fullText?.trim();
     if (!text) return [];
     return [
@@ -168,7 +176,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         text,
       },
     ];
-  }, [segments, fullText, durationMs]);
+  }, [durationMs, fullText, segments.length, visibleSegments]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return displaySegments;
@@ -183,6 +191,17 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
       ),
     [displaySegments, currentMs],
   );
+  const segmentRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const activeStartMs =
+    activeIndex >= 0 ? (displaySegments[activeIndex]?.startMs ?? null) : null;
+
+  useEffect(() => {
+    if (activeStartMs === null) return;
+    segmentRefs.current[activeStartMs]?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }, [activeStartMs]);
 
   async function copyAll() {
     const text = displaySegments.map((s) => s.text).join(" ");
@@ -200,7 +219,9 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(segments.length > 0 ? segments : displaySegments);
+    const srt = toSrt(
+      visibleSegments.length > 0 ? visibleSegments : displaySegments,
+    );
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -210,15 +231,22 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  // Surface the setup card when transcription failed due to a provider
-  // configuration issue — missing key, quota error, rejected key, etc.
-  // Builder connection is the recommended fix in all these cases.
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
     !noSpeechFailure &&
     !builderCreditsPaused &&
     isTranscriptionSetupNeeded(failureReason);
+
+  if (status === "failed" && audience === "viewer") {
+    return (
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t("transcriptPanel.noTranscriptCaptured")}
+        </p>
+      </div>
+    );
+  }
 
   if (status === "failed" && builderCreditsPaused) {
     return (
@@ -313,11 +341,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            size="sm"
             value={query}
             aria-label={t("transcriptPanel.searchPlaceholder")}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("transcriptPanel.searchPlaceholder")}
-            className="pl-8 h-8 text-xs"
+            className="pl-8 text-xs"
           />
         </div>
         <div className="flex items-center gap-0.5">
@@ -389,13 +418,17 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <ul className="py-1">
             {filtered.map((seg) => {
               const isActive = displaySegments[activeIndex] === seg;
-              const seekMs = getTranscriptSeekMs(seg, query, segments);
+              const hasActive = activeIndex >= 0;
+              const seekMs = getTranscriptSeekMs(seg, query, visibleSegments);
               return (
                 <li key={seg.startMs}>
                   <TranscriptSegmentRow
                     startMs={seg.startMs}
                     active={isActive}
                     gutter="panel"
+                    segmentRef={(el) => {
+                      segmentRefs.current[seg.startMs] = el;
+                    }}
                     onClick={(event) => {
                       if (hasSelectionWithin(event.currentTarget)) return;
                       onSeek(seekMs);
@@ -408,8 +441,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
                   >
                     <span
                       className={cn(
-                        "text-sm leading-normal",
-                        isActive ? "text-foreground" : "text-foreground/80",
+                        "text-sm leading-normal transition-colors",
+                        isActive
+                          ? "text-foreground"
+                          : hasActive
+                            ? "text-foreground/50"
+                            : "text-foreground/80",
                       )}
                       dangerouslySetInnerHTML={{
                         __html: highlight(seg.text, query),
@@ -487,6 +524,7 @@ function BuilderCreditsPausedNotice({
   className?: string;
 }) {
   const t = useT();
+  const aiSetupHref = useAiSetupHref();
   return (
     <div
       className={cn(
@@ -518,7 +556,7 @@ function BuilderCreditsPausedNotice({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <Button asChild size="sm" className="h-8">
+            <Button asChild size="sm">
               <a
                 href={BUILDER_CREDITS_UPGRADE_URL}
                 target="_blank"
@@ -533,16 +571,13 @@ function BuilderCreditsPausedNotice({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8"
                 onClick={onRetry}
               >
                 {t("builderCredits.retryAfterUpgrade")}
               </Button>
             ) : null}
-            <Button asChild variant="ghost" size="sm" className="h-8">
-              <a href={appPath("/settings/general#ai-providers")}>
-                {t("builderCredits.openAiSetup")}
-              </a>
+            <Button asChild variant="ghost" size="sm">
+              <a href={aiSetupHref}>{t("builderCredits.openAiSetup")}</a>
             </Button>
           </div>
         </div>
@@ -551,11 +586,6 @@ function BuilderCreditsPausedNotice({
   );
 }
 
-/**
- * Returns true when the transcription failure is due to a provider
- * configuration problem — missing key, quota exceeded, key rejected,
- * no provider at all. Builder connection fixes all of these.
- */
 function isTranscriptionSetupNeeded(
   reason: string | null | undefined,
 ): boolean {
@@ -626,13 +656,6 @@ function friendlyTranscriptFailure(
   return reason;
 }
 
-/**
- * Inline card shown when transcription needs a provider set up.
- *
- * Builder.io is the only cloud fallback — free, one-click, no separate API
- * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
- * not route recording transcription to BYOK speech providers.
- */
 function TranscriptSetupCard({
   failureReason,
   onRetry,

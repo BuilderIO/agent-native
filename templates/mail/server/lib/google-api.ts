@@ -1,15 +1,8 @@
-// Lightweight, fetch-based Google API client for Cloudflare Workers compatibility.
-// Replaces the heavyweight `googleapis` npm package with pure fetch calls.
-
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-
-// ---------------------------------------------------------------------------
-// OAuth2 helpers
-// ---------------------------------------------------------------------------
 
 export function createOAuth2Client(
   clientId: string,
@@ -49,11 +42,6 @@ export function createOAuth2Client(
       });
       const data = await res.json();
       if (!res.ok) {
-        // Include both the OAuth `error` code (e.g. `invalid_grant`,
-        // `unauthorized_client`) and `error_description` so callers can
-        // pattern-match on the canonical code — Google often returns a
-        // generic description ("Unauthorized") that hides which permanent
-        // failure we actually hit.
         const code = (data as any).error;
         const desc = (data as any).error_description;
         const detail =
@@ -84,16 +72,20 @@ export function createOAuth2Client(
           grant_type: "refresh_token",
         }),
       });
-      const data = await res.json();
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (error) {
+        if (res.ok) throw error;
+      }
       if (!res.ok) {
-        // Same rationale as getToken: surface the OAuth `error` code so
-        // isPermanentRefreshError can detect invalid_grant /
-        // unauthorized_client / invalid_client and self-heal the row.
-        const code = (data as any).error;
-        const desc = (data as any).error_description;
+        const code = data?.error;
+        const desc = data?.error_description;
         const detail =
           code && desc ? `${code}: ${desc}` : code || desc || res.statusText;
-        throw new Error(`OAuth token refresh failed: ${detail}`);
+        const error = new Error(`OAuth token refresh failed: ${detail}`);
+        Object.assign(error, { status: res.status });
+        throw error;
       }
       const typed = data as {
         access_token: string;
@@ -109,20 +101,11 @@ export function createOAuth2Client(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Authenticated fetch helper
-// ---------------------------------------------------------------------------
-
-// Per-token circuit breaker. Gmail's per-user-per-minute quota is easy to trip
-// on multi-account or multi-tab setups. When we hit a quota error, we pause
-// all calls for this token briefly so the per-minute window can refill and
-// subsequent requests don't pile on top of an already-exhausted quota.
 const QUOTA_COOLDOWN_MS = 90_000;
+const QUOTA_COOLDOWN_MAX_MS = 300_000;
 const tokenCooldowns = new Map<string, number>();
 
 function cooldownKey(accessToken: string): string {
-  // Fingerprint the token so we don't keep the whole secret in memory keys.
-  // Last 12 chars are high-entropy and stable for the token's lifetime.
   return accessToken.slice(-12);
 }
 
@@ -136,11 +119,19 @@ function isInCooldown(accessToken: string): number {
   return until - Date.now();
 }
 
-function tripCooldown(accessToken: string, cooldownMs = QUOTA_COOLDOWN_MS) {
+function tripCooldown(
+  accessToken: string,
+  cooldownMs = QUOTA_COOLDOWN_MS,
+): number {
+  const effectiveCooldownMs = Math.min(
+    Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    QUOTA_COOLDOWN_MAX_MS,
+  );
   tokenCooldowns.set(
     cooldownKey(accessToken),
-    Date.now() + Math.max(cooldownMs, QUOTA_COOLDOWN_MS),
+    Date.now() + effectiveCooldownMs,
   );
+  return effectiveCooldownMs;
 }
 
 function isQuotaError(status: number, data: any): boolean {
@@ -187,70 +178,67 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
   return undefined;
 }
 
-// User-facing message for Google's per-minute quota. Goes into thrown errors
-// the agent surfaces directly, so keep it plain English (no "429", "Gmail
-// rate limit", "quota cooldown" jargon). Tell the agent what to do instead of
-// retrying — repeated calls only deepen the lockout window.
 function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   const seconds = Math.ceil(cooldownMs / 1000);
-  return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
+  return `Email service is briefly busy and will be ready again in about ${seconds}s.`;
 }
 
-// ---------------------------------------------------------------------------
-// Proactive per-token quota bucket
-// ---------------------------------------------------------------------------
-// Gmail's per-user quota is 250 units/second. We deliberately run below that
-// so other tabs, serverless instances, and Google-side accounting jitter have
-// headroom. This sits in FRONT of the circuit breaker — the breaker only trips
-// when Google actually returns a 429/403-quota; the bucket's job is to make
-// that rare.
+/**
+ * Every quota/cooldown throw in this file goes through this type instead of
+ * a plain Error. Its HTTP metadata lets the shared action boundary return a
+ * retryable 429 without action-specific catches or message parsing.
+ */
+export class GmailQuotaCooldownError extends Error {
+  readonly retryAfterMs: number;
+  readonly statusCode = 429;
+  readonly errorCode = "gmail_quota_cooldown";
+  readonly details: { retryAfterSeconds: number };
+
+  constructor(message: string, retryAfterMs: number) {
+    super(message);
+    this.name = "GmailQuotaCooldownError";
+    this.retryAfterMs = retryAfterMs;
+    const retryAfterSeconds = Number.isFinite(retryAfterMs)
+      ? Math.ceil(retryAfterMs / 1000)
+      : 1;
+    this.details = {
+      retryAfterSeconds: Math.min(300, Math.max(1, retryAfterSeconds)),
+    };
+  }
+}
+
 const BUCKET_REFILL_PER_SEC = 150;
 const BUCKET_CAPACITY = 150;
 const MAX_BATCH_QUOTA_COST = 150;
 
-// Cost table from https://developers.google.com/gmail/api/reference/quota.
-// Most-specific patterns first — `estimateRequestCost` walks this in order.
 const COST_TABLE: Array<[RegExp, number, RegExp?]> = [
-  // Gmail — send (expensive)
   [/\/gmail\/v1\/users\/[^/]+\/messages\/send/, 100, /^POST$/i],
-  // Gmail — watch / stop
   [/\/gmail\/v1\/users\/[^/]+\/watch/, 100, /^POST$/i],
   [/\/gmail\/v1\/users\/[^/]+\/stop/, 50, /^POST$/i],
-  // Gmail — thread modify / trash / untrash
   [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/modify/, 10, /^POST$/i],
   [
     /\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+\/(?:trash|untrash)/,
     10,
     /^POST$/i,
   ],
-  // Gmail — message modify / trash / untrash
   [/\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/modify/, 5, /^POST$/i],
   [
     /\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/(?:trash|untrash)/,
     5,
     /^POST$/i,
   ],
-  // Gmail — attachments
   [
     /\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+\/attachments\/[^/]+/,
     5,
     /^GET$/i,
   ],
-  // Gmail — history
   [/\/gmail\/v1\/users\/[^/]+\/history/, 2, /^GET$/i],
-  // Gmail — labels (list + create share the same endpoint; same cost)
   [/\/gmail\/v1\/users\/[^/]+\/labels(?:\/|$|\?)/, 5],
-  // Gmail — settings filters
   [/\/gmail\/v1\/users\/[^/]+\/settings\/filters(?:\/|$|\?)/, 5],
-  // Gmail — profile
   [/\/gmail\/v1\/users\/[^/]+\/profile/, 1, /^GET$/i],
-  // Gmail — single thread get (before list pattern so it wins)
   [/\/gmail\/v1\/users\/[^/]+\/threads\/[^/]+(?:$|\?)/, 10, /^GET$/i],
-  // Gmail — threads list
   [/\/gmail\/v1\/users\/[^/]+\/threads(?:\/|$|\?)/, 10, /^GET$/i],
-  // Gmail — single message get
   [/\/gmail\/v1\/users\/[^/]+\/messages\/[^/]+(?:$|\?)/, 5, /^GET$/i],
-  // Gmail — messages list
   [/\/gmail\/v1\/users\/[^/]+\/messages(?:\/|$|\?)/, 5, /^GET$/i],
 ];
 
@@ -259,8 +247,6 @@ export function estimateRequestCost(url: string, method: string): number {
     if (methodPattern && !methodPattern.test(method)) continue;
     if (pattern.test(url)) return cost;
   }
-  // Calendar / People / anything else — default to 5. Harmless since those
-  // APIs have separate quotas; the bucket just adds a light global smoother.
   return 5;
 }
 
@@ -296,8 +282,6 @@ export async function acquireQuota(
   const b = getBucket(accessToken);
   let remaining = Math.max(0, cost);
   while (remaining > 0) {
-    // Charge oversized batch calls in capacity-sized chunks so a 100-thread
-    // batch actually pays roughly 1000 units instead of only one bucketful.
     const want = Math.min(remaining, BUCKET_CAPACITY);
     while (true) {
       refillBucket(b);
@@ -318,21 +302,18 @@ export async function googleFetch(
   accessToken: string,
   opts?: RequestInit,
 ): Promise<any> {
-  // Short-circuit while the token is cooling down from a recent quota hit.
-  // Surface as a quota error so callers can degrade gracefully instead of
-  // hammering Google and deepening the rate-limit state.
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
-    throw new Error(quotaCooldownMessage(remaining));
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(remaining),
+      remaining,
+    );
   }
 
   const maxRetries = 3;
   const method = opts?.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
 
-  // Pre-pay the bucket once per call; retries don't re-charge (Google didn't
-  // actually complete the work, and we'd rather retry promptly than stack
-  // waits on top of backoff).
   await acquireQuota(
     accessToken,
     estimateRequestCost(url, opts?.method || "GET"),
@@ -344,11 +325,8 @@ export async function googleFetch(
 
     const res = await fetch(url, { ...opts, headers });
 
-    // 204 No Content — return null
     if (res.status === 204) return null;
 
-    // Parse the body unless we're immediately retrying a transient response,
-    // so the final provider error still includes Google's useful diagnostics.
     if (
       canRetry &&
       (res.status === 500 || res.status === 502 || res.status === 503) &&
@@ -374,12 +352,11 @@ export async function googleFetch(
     // per-token circuit breaker and let callers/UI retry after the cooldown.
     if (!res.ok && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
-      tripCooldown(accessToken, cooldownMs);
-      // Don't surface Google's raw "Quota exceeded for quota metric…" string
-      // — the agent verbatim-quotes tool errors back to the user, and that
-      // jargon is what made our last user reply with "I don't know what a
-      // Gmail rate limit means". Use the clean wording instead.
-      throw new Error(quotaCooldownMessage(cooldownMs));
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
+      throw new GmailQuotaCooldownError(
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
+      );
     }
 
     if (!res.ok) {
@@ -394,10 +371,6 @@ export async function googleFetch(
   }
 }
 
-// ---------------------------------------------------------------------------
-// URL builder helpers
-// ---------------------------------------------------------------------------
-
 function qs(params: Record<string, string | number | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -406,10 +379,6 @@ function qs(params: Record<string, string | number | undefined>): string {
   const str = sp.toString();
   return str ? `?${str}` : "";
 }
-
-// ---------------------------------------------------------------------------
-// Gmail API
-// ---------------------------------------------------------------------------
 
 export function gmailGetProfile(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
@@ -515,13 +484,22 @@ export function gmailGetAttachment(
   );
 }
 
+function metadataQs(format?: string, metadataHeaders?: string[]): string {
+  const sp = new URLSearchParams();
+  if (format) sp.set("format", format);
+  for (const h of metadataHeaders || []) sp.append("metadataHeaders", h);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 export function gmailGetThread(
   accessToken: string,
   id: string,
   format?: string,
+  metadataHeaders?: string[],
 ) {
   return googleFetch(
-    `${GMAIL_BASE}/threads/${id}${qs({ format })}`,
+    `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
   );
 }
@@ -618,18 +596,16 @@ export function gmailListHistory(
     historyTypes?: string[];
     labelId?: string;
     maxResults?: number;
+    pageToken?: string;
   },
 ) {
-  // Gmail's users.history.list expects `historyTypes` as repeated query
-  // params (e.g. ...&historyTypes=messageAdded&historyTypes=labelAdded),
-  // not a single comma-joined value — the API returns 400 "Invalid value"
-  // otherwise. URLSearchParams.append handles repetition.
   const sp = new URLSearchParams();
   sp.set("startHistoryId", params.startHistoryId);
   if (params.labelId) sp.set("labelId", params.labelId);
   if (params.maxResults !== undefined) {
     sp.set("maxResults", String(params.maxResults));
   }
+  if (params.pageToken) sp.set("pageToken", params.pageToken);
   for (const t of params.historyTypes || []) sp.append("historyTypes", t);
   return googleFetch(`${GMAIL_BASE}/history?${sp.toString()}`, accessToken);
 }
@@ -654,13 +630,6 @@ export function gmailStopWatch(accessToken: string): Promise<null> {
   return googleFetch(`${GMAIL_BASE}/stop`, accessToken, { method: "POST" });
 }
 
-// ---------------------------------------------------------------------------
-// Gmail batch endpoint
-// ---------------------------------------------------------------------------
-// One HTTP round-trip for up to 100 Gmail get calls. Huge win vs N serial
-// requests but still counts as N*cost against per-user quota, so we pre-pay
-// the bucket before firing.
-
 const GMAIL_BATCH_URL = "https://gmail.googleapis.com/batch/gmail/v1";
 
 async function gmailBatchGet(
@@ -671,9 +640,6 @@ async function gmailBatchGet(
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
   if (ids.length === 0) return [];
 
-  // Gmail batch limit is 100, but quota is enforced per user in tight
-  // one-second windows. A single 50-thread batch can cost ~500 units and trip
-  // 429 even if our local token bucket pre-paid it, so chunk by quota cost too.
   const maxIdsPerBatch = Math.max(
     1,
     Math.min(100, Math.floor(MAX_BATCH_QUOTA_COST / costPerItem)),
@@ -696,14 +662,14 @@ async function gmailBatchGet(
     return results;
   }
 
-  // Respect the circuit breaker like googleFetch does.
   const remaining = isInCooldown(accessToken);
   if (remaining > 0) {
-    throw new Error(quotaCooldownMessage(remaining));
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(remaining),
+      remaining,
+    );
   }
 
-  // Pre-pay the whole batch so the token bucket sees real cost instead of a
-  // single cheap-looking request.
   await acquireQuota(accessToken, ids.length * costPerItem);
 
   const boundary = `batch_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
@@ -732,7 +698,6 @@ async function gmailBatchGet(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    // Trip circuit breaker on quota errors just like googleFetch.
     let parsed: any = null;
     try {
       parsed = text ? JSON.parse(text) : null;
@@ -740,7 +705,12 @@ async function gmailBatchGet(
       /* body is multipart or plain text — fine */
     }
     if (isQuotaError(res.status, parsed)) {
-      tripCooldown(accessToken, parseRetryAfterMs(res.headers));
+      const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
+      const effectiveCooldownMs = tripCooldown(accessToken, cooldownMs);
+      throw new GmailQuotaCooldownError(
+        quotaCooldownMessage(effectiveCooldownMs),
+        effectiveCooldownMs,
+      );
     }
     throw new Error(
       `Google API error (${res.status}): Gmail batch failed: ${text || res.statusText}`,
@@ -762,7 +732,10 @@ async function gmailBatchGet(
   const quotaPart = parsed.find((part) => isQuotaErrorText(part.error));
   if (quotaPart) {
     tripCooldown(accessToken);
-    throw new Error(quotaCooldownMessage());
+    throw new GmailQuotaCooldownError(
+      quotaCooldownMessage(),
+      QUOTA_COOLDOWN_MS,
+    );
   }
   return parsed;
 }
@@ -785,13 +758,14 @@ export async function gmailBatchGetThreads(
   accessToken: string,
   ids: string[],
   format?: "full" | "metadata" | "minimal",
+  metadataHeaders?: string[],
 ): Promise<Array<{ id: string; data: any; error?: string }>> {
-  const formatQs = format ? `?format=${format}` : "";
+  const query = metadataQs(format, metadataHeaders);
   return gmailBatchGet(
     accessToken,
     ids,
     10,
-    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${formatQs}`,
+    (id) => `/gmail/v1/users/me/threads/${encodeURIComponent(id)}${query}`,
   );
 }
 
@@ -804,29 +778,22 @@ function parseBatchResponse(
     (id) => ({ id, data: null, error: "No response part" }),
   );
 
-  // Split on boundary. Parts can use --boundary with CRLF or LF endings;
-  // we normalize by splitting on "--<boundary>" and trimming the trailing
-  // "--" marker.
   const marker = `--${boundary}`;
   const rawParts = text.split(marker);
-  // First element is preamble, last is "--\r\n" epilogue — both ignorable.
   for (const raw of rawParts) {
     const part = raw.replace(/^\r?\n/, "");
     if (!part || part.startsWith("--")) continue;
 
-    // Split part headers from inner HTTP message on first blank line.
     const headerEnd = part.search(/\r?\n\r?\n/);
     if (headerEnd < 0) continue;
     const partHeaders = part.slice(0, headerEnd);
     const rest = part.slice(headerEnd).replace(/^\r?\n\r?\n/, "");
 
-    // Pull Content-ID to map back to the original id slot.
     const cidMatch =
       partHeaders.match(/Content-ID:\s*<?response-part-(\d+)>?/i) ||
       partHeaders.match(/Content-ID:\s*<?part-(\d+)>?/i);
     const idx = cidMatch ? Number(cidMatch[1]) : -1;
 
-    // Inside `rest`: status line, inner headers, blank line, body.
     const statusMatch = rest.match(/^HTTP\/[\d.]+\s+(\d+)/);
     const status = statusMatch ? Number(statusMatch[1]) : 0;
 
@@ -884,10 +851,6 @@ function parseBatchResponse(
   return results;
 }
 
-// ---------------------------------------------------------------------------
-// People API
-// ---------------------------------------------------------------------------
-
 export function peopleGetProfile(accessToken: string, personFields: string) {
   return googleFetch(
     `${PEOPLE_BASE}/people/me${qs({ personFields })}`,
@@ -919,10 +882,6 @@ export function peopleListOtherContacts(
 ) {
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
 }
-
-// ---------------------------------------------------------------------------
-// Calendar API
-// ---------------------------------------------------------------------------
 
 export function calendarGetEvent(
   accessToken: string,

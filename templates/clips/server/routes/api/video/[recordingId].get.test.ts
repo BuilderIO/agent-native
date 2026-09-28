@@ -70,6 +70,11 @@ vi.mock("../../../../shared/loom.js", () => ({
 }));
 
 vi.mock("../../../lib/share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (
+    id: string,
+    password: string | null,
+    _sharePasswordVersion?: string | null,
+  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
   verifySharePassword: vi.fn(() => false),
 }));
 
@@ -195,6 +200,51 @@ describe("/api/video/:recordingId route", () => {
 
     expect(event.status).toBe(504);
     expect(result).toEqual({ error: "Recording media fetch timed out." });
+  });
+
+  it("serves expired media to the owner", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        visibility: "private",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("media", {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(event.status).toBe(200);
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("rejects expired media for non-owners", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(result).toEqual({ error: "Recording has expired" });
+    expect(event.status).toBe(410);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("reads configured S3 media directly instead of rejecting its public URL as SSRF", async () => {
@@ -444,14 +494,14 @@ describe("/api/video/:recordingId route", () => {
     expect(fetch).toHaveBeenCalled();
     expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
       "expired-token",
-      "rec-1",
+      "rec-1:password-scoped",
     );
     expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
       "cookie-token",
-      "rec-1",
+      "rec-1:password-scoped",
     );
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: 21_600,
     });
     expect(mockSetCookie).toHaveBeenCalledWith(
@@ -468,8 +518,39 @@ describe("/api/video/:recordingId route", () => {
     );
   });
 
+  it("rejects a protected media cookie minted before a password was added", async () => {
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: "encrypted-password",
+        expiresAt: null,
+        videoUrl: "https://cdn.example.com/clip.mp4",
+      },
+    });
+    mockVerifyShortLivedToken.mockImplementation(
+      (_token: string, resourceId: string) => ({
+        ok: resourceId === "rec-1",
+      }),
+    );
+
+    const event = makeEvent();
+    event.cookies.set("clips_media_rec-1", "pre-password-cookie");
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(401);
+    expect(result).toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      "pre-password-cookie",
+      "rec-1:password-scoped",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("serves a public recording to anonymous viewers without a share grant", async () => {
-    // Anonymous viewer on a public share page: no session, no grant.
     mockGetSession.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue(null);
     mockGetDb.mockReturnValue(
@@ -586,11 +667,6 @@ describe("/api/video/:recordingId route", () => {
   });
 
   it("does not 500 when application-state is unavailable for anonymous viewers", async () => {
-    // Reproduces the production bug: `resolveAccess` grants public clips to
-    // anonymous viewers, but `readAppState` throws without an authenticated
-    // identity ("Application state access requires an authenticated request
-    // context"). The route must swallow that and fall through to the provider
-    // media URL instead of surfacing an unhandled 500.
     mockGetSession.mockResolvedValue(null);
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

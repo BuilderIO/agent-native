@@ -10,12 +10,11 @@ import {
 } from "@tabler/icons-react";
 import {
   startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
   eachHourOfInterval,
   format,
   set,
   addMinutes,
+  addDays,
 } from "date-fns";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
@@ -25,7 +24,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useEventDrag } from "@/hooks/use-event-drag";
+import {
+  useEventDrag,
+  type EventTimeChangeHandler,
+} from "@/hooks/use-event-drag";
 import { useGridCreateDrag } from "@/hooks/use-grid-create-drag";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
@@ -37,6 +39,8 @@ import {
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "@/lib/all-day-layout";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
+import { getVisibleCalendarDays } from "@/lib/calendar-navigation";
 import {
   dateToCalendarDateKey,
   getBrowserTimezone,
@@ -45,6 +49,7 @@ import {
   getEventSegmentForCalendarDay,
   isAllDayCalendarEvent,
 } from "@/lib/calendar-timezone";
+import { normalizeNumberOfDays } from "@/lib/calendar-view-preferences";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
   computeTimedEventLayout,
@@ -77,8 +82,8 @@ interface WeekViewProps {
   selectedDate: Date;
   timezone?: string;
   onDateSelect: (date: Date) => void;
-  onDeleteEvent: (eventId: string) => void;
-  onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
+  onDeleteEvent: (event: CalendarEvent) => void;
+  onEventTimeChange?: EventTimeChangeHandler;
   onClickTimeSlot?: (
     date: Date,
     startTime: string,
@@ -87,12 +92,8 @@ interface WeekViewProps {
   ) => void;
   onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
-  onQuickEditSave?: (
-    eventId: string,
-    title: string,
-    accountEmail?: string,
-  ) => void;
-  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onQuickEditSave?: (event: CalendarEvent, title: string) => void;
+  onQuickEditCancel?: (event: CalendarEvent) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -113,9 +114,9 @@ interface WeekViewProps {
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
   weekStartsOn?: 0 | 1;
+  numberOfDays?: number;
 }
 
-// [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
 const WEEK_SKELETONS: [number, number, number, number][][] = [
   [
     [9, 0, 60, 78],
@@ -141,7 +142,6 @@ const HOUR_HEIGHT = 60;
 const DESKTOP_GUTTER_WIDTH = 60;
 const MOBILE_GUTTER_WIDTH = 40;
 
-/** Convert minutes-from-START_HOUR on a given day into a zero-padded "HH:mm" string, clamped to 23:59 */
 function minutesToTimeString(totalMinutes: number): string {
   const clamped = Math.min(totalMinutes, 24 * 60 - 1);
   const h = Math.min(23, Math.floor(clamped / 60));
@@ -150,7 +150,6 @@ function minutesToTimeString(totalMinutes: number): string {
   return `${pad(h)}:${pad(m)}`;
 }
 
-/** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
 function minutesToDate(day: Date, totalMinutes: number): Date {
   return addMinutes(
     set(day, { hours: START_HOUR, minutes: 0, seconds: 0 }),
@@ -158,7 +157,6 @@ function minutesToDate(day: Date, totalMinutes: number): Date {
   );
 }
 
-/** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
 function formatEventTime(start: Date, end: Date): string {
   const startMin = start.getMinutes();
   const endMin = end.getMinutes();
@@ -196,11 +194,10 @@ interface WeekEventCardProps {
   layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
-  focusedEventId: string | null;
+  focusedEventKey: string | null;
   isBeingDragged: boolean;
   isDragging: boolean;
   isDraggedIntoThisColumn: boolean;
-  /** Drag overrides flattened to primitives — only the dragged event gets non-null values, so untouched events keep an all-null (referentially trivial) prop shape every frame. */
   overrideTop: number | null;
   overrideHeight: number | null;
   overrideDayIndex: number | null;
@@ -213,36 +210,26 @@ interface WeekEventCardProps {
   ) => void;
   onResizeTopPointerDown: (
     e: React.PointerEvent,
-    eventId: string,
+    event: CalendarEvent,
     dayIndex: number,
   ) => void;
   onResizeBottomPointerDown: (
     e: React.PointerEvent,
-    eventId: string,
+    event: CalendarEvent,
     dayIndex: number,
   ) => void;
   shouldSuppressClick: () => boolean;
-  onDeleteEvent: (eventId: string) => void;
+  onDeleteEvent: (event: CalendarEvent) => void;
   isDraft: boolean;
   defaultOpen: boolean;
-  onQuickEditSave?: (
-    eventId: string,
-    title: string,
-    accountEmail?: string,
-  ) => void;
-  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onQuickEditSave?: (event: CalendarEvent, title: string) => void;
+  onQuickEditCancel?: (event: CalendarEvent) => void;
   onDraftUpdate?: WeekViewProps["onDraftUpdate"];
   onDraftCreate?: WeekViewProps["onDraftCreate"];
   onDraftDiscard?: WeekViewProps["onDraftDiscard"];
   onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
-/**
- * A single event's rendered segment within a day column. Memoized so that
- * during a drag/resize (which updates overrideTop/overrideHeight every
- * frame only for the dragged event's own card), every other event's card
- * bails out of re-rendering via the default shallow prop comparison.
- */
 const WeekEventCard = memo(function WeekEventCard({
   event,
   day,
@@ -251,7 +238,7 @@ const WeekEventCard = memo(function WeekEventCard({
   layout,
   now,
   prefs,
-  focusedEventId,
+  focusedEventKey,
   isBeingDragged,
   isDragging,
   isDraggedIntoThisColumn,
@@ -278,7 +265,7 @@ const WeekEventCard = memo(function WeekEventCard({
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const title = getWorkingLocationChipLabel(event, workingLocationLabels);
   const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
-  const li = layout.get(event.id) ?? {
+  const li = layout.get(getCalendarEventRenderKey(event)) ?? {
     left: 0,
     width: 100,
     indent: 0,
@@ -298,7 +285,6 @@ const WeekEventCard = memo(function WeekEventCard({
     isBeingDragged && overrides?.dayIndex === dayIndex;
   const segmentStartsHere = isStart || isDragPreviewSegment;
 
-  // Hide from original column if dragged to a different day
   if (
     isBeingDragged &&
     overrides &&
@@ -307,7 +293,6 @@ const WeekEventCard = memo(function WeekEventCard({
   ) {
     return null;
   }
-  // Hide continuation segments during active drag to avoid ghost overlap
   if (
     !shouldRenderWeekDragSegment({
       isBeingDragged,
@@ -330,7 +315,6 @@ const WeekEventCard = memo(function WeekEventCard({
   const durationMin = overrides
     ? (overrides.height / HOUR_HEIGHT) * 60
     : (segment?.durationMinutes ?? 15);
-  // Compute display times (use drag overrides if active)
   const displayStart = overrides
     ? minutesToDate(day, START_HOUR * 60 + (overrides.top / HOUR_HEIGHT) * 60)
     : minutesToDate(day, segment?.startMinutes ?? 0);
@@ -374,7 +358,7 @@ const WeekEventCard = memo(function WeekEventCard({
         zIndex:
           isBeingDragged && isDragging
             ? 100
-            : focusedEventId === event.id
+            : focusedEventKey === getCalendarEventRenderKey(event)
               ? 50
               : li.stackOrder + 1,
         backgroundColor: color
@@ -468,7 +452,7 @@ const WeekEventCard = memo(function WeekEventCard({
           data-resize-handle="true"
           onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeTopPointerDown(e, event.id, dayIndex);
+            onResizeTopPointerDown(e, event, dayIndex);
           }}
           className="absolute left-0 right-0 top-0 h-2 cursor-n-resize"
           style={{ touchAction: "none" }}
@@ -480,7 +464,7 @@ const WeekEventCard = memo(function WeekEventCard({
           data-resize-handle="true"
           onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeBottomPointerDown(e, event.id, dayIndex);
+            onResizeBottomPointerDown(e, event, dayIndex);
           }}
           className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize"
           style={{ touchAction: "none" }}
@@ -489,7 +473,6 @@ const WeekEventCard = memo(function WeekEventCard({
     </button>
   );
 
-  // Don't wrap in popover while dragging
   if (isBeingDragged && isDragging) {
     return <div className="contents">{eventButton}</div>;
   }
@@ -519,11 +502,6 @@ interface WeekCreateGhostProps {
   label: string;
 }
 
-/**
- * Isolated ghost layer for an in-progress drag-to-create. Rendered as its own
- * memoized component so the rAF-driven position updates never touch the
- * surrounding day column's render output.
- */
 const WeekCreateGhost = memo(function WeekCreateGhost({
   top,
   height,
@@ -559,6 +537,7 @@ export const WeekView = memo(function WeekView({
   onDraftDiscard,
   isLoading = false,
   weekStartsOn = 0,
+  numberOfDays = 7,
 }: WeekViewProps) {
   const t = useT();
   const workingLocationLabels = useMemo(
@@ -569,20 +548,19 @@ export const WeekView = memo(function WeekView({
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
-  const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
-  const focusedEventIdRef = useRef<string | null>(null);
+  const [focusedEventKey, setFocusedEventKey] = useState<string | null>(null);
+  const focusedEventKeyRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const allDayContainerRef = useRef<HTMLDivElement>(null);
   const [timeGridScrollbarWidth, setTimeGridScrollbarWidth] = useState(0);
   const [allDayScrollbarWidth, setAllDayScrollbarWidth] = useState(0);
 
-  // Escape clears the highlighted/elevated event so it drops behind others
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        focusedEventIdRef.current = null;
-        setFocusedEventId(null);
+        focusedEventKeyRef.current = null;
+        setFocusedEventKey(null);
         setFocusedEvent(null);
       }
     }
@@ -590,13 +568,11 @@ export const WeekView = memo(function WeekView({
     return () => window.removeEventListener("keydown", handleKey);
   }, [setFocusedEvent]);
 
-  // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Scroll to ~7am on mount
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (container) {
@@ -606,33 +582,30 @@ export const WeekView = memo(function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
-  const weekStart = useMemo(
-    () => startOfWeek(selectedDate, { weekStartsOn }),
-    [selectedDate, weekStartsOn],
+  const displayedDayCount = normalizeNumberOfDays(numberOfDays);
+  const periodStart = useMemo(
+    () =>
+      displayedDayCount === 7
+        ? startOfWeek(selectedDate, { weekStartsOn })
+        : selectedDate,
+    [displayedDayCount, selectedDate, weekStartsOn],
   );
-  const weekEnd = useMemo(
-    () => endOfWeek(selectedDate, { weekStartsOn }),
-    [selectedDate, weekStartsOn],
+  const periodEnd = useMemo(
+    () => addDays(periodStart, displayedDayCount - 1),
+    [displayedDayCount, periodStart],
   );
-  // Stable day/hour arrays — recomputed only when the week or weekend
-  // visibility actually changes, so memoized children (event buttons) don't
-  // see a new array identity on every drag/focus re-render.
   const days = useMemo(() => {
-    const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
-    return prefs.hideWeekends
-      ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
-      : fullWeek;
-  }, [weekStart, weekEnd, prefs.hideWeekends]);
+    return getVisibleCalendarDays(periodStart, periodEnd, prefs.hideWeekends);
+  }, [periodEnd, periodStart, prefs.hideWeekends]);
   const hours = useMemo(
     () =>
       eachHourOfInterval({
-        start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
-        end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
+        start: set(periodStart, { hours: START_HOUR, minutes: 0 }),
+        end: set(periodStart, { hours: END_HOUR - 1, minutes: 0 }),
       }),
-    [weekStart],
+    [periodStart],
   );
 
-  // Separate all-day and timed events
   const allDayEvents = useMemo(
     () =>
       events.filter(
@@ -674,14 +647,19 @@ export const WeekView = memo(function WeekView({
       groupAdjacentAllDayPlacements(
         workingLocationLayout.placements,
         ({ event }) =>
-          [
+          JSON.stringify([
+            event.source,
+            event.sourceId,
             event.accountEmail,
+            event.calendarSourceKey,
+            event.canonicalKey,
+            event.calendarId,
             event.overlayEmail,
             event.ownerColor,
             getEventDisplayColor(event, prefs),
             getWorkingLocationChipLabel(event, workingLocationLabels),
             JSON.stringify(event.workingLocationProperties ?? {}),
-          ].join(":"),
+          ]),
       ),
     [prefs, workingLocationLabels, workingLocationLayout.placements],
   );
@@ -689,7 +667,6 @@ export const WeekView = memo(function WeekView({
     return layoutAllDayEvents(regularEvents, days, timezone);
   }, [days, regularEvents, timezone]);
 
-  // Pre-compute timed events per day with layout — include events spanning into this day
   const dayData = useMemo(() => {
     return days.map((day) => {
       const dayEvents = timedEvents.filter((event) =>
@@ -700,7 +677,6 @@ export const WeekView = memo(function WeekView({
     });
   }, [days, timedEvents, timezone]);
 
-  // Current time indicator
   const nowParts = getDateKeyInTimezone(now, timezone)
     ? new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
@@ -800,9 +776,6 @@ export const WeekView = memo(function WeekView({
     };
   }, [allDaySectionHeight, hasAnyAllDay]);
 
-  // Timezone label: prefer the short generic name (e.g. "PT", "ET")
-  // over the offset form ("GMT-7"), and fall back to the IANA id when
-  // the locale data has no friendlier rendering.
   const { tzShort, tzLong, tzIana } = useMemo(() => {
     function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
       try {
@@ -824,9 +797,6 @@ export const WeekView = memo(function WeekView({
     const longGeneric = nameForToken("longGeneric");
     let shortGeneric = nameForToken("shortGeneric");
 
-    // shortGeneric falls back to the offset form for zones with no short name
-    // (e.g. "Etc/GMT-7" → "GMT-7"). When that happens, the IANA city is more
-    // useful than the offset.
     if (!shortGeneric || /^GMT[+-]/.test(shortGeneric)) {
       const city = iana.split("/").pop()?.replace(/_/g, " ") ?? "";
       shortGeneric = city || nameForToken("short") || shortGeneric;
@@ -839,10 +809,9 @@ export const WeekView = memo(function WeekView({
     };
   }, [now, timezone]);
 
-  // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
-    (eventId: string, newStart: Date, newEnd: Date) => {
-      onEventTimeChange?.(eventId, newStart, newEnd);
+    (event: CalendarEvent, newStart: Date, newEnd: Date) => {
+      return onEventTimeChange?.(event, newStart, newEnd);
     },
     [onEventTimeChange],
   );
@@ -850,8 +819,9 @@ export const WeekView = memo(function WeekView({
   const {
     startDrag,
     getDragOverrides,
+    isDraggingEvent,
     isDragging,
-    dragEventId,
+    draggedEvent,
     shouldSuppressClick,
   } = useEventDrag({
     hourHeight: HOUR_HEIGHT,
@@ -859,7 +829,6 @@ export const WeekView = memo(function WeekView({
     scrollContainerRef,
     days,
     onEventTimeChange: handleEventTimeChange,
-    events,
     timezone,
   });
 
@@ -868,14 +837,16 @@ export const WeekView = memo(function WeekView({
   const handleEventPopoverOpenChange = useCallback(
     (event: CalendarEvent, open: boolean) => {
       if (open) {
-        focusedEventIdRef.current = event.id;
-        setFocusedEventId(event.id);
+        const eventKey = getCalendarEventRenderKey(event);
+        focusedEventKeyRef.current = eventKey;
+        setFocusedEventKey(eventKey);
         setFocusedEvent(event);
         return;
       }
-      if (focusedEventIdRef.current !== event.id) return;
-      focusedEventIdRef.current = null;
-      setFocusedEventId(null);
+      const eventKey = getCalendarEventRenderKey(event);
+      if (focusedEventKeyRef.current !== eventKey) return;
+      focusedEventKeyRef.current = null;
+      setFocusedEventKey(null);
       setFocusedEvent(null);
     },
     [setFocusedEvent],
@@ -889,39 +860,37 @@ export const WeekView = memo(function WeekView({
       dayIndex: number,
     ) => {
       if (!isCalendarEventOrganizer(event)) return;
-      focusedEventIdRef.current = event.id;
-      setFocusedEventId(event.id);
+      const eventKey = getCalendarEventRenderKey(event);
+      focusedEventKeyRef.current = eventKey;
+      setFocusedEventKey(eventKey);
       setFocusedEvent(event);
       if (
         isStart &&
         canDrag &&
         !(e.target as HTMLElement).dataset.resizeHandle
       ) {
-        startDrag(e, event.id, "move", dayIndex);
+        startDrag(e, event, "move", dayIndex);
       }
     },
     [canDrag, setFocusedEvent, startDrag],
   );
 
   const handleResizeTopPointerDown = useCallback(
-    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
-      const event = events.find((candidate) => candidate.id === eventId);
-      if (!event || !isCalendarEventOrganizer(event)) return;
-      startDrag(e, eventId, "resize-top", dayIndex);
+    (e: React.PointerEvent, event: CalendarEvent, dayIndex: number) => {
+      if (!isCalendarEventOrganizer(event)) return;
+      startDrag(e, event, "resize-top", dayIndex);
     },
-    [events, startDrag],
+    [startDrag],
   );
 
   const handleResizeBottomPointerDown = useCallback(
-    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
-      const event = events.find((candidate) => candidate.id === eventId);
-      if (!event || !isCalendarEventOrganizer(event)) return;
-      startDrag(e, eventId, "resize", dayIndex);
+    (e: React.PointerEvent, event: CalendarEvent, dayIndex: number) => {
+      if (!isCalendarEventOrganizer(event)) return;
+      startDrag(e, event, "resize", dayIndex);
     },
-    [events, startDrag],
+    [startDrag],
   );
 
-  // Drag-to-create: pointer-down-drag-up on empty grid background
   const handleCreateDrag = useCallback(
     (dayIndex: number, startMinutes: number, endMinutes: number) => {
       const day = days[dayIndex];
@@ -1122,9 +1091,11 @@ export const WeekView = memo(function WeekView({
                     {workingLocationGroups.map((group) => {
                       const firstPlacement = group[0];
                       const lastPlacement = group[group.length - 1];
-                      const groupKey = group
-                        .map(({ event }) => event.id)
-                        .join(":");
+                      const groupKey = JSON.stringify(
+                        group.map(({ event }) =>
+                          getCalendarEventRenderKey(event),
+                        ),
+                      );
                       const colCount = days.length;
                       const groupLeftPct =
                         (firstPlacement.startCol / colCount) * 100;
@@ -1175,12 +1146,16 @@ export const WeekView = memo(function WeekView({
 
                               return (
                                 <EventDetailPopover
-                                  key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                                  key={getCalendarEventRenderKey(event)}
                                   event={event}
                                   timezone={timezone}
                                   onDelete={onDeleteEvent}
                                   isDraft={draftEventIds.includes(event.id)}
-                                  defaultOpen={quickEditEventId === event.id}
+                                  defaultOpen={
+                                    quickEditEventId === event.id ||
+                                    quickEditEventId ===
+                                      getCalendarEventRenderKey(event)
+                                  }
                                   onTitleSave={onQuickEditSave}
                                   onDismissNew={onQuickEditCancel}
                                   onDraftUpdate={onDraftUpdate}
@@ -1261,12 +1236,16 @@ export const WeekView = memo(function WeekView({
 
                         return (
                           <EventDetailPopover
-                            key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                            key={getCalendarEventRenderKey(event)}
                             event={event}
                             timezone={timezone}
                             onDelete={onDeleteEvent}
                             isDraft={draftEventIds.includes(event.id)}
-                            defaultOpen={quickEditEventId === event.id}
+                            defaultOpen={
+                              quickEditEventId === event.id ||
+                              quickEditEventId ===
+                                getCalendarEventRenderKey(event)
+                            }
                             onTitleSave={onQuickEditSave}
                             onDismissNew={onQuickEditCancel}
                             onDraftUpdate={onDraftUpdate}
@@ -1371,26 +1350,24 @@ export const WeekView = memo(function WeekView({
           {dayData.map(({ day, events: dayEvents, layout }, dayIndex) => {
             const isCurrentDay = dateToCalendarDateKey(day) === currentDateKey;
 
-            // Collect events that were dragged into this column from another day
             const draggedInEvents: CalendarEvent[] = [];
-            if (isDragging && dragEventId) {
-              const overrides = getDragOverrides(dragEventId);
+            if (isDragging && draggedEvent) {
+              const overrides = getDragOverrides(draggedEvent);
               if (
                 overrides &&
                 overrides.dayIndex === dayIndex &&
-                !dayEvents.find((e) => e.id === dragEventId)
+                !dayEvents.some(isDraggingEvent)
               ) {
-                const draggedEvent = events.find((e) => e.id === dragEventId);
-                if (draggedEvent) draggedInEvents.push(draggedEvent);
+                draggedInEvents.push(draggedEvent);
               }
             }
 
             const visibleOutOfOfficeEvents = outOfOfficeEvents.filter(
               (event) => {
-                const overrides = getDragOverrides(event.id);
+                const overrides = getDragOverrides(event);
                 return (
                   getOutOfOfficeSegment(event, day, timezone) !== null ||
-                  (dragEventId === event.id && overrides?.dayIndex === dayIndex)
+                  (isDraggingEvent(event) && overrides?.dayIndex === dayIndex)
                 );
               },
             );
@@ -1404,7 +1381,6 @@ export const WeekView = memo(function WeekView({
                   isCurrentDay && "bg-primary/[0.02]",
                 )}
                 onPointerDown={(e) => {
-                  // Only start a create-drag from empty space, not on an event or its resize handles
                   if ((e.target as HTMLElement).closest("button")) return;
                   if (
                     !onClickTimeSlot ||
@@ -1415,7 +1391,6 @@ export const WeekView = memo(function WeekView({
                   startCreateDrag(e, dayIndex);
                 }}
                 onClick={(e) => {
-                  // Only fire on empty space (not on event buttons or after drags)
                   if ((e.target as HTMLElement).closest("button")) return;
                   if (
                     !onClickTimeSlot ||
@@ -1474,13 +1449,13 @@ export const WeekView = memo(function WeekView({
                 {/* Native Google out-of-office context sits behind meetings. */}
                 {!isLoading &&
                   visibleOutOfOfficeEvents.map((event, markerIndex) => {
-                    const isBeingDragged = dragEventId === event.id;
-                    const overrides = getDragOverrides(event.id);
+                    const isBeingDragged = isDraggingEvent(event);
+                    const overrides = getDragOverrides(event);
                     const canonicalDayIndex =
                       getFirstVisibleOutOfOfficeDayIndex(event, days, timezone);
                     return (
                       <OutOfOfficeEvent
-                        key={`${event._tempId ?? event.id}:${day.toISOString()}`}
+                        key={`${getCalendarEventRenderKey(event)}:${day.toISOString()}`}
                         event={event}
                         day={day}
                         timezone={timezone}
@@ -1509,14 +1484,14 @@ export const WeekView = memo(function WeekView({
                         onResizeTopPointerDown={(pointerEvent) =>
                           handleResizeTopPointerDown(
                             pointerEvent,
-                            event.id,
+                            event,
                             dayIndex,
                           )
                         }
                         onResizeBottomPointerDown={(pointerEvent) =>
                           handleResizeBottomPointerDown(
                             pointerEvent,
-                            event.id,
+                            event,
                             dayIndex,
                           )
                         }
@@ -1524,7 +1499,9 @@ export const WeekView = memo(function WeekView({
                         onDelete={onDeleteEvent}
                         isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={
-                          quickEditEventId === event.id &&
+                          (quickEditEventId === event.id ||
+                            quickEditEventId ===
+                              getCalendarEventRenderKey(event)) &&
                           dayIndex === canonicalDayIndex
                         }
                         onTitleSave={onQuickEditSave}
@@ -1568,11 +1545,11 @@ export const WeekView = memo(function WeekView({
                 {/* Timed events */}
                 {!isLoading &&
                   [...dayEvents, ...draggedInEvents].map((event) => {
-                    const isBeingDragged = dragEventId === event.id;
-                    const overrides = getDragOverrides(event.id);
+                    const isBeingDragged = isDraggingEvent(event);
+                    const overrides = getDragOverrides(event);
                     return (
                       <WeekEventCard
-                        key={event._tempId ?? event.id}
+                        key={getCalendarEventRenderKey(event)}
                         event={event}
                         day={day}
                         dayIndex={dayIndex}
@@ -1580,7 +1557,7 @@ export const WeekView = memo(function WeekView({
                         layout={layout}
                         now={now}
                         prefs={prefs}
-                        focusedEventId={focusedEventId}
+                        focusedEventKey={focusedEventKey}
                         isBeingDragged={isBeingDragged}
                         isDragging={isDragging}
                         isDraggedIntoThisColumn={draggedInEvents.includes(
@@ -1598,7 +1575,10 @@ export const WeekView = memo(function WeekView({
                         shouldSuppressClick={shouldSuppressClick}
                         onDeleteEvent={onDeleteEvent}
                         isDraft={draftEventIds.includes(event.id)}
-                        defaultOpen={quickEditEventId === event.id}
+                        defaultOpen={
+                          quickEditEventId === event.id ||
+                          quickEditEventId === getCalendarEventRenderKey(event)
+                        }
                         onQuickEditSave={onQuickEditSave}
                         onQuickEditCancel={onQuickEditCancel}
                         onDraftUpdate={onDraftUpdate}

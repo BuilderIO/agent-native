@@ -56,6 +56,7 @@ import { buildCustomBlockPromotionRequest } from "@/lib/custom-block-promotion";
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
+import { timeRangeDays } from "./pivot";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -64,8 +65,6 @@ interface SqlChartCardProps {
   resolvedSql?: string;
   onRemove: () => void;
   onEdit?: () => void;
-  /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
-   *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
@@ -137,6 +136,7 @@ export function SqlChartCard({
   filters,
 }: SqlChartCardProps) {
   const t = useT();
+  const timeRange = timeRangeDays(filters?.timeRange);
   const queryClient = useQueryClient();
   const exportToGoogleSheets = useActionMutation(
     "export-dashboard-panel-to-google-sheet",
@@ -162,11 +162,11 @@ export function SqlChartCard({
     () =>
       [
         "sql-chart",
-        panel.id,
+        dashboardId || panel.id,
         serializePanelSql(resolvedSql ?? panel.sql),
         panel.source,
       ] as const,
-    [panel.id, panel.source, panel.sql, resolvedSql],
+    [dashboardId, panel.id, panel.source, panel.sql, resolvedSql],
   );
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -277,8 +277,6 @@ export function SqlChartCard({
       setShouldLoadData(true);
       return;
     }
-    // Sections are layout-only and extensions render their own iframe — neither
-    // waits on the intersection observer that gates SQL panels.
     if (panel.chartType === "section" || panel.chartType === "extension") {
       setShouldLoadData(true);
       return;
@@ -299,7 +297,7 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "320px 0px",
+        rootMargin: "64px 0px",
         threshold: 0.01,
       },
     );
@@ -326,9 +324,6 @@ export function SqlChartCard({
     setMenuOpen(false);
   }, []);
 
-  // Section panels render as a flush header row (no card chrome, full width)
-  // so they read as dividers between groups of panels rather than as another
-  // tile in the grid.
   if (panel.chartType === "section") {
     return (
       <div
@@ -421,10 +416,6 @@ export function SqlChartCard({
     );
   }
 
-  // Extension panels render their sandboxed iframe full-bleed with no card chrome
-  // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen and refresh); editable
-  // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
       <div
@@ -446,7 +437,9 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            dashboardId={dashboardId}
             extensionContext={extensionContext}
           />
         )}
@@ -549,7 +542,9 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  timeRange={timeRange}
                   reportScreenshot={reportScreenshot}
+                  dashboardId={dashboardId}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -587,8 +582,6 @@ export function SqlChartCard({
     );
   }
 
-  // Every non-section panel exposes at least the Full screen view action, so the
-  // options menu always renders — including on read-only / shared dashboards.
   const showPanelMenu = true;
 
   return (
@@ -735,7 +728,9 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            timeRange={timeRange}
             reportScreenshot={reportScreenshot}
+            dashboardId={dashboardId}
             onExportCsvChange={handleExportCsvChange}
             onCopyTableChange={handleCopyTableChange}
             extensionContext={extensionContext}
@@ -754,7 +749,9 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                timeRange={timeRange}
                 reportScreenshot={reportScreenshot}
+                dashboardId={dashboardId}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

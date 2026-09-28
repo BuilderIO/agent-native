@@ -21,8 +21,8 @@ export default defineAction({
   description:
     "Preview complete Builder CMS review diffs, including document body changes, without approving or writing anything.",
   schema: z.object({
-    databaseId: z.string().optional().describe("Database ID"),
-    documentId: z.string().optional().describe("Database document/page ID"),
+    databaseId: z.string().optional().describe("Collection ID"),
+    documentId: z.string().optional().describe("Collection document/page ID"),
     sourceId: z.string().optional().describe("Specific Builder source ID"),
     scope: z.enum(["selected", "all"]).optional().default("all"),
     documentIds: z

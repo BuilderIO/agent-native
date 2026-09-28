@@ -89,7 +89,7 @@ No raw message, prompt, or response text is persisted or tracked.
 
 ### 2. Feedback
 
-**Explicit** — `ThumbsFeedback` component renders inline thumbs up/down on every agent message in the chat UI. Thumbs down opens a category popover (Inaccurate, Not helpful, Wrong tool, Too slow). Already wired into `AssistantChat.tsx` via `React.lazy`.
+**Explicit** — AgentKit's assistant-message action bar renders inline thumbs up/down controls. A thumbs-down can collect a reason, and feedback includes the run and message sequence for trace linking. The shared `AgentKitAssistantChat` host submits it through the existing feedback action.
 
 **Implicit** — `computeSatisfactionScore(threadId)` computes a Frustration Index (0-100) from conversation signals:
 - Rephrasing detection (weight 30): consecutive similar user messages
@@ -101,6 +101,29 @@ No raw message, prompt, or response text is persisted or tracked.
 Score interpretation: 0-20 healthy, 20-40 friction, 40-60 dissatisfied, 60+ broken.
 
 Satisfaction scoring fires automatically after each feedback POST with a threadId.
+
+### Human audit and refinement
+
+For a human output audit, provide one table row per run with a distilled ask,
+result, inferred or explicit sentiment, audit state, and app-native preview. The
+same row contract works for standalone app and workspace roll-ups; keep
+single-app surfaces independent of workspace chrome.
+
+Treat ordinary feedback separately from admin audit verdicts. Only admins can
+vote, mark audited, approve improvements, or apply them, enforced server-side
+with app-scoped roles. Let admins add reasons to downvotes across many rows,
+then run one synthesis that groups patterns, cites evidence, suggests update
+targets (skills, instructions, memories, data dictionaries, certified
+dashboards, or creative context), and shows before/after diffs. Allow feedback
+and regeneration before explicit approval; never auto-apply.
+
+The shipped single-app human review surface is the `Human review` tab in the
+shared observability dashboard. It lists the persisted ask and answer for each
+run, records thumbs/text feedback through the existing feedback endpoint, and
+saves explicit instruction changes as `draft` rows through the
+`save-observability-instruction-update` action. Drafts are reviewable artifacts;
+they never update agent behavior automatically. Agents can read the same table
+through `list-observability-reviews`.
 
 ### 3. Evals
 

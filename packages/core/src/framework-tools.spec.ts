@@ -19,8 +19,6 @@ describe("resolveFrameworkTools", () => {
     const resolved = resolveFrameworkTools(undefined);
 
     expect(resolved.disabledGroups.size).toBe(0);
-    // `undefined` (not "read") so `normalizeDatabaseToolsMode` keeps owning the
-    // default and this resolver cannot drift from it.
     expect(resolved.database).toBeUndefined();
     expect(resolved.extensions).toBe(false);
     for (const group of FRAMEWORK_TOOL_GROUPS) {
@@ -50,11 +48,20 @@ describe("resolveFrameworkTools", () => {
 
   it("disables only the groups set to false", () => {
     const resolved = resolveFrameworkTools({
-      frameworkTools: { sharing: false, review: false },
+      frameworkTools: {
+        sharing: false,
+        review: false,
+        browserSessions: false,
+      },
     });
 
-    expect([...resolved.disabledGroups].sort()).toEqual(["review", "sharing"]);
+    expect([...resolved.disabledGroups].sort()).toEqual([
+      "browserSessions",
+      "review",
+      "sharing",
+    ]);
     expect(resolved.isEnabled("history")).toBe(true);
+    expect(resolved.isEnabled("browserSessions")).toBe(false);
   });
 
   describe("deprecated flags", () => {
@@ -76,8 +83,18 @@ describe("resolveFrameworkTools", () => {
       );
     });
 
+    it("honors frameworkTools.experiments as the Labs alias and warns", () => {
+      const resolved = resolveFrameworkTools({
+        frameworkTools: { experiments: false },
+      });
+
+      expect(resolved.isEnabled("labs")).toBe(false);
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining("`frameworkTools.experiments` is deprecated"),
+      );
+    });
+
     it("accepts old and new forms that agree, including boolean spellings", () => {
-      // `false` and `"off"` are the same mode, so this is not a conflict.
       expect(
         resolveFrameworkTools({
           databaseTools: false,
@@ -90,12 +107,14 @@ describe("resolveFrameworkTools", () => {
           frameworkTools: { extensions: true },
         }).extensions,
       ).toBe(true);
+      expect(
+        resolveFrameworkTools({
+          frameworkTools: { experiments: false, labs: false },
+        }).isEnabled("labs"),
+      ).toBe(false);
     });
 
     it("throws when the old and new forms disagree", () => {
-      // Silently preferring one would boot the app with a tool surface nobody
-      // chose, and the resulting "why can't the agent see db-query" is
-      // unexplainable from either call site.
       expect(() =>
         resolveFrameworkTools({
           databaseTools: false,
@@ -108,6 +127,11 @@ describe("resolveFrameworkTools", () => {
           frameworkTools: { extensions: true },
         }),
       ).toThrow(/extensionTools.*frameworkTools\.extensions.*disagree/s);
+      expect(() =>
+        resolveFrameworkTools({
+          frameworkTools: { experiments: false, labs: true },
+        }),
+      ).toThrow(/frameworkTools\.experiments.*frameworkTools\.labs.*disagree/s);
     });
 
     it("names both values so the error identifies the fix", () => {
@@ -129,7 +153,6 @@ describe("filterFrameworkToolGroups", () => {
   };
 
   it("returns the input untouched when nothing is disabled", () => {
-    // Same reference: the default path must not pay to rebuild the registry.
     expect(filterFrameworkToolGroups(registry, new Set())).toBe(registry);
   });
 
@@ -157,14 +180,16 @@ describe("isFrameworkGroupedAction", () => {
 });
 
 describe("group membership resolves by name, not only by tag", () => {
-  // The guard this file was missing. Every test above stamped `frameworkGroup`
-  // by hand, so the filter looked correct while the tag was reaching almost no
-  // real registry: it is written only by `mergeCoreSharingActions`, which runs
-  // against the ungated `httpActions`. Apps loading core kits through
-  // `loadActionsFromStaticRegistry` or their own actions directory therefore
-  // held untagged entries, and eight `frameworkTools` switches silently did
-  // nothing. Build the fixtures the way those apps do — no tag — so a
-  // regression here fails instead of passing on hand-tagged inputs.
+  it("keeps suggestion amendments in the review group", () => {
+    expect(CORE_ACTION_GROUPS["update-resource-suggestion"]).toBe("review");
+    expect(
+      filterFrameworkToolGroups(
+        { "update-resource-suggestion": {} },
+        new Set<FrameworkToolGroup>(["review"]),
+      ),
+    ).toEqual({});
+  });
+
   const untagged = Object.fromEntries(
     Object.keys(CORE_ACTION_GROUPS).map((name) => [
       name,
@@ -186,7 +211,6 @@ describe("group membership resolves by name, not only by tag", () => {
           `${name} survived \`${group}: false\``,
         ).toBe(false);
       }
-      // Only that group goes; the rest of the catalog is untouched.
       expect(Object.keys(filtered).length).toBe(
         Object.keys(untagged).length - names.length,
       );

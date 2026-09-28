@@ -1,3 +1,4 @@
+import { analyzeRegexSource } from "../shared/bounded-regex.js";
 import { wrapDiagnosticSnippet } from "../shared/diagnostic-snippet.js";
 import {
   applyTargetedReplace,
@@ -146,11 +147,6 @@ async function applyExtensionContentUpdateUnchecked(
 
 export async function formatExtensionHtml(content: string): Promise<string> {
   try {
-    // prettier's main entry `import()`s all 13 parser plugins, so a bundler
-    // inlines ~3.5MB of flow/typescript/yaml/markdown parsers just to format
-    // HTML. Load the standalone core plus only the plugins the HTML printer
-    // reaches, which still formats embedded <style> (postcss) and <script>
-    // (babel + estree).
     const [{ format }, ...plugins] = await Promise.all([
       import("prettier/standalone"),
       import("prettier/plugins/html"),
@@ -267,9 +263,6 @@ function applyInsert(
 ): { content: string; summary: string } {
   if (!edit.marker) throw new Error("Patch find/marker text cannot be empty");
 
-  // Only pass occurrence when the caller actually gave one — defaulting it
-  // here would suppress the helper's ambiguity check for a repeated marker
-  // and silently insert at the first hit.
   const result = findTargetedMatches(content, edit.marker, {
     occurrence: edit.occurrence,
   });
@@ -291,9 +284,6 @@ function applyInsert(
     );
   }
 
-  // occurrence, if given, was already validated (positive integer, in range)
-  // by findTargetedMatches above — an out-of-range value returns
-  // "occurrence_out_of_range" and is handled in the !result.ok branch.
   const occurrence = edit.occurrence ?? 1;
   const match = matches[occurrence - 1]!;
   const insertAt = edit.op === "insert-before" ? match.index : match.end;
@@ -304,9 +294,6 @@ function applyInsert(
   };
 }
 
-/** A literal-find edit is a no-op (not an error) on zero matches when the
- * caller either asserted `expectedMatches: 0` or opted out with
- * `required: false` and didn't assert a count at all. */
 function isCountedNoOp(edit: {
   expectedMatches?: number;
   required?: boolean;
@@ -317,13 +304,6 @@ function isCountedNoOp(edit: {
   );
 }
 
-/**
- * Shared not-found / ambiguous / invalid-occurrence / out-of-range reporting
- * for the literal-find ops (replace, insert-before, insert-after). Always
- * throws — callers check the `required`/`expectedMatches` no-op case
- * themselves before reaching here (and only for a true "not_found": matches
- * exist for "occurrence_out_of_range", so that is never a no-op).
- */
 function throwLiteralMatchFailure(
   op: string,
   result: Extract<TargetedMatchesResult, { ok: false }>,
@@ -338,8 +318,6 @@ function throwLiteralMatchFailure(
     );
   }
   if (result.reason === "occurrence_out_of_range") {
-    // Restores the pre-helper validation order: an expectedMatches mismatch
-    // against the REAL total count is reported before the occurrence miss.
     if (
       expectedMatches !== undefined &&
       result.matchCount !== expectedMatches
@@ -357,11 +335,6 @@ function throwLiteralMatchFailure(
   throw new Error(`${expected}${formatCandidates(result.candidates)}`);
 }
 
-// Candidate/ambiguous text below is echoed from the user's own extension
-// content, not a system diagnostic — wrap it so production-agent's
-// permanent-precondition classifier (broad phrases like "no authenticated
-// user", column-0-anchored) never mistakes quoted file content for a real
-// signal and stops the turn on a false positive.
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
   const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
@@ -443,6 +416,14 @@ function applyRegexReplace(
   edit: Extract<ExtensionContentEdit, { op: "regex-replace" }>,
 ): { content: string; summary: string } {
   const flags = normalizeRegexFlags(edit.flags, edit.all);
+  const verdict = analyzeRegexSource(edit.pattern, flags, {
+    inputBounded: false,
+  });
+  if (!verdict.safe) {
+    throw new ExtensionContentEditError(
+      `regex-replace pattern cannot be run safely: ${verdict.reason}. Rewrite it without overlapping repetition, or use a literal find edit instead.`,
+    );
+  }
   const regex = new RegExp(edit.pattern, flags);
   const countRegex = new RegExp(edit.pattern, ensureGlobal(flags));
   const matches = Array.from(content.matchAll(countRegex)).length;

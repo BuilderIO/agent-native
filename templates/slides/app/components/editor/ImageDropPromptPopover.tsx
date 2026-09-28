@@ -6,11 +6,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 import {
   canInlineImageFile,
   buildImageDropAgentPayload,
+  isMissingUploadProviderError,
   readFileAsDataUrl,
   type HostedImageUploadResult,
 } from "@/lib/image-drop-to-agent";
@@ -22,31 +25,11 @@ const POPOVER_MARGIN = 12;
 interface ImageDropPromptPopoverProps {
   open: boolean;
   file: File | null;
-  /** Drop position in viewport coordinates. */
   position: { x: number; y: number } | null;
-  /** Optional deck/slide context to include in the agent prompt. */
   contextHint?: string;
   onClose: () => void;
 }
 
-/**
- * Popover shown after a user drops an image somewhere on the slides editor
- * that doesn't have a clear target (i.e. not on an image placeholder or
- * existing `<img>`). The popover previews the image, lets the user describe
- * what to do with it, and hands the task off to the agent chat.
- *
- * Prefers a hosted CDN URL via `/api/assets/upload` when a file-upload
- * provider (Builder.io / S3 / …) is configured. When nothing is configured,
- * falls back to an inline data-URL attachment within Core's request limit so
- * the drop still reaches the agent instead of toasting a 503.
- *
- * Why this exists: dropping image files onto an unclear target previously did
- * one of two unhelpful things — opened the file in a new browser tab (when the
- * drop landed outside the slide canvas) or silently inserted the image into
- * the first placeholder (when the user wanted something else). This popover
- * makes the intent explicit and routes the work through the agent so the user
- * can phrase the ask in plain language.
- */
 export default function ImageDropPromptPopover({
   open,
   file,
@@ -55,8 +38,12 @@ export default function ImageDropPromptPopover({
   onClose,
 }: ImageDropPromptPopoverProps) {
   const t = useT();
+  const storageQuery = useSlideFileStorageStatus(open);
+  const fileStorageConfigured =
+    storageQuery.data?.configured === true && !storageQuery.isError;
   const [prompt, setPrompt] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -98,7 +85,6 @@ export default function ImageDropPromptPopover({
     };
   }, [open, onClose]);
 
-  // Position relative to drop point, clamped within the viewport.
   const computedPosition = useMemo(() => {
     if (!position) {
       return { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
@@ -106,13 +92,12 @@ export default function ImageDropPromptPopover({
     const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
     const vh = typeof window !== "undefined" ? window.innerHeight : 768;
     const width = POPOVER_WIDTH;
-    const height = 320;
+    const height = 460;
     let left = position.x - width / 2;
     let top = position.y + POPOVER_MARGIN;
     if (left < POPOVER_MARGIN) left = POPOVER_MARGIN;
     if (left + width > vw - POPOVER_MARGIN) left = vw - width - POPOVER_MARGIN;
     if (top + height > vh - POPOVER_MARGIN) {
-      // Flip above the drop point if there isn't room below.
       top = Math.max(POPOVER_MARGIN, position.y - height - POPOVER_MARGIN);
     }
     return { top: `${top}px`, left: `${left}px`, transform: "none" };
@@ -122,13 +107,14 @@ export default function ImageDropPromptPopover({
 
   const handleSubmit = async () => {
     if (!file) return;
+    if (!fileStorageConfigured) {
+      setStoragePromptOpen(true);
+      return;
+    }
     setUploading(true);
     try {
       const form = new FormData();
       form.append("file", file);
-      // Prefer the hosted provider chain. When none is configured the route
-      // returns 503 — fall back to an inline data URL so the agent still gets
-      // the image (chat already accepts `images` data URLs).
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
@@ -147,6 +133,15 @@ export default function ImageDropPromptPopover({
       const dataUrl = canInlineImageFile(file)
         ? await readFileAsDataUrl(file)
         : undefined;
+
+      if (
+        !upload.ok &&
+        isMissingUploadProviderError(upload.status, upload.error)
+      ) {
+        await storageQuery.refetch();
+        setStoragePromptOpen(true);
+        return;
+      }
 
       const payload = buildImageDropAgentPayload({
         intent: prompt,
@@ -270,6 +265,13 @@ export default function ImageDropPromptPopover({
           </Button>
         </div>
       </div>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={storagePromptOpen}
+        onOpenChange={setStoragePromptOpen}
+        onRetry={() => void storageQuery.refetch()}
+      />
     </div>,
     document.body,
   );

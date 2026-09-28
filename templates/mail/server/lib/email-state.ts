@@ -6,14 +6,6 @@ import {
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { isInboxScopedAppLabel } from "@shared/gmail-labels.js";
 import type { EmailMessage, Label } from "@shared/types.js";
-/**
- * Shared server functions for email state-change operations.
- *
- * These are the single source of truth called by both the actions surface
- * (agent) and the REST route handlers (frontend). Each function carries the
- * superset of behaviour from the two prior implementations — see reconciliation
- * notes inline.
- */
 
 import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
@@ -24,18 +16,24 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
 } from "./google-api.js";
-import { getOAuth2Credentials, isConnected } from "./google-auth.js";
+import {
+  getClientForConnectedAccount,
+  getConnectedAccountsWithErrors,
+  getOAuth2Credentials,
+  isConnected,
+} from "./google-auth.js";
+import { syncInboxLabelDelta } from "./inbox-store-sync.js";
+import {
+  findAccountForMessage,
+  findAccountForThread,
+  findThreadIdsByMessageIds,
+} from "./inbox-store.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
   writeLocalEmails,
 } from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
-
-// ---------------------------------------------------------------------------
-// Internal token helpers (duplicated from handlers/emails.ts to keep this
-// lib self-contained and free of H3 imports)
-// ---------------------------------------------------------------------------
 
 interface StoredTokens {
   access_token: string;
@@ -70,48 +68,132 @@ async function refreshIfNeeded(
   return tokens.access_token;
 }
 
-async function getToken(accountId: string): Promise<string | null> {
+async function getToken(
+  accountId: string,
+  ownerEmail: string,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountId)) as unknown as
     | StoredTokens
     | undefined;
-  if (!tokens?.access_token) return null;
-  return refreshIfNeeded(accountId, tokens);
+  if (tokens?.access_token) return refreshIfNeeded(accountId, tokens);
+  const managed = await getClientForConnectedAccount(ownerEmail, accountId);
+  return managed && managed.email.toLowerCase() === accountId.toLowerCase()
+    ? managed.accessToken
+    : null;
 }
 
-/**
- * Resolve an account email to a validated account owned by ownerEmail.
- * Falls back to ownerEmail when accountEmail is absent or identical.
- * Throws if the provided accountEmail is not owned by the user.
- */
 export async function resolveAccountEmail(
   accountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
   if (!accountEmail || accountEmail === ownerEmail) return ownerEmail;
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
-  if (!accounts.some((a) => a.accountId === accountEmail)) {
-    throw new Error("Account not owned by current user");
+  const oauthAccount = accounts.find(
+    (account) => account.accountId.toLowerCase() === accountEmail.toLowerCase(),
+  );
+  if (oauthAccount) return oauthAccount.accountId;
+  const { accounts: connected, errors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
+  if (
+    connected.some(
+      (email) => email.toLowerCase() === accountEmail.toLowerCase(),
+    )
+  ) {
+    return accountEmail;
   }
-  return accountEmail;
+  if (errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
+  }
+  throw new Error("Account not owned by current user");
 }
 
-/**
- * Get a valid access token for a single validated account.
- * Throws when no token exists or the account is not owned by the user.
- */
 export async function getAccountToken(
   accountEmail: string,
   ownerEmail: string,
 ): Promise<string> {
   const acct = await resolveAccountEmail(accountEmail, ownerEmail);
-  const token = await getToken(acct);
+  const token = await getToken(acct, ownerEmail);
   if (!token) throw new Error(`No valid access token for ${acct}`);
   return token;
 }
 
-// ---------------------------------------------------------------------------
-// Local-mode helpers
-// ---------------------------------------------------------------------------
+export async function resolveMutationAccount(
+  ownerEmail: string,
+  accountEmail: string | undefined,
+  ctx: { threadId?: string; messageId?: string } = {},
+): Promise<string> {
+  if (accountEmail) return accountEmail;
+
+  if (ctx.threadId) {
+    const found = await findAccountForThread(ownerEmail, ctx.threadId);
+    if (found) return found;
+  }
+  if (ctx.messageId) {
+    const found = await findAccountForMessage(ownerEmail, ctx.messageId);
+    if (found) return found;
+  }
+
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  if (accounts.length === 1) return accounts[0].accountId;
+  if (accounts.length === 0) {
+    const { accounts: connected, errors } =
+      await getConnectedAccountsWithErrors(ownerEmail);
+    if (connected.length === 1) return connected[0];
+    if (connected.length === 0 && errors.length > 0) {
+      throw new Error(errors.map(({ error }) => error).join("; "));
+    }
+  }
+
+  throw new Error(
+    `Cannot determine which connected account owns thread ${
+      ctx.threadId ?? ctx.messageId ?? "unknown"
+    }; pass accountEmail`,
+  );
+}
+
+export async function resolveMutationAccounts<
+  T extends { id: string; threadId?: string; accountEmail?: string },
+>(
+  ownerEmail: string,
+  targets: readonly T[],
+): Promise<{
+  resolved: Array<T & { accountEmail: string }>;
+  unresolved: Array<{ id: string; error: string }>;
+}> {
+  const resolved: Array<T & { accountEmail: string }> = [];
+  const unresolved: Array<{ id: string; error: string }> = [];
+  for (const target of targets) {
+    try {
+      const accountEmail = await resolveMutationAccount(
+        ownerEmail,
+        target.accountEmail,
+        { threadId: target.threadId, messageId: target.id },
+      );
+      resolved.push({ ...target, accountEmail });
+    } catch (err: any) {
+      unresolved.push({
+        id: target.id,
+        error: err?.message ?? "Could not resolve connected account",
+      });
+    }
+  }
+  return { resolved, unresolved };
+}
+
+async function listMutableAccounts(
+  ownerEmail: string,
+): Promise<Array<{ accountId: string }>> {
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  if (accounts.length > 0) return accounts;
+  const { accounts: connected, errors } =
+    await getConnectedAccountsWithErrors(ownerEmail);
+  if (connected.length === 0 && errors.length > 0) {
+    throw new Error(errors.map(({ error }) => error).join("; "));
+  }
+  return connected.map((accountId) => ({
+    accountId,
+  }));
+}
 
 async function readLocalLabels(ownerEmail: string): Promise<Label[]> {
   const data = await getUserSetting(ownerEmail, "labels");
@@ -148,24 +230,11 @@ function recomputeUnreadCounts(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Archive
-// ---------------------------------------------------------------------------
-
 export interface ArchiveEmailInput {
-  /** Message ID to archive */
   id: string;
   ownerEmail: string;
-  /**
-   * Preferred account to use. When absent the primary account for ownerEmail
-   * is used. When the preferred account doesn't own the message the call falls
-   * through to the other connected accounts so the agent's multi-account loop
-   * behaviour is preserved.
-   */
   accountEmail?: string;
-  /** Optional label name/id to remove in addition to INBOX (label-view UX). */
   removeLabel?: string;
-  /** Caller-supplied threadId to skip the gmailGetMessage round-trip. */
   threadId?: string;
 }
 
@@ -175,20 +244,6 @@ export interface ArchiveEmailResult {
   isArchived: true;
 }
 
-/**
- * Archive an email thread by message ID.
- *
- * Reconciliation notes:
- * - cache invalidation (handler ✓, action ✗) → always invalidate so thread
- *   views don't show stale data after archiving.
- * - removeLabel support (handler ✓, action ✗) → preserved; required for
- *   label-view archive UI.
- * - accountEmail scoping (handler ✓, action looped all) → try the requested
- *   account first, fall through to other accounts so agent multi-ID behaviour
- *   is preserved.
- * - local-mode: update entire thread (handler behaviour) and recompute label
- *   counts, matching the handler's richer approach.
- */
 export async function archiveEmail(
   input: ArchiveEmailInput,
 ): Promise<ArchiveEmailResult> {
@@ -223,9 +278,7 @@ export async function archiveEmail(
     });
   }
 
-  // Try accountEmail-scoped account first, then fall through to other accounts
-  // for multi-identity agent scenarios.
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -237,12 +290,11 @@ export async function archiveEmail(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       let resolvedThreadId = hintThreadId;
       let labelIds: string[] | undefined;
-      // Fetch message when threadId unknown or removeLabel resolution is needed
       if (!resolvedThreadId || removeLabel) {
         const msg = await gmailGetMessage(token, id, "minimal");
         resolvedThreadId = resolvedThreadId || msg.threadId;
@@ -259,9 +311,22 @@ export async function archiveEmail(
           removeLabels.push(labelId);
         }
       }
-      await gmailModifyThread(token, resolvedThreadId, undefined, removeLabels);
-      // Invalidate so thread-view doesn't serve cached pre-archive messages
+      const updated = (await gmailModifyThread(
+        token,
+        resolvedThreadId,
+        undefined,
+        removeLabels,
+      )) as { historyId?: string } | undefined;
       invalidateThreadCache(ownerEmail, resolvedThreadId);
+      await syncInboxLabelDelta(
+        ownerEmail,
+        account.accountId,
+        [resolvedThreadId],
+        {
+          remove: removeLabels,
+          providerHistoryId: updated?.historyId,
+        },
+      );
       return { id, threadId: resolvedThreadId, isArchived: true };
     } catch (err: any) {
       lastErr = err;
@@ -269,10 +334,6 @@ export async function archiveEmail(
   }
   throw lastErr ?? new Error("Archive failed");
 }
-
-// ---------------------------------------------------------------------------
-// Unarchive
-// ---------------------------------------------------------------------------
 
 export interface UnarchiveEmailInput {
   id: string;
@@ -286,13 +347,6 @@ export interface UnarchiveEmailResult {
   isArchived: false;
 }
 
-/**
- * Restore an archived email back to INBOX.
- *
- * Reconciliation notes:
- * - cache invalidation (handler ✓) → always invalidate.
- * - local-mode: restore entire thread + recompute label counts.
- */
 export async function unarchiveEmail(
   input: UnarchiveEmailInput,
 ): Promise<UnarchiveEmailResult> {
@@ -323,23 +377,29 @@ export async function unarchiveEmail(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { messageId: id },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  await gmailModifyThread(token, msg.threadId, ["INBOX"]);
+  const updated = (await gmailModifyThread(token, msg.threadId, ["INBOX"])) as
+    | { historyId?: string }
+    | undefined;
   invalidateThreadCache(ownerEmail, msg.threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    add: ["INBOX"],
+    providerHistoryId: updated?.historyId,
+  });
   return { id, threadId: msg.threadId, isArchived: false };
 }
-
-// ---------------------------------------------------------------------------
-// Star / unstar
-// ---------------------------------------------------------------------------
 
 export interface ToggleStarInput {
   id: string;
   ownerEmail: string;
   isStarred: boolean;
   accountEmail?: string;
-  /** Caller-supplied threadId used for cache invalidation without extra fetch. */
   threadId?: string;
 }
 
@@ -349,16 +409,6 @@ export interface ToggleStarResult {
   isStarred: boolean;
 }
 
-/**
- * Star or unstar a single message.
- *
- * Reconciliation notes:
- * - cache invalidation (handler ✓, action ✗) → always invalidate when a
- *   threadId is known so the thread view reflects the star change.
- * - accountEmail scoping (handler ✓, action looped all) → try preferred
- *   account, fall through to other connected accounts.
- * - local-mode: update per-message isStarred.
- */
 export async function toggleStar(
   input: ToggleStarInput,
 ): Promise<ToggleStarResult> {
@@ -381,7 +431,7 @@ export async function toggleStar(
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -393,7 +443,7 @@ export async function toggleStar(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       const updated = (await gmailModifyMessage(
@@ -401,10 +451,22 @@ export async function toggleStar(
         id,
         isStarred ? ["STARRED"] : undefined,
         isStarred ? undefined : ["STARRED"],
-      )) as { threadId?: string };
-      const resolvedThreadId = hintThreadId || updated.threadId;
+      )) as { historyId?: string; threadId?: string } | undefined;
+      const resolvedThreadId = hintThreadId || updated?.threadId;
       if (resolvedThreadId) {
         invalidateThreadCache(ownerEmail, resolvedThreadId);
+        await syncInboxLabelDelta(
+          ownerEmail,
+          account.accountId,
+          [resolvedThreadId],
+          {
+            add: isStarred ? ["STARRED"] : undefined,
+            remove: isStarred ? undefined : ["STARRED"],
+            scope: "message",
+            messageIds: [id],
+            providerHistoryId: updated?.historyId,
+          },
+        );
       }
       return { id, threadId: resolvedThreadId, isStarred };
     } catch (err: any) {
@@ -413,10 +475,6 @@ export async function toggleStar(
   }
   throw lastErr ?? new Error("Toggle star failed");
 }
-
-// ---------------------------------------------------------------------------
-// Trash
-// ---------------------------------------------------------------------------
 
 export interface TrashEmailInput {
   id: string;
@@ -430,16 +488,6 @@ export interface TrashEmailResult {
   isTrashed: true;
 }
 
-/**
- * Move an email's thread to trash.
- *
- * Reconciliation notes:
- * - cache invalidation (handler ✓, action ✗) → always invalidate.
- * - local-mode: mark entire thread as trashed + recompute label counts
- *   (handler behaviour, richer than action's per-message update).
- * - accountEmail scoping (handler ✓, action looped all) → try preferred
- *   account, fall through.
- */
 export async function trashEmail(
   input: TrashEmailInput,
 ): Promise<TrashEmailResult> {
@@ -464,7 +512,7 @@ export async function trashEmail(
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -476,12 +524,19 @@ export async function trashEmail(
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
       const msg = await gmailGetMessage(token, id, "minimal");
-      await gmailTrashThread(token, msg.threadId);
+      const updated = (await gmailTrashThread(token, msg.threadId)) as
+        | { historyId?: string }
+        | undefined;
       invalidateThreadCache(ownerEmail, msg.threadId);
+      await syncInboxLabelDelta(ownerEmail, account.accountId, [msg.threadId], {
+        add: ["TRASH"],
+        remove: ["INBOX"],
+        providerHistoryId: updated?.historyId,
+      });
       return { id, threadId: msg.threadId, isTrashed: true };
     } catch (err: any) {
       lastErr = err;
@@ -489,10 +544,6 @@ export async function trashEmail(
   }
   throw lastErr ?? new Error("Trash failed");
 }
-
-// ---------------------------------------------------------------------------
-// Untrash
-// ---------------------------------------------------------------------------
 
 export interface UntrashEmailInput {
   id: string;
@@ -506,13 +557,6 @@ export interface UntrashEmailResult {
   isTrashed: false;
 }
 
-/**
- * Restore an email from trash.
- *
- * Reconciliation notes:
- * - cache invalidation (handler ✓) → always invalidate.
- * - local-mode: restore entire thread + recompute label counts.
- */
 export async function untrashEmail(
   input: UntrashEmailInput,
 ): Promise<UntrashEmailResult> {
@@ -543,16 +587,23 @@ export async function untrashEmail(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { messageId: id },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
   const msg = await gmailGetMessage(token, id, "minimal");
-  await gmailUntrashThread(token, msg.threadId);
+  const updated = (await gmailUntrashThread(token, msg.threadId)) as
+    | { historyId?: string }
+    | undefined;
   invalidateThreadCache(ownerEmail, msg.threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [msg.threadId], {
+    remove: ["TRASH"],
+    providerHistoryId: updated?.historyId,
+  });
   return { id, threadId: msg.threadId, isTrashed: false };
 }
-
-// ---------------------------------------------------------------------------
-// Mark read / unread (per-message)
-// ---------------------------------------------------------------------------
 
 export interface MarkReadInput {
   id: string;
@@ -566,17 +617,6 @@ export interface MarkReadResult {
   isRead: boolean;
 }
 
-/**
- * Mark a single message read or unread.
- *
- * Reconciliation notes:
- * - cache invalidation: message-level modify does not change the thread
- *   message list, so no thread cache invalidation is needed here.
- * - local-mode: recompute label unread counts (handler behaviour, not in
- *   action).
- * - accountEmail scoping (handler ✓, action looped all) → try preferred
- *   account, fall through.
- */
 export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
   const { id, ownerEmail, isRead, accountEmail } = input;
 
@@ -595,7 +635,7 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
     });
   }
 
-  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const accounts = await listMutableAccounts(ownerEmail);
   if (accounts.length === 0) throw new Error("No Google account connected");
 
   const preferred = accountEmail
@@ -607,15 +647,27 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
 
   let lastErr: Error | undefined;
   for (const account of ordered) {
-    const token = await getToken(account.accountId);
+    const token = await getToken(account.accountId, ownerEmail);
     if (!token) continue;
     try {
-      await gmailModifyMessage(
+      const updated = (await gmailModifyMessage(
         token,
         id,
         isRead ? undefined : ["UNREAD"],
         isRead ? ["UNREAD"] : undefined,
-      );
+      )) as { historyId?: string } | undefined;
+      const threadId = (
+        await findThreadIdsByMessageIds(ownerEmail, account.accountId, [id])
+      ).get(id);
+      if (threadId) {
+        await syncInboxLabelDelta(ownerEmail, account.accountId, [threadId], {
+          add: isRead ? undefined : ["UNREAD"],
+          remove: isRead ? ["UNREAD"] : undefined,
+          scope: "message",
+          messageIds: [id],
+          providerHistoryId: updated?.historyId,
+        });
+      }
       return { id, isRead };
     } catch (err: any) {
       lastErr = err;
@@ -704,10 +756,6 @@ export async function markAllLocalUnreadRead(input: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Mark thread read (all messages in a thread)
-// ---------------------------------------------------------------------------
-
 export interface MarkThreadReadInput {
   threadId: string;
   ownerEmail: string;
@@ -720,15 +768,6 @@ export interface MarkThreadReadResult {
   isRead: boolean;
 }
 
-/**
- * Mark all messages in a thread read or unread.
- *
- * Reconciliation notes:
- * - This operation existed only as a REST route (no action twin). Extracted
- *   here so the action surface can call it too.
- * - cache invalidation (handler ✓) → always invalidate.
- * - local-mode: recompute label unread counts.
- */
 export async function markThreadRead(
   input: MarkThreadReadInput,
 ): Promise<MarkThreadReadResult> {
@@ -754,13 +793,23 @@ export async function markThreadRead(
     });
   }
 
-  const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
-  await gmailModifyThread(
+  const resolvedAccount = await resolveMutationAccount(
+    ownerEmail,
+    accountEmail,
+    { threadId },
+  );
+  const token = await getAccountToken(resolvedAccount, ownerEmail);
+  const updated = (await gmailModifyThread(
     token,
     threadId,
     isRead ? undefined : ["UNREAD"],
     isRead ? ["UNREAD"] : undefined,
-  );
+  )) as { historyId?: string } | undefined;
   invalidateThreadCache(ownerEmail, threadId);
+  await syncInboxLabelDelta(ownerEmail, resolvedAccount, [threadId], {
+    add: isRead ? undefined : ["UNREAD"],
+    remove: isRead ? ["UNREAD"] : undefined,
+    providerHistoryId: updated?.historyId,
+  });
   return { threadId, isRead };
 }

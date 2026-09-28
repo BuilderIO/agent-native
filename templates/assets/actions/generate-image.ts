@@ -8,6 +8,7 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import {
   delimitUntrustedReference,
   getGenerationCreativeContext,
@@ -43,6 +44,7 @@ import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
 import {
   assertCanDraft,
   assertCanUseAssets,
+  draftProvenanceAccess,
   draftScopeForLibrary,
 } from "../server/lib/library-access.js";
 import {
@@ -58,6 +60,10 @@ import {
 } from "../server/lib/preset-skeleton.js";
 import { getObject } from "../server/lib/storage.js";
 import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
+import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
   IMAGE_CATEGORIES,
@@ -65,6 +71,7 @@ import {
   IMAGE_QUALITY_TIERS,
   IMAGE_SIZES,
   STYLE_STRENGTHS,
+  normalizeCallerAppId,
   supportedAspectRatiosForModel,
   type AspectRatio,
   type ImageCategory,
@@ -129,6 +136,11 @@ const imageGenerationAgentInputSchema = z.object({
 export default defineAction({
   description:
     "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns a compact asset summary with preview/download/embed URLs; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     libraryId: z
       .string()
@@ -219,8 +231,6 @@ export default defineAction({
         "Subject image to preserve for restyle/edit runs. The subject is attached before style references.",
       ),
     groundingMode: z.enum(["auto", "off", "google-search"]).default("auto"),
-    // Audit metadata. Defaulted to "chat" because that's the agent's typical
-    // entry point; the UI Generate popover and A2A callers override.
     source: z.enum(["chat", "ui", "a2a"]).default("chat"),
     callerAppId: z
       .string()
@@ -262,9 +272,8 @@ export default defineAction({
       ...input,
       libraryId,
     };
+    const callerAppId = normalizeCallerAppId(args.callerAppId);
     const draftAccess = await assertCanDraft(args.libraryId);
-    // Inputs answer to the same author rule as reads: another drafter's
-    // candidate must not reach the provider as a reference or a source.
     const draftScope = await draftScopeForLibrary(args.libraryId, draftAccess);
     const db = getDb();
     const [library] = await db
@@ -613,9 +622,6 @@ export default defineAction({
         model: resolvedModel,
       });
     }
-    // Mirror the create/update-generation-preset guard for per-run model
-    // overrides: subject board photos on a model without character
-    // consistency would silently ignore the people they exist to preserve.
     if (
       resolvedModel === "gemini-2.5-flash-image" &&
       resolvedPresetReferences.some((item) => item.entry.role === "subject")
@@ -798,8 +804,6 @@ export default defineAction({
     const now = nowIso();
     const slotId = args.slotId ?? runId;
     const variantScopeId = args.variantScopeId ?? context?.threadId ?? null;
-    // Capture identity at insert time so the org-admin audit log can filter
-    // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;
     const orgId = getRequestOrgId() ?? null;
     const referenceSelection = {
@@ -886,7 +890,7 @@ export default defineAction({
       referenceAssetIds: stringifyJson(references.map((ref) => ref.id)),
       status: "pending",
       source: args.source,
-      callerAppId: args.callerAppId ?? null,
+      callerAppId: callerAppId ?? null,
       ownerEmail,
       orgId,
       metadata: stringifyJson(baseMetadata),
@@ -900,12 +904,7 @@ export default defineAction({
         ...creativeContextProvenance,
         elementProvenance: elementProvenanceFor(runId),
       },
-      {
-        artifactAccess: {
-          resourceType: "asset-library",
-          resourceId: args.libraryId,
-        },
-      },
+      { artifactAccess: draftProvenanceAccess(args.libraryId) },
     );
 
     await upsertVariantSlot({
@@ -918,6 +917,7 @@ export default defineAction({
       threadId: context?.threadId ?? null,
       variantScopeId,
       prompt: args.prompt,
+      ownerEmail,
       slotId,
       status: "pending",
     });
@@ -955,7 +955,7 @@ export default defineAction({
             libraryId: args.libraryId,
             collectionId: resolvedCollectionId ?? null,
             source: args.source,
-            callerAppId: args.callerAppId,
+            callerAppId,
             hasBoardReferences: boardRefs.length > 0,
           }),
       );
@@ -1074,12 +1074,7 @@ export default defineAction({
           ...creativeContextProvenance,
           elementProvenance: elementProvenanceFor(asset.id),
         },
-        {
-          artifactAccess: {
-            resourceType: "asset-library",
-            resourceId: args.libraryId,
-          },
-        },
+        { artifactAccess: draftProvenanceAccess(args.libraryId) },
       );
       if (session) {
         const itemCreatedAt = nowIso();
@@ -1132,6 +1127,33 @@ export default defineAction({
         .where(eq(schema.assetGenerationRuns.id, runId));
       const serialized = serializeAssetSummary(asset);
       const urls = assetUrls(asset);
+      track(
+        "media_generated",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: asset.id,
+          output_type: "asset",
+          media_type: "image",
+          library_id: args.libraryId,
+          source_app: callerAppId,
+        },
+        context,
+      );
+      if (callerAppId) {
+        track(
+          "cross_app_used",
+          {
+            app_name: "assets",
+            template_name: "assets",
+            source_app: callerAppId,
+            target_app: "assets",
+            output_id: asset.id,
+            output_type: "asset",
+          },
+          context,
+        );
+      }
       await upsertVariantSlot({
         runId,
         batchId: args.variantBatchId ?? null,
@@ -1142,6 +1164,7 @@ export default defineAction({
         threadId: context?.threadId ?? null,
         variantScopeId,
         prompt: args.prompt,
+        ownerEmail,
         slotId,
         status: "ready",
         assetId: asset.id,
@@ -1151,8 +1174,6 @@ export default defineAction({
       return {
         ...serialized,
         runId,
-        // Cross-app callers embed the artifact in HTML. `url` is the Assets
-        // detail page; previewUrl is the actual media response.
         Artifacts: imageArtifactLinks({
           id: asset.id,
           runId,
@@ -1160,8 +1181,6 @@ export default defineAction({
           downloadUrl: serialized.downloadUrl,
         }),
         ...creativeContextProvenance,
-        // Present only when the caller cannot approve: the candidate exists and
-        // is theirs to iterate on, but saving it into the kit needs an editor.
         ...(draftAccess.canApprove ? {} : { draftPendingApproval: true }),
       };
     } catch (err) {
@@ -1197,6 +1216,7 @@ export default defineAction({
         threadId: context?.threadId ?? null,
         variantScopeId,
         prompt: args.prompt,
+        ownerEmail,
         slotId,
         status: "failed",
         error: message,

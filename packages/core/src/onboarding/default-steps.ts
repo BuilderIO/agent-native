@@ -1,11 +1,4 @@
-/**
- * Default framework-level onboarding steps.
- *
- * Registered when `createOnboardingPlugin()` mounts (auto-mount or explicit).
- * Templates can override any step by registering another step with the same
- * `id` after these have been registered.
- */
-
+import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
@@ -15,19 +8,15 @@ import {
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getActiveFileUploadProviderForRequest,
-  registerFileUploadProvider,
-} from "../file-upload/registry.js";
-import { s3FileUploadProvider } from "../file-upload/s3.js";
+import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
+import { ensureS3FileUploadProvider } from "../file-upload/s3.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
   resolveSecret,
 } from "../server/credential-provider.js";
-import { getSetting } from "../settings/store.js";
 import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
+import type { OnboardingMethod, OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -82,6 +71,25 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
   },
 ];
 
+const JEV_KEY_METHOD: OnboardingMethod = {
+  id: "jev-key",
+  kind: "form",
+  label: "Decision model (Jev)",
+  description:
+    "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
+  badge: "recommended",
+  payload: {
+    writeScope: "user",
+    fields: [
+      {
+        key: "JEV_API_KEY",
+        label: "JEV_API_KEY",
+        secret: true,
+      },
+    ],
+  },
+};
+
 const llmStep: OnboardingStep = {
   id: "llm",
   order: 10,
@@ -100,6 +108,7 @@ const llmStep: OnboardingStep = {
         scope: "llm",
       },
     },
+    JEV_KEY_METHOD,
     ...LLM_KEY_METHODS.map(({ provider, id, label, description, primary }) => {
       const meta = PROVIDER_ENV_META[provider];
       return {
@@ -147,14 +156,15 @@ const llmStep: OnboardingStep = {
       return true;
     }
     try {
-      return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
+      return isAgentEngineSettingConfigured(
+        await readDefaultAgentEngineSetting(),
+      );
     } catch {
       return false;
     }
   },
 };
 
-/** Step 2 — where application data lives. The default DB is non-blocking. */
 const databaseStep: OnboardingStep = {
   id: "database",
   order: 20,
@@ -180,11 +190,9 @@ const databaseStep: OnboardingStep = {
       },
     },
   ],
-  // The default local database means this step is always satisfied.
   isComplete: () => true,
 };
 
-/** Step 3 — how users sign in. Built-in account auth is non-blocking. */
 const authStep: OnboardingStep = {
   id: "auth",
   order: 30,
@@ -231,70 +239,41 @@ const authStep: OnboardingStep = {
   isComplete: () => true,
 };
 
-/** Step 4 — transactional email (password resets, invitations). Optional. */
+/**
+ * Step 4 — transactional email (password resets, invitations). Optional.
+ *
+ * Email is deployment configuration: auth mail reads only the host's
+ * variables (`getDeploymentEmailReadiness`), so this step explains them
+ * instead of saving keys. A deployment that already provides email, such as a
+ * hosted app, doesn't show it.
+ */
 const emailStep: OnboardingStep = {
   id: "email",
   order: 40,
   required: false,
   title: "Email delivery",
   description:
-    "Optional for local work. Before deploying with password resets, invitations, or share notifications, connect an email provider.",
+    "Optional for local work. To send password resets, invitations, and share notifications, set RESEND_API_KEY or SENDGRID_API_KEY, plus EMAIL_FROM, on your host.",
   methods: [
     {
-      id: "resend",
-      kind: "form",
-      label: "Resend",
-      description: "Use Resend for transactional email.",
+      id: "host-variables",
+      kind: "link",
+      primary: true,
+      label: "Set email variables on your host",
+      description:
+        "See which variables each email provider needs and how to set them.",
       payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "RESEND_API_KEY",
-            label: "RESEND_API_KEY",
-            placeholder: "re_...",
-            secret: true,
-          },
-          {
-            key: "EMAIL_FROM",
-            label: "EMAIL_FROM (from address)",
-            placeholder: "Agent-Native <noreply@yourdomain.com>",
-          },
-          {
-            key: "APP_NAME",
-            label: "APP_NAME (shown in invite emails)",
-            placeholder: "Acme Forms",
-          },
-        ],
-      },
-    },
-    {
-      id: "sendgrid",
-      kind: "form",
-      label: "SendGrid",
-      description: "Use SendGrid for transactional email.",
-      payload: {
-        writeScope: "workspace",
-        fields: [
-          {
-            key: "SENDGRID_API_KEY",
-            label: "SENDGRID_API_KEY",
-            placeholder: "SG....",
-            secret: true,
-          },
-          {
-            key: "EMAIL_FROM",
-            label: "EMAIL_FROM (from address)",
-            placeholder: "Agent-Native <noreply@yourdomain.com>",
-          },
-        ],
+        url: "https://www.agent-native.com/docs/deployment#email-provider",
+        external: true,
       },
     },
   ],
+  isAvailable: async () => {
+    const { getDeploymentEmailReadiness } = await import("../server/email.js");
+    return getDeploymentEmailReadiness().status !== "ready";
+  },
   isComplete: async () => {
     if (await resolveSecret("RESEND_API_KEY")) return true;
-    // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
-    // set — otherwise sendEmail() throws at runtime even though the API key
-    // is configured.
     if (await resolveSecret("SENDGRID_API_KEY")) {
       return !!(await resolveSecret("EMAIL_FROM"));
     }
@@ -354,8 +333,6 @@ const githubRepositoryStep: OnboardingStep = {
         const { resolveWorkspaceConnectionCredentialForApp } =
           await import("../workspace-connections/index.js");
         const result = await resolveWorkspaceConnectionCredentialForApp({
-          // Deliberately not `resolveOnboardingAppId()` — that normalizes, and
-          // this id is matched against a stored workspace connection grant.
           appId:
             getAppConfig().app.id ?? getAppConfig().app.packageName ?? "app",
           provider: "github",
@@ -432,47 +409,10 @@ const fileStorageStep: OnboardingStep = {
     },
     {
       id: "s3",
-      kind: "form",
+      kind: "file-storage",
       label: "Use custom storage keys",
       description:
-        "Connect AWS S3, Cloudflare R2, MinIO, or another S3-compatible bucket with a stable public base URL.",
-      payload: {
-        writeScope: "workspace",
-        saveTo: "scoped-secrets",
-        secretDescription: "S3-compatible object storage for file uploads",
-        fields: [
-          {
-            key: "S3_ENDPOINT",
-            label: "Endpoint URL",
-            placeholder: "https://s3.us-east-1.amazonaws.com",
-          },
-          {
-            key: "S3_BUCKET",
-            label: "Bucket name",
-            placeholder: "my-uploads-bucket",
-          },
-          {
-            key: "S3_ACCESS_KEY_ID",
-            label: "Access key ID",
-            placeholder: "AKIA...",
-          },
-          {
-            key: "S3_SECRET_ACCESS_KEY",
-            label: "Secret access key",
-            secret: true,
-          },
-          {
-            key: "S3_REGION",
-            label: "Region",
-            placeholder: "auto",
-          },
-          {
-            key: "S3_PUBLIC_BASE_URL",
-            label: "Public base URL",
-            placeholder: "https://cdn.example.com",
-          },
-        ],
-      },
+        "Connect Amazon S3, Cloudflare R2, Supabase Storage, or another S3-compatible bucket.",
     },
   ],
   isComplete: async () =>
@@ -481,14 +421,10 @@ const fileStorageStep: OnboardingStep = {
 
 let registered = false;
 
-/** Idempotent. Safe to call from every plugin-mount call. */
 export function registerDefaultOnboardingSteps(): void {
   if (registered) return;
   registered = true;
-  // The framework provides a generic S3/R2 implementation for the custom-key
-  // onboarding path. Templates may replace the same provider id with a
-  // domain-specific implementation after this default plugin mounts.
-  registerFileUploadProvider(s3FileUploadProvider);
+  ensureS3FileUploadProvider();
   registerOnboardingStep(llmStep);
   registerOnboardingStep(fileStorageStep);
   registerOnboardingStep(databaseStep);

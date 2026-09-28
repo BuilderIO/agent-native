@@ -7,6 +7,7 @@ import type {
   ChatFirstSurfaceKind,
   ChatFirstSurfaceTab,
 } from "../chat-first.js";
+import type { ChatFirstPrimaryTab } from "./active-surface.js";
 
 export type { ChatFirstAgentActivity, ChatFirstSurfaceTab };
 
@@ -63,12 +64,13 @@ export interface ChatFirstSurfaceTabsProps {
 
 export interface ChatFirstAppRailProps {
   apps: readonly ChatFirstAppItem[];
-  /** Optional host-specific fallback order for apps without a saved layout. */
   defaultAppIds?: readonly string[];
   activeAppId?: string;
+  activeTab?: ChatFirstPrimaryTab;
   loading?: boolean;
   error?: string | null;
   collapsed?: boolean;
+  grayscaleInactiveIcons?: boolean;
   layout?: ChatFirstAppLayoutPreference;
   onLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
   onLayoutError?: (reason: "unavailable" | "write-failed") => void;

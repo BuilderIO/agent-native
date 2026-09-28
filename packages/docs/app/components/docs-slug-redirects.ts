@@ -1,71 +1,108 @@
-/**
- * Legacy doc slug → current slug. Keep in sync with any renames in
- * `packages/core/docs/content`.
- *
- * Must stay dependency-free: `react-router.config.ts` imports this to keep
- * these slugs out of the prerender list. A prerendered redirect is baked as a
- * `<meta http-equiv="refresh">` 200 page, which would silently replace the 301
- * these slugs must return.
- */
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
+  frames: "agent-surfaces",
   "database-adapters": "deployment",
-  // database.mdx was a near-duplicate of the Server section's own database
-  // page; the Server version is the complete one (adds scoping + sync).
   database: "server-database",
-  // human-approval.mdx folded into the needsApproval section it was already
-  // a deep-dive companion to.
   "human-approval": "actions-access-control",
-  // local-file-mode.mdx was entirely about the Content template's local-folder
-  // feature, not general framework architecture. Moved next to the other
-  // template-content-* docs.
   "local-file-mode": "template-content-local-files",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",
-  // FAQ folded into What Is Agent-Native and rehomed into the docs it
-  // answered questions about (deployment, environment-variables,
-  // writing-agent-instructions, cloneable-saas, key-concepts,
-  // syncing-template-changes).
   faq: "what-is-agent-native",
-  // Plans docs consolidated into the single template-plan page.
   "visual-plans": "template-plan",
-  // Toolkit -ui pages merged into their parent kit doc.
   "toolkit-app-adapters": "toolkit-ui",
   "toolkit-shell-hooks": "toolkit-ui",
   "toolkit-collaboration-ui": "toolkit-collaboration",
   "toolkit-sharing-ui": "toolkit-sharing",
-  // Migration workbench folded into the code-agents-ui /migrate section.
   "migration-workbench": "code-agents-ui",
-  // server.mdx split into the Server section (server-overview, -database,
-  // -middleware, -plugins, -routes).
   server: "server-overview",
-  // client.mdx split into the Client section (client-overview, -data,
-  // -agent-chat, -routing, -advanced, -sync-internals, -entry-points).
   client: "client-overview",
-  // routing.mdx superseded by the Client section's own routing page.
   routing: "client-routing",
-  // actions.mdx split into the Actions section (actions-overview, -defining,
-  // -access-control, -run-context, -other-surfaces, -advanced).
   actions: "actions-overview",
-  // Calendar's Scheduling and Booking Links pages merged into one Features
-  // doc as part of the app-doc-format rework (Overview / Features / Talking
-  // to the Agent / Developer Guide).
   "template-calendar-scheduling": "template-calendar-features",
   "template-calendar-booking-links": "template-calendar-features",
-  // Forms' Building & Publishing and Responses & Insights pages merged into
-  // one Features doc as part of the app-doc-format rework (Overview /
-  // Features / Talk to the Agent / Cross-App Use / Developer Guide).
+  "template-dispatch-messaging-routing": "template-dispatch-features",
+  "template-dispatch-operations": "template-dispatch-features",
+  "template-dispatch-vault-integrations": "template-dispatch-features",
   "template-forms-building-publishing": "template-forms-features",
   "template-forms-responses": "template-forms-features",
+  "template-design-quality-and-components": "template-design-features",
+  "template-design-brand-and-figma": "template-design-features",
+  "template-design-collaboration-and-full-apps": "template-design-features",
+  "template-slides-editing": "template-slides-features",
+  "template-slides-design-and-media": "template-slides-features",
+  "template-clips-capture-everywhere": "template-clips-features",
+  "template-clips-ai-and-editing": "template-clips-features",
+  "template-clips-sharing-and-teams": "template-clips-features",
 };
 
-/** True for a docs URL whose loader answers with a redirect, not a document. */
+export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> = {
+  "template-clips-features": {
+    "browser-logs-with-the-chrome-extension": "#chrome-extension-browser-logs",
+    "desktop-recorder-and-the-desktop-tray-app": "#desktop-tray-app",
+    "mobile-companion-capture": "#capture-from-anywhere",
+    "transcription-cleanup-and-ai-metadata": "#transcription-and-ai-metadata",
+    "recording-and-organization-insights": "#share",
+    "builder-credit-status": "#transcription-and-ai-metadata",
+    "visibility-passwords-and-expiry": "#share",
+    "embeds-and-slack-previews": "#share",
+    "exporting-transcripts-to-brain":
+      "/docs/template-clips-integrations#exporting-to-brain",
+    "agent-readable-clips":
+      "/docs/template-clips-integrations#agent-readable-clips",
+    "crm-call-evidence": "/docs/template-clips-integrations#crm-call-evidence",
+  },
+  "template-slides-features": {
+    "generating-a-deck-from-a-prompt": "#generate-a-deck-from-a-prompt",
+    "editing-slides-visually": "#edit-slides-visually",
+    "presenting-full-screen": "#present-full-screen",
+    "comments-and-real-time-collaboration":
+      "#comment-and-collaborate-in-real-time",
+    "sharing-a-deck": "#share-a-deck",
+    "restoring-an-earlier-version": "#restore-an-earlier-version",
+    "saved-design-systems": "#design-systems",
+    "building-a-design-system-from-what-you-already-have":
+      "#builder-integration",
+    "moving-decks-in-and-out-of-other-formats":
+      "#move-decks-in-and-out-of-other-formats",
+    // "generating-and-finding-images" has no replacement: the feature was
+    // removed from the docs, not renamed. Left unmapped on purpose so it
+    // falls through to the top of Features rather than a wrong section.
+  },
+  "template-design-features": {
+    "audit-and-screenshot": "/docs/template-design-developers#quality",
+    components: "/docs/template-design-developers#components",
+    motion: "/docs/template-design-developers#motion-and-shaders",
+    "shader-fills": "/docs/template-design-developers#motion-and-shaders",
+    "importing-brand-from-somewhere-else": "#new-design-system",
+    figma: "#import",
+    "bringing-in-a-frame-pixel-accurate-import": "#import",
+    "pasting-instead-of-linking": "#import",
+    "inserting-one-component-or-just-reading-a-file": "#import",
+    "fidelity-limits": "#import",
+    "visual-edit":
+      "/docs/template-design-developers#localhost-bridge-visual-edit",
+    "keep-the-canvas-beside-your-chat":
+      "/docs/template-design-developers#localhost-bridge-visual-edit",
+    "review-feedback": "/docs/template-design-developers#review-feedback",
+    "export-and-handoff": "/docs/template-design-developers#export-and-handoff",
+    "full-app-building": "/docs/template-design-developers#full-app-building",
+    // "why-the-results-dont-look-generic" has no equivalent section left
+    // anywhere in the new five pages. Left unmapped on purpose.
+  },
+};
+
+export function resolveFragmentRedirect(
+  slug: string,
+  hash: string,
+): string | undefined {
+  const bare = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!bare) return undefined;
+  return DOCS_FRAGMENT_REDIRECTS[slug]?.[bare];
+}
+
 export function isRedirectedDocsPath(pagePath: string): boolean {
   if (!pagePath.includes("/docs/")) return false;
-  // Page paths carry the canonical trailing slash, so splitting the raw path
-  // yields an empty last segment and matches no redirect. A miss here silently
-  // prerenders a redirected slug as a 200, freezing the wrong page into a file.
   const slug = pagePath.replace(/\/+$/, "").split("/").pop();
   return Boolean(slug) && Object.hasOwn(DOCS_SLUG_REDIRECTS, slug!);
 }

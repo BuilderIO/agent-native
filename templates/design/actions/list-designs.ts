@@ -7,13 +7,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isOverviewScreenFile } from "../shared/design-files.js";
 
 const DESIGN_LIST_DEFAULT_PAGE_SIZE = 12;
 const DESIGN_LIST_MAX_PAGE_SIZE = 50;
 
-// Truncate preview HTML so the listing payload stays reasonable. The home
-// screen only needs enough HTML to render a recognizable thumbnail; full
-// content loads on demand when the user opens an editor.
 const PREVIEW_MAX_BYTES = 50_000;
 
 function escapeLike(value: string): string {
@@ -104,9 +102,6 @@ export default defineAction({
     );
     const offset = (page - 1) * pageSize;
 
-    // Project only the columns the list path uses. The `data` TEXT column holds
-    // the full design JSON (tweaks, selections, etc.) which can be large and is
-    // never read on the listing — detail/editor views load it via get-design.
     const designsQuery = db
       .select({
         id: schema.designs.id,
@@ -132,8 +127,6 @@ export default defineAction({
     ]);
     const totalCount = Number(countRows[0]?.count ?? 0);
 
-    // Look up one preview per design when requested. Prefer the entry point
-    // (`index.html`) and fall back to the first HTML file we find.
     const previews = new Map<string, string>();
     if (
       args.includePreview === "true" &&
@@ -158,7 +151,7 @@ export default defineAction({
 
       const byDesign = new Map<string, typeof fileRows>();
       for (const f of fileRows) {
-        if (f.fileType !== "html") continue;
+        if (!isOverviewScreenFile(f)) continue;
         const list = byDesign.get(f.designId);
         if (list) list.push(f);
         else byDesign.set(f.designId, [f]);

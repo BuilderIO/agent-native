@@ -1,6 +1,6 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { IconMessage } from "@tabler/icons-react";
+import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 
@@ -129,10 +129,6 @@ export default function Header() {
 
   useEffect(() => {
     if (!isHome) return;
-    // AgentSidebar wraps content in an overflow-auto div, so the window
-    // typically doesn't scroll. Listening on document with capture: true
-    // catches scroll events from any descendant scroll container, regardless
-    // of when AgentSidebar mounts or which element is actually scrolling.
     const onScroll = (e: Event) => {
       const target = e.target;
       let top = 0;
@@ -324,7 +320,7 @@ export default function Header() {
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
               title={t("header.askAssistant")}
             >
-              <IconMessage size={16} stroke={1.5} />
+              <IconLayoutSidebarRight size={16} stroke={1.5} />
             </button>
 
             {/* Mobile hamburger */}

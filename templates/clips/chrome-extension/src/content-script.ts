@@ -1,14 +1,3 @@
-// Loom-style in-page overlay host. The next release declares this on every page
-// so the face bubble and controls can survive tab switches and navigations; the
-// background worker can also inject it into the launch tab for immediate and
-// reload recovery. That broad "<all_urls>" host access is the Chrome Web Store
-// in-depth review boundary. Wrapped in an IIFE so it emits a single self-contained
-// classic script with no module imports/exports and leaks no names into the shared
-// global scope. Its only job is to
-// mount/unmount the overlay iframes; all UI and control logic lives inside the
-// extension-origin overlay pages (src/overlay.html). The worker is the source of
-// truth for which "parts" are visible and pushes them here.
-
 (function clipsOverlayHost() {
   type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 
@@ -16,11 +5,194 @@
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
-  // Declarative and recovery injection can target the same document. Return
-  // before any side effects so global listeners remain one-per-page.
   if (flags.__clipsOverlayHostReady) return;
   flags.__clipsOverlayHostReady = true;
   let recordingActive = false;
+
+  type InteractionKind = "navigation" | "click" | "input" | "scroll";
+  const HISTORY_NAVIGATION_DEDUPE_MS = 250;
+  const HISTORY_NAVIGATION_WINDOW_MS = 1000;
+  const MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW = 20;
+  const CLICK_INPUT_WINDOW_MS = 1000;
+  const MAX_CLICK_INPUT_MESSAGES_PER_WINDOW = 100;
+  let historyBridgeToken: string | null = null;
+  let historyNavigationWindowStartedAt = 0;
+  let historyNavigationCount = 0;
+  let clickInputWindowStartedAt = 0;
+  let clickInputCount = 0;
+  let lastHistoryNavigation: { url: string; sentAtMs: number } | null = null;
+  const OVERLAY_ROOT_ID = "clips-recorder-overlay-root";
+
+  function resetDiagnosticQuotas(): void {
+    historyNavigationWindowStartedAt = 0;
+    historyNavigationCount = 0;
+    clickInputWindowStartedAt = 0;
+    clickInputCount = 0;
+    lastHistoryNavigation = null;
+  }
+
+  function targetDescriptor(target: EventTarget | null): string | undefined {
+    if (!(target instanceof Element)) return undefined;
+    if (target.closest(`#${OVERLAY_ROOT_ID}`)) return undefined;
+    const element = target.closest(
+      "button,a,input,textarea,select,[role=button]",
+    ) as Element | null;
+    const candidate = element ?? target;
+    const tag = candidate.tagName.toLowerCase();
+    const id = candidate.id;
+    const testId = candidate.getAttribute("data-testid");
+    const name = candidate.getAttribute("name");
+    const part = [id, testId, name].find((value): value is string => {
+      if (!value || value.length > 80) return false;
+      return /^[A-Za-z0-9_.:-]+$/.test(value);
+    });
+    return `${tag}${part ? `#${part}` : ""}`.slice(0, 200);
+  }
+
+  function sendDiagnosticInteraction(
+    kind: InteractionKind,
+    target: EventTarget | null = null,
+    url?: string,
+  ): void {
+    if (!recordingActive) return;
+    if (kind === "click" || kind === "input") {
+      const now = Date.now();
+      if (now - clickInputWindowStartedAt >= CLICK_INPUT_WINDOW_MS) {
+        clickInputWindowStartedAt = now;
+        clickInputCount = 0;
+      }
+      if (clickInputCount >= MAX_CLICK_INPUT_MESSAGES_PER_WINDOW) return;
+      clickInputCount += 1;
+    }
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CLIPS_DIAGNOSTIC_INTERACTION",
+          kind,
+          target: targetDescriptor(target),
+          ...(url ? { url } : {}),
+        },
+        () => void chrome.runtime.lastError,
+      );
+      // coercion-ok: the extension context can disappear after page unload; capture is best-effort
+    } catch {
+      /* background unavailable */
+    }
+  }
+
+  function sendDiagnosticNavigation(url: string): void {
+    if (!recordingActive) return;
+    const now = Date.now();
+    if (
+      lastHistoryNavigation?.url === url &&
+      now - lastHistoryNavigation.sentAtMs < HISTORY_NAVIGATION_DEDUPE_MS
+    ) {
+      return;
+    }
+    if (
+      now - historyNavigationWindowStartedAt >=
+      HISTORY_NAVIGATION_WINDOW_MS
+    ) {
+      historyNavigationWindowStartedAt = now;
+      historyNavigationCount = 0;
+    }
+    if (historyNavigationCount >= MAX_HISTORY_NAVIGATION_MESSAGES_PER_WINDOW) {
+      return;
+    }
+    historyNavigationCount += 1;
+    lastHistoryNavigation = { url, sentAtMs: now };
+    sendDiagnosticInteraction("navigation", null, url);
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data as
+      | { source?: unknown; kind?: unknown; token?: unknown; url?: unknown }
+      | undefined;
+    if (
+      data?.source === "clips-diagnostic-history" &&
+      data.kind === "token" &&
+      typeof data.token === "string"
+    ) {
+      historyBridgeToken = data.token;
+      return;
+    }
+    if (!recordingActive) return;
+    if (
+      data?.source !== "clips-diagnostic-history" ||
+      data.kind !== "navigation" ||
+      data.token !== historyBridgeToken ||
+      typeof data.url !== "string"
+    ) {
+      return;
+    }
+    sendDiagnosticNavigation(data.url);
+  });
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || event.origin !== window.location.origin) {
+      return;
+    }
+    const data = event.data as
+      | {
+          source?: unknown;
+          kind?: unknown;
+          token?: unknown;
+          email?: unknown;
+          clipsBaseUrl?: unknown;
+        }
+      | undefined;
+    if (
+      data?.source !== "clips-auth-bridge" ||
+      data.kind !== "session" ||
+      typeof data.token !== "string" ||
+      typeof data.clipsBaseUrl !== "string"
+    ) {
+      return;
+    }
+    chrome.runtime.sendMessage(
+      {
+        type: "CLIPS_AUTH_SESSION",
+        token: data.token,
+        ...(typeof data.email === "string" ? { email: data.email } : {}),
+        clipsBaseUrl: data.clipsBaseUrl,
+      },
+      (response?: { ok?: boolean; error?: string }) => {
+        void chrome.runtime.lastError;
+        window.postMessage(
+          {
+            source: "clips-auth-bridge",
+            kind: "session-result",
+            ok: response?.ok === true,
+            ...(response?.error ? { error: response.error } : {}),
+          },
+          window.location.origin,
+        );
+      },
+    );
+  });
+  window.postMessage(
+    { source: "clips-diagnostic-history", kind: "request-token" },
+    "*",
+  );
+
+  let lastScrollAt = 0;
+  const onClick = (event: MouseEvent) =>
+    sendDiagnosticInteraction("click", event.target);
+  const onInput = (event: Event) =>
+    sendDiagnosticInteraction("input", event.target);
+  const onScroll = (event: Event) => {
+    const now = Date.now();
+    if (now - lastScrollAt < 250) return;
+    lastScrollAt = now;
+    sendDiagnosticInteraction("scroll", event.target);
+  };
+  const onNavigation = () => sendDiagnosticNavigation(window.location.href);
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("input", onInput, true);
+  document.addEventListener("scroll", onScroll, true);
+  window.addEventListener("popstate", onNavigation);
+  window.addEventListener("hashchange", onNavigation);
 
   function errorPayload(error: unknown): {
     name: string;
@@ -82,24 +254,23 @@
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local" || !changes.clipsRecordingActive) return;
-      recordingActive = changes.clipsRecordingActive.newValue === true;
+      const nextRecordingActive =
+        changes.clipsRecordingActive.newValue === true;
+      if (nextRecordingActive && !recordingActive) {
+        resetDiagnosticQuotas();
+      }
+      recordingActive = nextRecordingActive;
     });
   } catch {
     /* storage unavailable */
   }
 
-  // ----- Draggable, resizable camera bubble ---------------------------------
-  // Size + position persist in storage so the bubble stays where the user put it
-  // across pages and recordings (like the desktop app). The iframe can't move or
-  // resize itself, so the content script owns its geometry.
   const BUBBLE_SIZES: Record<string, number> = { sm: 184, lg: 280 };
   const bubbleGeom: { size: string; left: number | null; top: number | null } =
     { size: "lg", left: null, top: null };
   let bubbleDragLayer: HTMLDivElement | null = null;
   let bubblePersistTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // The quick-actions toolbar is also draggable. Keep its geometry in the
-  // content script because the iframe cannot position itself on the host page.
   const TOOLBAR_WIDTH = 68;
   const TOOLBAR_COLLAPSED_HEIGHT = 154;
   const toolbarGeom: { left: number | null; top: number | null } = {
@@ -248,8 +419,6 @@
       partFrameId("bubble"),
     ) as HTMLIFrameElement | null;
     if (!frame) return;
-    // Full-screen capture layer so the pointer keeps tracking after it leaves
-    // the small bubble iframe.
     const layer = document.createElement("div");
     Object.assign(layer.style, {
       position: "fixed",
@@ -346,16 +515,19 @@
     });
   }
 
-  // Only wake the service worker (via requestState) when a recording is actually
-  // active. When idle this script does nothing but keep its message listener
-  // registered, so a recording that starts later still reaches this tab via the
-  // background's MOUNT broadcast.
   function syncIfRecording(): void {
     try {
       chrome.storage.local.get("clipsRecordingActive", (value) => {
         if (chrome.runtime.lastError) return;
-        recordingActive = value?.clipsRecordingActive === true;
-        if (recordingActive) requestState();
+        const nextRecordingActive = value?.clipsRecordingActive === true;
+        if (nextRecordingActive && !recordingActive) {
+          resetDiagnosticQuotas();
+        }
+        recordingActive = nextRecordingActive;
+        if (recordingActive) {
+          sendDiagnosticNavigation(window.location.href);
+          requestState();
+        }
       });
     } catch {
       /* ignore */
@@ -397,26 +569,17 @@
     frame.setAttribute("allowtransparency", "true");
     if (part === "bubble") {
       frame.allow = "camera; microphone";
-      // Above the countdown so the face stays sharp over the dim/blur. Exact
-      // size/position are set by applyBubbleGeom() once mounted.
       const size = bubbleSizePx();
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
         width: `${size}px`,
         height: `${size}px`,
-        // Clip the IFRAME itself to a circle so the iframe's opaque canvas (which
-        // a declared color-scheme always paints, dark or white) can never show as
-        // a square box around the bubble.
         borderRadius: "50%",
         overflow: "hidden",
         zIndex: "3",
       });
     } else if (part === "toolbar") {
-      // Left-edge vertical pill (desktop layout). Height grows on hover via the
-      // resize message below. Clipped to the pill's radius (the pill fills the
-      // iframe) so the opaque canvas can't show as a box; shadow on the iframe so
-      // the clip doesn't cut it.
       Object.assign(frame.style, {
         left: "16px",
         top: "calc(50% - 77px)",
@@ -428,8 +591,6 @@
         zIndex: "2",
       });
     } else if (part === "saving") {
-      // Compact card: caption + a single indeterminate bar (no circular spinner).
-      // Clipped to the card radius (card fills the iframe) so no canvas box shows.
       Object.assign(frame.style, {
         left: "24px",
         bottom: "24px",
@@ -441,7 +602,6 @@
         zIndex: "2",
       });
     } else {
-      // countdown — full-screen dim/blur, below the bubble.
       Object.assign(frame.style, {
         inset: "0",
         width: "100%",
@@ -466,12 +626,6 @@
     if (part === "toolbar") applyToolbarGeom();
   }
 
-  // Camera-ready gating + connecting spinner: while the camera connects we show a
-  // simple centered spinner and keep the bubble hidden, then reveal the bubble and
-  // start the countdown once the feed is live — so the "3" never hangs and there's
-  // no half-loaded, un-draggable bubble during the wait. The bubble posts
-  // "camera-ready" when its video plays (or fails); a fallback timer proceeds
-  // anyway if the camera never connects.
   const CONNECTING_ID = `${CONTAINER_ID}-connecting`;
   let cameraReady = false;
   let countdownDeferred = false;
@@ -554,17 +708,16 @@
     });
   }
 
-  function reconcile(parts: OverlayPart[]): void {
+  function reconcile(parts: OverlayPart[], resetQuotas = false): void {
     console.log("[clips-cs] reconcile parts:", parts, "on", location.href);
     const wanted = new Set(parts.filter((p) => ALL_PARTS.includes(p)));
+    const enteringRecording =
+      wanted.has("toolbar") && !lastWantedParts.has("toolbar");
+    if (resetQuotas || enteringRecording) resetDiagnosticQuotas();
     const enteringCameraCountdown =
       wanted.has("countdown") &&
       wanted.has("bubble") &&
       !lastWantedParts.has("countdown");
-    // Leaving the countdown phase (recording / saving / idle): cancel any pending
-    // deferred countdown + spinner so a late fallback timer can't pop the "3-2-1"
-    // back up over a later overlay (this was the "countdown over the saving card"
-    // bug).
     if (!wanted.has("countdown")) {
       countdownDeferred = false;
       clearTimeout(countdownFallbackTimer);
@@ -589,7 +742,6 @@
     for (const part of ALL_PARTS) {
       const existing = document.getElementById(partFrameId(part));
       if (wanted.has(part)) {
-        // Hold the countdown (showing the spinner) until the camera feed is live.
         if (part === "countdown" && gateCountdown) {
           if (!existing && !countdownDeferred) {
             countdownDeferred = true;
@@ -599,7 +751,6 @@
           continue;
         }
         if (!existing) mountPart(container, part);
-        // Keep the bubble hidden behind the spinner until the feed is live.
         if (part === "bubble" && gateCountdown) setBubbleHidden(true);
       } else if (existing) {
         existing.remove();
@@ -614,14 +765,16 @@
     const type = (message as { type?: unknown }).type;
     if (type === "CLIPS_OVERLAY_MOUNT") {
       const parts = (message as { parts?: unknown }).parts;
-      reconcile(Array.isArray(parts) ? (parts as OverlayPart[]) : []);
+      reconcile(
+        Array.isArray(parts) ? (parts as OverlayPart[]) : [],
+        (message as { resetDiagnosticQuotas?: unknown })
+          .resetDiagnosticQuotas === true,
+      );
     } else if (type === "CLIPS_OVERLAY_UNMOUNT") {
       reconcile([]);
     }
   });
 
-  // Overlay iframes post layout requests (toolbar hover-resize, bubble drag and
-  // size). Only trust messages from our own extension-origin frames.
   window.addEventListener("message", (event) => {
     const data = event.data as
       | {

@@ -42,7 +42,6 @@ test.describe.serial("layers menu structure operations", () => {
       "true",
     );
 
-    // Cmd/Ctrl toggles membership back off without disturbing the other row.
     await additiveSelectLayerRow(page, "Beta Button");
     await expect.poll(() => selectedRowCount(page)).toBe(1);
     await expect(layerRow(page, "Alpha Button")).toHaveAttribute(
@@ -54,8 +53,6 @@ test.describe.serial("layers menu structure operations", () => {
       "false",
     );
 
-    // Shift selects the visible range from the plain-click anchor. The
-    // mirrored iframe selection echo must not collapse the range to Beta.
     await clickLayerRow(page, "Alpha Button");
     await rangeSelectLayerRow(page, "Beta Button");
     await expect.poll(() => selectedRowCount(page)).toBe(2);
@@ -144,8 +141,6 @@ test.describe.serial("layers menu structure operations", () => {
         "true",
       );
     } finally {
-      // Put the design back the way the other tests expect: Alpha inside the
-      // button container, ahead of Beta.
       try {
         await layerRow(page, "Alpha Button").dragTo(
           layerRow(page, "Beta Button"),
@@ -399,82 +394,6 @@ async function waitForCanvasLayerState(
         .catch(() => false),
     )
     .toBe(true);
-}
-
-async function dispatchLayerDrag(
-  page: Page,
-  sourceName: string,
-  targetName: string,
-  targetPosition: { x: number; y: number },
-): Promise<void> {
-  await page.evaluate(
-    ({ sourceName, targetName, targetPosition }) => {
-      const findRow = (name: string) => {
-        const button = Array.from(
-          document.querySelectorAll<HTMLElement>(
-            "[data-layer-row-button][data-layer-node-id]",
-          ),
-        ).find((candidate) => {
-          const label = candidate.querySelector<HTMLElement>("span[title]");
-          return label?.getAttribute("title") === name;
-        });
-        const row = button?.closest<HTMLElement>('[role="treeitem"]');
-        if (!row) throw new Error(`missing layer row ${name}`);
-        return row;
-      };
-      const source = findRow(sourceName);
-      const target = findRow(targetName);
-      const dataTransfer = new DataTransfer();
-      const sourceRect = source.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      const sourcePoint = {
-        x: sourceRect.left + sourceRect.width * 0.4,
-        y: sourceRect.top + sourceRect.height / 2,
-      };
-      const targetPoint = {
-        x: targetRect.left + targetPosition.x,
-        y: targetRect.top + targetPosition.y,
-      };
-      source.dispatchEvent(
-        new DragEvent("dragstart", {
-          bubbles: true,
-          cancelable: true,
-          clientX: sourcePoint.x,
-          clientY: sourcePoint.y,
-          dataTransfer,
-        }),
-      );
-      target.dispatchEvent(
-        new DragEvent("dragover", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetPoint.x,
-          clientY: targetPoint.y,
-          dataTransfer,
-        }),
-      );
-      target.dispatchEvent(
-        new DragEvent("drop", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetPoint.x,
-          clientY: targetPoint.y,
-          dataTransfer,
-        }),
-      );
-      source.dispatchEvent(
-        new DragEvent("dragend", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetPoint.x,
-          clientY: targetPoint.y,
-          dataTransfer,
-        }),
-      );
-    },
-    { sourceName, targetName, targetPosition },
-  );
-  await page.waitForTimeout(300);
 }
 
 function cssString(value: string) {

@@ -154,16 +154,15 @@ codex login status
 डेस्कटॉप और CLI `codex login status` पढ़ते हैं और `codex exec` चलाते हैं, इसलिए वे
 जो भी ChatGPT सदस्यता या API-कुंजी आपके द्वारा स्थापित Codex CLI है उसका पुन: उपयोग करें
 reports. This is separate from the `@ai-sdk/harness-codex` package used by
-[Harness Agents](/docs/harness-agents); हार्नेस एडॉप्टर स्थानीय कॉपी कर सकता है
-Codex CLI को विश्वसनीय सैंडबॉक्स में केवल तभी दर्ज करें जब `codexCliAuth: true` हो
-स्पष्ट रूप से सक्षम।
+[Harness Agents](/docs/harness-agents); यह एडाप्टर अब स्थानीय auth फ़ाइल को sandbox
+में कॉपी किए बिना host पर समर्थित native subscription credentials को resolve करता है।
 
 ## ब्राउज़र होस्ट
 
 पुराना छिपा हुआ `code` टेम्पलेट हटा दिया गया है। ब्राउज़र-होस्टेड कोड सतह बनाने के लिए, एक सामान्य ऐप बनाएं और होस्ट कार्यान्वयन के साथ साझा UI पैकेज को माउंट करें:
 
 ```bash
-npx @agent-native/core@latest create my-code-ui --template chat
+npx --yes @agent-native/core@latest create my-code-ui --template chat
 cd my-code-ui
 pnpm add @agent-native/code-agents-ui
 pnpm install

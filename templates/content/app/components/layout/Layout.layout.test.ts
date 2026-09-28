@@ -8,6 +8,10 @@ function readLayoutSource() {
   });
 }
 
+function readRootSource() {
+  return readFileSync(new URL("../../root.tsx", import.meta.url), "utf8");
+}
+
 describe("app layout", () => {
   it("exposes the sidebar width to editor content for responsive surfaces", () => {
     const source = readLayoutSource();
@@ -26,7 +30,9 @@ describe("app layout", () => {
     expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
-    expect(source).toContain('className="w-[85vw] max-w-80 p-0"');
+    expect(source).toContain(
+      'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
+    );
     expect(source).not.toContain("md:hidden");
   });
 
@@ -53,12 +59,35 @@ describe("app layout", () => {
       "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toContain("<DocumentEditorSkeleton />");
+    expect(source).toContain(
+      "<DocumentEditorSkeleton title={pendingDocumentTitle} />",
+    );
   });
 
   it("creates keyboard pages without waiting for persistence before returning", () => {
     const source = readLayoutSource();
 
     expect(source).toContain("useCreatePage({ awaitPersist: false })");
+  });
+
+  it("returns command-menu focus to the recorded visible launcher without a timer", () => {
+    const source = readRootSource();
+
+    expect(source).toContain("CONTENT_COMMAND_MENU_OPEN_EVENT");
+    expect(source).toContain("commandTrigger.current =");
+    expect(source).toContain("target.focus()");
+    expect(source).not.toContain("setTimeout(() => target.focus");
+  });
+
+  it("includes the current document revision in chat history restores", () => {
+    const source = readLayoutSource();
+
+    expect(source).toContain("prepareRegisteredDocumentHistoryRestore");
+    expect(source).toContain("applyRegisteredDocumentHistoryRestore");
+    expect(source).toContain("expectedUpdatedAt:");
+    expect(source).toContain("onRestored: async (restored)");
+    expect(source).toContain(
+      'toast.error(t("editor.historyRestoreAppliedRefreshFailed"))',
+    );
   });
 });

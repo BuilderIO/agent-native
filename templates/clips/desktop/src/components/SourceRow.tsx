@@ -113,14 +113,14 @@ export function SourceRow({
               </>
             ) : null}
           </DropdownMenuRadioGroup>
-          <DropdownMenuSeparator />
           <DropdownMenuItem
+            inset
             onSelect={() => {
               onChange("window");
               onChooseWindow?.();
             }}
           >
-            Choose window…
+            Window
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

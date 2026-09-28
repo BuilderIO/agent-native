@@ -24,13 +24,6 @@ async function boardHtml(
   );
 }
 
-/**
- * Computed styles are not paint. Every earlier board-colour assertion read
- * `background-color` off the layer and passed while the frame in front of it
- * painted an opaque white base, which is the bug users kept reporting — so
- * these read the rendered pixels instead.
- */
-
 async function postAction(
   request: APIRequestContext,
   name: string,
@@ -79,19 +72,67 @@ async function pixelAt(page: Page, x: number, y: number): Promise<string> {
   );
 }
 
+async function sampleXY(page: Page): Promise<{ x: number; y: number }> {
+  const canvasBox = await page
+    .locator("[data-design-canvas-container]")
+    .boundingBox();
+  if (!canvasBox) throw new Error("no canvas container box");
+  const leftShellBox = await page
+    .locator('[data-design-chrome-region="left-shell"]')
+    .boundingBox()
+    .catch(() => null);
+  const rightPanelBox = await page
+    .locator('[data-design-chrome-region="right-panel"]')
+    .boundingBox()
+    .catch(() => null);
+  const leftEdge = leftShellBox
+    ? leftShellBox.x + leftShellBox.width
+    : canvasBox.x;
+  const rightEdge = rightPanelBox
+    ? rightPanelBox.x
+    : canvasBox.x + canvasBox.width;
+  const x = Math.round(leftEdge + (rightEdge - leftEdge) * 0.5);
+  const y = Math.round(canvasBox.y + canvasBox.height * 0.5);
+
+  const hitInfo = await page.evaluate(
+    ({ px, py }) => {
+      const el = document.elementFromPoint(px, py) as HTMLElement | null;
+      if (!el) return { ok: false, reason: "no element" };
+      let cur: HTMLElement | null = el;
+      for (let i = 0; i < 8 && cur; i++) {
+        if (cur.dataset?.designChromeRegion) {
+          return {
+            ok: false,
+            reason: `hit chrome:${cur.dataset.designChromeRegion}`,
+          };
+        }
+        cur = cur.parentElement;
+      }
+      return { ok: true, reason: "clear" };
+    },
+    { px: x, py: y },
+  );
+  if (!hitInfo.ok) {
+    throw new Error(
+      `sampleXY point (${x},${y}) is not clear of chrome: ${hitInfo.reason}`,
+    );
+  }
+  return { x, y };
+}
+
 test.use({ viewport: { width: 1440, height: 1000 } });
 
-for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
+for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
   {
     theme: "dark",
-    canvasRgb: "26,26,26",
     canvasHex: "1A1A1A",
+    expectedCanvasRgb: "26,26,26",
     boardTextColor: "rgb(255, 255, 255)",
   },
   {
     theme: "light",
-    canvasRgb: "235,235,235",
     canvasHex: "EBEBEB",
+    expectedCanvasRgb: "235,235,235",
     boardTextColor: "currentcolor",
   },
 ] as const) {
@@ -123,15 +164,10 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
       });
       await expect(page.locator("html")).toHaveClass(new RegExp(theme));
 
-      // Well clear of both the shape drawn below and the floating toolbar.
-      const canvasBox = await page
-        .locator("[data-design-canvas-container]")
-        .boundingBox();
-      if (!canvasBox) throw new Error("no canvas container box");
-      const sampleX = Math.round(canvasBox.x + canvasBox.width * 0.15);
-      const sampleY = Math.round(canvasBox.y + canvasBox.height * 0.6);
+      const { x: sampleX, y: sampleY } = await sampleXY(page);
 
-      await expect.poll(() => pixelAt(page, sampleX, sampleY)).toBe(canvasRgb);
+      const initialCanvasRgb = await pixelAt(page, sampleX, sampleY);
+      expect(initialCanvasRgb).toBe(expectedCanvasRgb);
 
       const canvasSection = page
         .locator("section.design-sidebar-section")
@@ -140,7 +176,9 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
             'h3.design-sidebar-section-title:text-is("Canvas")',
           ),
         });
-      await expect(canvasSection).toContainText(canvasHex);
+      await expect(
+        canvasSection.getByRole("textbox", { name: "Color" }),
+      ).toHaveValue(canvasHex);
       await expect(canvasSection).not.toContainText("NONE");
 
       await page.locator('button[aria-label="Rectangle"]').first().click();
@@ -152,8 +190,6 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
       await page.mouse.move(1000, 520, { steps: 12 });
       await page.mouse.up();
 
-      // The board layer only mounts once the board has content, so this is the
-      // first moment a second colour can appear over the canvas.
       await expect(page.locator("[data-board-surface-layer]")).toBeVisible({
         timeout: 20_000,
       });
@@ -161,10 +197,10 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
         "Rectangle",
       );
 
-      await expect.poll(() => pixelAt(page, sampleX, sampleY)).toBe(canvasRgb);
+      await expect
+        .poll(() => pixelAt(page, sampleX, sampleY))
+        .toBe(initialCanvasRgb);
 
-      // Board text keys off the same canvas colour: white on a dark canvas,
-      // inherited on a light one, where white would be unreadable.
       await page.locator('button[aria-label="Text"]').first().click();
       await expect(
         page.locator('button[aria-label="Text"]').first(),
@@ -183,7 +219,6 @@ for (const { theme, canvasRgb, canvasHex, boardTextColor } of [
             const style = html.match(
               /data-an-primitive="text"[^>]*style="([^"]*)"/,
             )?.[1];
-            // Absent is not "no colour": without it there is nothing to judge.
             if (!style) return null;
             return style.match(/(?:^|;)\s*color:\s*([^;"]+)/i)?.[1].trim();
           },

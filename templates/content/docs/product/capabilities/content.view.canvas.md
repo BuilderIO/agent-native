@@ -34,7 +34,7 @@ last_reviewed: "2026-07-29"
 
 ## Why this exists
 
-People often need to arrange evidence, ideas, and work spatially before they know what every connection means. Canvas supplies that intentional visual workspace without copying the underlying Content objects or turning each sketch into a database fact. A line can remain a private-to-the-View thought until someone deliberately promotes it.
+People often need to arrange evidence, ideas, and work spatially before they know what every connection means. Canvas supplies that intentional visual workspace without copying the underlying Content objects or turning each sketch into a collection fact. A line can remain a private-to-the-View thought until someone deliberately promotes it.
 
 ## Example workflow
 

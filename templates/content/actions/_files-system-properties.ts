@@ -36,7 +36,7 @@ const SYSTEM_PROPERTY_SPECS = [
     role: "files_parent" as const,
     name: "Parent",
     type: "select" as const,
-    description: "The authorized parent page or database for this file.",
+    description: "The authorized parent page or collection for this file.",
     position: -200,
   },
   {

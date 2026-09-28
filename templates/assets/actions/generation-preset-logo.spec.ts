@@ -27,8 +27,6 @@ vi.mock("../server/lib/library-access.js", () => ({
   assertCanApprove: libraryAccessMock,
   assertCanDraftAuthoredBy: libraryAccessMock,
   assertCanDeleteAsset: libraryAccessMock,
-  // The draft-input guards have their own tests; these specs exercise the
-  // surrounding behavior with an approver's unrestricted scope.
   draftScopeForLibrary: vi.fn(async () => unrestrictedScope),
   resolveDraftReadScope: vi.fn(async () => unrestrictedScope),
   unrestrictedDraftReadScope: vi.fn(() => unrestrictedScope),
@@ -44,6 +42,7 @@ vi.mock("../server/lib/library-access.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: vi.fn(() => "designer@example.com"),
   getRequestOrgId: vi.fn(() => "org-1"),
 }));
@@ -70,7 +69,6 @@ vi.mock("../server/lib/json.js", () => ({
   }),
 }));
 
-// Echo the row back so we can inspect what each action persisted/returned.
 vi.mock("./_helpers.js", () => ({
   serializeGenerationPreset: vi.fn((row: unknown) => row),
   serializeTemplate: vi.fn((row: unknown) => row),

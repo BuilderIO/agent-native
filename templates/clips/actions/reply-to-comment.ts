@@ -1,12 +1,3 @@
-/**
- * Reply to an existing comment.
- *
- * Thin wrapper around add-comment that sets threadId + parentId correctly.
- *
- * Usage:
- *   pnpm action reply-to-comment --commentId=<id> --content="..."
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -20,7 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyRecordingComment } from "../server/lib/activity-notifications.js";
 import { resolveCommentMentions } from "../server/lib/comment-mentions.js";
-import { isRecordingExpired } from "../server/lib/recording-page-access.js";
+import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 const mentionSchema = z.object({
@@ -52,16 +43,16 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    // Any signed-in viewer with access to the recording may reply, matching
-    // add-comment's top-level comment gate — there's no separate
-    // "commenter" tier to require.
     const access = await assertAccess(
       "recording",
       parent.recordingId,
       "viewer",
     );
     if (
-      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+      isRecordingExpiredForViewer({
+        expiresAt: (access.resource as { expiresAt?: string }).expiresAt,
+        viewerIsOwner: access.role === "owner",
+      })
     ) {
       throw new ForbiddenError("Recording has expired");
     }

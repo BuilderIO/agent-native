@@ -2,19 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { sanitizeSlotContextForPostMessage } from "./EmbeddedExtension.js";
 
-/**
- * Regression test for a DataCloneError bug: EmbeddedExtension's onLoad
- * handler and its "context changed" effect both posted the raw slot
- * `context` object straight into `window.postMessage`. Real slot contexts
- * (e.g. Design's DesignExtensionSlotContext) carry live callback functions
- * the host uses internally (onShaderFillPreview, onShaderFillApplied, ...).
- * `postMessage` uses the structured clone algorithm, which throws
- * `DataCloneError: ... could not be cloned` on any function-valued
- * property — so every extension iframe load logged a console error and
- * never actually received the context update. The fix round-trips the
- * context through JSON (matching the `contextJson` string already computed
- * for the effect's dependency array) before posting it.
- */
 describe("sanitizeSlotContextForPostMessage", () => {
   it("drops function-valued properties", () => {
     const sanitized = sanitizeSlotContextForPostMessage({

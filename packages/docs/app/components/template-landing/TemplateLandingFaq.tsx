@@ -61,7 +61,7 @@ export function TemplateLandingFaq({
                 key={item.id}
                 data-state={isOpen ? "open" : "closed"}
                 className={`border-t border-[var(--docs-border)] first:border-t-0 ${
-                  isOpen ? "bg-[var(--bg)]" : "bg-[var(--bg-secondary)]"
+                  isOpen ? "bg-[var(--bg-subtle)]" : "bg-[var(--bg)]"
                 }`}
               >
                 <h3 className="m-0">

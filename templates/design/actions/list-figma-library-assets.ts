@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import {
+  FIGMA_IMPORT_ERROR_CODES,
+  failFigmaImport,
+  readFigmaProviderJson as providerJson,
+} from "../server/lib/figma-import-errors.js";
 import { executeProviderApiRequest } from "../server/lib/provider-api.js";
 import { parseFigmaFileKey } from "../shared/figma-url.js";
 
@@ -40,16 +45,6 @@ const schemaInput = z
     message: "Pass fileUrl or fileKey.",
     path: ["fileUrl"],
   });
-
-type FigmaProviderEnvelope = {
-  response?: {
-    ok?: boolean;
-    status?: number;
-    statusText?: string;
-    json?: unknown;
-    text?: string;
-  };
-};
 
 type FigmaAssetKind = "component" | "component_set";
 
@@ -132,19 +127,6 @@ function normalizeFigmaRecords(
   );
 }
 
-function providerJson(envelope: unknown, label: string): unknown {
-  const response = (envelope as FigmaProviderEnvelope | null)?.response;
-  if (!response) throw new Error(`Figma ${label} response was empty.`);
-  if (response.ok === false) {
-    const detail =
-      stringValue(response.text) ||
-      response.statusText ||
-      `HTTP ${response.status ?? "error"}`;
-    throw new Error(`Figma ${label} request failed: ${detail}`);
-  }
-  return response.json;
-}
-
 async function figmaGet(path: string, query?: Record<string, unknown>) {
   return executeProviderApiRequest({
     provider: "figma",
@@ -166,7 +148,10 @@ export default defineAction({
     const fileKey =
       parseFigmaFileKey(args.fileKey) ?? parseFigmaFileKey(args.fileUrl);
     if (!fileKey) {
-      throw new Error("Could not find a Figma file key in the provided URL.");
+      failFigmaImport(
+        "Could not find a Figma file key in the provided URL.",
+        FIGMA_IMPORT_ERROR_CODES.urlInvalid,
+      );
     }
 
     const limit = numberOrDefault(args.limit, 48);

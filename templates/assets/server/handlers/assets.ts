@@ -1,6 +1,7 @@
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { track } from "@agent-native/core/tracking";
 import { and, eq } from "drizzle-orm";
 import {
   createError,
@@ -46,16 +47,6 @@ const MIME_BY_EXT: Record<string, string> = {
 
 const UPLOAD_CONCURRENCY = 3;
 
-/**
- * Decode a multipart text field as UTF-8.
- *
- * Nitro / h3 returns each part's `data` as a `Uint8Array`. Calling `.toString()`
- * directly on a `Uint8Array` inherits `Array.prototype.toString`, so a libraryId
- * like "TXHoc9..." becomes "84,88,72,..." (the bytes joined with commas), and
- * downstream code (e.g. `assertAccess("asset-library", id, ...)`) gets a
- * nonsense id and throws "No access". Wrap with `Buffer.from` so UTF-8 decoding
- * runs regardless of whether `data` is a Buffer or a Uint8Array.
- */
 function readField(
   parts: Array<{ name?: string; data?: Uint8Array | Buffer }> | undefined,
   name: string,
@@ -146,7 +137,10 @@ async function assertFolderBelongsToLibrary(
   }
 }
 
-async function withUserContext(event: any, fn: () => Promise<unknown>) {
+async function withUserContext(
+  event: any,
+  fn: (userEmail: string) => Promise<unknown>,
+) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
     setResponseStatus(event, 401);
@@ -154,12 +148,12 @@ async function withUserContext(event: any, fn: () => Promise<unknown>) {
   }
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
-    fn,
+    () => fn(session.email),
   );
 }
 
 export const uploadAssets = defineEventHandler(async (event) =>
-  withUserContext(event, async () => {
+  withUserContext(event, async (userEmail) => {
     const parts = await readMultipartFormData(event);
     const libraryId = readField(parts, "libraryId");
     if (!libraryId) {
@@ -312,6 +306,20 @@ export const uploadAssets = defineEventHandler(async (event) =>
         skippedDuplicates: deduped.skippedDuplicates,
         errors,
       };
+    }
+    if (assets.length > 0) {
+      track(
+        "brand_uploaded",
+        {
+          app_name: "assets",
+          template_name: "assets",
+          output_id: libraryId,
+          output_type: "asset_library",
+          asset_type: category,
+          asset_count: assets.length,
+        },
+        { userId: userEmail },
+      );
     }
     return {
       count: assets.length,

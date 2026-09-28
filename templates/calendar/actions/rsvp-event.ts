@@ -1,10 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
+  googleEventResultId,
   normalizeWritableGoogleEventId,
   requireActionUserEmail,
+  resolveGoogleEventAccountEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 
@@ -49,11 +52,11 @@ export default defineAction({
       );
     }
 
-    const googleEventId = normalizeWritableGoogleEventId(args.id);
     const accountEmail = await resolveOwnedAccountEmail(
-      args.accountEmail,
+      resolveGoogleEventAccountEmail(args.id, args.accountEmail),
       ownerEmail,
     );
+    const googleEventId = normalizeWritableGoogleEventId(args.id);
 
     await googleCalendar.rsvpEvent(
       googleEventId,
@@ -64,13 +67,25 @@ export default defineAction({
       args.sendUpdates,
     );
 
+    const id = googleEventResultId(args.id, googleEventId, accountEmail);
     return {
       success: true,
-      id: `google-${googleEventId}`,
+      id,
       accountEmail,
       status: args.status,
       note: args.note?.trim() ?? args.note,
       scope: args.scope,
+      change: {
+        verb: "updated",
+        kind: "calendar-event",
+        title: "RSVP",
+        detail: args.status,
+        url: buildDeepLink({
+          app: "calendar",
+          view: "calendar",
+          params: { eventId: id },
+        }),
+      },
     };
   },
 });

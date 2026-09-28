@@ -17,6 +17,7 @@ export function resolvePlayerThumbnailUrl(
   recording: PlayerThumbnailRecording,
   options: {
     accessToken?: string | null;
+    animated?: boolean;
     appPath?: (path: string) => string;
   } = {},
 ): string | null {
@@ -25,6 +26,9 @@ export function resolvePlayerThumbnailUrl(
   let resolved = localRecordingThumbnailRoute(recording.id);
   if (options.accessToken) {
     resolved = appendQueryParam(resolved, "t", options.accessToken);
+  }
+  if (options.animated) {
+    resolved = appendQueryParam(resolved, "animated", "1");
   }
   if (options.appPath) resolved = options.appPath(resolved);
   return resolved;

@@ -7,9 +7,6 @@ import {
 
 import { designFrame, enterDirectMode, gotoEditor } from "./helpers";
 
-/** Board is percentage-sized with a border and padding: its authored box
- *  parses to 100px and its border box overshoots the padding box that
- *  `left`/`top` actually resolve against. Both must be measured, not parsed. */
 const ALIGN_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Alignment fixture</title></head>
@@ -39,8 +36,6 @@ const ALIGN_HTML = `<!doctype html>
   </body>
 </html>`;
 
-// Board is 800x600 border-box with a 10px border, so the padding box that
-// `left`/`top` resolve against is 780x580.
 const BOUNDS_WIDTH = 780;
 const BOUNDS_HEIGHT = 580;
 const CHIP_WIDTH = 120;
@@ -73,8 +68,6 @@ async function postAction(
   return response.json();
 }
 
-/** The persisted design-selection state can restore responsive preview, which
- *  unmounts the inspector the alignment row lives in. */
 async function openEditPanel(page: Page, designId: string) {
   await gotoEditor(page, designId);
   await leaveResponsivePreview(page);
@@ -92,7 +85,6 @@ async function leaveResponsivePreview(page: Page) {
   }
 }
 
-/** `project.use.baseURL` from playwright.config — never a hardcoded port. */
 function requireBaseURL(baseURL: string | undefined): string {
   if (!baseURL) throw new Error("playwright baseURL is not configured");
   return baseURL;
@@ -102,8 +94,6 @@ function alignButton(page: Page, label: string) {
   return page.getByRole("button", { name: label, exact: true }).first();
 }
 
-/** Selects through the Layers tree: a canvas click on a nested node lands on
- *  the screen row first, which is a different selection shape. */
 async function selectLayer(page: Page, layerName: string) {
   const tree = page.getByRole("tree", { name: "Layers" });
   const row = tree
@@ -123,7 +113,6 @@ async function selectLayer(page: Page, layerName: string) {
   ).toContainText(layerName);
 }
 
-/** Offset from the parent's padding box — the space `left`/`top` write into. */
 async function layerOffset(page: Page, layerName: string) {
   return designFrame(page)
     .locator(`[data-agent-native-layer-name="${layerName}"]`)
@@ -169,7 +158,7 @@ async function seedDesign(
   return designId;
 }
 
-test("each alignment button moves the object to the edge it names", async ({
+test("Left and Right alignment controls move to their named edges", async ({
   page,
   request,
   baseURL,
@@ -187,15 +176,26 @@ test("each alignment button moves the object to the edge it names", async ({
 
   await alignButton(page, "Align left").click();
   await expectOffset(page, "Chip", { left: 0, top: 250 });
+});
+
+test("Top and Bottom alignment controls move to their named edges", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const designId = await seedDesign(request, requireBaseURL(baseURL));
+  await openEditPanel(page, designId);
+  await selectLayer(page, "Chip");
+  await expectOffset(page, "Chip", { left: 300, top: 250 });
 
   await alignButton(page, "Align bottom").click();
   await expectOffset(page, "Chip", {
-    left: 0,
+    left: 300,
     top: BOUNDS_HEIGHT - CHIP_HEIGHT,
   });
 
   await alignButton(page, "Align top").click();
-  await expectOffset(page, "Chip", { left: 0, top: 0 });
+  await expectOffset(page, "Chip", { left: 300, top: 0 });
 });
 
 test("aligning one axis leaves a percentage offset on the other axis put", async ({
@@ -227,8 +227,6 @@ test("a lone top-level frame has nothing to align against", async ({
   }
 });
 
-/** offset* are layout values, so a transform on the parent or the node itself
- *  must not reach the committed `left`/`top`. */
 const TRANSFORM_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Transform fixture</title></head>
@@ -269,7 +267,6 @@ const TRANSFORM_HTML = `<!doctype html>
   </body>
 </html>`;
 
-/** The persisted `left`/`top`, which a transform must never be folded into. */
 async function authoredOffset(page: Page, layerName: string) {
   return designFrame(page)
     .locator(`[data-agent-native-layer-name="${layerName}"]`)

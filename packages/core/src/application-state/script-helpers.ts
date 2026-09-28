@@ -1,19 +1,6 @@
-/**
- * Application state helpers for use in scripts and actions.
- *
- * The session ID determines which user's application state is read/written.
- * Resolution order:
- *   1. Per-request context (AsyncLocalStorage) — set by the HTTP handler
- *   2. AGENT_USER_EMAIL env var — CLI scripts only
- *
- * The per-request context is critical in multi-user deployments: the env var
- * is process-global and gets overwritten by concurrent requests, so it cannot
- * reliably identify the caller. Only CLI scripts (single-user, no HTTP
- * context) should fall through to the env var.
- */
-
 import {
   getAmbientUserEmail,
+  getRequestAuthCapability,
   getRequestRunContext,
 } from "../server/request-context.js";
 import {
@@ -27,14 +14,6 @@ import {
   type AppStateCompareAndSetOperation,
 } from "./store.js";
 
-/**
- * Resolve session ID for the current caller.
- *
- * In an HTTP/action context, uses the per-request user email from
- * AsyncLocalStorage so concurrent users don't collide. In a CLI context
- * (no request), falls back to AGENT_USER_EMAIL. Throws when neither is
- * present — application state must be scoped to a real identity.
- */
 async function resolveSessionId(): Promise<string> {
   try {
     const { getRequestUserEmail } =
@@ -44,6 +23,9 @@ async function resolveSessionId(): Promise<string> {
   } catch {
     // request-context not available — fall through to env var
   }
+
+  const capability = getRequestAuthCapability();
+  if (capability) return `capability:${capability}`;
 
   const email = getAmbientUserEmail();
   if (email) return email;
@@ -125,24 +107,16 @@ const TAB_SCOPED_AMBIENT_KEYS = new Set([
   "navigate",
   "__url__",
   "__set_url__",
+  "settings-view",
+  "pending-selection-context",
 ]);
 
-/**
- * Exported so server code that reads a browser-tab id off a request header
- * (e.g. action-routes.ts) shares this exact validation instead of a copy —
- * only a tab-id-shaped value is ever trusted to scope app state.
- */
 export function normalizeBrowserTabId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return SAFE_TAB_ID_RE.test(trimmed) ? trimmed : null;
 }
 
-/**
- * Browser tab id for the current request, if the client sent one. Used to
- * scope ambient navigation state so a chat from one tab
- * reads that tab's state instead of whichever tab wrote the global key last.
- */
 export function getCurrentRequestBrowserTabId(): string | null {
   try {
     return normalizeBrowserTabId(getRequestRunContext()?.browserTabId);
@@ -151,7 +125,6 @@ export function getCurrentRequestBrowserTabId(): string | null {
   }
 }
 
-/** `key:<tabId>` when a browser tab id is present, otherwise `key`. */
 export function appStateKeyForBrowserTab(
   key: string,
   browserTabId: unknown,
@@ -172,11 +145,6 @@ async function readUnscopedAppState(
   return appStateGet(sessionId, key);
 }
 
-/**
- * Read application state scoped to the requesting browser tab. Reads the
- * tab-scoped key first. Global fallback is opt-in when a browser tab is
- * present, so a missing tab snapshot cannot silently expose another tab.
- */
 export async function readAppStateForCurrentTab(
   key: string,
   options?: { fallbackToGlobal?: boolean },
@@ -191,7 +159,6 @@ export async function readAppStateForCurrentTab(
   return readUnscopedAppState(key);
 }
 
-/** Write application state scoped to the requesting browser tab. */
 export async function writeAppStateForCurrentTab(
   key: string,
   value: Record<string, unknown>,

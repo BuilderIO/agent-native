@@ -1,3 +1,5 @@
+import { SHELL_DESIGN_ID } from "./shell-design";
+
 const DESIGN_EDITOR_ROUTE =
   /^\/(?<surface>design|visual-edit)\/(?<designId>[^/?#]+)(?:\/|$)/;
 
@@ -20,4 +22,16 @@ export function designEditorRoute(pathname: string): {
 
 export function isDesignEditorRoute(pathname: string): boolean {
   return designEditorRoute(pathname) !== null;
+}
+
+export function isPersistedDesignEditorRoute(pathname: string): boolean {
+  const route = designEditorRoute(pathname);
+  return route !== null && route.designId !== SHELL_DESIGN_ID;
+}
+
+export function designEditorViewFromSearchParams(
+  searchParams: URLSearchParams,
+): "single" | "overview" | undefined {
+  const value = searchParams.get("editorView") ?? searchParams.get("view");
+  return value === "single" || value === "overview" ? value : undefined;
 }

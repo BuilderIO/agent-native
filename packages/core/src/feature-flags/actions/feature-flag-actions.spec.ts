@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The action modules only need Zod to construct their schemas. Keep this unit
-// test isolated from the workspace dependency installation while exercising
-// the action contract itself.
 const chain = () => {
   const value: Record<string, unknown> = {};
   for (const method of ["min", "max", "email", "int", "optional"]) {

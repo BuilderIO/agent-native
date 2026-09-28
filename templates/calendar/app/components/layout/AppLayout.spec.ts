@@ -20,7 +20,7 @@ describe("Calendar app navigation", () => {
       'import { usePerAppChatOpen } from "@agent-native/core/client/hooks";',
     );
     expect(source).toContain(
-      "collapsed={\n                !isMobile &&\n                (perAppChatOpen",
+      "collapsed={\n                  !isMobile &&\n                  (perAppChatOpen",
     );
   });
 
@@ -31,11 +31,23 @@ describe("Calendar app navigation", () => {
       "const [sidebarExpandedWhileChatOpen, setSidebarExpandedWhileChatOpen] =",
     );
     expect(source).toContain(
-      "(perAppChatOpen\n                  ? !sidebarExpandedWhileChatOpen\n                  : sidebarCollapsed)",
+      "(perAppChatOpen\n                    ? !sidebarExpandedWhileChatOpen\n                    : sidebarCollapsed)",
     );
     expect(source).toContain(
-      "if (perAppChatOpen) {\n                        setSidebarExpandedWhileChatOpen(!nextCollapsed);\n                        return;\n                      }\n                      setSidebarCollapsed(nextCollapsed)",
+      "if (perAppChatOpen) {\n                          setSidebarExpandedWhileChatOpen(!nextCollapsed);\n                          return;\n                        }\n                        setSidebarCollapsed(nextCollapsed)",
     );
     expect(source).toContain("setSidebarExpandedWhileChatOpen(!nextCollapsed)");
+  });
+
+  it("drops the app sidebar and header when the redesigned Settings shell owns the page", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key)");
+    expect(source).toContain(
+      "{settingsOwnsChrome ? null : (\n              <Sidebar",
+    );
+    expect(source).toContain(
+      "!pageOwnsToolbar(location.pathname) && !settingsOwnsChrome",
+    );
   });
 });

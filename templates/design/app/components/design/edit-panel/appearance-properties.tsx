@@ -51,6 +51,7 @@ import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
   StyleChangeHandler,
+  StylesChangeHandler,
 } from "./style-change-types";
 import {
   BLEND_MODE_OPTIONS,
@@ -61,22 +62,27 @@ import {
 export function CornerRadiusControl({
   styles,
   onStyleChange,
+  onStylesChange,
   element,
   motionKeyframeContext,
   breakpointOverrideContext,
   parentGrid = false,
+  vectorPointRadius,
+  hideForVectorPoint,
 }: {
   styles: Record<string, string>;
   onStyleChange: StyleChangeHandler;
-  /**
-   * Optional — only needed to render the keyframe diamond / breakpoint
-   * override indicator next to the uniform radius field. Omit for callers
-   * that don't wire those features (both affordances stay hidden).
-   */
+  onStylesChange?: StylesChangeHandler;
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   parentGrid?: boolean;
+  vectorPointRadius?: {
+    value: number;
+    max: number;
+    onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
+  };
+  hideForVectorPoint?: boolean;
 }) {
   const t = useT();
   const independentCornersLabel = t("editPanel.labels.independentCorners");
@@ -92,8 +98,6 @@ export function CornerRadiusControl({
     bottomRight: isMixedValue(cornerSources.bottomRight),
     bottomLeft: isMixedValue(cornerSources.bottomLeft),
   };
-  // Guard cssLengthNumber against the Mixed sentinel — parseFloat("Mixed")
-  // would silently coerce it to 0 and render a concrete value.
   const corners = {
     topLeft: cornerMixed.topLeft ? 0 : cssLengthNumber(cornerSources.topLeft),
     topRight: cornerMixed.topRight
@@ -116,9 +120,6 @@ export function CornerRadiusControl({
     cornerMixed.topRight &&
     cornerMixed.bottomRight &&
     cornerMixed.bottomLeft;
-  // With mixed sentinels the parsed numbers are placeholders, so compare
-  // mixed-ness instead: all-mixed reads as uniform (each element may still be
-  // uniform), partially-mixed means at least one element has differing corners.
   const cornersDiffer = anyCornerMixed
     ? !allCornersMixed
     : !fourValuesEqual([
@@ -127,17 +128,6 @@ export function CornerRadiusControl({
         corners.bottomRight,
         corners.bottomLeft,
       ]);
-  // Seeds the toggle once per selection (this component is remounted per
-  // element via `key={elementIdentityKey(element)}` at its call site) and is
-  // otherwise a pure user-controlled toggle (see toggleIndependentCorners
-  // below). Do NOT add back a useEffect that re-derives this from
-  // `cornersDiffer` on every render: commitRadius below applies the 4 corner
-  // longhands + shorthand as separate onStyleChange calls, so a scrub
-  // gesture that re-invokes commitRadius on every drag tick can hit an
-  // intermediate render where one longhand has updated and another hasn't —
-  // `cornersDiffer` spikes true for that frame and a reactive effect would
-  // force-expand the per-corner view mid-drag, same class of bug as the
-  // padding auto-unlink fix above (STEVE TEST BATCH 4 #4 audit).
   const [showIndependentCorners, setShowIndependentCorners] =
     useState(cornersDiffer);
   const radiusMixed =
@@ -149,20 +139,22 @@ export function CornerRadiusControl({
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
   const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
     const next = `${Math.max(0, Math.round(value))}px`;
-    // Always write the longhands along with the shorthand: stale inline
-    // longhand declarations serialize after the shorthand and would override
-    // it, turning uniform-radius commits into silent no-ops.
-    onStyleChange("borderRadius", next, meta);
-    onStyleChange("borderTopLeftRadius", next, meta);
-    onStyleChange("borderTopRightRadius", next, meta);
-    onStyleChange("borderBottomRightRadius", next, meta);
-    onStyleChange("borderBottomLeftRadius", next, meta);
+    const patch = {
+      borderRadius: next,
+      borderTopLeftRadius: next,
+      borderTopRightRadius: next,
+      borderBottomRightRadius: next,
+      borderBottomLeftRadius: next,
+    };
+    if (onStylesChange) {
+      onStylesChange(patch, meta);
+      return;
+    }
+    Object.entries(patch).forEach(([property, style]) =>
+      onStyleChange(property, style, meta),
+    );
   };
   const toggleIndependentCorners = () => {
-    // Collapsing while corners differ flattens them to the displayed uniform
-    // value; otherwise the stale longhands would keep overriding the shorthand
-    // and the single field would silently no-op. Mixed selections collapse the
-    // UI only — committing would stamp the placeholder 0 onto every object.
     if (showIndependentCorners && cornersDiffer && !radiusMixed) {
       commitRadius(radius);
     }
@@ -192,6 +184,32 @@ export function CornerRadiusControl({
       ) : null}
     </div>
   );
+  if (vectorPointRadius || hideForVectorPoint) {
+    return (
+      <>
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+          {vectorPointRadius ? (
+            <div className="group/field relative">
+              <AppearanceScrubField
+                label={t("editPanel.labels.cornerRadius")}
+                icon={IconBorderRadius}
+                value={vectorPointRadius.value}
+                onChange={vectorPointRadius.onChange}
+                min={0}
+                max={vectorPointRadius.max}
+                precision={0}
+              />
+            </div>
+          ) : null}
+        </InspectorGridCell>
+        <InspectorGridCell
+          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+          ariaHidden
+        />
+        <InspectorGridCell span={INSPECTOR_GRID_ACTION_SPAN} ariaHidden />
+      </>
+    );
+  }
   const independentCornersAction = (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -392,10 +410,6 @@ export function BlendModeMenu({
     styles.mixBlendMode || "normal",
     "normal",
   );
-  // Recognize the Mixed sentinel BEFORE optionValue's fallback maps it to
-  // "normal" — a mixed selection must not check a wrong concrete mode.
-  // Isolation only disambiguates pass-through vs normal, so it only makes the
-  // state mixed when the blend mode itself resolves to normal.
   const blendModeMixed =
     isMixedValue(styles.mixBlendMode) ||
     (blendMode === "normal" && isMixedValue(styles.isolation));
@@ -481,20 +495,31 @@ export function BlendModeMenu({
 export function AppearanceProperties({
   element,
   onStyleChange,
+  onStylesChange,
+  hidden,
+  onToggleHidden,
   motionKeyframeContext,
   breakpointOverrideContext,
+  vectorPointRadius,
+  vectorPointSelected = false,
+  onVectorPointRadiusChange,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
+  onStylesChange?: StylesChangeHandler;
+  hidden: boolean;
+  onToggleHidden?: () => void;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
+  vectorPointRadius?: { value: number; max: number } | null;
+  vectorPointSelected?: boolean;
+  onVectorPointRadiusChange?: (
+    value: number,
+    meta?: ScrubInputChangeMeta,
+  ) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const hidden =
-    styles.visibility === "hidden" ||
-    styles.display === "none" ||
-    parseNumericValue(styles.opacity || "1") === 0;
   return (
     <PanelSection
       title={t("root.commandAppearance")}
@@ -507,9 +532,8 @@ export function AppearanceProperties({
                 : "Hide" /* i18n-ignore design inspector action */
             }
             active={hidden}
-            onClick={() =>
-              onStyleChange("visibility", hidden ? "visible" : "hidden")
-            }
+            onClick={onToggleHidden}
+            disabled={!onToggleHidden}
           >
             {hidden ? (
               <IconEyeOff className="size-3.5" />
@@ -587,10 +611,17 @@ export function AppearanceProperties({
           key={elementIdentityKey(element)}
           styles={styles}
           onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
           element={element}
           motionKeyframeContext={motionKeyframeContext}
           breakpointOverrideContext={breakpointOverrideContext}
           parentGrid
+          vectorPointRadius={
+            vectorPointRadius && onVectorPointRadiusChange
+              ? { ...vectorPointRadius, onChange: onVectorPointRadiusChange }
+              : undefined
+          }
+          hideForVectorPoint={vectorPointSelected}
         />
       </InspectorGrid>
     </PanelSection>

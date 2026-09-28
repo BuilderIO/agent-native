@@ -176,7 +176,7 @@ The playable Slack embed is deliberately narrower than the share page:
 
 - Only `ready` recordings with `visibility === "public"` can produce a video block.
 - Password-protected, expired, archived, trashed, private, org-only, or still-processing clips must not produce a playable Slack block.
-- Slack thumbnails use the same-origin proxy for stored thumbnails, or a public video frame when no stored thumbnail exists; normal share-page metadata remains the fallback when no Slack app is installed.
+- Slack thumbnails use the same-origin proxy for stored thumbnails and the branded social image while one is unavailable. The proxy redirects to that image if stored content cannot be served; normal share-page metadata remains the fallback when no Slack app is installed.
 - Do not put passwords, short-lived share tokens, raw provider URLs, or transcript text in Slack unfurl payloads.
 
 Required Slack app setup:
@@ -228,6 +228,8 @@ temporary agent-link path:
   raw provider URLs.
 
 Public agent context also exposes the recording's redacted browser diagnostics:
+the bounded relative event sequence as `browserDiagnostics.timeline`, including
+navigation, click/input targets, console events, and request/response markers;
 the console stream (all levels) as `browserDiagnostics.consoleLogs` and the
 fetch/XHR stream as `browserDiagnostics.networkRequests` (method, sanitized URL
 with query values redacted, status, duration), plus `consoleIssues` and

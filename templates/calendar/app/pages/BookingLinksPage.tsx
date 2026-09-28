@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import {
@@ -61,6 +62,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { HostOverlayStatusIcon } from "@/components/booking/HostOverlayStatusIcon";
+import { SharedAvailabilityPanel } from "@/components/booking/SharedAvailabilityPanel";
 import {
   TimeZoneGrid,
   type TimeZoneGridHost,
@@ -142,7 +145,14 @@ import {
   type BookingAvailabilityPreview,
 } from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
-import { useOverlayPeople } from "@/hooks/use-overlay-people";
+import {
+  useHostOverlayStatus,
+  useSendOverlayRequest,
+} from "@/hooks/use-host-overlay-status";
+import {
+  useAddOverlayPerson,
+  useOverlayPeople,
+} from "@/hooks/use-overlay-people";
 import { usePublicBookingLink } from "@/hooks/use-public-data";
 import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
@@ -235,7 +245,7 @@ const DEFAULT_SCHEDULE: DaySchedule = {
   slots: [{ ...DEFAULT_TIME_SLOT }],
 };
 
-type Tab = "links" | "availability" | "bookings";
+type Tab = "links" | "availability" | "shared" | "bookings";
 
 function createEmptyDraft(): DraftLink {
   return {
@@ -270,8 +280,6 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
     isActive: link.isActive,
-    // Always lock the slug for saved links — changing a saved URL would
-    // break existing shared links. Users can still edit the slug manually.
     slugManuallyEdited: true,
   };
 }
@@ -295,7 +303,6 @@ function normalizeHostEmail(value: string) {
   return EMAIL_RE.test(email) ? email : null;
 }
 
-/** Format "09:00" → "9 am", "17:00" → "5 pm" */
 function formatTime12(time: string) {
   const [h, m] = time.split(":").map(Number);
   const suffix = h >= 12 ? "pm" : "am";
@@ -305,7 +312,6 @@ function formatTime12(time: string) {
     : `${hour} ${suffix}`;
 }
 
-/** Summarize availability, e.g. "Weekdays, 9 am - 5 pm" */
 function formatAvailabilitySummary(
   config: AvailabilityConfig,
   t: ReturnType<typeof useT>,
@@ -324,7 +330,6 @@ function formatAvailabilitySummary(
   const enabledDays = allDays.filter((d) => ws[d].enabled);
   if (enabledDays.length === 0) return t("bookingLinks.noAvailabilitySet");
 
-  // Determine day label
   const weekdaysOn = weekdayKeys.every((d) => ws[d].enabled);
   const weekendsOn = weekendKeys.every((d) => ws[d].enabled);
   const weekdaysOff = weekdayKeys.every((d) => !ws[d].enabled);
@@ -554,9 +559,15 @@ function BookingConferencingSelect({
 function BookingHostsEditor({
   hosts,
   onChange,
+  bookingLinkId,
+  isNewDraft,
 }: {
   hosts: BookingHost[];
-  onChange: (hosts: BookingHost[]) => void;
+  onChange: (
+    hosts: BookingHost[] | ((current: BookingHost[]) => BookingHost[]),
+  ) => void;
+  bookingLinkId: string | undefined;
+  isNewDraft: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -575,11 +586,16 @@ function BookingHostsEditor({
       toast.error(t("bookingLinks.invalidEmail", { email }));
       return;
     }
-    if (selectedEmails.has(normalized)) return;
-    onChange([
-      ...hosts,
-      displayName ? { email: normalized, displayName } : { email: normalized },
-    ]);
+    onChange((current) =>
+      current.some((host) => host.email.toLowerCase() === normalized)
+        ? current
+        : [
+            ...current,
+            displayName
+              ? { email: normalized, displayName }
+              : { email: normalized },
+          ],
+    );
   }
 
   function toggleOverlayPerson(person: OverlayPerson) {
@@ -627,21 +643,42 @@ function BookingHostsEditor({
     onChange(hosts.filter((host) => host.email !== email));
   }
 
+  const allHostEmails = hosts.map((host) => host.email).sort();
+  const { data: hostStatuses } = useHostOverlayStatus(
+    allHostEmails,
+    bookingLinkId,
+    allHostEmails.length > 0 && (isNewDraft || !!bookingLinkId),
+  );
+
   function isOverlayHost(host: BookingHost) {
     const normalized = normalizeHostEmail(host.email);
-    return overlayPeople.some(
-      (person) => normalizeHostEmail(person.email) === normalized,
-    );
+    if (hostStatuses) {
+      return hostStatuses.some(
+        (entry) => normalizeHostEmail(entry.email) === normalized,
+      );
+    }
+    return isNewDraft
+      ? overlayPeople.some(
+          (person) => normalizeHostEmail(person.email) === normalized,
+        )
+      : false;
   }
 
   const calendarHosts = hosts.filter((host) => isOverlayHost(host));
   const manualHosts = hosts.filter((host) => !isOverlayHost(host));
+  const sendOverlayRequest = useSendOverlayRequest();
+  const addOverlayPerson = useAddOverlayPerson();
 
-  function renderHostBadge(host: BookingHost) {
+  function renderHostBadge(host: BookingHost, options: { overlay: boolean }) {
     const normalized = normalizeHostEmail(host.email);
     const overlayColor = overlayPeople.find(
       (person) => normalizeHostEmail(person.email) === normalized,
     )?.color;
+    const status = options.overlay
+      ? hostStatuses?.find(
+          (entry) => normalizeHostEmail(entry.email) === normalized,
+        )
+      : undefined;
     return (
       <Badge key={host.email} variant="secondary" className="gap-1.5 pr-1">
         {overlayColor && (
@@ -651,6 +688,16 @@ function BookingHostsEditor({
           />
         )}
         {host.displayName || host.email}
+        {(options.overlay ? Boolean(status) : true) && (
+          <HostOverlayStatusIcon
+            variant={options.overlay ? "overlay" : "manual"}
+            status={status}
+            email={normalized ?? host.email}
+            bookingLinkId={bookingLinkId}
+            mutation={sendOverlayRequest}
+            addPerson={addOverlayPerson}
+          />
+        )}
         <button
           type="button"
           onClick={() => removeHost(host.email)}
@@ -775,7 +822,9 @@ function BookingHostsEditor({
 
       {calendarHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {calendarHosts.map((host) => renderHostBadge(host))}
+          {calendarHosts.map((host) =>
+            renderHostBadge(host, { overlay: true }),
+          )}
         </div>
       )}
 
@@ -805,7 +854,7 @@ function BookingHostsEditor({
 
       {manualHosts.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {manualHosts.map((host) => renderHostBadge(host))}
+          {manualHosts.map((host) => renderHostBadge(host, { overlay: false }))}
         </div>
       )}
 
@@ -819,6 +868,7 @@ function BookingHostsEditor({
         open={addCalendarOpen}
         onOpenChange={setAddCalendarOpen}
         defaultTab="people"
+        onPersonAdded={(person) => addHost(person.email, person.name)}
       />
     </div>
   );
@@ -831,7 +881,7 @@ export default function BookingLinksPage({
 }) {
   const t = useT();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as Tab) || "links";
   const bookingLinksQuery = useBookingLinks();
   const {
@@ -845,6 +895,10 @@ export default function BookingLinksPage({
   const updateBookingLink = useUpdateBookingLink();
   const deleteBookingLink = useDeleteBookingLink();
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab) setActiveTab(tab as Tab);
+  }, [searchParams]);
   const [draft, setDraft] = useState<DraftLink>(() => createEmptyDraft());
   const [savedDraftSignature, setSavedDraftSignature] = useState<string | null>(
     null,
@@ -859,7 +913,6 @@ export default function BookingLinksPage({
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
-  // Availability state
   const { data: availability } = useAvailability();
   const updateAvailability = useUpdateAvailability();
   const [schedule, setSchedule] = useState<
@@ -884,12 +937,10 @@ export default function BookingLinksPage({
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
 
-  // Derive a default username from the Google email (e.g. "steve" from "steve@builder.io")
   const suggestedUsername = useMemo(() => {
     const email = googleStatus.data?.accounts?.[0]?.email;
     if (!email) return "";
     const local = email.split("@")[0];
-    // Convert "sewell.steve" → "sewell-steve"
     return local.replace(/[^a-z0-9]/gi, "-").toLowerCase();
   }, [googleStatus.data]);
 
@@ -974,7 +1025,6 @@ export default function BookingLinksPage({
     );
   }
 
-  // Navigate back to list if the selected link was deleted
   useEffect(() => {
     if (
       selectedId &&
@@ -989,6 +1039,12 @@ export default function BookingLinksPage({
     () => bookingLinks.find((link) => link.id === selectedId) ?? null,
     [bookingLinks, selectedId],
   );
+  const isNewBookingLinkDraft =
+    typeof selectedId === "string" && selectedId.startsWith(OPTIMISTIC_PREFIX);
+  const hostOverlayBookingLinkId =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? selectedLink.id
+      : undefined;
   const canEditSelectedLink = canEditBookingLink(selectedLink);
   const canDeleteSelectedLink = canDeleteBookingLink(selectedLink);
 
@@ -1017,7 +1073,6 @@ export default function BookingLinksPage({
           : `https://${PRODUCTION_DOMAIN}`;
       return `${host}/book/${bookingUsername}/${slug}`;
     }
-    // Fallback for no username set
     if (typeof window === "undefined") return `/book/${slug}`;
     return `${window.location.origin}/book/${slug}`;
   }
@@ -1064,8 +1119,6 @@ export default function BookingLinksPage({
       toast.error(t("bookingLinks.durationMinError"));
       return;
     }
-    // Pre-generate an optimistic id so we can navigate instantly; the mutation
-    // inserts the row into the list cache synchronously via onMutate.
     const optimisticId = `optimistic_${nanoid()}`;
     createBookingLink.mutate(
       {
@@ -1078,12 +1131,10 @@ export default function BookingLinksPage({
       },
       {
         onSuccess: (created) => {
-          // Swap URL from optimistic id to the real one without a back-stack entry.
           void navigate(`/booking-links/${created.id}`, { replace: true });
           toast.success(t("bookingLinks.bookingLinkCreated"));
         },
         onError: (error) => {
-          // Cache was rolled back by the hook's onError. Bring the user back.
           void navigate("/booking-links", { replace: true });
           toast.error(
             error instanceof Error
@@ -1093,7 +1144,6 @@ export default function BookingLinksPage({
         },
       },
     );
-    // Navigate *immediately* — the optimistic row is already in the list cache.
     void navigate(`/booking-links/${optimisticId}`);
     setCreateDialogOpen(false);
   }
@@ -1101,7 +1151,6 @@ export default function BookingLinksPage({
   async function handleSave() {
     if (!draft.id) return;
     if (!hasUnsavedChanges) return;
-    // Optimistic row hasn't resolved to a real ID yet — wait for it
     if (draft.id.startsWith(OPTIMISTIC_PREFIX)) {
       toast.error(t("bookingLinks.stillCreating"));
       return;
@@ -1158,6 +1207,12 @@ export default function BookingLinksPage({
 
   async function copyPreviewUrl(slug: string) {
     if (await copyTextToClipboard(getBookingUrl(slug))) {
+      trackEvent("booking_link_shared", {
+        app_name: "calendar",
+        template_name: "calendar",
+        booking_type_id: slug,
+        share_method: "copy_link",
+      });
       toast.success(t("bookingLinks.bookingLinkCopied"));
       return;
     }
@@ -1189,7 +1244,7 @@ export default function BookingLinksPage({
               type="button"
               size="sm"
               onClick={handleCreate}
-              className="h-8 gap-2"
+              className="gap-2"
             >
               <IconPlus className="h-4 w-4" />
               {t("bookingLinks.newBookingLink")}
@@ -1242,9 +1297,9 @@ export default function BookingLinksPage({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-sm"
                   onClick={() => void copyPreviewUrl(draft.slug)}
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  className={cn("", BRAND_ICON_LINK_CLASS)}
                   aria-label={t("bookingLinks.copyBookingLink")}
                 >
                   <IconCopy className="h-4 w-4" />
@@ -1257,8 +1312,8 @@ export default function BookingLinksPage({
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                  size="icon-sm"
+                  className={cn("", BRAND_ICON_LINK_CLASS)}
                   aria-label={t("bookingLinks.openBookingLink")}
                 >
                   <a
@@ -1279,7 +1334,6 @@ export default function BookingLinksPage({
               size="sm"
               onClick={() => void handleSaveRef.current()}
               disabled={updateBookingLink.isPending || !hasUnsavedChanges}
-              className="h-8 px-3"
             >
               {updateBookingLink.isPending
                 ? t("common.saving")
@@ -1307,7 +1361,6 @@ export default function BookingLinksPage({
 
   const hasLinks = bookingLinks.length > 0;
 
-  // If a link is selected, show the detail/edit view
   if (selectedId) {
     if (bookingLinksError && !isLoading) {
       return (
@@ -1433,7 +1486,6 @@ export default function BookingLinksPage({
                                 : [...prev.durations, minutes].sort(
                                     (a, b) => a - b,
                                   );
-                              // Must keep at least one
                               if (next.length === 0) return prev;
                               return {
                                 ...prev,
@@ -1521,7 +1573,6 @@ export default function BookingLinksPage({
                           }
                         }}
                         placeholder={t("bookingLinks.minutes")}
-                        className="h-9"
                       />
                       <Button
                         type="button"
@@ -1556,8 +1607,8 @@ export default function BookingLinksPage({
                         <Button
                           asChild
                           variant="ghost"
-                          size="icon"
-                          className={cn("h-8 w-8", BRAND_ICON_LINK_CLASS)}
+                          size="icon-sm"
+                          className={cn("", BRAND_ICON_LINK_CLASS)}
                           aria-label={t("bookingLinks.openBookingPageNewTab")}
                         >
                           <a
@@ -1663,9 +1714,17 @@ export default function BookingLinksPage({
 
                 <div className="border-t border-border pt-8">
                   <BookingHostsEditor
+                    bookingLinkId={hostOverlayBookingLinkId}
+                    isNewDraft={isNewBookingLinkDraft}
                     hosts={draft.hosts}
-                    onChange={(hosts) =>
-                      setDraft((prev) => ({ ...prev, hosts }))
+                    onChange={(update) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        hosts:
+                          typeof update === "function"
+                            ? update(prev.hosts)
+                            : update,
+                      }))
                     }
                   />
                 </div>
@@ -1796,13 +1855,34 @@ export default function BookingLinksPage({
         {t("bookingLinks.description")}
       </p>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => {
+          trackEvent("booking_links_tab_changed", {
+            app_name: "calendar",
+            template_name: "calendar",
+            tab: v,
+          });
+          setActiveTab(v as Tab);
+          setSearchParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              next.set("tab", v);
+              return next;
+            },
+            { replace: true },
+          );
+        }}
+      >
         <TabsList>
           <TabsTrigger value="links">
             {t("bookingLinks.meetingTypes")}
           </TabsTrigger>
           <TabsTrigger value="availability">
             {t("bookingLinks.availability")}
+          </TabsTrigger>
+          <TabsTrigger value="shared">
+            {t("bookingLinks.sharedAvailability")}
           </TabsTrigger>
           <TabsTrigger value="bookings">
             {t("bookingLinks.bookings")}
@@ -1925,7 +2005,7 @@ export default function BookingLinksPage({
                                 asChild
                                 variant="outline"
                                 size="icon"
-                                className="h-9 w-9 rounded-full"
+                                className="rounded-full"
                                 aria-label={t("bookingLinks.openBookingLink")}
                               >
                                 <a
@@ -2093,7 +2173,7 @@ export default function BookingLinksPage({
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                  className="px-2 text-muted-foreground hover:text-destructive"
                                   onClick={() => removeDaySlot(key, slotIndex)}
                                 >
                                   <IconTrash className="mr-1.5 h-3.5 w-3.5" />
@@ -2106,7 +2186,7 @@ export default function BookingLinksPage({
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 px-2"
+                            className="px-2"
                             onClick={() => addDaySlot(key)}
                           >
                             <IconPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -2210,6 +2290,12 @@ export default function BookingLinksPage({
           </div>
         </TabsContent>
 
+        <TabsContent value="shared">
+          <div className="max-w-2xl">
+            <SharedAvailabilityPanel />
+          </div>
+        </TabsContent>
+
         <TabsContent value="bookings">
           <BookingsList />
         </TabsContent>
@@ -2226,10 +2312,6 @@ export default function BookingLinksPage({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Inline booking page preview — mirrors BookingPage layout, updates live
-// ---------------------------------------------------------------------------
 
 const WEEKDAY_HEADER_KEYS = [
   "sundayShort",
@@ -2291,14 +2373,10 @@ function BookingPreview({
   const today = startOfDay(new Date());
   const maxDate = addDays(today, availability?.maxAdvanceDays ?? 60);
 
-  // Interactive state
   const [viewMonth, setViewMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
-  // Identity for the selected live slot, kept separate from the `h:mm a`
-  // display label above because a fall-back DST date can have two distinct
-  // ISO instants that format to the same label.
   const [selectedSlotStart, setSelectedSlotStart] = useState<string | null>(
     null,
   );
@@ -2332,7 +2410,6 @@ function BookingPreview({
   );
   const hasLiveAvailability = Boolean(bookingSourceSlug && selectedDate);
 
-  // Reset selections when durations change
   useEffect(() => {
     setSelectedDuration(null);
     setSelectedSlot(null);
@@ -2344,7 +2421,6 @@ function BookingPreview({
     setPreviewConfirmed(false);
   }, [selectedDate, selectedDuration, selectedSlot]);
 
-  // Calendar data for viewed month
   const monthStart = startOfMonth(viewMonth);
   const monthEnd = endOfMonth(viewMonth);
   const calStart = startOfWeek(monthStart, { weekStartsOn });
@@ -2361,7 +2437,6 @@ function BookingPreview({
     return false;
   }
 
-  // Generate realistic time slots based on availability
   const timeSlots = useMemo(() => {
     if (hasLiveAvailability) {
       return liveSlots.map((slot) => format(parseISO(slot.start), "h:mm a"));
@@ -2405,21 +2480,10 @@ function BookingPreview({
     liveSlots,
   ]);
 
-  // The time-zone grid needs the raw ISO instant to convert per-row, which
-  // only exists once the link is saved and real availability is loaded —
-  // the synthetic placeholder slots above have no absolute timestamp.
-  //
-  // The admin's own booking-link fetch doesn't resolve peer timezones (that
-  // enrichment only runs for public visitors), so fetch the real public
-  // response here to preview it accurately instead of only showing the
-  // owner's own timezone.
   const { data: previewPublicLink } = usePublicBookingLink(
     showPreviewTimeZones ? bookingSourceSlug : undefined,
     bookingUsername,
   );
-  // A redirect-only response (unsynced/stale username) has no `id` or
-  // enrichment fields — fall through to the settings/hosts data below
-  // instead of rendering an empty preview.
   const resolvedPreviewPublicLink =
     previewPublicLink && !previewPublicLink.redirectPath
       ? previewPublicLink
@@ -2444,10 +2508,6 @@ function BookingPreview({
           })),
       ]
     : [
-        // No public response yet (unsaved link, or still loading) — peer
-        // time zones are only resolved server-side for public visitors, so
-        // this admin-only fallback can show the owner's own zone but not
-        // any host's, unlike the branch above.
         ...(settings?.timezone
           ? [
               {
@@ -2460,7 +2520,6 @@ function BookingPreview({
       ];
   const selectedLiveSlotStart = hasLiveAvailability ? selectedSlotStart : null;
 
-  // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
 
   let naturalStep: BookingPreviewStep = "date";
@@ -2944,12 +3003,13 @@ function BookingPreview({
                   {t("bookingLinks.name")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-name"
                   value={previewForm.name}
                   onChange={(event) =>
                     updatePreviewForm({ name: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -2958,13 +3018,14 @@ function BookingPreview({
                   {t("bookingLinks.email")}
                 </Label>
                 <Input
+                  size="sm"
                   id="preview-booking-email"
                   type="email"
                   value={previewForm.email}
                   onChange={(event) =>
                     updatePreviewForm({ email: event.target.value })
                   }
-                  className="h-8 text-xs"
+                  className="text-xs"
                   required
                 />
               </div>
@@ -3051,7 +3112,7 @@ function BookingPreview({
               type="button"
               variant="outline"
               size="sm"
-              className="mt-4 h-8 text-xs"
+              className="mt-4 text-xs"
               onClick={resetPreviewFlow}
             >
               {t("bookingLinks.tryAgain")}
@@ -3102,7 +3163,7 @@ function PreviewCustomFieldInput({
           {optionalLabel}
         </Label>
         <Select value={strValue} onValueChange={onChange}>
-          <SelectTrigger id={id} className="h-8 text-xs">
+          <SelectTrigger size="sm" id={id} className="text-xs">
             <span
               className={cn("truncate", !strValue && "text-muted-foreground")}
             >
@@ -3148,6 +3209,7 @@ function PreviewCustomFieldInput({
         {optionalLabel}
       </Label>
       <Input
+        size="sm"
         id={id}
         type={
           field.type === "url"
@@ -3161,7 +3223,7 @@ function PreviewCustomFieldInput({
         value={strValue}
         onChange={(event) => onChange(event.target.value)}
         placeholder={field.placeholder}
-        className="h-8 text-xs"
+        className="text-xs"
       />
     </div>
   );

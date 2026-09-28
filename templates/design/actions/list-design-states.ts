@@ -1,10 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
-import { accessFilter } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
 function parseJsonRecord(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -38,15 +38,13 @@ export default defineAction({
       ),
   }),
   readOnly: true,
+  capabilityScopes: ["visual-edit"],
   http: { method: "GET" },
   run: async ({ designId, kind, sourceRef }) => {
+    await assertAccess("design", designId, "editor");
     const db = getDb();
 
-    // Access is checked via the parent designs row (design_state has no own shares table).
-    const conditions = [
-      accessFilter(schema.designs, schema.designShares),
-      eq(schema.designState.designId, designId),
-    ];
+    const conditions = [eq(schema.designState.designId, designId)];
 
     if (kind) {
       conditions.push(eq(schema.designState.kind, kind));

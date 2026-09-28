@@ -13,6 +13,8 @@ const guards = [
   "guard:no-empty-migrations",
   "guard:release-schema-complete",
   "guard:no-unscoped-queries",
+  "guard:identity-columns-registered",
+  "guard:no-raw-app-identity-env",
   "guard:no-env-credentials",
   "guard:env-documentation",
   "guard:no-unscoped-credentials",
@@ -26,16 +28,19 @@ const guards = [
   "guard:netlify-prebuilt-workflow",
   "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
+  "guard:design-e2e-workflow",
   "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
   "guard:public-packages",
   "guard:shared-ui-singletons",
+  "guard:modal-layer-integrity",
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
   "guard:template-ui-imports",
   "guard:controller-boundaries",
+  "guard:agentkit-stream-ownership",
   "guard:migration-manifest",
   "guard:eject-manifests",
   "guard:no-generated-artifacts",
@@ -47,6 +52,7 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:agent-access-endpoints-public",
   "guard:external-result-contract",
   "guard:provider-action-factories",
   "guard:agent-chat-context",
@@ -65,7 +71,9 @@ const guards = [
   "guard:persistent-compositing",
   "guard:help-icon-scale",
   "guard:no-default-chrome",
+  "guard:single-search-clear",
   "guard:no-boot-data-work",
+  "guard:tracking-event-names",
   "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
   "guard:no-blob-column-predicate",
@@ -106,7 +114,6 @@ if (args.unknown.length > 0) {
 
 const concurrency = resolveConcurrency(args.concurrency);
 
-/** Skips are tolerable on a shallow local clone; in CI they mean nothing was reviewed. */
 const strictSkips = Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS;
 
 if (args.dryRun) {

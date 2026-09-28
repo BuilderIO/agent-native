@@ -42,12 +42,12 @@ An editor opens the team's shared Content Calendar, filters to their own recent 
 - When personal state differs, the interface quietly shows **Viewing with personal changes**.
 - **Reset to shared View** removes the remembered override.
 - **Save as new View** creates a stable named View over the same owner input with visibility **Only me** or an allowed shared destination. A person may create many named private Views.
-- **Update shared View** deliberately replaces the shared default only with the required Database/Query authority and records an ordinary reversible Revision.
+- **Update shared View** deliberately replaces the shared default only with the required Collection/Query authority and records an ordinary reversible Revision.
 - The focused View Instance contains the shared definition, remembered personal override, effective state, and delta between them.
 - Agents receive that effective focused state so they understand what the person sees. They may run arbitrary ephemeral Queries behind the scenes without changing the visible arrangement.
 - An agent changes the personal arrangement only when asked to show a result, saves a named View only when asked, and updates the shared default only through the explicit permitted action.
 - Ordinary copied View links resolve to the saved View definition, never the sender's unnamed personal arrangement.
-- Personal state changes presentation and safe creation seeds only. It never copies records, changes source truth, grants access, or creates a private fork of the Database/Query.
+- Personal state changes presentation and safe creation seeds only. It never copies records, changes source truth, grants access, or creates a private fork of the Collection/Query.
 
 ## Permissions and failure behavior
 
@@ -59,7 +59,7 @@ An editor opens the team's shared Content Calendar, filters to their own recent 
 
 ## Boundaries and non-goals
 
-- This Capability owns personal presentation state, not Query semantics or Database values.
+- This Capability owns personal presentation state, not Query semantics or Collection values.
 - It does not make copied links carry hidden sender state.
 - It does not restrict a person to one named private View; the one-item limit applies only to the automatic unnamed arrangement per shared View.
 - Ephemeral agent exploration is not a saved View and does not mutate UI unless requested.

@@ -22,6 +22,7 @@ import {
   ensureGmailLabel,
 } from "../server/lib/automation-actions.js";
 import {
+  assertMailJevEnabled,
   createAutomationRule,
   listAutomationRules,
 } from "../server/lib/automations.js";
@@ -30,6 +31,7 @@ import {
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
+import { syncInboxLabelDelta } from "../server/lib/inbox-store-sync.js";
 import {
   readLocalEmails,
   withLocalEmailMutationLock,
@@ -143,16 +145,25 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     if (args.mode === "settings") {
-      const state = await getAiFilterState(ownerEmail);
-      const next = {
-        ...state,
-        ...args.settings,
-      };
-      await saveAiFilterState(ownerEmail, next);
+      if (!args.settings || Object.keys(args.settings).length === 0) {
+        return {
+          changed: 0,
+          failures: [],
+          state: await getAiFilterState(ownerEmail),
+        };
+      }
+      const settingKeys = Object.keys(args.settings);
+      const disableOnly =
+        settingKeys.length === 1 && args.settings?.enabled === false;
+      if (settingKeys.length > 0 && !disableOnly) {
+        await assertMailJevEnabled(ownerEmail);
+      }
+      const state = await saveAiFilterState(ownerEmail, args.settings);
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return { changed: 0, failures: [], state: next };
+      return { changed: 0, failures: [], state };
     }
 
+    await assertMailJevEnabled(ownerEmail);
     const targets = args.targets ?? [];
     if (targets.length === 0) throw new Error("targets are required");
 
@@ -242,12 +253,17 @@ export default defineAction({
               labelCache,
             );
             const threadId = target.threadId ?? message.threadId ?? target.id;
-            await gmailModifyThread(
+            const updated = (await gmailModifyThread(
               account.accessToken,
               threadId,
               action === "filter" ? [labelId] : ["INBOX"],
               action === "filter" ? ["INBOX"] : [labelId],
-            );
+            )) as { historyId?: string } | undefined;
+            await syncInboxLabelDelta(ownerEmail, account.email, [threadId], {
+              add: action === "filter" ? [labelId] : ["INBOX"],
+              remove: action === "filter" ? ["INBOX"] : [labelId],
+              providerHistoryId: updated?.historyId,
+            });
             succeededTargets.push({
               ...target,
               threadId,
@@ -285,10 +301,17 @@ export default defineAction({
     );
     await writeAppState("refresh-signal", { ts: Date.now() });
 
+    const changed = succeededTargets.length;
     return {
-      changed: succeededTargets.length,
+      changed,
       failures,
       state: await getAiFilterState(ownerEmail),
+      change: {
+        verb: "updated",
+        kind: "mail-filter",
+        title: action === "filter" ? "Filtered email" : "Kept email",
+        detail: String(changed),
+      },
     };
   },
 });

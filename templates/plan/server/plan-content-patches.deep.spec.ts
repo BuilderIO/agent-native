@@ -6,15 +6,6 @@ import {
   type PlanContent,
 } from "../shared/plan-content.js";
 
-/**
- * Deep probes of areas where the patch pipeline could silently corrupt data,
- * lose node ids, bypass node-id dedup, or mishandle find/replace count math.
- */
-
-/* -------------------------------------------------------------------------- */
-/* update-block bypassing wireframe screen guarantees                          */
-/* -------------------------------------------------------------------------- */
-
 describe("update-block on a wireframe screen", () => {
   const wireframePlan = (): PlanContent =>
     planContentSchema.parse({
@@ -32,9 +23,6 @@ describe("update-block on a wireframe screen", () => {
     });
 
   it("BUG PROBE: update-block can set a wireframe screen with NODES MISSING IDS (no auto-assign)", () => {
-    // replace-wireframe-screen runs ensureNodeIds; update-block's generic data
-    // merge does NOT. So a screen set via update-block can land node objects
-    // with no `id`, which node-addressable patch ops can never target later.
     const next = applyPlanContentPatches(wireframePlan(), [
       {
         op: "update-block",
@@ -45,8 +33,6 @@ describe("update-block on a wireframe screen", () => {
     const blk = next.blocks.find((b) => b.id === "wf");
     if (blk?.type !== "wireframe") throw new Error("expected wireframe");
     const node = blk.data.screen[0];
-    // Documents the gap: this node has no stable id, so update-wireframe-node
-    // can never address it. (ensureNodeIds was bypassed.)
     expect(node?.id).toBeUndefined();
   });
 
@@ -110,10 +96,6 @@ describe("update-block on a wireframe screen", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* update-wireframe-node: patch cannot change el/children/id                  */
-/* -------------------------------------------------------------------------- */
-
 describe("update-wireframe-node patch boundaries", () => {
   const wf = (): PlanContent =>
     planContentSchema.parse({
@@ -171,10 +153,6 @@ describe("update-wireframe-node patch boundaries", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* patch-wireframe-html overlapping-match count math                          */
-/* -------------------------------------------------------------------------- */
-
 describe("patch-wireframe-html count math (split-based)", () => {
   const htmlWireframe = (html: string): PlanContent =>
     planContentSchema.parse({
@@ -191,8 +169,6 @@ describe("patch-wireframe-html count math (split-based)", () => {
   };
 
   it("BUG PROBE: overlapping occurrences are counted by split, not by overlap", () => {
-    // "aa" in "aaa": String.split("aa") -> ["", "a"] -> count 1 -> treated as
-    // unique -> single .replace() only swaps the first. Pin the actual behavior.
     const next = applyPlanContentPatches(htmlWireframe("<p>aaa</p>"), [
       {
         op: "patch-wireframe-html",
@@ -200,7 +176,6 @@ describe("patch-wireframe-html count math (split-based)", () => {
         edits: [{ find: "aa", replace: "Z" }],
       },
     ]);
-    // First "aa" -> "Z", leaving a trailing "a": "<p>Za</p>".
     expect(htmlOf(next)).toBe("<p>Za</p>");
   });
 
@@ -215,14 +190,9 @@ describe("patch-wireframe-html count math (split-based)", () => {
         },
       ],
     );
-    // Only the text node ">x<" changes; the attribute stays.
     expect(htmlOf(next)).toBe('<div title="x">y</div>');
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* canvas note (legacy) + section/connector survival through patches          */
-/* -------------------------------------------------------------------------- */
 
 describe("legacy canvas structures survive patching", () => {
   it("keeps legacy notes, sections, and flow connectors after an unrelated block patch", () => {
@@ -257,10 +227,6 @@ describe("legacy canvas structures survive patching", () => {
     expect(next.canvas?.annotations?.[0]?.text).toBe("Annotation.");
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* update-design-element-style for full-fidelity design fragments              */
-/* -------------------------------------------------------------------------- */
 
 describe("update-design-element-style", () => {
   const designPlan = (): PlanContent =>
@@ -531,10 +497,6 @@ describe("update-design-element-style", () => {
     ).toThrow(/matched 2 elements/i);
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* batch patches in one call applied sequentially                             */
-/* -------------------------------------------------------------------------- */
 
 describe("multi-patch batches", () => {
   it("applies append then update of the just-appended block in one batch", () => {

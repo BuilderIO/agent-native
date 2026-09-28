@@ -1,17 +1,3 @@
-/**
- * Aggregate analytics for a recording.
- *
- * Owner-only — uses assertAccess at editor level (owners always satisfy).
- *
- * Returns: views (total counted human view sessions, so a returning viewer
- * counts again), agentViews (outside agents reading the clip's agent APIs),
- * uniqueViewers (distinct people behind those views), completionRate,
- * dropOff (100 buckets), ctaConversionRate.
- *
- * Usage:
- *   pnpm action get-recording-insights --recordingId=<id>
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { count, eq } from "drizzle-orm";
@@ -63,11 +49,6 @@ export default defineAction({
           .where(eq(schema.recordingReactions.recordingId, args.recordingId)),
       ]);
 
-    // Same definition as `countedViewCondition`, applied to rows already in
-    // memory so this action keeps its single viewer-row read. One row per
-    // person, so this is the distinct-viewer count, not the view total. Rows
-    // that have not met the view threshold are still useful in the Views tab,
-    // but must not lower the counted-view completion rate.
     const countedViewerRows = viewerRows.filter(isCountedViewerRow);
     const countedViewers = countedViewerRows.length;
     const uniqueViewers = new Set(
@@ -81,15 +62,13 @@ export default defineAction({
     const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
     const completionRate =
-      countedViewerRows.length === 0
-        ? 0
+      countedViewers === 0
+        ? null
         : countedViewerRows.reduce(
             (acc, v) => acc + clampCompletionPct(v.completedPct),
             0,
-          ) / countedViewerRows.length;
+          ) / countedViewers;
 
-    // Drop-off: 100 buckets across the video's duration.
-    // Use the recording's duration as the denominator.
     const [rec] = await db
       .select({ durationMs: schema.recordings.durationMs })
       .from(schema.recordings)
@@ -104,22 +83,18 @@ export default defineAction({
 
     for (const v of viewerRows) {
       const pct = clampCompletionPct(v.completedPct);
-      // Each viewer contributes to all buckets up to their max reached.
       for (let i = 0; i < pct; i++) {
         buckets[i].watching += 1;
       }
     }
 
     const ctaClicks = events.filter((e) => e.kind === "cta-click").length;
-    // CTA conversion is per person, so the denominator is counted viewers — not
-    // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
       countedViewers === 0
-        ? 0
+        ? null
         : Math.min(100, (ctaClicks / countedViewers) * 100);
     const reactions = Number(reactionCountRow?.value ?? 0);
 
-    // Top viewers by total watch ms
     const topViewers = (
       await hydrateViewerNames(
         viewerRows

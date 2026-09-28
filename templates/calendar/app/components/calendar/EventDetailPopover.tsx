@@ -75,6 +75,10 @@ import {
 import { useEvent, useUpdateEvent } from "@/hooks/use-events";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { addCalendarDays } from "@/lib/calendar-timezone";
 import {
   getDateKeyInTimezone,
@@ -109,6 +113,10 @@ import {
   eventPopoverShell,
   eventPopoverWidth,
 } from "@/lib/event-popover-style";
+import {
+  applyEndTimeChange,
+  shiftEndForStartChange,
+} from "@/lib/event-time-range";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,
@@ -144,6 +152,7 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
       responseStatus: attendee.responseStatus,
       organizer: attendee.organizer,
       optional: attendee.optional,
+      additionalGuests: attendee.additionalGuests,
       timeZone: attendee.timeZone,
       self: attendee.self,
     })),
@@ -201,7 +210,6 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}min`;
 }
 
-/** Extract a Zoom/Meet/Teams link from location or description */
 function extractMeetingLink(event: CalendarEvent): {
   url: string;
   type: "zoom" | "meet" | "teams" | "link";
@@ -213,7 +221,6 @@ function extractMeetingLink(event: CalendarEvent): {
     return { url: event.meetingLink, type: getMeetingType(event.meetingLink) };
   }
 
-  // Check conferenceData first
   if (event.conferenceData?.entryPoints) {
     const videoEntry = event.conferenceData.entryPoints.find(
       (ep) => ep.entryPointType === "video",
@@ -233,12 +240,10 @@ function extractMeetingLink(event: CalendarEvent): {
     }
   }
 
-  // Fall back to the legacy hangoutLink (Google Meet)
   if (event.hangoutLink) {
     return { url: event.hangoutLink, type: "meet" };
   }
 
-  // Fall back to text matching
   const text = `${event.location || ""} ${event.description || ""}`;
   const zoom = text.match(/https?:\/\/[^\s]*zoom\.us\/j\/[^\s)"]*/i);
   if (zoom) return { url: zoom[0], type: "zoom" };
@@ -324,23 +329,6 @@ interface TimeEditValues {
   timezone: string;
 }
 
-function addMinutesToTimeValue(
-  date: string,
-  time: string,
-  minutes: number,
-): { date: string; time: string } {
-  const [hour, minute] = time.split(":").map(Number);
-  const total = (hour || 0) * 60 + (minute || 0) + minutes;
-  const dayOffset = Math.floor(total / (24 * 60));
-  const minuteOfDay = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
-  const nextDate = new Date(`${date}T00:00:00`);
-  nextDate.setDate(nextDate.getDate() + dayOffset);
-  return {
-    date: format(nextDate, "yyyy-MM-dd"),
-    time: `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`,
-  };
-}
-
 function mergeAttendeesForPrompt(
   existing: CalendarEvent["attendees"] | undefined,
   additions: CalendarEvent["attendees"] | undefined,
@@ -399,12 +387,10 @@ function getReminderUpdate(value: ReminderValue): Partial<CalendarEvent> {
   };
 }
 
-/** Check if a string looks like a URL */
 function isUrl(str: string): boolean {
   return /^https?:\/\//i.test(str.trim());
 }
 
-/** Convert an event date to the calendar's date input value. */
 function toDateInputValue(iso: string, timezone?: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const zonedDate = timezone ? getDateKeyInTimezone(iso, timezone) : null;
@@ -421,7 +407,6 @@ function toAllDayEndDateInputValue(iso: string, timezone?: string): string {
   return format(new Date(d.getTime() - 1), "yyyy-MM-dd");
 }
 
-/** Timed events ending at 00:00 already store the next date; don't add another day. */
 function inclusiveEndDateForAllDayConversion(
   startDate: string,
   endDate: string,
@@ -434,7 +419,6 @@ function inclusiveEndDateForAllDayConversion(
   return bounded;
 }
 
-/** Convert an event time to the calendar's time input value. */
 function toTimeInputValue(iso: string, timezone?: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "00:00";
   const zonedTime = timezone ? getDateTimePartsInTimezone(iso, timezone) : null;
@@ -450,18 +434,13 @@ function toTimeInputValue(iso: string, timezone?: string): string {
 interface EventDetailPopoverProps {
   event: CalendarEvent;
   children: React.ReactNode;
-  onDelete: (eventId: string) => void;
+  onDelete: (event: CalendarEvent) => void;
   isDraft?: boolean;
   timezone?: string;
-  /** When true, the popover opens immediately and title is focused for editing */
   defaultOpen?: boolean;
-  /** Called when the title is changed and should be persisted */
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
-  /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
-  onDismissNew?: (eventId: string, accountEmail?: string) => void;
-  /** Called after the popover's visible open state changes through its normal lifecycle. */
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
+  onDismissNew?: (event: CalendarEvent) => void;
   onOpenChange?: (open: boolean) => void;
-  /** Prefer a placement that keeps Day-view detail controls inside the grid. */
   popoverSide?: "top" | "right" | "bottom" | "left";
   onDraftUpdate?: (
     eventId: string,
@@ -529,7 +508,6 @@ export function EventDetailPopover({
   const isOutOfOffice = isOutOfOfficeEvent(event);
   const editableLocationValue = event.location || "";
 
-  // Inline editing state
   const [editingField, setEditingField] = useState<string | null>(null);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
@@ -657,12 +635,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              targetAccountEmail,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                targetAccountEmail,
+                ...guestNotification,
+              },
+              event,
+            ),
             {
               onSuccess: () => toast.success(t("eventForm.eventUpdated")),
               onError: () => {
@@ -690,11 +671,6 @@ export function EventDetailPopover({
     ],
   );
 
-  // Sync editing state when the event changes (incl. live agent/other-user
-  // edits picked up by polling). Skip the field the user is actively editing so
-  // an incoming update never yanks text out from under in-progress typing —
-  // that field re-adopts the authoritative value once the user finishes (which
-  // closes the inline editor and flips `editingField` away).
   useEffect(() => {
     if (editingField !== "description")
       setEditDescription(event.description || "");
@@ -740,7 +716,6 @@ export function EventDetailPopover({
     eventTimezone,
   ]);
 
-  // When defaultOpen changes to true (new event created), open the popover
   useEffect(() => {
     if (defaultOpen) {
       setOpen(true);
@@ -754,14 +729,12 @@ export function EventDetailPopover({
     }
   }, [defaultOpen, event.title, event.titleIsGenerated, isDraft]);
 
-  // Focus title input when editing starts
   useEffect(() => {
     if (isEditingTitle && open) {
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   }, [isEditingTitle, open]);
 
-  // Focus field inputs when editing starts
   useEffect(() => {
     if (!editingField) return;
     requestAnimationFrame(() => {
@@ -780,8 +753,6 @@ export function EventDetailPopover({
           entryPoint.entryPointType === "video" &&
           entryPoint.uri.includes("meet.google.com"),
       ));
-  // On a draft, a chosen provider isn't created until the event is saved. Show
-  // it as already attached (with a remove control) rather than as a placeholder.
   const pendingConferenceProvider =
     !meetingLink && isDraft ? event.pendingConferenceProvider : undefined;
   const availabilityValue: AvailabilityValue =
@@ -802,7 +773,6 @@ export function EventDetailPopover({
     return () => cancelAnimationFrame(frame);
   }, [showMoreOptions]);
 
-  // Save a field update
   const saveField = useCallback(
     (updates: EventUpdatePatch) => {
       if (!event.id) return false;
@@ -846,12 +816,15 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
+            withCalendarEventSourceIdentity(
+              {
+                id: event.id,
+                accountEmail: event.accountEmail,
+                ...updates,
+                ...guestNotification,
+              },
+              event,
+            ),
             { onSettled: endAction },
           );
         } catch {
@@ -944,12 +917,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.googleMeetAdded")),
             onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -999,12 +975,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast(t("eventForm.zoomAdded")),
             onError: (error) =>
@@ -1120,12 +1099,15 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => toast.error(t("eventForm.updateFailed")),
             onSettled: endAction,
@@ -1204,7 +1186,7 @@ export function EventDetailPopover({
         return;
       }
       if (!beginAction()) return;
-      updateEvent.mutate(update, {
+      updateEvent.mutate(withCalendarEventSourceIdentity(update, event), {
         onError: () => toast.error(t("calendarView.failedUpdateEvent")),
         onSettled: endAction,
       });
@@ -1318,43 +1300,26 @@ export function EventDetailPopover({
 
   const handleInlineTimeChange = useCallback(
     (field: "startTime" | "endTime", nextValue: string) => {
-      let nextDate = editDate;
-      let nextEndDate = editEndDate;
-      let nextStartTime = editStartTime;
-      let nextEndTime = editEndTime;
+      const current = {
+        date: editDate,
+        endDate: editEndDate,
+        startTime: editStartTime,
+        endTime: editEndTime,
+      };
+      const next =
+        field === "startTime"
+          ? shiftEndForStartChange(current, nextValue)
+          : applyEndTimeChange(current, nextValue);
 
-      if (field === "startTime") {
-        nextStartTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const duration = Math.max(
-            15,
-            differenceInMinutes(parseISO(event.end), parseISO(event.start)),
-          );
-          const nextEnd = addMinutesToTimeValue(
-            nextDate,
-            nextStartTime,
-            duration,
-          );
-          nextEndDate = nextEnd.date;
-          nextEndTime = nextEnd.time;
-        }
-      } else {
-        nextEndTime = nextValue;
-        if (nextEndDate === nextDate && nextEndTime <= nextStartTime) {
-          const nextEnd = addMinutesToTimeValue(nextDate, nextEndTime, 24 * 60);
-          nextEndDate = nextEnd.date;
-        }
-      }
-
-      setEditDate(nextDate);
-      setEditEndDate(nextEndDate);
-      setEditStartTime(nextStartTime);
-      setEditEndTime(nextEndTime);
+      setEditDate(next.date);
+      setEditEndDate(next.endDate);
+      setEditStartTime(next.startTime);
+      setEditEndTime(next.endTime);
       saveTimeValues({
-        date: nextDate,
-        endDate: nextEndDate,
-        startTime: nextStartTime,
-        endTime: nextEndTime,
+        date: next.date,
+        endDate: next.endDate,
+        startTime: next.startTime,
+        endTime: next.endTime,
         timezone: editTimezone,
       });
     },
@@ -1364,8 +1329,6 @@ export function EventDetailPopover({
       editStartTime,
       editEndTime,
       editTimezone,
-      event.end,
-      event.start,
       saveTimeValues,
     ],
   );
@@ -1543,7 +1506,6 @@ export function EventDetailPopover({
     const url = editMeetingLink.trim();
     let saved = false;
     if (url) {
-      // Save meeting link as location if no location exists, otherwise as description addendum
       if (!event.location) {
         saved = saveField({ location: url });
         setEditLocation(url);
@@ -1558,7 +1520,6 @@ export function EventDetailPopover({
     return saved;
   }, [editMeetingLink, event.location, event.description, saveField]);
 
-  // If in sidebar mode, clicking the trigger opens the sidebar instead of popover
   const handleTriggerClick = useCallback(() => {
     setFocusedEvent(event);
     if (eventDetailSidebar && !isNewEventRef.current && !isDraft) {
@@ -1585,20 +1546,19 @@ export function EventDetailPopover({
     const title = editingTitle.trim();
     const updates = isEditingTitle && title ? { title } : undefined;
     if (updates) {
-      onTitleSave?.(event.id, updates.title, event.accountEmail);
+      onTitleSave?.(event, updates.title);
       setIsEditingTitle(false);
       isNewEventRef.current = false;
     }
     onDraftCreate(event.id, updates);
   }, [editingTitle, event, isEditingTitle, onDraftCreate, onTitleSave]);
 
-  // Keyboard shortcut: Cmd+J to join meeting when popover is open
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!open) return;
       if ((e.metaKey || e.ctrlKey) && e.key === "j" && meetingLink) {
         e.preventDefault();
-        window.open(meetingLink.url, "_blank");
+        window.open(meetingLink.url, "_blank", "noopener,noreferrer");
       }
     },
     [open, meetingLink],
@@ -1624,17 +1584,14 @@ export function EventDetailPopover({
         setShowConferencingOptions(false);
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
-        // Popover is closing — handle saves
         if (isEditingTitle) {
           if (trimmedTitle) {
-            onTitleSave?.(event.id, trimmedTitle, event.accountEmail);
+            onTitleSave?.(event, trimmedTitle);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
           setIsEditingTitle(false);
         }
-        // Save any pending field edits before deciding whether an untouched
-        // new draft should be discarded.
         if (editingField === "description") {
           savedPendingChange = handleSaveDescription() || savedPendingChange;
         } else if (editingField === "location") {
@@ -1652,7 +1609,7 @@ export function EventDetailPopover({
           !trimmedTitle &&
           onDismissNew
         ) {
-          onDismissNew(event.id, event.accountEmail);
+          onDismissNew(event);
         }
 
         setEditingField(null);
@@ -1664,8 +1621,7 @@ export function EventDetailPopover({
       open,
       isEditingTitle,
       editingTitle,
-      event.id,
-      event.accountEmail,
+      event,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1685,8 +1641,9 @@ export function EventDetailPopover({
     eventDetailSidebar &&
     !isNewEventRef.current &&
     !isDraft &&
-    sidebarEvent?.id === event.id &&
-    sidebarEvent.accountEmail === event.accountEmail;
+    sidebarEvent !== null &&
+    getCalendarEventRenderKey(sidebarEvent) ===
+      getCalendarEventRenderKey(event);
   const detailsOpen = popoverOpen || sidebarDetailsOpen;
   const previousDetailsOpenRef = useRef(false);
 
@@ -1737,7 +1694,6 @@ export function EventDetailPopover({
             e.preventDefault();
             return;
           }
-          // Don't close if clicking inside an Apollo popover (portaled to body)
           const target = e.target as HTMLElement;
           if (
             target.closest("[data-apollo-popover]") ||
@@ -1747,7 +1703,6 @@ export function EventDetailPopover({
             e.preventDefault();
             return;
           }
-          // Mark that a popover was dismissed so the grid suppresses time-slot creation
           markPopoverInteractOutside(e.target);
         }}
       >
@@ -1826,7 +1781,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1852,7 +1807,7 @@ export function EventDetailPopover({
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                      onTitleSave?.(event.id, trimmed, event.accountEmail);
+                      onTitleSave?.(event, trimmed);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);
@@ -1951,16 +1906,35 @@ export function EventDetailPopover({
                         <TimePickerPopover
                           value={editEndTime}
                           label={t("eventForm.end")}
+                          after={
+                            editEndDate === editDate ? editStartTime : undefined
+                          }
                           getOptionMeta={(value) => {
-                            const [hour, minute] = value.split(":").map(Number);
-                            const [startHour, startMinute] = editStartTime
-                              .split(":")
-                              .map(Number);
-                            const duration =
-                              hour * 60 +
-                              minute -
-                              (startHour * 60 + startMinute) +
-                              (editEndDate !== editDate ? 24 * 60 : 0);
+                            const next = applyEndTimeChange(
+                              {
+                                date: editDate,
+                                endDate: editEndDate,
+                                startTime: editStartTime,
+                                endTime: editEndTime,
+                              },
+                              value,
+                            );
+                            const duration = differenceInMinutes(
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.endDate,
+                                  next.endTime,
+                                  editTimezone,
+                                ),
+                              ),
+                              new Date(
+                                dateTimeInTimezoneToIso(
+                                  next.date,
+                                  next.startTime,
+                                  editTimezone,
+                                ),
+                              ),
+                            );
                             if (duration <= 0) return undefined;
                             if (duration < 60) return `${duration}min`;
                             const hours = Math.floor(duration / 60);
@@ -2144,7 +2118,7 @@ export function EventDetailPopover({
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="size-9 shrink-0"
+                          className="shrink-0"
                           aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           disabled={mutationPending}
@@ -2780,7 +2754,7 @@ export function EventDetailPopover({
                 disabled={mutationPending}
                 onClick={() => {
                   if (isDraft) onDraftDiscard?.(event.id);
-                  else onDelete(event.id);
+                  else onDelete(event);
                   handleOpenChange(false);
                 }}
               >

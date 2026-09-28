@@ -8,6 +8,12 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -17,17 +23,24 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
+  MarginProperties,
   SizingField,
   type AutoLayoutFlow,
   type AutoLayoutGridTrackSizing,
   type AutoLayoutGridValue,
+  type AutoLayoutMargin,
+  type AutoLayoutMarginTextValues,
+  type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixValue,
+  type AutoLayoutSidesMixed,
   type ScrubInputChangeMeta,
 } from "../inspector";
+import { IconLayoutSettings } from "../inspector/design-icons";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutAlignmentFromStyles,
   availableSizingForElement,
+  commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
   horizontalToJustify,
@@ -73,18 +86,6 @@ import {
   parseNumericValue,
 } from "./style-options";
 
-/**
- * The `justifyContent` to write when the primary-axis gap-mode toggle
- * changes. "Auto" gap mode IS `justify-content: space-between` (see
- * `spaceBetween` on `AutoLayoutMatrixValue`); switching back to "Fixed"
- * should restore whichever packed alignment (flex-start/center/flex-end) was
- * in effect before "Auto" was turned on, not hard-reset to flex-start —
- * mirrors Figma, where turning off "Space between" returns to the
- * previously chosen start/center/end packing instead of silently
- * re-aligning everything to the start. `lastPackedJustify` is the caller's
- * best-known non-"space-between" `justifyContent` (see
- * `lastPackedJustifyRef` at the call site). Exported for tests.
- */
 export function justifyContentForGapMode(
   gapMode: "auto" | "fixed",
   lastPackedJustify: string,
@@ -95,12 +96,14 @@ export function justifyContentForGapMode(
 export function autoLayoutStylesForFlow(
   flow: AutoLayoutFlow,
   currentStyles: Record<string, string> = {},
+  isExistingGrid = false,
 ): Record<string, string> {
   if (flow === "normal") return { display: "block" };
   if (flow === "vertical") {
     return { display: "flex", flexDirection: "column", flexWrap: "nowrap" };
   }
   if (flow === "grid") {
+    if (isExistingGrid) return {};
     const authoredColumns = currentStyles.gridTemplateColumns;
     const authoredRows = currentStyles.gridTemplateRows;
     return {
@@ -113,7 +116,7 @@ export function autoLayoutStylesForFlow(
         authoredRows && authoredRows !== "none"
           ? authoredRows
           : "repeat(1, max-content)",
-      gridAutoFlow: currentStyles.gridAutoFlow || "row",
+      gridAutoFlow: "row",
     };
   }
   return { display: "flex", flexDirection: "row", flexWrap: "nowrap" };
@@ -138,7 +141,6 @@ function splitGridTracks(template: string): string[] {
   return tracks;
 }
 
-/** Parse the common uniform grid forms while preserving arbitrary authored CSS. */
 export function parseGridTemplate(template: string): {
   count: number;
   sizing: AutoLayoutGridTrackSizing;
@@ -181,20 +183,105 @@ export function gridTemplateForTracks(
   return `repeat(${safeCount}, minmax(0, 1fr))`;
 }
 
-function authoredGridTemplate(
-  element: ElementInfo,
-  property: "gridTemplateColumns" | "gridTemplateRows",
-): string {
+export function gridTemplatePatchForChange(
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Partial<Record<"gridTemplateColumns" | "gridTemplateRows", string>> {
+  const patch: Partial<
+    Record<"gridTemplateColumns" | "gridTemplateRows", string>
+  > = {};
+  const changed = (axis: "column" | "row") =>
+    !previous ||
+    previous[axis === "column" ? "columns" : "rows"] !==
+      next[axis === "column" ? "columns" : "rows"] ||
+    previous[`${axis}Sizing`] !== next[`${axis}Sizing`] ||
+    previous[`${axis}Size`] !== next[`${axis}Size`];
+  const skipAxis = (axis: "column" | "row") => {
+    if (previous?.[axis === "column" ? "columnsMixed" : "rowsMixed"]) {
+      return true;
+    }
+    const countKey = axis === "column" ? "columns" : "rows";
+    return (
+      previous?.[`${axis}Sizing`] === "custom" &&
+      next[`${axis}Sizing`] === "custom" &&
+      previous?.[countKey] !== next[countKey]
+    );
+  };
+  if (changed("column") && !skipAxis("column")) {
+    patch.gridTemplateColumns = gridTemplateForTracks(
+      next.columns,
+      next.columnSizing,
+      next.columnSize,
+      next.columnSizing === "custom" && previous?.columns === next.columns
+        ? next.columnTemplate
+        : undefined,
+    );
+  }
+  if (changed("row") && !skipAxis("row")) {
+    patch.gridTemplateRows = gridTemplateForTracks(
+      next.rows,
+      next.rowSizing,
+      next.rowSize,
+      next.rowSizing === "custom" && previous?.rows === next.rows
+        ? next.rowTemplate
+        : undefined,
+    );
+  }
+  return patch;
+}
+
+function elementIsGrid(element: ElementInfo): boolean {
+  const display = (element.computedStyles.display || "").toLowerCase();
   return (
-    element.inlineStyles?.[property] || element.computedStyles[property] || ""
+    element.isGridContainer === true ||
+    display === "grid" ||
+    display === "inline-grid"
   );
 }
 
+function gridAxisValue(
+  element: ElementInfo,
+  property: "gridTemplateColumns" | "gridTemplateRows",
+): ReturnType<typeof parseGridTemplate> & {
+  template: string;
+  unknown?: boolean;
+  mixed?: boolean;
+} {
+  const authored = element.inlineStyles?.[property] || "";
+  const computed = element.computedStyles[property] || "";
+  if (isMixedValue(authored)) {
+    const count =
+      !isMixedValue(computed) && computed
+        ? parseGridTemplate(computed).count
+        : 1;
+    return {
+      count,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  if (authored) return { ...parseGridTemplate(authored), template: authored };
+  if (isMixedValue(computed)) {
+    return {
+      count: 1,
+      sizing: "custom",
+      template: "",
+      unknown: true,
+      mixed: true,
+    };
+  }
+  const count = computed ? parseGridTemplate(computed).count : 1;
+  if (elementIsGrid(element)) {
+    return { count, sizing: "custom", template: "", unknown: true };
+  }
+  return { count, sizing: "fill", template: "" };
+}
+
 export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
-  const columnsTemplate = authoredGridTemplate(element, "gridTemplateColumns");
-  const rowsTemplate = authoredGridTemplate(element, "gridTemplateRows");
-  const columns = parseGridTemplate(columnsTemplate);
-  const rows = parseGridTemplate(rowsTemplate);
+  const columns = gridAxisValue(element, "gridTemplateColumns");
+  const rows = gridAxisValue(element, "gridTemplateRows");
   return {
     columns: columns.count,
     rows: rows.count,
@@ -202,37 +289,118 @@ export function gridValueForElement(element: ElementInfo): AutoLayoutGridValue {
     rowSizing: rows.sizing,
     columnSize: columns.fixedSize,
     rowSize: rows.fixedSize,
-    columnTemplate: columnsTemplate,
-    rowTemplate: rowsTemplate,
+    columnSizingUnknown: columns.unknown,
+    rowSizingUnknown: rows.unknown,
+    columnTemplate: columns.template,
+    rowTemplate: rows.template,
     columnGap: parseNumericValue(element.computedStyles.columnGap || "0"),
     rowGap: parseNumericValue(element.computedStyles.rowGap || "0"),
-    columnsMixed: isMixedValue(columnsTemplate),
-    rowsMixed: isMixedValue(rowsTemplate),
+    columnsMixed: columns.mixed,
+    rowsMixed: rows.mixed,
     columnGapMixed: isMixedValue(element.computedStyles.columnGap),
     rowGapMixed: isMixedValue(element.computedStyles.rowGap),
   };
 }
 
-/** Flex container properties */
+function marginValuesForStyles(
+  styles: Record<string, string>,
+  inlineStyles?: Record<string, string>,
+) {
+  const marginValue = (property: string) => {
+    const authored = inlineStyles?.[property];
+    return (
+      (isMixedValue(authored) || authored?.trim().toLowerCase() === "auto"
+        ? authored
+        : styles[property]) || "0"
+    );
+  };
+  const raw = {
+    top: marginValue("marginTop"),
+    right: marginValue("marginRight"),
+    bottom: marginValue("marginBottom"),
+    left: marginValue("marginLeft"),
+  };
+  const value: AutoLayoutMargin = {
+    top: parseNumericValue(raw.top),
+    right: parseNumericValue(raw.right),
+    bottom: parseNumericValue(raw.bottom),
+    left: parseNumericValue(raw.left),
+  };
+  const mixed: AutoLayoutSidesMixed = {
+    top: isMixedValue(raw.top),
+    right: isMixedValue(raw.right),
+    bottom: isMixedValue(raw.bottom),
+    left: isMixedValue(raw.left),
+  };
+  const textValues: AutoLayoutMarginTextValues = {
+    top: !mixed.top && raw.top.trim() === "auto" ? "auto" : undefined,
+    right: !mixed.right && raw.right.trim() === "auto" ? "auto" : undefined,
+    bottom: !mixed.bottom && raw.bottom.trim() === "auto" ? "auto" : undefined,
+    left: !mixed.left && raw.left.trim() === "auto" ? "auto" : undefined,
+  };
+  return { value, mixed, textValues };
+}
+
+function marginStylesForSides(
+  margin: AutoLayoutMargin,
+  sides: Array<keyof AutoLayoutMargin>,
+): Record<string, string> {
+  const styles: Record<string, string> = {};
+  for (const side of sides) {
+    const property = `margin${side[0].toUpperCase()}${side.slice(1)}`;
+    styles[property] = `${margin[side]}px`;
+  }
+  return styles;
+}
+
+function marginInspectorLabels(
+  t: ReturnType<typeof useT>,
+): Partial<AutoLayoutMatrixLabels> {
+  return {
+    margin: t("editPanel.labels.margin"),
+    linkMargin: t("editPanel.labels.linkMarginSides"),
+    unlinkMargin: t("editPanel.labels.unlinkMarginSides"),
+    marginTop: t("editPanel.labels.marginTop"),
+    marginRight: t("editPanel.labels.marginRight"),
+    marginBottom: t("editPanel.labels.marginBottom"),
+    marginLeft: t("editPanel.labels.marginLeft"),
+  };
+}
+
+export function gridChangePatch(
+  element: ElementInfo,
+  previous: AutoLayoutGridValue | undefined,
+  next: AutoLayoutGridValue,
+): Record<string, string> {
+  const isGrid = elementIsGrid(element);
+  return {
+    ...(isGrid ? {} : { display: "grid" }),
+    ...gridTemplatePatchForChange(previous, next),
+    ...(isGrid ? {} : { gridAutoFlow: "row" }),
+    columnGap: `${next.columnGap}px`,
+    rowGap: `${next.rowGap}px`,
+  };
+}
+
 function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
   onApplyLayoutFlow,
+  showSizingControls,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showSizingControls: boolean;
 }) {
+  const t = useT();
   const styles = element.computedStyles;
-  // The element's CURRENT layout flow as authored in code, read from its own
-  // computed `display`: block/flow-root/grid/etc. = "normal flow",
-  // flex/inline-flex = auto layout. We forward it so the AutoLayoutMatrix Flow
-  // control can show the right state (normal vs horizontal/vertical/wrap)
-  // instead of an empty "add" affordance.
+  const marginLabels = marginInspectorLabels(t);
+  const marginProperties = marginValuesForStyles(styles, element.inlineStyles);
   const display = (styles.display || "").toLowerCase();
   const isGrid = element.isGridContainer || display.includes("grid");
   const isFlex = element.isFlexContainer || display.includes("flex");
@@ -241,24 +409,11 @@ function FlexContainerControls({
     : isFlex
       ? "flex"
       : "block";
-  const flowMixed = [
-    styles.display,
-    styles.flexDirection,
-    styles.flexWrap,
-    styles.gridTemplateColumns,
-    styles.gridTemplateRows,
-  ].some(isMixedValue);
+  const flowMixed =
+    !isGrid &&
+    [styles.display, styles.flexDirection, styles.flexWrap].some(isMixedValue);
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
-  // `justifyContent` is always the main-axis property in flexbox regardless
-  // of direction, so it doubles as the "packed" (start/center/end) main-axis
-  // alignment AND the gap-mode signal ("space-between" = Auto gap, see
-  // `spaceBetween` below). Remember the last non-"space-between" value here
-  // so turning gap mode back to Fixed can restore the user's chosen packed
-  // alignment (see onGapModeChange) instead of hard-resetting to flex-start
-  // — mirrors Figma, where switching a container's primary-axis distribution
-  // away from "Space between" returns to whichever start/center/end packing
-  // was previously selected.
   const lastPackedJustifyRef = useRef(
     styles.justifyContent && styles.justifyContent !== "space-between"
       ? styles.justifyContent
@@ -271,20 +426,10 @@ function FlexContainerControls({
   }, [styles.justifyContent]);
   const mainGapAxis =
     flexDirection === "horizontal" ? "horizontal" : "vertical";
-  // When the element is in normal flow (not flex yet), picking any flow option
-  // must first turn it into a flex container; otherwise setting flex-direction
-  // alone is a no-op against a block element.
   const ensureFlex = () => {
     if (!isFlex) onStyleChange("display", "flex");
   };
 
-  /**
-   * Handle the Flow control switching between flex and normal-flow (block).
-   *
-   * For 'flex': ensures display:flex is set (ensureFlex path).
-   * For 'block': sets display:block and leaves children unchanged — mirrors
-   * the { kind:"autoLayout", enabled:false } substrate intent exactly.
-   */
   const handleDisplayChange = (nextDisplay: "flex" | "grid" | "block") => {
     if (nextDisplay === "grid") {
       onStyleChange("display", "grid");
@@ -294,8 +439,6 @@ function FlexContainerControls({
       ensureFlex();
       return;
     }
-    // Turn auto-layout off: set display:block, leaving children unchanged.
-    // This is the direct equivalent of the autoLayout substrate with enabled:false.
     onStyleChange("display", "block");
   };
 
@@ -311,16 +454,6 @@ function FlexContainerControls({
     padding.bottom,
     padding.left,
   ]);
-  // Seeds the linked/unlinked view once per selection (this component is
-  // remounted per element via the `key={elementIdentityKey(element)}` at its
-  // call site, matching CornerRadiusControl's pattern) and is otherwise a
-  // pure user-controlled toggle (see onPaddingLinkedChange below). Do NOT add
-  // a useEffect that re-derives this from `allPaddingEqual` on every render:
-  // that previously auto-unlinked as soon as the four sides became unequal,
-  // which fires mid-drag the instant a user scrubs one axis of the linked
-  // horizontal/vertical fields (e.g. changing left/right while top/bottom
-  // stay put) — collapsing the linked 2-field view into the unlinked 4-field
-  // view *during* the gesture and destroying the drag (STEVE TEST BATCH 4 #4).
   const [paddingLinked, setPaddingLinked] = useState(allPaddingEqual);
 
   const autoLayoutValue: AutoLayoutMatrixValue = {
@@ -337,10 +470,6 @@ function FlexContainerControls({
       ...(isGrid ? [styles.justifyItems] : []),
     ].some(isMixedValue),
     gap: parseNumericValue(styles.gap || "0"),
-    // Multi-selections with differing gap/padding surface the MIXED_VALUE
-    // sentinel here; parseNumericValue would silently coerce it to 0 (a
-    // real-looking value that would clobber every element on edit), so flag
-    // each field so AutoLayoutMatrix renders a "Mixed" placeholder instead.
     gapMixed: isMixedValue(styles.gap),
     gapModeMixed: isMixedValue(styles.justifyContent),
     padding,
@@ -351,6 +480,9 @@ function FlexContainerControls({
       left: isMixedValue(styles.paddingLeft),
     },
     paddingLinked,
+    margin: marginProperties.value,
+    marginMixed: marginProperties.mixed,
+    marginTextValues: marginProperties.textValues,
     childSizing: {
       horizontal: inferElementSizing(element, "horizontal"),
       vertical: inferElementSizing(element, "vertical"),
@@ -379,21 +511,19 @@ function FlexContainerControls({
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
+        labels={marginLabels}
         onFlowChange={(flow) => {
           const nodeId = element.sourceId ?? element.pendingNodeId;
-          // A raw display:block leaves the children in flow, so they re-stack
-          // and stop being draggable. The command measures and pins them.
           if (flow === "normal" && onDisableAutoLayout && nodeId) {
             onDisableAutoLayout(nodeId);
             return;
           }
-          const patch = autoLayoutStylesForFlow(flow, {
-            ...styles,
-            ...element.inlineStyles,
-          });
-          // Children drawn on canvas are absolutely positioned, so the
-          // container styles alone would render no layout at all — only a
-          // selection this editor cannot rewrite falls through to them.
+          if (flow === "grid" && isGrid) return;
+          const patch = autoLayoutStylesForFlow(
+            flow,
+            { ...styles, ...element.inlineStyles },
+            isGrid,
+          );
           if (
             onApplyLayoutFlow &&
             onApplyLayoutFlow(nodeId ?? null, patch) !== "unsupported"
@@ -421,33 +551,11 @@ function FlexContainerControls({
           onStyleChange("flexWrap", wrap);
         }}
         onGridChange={(nextGrid, meta) => {
-          const previousGrid = autoLayoutValue.grid;
-          const columnTemplate = gridTemplateForTracks(
-            nextGrid.columns,
-            nextGrid.columnSizing,
-            nextGrid.columnSize,
-            nextGrid.columnSizing === "custom" &&
-              previousGrid?.columns === nextGrid.columns
-              ? nextGrid.columnTemplate
-              : undefined,
+          const patch = gridChangePatch(
+            element,
+            autoLayoutValue.grid,
+            nextGrid,
           );
-          const rowTemplate = gridTemplateForTracks(
-            nextGrid.rows,
-            nextGrid.rowSizing,
-            nextGrid.rowSize,
-            nextGrid.rowSizing === "custom" &&
-              previousGrid?.rows === nextGrid.rows
-              ? nextGrid.rowTemplate
-              : undefined,
-          );
-          const patch = {
-            display: "grid",
-            gridTemplateColumns: columnTemplate,
-            gridTemplateRows: rowTemplate,
-            gridAutoFlow: "row",
-            columnGap: `${nextGrid.columnGap}px`,
-            rowGap: `${nextGrid.rowGap}px`,
-          };
           if (onStylesChange) {
             onStylesChange(patch, meta);
             return;
@@ -484,12 +592,6 @@ function FlexContainerControls({
         }}
         onGapChange={(gap, meta) => onStyleChange("gap", `${gap}px`, meta)}
         onPaddingChange={(nextPadding, meta) => {
-          // Forward ScrubInput's gesture meta so preview ticks ride the host's
-          // live fast path and only the release commit persists (B5-14:
-          // dropping it here made padding scrubs invisible until reselect).
-          // Batch all four sides into one styles change when the host
-          // supports it so each tick/commit is a single message instead of
-          // four.
           const patch = {
             paddingTop: `${nextPadding.top}px`,
             paddingRight: `${nextPadding.right}px`,
@@ -515,13 +617,24 @@ function FlexContainerControls({
           // each linked axis's representative value and applies both sides on
           // the next real field edit, so no style write belongs here.
         }}
+        onMarginChange={(nextMargin, meta, changedSides) => {
+          const patch = marginStylesForSides(nextMargin, changedSides);
+          const changeMeta =
+            meta &&
+            (meta.relativeDelta !== undefined || meta.relativeExpression)
+              ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+              : meta;
+          if (onStylesChange) {
+            onStylesChange(patch, changeMeta);
+            return;
+          }
+          Object.entries(patch).forEach(([property, value]) =>
+            onStyleChange(property, value, changeMeta),
+          );
+        }}
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
         }
-        // Only containers own clipping: a drawn frame, or the screen's own
-        // document. Do not widen this to `isContainerElement`: board-drawn
-        // primitives reach this panel with no `primitiveKind`, so every drawn
-        // rectangle reads as a plain container `div` and gets the control back.
         clipContentSupported={
           element.primitiveKind === "frame" ||
           element.tagName?.toLowerCase() === "body"
@@ -546,6 +659,7 @@ function FlexContainerControls({
           );
         }}
         availableChildSizing={availableSizingForElement(element)}
+        showSizingControls={showSizingControls}
         onChildSizingChange={(axis, sizing) => {
           commitElementSizing(
             element,
@@ -556,20 +670,17 @@ function FlexContainerControls({
           );
         }}
         onChildSizeChange={(axis, px, meta) =>
-          onStyleChange(
-            axis === "horizontal" ? "width" : "height",
-            `${px}px`,
+          commitFixedElementSizes(
+            element,
+            { [axis]: px },
+            onStyleChange,
+            onStylesChange,
             meta,
           )
         }
         onChildMinMaxChange={(axis, kind, val, meta) =>
           commitElementMinMax(axis, kind, val, onStyleChange, meta)
         }
-        // Empty frames/rectangles still need the complete Flow + Padding
-        // surface: users must be able to turn auto layout on before adding a
-        // first child, just as they can for an empty frame in Figma. The old
-        // child-count gate left an "Auto layout" section containing only
-        // Resizing, with no way to enable auto layout from the inspector.
         showChildLayoutControls
       />
     </div>
@@ -673,12 +784,67 @@ function GridChildControls({
   );
 }
 
+function LayoutAdvancedPopover({
+  element,
+  onStyleChange,
+  flexChild,
+  gridChild,
+}: {
+  element: ElementInfo;
+  onStyleChange: StyleChangeHandler;
+  flexChild: boolean;
+  gridChild: boolean;
+}) {
+  const t = useT();
+  const label = t(
+    flexChild
+      ? "editPanel.layoutContext.flexChild"
+      : "editPanel.layoutContext.gridChild",
+  );
+
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={label}
+              className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+            >
+              <IconLayoutSettings className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="left"
+        align="end"
+        sideOffset={8}
+        data-design-chrome-region="right-panel"
+        className="w-72 space-y-3 p-3 !text-[11px]"
+      >
+        {flexChild ? (
+          <FlexChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+        {gridChild ? (
+          <GridChildControls element={element} onStyleChange={onStyleChange} />
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
   onDisableAutoLayout,
   onApplyLayoutFlow,
+  showContainerSizing = true,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
@@ -687,6 +853,7 @@ export function LayoutContextProperties({
   onStylesChange?: StylesChangeHandler;
   onDisableAutoLayout?: (nodeId: string) => void;
   onApplyLayoutFlow?: ApplyLayoutFlowHandler;
+  showContainerSizing?: boolean;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -696,31 +863,25 @@ export function LayoutContextProperties({
   const availableSizing = availableSizingForElement(element);
   const isContainer = isContainerElement(element);
   const aspectLock = useAspectRatioLock(element);
-
-  const childControls = (
-    <>
-      {flexChild ? (
-        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-      {gridChild ? (
-        <div className="pt-2 shadow-[inset_0_1px_var(--design-editor-control-border)]">
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-    </>
+  const marginLabels = marginInspectorLabels(t);
+  const marginProperties = marginValuesForStyles(
+    element.computedStyles,
+    element.inlineStyles,
   );
 
-  // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
-  // design W/H sizing block instead.
+  const childActions =
+    flexChild || gridChild ? (
+      <LayoutAdvancedPopover
+        element={element}
+        onStyleChange={onStyleChange}
+        flexChild={flexChild}
+        gridChild={gridChild}
+      />
+    ) : undefined;
+
   if (!isContainer) {
     const widthSizing = inferElementSizing(element, "horizontal");
     const heightSizing = inferElementSizing(element, "vertical");
-    // The aspect lock only makes sense between two fixed numeric dimensions —
-    // hug/fill don't have an independent px value to scale. Match Figma: the
-    // toggle is disabled (not hidden) otherwise, so its state/affordance stays
-    // visible but inert.
     const resolvedWidth = measuredElementSize(element, "horizontal");
     const resolvedHeight = measuredElementSize(element, "vertical");
     const canLockAspect =
@@ -739,17 +900,6 @@ export function LayoutContextProperties({
       );
     };
 
-    // Shared W/H commit path: when locked, derive the other axis from the
-    // captured ratio and commit both in one patch/history step; otherwise
-    // fall back to the existing single-property write. `meta` is the
-    // ScrubInput gesture-coalescing metadata forwarded from SizingField's
-    // onSizeChange (see AutoLayoutMatrix.tsx) — threading it through here,
-    // exactly like the X/Y ScrubStyleInput fields already do, is what lets a
-    // W/H drag-scrub coalesce into one undo step instead of one per tick.
-    // When locked, the same single `meta` describes the *one* combined
-    // gesture driving both axes, so it's forwarded unchanged to whichever
-    // commit call carries the patch (StylesChangeHandler/StyleChangeHandler
-    // both accept an optional meta already).
     const commitWidth = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
         const nextHeight = deriveLockedAspectSize(
@@ -757,15 +907,22 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${px}px`, height: `${nextHeight}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: px, vertical: nextHeight },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("width", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { horizontal: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
     const commitHeight = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
@@ -774,19 +931,29 @@ export function LayoutContextProperties({
           px,
           aspectLock.ratio,
         );
-        const patch = { width: `${nextWidth}px`, height: `${px}px` };
-        if (onStylesChange) onStylesChange(patch, meta);
-        else {
-          onStyleChange("width", patch.width, meta);
-          onStyleChange("height", patch.height, meta);
-        }
+        commitFixedElementSizes(
+          element,
+          { horizontal: nextWidth, vertical: px },
+          onStyleChange,
+          onStylesChange,
+          meta,
+        );
         return;
       }
-      onStyleChange("height", `${px}px`, meta);
+      commitFixedElementSizes(
+        element,
+        { vertical: px },
+        onStyleChange,
+        onStylesChange,
+        meta,
+      );
     };
 
     return (
-      <PanelSection title={t("editPanel.sections.layout")}>
+      <PanelSection
+        title={t("editPanel.sections.layout")}
+        actions={childActions}
+      >
         {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾]
             with the full sizing menu (modes + min/max + variable) per axis,
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
@@ -797,36 +964,40 @@ export function LayoutContextProperties({
             span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
             className="group/field relative"
           >
-            <SizingField
-              axis="W"
-              sizingAxis="horizontal"
-              value={widthSizing}
-              resolvedSize={resolvedWidth}
-              mixed={isMixedValue(element.computedStyles.width)}
-              minMax={readElementMinMax(element, "horizontal")}
-              options={availableSizing.horizontal ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "horizontal",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitWidth}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="width"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="width"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="W"
+                sizingAxis="horizontal"
+                value={widthSizing}
+                resolvedSize={resolvedWidth}
+                mixed={isMixedValue(element.computedStyles.width)}
+                minMax={readElementMinMax(element, "horizontal")}
+                options={availableSizing.horizontal ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "horizontal",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
+                onSizeChange={commitWidth}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
           </InspectorGridCell>
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
@@ -836,36 +1007,42 @@ export function LayoutContextProperties({
             span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
             className="group/field relative"
           >
-            <SizingField
-              axis="H"
-              sizingAxis="vertical"
-              value={heightSizing}
-              resolvedSize={resolvedHeight}
-              mixed={isMixedValue(element.computedStyles.height)}
-              minMax={readElementMinMax(element, "vertical")}
-              options={availableSizing.vertical ?? ["fixed"]}
-              disabled={false}
-              onChange={(mode) =>
-                commitElementSizing(
-                  element,
-                  "vertical",
-                  mode,
-                  onStyleChange,
-                  onStylesChange,
-                )
-              }
-              onSizeChange={commitHeight}
-              onMinMaxChange={(axis, kind, val, meta) =>
-                commitElementMinMax(axis, kind, val, onStyleChange, meta)
-              }
-            />
-            <FieldTrailer
-              element={element}
-              overrideProperty="height"
-              motionKeyframeContext={motionKeyframeContext}
-              breakpointOverrideContext={breakpointOverrideContext}
-              className="absolute -top-3.5 right-0"
-            />
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex h-4 items-center justify-between gap-1">
+                <SubsectionLabel>
+                  {t("editPanel.labels.height")}
+                </SubsectionLabel>
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="height"
+                  motionKeyframeContext={motionKeyframeContext}
+                  breakpointOverrideContext={breakpointOverrideContext}
+                />
+              </div>
+              <SizingField
+                axis="H"
+                sizingAxis="vertical"
+                value={heightSizing}
+                resolvedSize={resolvedHeight}
+                mixed={isMixedValue(element.computedStyles.height)}
+                minMax={readElementMinMax(element, "vertical")}
+                options={availableSizing.vertical ?? ["fixed"]}
+                disabled={false}
+                onChange={(mode) =>
+                  commitElementSizing(
+                    element,
+                    "vertical",
+                    mode,
+                    onStyleChange,
+                    onStylesChange,
+                  )
+                }
+                onSizeChange={commitHeight}
+                onMinMaxChange={(axis, kind, val, meta) =>
+                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                }
+              />
+            </div>
           </InspectorGridCell>
           <InspectorGridCell
             span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
@@ -888,7 +1065,7 @@ export function LayoutContextProperties({
                   disabled={!canLockAspect}
                   onClick={toggleAspectLock}
                   className={cn(
-                    "mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                    "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
                     "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
                     aspectLock.locked &&
                       "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
@@ -910,19 +1087,37 @@ export function LayoutContextProperties({
             </Tooltip>
           </InspectorGridCell>
         </InspectorGrid>
-        {childControls}
+        <MarginProperties
+          key={elementStableKey(element)}
+          value={marginProperties.value}
+          mixed={marginProperties.mixed}
+          textValues={marginProperties.textValues}
+          labels={marginLabels}
+          onChange={(margin, meta, changedSides) => {
+            const patch = marginStylesForSides(margin, changedSides);
+            const changeMeta =
+              meta &&
+              (meta.relativeDelta !== undefined || meta.relativeExpression)
+                ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+                : meta;
+            if (onStylesChange) {
+              onStylesChange(patch, changeMeta);
+              return;
+            }
+            Object.entries(patch).forEach(([property, value]) =>
+              onStyleChange(property, value, changeMeta),
+            );
+          }}
+        />
       </PanelSection>
     );
   }
 
-  // Any container element ALREADY has a layout in code — normal flow (block) by
-  // default, or flex when it uses flexbox. the design editor never makes you "add" auto
-  // layout for a frame, so we always render the full layout controls and let
-  // the Flow control reflect/switch the element's current `display`. Choosing a
-  // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
-  // normal-flow option resets to `display:block`.
   return (
-    <PanelSection title={t("editPanel.sections.autoLayout")}>
+    <PanelSection
+      title={t("editPanel.sections.autoLayout")}
+      actions={childActions}
+    >
       {/* Selection-stable key so per-selection UI state (paddingLinked, which
           must not silently flip while the user is mid-scrub — see the
           FlexContainerControls comment) resets on selection change instead of
@@ -942,18 +1137,12 @@ export function LayoutContextProperties({
         onStylesChange={onStylesChange}
         onDisableAutoLayout={onDisableAutoLayout}
         onApplyLayoutFlow={onApplyLayoutFlow}
+        showSizingControls={showContainerSizing}
       />
-      {childControls}
     </PanelSection>
   );
 }
 
-/**
- * design layout-guide section. Shown for frame/container
- * elements. Renders an overlay column/row guide by applying a non-destructive
- * `backgroundImage` repeating gradient layer tagged so it can be toggled off
- * without disturbing real fills.
- */
 const LAYOUT_GUIDE_MARKER = "/* an-layout-guide */";
 
 function hasLayoutGuide(styles: Record<string, string>): boolean {
@@ -971,9 +1160,6 @@ export function LayoutGuideProperties({
   const active = hasLayoutGuide(styles);
 
   const addGuide = () => {
-    // 12-column overlay guide — the design editor's default columns layout grid.
-    // The LAYOUT_GUIDE_MARKER comment is embedded so hasLayoutGuide and removeGuide
-    // can detect/remove it without touching unrelated repeating-linear-gradient fills.
     const guide = `repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12)) ${LAYOUT_GUIDE_MARKER}`;
     const existing = compactCssValue(styles.backgroundImage, "");
     onStyleChange(
@@ -995,7 +1181,6 @@ export function LayoutGuideProperties({
   return (
     <PanelSection
       title={"Layout guide" /* i18n-ignore design inspector label */}
-      defaultCollapsed
       actions={
         <SectionIconButton
           label={
@@ -1027,11 +1212,7 @@ export function LayoutGuideProperties({
           <InspectorGridCell span={4} ariaHidden />
           <InspectorGridCell span={4} ariaHidden />
         </InspectorGrid>
-      ) : (
-        <p className="!text-[11px] text-muted-foreground">
-          {"No layout guides" /* i18n-ignore design inspector empty state */}
-        </p>
-      )}
+      ) : null}
     </PanelSection>
   );
 }

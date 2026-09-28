@@ -1,16 +1,13 @@
-/**
- * <VoiceTranscriptionSection /> — source + cleanup settings for voice input.
- *
- * Writes the selection to application_state under `voice-transcription-prefs`
- * so the composer's `useVoiceDictation` hook picks it up on next record. The
- * legacy `provider` field is still written alongside `transcriptionMode` so
- * older clients continue to normalize safely.
- *
- * Provider status comes from `/_agent-native/voice-providers/status`, which
- * mirrors the server transcription route's key/env resolution.
- */
-
-import { Picker, Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Skeleton, Switch } from "@agent-native/toolkit/design-system";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconAlertCircle,
   IconCheck,
@@ -21,9 +18,14 @@ import {
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { buildSettingsRoute } from "../../navigation/index.js";
-import { agentNativePath } from "../api-path.js";
-import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import {
+  buildSettingsRoute,
+  STANDARD_APP_ROUTES,
+} from "../../navigation/index.js";
+import { GEMINI_API_KEY } from "../../secrets/key-aliases.js";
+import { agentNativePath, appMountedPath } from "../api-path.js";
+import { useT } from "../i18n.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 import { SettingsRow } from "./SettingsRow.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
 import { useBuilderConnectFlow, useBuilderStatus } from "./useBuilderStatus.js";
@@ -137,6 +139,10 @@ export function VoiceTranscriptionSection({
   >(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The picker must not present the Batch default as the saved choice when
+  // the saved choice could not be read.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [prefsRequest, setPrefsRequest] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [cleanupEnabled, setCleanupEnabled] = useState<boolean | null>(null);
   const { status: builderStatus, refetch: refetchBuilderStatus } =
@@ -156,7 +162,6 @@ export function VoiceTranscriptionSection({
   const googleRealtimeReady =
     !!googleRealtimeConfigured && builderRealtimeReady;
 
-  // Read cleanup pref (default: true if Builder is connected).
   useEffect(() => {
     let cancelled = false;
     fetch(CLEANUP_PREFS_URL)
@@ -173,7 +178,7 @@ export function VoiceTranscriptionSection({
             (body as { enabled?: boolean } | null)?.enabled ??
             (body as { value?: { enabled?: boolean } } | null)?.value?.enabled;
           if (typeof stored === "boolean") setCleanupEnabled(stored);
-          else setCleanupEnabled(null); // resolve once builderStatus arrives
+          else setCleanupEnabled(null);
         },
       )
       .catch(() => !cancelled && setCleanupEnabled(null));
@@ -209,7 +214,12 @@ export function VoiceTranscriptionSection({
   useEffect(() => {
     let cancelled = false;
     fetch(PREFS_URL)
-      .then((r) => (r.ok ? r.json() : null))
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        // A key that was never saved comes back as an empty 200.
+        const text = await r.text();
+        return text ? JSON.parse(text) : null;
+      })
       .then((body: Prefs | { value?: Prefs } | null) => {
         if (cancelled) return;
         const value =
@@ -235,6 +245,7 @@ export function VoiceTranscriptionSection({
       })
       .catch(() => {
         if (!cancelled) {
+          setLoadFailed(true);
           setTranscriptionMode(DEFAULT_TRANSCRIPTION_MODE);
           setProvider(DEFAULT_BATCH_PROVIDER);
         }
@@ -242,7 +253,7 @@ export function VoiceTranscriptionSection({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [prefsRequest]);
 
   useEffect(() => {
     let cancelled = false;
@@ -264,7 +275,7 @@ export function VoiceTranscriptionSection({
             const find = (key: string) =>
               Array.isArray(list) ? list.find((s) => s.key === key) : null;
             setOpenAiConfigured(find("OPENAI_API_KEY")?.status === "set");
-            setGeminiConfigured(find("GEMINI_API_KEY")?.status === "set");
+            setGeminiConfigured(find(GEMINI_API_KEY)?.status === "set");
             setGroqConfigured(find("GROQ_API_KEY")?.status === "set");
             setGoogleRealtimeConfigured(
               find("GOOGLE_APPLICATION_CREDENTIALS")?.status === "set",
@@ -311,7 +322,6 @@ export function VoiceTranscriptionSection({
           throw new Error(`HTTP ${res.status}`);
         }
       } catch (err) {
-        // Revert the optimistic update so the UI matches server state.
         setTranscriptionMode(previous.transcriptionMode);
         setProvider(previous.provider);
         setInstructions(previous.instructions);
@@ -330,7 +340,12 @@ export function VoiceTranscriptionSection({
     window.history.pushState(
       null,
       "",
-      buildSettingsRoute(`integrations:secrets:${key}`),
+      appMountedPath(
+        buildSettingsRoute("api-keys", undefined, {
+          anchor: `secrets:${key}`,
+        }),
+        STANDARD_APP_ROUTES.settings,
+      ),
     );
     window.dispatchEvent(new Event("popstate"));
   };
@@ -370,48 +385,24 @@ export function VoiceTranscriptionSection({
     }
   };
 
-  if (transcriptionMode === null) {
-    if (compact) {
-      return (
-        <SettingsRow
-          label="Voice transcription"
-          description="Choose how voice input is transcribed."
-          control={
-            <Skeleton
-              className="h-9 w-44 border border-border bg-muted-foreground/10"
-              aria-label="Loading voice transcription"
-            />
-          }
-        />
-      );
-    }
-    return <SettingsSkeleton lines={1} />;
-  }
-
   if (compact) {
     return (
-      <SettingsRow
-        label="Voice transcription"
-        description="Choose how voice input is transcribed."
-        control={
-          <Picker
-            mode="select"
-            options={[
-              { value: "mac-native", label: "Mac Native" },
-              { value: "google-realtime", label: "Google Realtime" },
-              { value: "batch", label: "Batch" },
-            ]}
-            value={transcriptionMode}
-            onChange={(next) => {
-              const value = String(next ?? "");
-              if (isTranscriptionMode(value)) chooseSource(value);
-            }}
-            aria-label="Voice transcription"
-            className="w-44 text-start"
-          />
-        }
+      <CompactVoiceTranscriptionRow
+        mode={transcriptionMode}
+        loadFailed={loadFailed}
+        saveFailed={!!saveError && !saving}
+        onChoose={chooseSource}
+        onRetry={() => {
+          setLoadFailed(false);
+          setTranscriptionMode(null);
+          setPrefsRequest((request) => request + 1);
+        }}
       />
     );
+  }
+
+  if (transcriptionMode === null) {
+    return <SettingsSkeleton lines={1} />;
   }
 
   return (
@@ -461,7 +452,7 @@ export function VoiceTranscriptionSection({
                   Ready
                 </span>
               ) : googleRealtimeConfigured ? (
-                <BuilderConnectPopover
+                <DeferredBuilderConnectPopover
                   flow={builderConnect}
                   onTriggerClick={(event) => event.stopPropagation()}
                 >
@@ -471,7 +462,7 @@ export function VoiceTranscriptionSection({
                   >
                     Connect Builder.io
                   </button>
-                </BuilderConnectPopover>
+                </DeferredBuilderConnectPopover>
               ) : (
                 <button
                   type="button"
@@ -569,7 +560,7 @@ export function VoiceTranscriptionSection({
                     Ready
                   </span>
                 ) : googleRealtimeConfigured ? (
-                  <BuilderConnectPopover
+                  <DeferredBuilderConnectPopover
                     flow={builderConnect}
                     onTriggerClick={(event) => event.stopPropagation()}
                   >
@@ -579,7 +570,7 @@ export function VoiceTranscriptionSection({
                     >
                       Connect Builder.io
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                 ) : (
                   <button
                     type="button"
@@ -624,7 +615,7 @@ export function VoiceTranscriptionSection({
                     Connected
                   </span>
                 ) : (
-                  <BuilderConnectPopover
+                  <DeferredBuilderConnectPopover
                     flow={builderConnect}
                     onTriggerClick={(event) => event.stopPropagation()}
                   >
@@ -634,7 +625,7 @@ export function VoiceTranscriptionSection({
                     >
                       Connect Builder.io
                     </button>
-                  </BuilderConnectPopover>
+                  </DeferredBuilderConnectPopover>
                 )
               }
             />
@@ -656,7 +647,7 @@ export function VoiceTranscriptionSection({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      focusKey("GEMINI_API_KEY");
+                      focusKey(GEMINI_API_KEY);
                     }}
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                   >
@@ -766,6 +757,82 @@ interface ProviderOptionProps {
   rightSlot?: React.ReactNode;
 }
 
+const COMPACT_MODES = ["mac-native", "google-realtime", "batch"] as const;
+
+const COMPACT_MODE_LABEL_KEYS: Record<TranscriptionMode, string> = {
+  "mac-native": "agentChat.settingsShell.account.voiceMacNative",
+  "google-realtime": "agentChat.settingsShell.account.voiceGoogleRealtime",
+  batch: "agentChat.settingsShell.account.voiceBatch",
+};
+
+/** One Settings row with a select, used by the Preferences page. */
+function CompactVoiceTranscriptionRow({
+  mode,
+  loadFailed,
+  saveFailed,
+  onChoose,
+  onRetry,
+}: {
+  mode: TranscriptionMode | null;
+  loadFailed: boolean;
+  saveFailed: boolean;
+  onChoose: (mode: TranscriptionMode) => void;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  const label = t("agentChat.settingsShell.search.voiceTranscription");
+  const description = loadFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceLoadError")}
+    </span>
+  ) : saveFailed ? (
+    <span className="text-destructive" role="alert">
+      {t("agentChat.settingsShell.account.voiceSaveError")}
+    </span>
+  ) : (
+    t("agentChat.settingsShell.account.voiceDescription")
+  );
+  return (
+    <SettingsRow
+      id="voice"
+      label={label}
+      description={description}
+      control={
+        mode === null ? (
+          <Skeleton
+            className="h-8 w-44"
+            aria-label={t("agentChat.common.loading")}
+          />
+        ) : loadFailed ? (
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            {t("agentChat.common.retry")}
+          </Button>
+        ) : (
+          <Select
+            value={mode}
+            onValueChange={(value) => {
+              if (isTranscriptionMode(value)) onChoose(value);
+            }}
+          >
+            <SelectTrigger size="sm" className="w-44" aria-label={label}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {COMPACT_MODES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(COMPACT_MODE_LABEL_KEYS[value])}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        )
+      }
+    />
+  );
+}
+
 function ProviderOption({
   id: _id,
   selected,
@@ -795,7 +862,6 @@ function ProviderOption({
       onKeyDown={onKeyDown}
       aria-pressed={selected}
       aria-disabled={disabled || undefined}
-      // Theme tokens; streaming agent owns layout.
       className={`w-full text-start rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-primary bg-primary/10"
@@ -851,12 +917,6 @@ interface VersionStatusPayload {
   reason?: string;
 }
 
-// Tauri v2 exposes `window.__TAURI_INTERNALS__.invoke` as the runtime entry
-// point that `@tauri-apps/api/core` itself wraps. Calling it directly avoids
-// pulling `@tauri-apps/api` into the web bundle's import graph — a dynamic
-// `import("@tauri-apps/api/core")` survives Vite's prebundle as a literal
-// specifier and trips `vite:import-analysis` with a "Failed to resolve" error
-// in fresh CLI installs that don't have the desktop dep installed.
 type TauriInvoke = (cmd: string, args?: unknown) => Promise<unknown>;
 function getTauriInvoke(): TauriInvoke | null {
   if (typeof window === "undefined") return null;
@@ -872,7 +932,7 @@ function SystemAudioStatus() {
   useEffect(() => {
     let cancelled = false;
     const invoke = getTauriInvoke();
-    if (!invoke) return; // Web users: render nothing.
+    if (!invoke) return;
     setState({ kind: "loading" });
     void (async () => {
       try {
@@ -889,9 +949,6 @@ function SystemAudioStatus() {
           });
           return;
         }
-        // Supported — now probe permission. This may prompt; calling it
-        // here matches the original on-mount semantics requested in the
-        // settings flow.
         try {
           const granted = (await invoke(
             "system_audio_request_permission",
@@ -909,8 +966,6 @@ function SystemAudioStatus() {
           }
         }
       } catch {
-        // Older desktop builds may not have the new command yet —
-        // fall back to the permission probe.
         if (cancelled) return;
         try {
           const granted = (await invoke(
@@ -968,7 +1023,6 @@ function SystemAudioStatus() {
     );
   }
 
-  // denied
   return (
     <div className="flex items-start gap-1.5 px-0.5 pt-1 text-[10px] text-muted-foreground">
       <IconAlertCircle size={11} className="mt-[1px] shrink-0 text-amber-500" />

@@ -1,0 +1,32 @@
+---
+title: Versionamento e estabilidade
+description: Entenda os lançamentos nightly e estáveis, compatibilidade antes de 1.0, migrações e versões fixadas de templates.
+---
+
+# Versionamento e estabilidade
+
+Os pacotes Agent-Native estão antes da versão 1.0. O processo oferece snapshots nightly, lançamentos estáveis, ferramentas de migração e verificações do doctor. Alpha e beta não garantem suporte de produção.
+
+## Canais de lançamento
+
+Merges em `main` publicam snapshots nightly sob a tag npm `nightly`, sem mover `latest`. Lançamentos estáveis são coordenados por Changesets. Execuções agendadas preparam lançamentos patch de segunda a quinta ao meio-dia no horário do Pacífico. Nem toda execução publica uma versão.
+
+## Compatibilidade antes de 1.0
+
+Lançamentos patch visam correções e melhorias compatíveis. Lançamentos minor podem adicionar recursos e alterar comportamentos ou APIs ainda em alpha ou beta. Lançamentos major são reservados para mudanças amplas incompatíveis. Confira as notas e as etapas de migração antes de atualizar.
+
+Quando há uma migração compatível, `migration-manifest.json` registra imports movidos e símbolos renomeados. Pré-visualize o codemod, revise o diff e aplique:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+Caminhos removidos podem continuar temporariamente como módulos tombstone com instruções. Não há um período fixo de retenção.
+
+## Versões de templates e metas
+
+A CLI fixa `@agent-native/core` na versão exata que forneceu o template. Atualize com as ferramentas de migração em vez de mudar manualmente para `latest`.
+
+A meta atual é beta até meados de outubro de 2026 e 1.0 até o fim de 2026. São metas, não promessas. Relate problemas reproduzíveis com a versão do pacote, o provedor de banco de dados e a saída da migração.

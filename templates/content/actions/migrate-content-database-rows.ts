@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { chunks } from "./_batch-utils.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -17,6 +18,7 @@ import {
   deterministicId,
   digest,
   migrationPlanSchema,
+  snapshotBodyRevisionDigest,
   snapshotDigest,
   snapshotMigration,
   serializeMigrationValue,
@@ -77,6 +79,21 @@ function parseJson(text: string) {
     throw new Error("Migration receipt is corrupt.");
   }
 }
+
+function migrationStateMatches(
+  snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
+  receipt: { postDigest: string; resultJson: string },
+) {
+  const result = parseJson(receipt.resultJson);
+  if (!("bodyRevisionDigest" in result))
+    return snapshotDigest(snapshot) === receipt.postDigest;
+  if (typeof result.bodyRevisionDigest !== "string")
+    throw new Error("Migration receipt body revision guard is corrupt.");
+  return (
+    snapshotBodyRevisionDigest(snapshot) === result.bodyRevisionDigest &&
+    snapshotDigest(snapshot) === receipt.postDigest
+  );
+}
 function receiptResult(receipt: any, replayed: boolean) {
   const {
     plan: _plan,
@@ -105,22 +122,36 @@ async function lockCurrentDatabaseMemberships(tx: any, databaseId: string) {
   );
 }
 
+export const MAX_MIGRATION_FLUSH_CONCURRENCY = 20;
+
 async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
-  const accesses = await Promise.all(
-    rows.map((row) => assertAccess("document", row.documentId, "editor")),
-  );
-  const flushes = await Promise.allSettled(
-    rows.map((row, index) =>
-      flushOpenDocumentEditorToSql({
-        documentId: row.documentId,
-        ownerEmail: accesses[index]?.resource.ownerEmail,
-      }),
-    ),
-  );
-  const failed = flushes.find(
-    (flush): flush is PromiseRejectedResult => flush.status === "rejected",
-  );
-  if (failed) throw failed.reason;
+  const accesses: Awaited<ReturnType<typeof assertAccess>>[] = [];
+  for (const batch of chunks(rows, MAX_MIGRATION_FLUSH_CONCURRENCY)) {
+    accesses.push(
+      ...(await Promise.all(
+        batch.map((row) => assertAccess("document", row.documentId, "editor")),
+      )),
+    );
+  }
+  for (
+    let offset = 0;
+    offset < rows.length;
+    offset += MAX_MIGRATION_FLUSH_CONCURRENCY
+  ) {
+    const batch = rows.slice(offset, offset + MAX_MIGRATION_FLUSH_CONCURRENCY);
+    const flushes = await Promise.allSettled(
+      batch.map((row, index) =>
+        flushOpenDocumentEditorToSql({
+          documentId: row.documentId,
+          ownerEmail: accesses[offset + index]?.resource.ownerEmail,
+        }),
+      ),
+    );
+    const failed = flushes.find(
+      (flush): flush is PromiseRejectedResult => flush.status === "rejected",
+    );
+    if (failed) throw failed.reason;
+  }
 }
 
 export async function runMigration(args: MigrationInput) {
@@ -164,9 +195,10 @@ export async function runMigration(args: MigrationInput) {
           if (existing.state !== "applied" && existing.state !== "verified")
             throw new Error(`Migration receipt is already ${existing.state}.`);
           if (
-            snapshotDigest(
+            !migrationStateMatches(
               await snapshotMigration(tx, args.plan.databaseId),
-            ) !== existing.postDigest
+              existing,
+            )
           )
             throw new Error(
               "Applied migration has drifted; replay is refused.",
@@ -212,7 +244,7 @@ export async function runMigration(args: MigrationInput) {
         if (receipt.state === "rolled_back") {
           if (
             result.transitionExpectedPostDigest !== args.expectedPostDigest ||
-            snapshotDigest(current) !== receipt.postDigest
+            !migrationStateMatches(current, receipt)
           )
             throw new Error(
               "Terminal migration result has drifted; replay is refused.",
@@ -223,7 +255,7 @@ export async function runMigration(args: MigrationInput) {
           throw new Error(`Migration receipt is already ${receipt.state}.`);
         if (
           receipt.postDigest !== args.expectedPostDigest ||
-          snapshotDigest(current) !== receipt.postDigest
+          !migrationStateMatches(current, receipt)
         )
           throw new Error(
             "Migration has drifted; guarded operation is refused.",
@@ -304,8 +336,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error(
             args.phase === "verify"
@@ -353,15 +387,12 @@ export async function runMigration(args: MigrationInput) {
                 `Migration receipt is already ${existing.state}.`,
               );
             const current = await snapshotMigration(tx, args.plan.databaseId);
-            if (snapshotDigest(current) !== existing.postDigest)
+            if (!migrationStateMatches(current, existing))
               throw new Error(
                 "Applied migration has drifted; replay is refused.",
               );
             return receiptResult(existing, true);
           }
-          // A separate server can run the same migration while an editor is
-          // saving. Keep the durable database lock across the flush so that
-          // save is part of the state reloaded and validated by this writer.
           if (flushUnderDurableLock) {
             validatePlan(
               args.plan,
@@ -433,6 +464,7 @@ export async function runMigration(args: MigrationInput) {
           orderedIds,
           written: args.plan.rows.length,
           verified: false,
+          bodyRevisionDigest: snapshotBodyRevisionDigest(current),
           plan: args.plan,
         };
         const claimed = await tx
@@ -492,8 +524,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error("Migration has drifted; verification is refused.");
         return receiptResult(receipt, true);
@@ -509,8 +543,10 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         if (
-          snapshotDigest(await snapshotMigration(tx, args.databaseId)) !==
-          receipt.postDigest
+          !migrationStateMatches(
+            await snapshotMigration(tx, args.databaseId),
+            receipt,
+          )
         )
           throw new Error(
             "Terminal migration result has drifted; replay is refused.",
@@ -525,7 +561,7 @@ export async function runMigration(args: MigrationInput) {
             "Expected post-migration digest does not match receipt.",
           );
         const current = await snapshotMigration(tx, args.databaseId);
-        if (snapshotDigest(current) !== receipt.postDigest)
+        if (!migrationStateMatches(current, receipt))
           throw new Error("Migration has drifted; verification is refused.");
         const plan = parseJson(receipt.resultJson).plan;
         if (!plan)
@@ -656,7 +692,7 @@ export async function runMigration(args: MigrationInput) {
         );
       }
       const current = await snapshotMigration(tx, args.databaseId);
-      if (snapshotDigest(current) !== receipt.postDigest)
+      if (!migrationStateMatches(current, receipt))
         throw new Error("Migration has drifted; guarded operation is refused.");
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
@@ -707,6 +743,7 @@ export async function runMigration(args: MigrationInput) {
         const resultJson = {
           phase: "rollback",
           transitionExpectedPostDigest: receipt.postDigest,
+          bodyRevisionDigest: snapshotBodyRevisionDigest(restored),
           counts: {
             rows: (rollback.versions ?? []).length,
             properties: ids.length,
@@ -748,7 +785,6 @@ export async function runMigration(args: MigrationInput) {
         };
       }
       const planResult = parseJson(receipt.resultJson);
-      // Legacy ids are deliberately copied into the receipt result only after apply validation.
       const legacyIds: string[] = planResult.legacyPropertyIds ?? [];
       const legacy = current.definitions.filter((definition: any) =>
         legacyIds.includes(definition.id),
@@ -788,6 +824,7 @@ export async function runMigration(args: MigrationInput) {
       const resultJson = {
         phase: "finalize",
         transitionExpectedPostDigest: receipt.postDigest,
+        bodyRevisionDigest: snapshotBodyRevisionDigest(finalized),
         counts: { rows: 0, properties: legacyIds.length },
         verified: true,
       };
@@ -842,8 +879,9 @@ export const migrationAudit = {
 
 export default defineAction({
   description:
-    "Validate, apply, or verify an atomic Content database row migration. Rollback and legacy-property finalization use manage-content-database-migration and require approval.",
+    "Validate, apply, or verify an atomic Content collection row migration. Rollback and legacy-property finalization use manage-content-database-migration and require approval.",
   mcpTool: true,
+  mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
   run: (args) => runMigration(args as MigrationInput),

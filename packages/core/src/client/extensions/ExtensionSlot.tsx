@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { useAfterPaint } from "../use-after-paint.js";
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
@@ -39,33 +40,14 @@ interface AvailableTool {
 }
 
 export interface ExtensionSlotProps {
-  /** Stable slot identifier — convention: `<app>.<area>.<position>`. */
   id: string;
-  /** Object pushed to each embedded extension as `slotContext`. */
   context?: Record<string, unknown> | null;
-  /** Show a small "+" affordance when the slot has no installs. Default: false. */
   showEmptyAffordance?: boolean;
-  /** Optional className applied to the wrapper. */
   className?: string;
-  /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
-  /** Fires once when the slot query and all installed extensions are ready. */
   onReady?: () => void;
 }
 
-/**
- * A named UI slot that user-installed extensions can render into. Apps drop this
- * component wherever they want to allow extensions; the framework handles
- * fetching, sandboxing, context delivery, and lifecycle.
- *
- * Example:
- *
- *   <ExtensionSlot
- *     id="mail.contact-sidebar.bottom"
- *     context={{ contactEmail }}
- *     showEmptyAffordance
- *   />
- */
 export function ExtensionSlot({
   id,
   context,
@@ -77,8 +59,10 @@ export function ExtensionSlot({
   const t = useT();
   const readyInstallIds = useRef(new Set<string>());
   const readyNotified = useRef(false);
+  const afterPaint = useAfterPaint();
   const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
+    enabled: afterPaint,
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(
@@ -91,6 +75,7 @@ export function ExtensionSlot({
     },
   });
   const installs = installsQuery.data ?? [];
+  const installsSettled = afterPaint && !installsQuery.isPending;
 
   useEffect(() => {
     readyInstallIds.current.clear();
@@ -98,7 +83,7 @@ export function ExtensionSlot({
   }, [id]);
 
   useEffect(() => {
-    if (readyNotified.current || installsQuery.isLoading) return;
+    if (readyNotified.current || !installsSettled) return;
     if (
       installsQuery.isError ||
       installs.length === 0 ||
@@ -107,13 +92,13 @@ export function ExtensionSlot({
       readyNotified.current = true;
       onReady?.();
     }
-  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+  }, [installs, installsQuery.isError, installsSettled, onReady]);
 
   const markInstallReady = (installId: string) => {
     readyInstallIds.current.add(installId);
     if (
       !readyNotified.current &&
-      !installsQuery.isLoading &&
+      installsSettled &&
       readyInstallIds.current.size >= installs.length
     ) {
       readyNotified.current = true;
@@ -121,7 +106,7 @@ export function ExtensionSlot({
     }
   };
 
-  if (installsQuery.isLoading) {
+  if (!installsSettled) {
     return null;
   }
 

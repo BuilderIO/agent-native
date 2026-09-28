@@ -75,7 +75,7 @@ Existing document actions, snapshots, source audit machinery, and action infrast
 
 ## Proof plan
 
-1. Inventory and exercise Page, Database, comment, source, Rule, automation, and review mutations.
+1. Inventory and exercise Page, Collection, comment, source, Rule, automation, and review mutations.
 2. Simulate transaction/outbox interruption, retry, duplicate delivery, and partial failure.
 3. Verify attribution, causal grouping inputs, access-scoped reads, recovery, and Undo.
 4. Test real UI and shared agent/API Actions under concurrent commits.

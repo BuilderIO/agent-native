@@ -18,8 +18,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
-  // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
-  // import `cn` from.
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
   captureClientException: vi.fn(),
@@ -30,7 +28,6 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
   useAvatarUrl: () => null,
   callAction: vi.fn(),
 }));
@@ -39,14 +36,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-// happy-dom's <video>/<audio> stub always reports `canPlayType() === ""`
-// (unimplemented), which would make the component's Safari-webm
-// `unsupportedFormat` probe (see video-player.tsx) treat every source as
-// undecodable and render the "unsupported format" placeholder instead of a
-// real <video> element. Stub it to report support so the real element mounts
-// — `play()`/`pause()` themselves are implemented natively by happy-dom
-// (they flip `paused` and synchronously dispatch `play`/`playing`/`pause`),
-// so no further HTMLMediaElement stubbing is needed.
 let canPlayTypeSpy: ReturnType<typeof vi.spyOn>;
 
 beforeAll(() => {
@@ -162,6 +151,100 @@ describe("VideoPlayer playback", () => {
     expect(onPause).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a paused clip paused when its playback speed changes", () => {
+    const video = getVideo();
+    const playSpy = vi.spyOn(video, "play");
+
+    act(() => {
+      getPlayerSurface().click();
+    });
+    expect(video.paused).toBe(false);
+
+    act(() => {
+      handleRef.current?.pause();
+      handleRef.current?.setSpeed(1.5);
+      vi.advanceTimersByTime(20);
+    });
+
+    expect(video.playbackRate).toBe(1.5);
+    expect(video.paused).toBe(true);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps playback errors above the player controls", () => {
+    const video = getVideo();
+    vi.spyOn(video, "load").mockImplementation(() => {});
+
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+    act(() => {
+      video.dispatchEvent(new Event("error"));
+    });
+
+    const error = container.querySelector<HTMLElement>('[role="status"]');
+    expect(error?.textContent).toContain("Video could not be loaded.");
+    expect(error?.parentElement?.className).toContain("top-3");
+
+    const controls = getPlayerControls();
+    expect(controls.className).toContain("z-20");
+  });
+
+  it("stops picture-in-picture playback when the player unmounts", () => {
+    const video = getVideo();
+    const exitPictureInPicture = vi.fn().mockResolvedValue(undefined);
+    const pipElementDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "pictureInPictureElement",
+    );
+    const exitPipDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "exitPictureInPicture",
+    );
+
+    Object.defineProperty(document, "pictureInPictureElement", {
+      configurable: true,
+      value: video,
+    });
+    Object.defineProperty(document, "exitPictureInPicture", {
+      configurable: true,
+      value: exitPictureInPicture,
+    });
+
+    try {
+      act(() => {
+        getPlayerSurface().click();
+      });
+      expect(video.paused).toBe(false);
+
+      act(() => {
+        root.render(null);
+      });
+
+      expect(video.paused).toBe(true);
+      expect(exitPictureInPicture).toHaveBeenCalledOnce();
+    } finally {
+      if (pipElementDescriptor) {
+        Object.defineProperty(
+          document,
+          "pictureInPictureElement",
+          pipElementDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "pictureInPictureElement");
+      }
+      if (exitPipDescriptor) {
+        Object.defineProperty(
+          document,
+          "exitPictureInPicture",
+          exitPipDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "exitPictureInPicture");
+      }
+    }
+  });
+
   it("shows buffering while autoplay starts instead of a second play button", () => {
     act(() => {
       root.render(
@@ -240,8 +323,6 @@ describe("VideoPlayer playback", () => {
     );
     const playIcon = centerPlay?.querySelector("svg");
 
-    // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
-    // so loadeddata/canplay may not arrive before the user needs this control.
     expect(video.readyState).toBe(0);
     expect(container.textContent).not.toContain("Preparing clip");
     expect(centerPlay).not.toBeNull();
@@ -354,7 +435,7 @@ describe("VideoPlayer playback", () => {
     expect(playbackComment).not.toBeNull();
     expect(hoverPreview?.className).toContain("z-50");
     expect(playbackComment?.className).toContain("z-40");
-    expect(getPlayerControls().className).not.toContain("z-20");
+    expect(getPlayerControls().className).toContain("z-20");
   });
 
   it("keeps throughout CTAs above playback comments", () => {
@@ -776,9 +857,6 @@ describe("VideoPlayer playback", () => {
     });
     expect(video.paused).toBe(false);
 
-    // Reaching end of stream can fire "ended" while the browser leaves paused
-    // false (MSE end-of-stream / DB-duration mismatch). The play button must
-    // still restart from the beginning rather than pausing a finished clip.
     video.currentTime = 10;
     Object.defineProperty(video, "ended", { configurable: true, value: true });
     act(() => {
@@ -830,9 +908,6 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(true);
     expect(onPause).toHaveBeenCalledTimes(1);
 
-    // Real browsers fire a synthetic "click" immediately after a touch tap.
-    // The component must swallow exactly that one click rather than treating
-    // it as a second, independent activation.
     act(() => {
       surface.dispatchEvent(
         new MouseEvent("click", { bubbles: true, cancelable: true }),
@@ -842,9 +917,6 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(true);
     expect(onPlay).toHaveBeenCalledOnce();
 
-    // A later, unrelated real click still toggles playback normally — proving
-    // the suppression is a one-shot flag consumed by the synthetic click, not
-    // a broken click handler.
     act(() => {
       surface.click();
     });
@@ -1001,10 +1073,6 @@ describe("clampSeek", () => {
 
   it("returns integer millisecond inputs unchanged", () => {
     const v = videoWith(600);
-    // Clamping used to route through seconds (ms / 1000 -> Math.floor(sec *
-    // 1000)), which loses 1ms for ~1% of integers. The timeupdate handler
-    // treated that delta as a real seek target and pulled playback backwards,
-    // flushing the decoder and replaying the last fraction of a second.
     for (let ms = 0; ms <= 600_000; ms++) {
       if (clampSeek(ms, v, 600_000) !== ms) {
         throw new Error(`clampSeek(${ms}) === ${clampSeek(ms, v, 600_000)}`);

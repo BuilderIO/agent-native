@@ -4,7 +4,10 @@ import {
   DIAGNOSTIC_SNIPPET_CLOSE,
   DIAGNOSTIC_SNIPPET_OPEN,
 } from "../shared/diagnostic-snippet.js";
-import { applyExtensionContentUpdate } from "./content-patch.js";
+import {
+  applyExtensionContentUpdate,
+  ExtensionContentEditError,
+} from "./content-patch.js";
 
 describe("extension content patching", () => {
   it("applies marker inserts without rewriting the whole document", async () => {
@@ -119,6 +122,39 @@ describe("extension content patching", () => {
     expect(result.content).toBe("<span>a</span><span>b</span>");
   });
 
+  it("refuses a regex replacement that can backtrack catastrophically", async () => {
+    const error = await applyExtensionContentUpdate(
+      "<p>aaaaaaaaaaaaaaaaaaaa!</p>",
+      {
+        edits: [
+          {
+            op: "regex-replace",
+            pattern: "^([A-Za-z]+\\s?)+$",
+            replace: "x",
+          },
+        ],
+      },
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ExtensionContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
+  it("refuses quadratic overlap before scanning uncapped extension content", async () => {
+    const error = await applyExtensionContentUpdate("<p>aaaaaaaa</p>", {
+      edits: [
+        {
+          op: "regex-replace",
+          pattern: "^(a+)(a+)$",
+          replace: "x",
+        },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ExtensionContentEditError);
+    expect((error as Error).message).toMatch(/cannot be run safely/i);
+  });
+
   it("formats the final HTML when requested", async () => {
     const result = await applyExtensionContentUpdate(
       "<div><span>Hi</span></div>",
@@ -148,9 +184,6 @@ describe("extension content patching", () => {
       error = caught;
     }
 
-    // Nothing applied: collapsing whitespace to match could otherwise
-    // silently rewrite semantically significant whitespace (<pre>, embedded
-    // JS/CSS) if it were spliced in.
     expect(error).toBeInstanceOf(Error);
     const message = (error as Error).message;
     expect(message).toContain("Closest matches in the current extension:");

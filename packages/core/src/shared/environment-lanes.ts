@@ -7,6 +7,9 @@ export const BETA_REDIRECT_SIGN_OUT_STORAGE_KEY =
   "agent-native:beta-redirect-signing-out";
 export const BETA_FORCE_QUERY_PARAM = "force";
 export const BETA_FORCE_SESSION_STORAGE_KEY = "agent-native:force-production";
+export const BETA_LANE_REDIRECT_QUERY_PARAM = "agentNativeLaneRedirect";
+export const BETA_LANE_RETURN_STORAGE_KEY = "agent-native:beta-lane-return-to";
+export const BETA_LANE_RETURNED_STORAGE_KEY = "agent-native:beta-lane-returned";
 
 export const ENVIRONMENT_BETA_HOSTS = {
   "agent-workspace.builder.io": "beta.agent-workspace.builder.io",
@@ -24,7 +27,6 @@ export const ENVIRONMENT_BETA_HOSTS = {
   "dispatch.agent-native.com": "beta.dispatch.agent-native.com",
   "factory.agent-native.com": "beta.factory.agent-native.com",
   "forms.agent-native.com": "beta.forms.agent-native.com",
-  "macros.agent-native.com": "beta.macros.agent-native.com",
   "mail.agent-native.com": "beta.mail.agent-native.com",
   "plan.agent-native.com": "beta.plan.agent-native.com",
   "slides.agent-native.com": "beta.slides.agent-native.com",
@@ -66,6 +68,23 @@ export function buildEnvironmentUrl(
     return target.toString();
   } catch {
     // coercion-ok: Invalid navigation input is an explicit absent target.
+    return null;
+  }
+}
+
+export function buildAutomaticBetaRedirectUrl(
+  sourceHref: string,
+  betaHost: string,
+): string | null {
+  const targetHref = buildEnvironmentUrl(sourceHref, betaHost);
+  if (!targetHref) return null;
+
+  try {
+    const target = new URL(targetHref);
+    target.searchParams.set(BETA_LANE_REDIRECT_QUERY_PARAM, "1");
+    return target.toString();
+  } catch {
+    // coercion-ok: buildEnvironmentUrl already validated the URL.
     return null;
   }
 }

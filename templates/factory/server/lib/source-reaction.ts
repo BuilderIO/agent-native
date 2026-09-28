@@ -22,7 +22,7 @@ export function parseOptionalReaction(
     .toLowerCase();
   if (!trimmed) return null;
   if (!REACTION_NAME.test(trimmed)) {
-    throw new Error("Reaction must be an emoji name like robot_face.");
+    throw new Error("Reaction must be an emoji name like eyes.");
   }
   return trimmed;
 }

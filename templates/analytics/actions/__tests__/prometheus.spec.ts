@@ -1,15 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-// @agent-native/core transitively imports @opentelemetry/api, which has a
-// broken ESM export path that node's resolver can't load. Stub defineAction
-// so action tests don't depend on the framework runtime.
-//
-// NOTE: This file lives in __tests__/ (not actions/ root) intentionally.
-// The action scanner (autoDiscoverActions, non-recursive readdirSync) only
-// picks up top-level files in actions/. A top-level spec containing the
-// string "defineAction" gets added to .generated/actions-registry.ts, which
-// causes vi.mock() to run outside Vitest's transform pipeline and throws
-// "Vitest mocker was not initialized in this environment. vi.queueMock() is forbidden."
 vi.mock("@agent-native/core", () => ({
   defineAction: <T extends { run: (args: any) => unknown }>(def: T) => def,
 }));
@@ -34,9 +24,13 @@ vi.mock("../../server/lib/prometheus", () => ({
 
 vi.mock("../_provider-action-utils", () => ({
   requireActionCredentials: vi.fn(async () => ({ ok: true, ctx: {} })),
-  providerError: (e: unknown) => ({
-    error: e instanceof Error ? e.message : String(e),
-  }),
+  providerError: (e: unknown): never => {
+    throw Object.assign(new Error(e instanceof Error ? e.message : String(e)), {
+      name: "ActionContractError",
+      errorCode: "provider_error",
+      statusCode: 502,
+    });
+  },
 }));
 
 const { default: prometheus } = await import("../prometheus");
@@ -104,9 +98,13 @@ describe("prometheus action", () => {
 
   it("wraps thrown errors via providerError", async () => {
     queryInstant.mockRejectedValue(new Error("boom"));
-    const r = (await prometheus.run({ mode: "query", query: "up" })) as {
-      error: string;
-    };
-    expect(r.error).toBe("boom");
+    await expect(
+      prometheus.run({ mode: "query", query: "up" }),
+    ).rejects.toMatchObject({
+      message: "boom",
+      name: "ActionContractError",
+      errorCode: "provider_error",
+      statusCode: 502,
+    });
   });
 });

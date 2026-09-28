@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   autoMountAuth: vi.fn(),
+  getSession: vi.fn(),
   markFrameworkRoutesReadyBeforeBootstrap: vi.fn(),
   getH3App: vi.fn(),
   markDefaultPluginProvided: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./auth.js", () => ({
   autoMountAuth: mocks.autoMountAuth,
+  getSession: mocks.getSession,
 }));
 
 vi.mock("./framework-request-handler.js", () => ({
@@ -59,10 +61,6 @@ describe("createAuthPlugin", () => {
       nitroApp,
       "auth",
     );
-    // Regression guard for the cold-start fix: the default branch must mark
-    // its own routes ready — and must NOT serialize behind the shared
-    // default-plugin bootstrap promise the way it used to (there is no
-    // `awaitBootstrap` import left in auth-plugin.ts to call).
     expect(mocks.markFrameworkRoutesReadyBeforeBootstrap).toHaveBeenCalledWith(
       nitroApp,
       [
@@ -90,6 +88,7 @@ describe("createAuthPlugin", () => {
           "/login",
           "/signup",
         ],
+        excludedPaths: ["/_agent-native/auth/session"],
       },
     );
 
@@ -114,8 +113,6 @@ describe("createAuthPlugin", () => {
     createAuthPlugin()(nitroApp);
     const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
 
-    // Routes are marked ready immediately, but the mount itself must not
-    // reach autoMountAuth until migrations settle.
     await Promise.resolve();
     await Promise.resolve();
     expect(mocks.autoMountAuth).not.toHaveBeenCalled();

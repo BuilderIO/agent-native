@@ -1,8 +1,5 @@
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-// Last-resort reload bookkeeping. Persisted in sessionStorage so the cooldown
-// survives the reload it triggers (the in-memory closure is destroyed), with a
-// window-scoped fallback for environments where sessionStorage throws.
 const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 
@@ -117,6 +114,41 @@ function isAgentNativeDesktop(win: Window): boolean {
   return /AgentNativeDesktop/i.test(win.navigator?.userAgent || "");
 }
 
+function hasViteDevRecovery(win: Window): boolean | undefined {
+  if (
+    (win as unknown as Record<string, unknown>)[
+      "__agentNativeViteDevRecoveryInstalled"
+    ] === true
+  ) {
+    return true;
+  }
+
+  try {
+    const hostname = win.location.hostname;
+    const isLocalDevOrigin =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      hostname === "::1";
+    if (!isLocalDevOrigin) return false;
+
+    return true;
+  } catch (error) {
+    void error;
+    return undefined;
+  }
+}
+
+function isViteOptimizerFailureMessage(message: string): boolean {
+  return (
+    message.includes("Outdated Optimize Dep") ||
+    message.includes("Optimize Deps Processing Error") ||
+    message.includes("/node_modules/.vite/deps/") ||
+    message.includes("/@id/") ||
+    message.includes("/@fs/")
+  );
+}
+
 function readStaleChunkReloadAt(win: Window): number {
   try {
     const raw = (
@@ -141,23 +173,11 @@ function markStaleChunkReload(win: Window, now: number): void {
   } catch {}
 }
 
-/**
- * Last resort when a stale lazy chunk fails to load for the *current* route —
- * an old tab whose hashed chunk filenames no longer exist after a deploy — and
- * there is no fresh cross-route navigation to recover to. A single guarded
- * reload pulls a fresh index.html plus chunk manifest. A sessionStorage cooldown
- * prevents a reload loop when the chunk is genuinely unreachable (e.g. offline),
- * letting the error surface to Sentry as before in that case.
- *
- * Returns true when a reload was triggered.
- */
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
-  // Desktop webviews intentionally stay open across deploys; a forced reload
-  // reads as a random tab refresh, matching recoverToIntendedNavigation().
   if (isAgentNativeDesktop(win)) return false;
   const lastReloadAt = readStaleChunkReloadAt(win);
   if (
@@ -171,11 +191,6 @@ export function reloadForStaleChunk(
   return true;
 }
 
-/**
- * Recover when a caught error (e.g. a `React.lazy` rejection surfaced to an
- * error boundary) is a stale dynamic-import failure. No-op and returns false
- * for any other error so callers can fall through to their normal handling.
- */
 export function recoverFromStaleChunkError(
   error: unknown,
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
@@ -191,6 +206,7 @@ function recoverToIntendedNavigation(
 ): boolean {
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
+    isAgentNativeDesktop(win) &&
     !target &&
     state.intendedHref === win.location.href &&
     Date.now() - state.intendedAt <= INTENDED_NAV_MAX_AGE_MS
@@ -200,9 +216,6 @@ function recoverToIntendedNavigation(
   if (!recoveryTarget) return false;
   state.recovering = true;
   state.recoveryHref = recoveryTarget;
-  // Keep the desktop shell mounted, but replace only the route that failed to
-  // load. A current-page reload remains suppressed below when there is no
-  // intended cross-route destination to recover.
   if (isAgentNativeDesktop(win)) {
     hardNavigate(win, recoveryTarget);
     return true;
@@ -220,6 +233,12 @@ function recoverFromDynamicImportFailure(
   message: string,
 ): boolean {
   if (!isDynamicImportFailureMessage(message)) return false;
+  if (
+    hasViteDevRecovery(win) === true &&
+    isViteOptimizerFailureMessage(message)
+  ) {
+    return false;
+  }
   state.routeModuleFailureAt = Date.now();
   if (recoverToIntendedNavigation(win, state)) return true;
   return reloadForStaleChunk(win);
@@ -241,28 +260,22 @@ function patchHistoryMethod(
 }
 
 function patchReload(win: Window, state: RouteChunkRecoveryState): void {
-  const originalReload = win.location.reload.bind(win.location);
+  const originalReload = win.location.reload;
+  if (typeof originalReload !== "function") return;
+  const boundReload = originalReload.bind(win.location);
   const patchedReload = function patchedReload() {
-    if (
-      isAgentNativeDesktop(win) &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
+    if (Date.now() - state.routeModuleFailureAt <= 1_000) {
+      if (state.recovering) return;
+      if (hasViteDevRecovery(win) !== true) {
+        if (recoverToIntendedNavigation(win, state)) {
+          return;
+        }
+      }
+      if (isAgentNativeDesktop(win)) return;
+      reloadForStaleChunk(win);
       return;
     }
-    if (
-      state.recoveryHref &&
-      Date.now() - state.routeModuleFailureAt <= 1_000
-    ) {
-      hardNavigate(win, state.recoveryHref);
-      return;
-    }
-    if (
-      Date.now() - state.routeModuleFailureAt <= 1_000 &&
-      recoverToIntendedNavigation(win, state)
-    ) {
-      return;
-    }
-    originalReload();
+    boundReload();
   };
 
   try {
@@ -329,14 +342,14 @@ export function installRouteChunkRecovery(
     }
   });
 
-  // React Router catches stale route-module import failures and reloads the
-  // current URL. Its console message is the only signal exposed before reload.
   const originalError = consoleRef.error.bind(consoleRef);
   try {
     consoleRef.error = (...args: unknown[]) => {
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        recoverToIntendedNavigation(win, state);
+        if (hasViteDevRecovery(win) !== true) {
+          recoverToIntendedNavigation(win, state);
+        }
       }
       originalError(...args);
     };

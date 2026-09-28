@@ -1,9 +1,9 @@
 import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
 
-import { messagesByLocale } from "@/i18n-data";
+import enUSMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.toolDesign }];
+  return [{ title: enUSMessages.routeTitles.toolDesign }];
 }
 
 export default function ExtensionViewerRoute() {

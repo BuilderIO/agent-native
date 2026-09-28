@@ -12,6 +12,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireDatabaseSourceOperation,
+  defaultDatabaseViewConfig,
+  duplicateDatabaseView,
+  normalizeClientDatabaseViewConfig,
+  updateDatabaseViewIcon,
+  createDatabaseViewSaveQueue,
   databaseBuilderBulkUpdateSource,
   databaseBuilderHydrationSourceForItem,
   databaseBulkEditableProperties,
@@ -67,7 +72,35 @@ import {
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
+  requestedDatabaseViewId,
 } from "./DatabaseView";
+
+describe("database view icons", () => {
+  it("retains a selected icon through normalization, duplication, and removal", () => {
+    const initial = defaultDatabaseViewConfig();
+    const icon = { version: 1, kind: "emoji", emoji: "🚀" } as const;
+    const changed = updateDatabaseViewIcon(initial, initial.activeViewId, icon);
+    expect(changed.views[0].icon).toEqual(icon);
+    expect(normalizeClientDatabaseViewConfig(changed).views[0].icon).toEqual(
+      icon,
+    );
+    const duplicated = duplicateDatabaseView(changed, changed.activeViewId);
+    expect(duplicated.views[1].icon).toEqual(icon);
+    expect(
+      updateDatabaseViewIcon(changed, changed.activeViewId, null).views[0].icon,
+    ).toBeNull();
+  });
+});
+
+describe("database view deep-link selection", () => {
+  it("prefers the explicit route view without changing the saved default", () => {
+    expect(requestedDatabaseViewId(" ready-drafts ", "default")).toBe(
+      "ready-drafts",
+    );
+    expect(requestedDatabaseViewId(null, " default ")).toBe("default");
+    expect(requestedDatabaseViewId("   ", null)).toBeNull();
+  });
+});
 
 describe("database source page projections", () => {
   it("does not present page-scoped review counts as complete", () => {
@@ -212,38 +245,14 @@ describe("database preview property saves", () => {
     });
   });
 
-  it("threads the containing database document through scalar and block property editors", () => {
+  it("passes membership context to the shared Page surface", () => {
     const source = readFileSync(
       new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toMatch(
-      /<DocumentProperties[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      "utf8",
     );
     expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+      /<PageEditorSurface[\s\S]*?documentId=\{item.document.id\}[\s\S]*?databaseId=\{item.databaseId\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
     );
-    expect(source).toMatch(
-      /<VisualEditor[\s\S]*?onChange=\{handleContentChange\}[\s\S]*?onSaveContent=\{handleContentSaveNow\}/,
-    );
-  });
-
-  it("does not refetch Content after the document mutation patches its caches", () => {
-    const source = readFileSync(
-      new URL("./DatabaseView.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const onSaved = source.match(
-      /onSaved: \(persistedPayload\) => \{([\s\S]*?)\n    \},\n    onError:/,
-    )?.[1];
-
-    expect(onSaved).toBeDefined();
-    expect(onSaved).not.toContain("invalidateQueries");
   });
 });
 
@@ -1640,5 +1649,31 @@ describe("Database bulk multi-select edit helpers", () => {
       addOptionIds: [],
       removeOptionIds: ["open-source"],
     });
+  });
+});
+
+describe("createDatabaseViewSaveQueue", () => {
+  it("constructs a queued save after the previous receipt updates revisions", async () => {
+    const enqueue = createDatabaseViewSaveQueue();
+    let revision = "S0/C0";
+    const inputs: string[] = [];
+    let finishFirst!: () => void;
+    const firstResponse = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const first = enqueue(async () => {
+      inputs.push(revision);
+      await firstResponse;
+      revision = "S1/C1";
+    });
+    const second = enqueue(async () => {
+      inputs.push(revision);
+      revision = "S2/C2";
+    });
+    await Promise.resolve();
+    expect(inputs).toEqual(["S0/C0"]);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(inputs).toEqual(["S0/C0", "S1/C1"]);
   });
 });

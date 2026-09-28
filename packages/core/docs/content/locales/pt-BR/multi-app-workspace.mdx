@@ -7,6 +7,10 @@ description: "Hospede muitos aplicativos nativos do agente em um monorepo com au
 
 > **Qual documento do espaço de trabalho?** Esta página aborda o **formato de implantação** — um monorepo, muitos aplicativos, autenticação compartilhada e uma implantação unificada. Para a camada de personalização do agente (Recursos do Agente: `AGENTS.md`, memória, skills, agentes personalizados) consulte [Recursos do Agente](/docs/agent-resources); para governança (quem analisa, aprova e possui o quê), consulte [Workspace Governance](/docs/workspace-management).
 
+## Aplicativo independente ou workspace? {#standalone-or-workspace}
+
+Escolha um workspace quando uma empresa opera vários aplicativos internos que precisam compartilhar configurações de implantação e contexto da organização. Escolha um aplicativo independente para uma ferramenta isolada ou um protótipo. Esse formato de implantação é compatível, mas não inclui pacotes compartilhados nem configuração raiz do workspace. Consulte [Implantações administradas](/docs/administered-deployments).
+
 Quando a codificação de vibração de uma ferramenta interna leva uma tarde, você não para em uma só. Uma equipe acaba com um CRM, uma caixa de entrada de suporte, um painel, um console de operações – dez pequenos aplicativos, cada um estruturado de forma independente. Isso é ótimo até que você precise mudar alguma coisa em todos eles.
 
 Nesse ponto, cada aplicativo tem seu próprio `AGENTS.md`, seu próprio plugin de autenticação, seu próprio componente de layout copiado e colado, seu próprio token Slack codificado, sua própria ideia do que é uma "organização". Uma mudança nas regras de conformidade significa dez PRs. A rotação de uma chave API significa dez reimplantações. Uma atualização de marca significa que dez cabeçalhos diferentes ficam fora de sincronia. O que facilitou sua construção agora está dificultando seu gerenciamento.
@@ -38,7 +42,7 @@ Esse mesmo limite se aplica quando seu aplicativo deseja usar outro aplicativo o
 O espaço de trabalho é o formato padrão de um projeto nativo do agente. Andaime um com:
 
 ```bash
-npx @agent-native/core@latest create my-company-platform
+npx --yes @agent-native/core@latest create my-company-platform
 ```
 
 O CLI mostra um seletor de seleção múltipla de cada modelo original. Escolha quantos quiser (Mail + Calendário + Formulários, por exemplo) e todos eles serão integrados no mesmo espaço de trabalho, compartilhando autenticação e padrões de banco de dados.
@@ -297,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Cada aplicativo é construído com `APP_BASE_PATH=/<name>` e `VITE_APP_BASE_PATH=/<name>` e emitido por meio da predefinição Nitro selecionada. Cloudflare Pages é a predefinição padrão e usa um expedidor de trabalho em `dist/_worker.js` mais `_routes.json`. Netlify é compatível com `npx @agent-native/core@latest deploy --preset netlify`; ele emite funções de aplicativo em `.netlify/functions-internal/<app>-server` e gera redirecionamentos que deixam ativos estáticos não forçados para que o CDN sirva os arquivos primeiro. Vercel é compatível com `npx @agent-native/core@latest deploy --preset vercel`; ele grava um pacote raiz `.vercel/output` usando Build Output API do Vercel.
+Cada aplicativo é construído com `APP_BASE_PATH=/<name>` e `VITE_APP_BASE_PATH=/<name>` e emitido por meio do preset Nitro selecionado. **Netlify** é o preset padrão para o comando unificado `deploy`; ele emite funções de aplicativo em `.netlify/functions-internal/<app>-server` e gera redirecionamentos que deixam ativos estáticos não forçados para que o CDN sirva os arquivos primeiro. **Vercel** é compatível com `npx @agent-native/core@latest deploy --preset vercel`; ele grava um pacote raiz `.vercel/output` usando a Build Output API do Vercel.
 
 <Diagram id="doc-block-1l5ncko" title={"Implantação unificada: uma origem, um caminho por aplicativo"} summary={"Cada aplicativo é fornecido com uma única origem, portanto, as sessões de login e o A2A entre aplicativos são gratuitos."}>
 
@@ -348,10 +352,11 @@ Estar na **mesma origem** é onde reside a verdadeira recompensa:
 - **A2A de aplicativo cruzado com configuração zero.** A marcação `@mail` de `@calendar` se torna uma busca de mesma origem — sem CORS, sem assinatura de JWT entre irmãos. A2A externo ainda usa JWT como hoje.
 - **Um registro DNS, um certificado, um cache CDN.**
 
-Publique a saída `dist/`:
+Publique o build para sua plataforma:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 Para Netlify:
@@ -397,11 +402,13 @@ Essas configurações afetam apenas a navegação da página somente leitura. Fe
 
 ### Implantação independente por aplicativo
 
-Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && npx @agent-native/core@latest build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
+Prefere cada aplicativo em seu próprio domínio (`mail.company.com`, `calendar.company.com`)? Cada aplicativo no espaço de trabalho ainda pode ser implementado de forma independente – `cd apps/mail && pnpm build` se comporta exatamente como um andaime independente. O A2A entre aplicativos passa pelo caminho padrão assinado pelo JWT com um `A2A_SECRET` compartilhado. O SSO entre domínios entre aplicativos implantados separadamente é gerenciado pela federação de identidade com o Dispatch como hub — consulte [Cross-App SSO](/docs/cross-app-sso); a implantação unificada de origem única evita a necessidade dela.
 
 ### Banco de dados compartilhado, credenciais compartilhadas
 
-Qualquer que seja sua escolha, aponte todos os aplicativos para o mesmo `DATABASE_URL` para obter o estado entre aplicativos pronto para uso: um conjunto de contas de usuário, um conjunto de organizações, um conjunto de configurações compartilhadas. Se cada aplicativo tiver seu próprio banco de dados, o padrão de espaço de trabalho ainda funciona. Você simplesmente perde a história do estado compartilhado.
+Para compartilhar contas de usuário, organizações, configurações e outros dados entre aplicativos, defina o mesmo `DATABASE_URL` para todos eles. No desenvolvimento local, defina-o no `.env` raiz do workspace para que todos os aplicativos usem o mesmo banco de dados PostgreSQL. Se ele não estiver definido, cada aplicativo usará seu próprio banco de dados PGlite local ao processo, e usuários e organizações não serão compartilhados.
+
+A demanda de conexões se soma entre os processos que compartilham um banco de dados. Se cinco processos de apps Node.js de longa duração usarem um pool compartilhado cada um para o mesmo `DATABASE_URL`, eles podem manter até 100 conexões no padrão de 20 por pool (`5 × 1 pool × 20`). Para workspaces serverless, estime as instâncias de função aquecidas por app usando os limites padrão específicos do runtime. Consulte [Banco de dados do servidor](/docs/server-database) para `AGENT_NATIVE_DB_POOL_MAX` e as orientações completas de dimensionamento.
 
 O pacote compartilhado em si nunca é implantado de forma independente. É uma dependência `workspace:*` que pnpm vincula simbolicamente ao `node_modules/` de cada aplicativo, de modo que cada aplicativo agrupa de forma transparente tudo o que precisa no momento da compilação.
 

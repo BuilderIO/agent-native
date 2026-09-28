@@ -1,51 +1,56 @@
-// Plain in-memory cache for thread messages. Inspect in devtools as
-// `window.__threadCache`. Exists because React Query's cache layering
-// (staleTime, gcTime, placeholderData, isFetching) made it hard to answer
-// "did this prefetch actually populate the cache?" at a glance; this gives
-// us a direct read/write store with transparent state.
-
 import { appApiPath } from "@agent-native/core/client/api-path";
 import type { EmailMessage } from "@shared/types";
 import { useEffect, useState } from "react";
 
+import { beginProviderSnapshot } from "@/lib/provider-snapshot";
 import { TAB_ID } from "@/lib/tab-id";
 
 type CacheEntry = {
   messages: EmailMessage[];
   fetchedAt: number;
+  providerSnapshotId?: number;
+};
+
+type ThreadFetchResult = {
+  messages: EmailMessage[];
+  providerSnapshotId: number;
 };
 
 type WarmTarget = string | { id: string; accountEmail?: string };
 
 const STORAGE_KEY = "mail.threadCache.v1";
-const STORAGE_TTL = 60 * 60 * 1000; // 1 hour
+const STORAGE_TTL = 60 * 60 * 1000;
 const STORAGE_MAX_ENTRIES = 50;
-const STORAGE_MAX_BYTES = 3 * 1024 * 1024; // ~3MB, well under the 5MB cap
+const STORAGE_MAX_BYTES = 3 * 1024 * 1024;
 const BACKGROUND_RATE_LIMIT_COOLDOWN_MS = 90 * 1000;
 const BACKGROUND_AUTH_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const WARM_BATCH_LIMIT = 4;
 
-// Park state on globalThis so Vite HMR module reloads don't wipe the cache.
 type Globals = {
   __mailThreadCache?: Map<string, CacheEntry>;
-  __mailThreadInflight?: Map<string, Promise<EmailMessage[]>>;
+  __mailThreadInflight?: Map<string, Promise<ThreadFetchResult>>;
   __mailThreadSubscribers?: Map<string, Set<() => void>>;
   __mailThreadVersions?: Map<string, number>;
 };
 const g = globalThis as Globals;
 const cache = (g.__mailThreadCache ??= new Map());
-const inflight = (g.__mailThreadInflight ??= new Map());
-// Scoped by threadId so writing one thread's cache doesn't re-render
-// components viewing a different thread.
+const inflight: Map<
+  string,
+  Promise<ThreadFetchResult>
+> = (g.__mailThreadInflight ??= new Map());
 const subscribers = (g.__mailThreadSubscribers ??= new Map());
-// Version counter per threadId — bumped by invalidateCachedThread so an
-// in-flight fetch started before the invalidate discards its result
-// instead of repopulating stale data.
 const versions = (g.__mailThreadVersions ??= new Map());
 let backgroundCooldownUntil = 0;
 
 function getVersion(threadId: string): number {
   return versions.get(threadId) ?? 0;
+}
+
+function clearOwnedInflight(
+  threadId: string,
+  request: Promise<ThreadFetchResult>,
+) {
+  if (inflight.get(threadId) === request) inflight.delete(threadId);
 }
 
 function notify(threadId: string) {
@@ -79,7 +84,11 @@ function retryDelayFromMessage(message: string): number {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function noteFetchError(message: string, status?: number) {
+function noteFetchError(
+  message: string,
+  status?: number,
+  retryAfterMs?: number,
+) {
   if (status !== undefined && isAuthFailureStatus(status)) {
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
@@ -87,10 +96,16 @@ function noteFetchError(message: string, status?: number) {
     );
     return;
   }
-  if (isRateLimitMessage(message)) {
+  if (status === 429 || isRateLimitMessage(message)) {
+    const delay =
+      typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) &&
+      retryAfterMs > 0
+        ? Math.min(Math.max(retryAfterMs, 15_000), 5 * 60_000)
+        : retryDelayFromMessage(message);
     backgroundCooldownUntil = Math.max(
       backgroundCooldownUntil,
-      Date.now() + retryDelayFromMessage(message),
+      Date.now() + delay,
     );
   }
 }
@@ -102,7 +117,8 @@ function canRunBackgroundFetch() {
 async function fetchThread(
   threadId: string,
   accountEmail?: string,
-): Promise<EmailMessage[]> {
+): Promise<ThreadFetchResult> {
+  const providerSnapshotId = beginProviderSnapshot();
   const params = new URLSearchParams();
   if (accountEmail) params.set("accountEmail", accountEmail);
   const suffix = params.toString() ? `?${params}` : "";
@@ -113,29 +129,34 @@ async function fetchThread(
         "Content-Type": "application/json",
         "X-Request-Source": TAB_ID,
       },
+      cache: "no-store",
     },
   );
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     const message = body?.error || `Request failed (${res.status})`;
-    noteFetchError(message, res.status);
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    const retryAfterMs =
+      Number.isFinite(retryAfter) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+        ? retryAfter * 1000
+        : undefined;
+    noteFetchError(message, res.status, retryAfterMs);
     const error = new Error(message);
-    (error as Error & { status?: number }).status = res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).status =
+      res.status;
+    (error as Error & { status?: number; retryAfterMs?: number }).retryAfterMs =
+      retryAfterMs;
     throw error;
   }
-  return res.json();
+  return { messages: await res.json(), providerSnapshotId };
 }
-
-// ── localStorage persistence ─────────────────────────────────────────────────
-// Hydrate on module load; flush (debounced) on writes. Survives page reloads
-// and server restarts so repeat opens within an hour stay instant.
 
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadFromStorage() {
   if (typeof window === "undefined") return;
-  // If globalThis already has entries (HMR reload with warm in-memory cache),
-  // skip — don't overwrite fresher in-memory state with disk.
   if (cache.size > 0) return;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -144,10 +165,9 @@ function loadFromStorage() {
     const now = Date.now();
     for (const [id, entry] of Object.entries(parsed)) {
       if (!entry || now - entry.fetchedAt > STORAGE_TTL) continue;
-      cache.set(id, entry);
+      cache.set(id, { ...entry, providerSnapshotId: undefined });
     }
   } catch {
-    // Corrupted entry — nuke it
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch {}
@@ -166,7 +186,6 @@ function scheduleFlush() {
 function flushToStorage() {
   if (typeof window === "undefined") return;
   try {
-    // Keep the N most recently fetched entries, then trim by total size.
     const entries = [...cache.entries()].sort(
       (a, b) => b[1].fetchedAt - a[1].fetchedAt,
     );
@@ -192,9 +211,19 @@ export function getCachedThread(threadId: string): EmailMessage[] | undefined {
 }
 
 export function setCachedThread(threadId: string, messages: EmailMessage[]) {
-  cache.set(threadId, { messages, fetchedAt: Date.now() });
+  cache.set(threadId, {
+    messages,
+    fetchedAt: Date.now(),
+    providerSnapshotId: cache.get(threadId)?.providerSnapshotId,
+  });
   notify(threadId);
   scheduleFlush();
+}
+
+export function supersedeCachedThreadFetch(threadId: string) {
+  const superseded = inflight.delete(threadId);
+  versions.set(threadId, getVersion(threadId) + 1);
+  return superseded;
 }
 
 export function invalidateCachedThread(threadId: string) {
@@ -205,19 +234,14 @@ export function invalidateCachedThread(threadId: string) {
   scheduleFlush();
 }
 
-// If a cached entry is older than this, we still return it instantly but
-// kick off a background refresh so updates land without the user waiting.
-const STALE_AFTER = 60 * 1000; // 1 minute
+const STALE_AFTER = 60 * 1000;
 
-// Fetch if not already cached or in flight. Safe to call many times for the
-// same id — dedupes via the inflight map.
 export function ensureThread(
   threadId: string,
   accountEmail?: string,
 ): Promise<EmailMessage[]> {
   const cached = cache.get(threadId);
   if (cached) {
-    // Stale-while-revalidate: return cached instantly, refresh in background.
     if (
       Date.now() - cached.fetchedAt > STALE_AFTER &&
       !inflight.get(threadId) &&
@@ -228,60 +252,77 @@ export function ensureThread(
     return Promise.resolve(cached.messages);
   }
   const existing = inflight.get(threadId);
-  if (existing) return existing;
+  if (existing) return existing.then(({ messages }) => messages);
   const startedVersion = getVersion(threadId);
   const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
-      // If invalidateCachedThread ran while we were in flight, the version
-      // bumped — discard the stale response rather than repopulating.
+    .then((result) => {
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
+        clearOwnedInflight(threadId, p);
+        return result;
       }
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      cache.set(threadId, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(threadId, p);
       notify(threadId);
       scheduleFlush();
-      return messages;
+      return result;
     })
     .catch((err) => {
-      inflight.delete(threadId);
+      clearOwnedInflight(threadId, p);
       throw err;
     });
   inflight.set(threadId, p);
-  return p;
+  return p.then(({ messages }) => messages);
 }
 
-// Silently refresh a cached thread. Only notifies subscribers if the content
-// actually changed, avoiding re-render churn when nothing's new.
-function backgroundRefresh(threadId: string, accountEmail?: string) {
-  if (!canRunBackgroundFetch()) return Promise.resolve([]);
+function backgroundRefresh(
+  threadId: string,
+  accountEmail?: string,
+): Promise<ThreadFetchResult> {
+  if (!canRunBackgroundFetch())
+    return Promise.resolve({
+      messages: cache.get(threadId)?.messages ?? [],
+      providerSnapshotId: 0,
+    });
   const startedVersion = getVersion(threadId);
   const p = fetchThread(threadId, accountEmail)
-    .then((messages) => {
+    .then((result) => {
       if (getVersion(threadId) !== startedVersion) {
-        inflight.delete(threadId);
-        return messages;
+        clearOwnedInflight(threadId, p);
+        return result;
       }
       const prev = cache.get(threadId);
-      cache.set(threadId, { messages, fetchedAt: Date.now() });
-      inflight.delete(threadId);
+      cache.set(threadId, {
+        messages: result.messages,
+        fetchedAt: Date.now(),
+        providerSnapshotId: result.providerSnapshotId,
+      });
+      clearOwnedInflight(threadId, p);
       scheduleFlush();
       const prevJson = prev ? JSON.stringify(prev.messages) : "";
-      const nextJson = JSON.stringify(messages);
-      if (prevJson !== nextJson) notify(threadId);
-      return messages;
+      const nextJson = JSON.stringify(result.messages);
+      if (
+        prevJson !== nextJson ||
+        prev?.providerSnapshotId !== result.providerSnapshotId
+      )
+        notify(threadId);
+      return result;
     })
     .catch(() => {
-      inflight.delete(threadId);
-      return [];
+      clearOwnedInflight(threadId, p);
+      return { messages: [], providerSnapshotId: 0 };
     });
   inflight.set(threadId, p);
   return p;
 }
 
-// Bulk warm a tiny window of likely-next threads. Direct clicks still fetch
-// immediately; this background path backs off completely after a quota error.
+export function refreshCachedThread(threadId: string, accountEmail?: string) {
+  return backgroundRefresh(threadId, accountEmail);
+}
+
 export function warmThreads(targets: WarmTarget[], concurrency = 2) {
   if (!canRunBackgroundFetch()) return;
   const queue = targets
@@ -309,14 +350,13 @@ export function warmThreads(targets: WarmTarget[], concurrency = 2) {
   pump();
 }
 
-// React hook: returns cached messages (or undefined), kicks off a fetch if
-// missing, re-renders when this threadId's entry changes.
 export function useThreadCache(
   threadId: string | undefined,
   placeholder?: EmailMessage[],
   accountEmail?: string,
 ): {
   messages: EmailMessage[] | undefined;
+  providerSnapshotId: number;
   isFromCache: boolean;
   isLoading: boolean;
 } {
@@ -337,25 +377,33 @@ export function useThreadCache(
   }, [threadId]);
 
   if (!threadId) {
-    return { messages: undefined, isFromCache: false, isLoading: false };
+    return {
+      messages: undefined,
+      providerSnapshotId: 0,
+      isFromCache: false,
+      isLoading: false,
+    };
   }
   const hit = cache.get(threadId);
   if (hit) {
-    return { messages: hit.messages, isFromCache: true, isLoading: false };
+    return {
+      messages: hit.messages,
+      providerSnapshotId: hit.providerSnapshotId ?? 0,
+      isFromCache: true,
+      isLoading: false,
+    };
   }
-  // Kick off the fetch synchronously during render for cold opens so the
-  // hook returns isLoading=true on the first paint. ensureThread dedupes.
   if (!inflight.has(threadId)) {
     void ensureThread(threadId, accountEmail).catch(() => {});
   }
   return {
     messages: placeholder,
+    providerSnapshotId: 0,
     isFromCache: false,
     isLoading: inflight.has(threadId),
   };
 }
 
-// Devtools: inspect via `window.__threadCache` in the console.
 if (typeof window !== "undefined") {
   (window as any).__threadCache = {
     cache,
@@ -408,5 +456,4 @@ if (typeof window !== "undefined") {
   };
 }
 
-// Hydrate after everything above is defined.
 loadFromStorage();

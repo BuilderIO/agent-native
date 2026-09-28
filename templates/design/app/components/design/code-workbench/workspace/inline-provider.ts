@@ -9,16 +9,6 @@ import {
   type WorkspaceWriteResult,
 } from "./types";
 
-/**
- * Workspace provider over the design's SQL-backed inline source files
- * (`designfs://<designId>/`), implemented against the existing agent-facing
- * source-workspace action surface: list-source-files, read-source-file,
- * preview-source-edit, apply-source-edit, create-file, update-file,
- * delete-file. This provider does not introduce any new backend surface —
- * it is a thin adapter so the workbench can treat inline files as one
- * `WorkspaceProvider` root alongside future localhost/remote roots.
- */
-
 interface ListSourceFilesResponse {
   files: Array<{
     path: string;
@@ -54,16 +44,14 @@ interface CreateFileResponse {
 export interface CreateInlineProviderOptions {
   designId: string;
   canEdit: boolean;
+  onDeleteFile?: (fileId: string) => void | Promise<void>;
 }
 
 export function createInlineProvider(
   options: CreateInlineProviderOptions,
 ): WorkspaceProvider {
-  const { designId, canEdit } = options;
+  const { designId, canEdit, onDeleteFile } = options;
   const key = `inline:${designId}`;
-  // path -> fileId, populated by listFiles and refreshed on demand so
-  // renameFile/deleteFile can resolve a file's id without re-listing when
-  // it is already known.
   const fileIdByPath = new Map<string, string>();
 
   const capabilities: WorkspaceCapabilities = {
@@ -107,15 +95,6 @@ export function createInlineProvider(
     };
   }
 
-  /**
-   * Persist content via the exact preview→apply chain used by the old
-   * CodeWorkbenchHost.saveSelectedFile: preview first with a full-replace
-   * edit; if the backend reports the file changed underneath us
-   * (okToApply === false), throw WorkspaceStaleVersionError instead of
-   * applying; otherwise apply using the preview's currentVersionHash (falling
-   * back to the original expectedVersionHash) so a benign no-op preview
-   * still chains through the same version the preview observed.
-   */
   async function writeFile(
     path: string,
     content: string,
@@ -157,9 +136,6 @@ export function createInlineProvider(
   async function resolveFileId(path: string): Promise<string> {
     const cached = fileIdByPath.get(path);
     if (cached) return cached;
-    // Refresh from the server once before giving up — the cache may be cold
-    // (e.g. a fresh provider instance that never called listFiles for this
-    // path yet).
     await listFiles();
     const refreshed = fileIdByPath.get(path);
     if (!refreshed) {
@@ -177,7 +153,8 @@ export function createInlineProvider(
 
   async function deleteFile(path: string): Promise<void> {
     const id = await resolveFileId(path);
-    await callAction("delete-file", { id });
+    if (onDeleteFile) await onDeleteFile(id);
+    else await callAction("delete-file", { id });
     fileIdByPath.delete(path);
   }
 

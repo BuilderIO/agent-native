@@ -2,6 +2,7 @@ import {
   type DesignClipboardPayload,
   parseDesignClipboardMarker,
 } from "./design-import";
+import { extractSvgMarkup } from "./svg-paste";
 
 interface ClipboardItemLike {
   types: readonly string[];
@@ -25,8 +26,6 @@ export interface DesignClipboardEnvironment {
   ClipboardItem?: ClipboardItemConstructor | null;
   legacyCopy?: (representations: DesignClipboardRepresentations) => boolean;
   preferLegacyCopy?: boolean;
-  /** Per-installation secret used to reject marker-shaped HTML authored by
-   * arbitrary external clipboard sources. `null` fails closed. */
   trustToken?: string | null;
 }
 
@@ -40,6 +39,12 @@ export interface ReadDesignClipboardPayload {
   markerText: string;
   plainText: string;
 }
+
+export type ReadDesignClipboardPayloadFromSystemResult =
+  | { status: "found"; value: ReadDesignClipboardPayload }
+  | { status: "empty" }
+  | { status: "unavailable" }
+  | { status: "unreadable"; errors: unknown[] };
 
 function browserClipboardEnvironment(): DesignClipboardEnvironment {
   return {
@@ -70,18 +75,11 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
               once: true,
             });
             try {
-              // The synchronous copy-event path remains available in browsers
-              // that deny the async Clipboard API. It preserves Design's rich
-              // marker across files/tabs without leaking that marker into the
-              // human-readable text/plain representation.
               return document.execCommand("copy") && wroteRepresentations;
             } finally {
               document.removeEventListener("copy", handleCopy, true);
             }
           },
-    // A navigation immediately after Cmd+C can cancel Chromium's pending
-    // async clipboard.write promise. The copy-event path completes before the
-    // key handler returns, matching Figma's durable copy-before-leave behavior.
     preferLegacyCopy: true,
     trustToken: getDesignClipboardTrustToken(),
   };
@@ -90,14 +88,6 @@ function browserClipboardEnvironment(): DesignClipboardEnvironment {
 const DESIGN_CLIPBOARD_TRUST_TOKEN_KEY =
   "agent-native.design.clipboard-trust-token.v1";
 
-/**
- * A stable, origin-local capability for rich Design clipboard markers. Plain
- * HTML copied from another page can imitate our public marker syntax; without
- * this capability it could smuggle script/event-handler markup into a srcdoc
- * preview that intentionally supports executable Alpine designs. localStorage
- * makes the token available to independent Design files and browser tabs while
- * keeping ordinary clipboard contents from forging it.
- */
 export function getDesignClipboardTrustToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -109,8 +99,7 @@ export function getDesignClipboardTrustToken(): string | null {
     window.localStorage.setItem(DESIGN_CLIPBOARD_TRUST_TOKEN_KEY, token);
     return token;
   } catch {
-    // If durable origin storage is unavailable, rich external marker parsing
-    // is disabled. Same-editor copy/paste still works through in-memory refs.
+    // coercion-ok: storage denial disables the trust token, so external marker parsing fails closed.
     return null;
   }
 }
@@ -125,11 +114,6 @@ function supportsClipboardType(
   );
 }
 
-/**
- * Writes the user-facing text as text/plain and keeps Design's lossless layer
- * payload in text/html. Apps that only want text therefore receive readable
- * content, while another Design tab can still reconstruct the copied layers.
- */
 export async function writeDesignClipboard(
   representations: DesignClipboardRepresentations,
   environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
@@ -201,9 +185,11 @@ export function readDesignClipboardPayloadFromDataTransfer(
 
 export async function readDesignClipboardPayloadFromSystem(
   environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
-): Promise<ReadDesignClipboardPayload | null> {
+): Promise<ReadDesignClipboardPayloadFromSystemResult> {
   const clipboard = environment.clipboard;
-  if (!clipboard) return null;
+  if (!clipboard) return { status: "unavailable" };
+
+  const errors: unknown[] = [];
 
   if (clipboard.read) {
     try {
@@ -219,26 +205,117 @@ export async function readDesignClipboardPayloadFromSystem(
             markerText,
             environment.trustToken,
           );
-          if (payload) return { payload, markerText, plainText };
+          if (payload) {
+            return {
+              status: "found",
+              value: { payload, markerText, plainText },
+            };
+          }
         }
       }
-    } catch {
-      // Fall back to readText below. It also understands clipboards written by
-      // older Design versions that stored the marker in text/plain.
+    } catch (error) {
+      errors.push(error);
     }
   }
 
-  if (!clipboard.readText) return null;
+  if (!clipboard.readText) {
+    return errors.length > 0
+      ? { status: "unreadable", errors }
+      : { status: "empty" };
+  }
   try {
     const markerText = await clipboard.readText();
     const payload = parseDesignClipboardMarker(
       markerText,
       environment.trustToken,
     );
-    return payload ? { payload, markerText, plainText: markerText } : null;
+    return payload
+      ? {
+          status: "found",
+          value: { payload, markerText, plainText: markerText },
+        }
+      : { status: "empty" };
+  } catch (error) {
+    errors.push(error);
+    return { status: "unreadable", errors };
+  }
+}
+
+export interface SystemClipboardContents {
+  design: ReadDesignClipboardPayload | null;
+  files: File[];
+  readErrors?: unknown[];
+}
+
+export async function readSystemClipboard(
+  environment: DesignClipboardEnvironment = browserClipboardEnvironment(),
+): Promise<SystemClipboardContents | null> {
+  const clipboard = environment.clipboard;
+  if (!clipboard?.read) {
+    const result = await readDesignClipboardPayloadFromSystem(environment);
+    if (result.status === "found") {
+      return { design: result.value, files: [] };
+    }
+    return result.status === "empty" ? { design: null, files: [] } : null;
+  }
+  let items: ClipboardItemLike[];
+  try {
+    items = await clipboard.read();
+    // coercion-ok: null is "unreadable" (denied), distinct from an empty clipboard
   } catch {
     return null;
   }
+  let design: ReadDesignClipboardPayload | null = null;
+  const files: File[] = [];
+  const readErrors: unknown[] = [];
+  for (const item of items) {
+    try {
+      const text = async (type: string) => {
+        if (!item.types.includes(type)) return "";
+        try {
+          return await (await item.getType(type)).text();
+        } catch (error) {
+          readErrors.push(error);
+          return "";
+        }
+      };
+      const plainText = await text("text/plain");
+      for (const markerText of [await text("text/html"), plainText]) {
+        const payload = parseDesignClipboardMarker(
+          markerText,
+          environment.trustToken,
+        );
+        if (payload && !design) design = { payload, markerText, plainText };
+      }
+      const svg = design ? null : extractSvgMarkup(plainText);
+      if (svg) {
+        files.push(new File([svg], "", { type: "image/svg+xml" }));
+        continue;
+      }
+      const imageType =
+        item.types.find((type) => type === "image/svg+xml") ??
+        item.types.find((type) => type.startsWith("image/"));
+      if (imageType) {
+        try {
+          files.push(
+            new File([await item.getType(imageType)], "", { type: imageType }),
+          );
+        } catch (error) {
+          readErrors.push(error);
+          // Try the next clipboard item when this representation is denied.
+        }
+      }
+    } catch (error) {
+      readErrors.push(error);
+      // A denied representation must not discard clipboard items that follow it.
+    }
+  }
+  if (readErrors.length > 0 && !design && files.length === 0) return null;
+  return {
+    design,
+    files,
+    ...(readErrors.length > 0 ? { readErrors } : {}),
+  };
 }
 
 export function plainTextFromDesignHtml(htmlFragments: string[]): string {

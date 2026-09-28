@@ -20,9 +20,6 @@ const mocks = vi.hoisted(() => {
     },
   };
 
-  // Routed by `.from()`'s argument so the designs-table precheck read in
-  // cleanupUnpickedVariantSets and the design_files-table reads/inserts
-  // elsewhere in the action get independently controllable mock chains.
   const designSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
@@ -59,8 +56,11 @@ const mocks = vi.hoisted(() => {
   txUpdateChain.set.mockReturnValue(txUpdateChain);
 
   const tx = {
-    select: vi.fn(() => txSelectChain),
+    select: vi.fn(() => filesSelectChain),
+    insert: vi.fn(() => insertChain),
+    delete: vi.fn(() => deleteChain),
     update: vi.fn(() => txUpdateChain),
+    execute: vi.fn().mockResolvedValue({ rows: [] }),
   };
 
   const db = {
@@ -180,10 +180,6 @@ describe("present-design-variants", () => {
       },
     );
     mocks.filesSelectChain.where.mockResolvedValue([]);
-    // Ties the designs-table precheck read in cleanupUnpickedVariantSets to
-    // the same simulated `designs.data` blob mutateDesignData reads/writes,
-    // so a test that seeds `mocks.designData` before calling `action.run`
-    // sees a consistent view across both mocked layers.
     mocks.designSelectChain.where.mockImplementation(() =>
       Promise.resolve([{ data: JSON.stringify(mocks.designData) }]),
     );
@@ -194,18 +190,36 @@ describe("present-design-variants", () => {
     mocks.hasCollabState.mockResolvedValue(false);
     mocks.seedFromText.mockResolvedValue(undefined);
     mocks.deleteAppState.mockResolvedValue(true);
-    // `vi.clearAllMocks()` above clears call history but NOT a queued
-    // `mockReturnValueOnce` chain, so any value a test left unconsumed (e.g.
-    // a test that only creates 2 variants never consumes the 4th queued id)
-    // would otherwise bleed into the next test's queue instead of being
-    // discarded. Reset first so every test starts from the same 4-value
-    // sequence regardless of what earlier tests consumed.
     mocks.nanoid.mockReset();
     mocks.nanoid
       .mockReturnValueOnce("variant-set-1")
       .mockReturnValueOnce("file-a")
       .mockReturnValueOnce("file-b")
       .mockReturnValueOnce("file-c");
+  });
+
+  it("keeps fallback direction screens fluid on narrow viewports", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Explore a mobile task manager direction",
+      variants: [
+        { id: "mobile", label: "Mobile direction" },
+        { id: "mobile-alt", label: "Mobile direction alt" },
+      ],
+    });
+
+    const inserted = mocks.insertChain.values.mock.calls[0]![0] as {
+      content: string;
+    };
+    expect(inserted.content).toContain(
+      "@media (max-width: 900px) { body { width: 100%; max-width: 390px; overflow-x: hidden; overflow-y: auto; } .shell { grid-template-columns: 1fr;",
+    );
+    expect(inserted.content).toContain(
+      ".shell { box-sizing: border-box; width: 100%; max-width: 390px;",
+    );
+    expect(inserted.content).toContain(
+      ".board { grid-template-columns: 1fr; }",
+    );
   });
 
   it("writes variants as overview screens and asks the user with chat buttons", async () => {
@@ -261,7 +275,7 @@ describe("present-design-variants", () => {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
     });
     expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith(
       "guided-questions",
@@ -282,9 +296,6 @@ describe("present-design-variants", () => {
         ],
       }),
     );
-    // No linked system and the prompt is the only direction there is: the
-    // pick's continuation turn inherits nothing, so the prompt has to ride
-    // along or the kept placeholder is expanded blind.
     expect(
       guidedQuestionsPayload<{ submitContext?: string }>().submitContext,
     ).toContain("Pick a calmer mobile direction");
@@ -368,7 +379,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       variantSetId: "variant-set-1",
       count: 3,
-      path: "/design/design_123?view=overview",
+      path: "/design/design_123?editorView=overview",
       screens: expect.arrayContaining([
         expect.objectContaining({
           id: "file-a",
@@ -400,6 +411,42 @@ describe("present-design-variants", () => {
       "Do not call generate-design after a variant pick",
     );
     expect(result.nextRequiredAction).toContain("bounded pass");
+  });
+
+  it("does not reserve responsive space for JSX support files", async () => {
+    mocks.filesSelectChain.where.mockResolvedValue([
+      {
+        id: "support",
+        designId: "design_123",
+        filename: "support.jsx",
+        fileType: "jsx",
+        content: "export default function Support() {}",
+      },
+    ]);
+    mocks.designData = {
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: {
+        support: { x: 0, y: 0, width: 1440, height: 100 },
+      },
+    };
+
+    await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      variants: [
+        { id: "a", label: "A", content: "<!doctype html><div>A</div>" },
+        { id: "b", label: "B", content: "<!doctype html><div>B</div>" },
+      ],
+    });
+
+    const frames = mocks.designData.canvasFrames as Record<
+      string,
+      { y: number }
+    >;
+    expect(frames["file-a"]?.y).toBe(100 + 96);
   });
 
   it("carries the linked design system into the variant-pick continuation", async () => {
@@ -498,9 +545,6 @@ describe("present-design-variants", () => {
   });
 
   it("rejects contentless variants when the design has a linked system, whatever the caption says", async () => {
-    // The caption is chat chrome this same model writes, so an agent that has
-    // decided to explore writes an exploration-flavored one. The linked system
-    // is the fact the server owns, and it survives an intake round-trip.
     mocks.designSelectChain.where.mockImplementation(() =>
       Promise.resolve([
         {
@@ -588,8 +632,6 @@ describe("present-design-variants", () => {
       }),
     ).rejects.toThrow("requires complete self-contained HTML");
 
-    // The guard runs before supersession, deletion, or insertion, so a failed
-    // model call cannot damage an earlier variant set.
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
@@ -607,10 +649,6 @@ describe("present-design-variants", () => {
     });
 
     const data = mocks.designData;
-    // Desktop-base directions (1440) each paint a 390 mobile preview to their
-    // right, so a cell is 1440 + 24 + 390 = 1854 wide before the 96 gap.
-    // Spacing by the primary width alone dropped the next direction 1110px
-    // inside the previous one's breakpoint row.
     expect(Object.values(data.canvasFrames).map((frame) => frame.x)).toEqual([
       0, 1950, 3900,
     ]);
@@ -638,11 +676,48 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // 1440 base drops the redundant 1440 preview and reserves 768 + 390:
-    // 1440 + (24 + 768) + (24 + 390) = 2646, then the 96 gap.
     expect(
       Object.values(mocks.designData.canvasFrames).map((f) => f.x),
     ).toEqual([0, 2742]);
+  });
+
+  it("reserves the full responsive height before starting a new row", async () => {
+    mocks.designData.breakpointSet = {
+      id: "existing",
+      breakpoints: [
+        { id: "mobile", widthPx: 390 },
+        { id: "tablet", widthPx: 768 },
+        { id: "desktop", widthPx: 1440 },
+      ],
+    };
+    mocks.nanoid.mockReset();
+    mocks.nanoid
+      .mockReturnValueOnce("responsive-set")
+      .mockReturnValueOnce("responsive-a")
+      .mockReturnValueOnce("responsive-b")
+      .mockReturnValueOnce("responsive-c")
+      .mockReturnValueOnce("responsive-d")
+      .mockReturnValueOnce("responsive-e");
+
+    await action.run({
+      designId: "design_123",
+      variants: Array.from({ length: 5 }, (_, index) => ({
+        id: `responsive-${index}`,
+        label: `Responsive ${index}`,
+        width: 390,
+        height: 844,
+        content: "<!doctype html><html><body>Variant</body></html>",
+      })),
+    });
+
+    const frames = mocks.designData.canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    expect(frames["responsive-a"]!.y).toBe(0);
+    expect(frames["responsive-c"]!.y).toBe(0);
+    expect(frames["responsive-d"]!.y).toBeCloseTo(96 + (1440 * 844) / 390);
+    expect(frames["responsive-e"]!.y).toBe(frames["responsive-d"]!.y);
   });
 
   it("renders compact fallback variants from non-todo mobile direction data", async () => {
@@ -729,7 +804,7 @@ describe("present-design-variants", () => {
         result: { designId: "design_123" },
       }),
     ).toEqual({
-      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3Fview%3Doverview",
+      url: "/_agent-native/open?app=design&view=editor&designId=design_123&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview",
       label: "Open screen overview",
       view: "editor",
     });
@@ -763,22 +838,16 @@ describe("present-design-variants", () => {
 
     expect(providedInsert.content).toContain("data-agent-native-node-id");
     expect(providedInsert.content).toContain("<button");
-    // The provided-HTML path preserves text content verbatim alongside the
-    // injected ids.
     expect(providedInsert.content).toContain(">Buy<");
 
-    // The generated fallbackVariantContent() path is also annotated, since it
-    // persists just as any other AI-authored screen would.
     expect(fallbackInsert.content).toContain("data-agent-native-node-id");
   });
 
-  it("retries with a fresh filename when a concurrent insert wins the race for the same (designId, filename)", async () => {
+  it("surfaces an unexpected duplicate insert from the locked transaction", async () => {
     mocks.nanoid.mockReset();
     mocks.nanoid
       .mockReturnValueOnce("variant-set-1")
-      .mockReturnValueOnce("file-a-loser")
-      .mockReturnValueOnce("file-a-winner")
-      .mockReturnValueOnce("file-b");
+      .mockReturnValueOnce("file-a");
 
     mocks.insertChain.values
       .mockImplementationOnce(() => {
@@ -791,56 +860,26 @@ describe("present-design-variants", () => {
       })
       .mockResolvedValue(undefined);
 
-    const result = await action.run({
-      designId: "design_123",
-      variants: [
-        {
-          id: "pure-white",
-          label: "Pure White",
-          content: "<!doctype html><html><body>One</body></html>",
-        },
-        {
-          id: "soft-cards",
-          label: "Soft Cards",
-          content: "<!doctype html><html><body>Two</body></html>",
-        },
-      ],
-    });
+    await expect(
+      action.run({
+        designId: "design_123",
+        variants: [
+          {
+            id: "pure-white",
+            label: "Pure White",
+            content: "<!doctype html><html><body>One</body></html>",
+          },
+          {
+            id: "soft-cards",
+            label: "Soft Cards",
+            content: "<!doctype html><html><body>Two</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("duplicate key value");
 
-    // Two attempts for the first variant (loser + retry), one for the second.
-    expect(mocks.insertChain.values).toHaveBeenCalledTimes(3);
-    const firstAttempt = mocks.insertChain.values.mock.calls[0]![0] as {
-      id: string;
-      filename: string;
-    };
-    const secondAttempt = mocks.insertChain.values.mock.calls[1]![0] as {
-      id: string;
-      filename: string;
-    };
-    expect(firstAttempt.filename).toBe("variant-pure-white.html");
-    // uniqueFilename's local `used` set already contains the failed
-    // candidate, so the retry deterministically picks the next slot without
-    // needing the refreshed DB read to report anything new.
-    expect(secondAttempt.filename).toBe("variant-pure-white-2.html");
-    expect(secondAttempt.id).not.toBe(firstAttempt.id);
-    expect(secondAttempt.id).toBe("file-a-winner");
-
-    // Only the surviving (second) attempt is seeded and reported — the
-    // failed insert never created a row, so seeding it would target nothing.
-    expect(mocks.seedFromText).toHaveBeenCalledWith(
-      "file-a-winner",
-      expect.stringContaining("One"),
-    );
-    expect(mocks.seedFromText).not.toHaveBeenCalledWith(
-      "file-a-loser",
-      expect.anything(),
-    );
-    expect(
-      result.screens.find((screen) => screen.label === "Pure White"),
-    ).toMatchObject({
-      id: "file-a-winner",
-      filename: "variant-pure-white-2.html",
-    });
+    expect(mocks.insertChain.values).toHaveBeenCalledTimes(1);
+    expect(mocks.seedFromText).not.toHaveBeenCalled();
   });
 
   it("propagates a non-conflict insert error immediately without retrying", async () => {
@@ -862,11 +901,6 @@ describe("present-design-variants", () => {
   });
 
   it("never deletes a possibly-picked previous variant set by default; it only marks it superseded", async () => {
-    // The critical data-loss scenario: a full untouched set from a previous
-    // call. The user may have picked one of its screens in chat (the pick is
-    // not observable server-side until the agent's delete-file turn runs), so
-    // a plain retry / second present-design-variants call must NOT delete
-    // anything from it.
     mocks.designData = {
       canvasFrames: {
         "old-file-a": { x: 0, y: 0, width: 390, height: 844, z: 0 },
@@ -909,8 +943,6 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // Nothing is hard-deleted: no design_files rows removed, all old screens
-    // and their metadata survive.
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeDefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeDefined();
@@ -921,8 +953,6 @@ describe("present-design-variants", () => {
       title: "Old B",
     });
 
-    // The old set stays but is marked superseded (bookkeeping only), making
-    // it eligible for a later explicit deleteSupersededSetIds opt-in.
     expect(mocks.designData.designVariantSets["old-set"]).toMatchObject({
       superseded: true,
       screenCount: 2,
@@ -931,7 +961,6 @@ describe("present-design-variants", () => {
       2,
     );
 
-    // The new variant set's own screens are present and unaffected.
     expect(mocks.designData.designVariantSets["variant-set-1"]).toBeDefined();
     expect(
       mocks.designData.designVariantSets["variant-set-1"].screens,
@@ -942,9 +971,6 @@ describe("present-design-variants", () => {
   });
 
   it("rejects malformed variant HTML before deleting anything", async () => {
-    // Ordering, not just validation: supersession and deletion are irreversible,
-    // so a gate that ran after them would destroy the caller's existing sets and
-    // create nothing to replace them.
     mocks.designData = {
       screenMetadata: {
         "old-file-a": { title: "Old A", variantSetId: "old-set" },
@@ -1025,8 +1051,7 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // The named set's screens are gone from the design_files table...
-    expect(mocks.db.delete).toHaveBeenCalledWith(mocks.schema.designFiles);
+    expect(mocks.tx.delete).toHaveBeenCalledWith(mocks.schema.designFiles);
     expect(mocks.inArray).toHaveBeenCalledWith(
       mocks.schema.designFiles.id,
       expect.arrayContaining(["old-file-a", "old-file-b"]),
@@ -1036,16 +1061,12 @@ describe("present-design-variants", () => {
     )?.[1] as string[];
     expect(deletedIds).toHaveLength(2);
 
-    // ...and their metadata + the whole old variant set are pruned from the
-    // design's JSON data.
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeUndefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeUndefined();
     expect(mocks.designData.screenMetadata["old-file-a"]).toBeUndefined();
     expect(mocks.designData.screenMetadata["old-file-b"]).toBeUndefined();
     expect(mocks.designData.designVariantSets["old-set"]).toBeUndefined();
 
-    // An unrelated screen never referenced by the stale variant set survives
-    // untouched.
     expect(mocks.designData.canvasFrames["kept-screen"]).toMatchObject({
       x: 0,
       y: 900,
@@ -1054,7 +1075,6 @@ describe("present-design-variants", () => {
       title: "Unrelated kept screen",
     });
 
-    // The new variant set's own screens are present and unaffected.
     expect(mocks.designData.designVariantSets["variant-set-1"]).toBeDefined();
     expect(
       mocks.designData.designVariantSets["variant-set-1"].screens,
@@ -1077,10 +1097,6 @@ describe("present-design-variants", () => {
           id: "old-set",
           prompt: "Old prompt",
           createdAt: "2026-07-01T00:00:00.000Z",
-          // screenCount (3) no longer matches screens.length (1): a pick has
-          // resolved against this set (delete-file.ts already removed 2 of 3
-          // screens), so the survivor is very likely the user's kept screen.
-          // It must never be deleted, even when the caller names the set.
           screenCount: 3,
           screens: [{ id: "old-file-a", variantId: "a", label: "Old A" }],
         },
@@ -1098,7 +1114,6 @@ describe("present-design-variants", () => {
 
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.designData.designVariantSets["old-set"]).toBeDefined();
-    // A touched set is never marked superseded either.
     expect(
       mocks.designData.designVariantSets["old-set"].superseded,
     ).toBeUndefined();
@@ -1120,9 +1135,6 @@ describe("present-design-variants", () => {
           id: "old-set",
           prompt: "Old prompt",
           createdAt: "2026-07-01T00:00:00.000Z",
-          // No screenCount at all — predates this field. Cannot be proven
-          // untouched, so it is never marked superseded and never deleted
-          // even when the caller names it.
           screens: [
             { id: "old-file-a", variantId: "a", label: "Old A" },
             { id: "old-file-b", variantId: "b", label: "Old B" },

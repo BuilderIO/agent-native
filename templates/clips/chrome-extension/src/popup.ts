@@ -69,10 +69,22 @@ type NativeRecording = {
 type PopupStatusResponse = {
   ok?: boolean;
   activeRecording?: NativeRecording | null;
+  arming?: boolean;
   error?: string;
 };
 
 type AuthStatus = "checking" | "signed-in" | "signed-out";
+
+export function recordingControlVisibility(
+  recording: NativeRecording | null,
+  authStatus: AuthStatus,
+): { startHidden: boolean; signInHidden: boolean } {
+  const active = Boolean(recording);
+  return {
+    startHidden: active || authStatus !== "signed-in",
+    signInHidden: active || authStatus !== "signed-out",
+  };
+}
 
 type StoredAuth = {
   token: string;
@@ -102,7 +114,7 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
 };
 
 const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
-  browser: "Current tab",
+  browser: "Browser tab",
   window: "Window",
   monitor: "Full screen",
 };
@@ -207,13 +219,6 @@ async function loadFeedbackSchema(
   return pending;
 }
 
-// Chrome (and some OSes) surface synthetic aliases alongside real hardware:
-// a "default" device that mirrors whatever the OS currently considers its
-// default input, and sometimes a "communications" variant. Both re-resolve to
-// a possibly-different physical device at capture time (e.g. macOS Continuity
-// can silently promote a nearby iPhone's mic to system default), so picking
-// one of these rows does not pin recording to the hardware the label implies.
-// Filter them out and only ever list/persist stable hardware device ids.
 const VIRTUAL_DEVICE_ID_RE = /^(default|communications)$/i;
 
 function isVirtualDefaultDevice(device: MediaDeviceInfo): boolean {
@@ -234,9 +239,6 @@ function normalizeDefaultDeviceName(label: string): string {
   return /^(?:default|communications)$/i.test(normalized) ? "" : normalized;
 }
 
-// Enumerate the user's input devices for the camera/mic pickers. Labels only
-// populate after camera/mic permission is granted (the extension's permission
-// onboarding page handles that), so fall back to a generic label otherwise.
 async function enumerateInputDevices(): Promise<InputDevices> {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -427,8 +429,6 @@ async function mediaPermissionState(
   }
 }
 
-// True when every device the chosen mode needs is already granted to the
-// extension. If not, the caller routes the user to the permission page.
 async function ensureMediaPermission(
   settings: ExtensionSettings,
 ): Promise<boolean> {
@@ -440,11 +440,6 @@ async function ensureMediaPermission(
     if (state === "granted") continue;
     if (state === "denied") return false;
     if (cached[device] !== true) return false;
-    // "prompt" plus a cached grant is the ambiguous case: Chrome reports
-    // "prompt" for some granted extension origins, but also after it revokes a
-    // grant it considers unused. Device labels tell those apart, and a cache
-    // Chrome no longer backs would otherwise send the recording into the
-    // offscreen document, where no prompt can ever be shown.
     if (await hasGrantedDeviceLabels(device)) continue;
     await writeCachedMediaPermission({ [device]: false });
     return false;
@@ -538,9 +533,6 @@ function comparableLabel(value: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-// Pages where Chrome forbids content-script / overlay injection, so the on-page
-// countdown + controls can't render. Recording the screen still works; we just
-// warn the user in the popup instead of letting it fail silently.
 function isUnsupportedPage(url: string | undefined | null): boolean {
   if (!url) return true;
   const u = url.toLowerCase();
@@ -611,8 +603,6 @@ function renderSource(settings: ExtensionSettings): void {
   }
 }
 
-// Holds the most recent device enumeration so the menus and labels can render
-// without re-querying on every paint. Refreshed by refreshDevices().
 let inputDevices: InputDevices = {
   cameras: [],
   microphones: [],
@@ -620,11 +610,6 @@ let inputDevices: InputDevices = {
   defaultMicrophoneName: "",
 };
 
-// Distinguishes "the user explicitly picked the OS default" from "the id we
-// have on file doesn't match any enumerated device anymore" (e.g. the device
-// was unplugged, or it was a stale/virtual id saved before this fix). The two
-// cases must not collapse into the same label — that's what let a stored id
-// silently re-resolve to something other than what the UI implied.
 function deviceLabel(
   devices: InputDevice[],
   deviceId: string,
@@ -686,7 +671,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   cameraButton.hidden = !showCamera;
   if (showCamera) {
     const defaultCameraLabel = defaultDeviceLabel(
-      "System default",
+      "Default camera",
       inputDevices.defaultCameraName,
     );
     cameraLabel.textContent = deviceLabel(
@@ -711,7 +696,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
   micButton.hidden = !settings.includeMicrophone;
   if (settings.includeMicrophone) {
     const defaultMicrophoneLabel = defaultDeviceLabel(
-      "System default",
+      "Default microphone",
       inputDevices.defaultMicrophoneName,
     );
     micLabel.textContent = deviceLabel(
@@ -765,7 +750,11 @@ function formatDuration(startedAtMs: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function renderActiveRecording(recording: NativeRecording | null): void {
+function renderActiveRecording(
+  recording: NativeRecording | null,
+  arming = false,
+  authStatus: AuthStatus = "checking",
+): void {
   const idleContent = byId<HTMLDivElement>("idle-content");
   const activeContent = byId<HTMLDivElement>("active-content");
   const recordingTitle = byId<HTMLDivElement>("recording-title");
@@ -773,19 +762,30 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   const recordingStatus = byId<HTMLDivElement>("recording-status");
   const start = byId<HTMLButtonElement>("start");
   const signIn = byId<HTMLButtonElement>("sign-in");
+  const stop = byId<HTMLButtonElement>("stop");
+  const discard = byId<HTMLButtonElement>("discard");
   const recordingActions =
     document.querySelector<HTMLDivElement>(".recording-actions");
 
   const active = Boolean(recording);
+  const controlVisibility = recordingControlVisibility(recording, authStatus);
   idleContent.hidden = active;
   activeContent.hidden = !active;
-  start.hidden = active;
-  signIn.hidden = true;
+  start.hidden = controlVisibility.startHidden;
+  start.disabled = arming;
+  signIn.hidden = controlVisibility.signInHidden;
   if (recordingActions) recordingActions.hidden = !active;
   if (!recording) {
     setStorageHelp(false);
     return;
   }
+
+  const settling =
+    arming ||
+    recording.status === "stopping" ||
+    recording.status === "uploading";
+  stop.disabled = settling;
+  discard.disabled = settling;
 
   recordingTitle.textContent = recording.targetTitle || "Current recording";
   const host = hostnameLabel(recording.targetUrl);
@@ -799,8 +799,6 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   let errorText = storageFailure
     ? STORAGE_SETUP_REQUIRED_MESSAGE
     : recording.error || "Recording needs attention";
-  // If the upload failed but we saved the recording to disk, lead with the
-  // reassurance (it's not lost) and the re-upload action.
   if (recording.status === "error" && recording.savedToDisk) {
     const named = recording.savedFilename
       ? ` (${recording.savedFilename})`
@@ -824,8 +822,6 @@ function renderActiveRecording(recording: NativeRecording | null): void {
 
 async function init(): Promise<void> {
   const settings = await readSettings();
-  // Warm the offscreen recorder so the native screen picker opens promptly when
-  // the user presses Record (keeps getDisplayMedia close to the click).
   try {
     chrome.runtime.sendMessage(
       { type: "CLIPS_PREWARM" },
@@ -857,12 +853,13 @@ async function init(): Promise<void> {
   const feedbackHint = byId<HTMLDivElement>("feedback-hint");
   const feedbackSubmit = byId<HTMLButtonElement>("feedback-submit");
   const feedbackSuccess = byId<HTMLDivElement>("feedback-success");
+  const openDictate = byId<HTMLButtonElement>("open-dictate");
   const openLibrary = byId<HTMLButtonElement>("open-library");
   const openSettings = byId<HTMLButtonElement>("open-settings");
-  const openRecent = byId<HTMLButtonElement>("open-recent");
   const signIn = byId<HTMLButtonElement>("sign-in");
   const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
+  let arming = false;
   let authStatus: AuthStatus = "checking";
   let feedbackOpenedAt = 0;
   let feedbackSchema: FeedbackFormSchema | null = null;
@@ -917,9 +914,6 @@ async function init(): Promise<void> {
     window.setTimeout(() => feedbackTextarea.focus(), 30);
   };
 
-  // Re-enumerate devices and repaint the pickers. Labels only appear once the
-  // user has granted camera/mic access (via the permission onboarding page), so
-  // this is also re-run when the device list changes.
   const refreshDevices = async (): Promise<void> => {
     inputDevices = await enumerateInputDevices();
     // A stored device id that no longer matches anything enumerated (unplugged
@@ -971,18 +965,18 @@ async function init(): Promise<void> {
       void refreshDevices();
     });
   }
-  const status =
-    await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
-  activeRecording = status.activeRecording ?? null;
-  renderActiveRecording(activeRecording);
-  if (activeRecording) {
-    window.setInterval(() => renderActiveRecording(activeRecording), 1000);
+  const refreshActiveRecording = async (): Promise<void> => {
+    const status =
+      await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
+    activeRecording = status.activeRecording ?? null;
+    arming = Boolean(status.arming);
+    renderActiveRecording(activeRecording, arming, authStatus);
+  };
+  await refreshActiveRecording();
+  if (activeRecording || arming) {
+    window.setInterval(() => void refreshActiveRecording(), 1000);
   }
 
-  // No on-page pre-record preview. A Chrome action popup closes the instant you
-  // click the page, so an interactive on-page bubble before recording isn't
-  // possible — the face bubble appears only once recording starts. syncPreview
-  // is kept as a no-op so the settings handlers below stay unchanged.
   const syncPreview = (): void => {};
 
   for (const button of document.querySelectorAll<HTMLButtonElement>(
@@ -1193,33 +1187,28 @@ async function init(): Promise<void> {
     window.close();
   });
 
+  openDictate.addEventListener("click", async () => {
+    await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/dictate`);
+    window.close();
+  });
+
   openSettings.addEventListener("click", () => {
     void chrome.runtime.openOptionsPage();
   });
 
-  openRecent.addEventListener("click", async () => {
-    await createTab(settings.clipsBaseUrl);
-    window.close();
-  });
-
   authStatus = await readAuthStatus(settings);
-  if (!activeRecording && authStatus === "signed-out") {
-    start.hidden = true;
-    signIn.hidden = false;
-    setStatus("");
-  }
+  renderActiveRecording(activeRecording, arming, authStatus);
+  if (authStatus === "signed-out") setStatus("");
 
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
     setStorageHelp(false);
-    setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
+    setStatus("");
     try {
       authStatus = await readAuthStatus(settings);
       if (authStatus === "signed-out") {
-        start.disabled = false;
-        start.hidden = true;
-        signIn.hidden = false;
+        renderActiveRecording(activeRecording, arming, authStatus);
         setStatus("");
         return;
       }
@@ -1235,10 +1224,6 @@ async function init(): Promise<void> {
         window.close();
         return;
       }
-      // Gate at record time: if the user wants camera/mic but hasn't granted the
-      // extension access yet, send them to the onboarding page first. Requesting
-      // there (a real extension page) is the only place Chrome reliably shows the
-      // permission dialog and persists the grant for the offscreen recorder + bubble.
       if (!(await ensureMediaPermission(settings))) {
         const prepare = await sendRuntimeMessage<PopupStartResponse>({
           type: "CLIPS_POPUP_PREPARE_PERMISSION_START",
@@ -1356,8 +1341,7 @@ async function init(): Promise<void> {
       await sendSimpleMessage<PopupStartResponse>("CLIPS_POPUP_CANCEL");
     if (response.ok) {
       activeRecording = null;
-      renderActiveRecording(null);
-      if (authStatus === "signed-in") start.hidden = false;
+      renderActiveRecording(null, false, authStatus);
       setStatus("");
       stop.disabled = false;
       discard.disabled = false;
@@ -1379,12 +1363,14 @@ async function init(): Promise<void> {
   });
 }
 
-void init().catch((err) => {
-  captureExtensionError(err, {
-    tags: { surface: "popup", action: "init" },
+if (typeof document !== "undefined") {
+  void init().catch((err) => {
+    captureExtensionError(err, {
+      tags: { surface: "popup", action: "init" },
+    });
+    setStatus(
+      err instanceof Error ? err.message : "Could not load popup.",
+      "error",
+    );
   });
-  setStatus(
-    err instanceof Error ? err.message : "Could not load popup.",
-    "error",
-  );
-});
+}

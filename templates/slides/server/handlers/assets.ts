@@ -19,7 +19,7 @@ import {
 
 type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 
-export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024;
 
 export interface UploadedAsset {
   url: string;
@@ -52,7 +52,7 @@ async function requireSession(
   return { session: auth.context as AuthedSlidesSession, error: null };
 }
 
-function isRasterAssetExtension(ext: string): boolean {
+function isImageAssetExtension(ext: string): boolean {
   return new Set([
     ".jpg",
     ".jpeg",
@@ -61,11 +61,22 @@ function isRasterAssetExtension(ext: string): boolean {
     ".webp",
     ".avif",
     ".ico",
+    ".svg",
   ]).has(ext);
 }
 
 function ascii(data: Uint8Array, start: number, end: number): string {
   return Buffer.from(data.subarray(start, end)).toString("ascii");
+}
+
+export function hasExpectedSvgSignature(data: Uint8Array): boolean {
+  const head = Buffer.from(
+    data.subarray(0, Math.min(data.length, 8192)),
+  ).toString("utf8");
+  const normalized = head.replace(/^\uFEFF/, "").trimStart();
+  return /^(?:(?:\s|<!--[\s\S]*?-->|<\?xml\b[\s\S]*?\?>))*<svg(?:\s|\/?>)/i.test(
+    normalized,
+  );
 }
 
 function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
@@ -98,30 +109,130 @@ function hasExpectedImageSignature(ext: string, data: Uint8Array): boolean {
   if (ext === ".avif") {
     return ascii(data, 4, 12).includes("ftyp");
   }
+  if (ext === ".svg") {
+    return hasExpectedSvgSignature(data);
+  }
   return false;
+}
+
+function decodeXmlReferences(source: string): string {
+  const namedReferences: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    quot: '"',
+  };
+  return source.replace(
+    /&#x([0-9a-f]+);|&#([0-9]+);|&([a-z]+);/gi,
+    (
+      match,
+      hex: string | undefined,
+      decimal: string | undefined,
+      named: string | undefined,
+    ) => {
+      const codePoint = hex
+        ? Number.parseInt(hex, 16)
+        : decimal
+          ? Number.parseInt(decimal, 10)
+          : undefined;
+      if (
+        codePoint !== undefined &&
+        codePoint <= 0x10ffff &&
+        !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return String.fromCodePoint(codePoint);
+      }
+      return named ? (namedReferences[named.toLowerCase()] ?? match) : match;
+    },
+  );
+}
+
+function decodeCssEscapes(source: string): string {
+  return source
+    .replace(/\\(?:\r\n|[\r\n\f])/g, "")
+    .replace(
+      /\\([0-9a-f]{1,6})(?:[ \t\r\n\f])?|\\([^\r\n])/gi,
+      (match, hex: string | undefined, character: string | undefined) => {
+        if (!hex) return character ?? match;
+        const codePoint = Number.parseInt(hex, 16);
+        if (
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return match;
+        }
+        return String.fromCodePoint(codePoint);
+      },
+    );
+}
+
+export function isSafeSvg(data: Uint8Array): boolean {
+  let source: string;
+  try {
+    source = new TextDecoder("utf-8", { fatal: true }).decode(data);
+  } catch {
+    // coercion-ok: malformed UTF-8 must reject SVG validation.
+    return false;
+  }
+  source = source.replace(/^\uFEFF/, "").trim();
+  const normalizedSource = decodeCssEscapes(
+    decodeXmlReferences(source),
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const forbidden = [
+    /<\s*(?:script|foreignObject|iframe|object|embed|link|audio|video|animate(?:Transform|Motion|Color)?|set|discard)\b/i,
+    /<\s*\/?[a-z_][\w.-]*:[a-z_][\w.-]*\b/i,
+    /<!\s*(?:DOCTYPE|ENTITY)\b/i,
+    /<\?xml-stylesheet\b/i,
+    /\bxml:base\s*=/i,
+    /\son[a-z][a-z0-9:_-]*\s*=/i,
+    /\b(?:javascript|vbscript)\s*:/i,
+    /\b(?:expression|behavior|-moz-binding)\s*\(/i,
+    /@import\b/i,
+    /\b(?:image|(?:-webkit-)?image-set)\s*\(/i,
+  ];
+  if (forbidden.some((pattern) => pattern.test(normalizedSource))) return false;
+
+  for (const match of normalizedSource.matchAll(
+    /(?:href|xlink:href)\s*=\s*(?:(['"])(.*?)\1|([^\s>]+))/gi,
+  )) {
+    const target = (match[2] ?? match[3] ?? match[4] ?? "").trim();
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  for (const match of normalizedSource.matchAll(
+    /url\(\s*(["']?)(.*?)\1\s*\)/gi,
+  )) {
+    const target = match[2]?.trim() ?? "";
+    if (
+      target &&
+      !target.startsWith("#") &&
+      !/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(target)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function canSaveAsUploadedAsset(args: {
   originalName: string;
   data: Uint8Array;
 }): boolean {
+  const ext = path.extname(args.originalName).toLowerCase();
   return (
     args.data.length <= MAX_ASSET_FILE_SIZE &&
-    isRasterAssetExtension(path.extname(args.originalName).toLowerCase())
+    isImageAssetExtension(ext) &&
+    (ext !== ".svg" ||
+      (hasExpectedImageSignature(ext, args.data) && isSafeSvg(args.data)))
   );
 }
 
-/**
- * Upload an image asset through the framework's `uploadFile()` provider chain.
- *
- * All uploads go to the configured remote provider — Builder.io by default,
- * or any provider registered via `registerFileUploadProvider()` (S3, R2, etc.).
- * There is intentionally NO local-disk fallback: writing into the source tree
- * (`public/uploads/`) pollutes git, doesn't persist on serverless deploys,
- * and isn't reachable across nodes. If no provider is configured, the request
- * fails with a clear 503 instructing the caller to configure one — connect
- * Builder.io or register a custom provider.
- */
 export async function uploadImageAsset(args: {
   email: string;
   originalName: string;
@@ -133,29 +244,33 @@ export async function uploadImageAsset(args: {
   }
 
   const ext = path.extname(args.originalName).toLowerCase();
-  // SVG is excluded — it can embed <script> tags and execute when served
-  // as image/svg+xml from the same origin.
-  if (!isRasterAssetExtension(ext)) {
+  if (!isImageAssetExtension(ext)) {
     throw new Error(
-      "Only raster image files are allowed (jpg, png, gif, webp, avif, ico)",
+      "Only image files are allowed (jpg, png, gif, webp, avif, ico, svg)",
     );
   }
   if (!hasExpectedImageSignature(ext, args.data)) {
     throw new Error("Uploaded image bytes do not match file extension");
   }
 
+  if (ext === ".svg" && !isSafeSvg(args.data)) {
+    throw new Error("SVG contains active content or external references");
+  }
+
+  const mimeType = ext === ".svg" ? "image/svg+xml" : args.type;
+
   const result = await runWithRequestContext({ userEmail: args.email }, () =>
     uploadFile({
       data: args.data,
       filename: args.originalName,
-      mimeType: args.type,
+      mimeType,
       ownerEmail: args.email,
     }),
   );
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+      "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
     );
     err.statusCode = 503;
     throw err;
@@ -164,13 +279,11 @@ export async function uploadImageAsset(args: {
   const asset: UploadedAsset = {
     url: result.url,
     filename: args.originalName,
-    type: args.type || "application/octet-stream",
+    type: mimeType || "application/octet-stream",
     size: args.data.length,
     provider: result.provider,
   };
 
-  // Record the upload so it shows up in GET /api/assets — only the URL and
-  // metadata are stored, never the file bytes (those live with the provider).
   const db = getDb();
   await db.insert(schema.uploadedAssets).values({
     id: nanoid(),
@@ -186,10 +299,6 @@ export async function uploadImageAsset(args: {
   return asset;
 }
 
-/**
- * POST /api/assets/upload — receive a single image file, route it through the
- * framework provider chain, return its hosted URL.
- */
 export const uploadAsset = defineEventHandler(async (event) => {
   const { session, error: authError } = await requireSession(event);
   if (!session) {
@@ -224,9 +333,6 @@ export const uploadAsset = defineEventHandler(async (event) => {
   }
 });
 
-/**
- * GET /api/assets — list assets this user has uploaded, most recent first.
- */
 export const listAssets = defineEventHandler(async (event) => {
   const { session, error } = await requireSession(event);
   if (!session) {
@@ -247,13 +353,6 @@ export const listAssets = defineEventHandler(async (event) => {
   return rows;
 });
 
-/**
- * DELETE /api/assets/:id — removes the upload from this user's asset library
- * index. Keyed by the row's unique id (not filename) since two uploads can
- * share the same original filename. The underlying file may still exist with
- * the storage provider (Builder.io, S3, etc.) — deleting it there requires
- * that provider's own API — but it no longer appears in this app's library.
- */
 export const deleteAsset = defineEventHandler(async (event) => {
   const { session, error } = await requireSession(event);
   if (!session) {

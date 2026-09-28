@@ -67,7 +67,17 @@ describe("MultiScreenCanvas auto-fit framing", () => {
 
   async function renderScreens(
     widths: number[],
-    { height = 800 }: { height?: number } = {},
+    {
+      height = 800,
+      zoom = 100,
+      chromeInsetLeft = 0,
+      chromeInsetRight = 0,
+    }: {
+      height?: number;
+      zoom?: number;
+      chromeInsetLeft?: number;
+      chromeInsetRight?: number;
+    } = {},
   ) {
     const screens = widths.map((width, index) => ({
       id: `screen-${index}`,
@@ -86,10 +96,12 @@ describe("MultiScreenCanvas auto-fit framing", () => {
       root.render(
         <MultiScreenCanvas
           screens={screens}
-          zoom={100}
+          zoom={zoom}
           activeTool="move"
           geometryById={geometryById}
           onPick={() => {}}
+          chromeInsetLeft={chromeInsetLeft}
+          chromeInsetRight={chromeInsetRight}
         />,
       );
     });
@@ -97,8 +109,6 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   }
 
   it("centres an overflowing lineup instead of pinning it against one edge", async () => {
-    // Math.max(24, ...) turned the negative centring term into a 24px pin, so
-    // content wider than the surface hung off the opposite edge entirely.
     const view = await renderScreens([4000, 4000]);
     const totalWidth = 4000 + 120 + 4000;
     const expectedVisualLeft = (SURFACE_WIDTH - totalWidth * view.scale) / 2;
@@ -110,10 +120,86 @@ describe("MultiScreenCanvas auto-fit framing", () => {
   });
 
   it("never fits below the floor where the canvas paints nothing", async () => {
-    // A generated screen root can be 16384px wide; an honest fit of two of them
-    // lands near 2% and the surface reads as empty.
     const view = await renderScreens([16384, 16384], { height: 1304 });
     expect((800 - 180) / (16384 * 2 + 120)).toBeLessThan(0.1);
     expect(view.scale).toBeCloseTo(0.1, 6);
+  });
+
+  it("keeps the first frame clear of the left/right chrome insets", async () => {
+    await renderScreens([200]);
+    const chromeInsetLeft = 344;
+    const chromeInsetRight = 60;
+    const view = await renderScreens([200], {
+      chromeInsetLeft,
+      chromeInsetRight,
+    });
+    const frameScreenLeft = view.x + SURFACE_PADDING * view.scale;
+    const frameScreenRight = frameScreenLeft + 200 * view.scale;
+    expect(frameScreenLeft).toBeGreaterThanOrEqual(chromeInsetLeft);
+    expect(frameScreenRight).toBeLessThanOrEqual(
+      SURFACE_WIDTH - chromeInsetRight,
+    );
+  });
+
+  it("fits the initial camera to board objects when the design has no screens", async () => {
+    const boardObjectLeft = 4000;
+    const boardObjectTop = 3000;
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[]}
+          zoom={100}
+          activeTool="move"
+          geometryById={{}}
+          onPick={() => {}}
+          boardFileId="__board__"
+          boardFileContent={`<!doctype html><html><body><div data-agent-native-node-id="board-rect" style="position:absolute;left:${boardObjectLeft}px;top:${boardObjectTop}px;width:200px;height:120px"></div></body></html>`}
+          boardFrameGeometry={{
+            x: -65536,
+            y: -65536,
+            width: 131072,
+            height: 131072,
+          }}
+        />,
+      );
+    });
+    const view = readView(container);
+    const centreX =
+      view.x + (SURFACE_PADDING + boardObjectLeft + 100) * view.scale;
+    const centreY =
+      view.y + (SURFACE_PADDING + boardObjectTop + 60) * view.scale;
+    expect(centreX).toBeGreaterThanOrEqual(0);
+    expect(centreX).toBeLessThanOrEqual(SURFACE_WIDTH);
+    expect(centreY).toBeGreaterThanOrEqual(0);
+    expect(centreY).toBeLessThanOrEqual(SURFACE_HEIGHT);
+  });
+
+  it("preserves a manually panned camera when a late tall screen arrives", async () => {
+    const initial = await renderScreens([400], { height: 800, zoom: 60 });
+    const surface = container.querySelector<HTMLElement>('[tabindex="-1"]');
+    expect(surface).not.toBeNull();
+    const wheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 96,
+      deltaMode: 0,
+    });
+    Object.defineProperty(wheel, "isTrusted", { value: true });
+    await act(async () => {
+      surface!.dispatchEvent(wheel);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+    });
+    const afterPan = readView(container);
+    expect(afterPan.y).not.toBeCloseTo(initial.y, 6);
+
+    const afterLateScreen = await renderScreens([400, 400], {
+      height: 3334,
+      zoom: 60,
+    });
+    expect(afterLateScreen.scale).toBeCloseTo(afterPan.scale, 6);
+    expect(afterLateScreen.x).toBeCloseTo(afterPan.x, 6);
+    expect(afterLateScreen.y).toBeCloseTo(afterPan.y, 6);
   });
 });

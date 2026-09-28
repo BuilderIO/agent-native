@@ -2,10 +2,12 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   AGENT_ACCESS_PARAM,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
+import { buildResourceSocialMeta } from "@agent-native/core/shared";
 import {
   IconCalendar,
   IconCheck,
@@ -56,13 +58,21 @@ import {
 } from "../../shared/transcript-segments";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
-type LoaderData = { meeting: PublicMeeting | null };
+type LoaderData = {
+  meeting: PublicMeeting | null;
+  isPublic: boolean;
+  origin: string;
+  basePath: string;
+};
 
 function shareMeetingLoaderData(
   payload: LoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
-  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+  return privateAgentAccess
+    ? privateShareLoaderData(payload, 200, varyByQuery)
+    : payload;
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -71,7 +81,11 @@ export function headers({ loaderHeaders }: HeadersArgs) {
 
 export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
-  if (!meetingId) return { meeting: null };
+  const origin = url.origin;
+  const basePath = getConfiguredAppBasePath();
+  if (!meetingId) {
+    return { meeting: null, isPublic: false, origin, basePath };
+  }
 
   const { verifyScopedAgentAccessToken } =
     await import("@agent-native/core/server");
@@ -114,7 +128,10 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     )
     .limit(1);
   if (!meeting) {
-    return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
+    return shareMeetingLoaderData(
+      { meeting: null, isPublic: false, origin, basePath },
+      hasAgentAccessToken,
+    );
   }
 
   const [participants, actionItems, transcriptRows] = await Promise.all([
@@ -175,9 +192,6 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     }
   } catch {}
 
-  // The owner's email is only safe to disclose here when it's already public
-  // via the attendee list — an unauthenticated viewer must never learn an
-  // account email that isn't otherwise visible on this page.
   const ownerEmailIsPublic = participants.some(
     (participant) =>
       participant.email.trim().toLowerCase() ===
@@ -207,13 +221,17 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
             }
           : null,
       },
+      isPublic: meeting.visibility === "public",
+      origin,
+      basePath,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const meeting = loaderData?.meeting;
+  const meeting = loaderData?.isPublic ? loaderData.meeting : null;
   const meetingTitle = meeting?.title
     ? normalizeDocumentTitle(meeting.title, enMessages.shareMeeting.pageTitle)
     : null;
@@ -223,6 +241,17 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const description = meetingTitle
     ? `AI meeting notes for "${meetingTitle}"`
     : enMessages.shareMeeting.description;
+  if (meetingTitle && loaderData) {
+    return [
+      { title },
+      ...buildResourceSocialMeta({
+        title,
+        description,
+        origin: loaderData.origin,
+        basePath: loaderData.basePath,
+      }),
+    ];
+  }
   return [
     { title },
     { name: "description", content: description },
@@ -235,15 +264,16 @@ export function HydrateFallback() {
   return <DefaultSpinner />;
 }
 
-function formatDateTime(iso?: string | null): string {
+function formatDateTime(iso?: string | null, stable = false): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString([], {
+    return new Date(iso).toLocaleString(stable ? "en-US" : [], {
       weekday: "short",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "2-digit",
+      ...(stable ? { timeZone: "UTC" } : {}),
     });
   } catch {
     return "";
@@ -293,6 +323,7 @@ export default function ShareMeetingRoute() {
   const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
     loaderData.meeting
       ? {
@@ -351,6 +382,8 @@ export default function ShareMeetingRoute() {
     );
     document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
+
+  useEffect(() => setHasHydrated(true), []);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
     return <HydrateFallback />;
@@ -420,7 +453,7 @@ export default function ShareMeetingRoute() {
           {meeting.scheduledStart && (
             <span className="inline-flex items-center gap-1">
               <IconCalendar className="size-3.5" />
-              {formatDateTime(meeting.scheduledStart)}
+              {formatDateTime(meeting.scheduledStart, !hasHydrated)}
             </span>
           )}
           {attendees.length > 0 && (

@@ -16,6 +16,7 @@ import remarkGfm from "remark-gfm";
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
 import { resolveToolRenderer } from "../chat/tool-render-registry.js";
 import {
+  isBuiltinConnectRequiredResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
   isBuiltinDataWidgetActionRenderer,
@@ -29,8 +30,9 @@ import {
   MessageScrollerViewport,
 } from "../components/ui/message-scroller.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
-import { humanizeToolName } from "../tool-display.js";
+import { toolLabel } from "../tool-display.js";
 import { cn } from "../utils.js";
 import type {
   AgentConversationAttachment,
@@ -240,7 +242,6 @@ function ConversationMessagePartView({
   );
 }
 
-// ─── Shiki syntax highlighter (lazy-loaded) ──────────────────────────────────
 type ShikiHighlighter = {
   codeToHtml: (
     code: string,
@@ -257,8 +258,6 @@ let _highlighterLoader: Promise<ShikiHighlighter> | null = null;
 function loadConversationHighlighter(): Promise<ShikiHighlighter> {
   if (!_highlighterLoader) {
     _highlighterLoader = (async () => {
-      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
-      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
       const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
         await Promise.all([
           import("shiki/core"),
@@ -402,6 +401,7 @@ function parseJsonObject(value: string | undefined): Record<string, unknown> {
 }
 
 function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
+  const t = useT();
   const resultJson = parseJsonText(tool.result);
   const nativeToolContext = {
     toolName: tool.name,
@@ -419,9 +419,10 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     return (
       <ActionChatUiSurface
         context={nativeToolContext}
-        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
-          nativeToolContext,
-        )}
+        isBuiltinDataWidget={
+          isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
+          isBuiltinConnectRequiredResult(nativeToolContext)
+        }
       >
         <NativeToolRenderer context={nativeToolContext} />
       </ActionChatUiSurface>
@@ -442,7 +443,7 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     <>
       <span className="agent-conversation-tool__icon">{icon}</span>
       <span className="agent-conversation-tool__name">
-        {humanizeToolName(tool.name)}
+        {toolLabel(t, tool.name)}
       </span>
       {tool.summary && (
         <span className="agent-conversation-tool__summary">{tool.summary}</span>

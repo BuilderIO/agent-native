@@ -26,28 +26,18 @@
 @import "./rich-markdown-editor.css";
 @import "./blocks.css";
 @import "./chat-history-list.css";
+@import "./tokens/agent-kit.css";
+@import "@agent-native/agentkit/react/styles.css";
 
-/* Core's own client components (settings, TeamPage, share dialogs, …) render
-   @agent-native/toolkit UI, so the toolkit's @source registration belongs here
-   rather than in each app's global.css. Without it Tailwind never generates the
-   classes that appear only inside toolkit components — including the `z-[290]`
-   on portaled dropdown/select/popover content — and those menus render behind
-   raised app surfaces. Apps that import this stylesheet get it for free. */
 @import "@agent-native/toolkit/styles.css";
 
-/* Scan @agent-native/core's compiled client output for Tailwind classes.
-   Path is resolved relative to THIS file. After build, this CSS lives at
-   dist/styles/agent-native.css, so `../client/**` resolves to dist/client/**. */
 @source "../client/**/*.{js,mjs,ts,tsx}";
 @source "../client/**/onboarding/**/*.{js,mjs,ts,tsx}";
 
-/* Class-based dark mode (matches v3 darkMode: ["class"]). */
 @custom-variant dark (&:is(.dark *));
 
 @plugin "@tailwindcss/typography";
 
-/* shadcn/ui animation utilities (animate-in, animate-out, fade-in/out,
-   zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
 :root {
@@ -60,48 +50,15 @@
   }
 }
 
-/* Shared shell depth.
-   Use these classes on app layouts that have a persistent left nav:
-
-   <div className="agent-layout-shell ...">
-     <aside className="agent-layout-left-drawer ...">...</aside>
-     <main className="agent-layout-main-surface ...">...</main>
-   </div>
-
-   AgentSidebar applies the same classes internally for the right agent drawer. */
 .agent-sidebar-shell,
 .agent-layout-shell {
-  --agent-native-lower-surface: hsl(
-    var(--sidebar-background, var(--background))
-  );
-  --agent-native-raised-surface: hsl(var(--background));
-  --agent-native-card-surface: hsl(var(--card));
+  --agent-native-lower-surface: var(--agent-kit-nav-surface);
+  --agent-native-raised-surface: var(--agent-kit-recessed-surface);
+  --agent-native-card-surface: var(--agent-kit-raised-surface);
   --agent-native-raised-radius: 8px;
   height: var(--agent-native-viewport-height);
   min-height: 0;
-  background: var(--agent-native-lower-surface);
-}
-
-@supports (background: color-mix(in srgb, white, black)) {
-  .agent-sidebar-shell,
-  .agent-layout-shell {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background, var(--background))) 98%,
-      black
-    );
-  }
-
-  .dark .agent-sidebar-shell,
-  .dark .agent-layout-shell,
-  .dark.agent-sidebar-shell,
-  .dark.agent-layout-shell {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background, var(--background))) 94%,
-      black
-    );
-  }
+  background: var(--agent-kit-recessed-surface);
 }
 
 .agent-layout-left-drawer,
@@ -153,13 +110,98 @@
   background: inherit;
 }
 
-/* The mask is declared unconditionally and the fade is driven by its size
-   variable. Adding/removing a mask changes the element's paint properties, and
-   the `--top-fade` modifier flips with `hasContentAbove` — which oscillates
-   while a reply streams into an auto-scrolled transcript. Toggling the
-   declaration made Chromium tear down and rebuild this scroller's paint state
-   on every flip; animating a length inside a mask that is always present does
-   not. Keep the fade size at 0 rather than removing the mask. */
+.agent-sidebar-panel[data-agent-sidebar-layout="desktop"] {
+  border-inline-start: 1px solid hsl(var(--border) / 0.72);
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-sidebar-panel .agent-sidebar-chat-header {
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-sidebar-panel .agent-sidebar-chat-header .agent-native-shell-topbar {
+  background: transparent;
+}
+
+.agent-sidebar-panel .agent-tabs-scroll {
+  gap: 0.125rem;
+  padding: 0.25rem;
+}
+
+.agent-sidebar-panel .agent-tab {
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  padding-block: 0.375rem;
+  transition:
+    border-color 150ms ease-out,
+    background-color 150ms ease-out,
+    color 150ms ease-out;
+}
+
+.agent-sidebar-panel .agent-tab:not(.bg-accent):hover {
+  background: hsl(var(--muted) / 0.65) !important;
+  color: hsl(var(--foreground));
+}
+
+.agent-sidebar-panel .agent-tab.bg-accent {
+  border-color: hsl(var(--border));
+  background: var(--agent-kit-raised-surface) !important;
+  box-shadow: var(--agent-kit-control-elevation);
+  color: hsl(var(--foreground));
+}
+
+.agent-sidebar-panel .agent-chat-scroll {
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-sidebar-panel .agent-empty-state {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 1.25rem 1rem 1.5rem;
+}
+
+.agent-sidebar-panel .agent-empty-state > svg {
+  align-self: center;
+  margin-bottom: 0.25rem;
+  color: hsl(var(--muted-foreground) / 0.46);
+}
+
+.agent-sidebar-panel .agent-composer-area:not(.agent-composer-area--hero) {
+  padding: 0.625rem 0.75rem 0.75rem;
+  border-top: 0;
+  background: transparent;
+}
+
+.agent-sidebar-panel .agent-composer-root:not(.agent-composer-root--hero) {
+  border-radius: 0.875rem;
+  border-color: hsl(var(--border) / 0.9);
+  background: var(--agent-kit-raised-surface);
+  box-shadow: var(--agent-kit-composer-elevation);
+}
+
+.agent-sidebar-panel .agent-composer-stack {
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-sidebar-panel [data-agent-suggestion-bar="true"] {
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-sidebar-panel .agent-composer-workflow {
+  border-top: 0;
+  background: transparent;
+}
+
+.agent-sidebar-panel .agent-composer-workflow .agent-composer-area {
+  border-top: 0;
+  background: transparent;
+}
+
+.agent-sidebar-panel [data-agent-message-queue-variant="recessed"] {
+  width: calc(100% - 2.5rem);
+}
+
 .message-scroller-viewport {
   --message-scroller-top-fade-size: 0px;
   -webkit-mask-image: linear-gradient(
@@ -230,9 +272,6 @@
   container: agent-native-main / inline-size;
 }
 
-/* Dispatch and Electron own the chat drawer when an app is embedded. Keep
-   the standard app's navigation beside its content, on the opposite edge.
-   Custom shells opt out with data-agent-native-shell-variant="custom". */
 @media (min-width: 768px) {
   .agent-layout-shell:not([data-agent-native-shell-variant="custom"]):has(
       > .agent-sidebar-shell[data-agent-native-hosted-chat="true"]
@@ -304,8 +343,8 @@
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
-    border-start-end-radius: var(--agent-native-raised-radius);
-    border-end-end-radius: var(--agent-native-raised-radius);
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
     box-shadow: none;
   }
 
@@ -314,11 +353,12 @@
     border-end-start-radius: var(--agent-native-raised-radius);
     box-shadow: none;
   }
+
+  .agent-layout-main-surface[data-agent-chat-canvas="true"] {
+    border-radius: 0;
+  }
 }
 
-/* Shared agent sidebar entry/exit transitions.
-   `@starting-style` gives newly-mounted panels a real before-change style, so
-   opening animates in as reliably as closing animates out. */
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
   width: 0;
   overflow: clip;
@@ -340,22 +380,12 @@
   max-width: var(--agent-sidebar-width);
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
-  /* No `will-change: transform` here. This element wraps the whole chat
-     transcript and stays mounted for the life of the page, so the hint is never
-     retired — it pins a permanently composited layer whose backing store grows
-     with the transcript. Chromium already promotes a transform transition for
-     the 260ms it runs, which is the entire benefit. */
   transition: transform 260ms var(--ease-drawer);
 }
 
-/* The wide preset keeps the normal sidebar slot in flow while its panel
-   overlays the page as a fixed drawer. View Transitions morph the geometry
-   when available; these transforms provide the fallback and exit motion. */
 .agent-sidebar-panel[data-agent-sidebar-animation="drawer"] {
   overflow: clip;
-  --agent-shadow: 0 0% 0%;
-  --agent-shadow-o: 0.14;
-  box-shadow: -12px 0 30px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  box-shadow: var(--agent-kit-drawer-elevation);
   transition:
     transform 260ms var(--ease-drawer),
     width 260ms var(--ease-drawer);
@@ -375,19 +405,12 @@
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
-  --agent-shadow: 0 0% 0%;
-  --agent-shadow-o: 0.14;
   transform: var(
     --agent-sidebar-closed-transform,
     translateX(calc(100% + 1px))
   );
-  box-shadow: 0 18px 40px hsl(var(--agent-shadow) / var(--agent-shadow-o));
+  box-shadow: var(--agent-kit-drawer-elevation-block);
   transition: transform 260ms var(--ease-drawer);
-}
-
-.dark .agent-sidebar-panel[data-agent-sidebar-animation="drawer"],
-.dark .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
-  --agent-shadow-o: 0.08;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -403,10 +426,6 @@
   opacity: 1;
 }
 
-/* A named chat surface already morphs from its old geometry during a
-   full-page-chat handoff. Override only the initial style of that panel so it
-   does not slide in from the right underneath the morph. Keeping the normal
-   rules intact preserves ordinary sidebar open/close animation. */
 @starting-style {
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
     width: 0;
@@ -464,6 +483,7 @@
 
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-agent-kit-positive: hsl(var(--agent-kit-positive));
 
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
@@ -527,8 +547,6 @@
       transform: translateY(0);
     }
   }
-  /* Indeterminate: a route load has no percentage to report, so the bar
-     sweeps rather than pretending to know how far along it is. */
   @keyframes route-transition-sweep {
     0% {
       transform: translateX(-100%);
@@ -539,8 +557,133 @@
   }
 }
 
-/* Whole-surface loading treatment. The muted selectors keep hand-rolled
-   placeholders on the same motion until they migrate to the shared class. */
+.agent-kit-density {
+  font-size: var(--agent-kit-density-font-size);
+  line-height: var(--agent-kit-density-line-height);
+}
+
+.agent-kit-supporting-copy {
+  font-size: var(--agent-kit-supporting-font-size);
+  line-height: var(--agent-kit-supporting-line-height);
+}
+
+.agent-kit-caption-copy {
+  font-size: var(--agent-kit-caption-font-size);
+  line-height: var(--agent-kit-caption-line-height);
+}
+
+.agent-kit-micro-copy {
+  font-size: var(--agent-kit-micro-font-size);
+}
+
+.agent-kit-activity-row {
+  min-height: var(--agent-kit-activity-row-min-height);
+  font-size: var(--agent-kit-density-font-size);
+  line-height: var(--agent-kit-density-line-height);
+}
+
+.agent-kit-activity-icon {
+  width: var(--agent-kit-activity-icon-size);
+  height: var(--agent-kit-activity-icon-size);
+}
+
+.agent-kit-activity-object-boundary {
+  max-width: var(--agent-kit-activity-object-max-width);
+}
+
+.agent-kit-message-bubble-boundary {
+  max-width: var(--agent-kit-message-bubble-max-width);
+}
+
+.agent-kit-tool-content-boundary {
+  max-width: var(--agent-kit-tool-content-max-width);
+}
+
+.agent-kit-tone-positive {
+  color: hsl(var(--agent-kit-positive));
+}
+
+.agent-kit-composer-adjacent-width {
+  width: min(
+    calc(100% - var(--agent-kit-composer-adjacent-inline-inset)),
+    var(--agent-kit-conversation-max-width)
+  );
+}
+
+.agent-kit-page-fade {
+  top: var(--agent-kit-page-header-height);
+  z-index: var(--agent-kit-layer-page-fade);
+}
+
+.agent-kit-page-header {
+  height: var(--agent-kit-page-header-height);
+  z-index: var(--agent-kit-layer-page-header);
+  background: var(--agent-kit-recessed-surface);
+}
+
+.agent-kit-chat-canvas-toolbar {
+  height: var(--agent-kit-page-header-height);
+  z-index: var(--agent-kit-layer-page-header);
+}
+
+[data-agent-chat-workspace-state] .agent-kit-page-header {
+  border-bottom-width: 0;
+}
+
+.agent-kit-chat-canvas-body {
+  width: 100%;
+  overflow: clip;
+}
+
+.agent-kit-workspace-panel {
+  top: var(--agent-kit-page-header-height);
+  bottom: 0;
+  z-index: var(--agent-kit-layer-workspace-panel);
+  width: min(
+    var(--agent-kit-workspace-panel-max-width),
+    calc(100% - var(--agent-kit-workspace-panel-viewport-gutter))
+  );
+}
+
+.agent-kit-workspace-panel[data-state="closed"] {
+  transform: translateX(100%);
+  pointer-events: none;
+}
+
+.agent-kit-workspace-panel[data-state="open"] {
+  transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-kit-chat-canvas-body,
+  .agent-kit-workspace-panel {
+    transition-duration: var(--agent-kit-workspace-panel-transition-duration);
+    transition-timing-function: var(--ease-drawer);
+  }
+
+  .agent-kit-chat-canvas-body {
+    transition-property: width;
+  }
+
+  .agent-kit-workspace-panel {
+    transition-property: transform;
+  }
+}
+
+.agent-kit-workspace-panel__header {
+  height: var(--agent-kit-page-header-height);
+}
+
+@media (min-width: 48rem) {
+  .agent-kit-chat-canvas-body--workspace-open {
+    width: calc(100% - var(--agent-kit-workspace-panel-width));
+  }
+
+  .agent-kit-workspace-panel {
+    width: var(--agent-kit-workspace-panel-width);
+  }
+}
+
 .skeleton-shimmer,
 .animate-pulse[class~="bg-muted"],
 .animate-pulse[class*="bg-muted/"],
@@ -594,11 +737,6 @@
   }
 }
 
-/* Border-color compatibility shim:
-   In Tailwind v3, the preflight set the default border colour to
-   `hsl(var(--border))`. v4 drops that — borders default to currentColor.
-   Many of our components/templates use `border` or `border-t/b/l/r` without
-   an explicit colour and rely on the v3 behaviour. Keep that working. */
 @layer base {
   *,
   ::after,
@@ -637,14 +775,16 @@
   [role="button"] {
     cursor: pointer;
   }
+
+  .agent-native-search-input::-webkit-search-cancel-button,
+  .agent-native-search-input::-webkit-search-decoration,
+  .agent-native-search-input::-webkit-search-results-button,
+  .agent-native-search-input::-webkit-search-results-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
-/* Appearance presets.
-   Applied via `<html data-appearance="...">` so the user can switch the
-   background tint and accent without editing the template's source. Presets
-   override the most visible HSL vars (background, accent, primary, ring,
-   sidebar tint); everything else inherits from the template's :root / .dark.
-   The `default` preset is the absence of the attribute — no overrides. */
 :root[data-appearance="warm"] {
   --background: 35 30% 97%;
   --sidebar-background: 35 28% 95%;
@@ -730,7 +870,6 @@
   --ring: 215 12% 60%;
 }
 
-/* Settings sections: animate between closed and intrinsic open height. */
 .agent-native-settings-section-body {
   display: flow-root;
   height: auto;
@@ -781,16 +920,6 @@
   }
 }
 
-/* Full settings page section bodies.
-   The framework's shared settings sections (LLM, App model defaults, Agent
-   limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting
-   cards, etc.) are authored dense for the compact agent sidebar. On the
-   full-width settings page they render inside polished shadcn-style cards
-   (PageSettingsSection), so bump the smallest fixed type up to a comfortable,
-   consistent reading size that matches the app-owned General/Team cards.
-   Scoped to `[data-agent-native-settings-page]` (only PageSettingsSection's
-   body) so app-owned tab content is never affected. The `.text-[…px]` classes
-   are Tailwind arbitrary values; the double-class specificity here wins. */
 [data-agent-native-settings-page] .text-\[10px\] {
   font-size: 0.75rem;
   line-height: 1rem;
@@ -808,13 +937,36 @@
   line-height: 1.4rem;
 }
 
-/* Settings rows size themselves from the available content column. The full
-   Settings page can be narrow even on a desktop viewport when its navigation
-   rail and agent sidebar are both open, so viewport breakpoints are not a
-   reliable signal for keeping copy and controls side by side. */
 .agent-native-settings-row {
   container-type: inline-size;
   container-name: settings-row;
+}
+
+/* The row a Settings search hit opened, briefly highlighted so the eye can
+   find it after the page scrolls. */
+[data-settings-flash] {
+  animation: settings-search-flash 1.6s ease-out;
+}
+
+@keyframes settings-search-flash {
+  0%,
+  35% {
+    background-color: hsl(var(--accent));
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.agent-native-integration-grid {
+  container-type: inline-size;
+  container-name: integration-grid;
+}
+
+@container integration-grid (min-width: 56rem) {
+  .agent-native-integration-grid__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @container settings-row (min-width: 36rem) {
@@ -830,14 +982,14 @@
   }
 }
 
-/* Composer toolbar: keep the model name + version readable on narrow
-   chatfields. The bordered composer box is a size container; below 370px
-   wide (e.g. a narrow agent sidebar) we drop the reasoning-level suffix
-   ("· Auto") so the model name + version never truncates. The reasoning
-   level always stays reachable via the model picker popover. */
 .agent-composer-root {
   container-type: inline-size;
   container-name: agent-composer;
+  background: color-mix(
+    in srgb,
+    var(--agent-kit-subtle-surface) 45%,
+    var(--agent-kit-recessed-surface)
+  );
 }
 @container agent-composer (max-width: 370px) {
   .agent-composer-model-effort {
@@ -845,8 +997,6 @@
   }
 }
 
-/* Guided questions size themselves from the rendered container, not viewport
-   breakpoints, so they stay readable in narrow chat sidebars. */
 .guided-question-flow {
   container-type: inline-size;
   container-name: guided-question-flow;
@@ -896,8 +1046,6 @@
   }
 }
 
-/* Connect AI card: use the card width, not the viewport, so narrow embedded
-   sidebars stack the copy and actions before the secondary button clips. */
 .agent-builder-setup-card {
   container-type: inline-size;
   container-name: agent-builder-setup;
@@ -909,12 +1057,10 @@
   container-name: agent-builder-setup;
 }
 
-/* Provider setup tucks behind the composer. The extra bottom paint is hidden
-   by the higher composer layer, leaving one connected control. */
 .agent-builder-setup-card--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem;
+  margin-bottom: -1.875rem;
   padding-bottom: 0 !important;
 }
 
@@ -937,7 +1083,7 @@
 }
 
 .agent-builder-setup-card--attached:not(.agent-builder-setup-card--sidebar) {
-  max-inline-size: min(100%, 750px);
+  max-inline-size: min(100%, var(--agent-kit-conversation-max-width));
   margin-inline: auto;
   padding-inline: 0 !important;
 }
@@ -945,7 +1091,7 @@
 .agent-builder-setup-inline--attached {
   position: relative;
   z-index: 1;
-  margin-bottom: -2.5rem !important;
+  margin-bottom: -1.875rem !important;
   padding-bottom: calc(0.625rem + 1.875rem) !important;
   border-bottom-color: transparent;
   border-bottom-left-radius: 0;
@@ -1025,32 +1171,70 @@
 
 .agent-composer-area--hero {
   padding-inline: 0;
-  padding-block: 0.5rem;
+  padding-block: var(--agent-kit-composer-block-padding-start)
+    var(--agent-kit-composer-block-padding-end);
+}
+
+[data-agent-fullscreen="true"]
+  .agent-composer-stack
+  [data-agent-message-queue="true"] {
+  max-width: calc(
+    var(--agent-kit-conversation-max-width) -
+      var(--agent-kit-composer-adjacent-inline-inset)
+  );
+  margin-inline: auto;
 }
 
 .agent-composer-area--attached-above {
   padding-top: 0 !important;
 }
 
+.agentkit-host-composer {
+  pointer-events: auto;
+}
+
+.agentkit-home-intro {
+  display: grid;
+  width: min(100%, 47rem);
+  justify-items: center;
+  gap: 0.5rem;
+  margin: 0 auto 0.75rem;
+  text-align: center;
+}
+
+.agentkit-home-intro h1 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.agentkit-home-intro p {
+  max-width: 48rem;
+  margin: 0 auto;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agentkit-home-suggestions {
+  width: min(100%, 47rem);
+  margin: 0 auto 0.75rem;
+}
+
+.agentkit-after-composer-slot {
+  width: 100%;
+  min-width: 0;
+  padding-top: 1.25rem;
+  pointer-events: auto;
+}
+
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
   z-index: 3;
-  background: hsl(var(--muted));
-  background: color-mix(
-    in srgb,
-    hsl(var(--card)) 98%,
-    hsl(var(--foreground)) 2%
-  );
-}
-
-.dark .agent-composer-area--attached-above .agent-composer-root {
-  background: hsl(var(--card));
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) .agent-composer-area--attached-above .agent-composer-root {
-    background: hsl(var(--card));
-  }
+  background: var(--agent-kit-raised-surface);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1060,27 +1244,55 @@
 }
 
 .agent-composer-root--hero {
-  min-height: 5.625rem;
-  border-radius: 1rem;
-  border-color: hsl(var(--border) / 0.75);
-  background: hsl(var(--muted) / 0.62);
-  box-shadow: none;
+  min-height: var(--agent-kit-composer-min-height);
+  border-radius: var(--agent-kit-composer-radius);
+  border-color: var(--agent-kit-composer-border-color);
+  background: var(--agent-kit-raised-surface);
+  box-shadow: var(--agent-kit-composer-elevation);
 }
 
 .agent-composer-root--hero:focus-within {
-  border-color: hsl(var(--ring) / 0.9);
-  box-shadow: none;
+  border-color: var(--agent-kit-composer-focus-border-color);
+  box-shadow: var(--agent-kit-composer-elevation);
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-wrap"] {
-  padding-inline: 0.775rem;
-  padding-top: 0.675rem;
+  padding-block: var(--agent-kit-composer-editor-padding-block-start)
+    var(--agent-kit-composer-editor-padding-block-end);
+  padding-inline: var(--agent-kit-composer-editor-padding-inline);
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
-  min-height: 3rem;
-  font-size: 1rem;
-  line-height: 1.75rem;
+  min-height: var(--agent-kit-composer-editor-min-height);
+  max-height: var(--agent-kit-composer-editor-max-height);
+  padding-block: var(--agent-kit-composer-editor-padding-block-end);
+  scroll-padding-block: var(--agent-kit-composer-block-padding-start);
+  font-size: var(--agent-kit-composer-font-size);
+  line-height: var(--agent-kit-composer-line-height);
+}
+
+@media (max-width: 767px) {
+  .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
+    font-size: var(--agent-kit-composer-mobile-font-size);
+    line-height: var(--agent-kit-composer-mobile-line-height);
+  }
+}
+
+.agent-composer-root--hero .agent-composer-toolbar {
+  padding-inline: var(--agent-kit-composer-toolbar-padding-inline);
+  padding-block: var(--agent-kit-composer-toolbar-padding-block-start)
+    var(--agent-kit-composer-toolbar-padding-block-end);
+}
+
+.agent-composer-root--hero .agent-composer-send-button {
+  height: var(--agent-kit-composer-control-size);
+  width: var(--agent-kit-composer-control-size);
+  border-radius: 999px;
+}
+
+.agent-composer-root:not(.agent-composer-root--hero)
+  .agent-composer-send-button {
+  border-radius: 999px;
 }
 
 .agent-composer-stack {
@@ -1096,16 +1308,10 @@
   gap: 0.5rem;
 }
 
-/* Plan-mode callout pill: lives inside .agent-composer-stack directly above
-   the composer. Matching .agent-composer-area's own width keeps the pill
-   visually attached to (and right-aligned with) the composer instead of the
-   full pane, whether the pane is a narrow sidebar or a wide centered page. */
 .agent-plan-mode-callout {
   width: 100%;
 }
 
-/* Tool-call rows are rendered in several disclosure/grouping shapes as the
-   stream grows. Keep the layout wrapper transparent. */
 .agent-tool-call-stack {
   display: contents;
 }
@@ -1212,12 +1418,6 @@
     ::view-transition-new(agent-native-chat),
     ::view-transition-old(agent-native-sidebar-drawer),
     ::view-transition-new(agent-native-sidebar-drawer) {
-      /* The default `block-size: auto` scales each snapshot by width, so as the
-         panel narrows (896 -> 380) its captured height shrinks and the
-         bottom-pinned chat field gets dragged upward (the "rises to half-page"
-         bug). Lock the snapshots to the group's constant height so only x +
-         width animate: the panel slides right at constant height and the chat
-         field stays pinned to the bottom. */
       height: 100%;
       animation-duration: 340ms;
       animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);

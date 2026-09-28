@@ -21,6 +21,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 
 ## Core Rules
 
+- UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Keep large payloads out of SQL: no video/audio, images, PDFs, thumbnails,
   base64, or `data:` URLs in app tables, `application_state`, `settings`, or
   `resources` — persist URLs, ids, or handles and keep bytes in configured
@@ -56,8 +57,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
   shareable Clips recording.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
-- Never fabricate. Read real values through actions, verify writes with a
-  read-back, and rely on app refresh/polling after mutations.
+- Never fabricate; read via actions, verify writes by read-back; refresh after writes.
 
 ## Application State
 
@@ -76,22 +76,23 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | --- | --- |
 | `view-screen`, `navigate` | Read context; open a surface |
 | `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
-| `get-recording-player-data` | Full transcript, chapters, diagnostics |
+| `get-recording-player-data` | Transcript, chapters, diagnostics |
 | `create-recording`, `finalize-recording` | Create row; finish upload |
-| `import-loom-recording` | Import Loom or direct MP4/WebM URL |
+| `import-loom-recording` | Import Loom or video URLs |
 | `update-recording` | Title, password, expiry, visibility |
-| `move-recording` | Move `id` or `ids` to a folder or root |
+| `move-recording` | Move recordings to folder/root |
 | `archive-`, `trash-`, `restore-recording` | Lifecycle |
 | `reprocess-recording` | Repair unseekable/frozen media |
-| `generate-filmstrip` | Editor timeline frame sprite; `all` backfills |
+| `generate-filmstrip` | Timeline frames |
 | `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
+| `generate-workflow`, `complete-workflow` | Generate and save workflow |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
 | `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
-| `search-meetings` | Find a meeting by title, summary, notes, attendee, or transcript |
+| `search-meetings` | Search meetings |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
-| `get-clips-notification-prefs`, `update-clips-notification-prefs` | Read or change optional email notifications |
+| `get-`, `update-clips-notification-prefs`, `-recording-defaults` | Email alerts; default speed, visibility |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
 | `create-recording-agent-link` | Two-hour `agent_access` share URL |
 | `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |

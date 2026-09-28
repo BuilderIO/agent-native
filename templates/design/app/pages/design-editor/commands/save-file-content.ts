@@ -8,7 +8,12 @@ import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
 import { updateFileResultPersistedContent } from "@/lib/design-save-outbox";
 import type { PatchProofState } from "@/pages/design-editor/command-types";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
-import { shouldClearLatestUnloadSave } from "@/pages/design-editor/editor-state";
+import {
+  advanceLatestUnloadSaveBase,
+  coalescePendingFileContentSave,
+  prepareFileContentSaveKeepalive,
+  shouldClearLatestUnloadSave,
+} from "@/pages/design-editor/editor-state";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -16,25 +21,34 @@ import {
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
 
+const warnedVersionHistoryDesigns = new Set<string>();
+
+export function __clearVersionHistoryWarningsForTests(): void {
+  warnedVersionHistoryDesigns.clear();
+}
+
 export interface SaveFileContentArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   canEditDesignRef: RefObject<boolean>;
   createFileSaveOutboxEntry: (
     pending: FileContentSaveRequest,
-    expectedVersionHash?: string,
   ) => DesignSaveOutboxEntry | null;
+  designId?: string;
   fileSaveChainsRef: RefObject<Record<string, Promise<void>>>;
+  fileSaveOutboxJournalPromisesRef?: RefObject<
+    WeakMap<FileContentSaveRequest, Promise<boolean>>
+  >;
   journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
-  lastAckedFileContentHashRef: RefObject<Record<string, string>>;
   latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
-  clearPendingLocalFileContent: (
+  rollbackPendingLocalFileContent: (
     fileId: string,
-    expectedContent?: string,
+    expectedContent: string,
   ) => void;
   markPendingLocalFileContent: (
     fileId: string,
     content: string,
     baseUpdatedAt?: string | null,
+    identityMigrationSourceContent?: string,
   ) => void;
   queryClient: QueryClient;
   setPatchProof: Dispatch<SetStateAction<PatchProofState | null>>;
@@ -45,16 +59,225 @@ export interface SaveFileContentArgs {
   warnChangesWillRetry: () => void;
 }
 
+export interface QueueFileContentSaveArgs {
+  canEditDesignRef: RefObject<boolean>;
+  createFileSaveOutboxEntry: (
+    pending: FileContentSaveRequest,
+  ) => DesignSaveOutboxEntry | null;
+  fileSaveOperationRevisionRef: RefObject<Record<string, number>>;
+  fileSaveOutboxJournalPromisesRef: RefObject<
+    WeakMap<FileContentSaveRequest, Promise<boolean>>
+  >;
+  fileSaveTimersRef: RefObject<Record<string, number>>;
+  journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  markPendingLocalFileContent: (
+    fileId: string,
+    content: string,
+    baseUpdatedAt?: string | null,
+    identityMigrationSourceContent?: string,
+  ) => void;
+  operationSource: string;
+  pendingFileSavesRef: RefObject<Record<string, FileContentSaveRequest>>;
+  saveFileContent: (
+    pending: FileContentSaveRequest,
+    outboxJournalPromise?: Promise<boolean>,
+  ) => Promise<FileContentSaveCompletion | false>;
+  setTimer: (callback: () => void, delayMs: number) => number;
+  clearTimer: (timerId: number) => void;
+}
+
+export interface QueueFileContentSaveOptions {
+  expectedVersionHash: string;
+  syncCollab?: boolean;
+  immediate?: boolean;
+  identityMigrationSourceContent?: string;
+}
+
+type FileContentSaveKeepaliveAttempt =
+  | { accepted: true; completion: Promise<unknown> }
+  | { accepted: false; completion: null };
+
+export type FileContentSaveCompletion =
+  | "persisted"
+  | "conflict"
+  | "retryable"
+  | "failed";
+
+export function runQueueFileContentSave(
+  args: QueueFileContentSaveArgs,
+  fileId: string,
+  content: string,
+  options: QueueFileContentSaveOptions,
+): Promise<FileContentSaveCompletion | false> | void {
+  const {
+    canEditDesignRef,
+    createFileSaveOutboxEntry,
+    fileSaveOperationRevisionRef,
+    fileSaveOutboxJournalPromisesRef,
+    fileSaveTimersRef,
+    journalOutboxEntry,
+    latestFileSaveForUnloadRef,
+    markPendingLocalFileContent,
+    operationSource,
+    pendingFileSavesRef,
+    saveFileContent,
+    setTimer,
+    clearTimer,
+  } = args;
+  if (!canEditDesignRef.current) return Promise.resolve(false);
+
+  const queuedIdentityMigration = pendingFileSavesRef.current[fileId];
+  const latestIdentityMigration = latestFileSaveForUnloadRef.current[fileId];
+  const identityMigrationIsInFlight =
+    options.identityMigrationSourceContent === undefined &&
+    queuedIdentityMigration === undefined &&
+    latestIdentityMigration?.identityMigrationSourceContent !== undefined;
+  const expectedVersionHash = identityMigrationIsInFlight
+    ? sourceContentHash(latestIdentityMigration.content)
+    : options.expectedVersionHash;
+  const operationRevision =
+    (fileSaveOperationRevisionRef.current[fileId] ?? 0) + 1;
+  fileSaveOperationRevisionRef.current[fileId] = operationRevision;
+  const nextPending = coalescePendingFileContentSave(
+    {
+      id: fileId,
+      content,
+      syncCollab: options.syncCollab ?? true,
+      operationSource,
+      operationRevision,
+      expectedVersionHash,
+      identityMigrationSourceContent: options.identityMigrationSourceContent,
+    },
+    pendingFileSavesRef.current[fileId],
+  );
+  const pending = {
+    ...nextPending,
+    unloadExpectedVersionHash:
+      pendingFileSavesRef.current[fileId]?.unloadExpectedVersionHash ??
+      latestFileSaveForUnloadRef.current[fileId]?.unloadExpectedVersionHash ??
+      nextPending.expectedVersionHash,
+  };
+  markPendingLocalFileContent(
+    fileId,
+    content,
+    undefined,
+    options.identityMigrationSourceContent,
+  );
+  latestFileSaveForUnloadRef.current[fileId] = pending;
+
+  const outboxEntry = createFileSaveOutboxEntry(pending);
+  const outboxJournalPromise = outboxEntry
+    ? journalOutboxEntry(outboxEntry)
+    : Promise.resolve(false);
+  fileSaveOutboxJournalPromisesRef.current.set(pending, outboxJournalPromise);
+
+  if (options.immediate) {
+    const timer = fileSaveTimersRef.current[fileId];
+    if (timer) {
+      clearTimer(timer);
+      delete fileSaveTimersRef.current[fileId];
+    }
+    delete pendingFileSavesRef.current[fileId];
+    return saveFileContent(pending, outboxJournalPromise);
+  }
+
+  pendingFileSavesRef.current[fileId] = pending;
+  const timer = fileSaveTimersRef.current[fileId];
+  if (timer) clearTimer(timer);
+  fileSaveTimersRef.current[fileId] = setTimer(() => {
+    const queued = pendingFileSavesRef.current[fileId];
+    delete pendingFileSavesRef.current[fileId];
+    delete fileSaveTimersRef.current[fileId];
+    if (!queued) return;
+    saveFileContent(
+      queued,
+      fileSaveOutboxJournalPromisesRef.current.get(queued),
+    );
+  }, 400);
+}
+
+export interface SaveFileContentKeepaliveArgs {
+  acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
+  createFileSaveOutboxEntry: (
+    pending: FileContentSaveRequest,
+  ) => DesignSaveOutboxEntry | null;
+  journalOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  latestFileSaveForUnloadRef: RefObject<Record<string, FileContentSaveRequest>>;
+  outboxJournalPromise?: Promise<boolean>;
+  sendKeepalive: (
+    payload: Record<string, unknown>,
+  ) => FileContentSaveKeepaliveAttempt;
+}
+
+export function runFileContentSaveKeepalive(
+  {
+    acknowledgeOutboxEntry,
+    createFileSaveOutboxEntry,
+    journalOutboxEntry,
+    latestFileSaveForUnloadRef,
+    outboxJournalPromise,
+    sendKeepalive,
+  }: SaveFileContentKeepaliveArgs,
+  pending: FileContentSaveRequest,
+) {
+  const durableEntry = createFileSaveOutboxEntry(pending);
+  const keepaliveEntry = createFileSaveOutboxEntry(
+    prepareFileContentSaveKeepalive(pending),
+  );
+  if (!durableEntry || !keepaliveEntry) return;
+  const journalPromise =
+    outboxJournalPromise ?? journalOutboxEntry(durableEntry);
+  const attempt = sendKeepalive(keepaliveEntry.payload);
+  if (!attempt.accepted) {
+    void journalPromise.catch(() => {});
+    return;
+  }
+  void attempt.completion
+    .then(async (result: unknown) => {
+      await journalPromise;
+      const persistedContentMatches = updateFileResultPersistedContent(
+        result,
+        pending.content,
+      );
+      if (!persistedContentMatches) return;
+      const resultInfo = result as { versionHash?: string } | undefined;
+      const latest = latestFileSaveForUnloadRef.current[pending.id];
+      if (shouldClearLatestUnloadSave(latest, pending)) {
+        await acknowledgeOutboxEntry(durableEntry);
+        delete latestFileSaveForUnloadRef.current[pending.id];
+        return;
+      }
+      if (
+        advanceLatestUnloadSaveBase(
+          latest,
+          pending,
+          resultInfo?.versionHash ?? sourceContentHash(pending.content),
+        )
+      ) {
+        const advancedOutboxEntry = latest
+          ? createFileSaveOutboxEntry(latest)
+          : null;
+        if (advancedOutboxEntry) {
+          await journalOutboxEntry(advancedOutboxEntry);
+        }
+      }
+      await acknowledgeOutboxEntry(durableEntry);
+    })
+    .catch(() => {});
+}
+
 export function runSaveFileContent(
   {
     acknowledgeOutboxEntry,
     canEditDesignRef,
     createFileSaveOutboxEntry,
+    designId,
     fileSaveChainsRef,
+    fileSaveOutboxJournalPromisesRef,
     journalOutboxEntry,
-    lastAckedFileContentHashRef,
     latestFileSaveForUnloadRef,
-    clearPendingLocalFileContent,
+    rollbackPendingLocalFileContent,
     markPendingLocalFileContent,
     queryClient,
     setPatchProof,
@@ -63,96 +286,143 @@ export function runSaveFileContent(
     warnChangesWillRetry,
   }: SaveFileContentArgs,
   pending: FileContentSaveRequest,
-) {
-  if (!canEditDesignRef.current) return;
-  markPendingLocalFileContent(pending.id, pending.content);
-  // Stamp the CURRENTLY-known acked hash onto the object kept for the
-  // pagehide/unload keepalive only — that path has no "resolve at send
-  // time" luxury (unload can fire the instant this runs), so best-effort
-  // now is all it gets. Does NOT feed the real mutateAsync call below,
-  // which still re-resolves the hash fresh at send time; see that call's
-  // comment for why an already-set pending.expectedVersionHash must not
-  // be allowed to shadow a fresher ref read there.
-  latestFileSaveForUnloadRef.current[pending.id] =
-    pending.expectedVersionHash !== undefined
-      ? pending
-      : {
-          ...pending,
-          ...(lastAckedFileContentHashRef.current[pending.id]
-            ? {
-                expectedVersionHash:
-                  lastAckedFileContentHashRef.current[pending.id],
-              }
-            : {}),
-        };
-  const queuedOutboxEntry = createFileSaveOutboxEntry(
-    latestFileSaveForUnloadRef.current[pending.id],
+  outboxJournalPromise?: Promise<boolean>,
+): Promise<FileContentSaveCompletion> {
+  if (!canEditDesignRef.current) return Promise.resolve("failed");
+  markPendingLocalFileContent(
+    pending.id,
+    pending.content,
+    undefined,
+    pending.identityMigrationSourceContent,
   );
-  if (queuedOutboxEntry) void journalOutboxEntry(queuedOutboxEntry);
+  latestFileSaveForUnloadRef.current[pending.id] = pending;
+  const queuedOutboxEntry = createFileSaveOutboxEntry(pending);
+  const durableOutboxJournal =
+    outboxJournalPromise ??
+    fileSaveOutboxJournalPromisesRef?.current.get(pending) ??
+    (queuedOutboxEntry
+      ? journalOutboxEntry(queuedOutboxEntry)
+      : Promise.resolve(false));
+  let outboxEntryJournaled = false;
   const previous = fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
   const current = previous
     .catch(() => {})
     .then(async () => {
+      // An identity migration is disposable. Never send a queued old snapshot
+      // after a newer source publication or user edit has replaced it.
+      if (
+        pending.identityMigrationSourceContent !== undefined &&
+        latestFileSaveForUnloadRef.current[pending.id] !== pending
+      ) {
+        if (queuedOutboxEntry)
+          void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
+        return "failed";
+      }
       try {
-        // Resolve the optimistic-concurrency hash at SEND time (after any
-        // earlier chained save for this file has landed and refreshed the
-        // acked hash), not at queue time — the freshest ref value always
-        // wins here regardless of anything queue-time code may have
-        // stamped onto `pending` for the unload path above. Attached
-        // whenever a hash is known, on BOTH syncCollab true and false
-        // saves — see lastAckedFileContentHashRef's doc comment. Never
-        // invent a hash when one isn't known yet; omit as before.
-        const expectedVersionHash =
-          lastAckedFileContentHashRef.current[pending.id] ??
-          pending.expectedVersionHash;
-        const outboxEntry = createFileSaveOutboxEntry(
-          pending,
-          expectedVersionHash,
-        );
-        if (outboxEntry) await journalOutboxEntry(outboxEntry);
+        outboxEntryJournaled = await durableOutboxJournal;
+        const expectedVersionHash = pending.expectedVersionHash;
+        const outboxEntry = createFileSaveOutboxEntry(pending);
         const result = await updateFileMutation.mutateAsync({
           id: pending.id,
           content: pending.content,
           syncCollab: pending.syncCollab,
           operationSource: pending.operationSource,
           operationRevision: pending.operationRevision,
-          ...(expectedVersionHash ? { expectedVersionHash } : {}),
+          expectedVersionHash,
+          ...(pending.identityMigrationSourceContent !== undefined
+            ? { identityOnly: true }
+            : {}),
         } as any);
+        if (
+          pending.identityMigrationSourceContent !== undefined &&
+          latestFileSaveForUnloadRef.current[pending.id] !== pending
+        ) {
+          if (outboxEntry)
+            void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
+          return "failed";
+        }
         const resultInfo = result as
           | {
               skippedStaleMirror?: boolean;
               skippedStaleOperation?: boolean;
               versionHash?: string;
+              checkpoint?: { skipped: true; reason: string };
+              updatedAt?: unknown;
             }
           | undefined;
-        const skippedStaleMirror = Boolean(resultInfo?.skippedStaleMirror);
-        // skippedStaleMirror: the server intentionally left the SQL
-        // mirror column untouched because our expectedVersionHash no
-        // longer matched the live collab text (a live editor moved past
-        // the base this write was computed from). The mirror was NOT
-        // updated to pending.content, so recording pending.content's hash
-        // as "acked" here would be wrong — it would make a later guarded
-        // save believe the server holds content it doesn't. Leave the
-        // previously-acked hash in place instead; the DB-reconcile effect
-        // (activeFile watcher) will pick up the true live content and
-        // refresh the acked hash from that.
-        if (!skippedStaleMirror) {
-          lastAckedFileContentHashRef.current[pending.id] =
-            resultInfo?.versionHash ?? sourceContentHash(pending.content);
-        }
         const persistedContentMatches = updateFileResultPersistedContent(
           resultInfo,
           pending.content,
+          t("common.genericError"),
         );
-        if (persistedContentMatches && outboxEntry) {
-          await acknowledgeOutboxEntry(outboxEntry);
+        const latest = latestFileSaveForUnloadRef.current[pending.id];
+        if (
+          persistedContentMatches &&
+          advanceLatestUnloadSaveBase(
+            latest,
+            pending,
+            resultInfo?.versionHash ?? sourceContentHash(pending.content),
+          )
+        ) {
+          const advancedOutboxEntry = latest
+            ? createFileSaveOutboxEntry(latest)
+            : null;
+          if (advancedOutboxEntry)
+            await journalOutboxEntry(advancedOutboxEntry);
+        }
+        if (
+          persistedContentMatches &&
+          pending.identityMigrationSourceContent !== undefined &&
+          latestFileSaveForUnloadRef.current[pending.id] === pending
+        ) {
+          markPendingLocalFileContent(pending.id, pending.content);
+        }
+        if (persistedContentMatches && outboxEntry)
+          void acknowledgeOutboxEntry(outboxEntry).catch(() => {});
+        if (persistedContentMatches && designId) {
+          const designQueryKey = ["action", "get-design", { id: designId }];
+          const persistedUpdatedAt =
+            typeof resultInfo?.updatedAt === "string"
+              ? resultInfo.updatedAt
+              : undefined;
+          queryClient.setQueryData(designQueryKey, (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: { id?: unknown }) =>
+                file.id === pending.id
+                  ? {
+                      ...file,
+                      content: pending.content,
+                      ...(persistedUpdatedAt !== undefined
+                        ? { updatedAt: persistedUpdatedAt }
+                        : {}),
+                    }
+                  : file,
+              ),
+            };
+          });
+          if (
+            resultInfo?.checkpoint?.skipped &&
+            !warnedVersionHistoryDesigns.has(designId)
+          ) {
+            warnedVersionHistoryDesigns.add(designId);
+            toast.warning(t("designEditor.toasts.versionHistoryUnavailable"), {
+              id: `design-version-history-unavailable:${designId}`,
+            });
+          }
+          if (
+            persistedUpdatedAt === undefined ||
+            queryClient.isFetching({ queryKey: designQueryKey }) > 0
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+          }
         } else if (!persistedContentMatches) {
-          // A stale/no-op save result is a source conflict, not a lost
-          // connection. Drop the rejected overlay before refetch — leaving
-          // it active keeps painting the skipped snapshot and can write it
-          // back into Yjs when newer remote content arrives. expectedContent
-          // keeps a newer in-flight overlay (the user kept typing).
-          clearPendingLocalFileContent(pending.id, pending.content);
+          rollbackPendingLocalFileContent(pending.id, pending.content);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });
@@ -167,7 +437,6 @@ export function runSaveFileContent(
           shouldClearLatestUnloadSave(
             latestFileSaveForUnloadRef.current[pending.id],
             pending,
-            !persistedContentMatches,
           )
         ) {
           delete latestFileSaveForUnloadRef.current[pending.id];
@@ -189,22 +458,33 @@ export function runSaveFileContent(
               }
             : { ...prev, status };
         });
+        return persistedContentMatches ? "persisted" : "conflict";
       } catch (error) {
-        // Drop the (evidently wrong) acked hash so the failure is
-        // one-shot: the DB-reconcile effect pulls the fresh server
-        // content, and the next save proceeds unguarded from that
-        // rebased state instead of failing forever on a dead hash.
-        delete lastAckedFileContentHashRef.current[pending.id];
+        if (
+          pending.identityMigrationSourceContent !== undefined &&
+          latestFileSaveForUnloadRef.current[pending.id] !== pending
+        ) {
+          if (queuedOutboxEntry)
+            void acknowledgeOutboxEntry(queuedOutboxEntry).catch(() => {});
+          return "failed";
+        }
+        const failureKind = classifyDesignSaveFailure(error, navigator.onLine);
+        if (failureKind === "conflict") {
+          rollbackPendingLocalFileContent(pending.id, pending.content);
+          if (latestFileSaveForUnloadRef.current[pending.id] === pending) {
+            delete latestFileSaveForUnloadRef.current[pending.id];
+          }
+        }
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
-        const failureKind = classifyDesignSaveFailure(error, navigator.onLine);
-        if (failureKind === "offline") {
+        if (failureKind === "offline" && outboxEntryJournaled) {
           warnChangesWillRetry();
+        } else if (failureKind === "offline") {
+          toast.error(t("common.genericError"), {
+            id: `design-save-error:${pending.id}`,
+          });
         } else if (failureKind === "conflict") {
-          // Rebase still happens (acked-hash reset + get-design invalidation),
-          // but a silent 409 looks like the last edit saved.
-          clearPendingLocalFileContent(pending.id, pending.content);
           toast.error(t("designEditor.toasts.saveConflict"), {
             id: `design-save-conflict:${pending.id}`,
           });
@@ -226,12 +506,19 @@ export function runSaveFileContent(
               }
             : prev,
         );
+        return failureKind === "offline" && outboxEntryJournaled
+          ? "retryable"
+          : failureKind === "conflict"
+            ? "conflict"
+            : "failed";
       }
     });
-  fileSaveChainsRef.current[pending.id] = current;
+  const chain = current.then(() => {});
+  fileSaveChainsRef.current[pending.id] = chain;
   void current.finally(() => {
-    if (fileSaveChainsRef.current[pending.id] === current) {
+    if (fileSaveChainsRef.current[pending.id] === chain) {
       delete fileSaveChainsRef.current[pending.id];
     }
   });
+  return current;
 }

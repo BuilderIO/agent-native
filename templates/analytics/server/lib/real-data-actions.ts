@@ -21,17 +21,6 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
-// Inspecting or cloning an existing dashboard/extension template is
-// construction progress, not a metric query. These do not satisfy
-// hasDataQueryAttempt, but they should stop the guard from steering a
-// template-clone turn into "connect a missing source". Deliberately limited
-// to read/inspection actions: update-dashboard/mutate-dashboard/
-// compose-dashboard/create-extension/
-// update-extension can all author brand-new SQL or extension content, so
-// calling one of those alone is not proof the turn actually inspected a
-// template rather than inventing it from scratch. If the tool run also
-// includes one of these read actions, the bypass still applies even when an
-// authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -41,11 +30,6 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
-// Dashboard authoring/save actions. Unlike the read actions above, running one
-// of these is proof the turn actually edited or built a dashboard/extension —
-// which is a legitimate non-query completion. A saved SQL panel the user runs
-// themselves is not a fabricated metric, so the guard only needs to keep
-// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
 export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "mutate-dashboard",
   "update-dashboard",
@@ -54,10 +38,6 @@ export const DASHBOARD_MUTATION_ACTIONS = new Set([
   "update-extension",
 ]);
 
-// A turn that already searched the saved-query catalog or dashboard
-// references found something to adapt or found nothing, either way it did
-// discovery work. The guard's catch-all fallback must not treat that turn
-// identically to one that never looked.
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
   "search-analytics-query-catalog",
   "search-dashboard-references",
@@ -101,22 +81,11 @@ function isToolName(name: string, expected: string): boolean {
 
 let groundingActionNames: ReadonlySet<string> | null = null;
 
-/**
- * Read the action names whose definitions declare `grounding: true`.
- *
- * Takes the registry as an argument rather than importing
- * `.generated/actions-registry` because that registry imports every action, and
- * `save-analysis` imports this module — importing it back here would close an
- * evaluation cycle. The agent-chat plugin passes it in once at module load.
- */
 export function deriveGroundingActionNames(
   registry: Record<string, unknown>,
 ): string[] {
   return Object.entries(registry)
     .filter(([, module]) => {
-      // Action modules reach the registry either as the module namespace or as
-      // an already-unwrapped definition, the same two shapes
-      // `loadActionsFromStaticRegistry` normalizes.
       const candidate = module as
         | { grounding?: boolean; default?: { grounding?: boolean } }
         | undefined;
@@ -127,7 +96,6 @@ export function deriveGroundingActionNames(
     .map(([name]) => name);
 }
 
-/** Publish the derived set for the response guard to consult. */
 export function registerGroundingActions(names: Iterable<string>): void {
   groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
@@ -170,24 +138,248 @@ function isCatalogDiscoveryActionName(name: string): boolean {
   return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
 }
 
-// "Build/clone/template" language targeting a dashboard/extension/panel is
-// dashboard construction, distinct from an analytics-result question. Turns
-// like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
   /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
+const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?|job(?:s)?|schedule(?:s)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
+
+const DASHBOARD_AUTOMATION_COMPOUND_TERMS =
+  /\b(?:dashboard|extension|panel|widget)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b/i;
+
+const DASHBOARD_AUTOMATION_SUBJECT_TERMS =
+  /\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then|plus)\b|\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:and|then)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b)*(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+
+const DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?:(?!\b(?:and|or|then|plus)\b|,|\b(?:dashboard|extension|panel|widget)\b)[^.!?;\n])*?(?:,\s*(?:and|then)?|\b(?:and|then)\b)\s+\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b)+(?:(?!\b(?:and|or|then|plus)\b|,)[^.!?;\n])*?\b(?:dashboard|extension|panel|widget)\b/gi;
+
+const DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS =
+  /\b(?:(?:[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\bfor\b\s+(?:(?:the|a|an)\s+)?(?:(?!(?:and|or|then|plus)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\s+refresh(?:es|ed|ing)?\b/gi;
+
+const DASHBOARD_AUTOMATION_TRIGGER_TERMS =
+  /\b(?:(?:[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:triggered by|triggers? when|when|whenever|after|before|if|once|upon)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)(?:['’]s)?\b/gi;
+
+const DASHBOARD_AUTOMATION_NESTED_DASHBOARD_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?!\b(?:and|or|then|plus)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS =
+  /\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:dashboard|extension|panel|widget)\b)(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/gi;
+
+const DASHBOARD_AUTOMATION_DASHBOARD_TEMPLATE_ACTION_TERMS =
+  /\b(?:create|make|build|set up|setup|add|configure)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+automation\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh(?:es)?|simplify|switch|use)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b/i;
+
+const DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:\s*,\s*(?:(?:and|or|then|plus)\s+)?|\s+(?:and|or|then|plus)\s+)(?:(?:a|an|the)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)\b(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
+
+const DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS =
+  /\b(?:use|build|create|make|clone|copy|duplicate|adapt|replicate)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:as a template|template)\b(?!\s+automation\b)/i;
+
+const DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS =
+  /\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\btemplate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:create|build|make|set up|setup|schedule)\b\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bfor\s+(?:(?:a|an|the)\s+)?(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\bto\s+automate\b)/i;
+
+const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS =
+  /(?:^|[.!?;,\n]|\b(?:and|then|please|to|could\s+you|can\s+you|would\s+you)\b)\s*(?:schedule|scheduled)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b|(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS =
+  /\b(?:create|configure|set up|setup|add|define)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS =
+  /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+refresh\s+(?:job|schedule)\b/i;
+
+const DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS =
+  /\b(?:create|make|set up|setup|add|configure|define)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:schedule|schedules|scheduling)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b|\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:schedule|schedules|scheduling)\b)/i;
+
+const DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS =
+  /\b(?:create|make|build|set up|setup|configure|add|schedule)\b(?:(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b|(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh\b)/i;
+
+const DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS =
+  /\b(?:refresh|update|run|have)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)?\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:every|each)\s+(?:(?:\d+(?:\.\d+)?|an?|one|two|three|four|five|few)\s+)?(?:morning|afternoon|evening|minutes?|mins?|hours?|days?|weeks?|months?|weekdays?)\b|\b(?:hourly|daily|weekly|monthly|quarterly|yearly|annually|nightly)\b)/i;
+
+const DASHBOARD_CONSTRUCTION_WITH_SCHEDULED_REFRESH_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b\s+(?:with|and|plus)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:scheduled|recurring)\s+refresh\b/i;
+
+const DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS =
+  /\b(?:update|edit|change|modify|rename|adjust|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+(?:job|schedule))?|on\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?)\b/i;
+
+const DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS =
+  /(?:\b(?:and|then|plus|with|but)\b\s+(?:(?:a|an|the|my|our|your|their)\s+)?(?:(?:[\w-]+\s+){1,3})(?:dashboard|extension|panel|widget)\b(?!\s+(?:refresh(?:es|ed)?|update(?:s|d)?|frequency|interval|rate|performance|metrics?|data|stats?|statistics|results?)\b)|(?:\b(?:and|then|plus|with|but)\b|[.!?;])(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b)[^.!?;,\n])*?\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b(?:(?!\b(?:and|or|then|plus|but)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b[^.!?;,\n]*?\b(?:refresh|update)\s+rate\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS =
+  /\b(?:how\s+often|how\s+frequently|when)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh(?:es|ed)?|update(?:s|d)?)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)(?:['’]s)?\s+(?:refresh(?:es)?|update(?:s)?)\s+(?:frequency|interval)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_OF_TARGET_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+(?:frequency|interval)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?:[\w-]+(?:['’]s)?\s+){0,2})(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_FREQUENCY_NOUN_QUERY_TERMS =
+  /\b(?:what|which|how|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)[^.!?;,\n])*?\b(?:frequency|interval)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:the\s+)?(?:dashboard|extension|panel|widget)(?:['’]s)?\s+(?:refresh(?:es|ed)?|update(?:s|d)?)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|analysis|chart|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch)\b)/i;
+
+const DASHBOARD_REFRESH_RATE_REPORT_REVERSE_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|analysis|chart|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:refresh|update)\s+rate\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b(?!\s*(?:[.!?]\s*)?(?:,\s*)?(?:(?:and|or|then)\s*)?(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b)/i;
+
+const DASHBOARD_LATER_CONSTRUCTION_CLAUSE_TERMS =
+  /(?:[.!?;]\s*|,\s*|\b(?:and|or|then|plus|but)\b)\s*(?:create|build|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\b[\s\S]*$/i;
+
+const MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH = 8_192;
+const CLASSIFICATION_TEXT_TAIL_LENGTH = 2_048;
+const CLASSIFICATION_TRUNCATION_MARKER = "\n...[truncated]...\n";
+
+function boundAnalyticsClassificationText(text: string): string {
+  if (text.length <= MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH) return text;
+  const headLength =
+    MAX_ANALYTICS_CLASSIFICATION_TEXT_LENGTH -
+    CLASSIFICATION_TEXT_TAIL_LENGTH -
+    CLASSIFICATION_TRUNCATION_MARKER.length;
+  return `${text.slice(0, headLength)}${CLASSIFICATION_TRUNCATION_MARKER}${text.slice(-CLASSIFICATION_TEXT_TAIL_LENGTH)}`;
+}
+
+function isDashboardRefreshRateQuery(text: string): boolean {
+  return (
+    DASHBOARD_REFRESH_RATE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REVERSE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_REVERSE_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_OF_TARGET_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_FREQUENCY_NOUN_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REPORT_QUERY_TERMS.test(text) ||
+    DASHBOARD_REFRESH_RATE_REPORT_REVERSE_QUERY_TERMS.test(text)
+  );
+}
+
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
-  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const requestText = boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const constructionRequestText = lower
+    .replace(/\bbut\b/g, " and ")
+    .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_TRIGGER_TERMS, " automation ")
+    .replace(
+      DASHBOARD_AUTOMATION_DASHBOARD_TEMPLATE_ACTION_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_LIST_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_NESTED_ACTION_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_REFRESH_JOB_QUERY_TERMS, " automation ")
+    .replace(
+      DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS, " automation ")
+    .replace(DASHBOARD_AUTOMATION_NESTED_TEMPLATE_TERMS, " automation ")
+    .replace(DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS, " automation ")
+    .replace(
+      DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS,
+      " automation ",
+    )
+    .replace(DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS, " automation ")
+    .replace(DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS, " automation ")
+    .replace(DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS, " automation ")
+    .replace(DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS, " automation ")
+    .replace(DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS, " automation ");
+  const hasDashboardConstructionObject = [
+    ...constructionRequestText.matchAll(DASHBOARD_CONSTRUCTION_OBJECT_TERMS),
+  ].some(([match]) => {
+    if (
+      !match ||
+      !/\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)\b/.test(
+        match,
+      )
+    ) {
+      return Boolean(match);
+    }
+    return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
+  });
+  const hasIndependentDashboardConstructionObject = constructionRequestText
+    .split(/[.!?;,\n]+|\b(?:and|or|then|plus|but)\b/)
+    .some((clause) => {
+      const candidate = clause.trim();
+      if (!candidate || isDashboardRefreshRateQuery(candidate)) return false;
+      return [...candidate.matchAll(DASHBOARD_CONSTRUCTION_OBJECT_TERMS)].some(
+        ([match]) => {
+          if (
+            !match ||
+            !/\b(?:automation|automations|workflow|workflows|job|recurring job|scheduled job|cron(?:\s+job)?)\b/.test(
+              match,
+            )
+          ) {
+            return Boolean(match);
+          }
+          return DASHBOARD_AUTOMATION_SUBJECT_TERMS.test(match);
+        },
+      );
+    });
+  if (
+    isDashboardRefreshRateQuery(lower) &&
+    !DASHBOARD_CONSTRUCTION_AFTER_REFRESH_RATE_QUERY_TERMS.test(lower) &&
+    !hasIndependentDashboardConstructionObject
+  ) {
+    return false;
+  }
+  if (
+    DASHBOARD_CONSTRUCTION_WITH_SCHEDULED_REFRESH_TERMS.test(lower) &&
+    !DASHBOARD_AUTOMATION_NESTED_DASHBOARD_TERMS.test(lower)
+  ) {
+    return true;
+  }
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(
+    constructionRequestText,
+  );
   const targetsDashboard =
-    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(constructionRequestText) ||
     lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
-  return wantsBuild && targetsDashboard;
+  if (!wantsBuild || !targetsDashboard) return false;
+  const hasWorkflowOrAutomationRequest =
+    looksLikeWorkflowOrAutomationRequest(lower);
+  const hasTemplateConstruction =
+    /\b(?:template|based (?:off|on)|using .{1,80}? as a template)\b/i.test(
+      constructionRequestText,
+    );
+  if (
+    hasTemplateConstruction &&
+    (!hasWorkflowOrAutomationRequest ||
+      hasDashboardConstructionObject ||
+      (DASHBOARD_TEMPLATE_CONSTRUCTION_TERMS.test(constructionRequestText) &&
+        !DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS.test(
+          constructionRequestText,
+        )))
+  ) {
+    return true;
+  }
+  if (DASHBOARD_AUTOMATION_AND_DASHBOARD_TERMS.test(constructionRequestText)) {
+    return true;
+  }
+  if (
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
+    !hasDashboardConstructionObject
+  ) {
+    return false;
+  }
+  if (hasWorkflowOrAutomationRequest && !hasDashboardConstructionObject) {
+    return false;
+  }
+  return true;
 }
 
 export function hasDashboardConstructionAttempt(
@@ -274,11 +466,6 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
       "",
     );
   }
-  // Compatibility with callers deployed before A2A hints were wrapped in the
-  // structured block above. The legacy transport note includes words such as
-  // "full transcripts" and "create ... dashboard"; allowing those framework
-  // words into intent classification falsely triggered corpus and dashboard
-  // guards for ordinary delegated metric questions.
   requestText = requestText.replace(
     /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
     "",
@@ -288,9 +475,7 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
 
 function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
   const hasWorkflowArtifact =
-    /\b(github actions?|ya?ml|cron|scheduled job|recurring job|pnpm script)\b|\.(?:ya?ml)\b/.test(
-      lower,
-    );
+    /\b(github actions?|ya?ml|pnpm script)\b|\.(?:ya?ml)\b/.test(lower);
   const hasCreationIntent =
     /\b(want|need|create|make|set up|setup|add|migrate|move|port|convert|turn|translate|recreate|build)\b/.test(
       lower,
@@ -299,9 +484,54 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
     /\b(recurring job|scheduled job|job|automation|automations|workflow|workflows|cron)\b/.test(
       lower,
     );
+  const hasExplicitAutomationTarget =
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define)\b(?:(?!\b(?:dashboard|extension|panel|widget|report|reports|analysis|analyses|chart|charts|metric|metrics|rate|rates|conversion|conversions)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+      lower,
+    );
+  const hasScheduledAutomationTarget =
+    /(?:^|[.!?;,\n]|\b(?:and|then|to|please)\b)\s*schedule\b(?:(?!\b(?:dashboard|extension|panel|widget)\b)[^.!?;,\n])*?\b(?:recurring job|scheduled job|automation|automations|workflow|workflows|cron(?:\s+job)?)\b(?!\s+(?:dashboard|extension|panel|widget)\b)/.test(
+      lower,
+    );
+  const hasCronSchedulingTarget =
+    /(?:^|[.!?;,\n]|\b(?:and|then|please|to)\b)\s*(?:schedule|scheduled|set up|setup|run|trigger|refresh)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:(?:via|using|with)\s+cron(?:\s+job)?|on\s+(?:a\s+)?cron(?:\s+(?:schedule|job))?)\b/.test(
+      lower,
+    );
+  const hasTemplateAutomationInput =
+    DASHBOARD_TEMPLATE_AUTOMATION_INPUT_TERMS.test(lower);
+  const hasScheduledDashboardRefresh =
+    DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_TERMS.test(lower);
+  const hasScheduledDashboardRefreshCreation =
+    DASHBOARD_SCHEDULED_DASHBOARD_REFRESH_CREATION_TERMS.test(lower);
+  const hasDashboardRefreshJobAutomation =
+    DASHBOARD_REFRESH_JOB_AUTOMATION_TERMS.test(lower);
+  const hasGenericDashboardScheduleAutomation =
+    DASHBOARD_GENERIC_SCHEDULE_AUTOMATION_TERMS.test(lower);
+  const hasDashboardScheduledRefreshAutomation =
+    DASHBOARD_DASHBOARD_SCHEDULED_REFRESH_TERMS.test(lower);
+  const hasDashboardCadenceAutomation =
+    DASHBOARD_CADENCE_DASHBOARD_REFRESH_TERMS.test(lower);
+  const hasCronScheduledDashboardUpdate =
+    DASHBOARD_CRON_SCHEDULED_DASHBOARD_UPDATE_TERMS.test(lower);
+  const hasDashboardAutomationTarget =
+    DASHBOARD_AUTOMATION_COMPOUND_TERMS.test(lower) &&
+    !DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) &&
+    /\b(?:want|need|create|make|set up|setup|add|configure|build|define|schedule|update|edit|change|modify|rename|adjust|refresh)\b/.test(
+      lower,
+    );
 
   return (
-    /\brecurring job\b/.test(lower) ||
+    hasExplicitAutomationTarget ||
+    hasScheduledAutomationTarget ||
+    hasCronSchedulingTarget ||
+    hasTemplateAutomationInput ||
+    hasScheduledDashboardRefresh ||
+    hasScheduledDashboardRefreshCreation ||
+    hasDashboardRefreshJobAutomation ||
+    hasGenericDashboardScheduleAutomation ||
+    hasDashboardScheduledRefreshAutomation ||
+    hasDashboardCadenceAutomation ||
+    hasCronScheduledDashboardUpdate ||
+    hasDashboardAutomationTarget ||
     (hasWorkflowArtifact && hasCreationIntent) ||
     (hasCreationIntent &&
       hasAutomationTarget &&
@@ -311,6 +541,37 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 
 const ANALYTICS_RESULT_TERMS =
   /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+
+const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
+
+const DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:run|runs|ran|execution(?:s)?|job(?:s)?|fail(?:ed|ure|ures)?|count(?:s)?|number)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b/i;
+
+const DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS =
+  /\b(?:create|make|build)\s+(?:a|an|the)\s+(?:report|chart|analysis|metric)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?(?:\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b|\b(?:number|count(?:s)?|run(?:s)?|ran|execution(?:s)?|job(?:s)?|conversion(?:s)?|failure(?:s)?|fail(?:ed|ure|ures)?|success(?:es)?|rate(?:s)?|error(?:s)?|performance|metric(?:s)?|status|state|scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b)/i;
+
+const DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list|are|is)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled|status|state|run|runs|ran|execution(?:s)?|job(?:s)?|count(?:s)?|number)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b/i;
+
+const DASHBOARD_REFRESH_JOB_QUERY_TERMS =
+  /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?(?:\b(?:dashboard|extension|panel|widget)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\brefresh(?:es|ed|ing)?\s+(?:jobs?|schedules?)\b|\brefresh(?:es|ed|ing)?\s+(?:jobs?|schedules?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\b)/i;
+
+const DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS =
+  /(?:\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much|list|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled|status|state)\b|\b(?:show|report|find|list|what|which|how many|how much|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:dashboard|extension|panel|widget)\s+(?:automations?|workflows?|jobs?)\b|\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:\b(?:dashboard|extension|panel|widget)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b|\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)(?:\s+(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+){0,2}\s+(?:dashboard|extension|panel|widget)\b)\s*(?:['’]s)?\b)/i;
+
+const DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS =
+  /\b(?:show|report|find|list|what|which|how many|how much|are|is|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:scheduled|active|enabled|paused|running|pending|disabled)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:automation|automations|workflow|workflows|recurring job|scheduled job|job|cron(?:\s+job)?)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\bfor\b\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?:[\w-]+(?:['’]s)?\s+){0,3})(?:dashboard|extension|panel|widget)\b/i;
+
+function isDashboardAutomationStatusQuery(text: string): boolean {
+  return (
+    DASHBOARD_AUTOMATION_STATUS_QUERY_TERMS.test(text) ||
+    DASHBOARD_AUTOMATION_STATUS_FIRST_SCOPED_QUERY_TERMS.test(text)
+  );
+}
+
+const DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS =
+  /\bhow\s+many\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*(?:\bare there\b|\bexist\b|\bdo we have\b|\bis there\b|(?=\s*[?.!]|$))/i;
 
 const ANALYTICS_DOMAIN_ENTITY_TERMS =
   /\b(?:branch(?:es)?|branch creation|created by|creator identity)\b/;
@@ -328,34 +589,79 @@ const SETUP_REQUEST_FRAMING =
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
-// An explicit request to review a code artifact is never a data question,
-// whatever dates or metric words it also carries ("review the signup
-// changelog from last week").
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
-// A bare mention of a PR, diff, commit, or reviewer feedback makes the
-// message about a change rather than live data — unless it also asks for a
-// result ("how many signups came from each PR?"), which is a data question
-// with a pull-request dimension. Bare "reviewer" is not enough: "how many
-// calls did our reviewers handle" is about people, not a code review.
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
   /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
+const DASHBOARD_BARE_STATUS_QUERY_TERMS =
+  /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
+
 const ARTIFACT_DATA_INTENT =
   /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
 
-// Questions about schema, metadata, or available sources — these do NOT require
-// a live provider data call. They should be answered from the data dictionary,
-// schema introspection tools, or the agent's knowledge of configured sources.
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
 
+function hasIndependentAnalyticsDataClause(lower: string): boolean {
+  const normalized = lower.replace(/\bbut\b/g, " and ");
+  return normalized
+    .split(/[.!?;,\n]+|\b(?:and|or|then|plus)\b/)
+    .some((clause) => {
+      const candidate = clause.trim();
+      if (!candidate) return false;
+      if (looksLikeWorkflowOrAutomationRequest(candidate)) return false;
+      if (
+        DASHBOARD_BARE_STATUS_QUERY_TERMS.test(candidate) &&
+        !isDashboardAutomationStatusQuery(candidate) &&
+        !DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(candidate) &&
+        !METRIC_RESULT_INTENT.test(candidate)
+      ) {
+        return false;
+      }
+      if (
+        METADATA_ONLY_TERMS.test(candidate) ||
+        EXPLICIT_CODE_REVIEW_REQUEST.test(candidate) ||
+        (CODE_REVIEW_MENTION.test(candidate) &&
+          !METRIC_RESULT_INTENT.test(candidate))
+      ) {
+        return false;
+      }
+      return (
+        DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(candidate) ||
+        isDashboardAutomationStatusQuery(candidate) ||
+        DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(candidate) ||
+        DASHBOARD_REFRESH_JOB_QUERY_TERMS.test(candidate) ||
+        isDashboardRefreshRateQuery(candidate) ||
+        (ANALYTICS_RESULT_TERMS.test(candidate) &&
+          (ANALYTICS_INTENT_TERMS.test(candidate) ||
+            METRIC_RESULT_INTENT.test(candidate) ||
+            /\btell\s+me(?:\s+about)?\b/.test(candidate))) ||
+        (ANALYTICS_DOMAIN_ENTITY_TERMS.test(candidate) &&
+          (ANALYTICS_INTENT_TERMS.test(candidate) ||
+            SOURCE_SEARCH_INTENT_TERMS.test(candidate) ||
+            /\bdata\b/.test(candidate))) ||
+        (ANALYTICS_INTENT_TERMS.test(candidate) &&
+          /\b(data|source|table|sql)\b/.test(candidate))
+      );
+    });
+}
+
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
-  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const requestText = boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
+  const analyticsRequestText = lower.replace(
+    DASHBOARD_LATER_CONSTRUCTION_CLAUSE_TERMS,
+    "",
+  );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
@@ -363,7 +669,28 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
+  if (
+    DASHBOARD_BARE_STATUS_QUERY_TERMS.test(lower) &&
+    !isDashboardAutomationStatusQuery(lower) &&
+    !DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(lower) &&
+    !METRIC_RESULT_INTENT.test(lower) &&
+    !hasIndependentAnalyticsDataClause(lower)
+  ) {
+    return false;
+  }
+  if (
+    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
+    isDashboardAutomationStatusQuery(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower)
+  ) {
+    return true;
+  }
+  if (
+    looksLikeWorkflowOrAutomationRequest(lower) &&
+    !hasIndependentAnalyticsDataClause(lower)
+  ) {
+    return false;
+  }
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
       lower,
@@ -390,10 +717,26 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
 
-  // Metadata/data-dictionary questions do not need a live provider query.
-  // Checking what's available, what a metric means, or what schema exists
-  // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
+
+  if (
+    DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_COUNT_REVERSE_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_REPORT_QUERY_TERMS.test(lower) ||
+    isDashboardAutomationStatusQuery(lower) ||
+    DASHBOARD_AUTOMATION_DIRECT_COUNT_QUERY_TERMS.test(lower) ||
+    DASHBOARD_AUTOMATION_FIRST_QUERY_TERMS.test(lower) ||
+    DASHBOARD_REFRESH_JOB_QUERY_TERMS.test(lower)
+  ) {
+    return true;
+  }
+
+  if (
+    isDashboardRefreshRateQuery(lower) ||
+    isDashboardRefreshRateQuery(analyticsRequestText)
+  ) {
+    return true;
+  }
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
   if (
@@ -417,27 +760,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   );
 }
 
-// Each unit alternative after the number carries its own trailing `\b`
-// instead of one shared after the group: `%` is not a word character, so a
-// shared `\b` right after it can never match (neither "%" nor the following
-// space is a word char) and silently dropped every percentage claim, e.g.
-// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\b(?:higher|lower) than\b)/i;
 
-// Reuse the same broad unsupported-result-claim vocabulary that gates
-// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
-// bypass the no-query fallback just by avoiding the narrower set of units a
-// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-// Up to 40 characters of the same clause that never name an artifact: "the
-// signup dashboard was improved" is an edit summary, not a signup result.
 const NON_ARTIFACT_GAP =
   "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
 
-// A qualitative verdict about a metric ("signup conversion was strong last
-// week", "signups performed poorly") is a result claim with no number in it.
-// Anchored to a result term earlier in the same clause so an edit summary
-// such as "improved the dashboard layout" does not read as a claim.
 const METRIC_VERDICT_PHRASES =
   "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
@@ -445,8 +773,6 @@ const QUALITATIVE_METRIC_VERDICT = new RegExp(
   "i",
 );
 
-// "signups were 480" / "conversion: 4.2" put the metric before the figure,
-// which the unit-after-number shapes above never see.
 const METRIC_THEN_FIGURE = new RegExp(
   `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
   "i",
@@ -517,9 +843,6 @@ const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
 
-// The first sentence of the canned fallback, lowercased, with the trailing
-// period dropped. Matching this prefix (rather than the whole message) still
-// catches a model paraphrase that continues differently after "successfully".
 const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
   GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
     0,
@@ -539,9 +862,6 @@ const SAFE_NO_DATA_RESPONSE =
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  // This is the guard's own last-resort fallback. If a model emits it before
-  // attempting a query, it must go through the retry path instead of being
-  // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
   if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
@@ -711,7 +1031,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:partial|partially|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:bounded|limited)\s+(?:coverage|sample|results?|records?|calls?|transcripts?|cohort|dataset|evidence|inspection|search|review)\b|\b(?:coverage|inspection|search|review|sample)\s+(?:was|is|remains|looks)?\s*(?:bounded|limited)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+  /\b(?:sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -806,10 +1126,6 @@ export function hasCorpusWorkflowAttempt(
       return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
-    // Connected provider MCP tools can expose broad search/list/request
-    // primitives directly. Treat those as corpus-capable when they succeed so
-    // apps are not forced through provider-api-request if a native MCP source
-    // already provides the right general API surface.
     return isCorpusCapableMcpTool(name);
   });
 }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "content",
   "displayName": "Content",
-  "description": "Create and manage docs plus Notion-style databases, boards, structured intake forms, and request records through Content, including repo-backed Markdown/MDX.",
+  "description": "Create and manage docs plus Notion-style collections, boards, structured intake forms, and request records through Content, including repo-backed Markdown/MDX.",
   "hosted": {
     "url": "https://content.agent-native.com",
     "mcpUrl": "https://content.agent-native.com/mcp"

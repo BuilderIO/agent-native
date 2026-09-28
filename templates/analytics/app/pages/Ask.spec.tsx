@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
+  creativeContextEnabled: false,
   contextItems: [] as Array<{ key: string; title: string; context: string }>,
   callAction: vi.fn(async () => ({ cleared: true })),
   remove: vi.fn(),
@@ -12,11 +13,29 @@ const clientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentChatSurface: () => <div data-testid="chat" />,
+  AgentChatHome: ({
+    composerSlot,
+    homeIntroSlot,
+  }: {
+    composerSlot?: React.ReactNode;
+    homeIntroSlot?: React.ReactNode;
+  }) => (
+    <div data-testid="chat">
+      {composerSlot}
+      {homeIntroSlot}
+    </div>
+  ),
   useAgentChatContext: () => ({
     items: clientMocks.contextItems,
     remove: clientMocks.remove,
   }),
+}));
+
+vi.mock("@agent-native/creative-context/client", () => ({
+  CreativeContextComposerChip: () => (
+    <div data-testid="creative-context-chip" />
+  ),
+  useCreativeContextLab: () => clientMocks.creativeContextEnabled,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -45,6 +64,7 @@ describe("AskPage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clientMocks.creativeContextEnabled = false;
     clientMocks.contextItems = [];
     clientMocks.readClientAppState.mockResolvedValue({
       type: "dashboard",
@@ -89,6 +109,38 @@ describe("AskPage", () => {
     });
 
     expect(clientMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("keeps the empty Ask intro to its title", async () => {
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(container.textContent).toContain("common.askIntroTitle");
+    expect(container.textContent).not.toContain("common.askIntroBody");
+    expect(container.querySelector(".analytics-chat-intro p")).toBeNull();
+  });
+
+  it("hides the Creative Context composer chip until its Lab is enabled", async () => {
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="creative-context-chip"]'),
+    ).toBeNull();
+  });
+
+  it("shows the Creative Context composer chip when its Lab is enabled", async () => {
+    clientMocks.creativeContextEnabled = true;
+
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="creative-context-chip"]'),
+    ).not.toBeNull();
   });
 
   it("requests atomic dashboard selection cleanup on Ask entry", async () => {

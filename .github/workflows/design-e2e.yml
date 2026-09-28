@@ -1,11 +1,5 @@
 name: Design E2E (browser)
 
-# Post-merge only: a red canvas suite must not block an unrelated merge, and
-# this does not gate the beta deploy. Sharded because the suite is workers:1,
-# and shard granularity is per FILE, so a single fat spec sets the floor.
-# Known-broken tests carry test.fixme() with the symptom, so a red run here
-# means something that was passing broke.
-
 on:
   push:
     branches: [main]
@@ -19,48 +13,54 @@ on:
 
 concurrency:
   group: design-e2e
-  cancel-in-progress: true
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
   e2e:
-    name: Shard ${{ matrix.shard }}/12
+    name: Shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: design_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d design_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      # Deleted in parallel because these are independent inode-heavy trees and
+      # doing them serially cost ~110s per shard. `docker system prune` is not
+      # worth its runtime here: the only image in play is the postgres service,
+      # which is running and therefore never pruned.
       - name: Free disk for the design build and browser
         run: |
-          sudo rm -rf \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /usr/local/.ghcup \
-            /usr/local/lib/android \
-            /usr/local/share/boost \
-            /usr/share/dotnet \
-            /usr/share/swift \
-            ~/.cache/ms-playwright
-          docker system prune -af || true
-          sudo apt-get clean
+          for dir in /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup \
+                     /usr/local/lib/android /usr/local/share/boost \
+                     /usr/share/dotnet /usr/share/swift; do
+            sudo rm -rf "$dir" &
+          done
+          wait
+          df -h /
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: "22"
-          cache: "pnpm"
-
-      - name: Restore dist + tsBuildInfo cache
-        uses: ./.github/actions/restore-dist-cache
-
-      - run: pnpm install --frozen-lockfile
+          restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -72,11 +72,22 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Migrate the isolated test database
+        working-directory: templates/design
+        env:
+          APP_NAME: design
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DESIGN_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+        run: pnpm migrate:production
+
       - name: Run shard
         working-directory: templates/design
+        env:
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/12
+          pnpm exec playwright test --shard=${{ matrix.shard }}/8
 
       - name: Upload report on failure
         if: ${{ failure() }}

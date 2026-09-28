@@ -35,6 +35,7 @@ import {
   workspaceAppDirectHref,
   workspaceAppHref,
   workspaceAppRoute,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
@@ -86,13 +87,6 @@ function deferWorkspaceAppOverlayOpen(
   }
 }
 
-// The settings menu's own DropdownMenuContent restores focus to its trigger
-// once its FocusScope unmounts, independent of the requestAnimationFrame
-// above. If that restore lands after the deferred overlay's DismissableLayer
-// has already mounted, the resulting focusin event reads as an outside
-// interaction and immediately dismisses the overlay we just opened. Skip the
-// default restore whenever we're mid-handoff to a sibling overlay — mirrors
-// AgentPanel's identical guard (consumeAgentPanelOverlayFocusRestore).
 function consumeWorkspaceAppOverlayFocusRestore(
   pendingOverlayRef: { current: boolean },
   event: { preventDefault: () => void },
@@ -119,7 +113,10 @@ export function WorkspaceAppCard({
     app.status !== "pending" &&
     !isWorkspaceSsoApp(app) &&
     isPathMountedWorkspaceApp(app)
-      ? workspaceAppDirectHref(app, "/")
+      ? workspaceAppDirectHref(
+          app,
+          app.isDispatch ? "/overview" : workspaceAppTargetPath(app),
+        )
       : null;
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";

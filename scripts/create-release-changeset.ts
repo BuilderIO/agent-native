@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { NPM_PUBLISH_PACKAGE_NAMES } from "./changeset-publish-sequential.ts";
+import { NPM_PUBLISH_PACKAGE_NAMES } from "./public-package-names.ts";
 
 export const RELEASE_BUMP_TYPES = ["patch", "minor", "major"] as const;
 export type ReleaseBumpType = (typeof RELEASE_BUMP_TYPES)[number];

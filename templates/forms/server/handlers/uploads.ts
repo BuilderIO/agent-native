@@ -65,7 +65,7 @@ export const uploadFormFile = defineEventHandler(async (event: H3Event) => {
   try {
     settings = parseStoredFormSettings(form.settings);
     fields = JSON.parse(form.fields);
-    assertValidFields(fields);
+    assertValidFields(fields, { patternSafety: false });
   } catch {
     return invalidFormResponse(event);
   }

@@ -49,6 +49,26 @@ const messages = {
     brainNavigationDescription: "在 Brain 工作介面之間導覽。",
   },
   settings: {
+    area: {
+      tabBehavior: "行為",
+      tabPublishing: "發布",
+      tabSafety: "安全",
+      tabPrivacy: "隱私",
+      groupNames: "名稱",
+      groupAnswers: "回答",
+      groupDistillation: "提煉",
+      groupReviewQueue: "審核佇列",
+      groupSources: "來源",
+      groupCaptures: "擷取內容",
+      groupAdvanced: "進階",
+      groupScreening: "篩查",
+      edit: "編輯",
+      cancel: "取消",
+      save: "儲存",
+      saveFailed: "無法儲存變更，請再試一次。",
+      loadFailed: "無法載入 Brain 設定。",
+      retry: "再試一次",
+    },
     pageTitle: "設定",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
@@ -174,6 +194,16 @@ const messages = {
     privacyClassifierModelPlaceholder: "預設隱私分類器模型",
     privacyClassifierEngine: "分類器引擎",
     privacyClassifierEnginePlaceholder: "預設分類器引擎",
+    hours: "{{count}} 小時",
+    privacyClassifierChoice: "敏感度分類器",
+    privacyClassifierJev: "Jev（建議）",
+    privacyClassifierCustom: "自訂模型",
+    privacyClassifierDeterministic: "僅規則篩查",
+    jevCredentialLabel: "Jev 憑證",
+    jevCredentialStoredKey: "已儲存金鑰",
+    jevCredentialGateway: "Builder 連線",
+    jevCredentialNone: "找不到",
+    jevCredentialUnavailable: "查詢失敗",
     quarantineRetentionHours: "隔離保留時數",
     quarantineRetentionHoursDescription:
       "僅含中繼資料的隔離事件將在此期限後刪除。",
@@ -399,6 +429,14 @@ const messages = {
     slackAccessRuleScopes:
       "Slack 存取應支援 auth.test、conversations.info/history 和 chat.getPermalink。試點私人頻道時新增私人頻道存取。",
     allowedChannels: "允許的頻道",
+    invalidAllowedChannels:
+      "不是有效的 Slack 頻道：{{entries}}。請使用類似 C0123456789 的頻道 ID 或 #channel-name。",
+    invalidSlackDirectMessages:
+      "不支援 Slack 私訊：{{entries}}。Brain 僅同步公開和私人頻道。",
+    invalidGithubRepositories:
+      "不是有效的存放庫：{{entries}}。請使用 owner/repo 或 github.com 存放庫 URL。",
+    missingProviderCredential:
+      "{{keys}} 尚未設定，因此在新增之前此來源無法同步。",
     allowedChannelsDescription:
       "Brain 驗證允許清單，拒絕 DMs/MPIMs，並且從不在來源設定中儲存憑證值。",
     messagesPerPage: "每頁訊息數",

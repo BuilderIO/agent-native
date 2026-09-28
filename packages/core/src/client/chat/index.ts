@@ -6,14 +6,16 @@ export {
 export {
   AgentChatSurface,
   AgentPanel,
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   type AgentChatSurfaceMode,
   type AgentChatSurfaceProps,
   type AgentPanelProps,
-  type AgentSidebarProps,
 } from "../AgentPanel.js";
+export {
+  AgentSidebar,
+  AgentToggleButton,
+  focusAgentChat,
+  type AgentSidebarProps,
+} from "../AgentSidebar.js";
 export {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
@@ -36,33 +38,78 @@ export {
   type UseAgentChatHomeHandoffOptions,
 } from "../use-agent-chat-home-handoff.js";
 export {
-  AssistantChat,
-  clearChatStorage,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-  type AssistantChatAdapterContext,
-} from "../AssistantChat.js";
-export {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatProps,
-  type MultiTabAssistantChatHeaderProps,
+  AgentKitAssistantChat,
+  AgentKitAssistantChat as AssistantChat,
+  type AgentKitAssistantChatProps,
+} from "../AgentKitAssistantChat.js";
+export { clearChatStorage } from "./storage.js";
+export type {
+  AssistantChatProps,
+  AssistantChatHandle,
+  AssistantChatAdapterContext,
+  AssistantChatSendOptions,
+  AssistantChatSubmitResult,
+  AgentChatSurfaceKind,
+} from "./surface-types.js";
+export type {
+  MultiTabAssistantChatProps,
+  MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
-export {
-  createAgentChatAdapter,
-  type AgentChatSurfaceKind,
-  type CreateAgentChatAdapterOptions,
-} from "../agent-chat-adapter.js";
-export {
-  codeAgentTranscriptEventsToContent,
-  createCodeAgentChatAdapter,
-  type CodeAgentChatController,
-  type CodeAgentChatControlResult,
-  type CodeAgentChatFollowUpMode,
-  type CodeAgentChatTranscriptEvent,
-  type CreateCodeAgentChatAdapterOptions,
-} from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
+export {
+  AgentApprovalCard,
+  AgentChoiceCard,
+  AgentInputCard,
+  type AgentApprovalCardProps,
+  type AgentChoiceCardProps,
+  type AgentChoiceOption,
+  type AgentInputCardProps,
+} from "./agent-approval-card.js";
+export {
+  AgentActivityObject,
+  type AgentActivityObjectKind,
+  type AgentActivityObjectProps,
+  type AgentActivityObjectReference,
+} from "./agent-activity-object.js";
+export {
+  AgentActivityChip,
+  AgentActivityTrace,
+  type AgentActivityChipProps,
+  type AgentActivityDisplayMode,
+  type AgentActivityItem,
+  type AgentActivityStatus,
+  type AgentActivityTraceProps,
+  type AgentActivityVariant,
+} from "./agent-activity-trace.js";
+export {
+  ToolChips,
+  type ToolChipDetail,
+  type ToolChipDiff,
+  type ToolChipKind,
+  type ToolChipStep,
+  type ToolChipTone,
+  type ToolChipsProps,
+} from "./tool-chips.js";
 export * from "./runtime.js";
+export {
+  createAgentKitProtocolAdapter,
+  type AgentKitProtocolAdapter,
+  type CreateAgentKitProtocolAdapterOptions,
+} from "./agentkit-protocol.js";
+export {
+  createAgentNativeAgentKitTransport,
+  type CreateAgentNativeAgentKitTransportOptions,
+} from "./agentkit-agent-native.js";
+export {
+  AGENT_CHAT_RUNNING_EVENT,
+  dispatchAgentChatRunning,
+  resolveAgentChatRunningThreadId,
+  useAgentChatRunningThreads,
+  type AgentChatPresentationPhase,
+  type AgentChatRunningEventDetail,
+  type AgentChatRunningThreadsState,
+  type UseAgentChatRunningThreadsOptions,
+} from "../use-agent-chat-running-threads.js";
 export {
   sendToAgentChat,
   sendToAgentChatAndConfirm,
@@ -111,14 +158,25 @@ export {
   type ToolRendererRegistration,
 } from "./tool-render-registry.js";
 export {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  normalizeAgentTeamProgressResult,
+  type ActionChange,
+  type ActionChangeResult,
+  type ActionChangeUndo,
+  type ActionChangeVerb,
   type ActionChatUIConfig,
+  type AgentTeamProgressResult,
+  type AgentTeamProgressTask,
 } from "../../action-ui.js";
+export { ActionCard } from "./widgets/ActionCard.js";
+export { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

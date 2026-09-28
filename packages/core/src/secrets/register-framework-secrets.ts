@@ -14,9 +14,111 @@
  * key with stricter requirements; the guard below preserves their definition.
  */
 
-import { getRequiredSecret, registerRequiredSecret } from "./register.js";
+import { publicFrameworkPath } from "../server/framework-route-prefix.js";
+import { GEMINI_API_KEY } from "./key-aliases.js";
+import {
+  getRequiredSecret,
+  registerRequiredSecret,
+  registerSecretUsage,
+  type SecretUsage,
+  type SecretValidator,
+} from "./register.js";
+
+/**
+ * What the framework itself uses each key for, in every app. Recorded apart
+ * from the registrations so a template that registers the same key keeps
+ * these. A provider key's model use is derived from the engine registry at
+ * read time, so it is not listed here.
+ */
+const FRAMEWORK_SECRET_USAGE: Record<string, SecretUsage[]> = {
+  OPENAI_API_KEY: [
+    {
+      feature: "Realtime voice",
+      effectWhenRemoved:
+        "Uses Builder.io when it's connected, otherwise stops.",
+    },
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  GROQ_API_KEY: [
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  [GEMINI_API_KEY]: [
+    {
+      feature: "Voice input",
+      effectWhenRemoved:
+        "Uses another voice provider, or stops if none is set up.",
+    },
+  ],
+  JEV_API_KEY: [
+    {
+      feature: "Tool selection",
+      effectWhenRemoved: "The agent picks tools without the decision model.",
+    },
+  ],
+  POSTHOG_API_KEY: [
+    {
+      feature: "Analytics",
+      effectWhenRemoved:
+        "Stops sending product analytics, errors, and LLM traces to PostHog.",
+    },
+  ],
+  BRAVE_SEARCH_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  TAVILY_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  EXA_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses the next search provider, or Builder.io when it's connected.",
+    },
+  ],
+  FIRECRAWL_API_KEY: [
+    {
+      feature: "Web search",
+      effectWhenRemoved:
+        "Uses Builder.io when it's connected, otherwise stops.",
+    },
+  ],
+  GITHUB_TOKEN: [
+    {
+      feature: "Repository files",
+      effectWhenRemoved:
+        "Background agents can't read or write repository files.",
+    },
+  ],
+  FIGMA_ACCESS_TOKEN: [
+    {
+      feature: "Figma context",
+      effectWhenRemoved:
+        "Figma links only work while the hosted Figma MCP server is available.",
+    },
+  ],
+};
 
 export function registerFrameworkSecrets(): void {
+  for (const [key, usage] of Object.entries(FRAMEWORK_SECRET_USAGE)) {
+    registerSecretUsage(key, usage);
+  }
+
   const workspaceOAuthProviders = [
     {
       id: "figma",
@@ -87,6 +189,12 @@ export function registerFrameworkSecrets(): void {
       { suffix: "CLIENT_SECRET", label: "OAuth client secret" },
     ] as const) {
       const key = `${prefix}_${credential.suffix}`;
+      registerSecretUsage(key, [
+        {
+          feature: `${provider.label} connections`,
+          effectWhenRemoved: `New ${provider.label} connections fail, and existing ones stop when their access expires.`,
+        },
+      ]);
       if (!getRequiredSecret(key)) {
         registerRequiredSecret({
           key,
@@ -111,7 +219,9 @@ export function registerFrameworkSecrets(): void {
         kind: "oauth",
         required: false,
         oauthProvider: provider.oauthProvider,
-        oauthConnectUrl: `/_agent-native/connections/oauth/${provider.id}/start`,
+        oauthConnectUrl: publicFrameworkPath(
+          `/_agent-native/connections/oauth/${provider.id}/start`,
+        ),
       });
     }
   }
@@ -167,9 +277,98 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // PostHog — product analytics, error tracking, and LLM analytics. One key
-  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
-  // while keeping analytics.
+  if (!getRequiredSecret("JEV_API_KEY")) {
+    registerRequiredSecret({
+      key: "JEV_API_KEY",
+      label: "Decision model (Jev)",
+      description:
+        "Optional TypeSafe Jev key for semantic tool selection before the agent's first model request.",
+      docsUrl: "https://docs.typesafe.ai/",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.typesafe.ai/v1/models", {
+          headers: { Authorization: `Bearer ${value}` },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Jev rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
+  // Every model provider key registers at "user" scope: API keys writes the
+  // same personal row the provider forms save by default, and an owner's or
+  // admin's organization key sits beside it instead of replacing it.
+  // The Gemini key is the only Gemini registration: voice input, embeddings,
+  // and image generation read it too, and still accept rows saved under the
+  // older GEMINI_API_KEY name. Templates record their uses with
+  // registerSecretUsage instead of registering a second Gemini key.
+  const modelProviderKeys: {
+    key: string;
+    label: string;
+    description: string;
+    docsUrl: string;
+    validator?: SecretValidator;
+  }[] = [
+    {
+      key: "OPENROUTER_API_KEY",
+      label: "OpenRouter API key",
+      description:
+        "Route model calls through OpenRouter's catalog of providers.",
+      docsUrl: "https://openrouter.ai/settings/keys",
+    },
+    {
+      key: GEMINI_API_KEY,
+      label: "Google Gemini API key",
+      description: "Run Gemini models with your own Google AI Studio key.",
+      docsUrl: "https://aistudio.google.com/app/apikey",
+      validator: async (value) => {
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models",
+          { headers: { "x-goog-api-key": value } },
+        );
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Google rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    },
+    {
+      key: "GROQ_API_KEY",
+      label: "Groq API key",
+      description: "Run open models on Groq's inference service.",
+      docsUrl: "https://console.groq.com/keys",
+    },
+    {
+      key: "MISTRAL_API_KEY",
+      label: "Mistral API key",
+      description: "Run Mistral models with your own key.",
+      docsUrl: "https://console.mistral.ai/api-keys",
+    },
+    {
+      key: "COHERE_API_KEY",
+      label: "Cohere API key",
+      description: "Run Cohere models with your own key.",
+      docsUrl: "https://dashboard.cohere.com/api-keys",
+    },
+  ];
+  for (const entry of modelProviderKeys) {
+    if (getRequiredSecret(entry.key)) continue;
+    registerRequiredSecret({
+      ...entry,
+      scope: "user",
+      kind: "api-key",
+      required: false,
+    });
+  }
+
   if (!getRequiredSecret("POSTHOG_API_KEY")) {
     registerRequiredSecret({
       key: "POSTHOG_API_KEY",
@@ -183,8 +382,6 @@ export function registerFrameworkSecrets(): void {
     });
   }
 
-  // Web-search tool backends — optional; the tool selects the first
-  // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{
     key: string;
     label: string;

@@ -5,9 +5,86 @@ import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenGhostStyle,
+  isPointerInsideSourceIframe,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
+
+describe("isPointerInsideSourceIframe", () => {
+  it("treats a pointer past the iframe's own reported viewport as OUTSIDE", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1650,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays inside for a pointer within the real frame", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1000,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+        frameWidth: 1280,
+        frameHeight: 900,
+      }),
+    ).toBe(true);
+  });
+
+  it("falls back to the bridge-reported viewport when no rendered geometry is known yet", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1480,
+        iframeY: 100,
+        viewportW: 1600,
+        viewportH: 900,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not classify a pointer near the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1200,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects stale negative coordinates after the pointer exits", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: -1055,
+        iframeY: 111,
+        viewportW: 1280,
+        viewportH: 844,
+      }),
+    ).toBe(false);
+  });
+
+  it("still classifies a pointer past the content's real edge as outside a 0.5x-scaled card", () => {
+    expect(
+      isPointerInsideSourceIframe({
+        iframeX: 1300,
+        iframeY: 100,
+        viewportW: 1280,
+        viewportH: 2560,
+        frameWidth: 640,
+        frameHeight: 1280,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("cross-screen source HTML snapshots", () => {
   it("captures the complete board root subtree from the host-verified document", () => {
@@ -47,10 +124,6 @@ describe("cross-screen source HTML snapshots", () => {
   });
 });
 
-// Clip B 21:10 (7xCLOlVaAj3n): dragging a section between two screens at 10%
-// zoom showed "just this dot" instead of a preview. The compact ghost's
-// 16-unit fallback was scaled by zoom and floored at 1px, and its centring
-// offset was a raw 8 mixed into a `* scale` expression.
 describe("getCrossScreenGhostStyle", () => {
   const pan = { x: 0, y: 0 };
 

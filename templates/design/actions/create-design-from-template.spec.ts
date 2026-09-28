@@ -35,7 +35,7 @@ vi.mock("nanoid", () => ({
 
 vi.mock("../server/db/index.js", () => {
   const schema = {
-    designs: { table: "designs" },
+    designs: { table: "designs", data: "designs.data" },
     designFiles: { table: "designFiles" },
     designTemplateFiles: {
       table: "designTemplateFiles",
@@ -56,30 +56,30 @@ vi.mock("../server/db/index.js", () => {
         '<main style="width:1080px;height:1080px;font-family:Sora,sans-serif"><div data-agent-native-locked="true">Brand</div><p>Editable</p></main>',
     },
   ];
+  const select = () => ({
+    from: (table: { table: string }) => ({
+      where: () => {
+        const rows =
+          table.table === "designFiles"
+            ? testState.targetDesignFiles
+            : table.table === "designs"
+              ? testState.targetDesignRows
+              : templateFiles;
+        const result = Promise.resolve(rows) as Promise<unknown[]> & {
+          limit: (n: number) => Promise<unknown[]>;
+        };
+        result.limit = async () => rows;
+        return result;
+      },
+    }),
+  });
   return {
     schema,
     getDb: () => ({
-      select: () => ({
-        from: (table: { table: string }) => ({
-          where: () => {
-            const rows =
-              table.table === "designFiles"
-                ? testState.targetDesignFiles
-                : table.table === "designs"
-                  ? testState.targetDesignRows
-                  : templateFiles;
-            // Awaited directly for the template read, `.limit()`-chained for
-            // the target-is-empty check.
-            const result = Promise.resolve(rows) as Promise<unknown[]> & {
-              limit: (n: number) => Promise<unknown[]>;
-            };
-            result.limit = async () => rows;
-            return result;
-          },
-        }),
-      }),
+      select,
       transaction: async (
         run: (tx: {
+          select: typeof select;
           insert: (table: { table: string }) => {
             values: (values: unknown) => Promise<void>;
           };
@@ -88,10 +88,12 @@ vi.mock("../server/db/index.js", () => {
               where: (condition: unknown) => Promise<void>;
             };
           };
+          execute: (query: unknown) => Promise<{ rows: unknown[] }>;
         }) => Promise<void>,
       ) => {
         testState.transactionCount += 1;
         await run({
+          select,
           insert: (table) => ({
             values: async (values) => {
               if (table.table === "designs") {
@@ -110,12 +112,14 @@ vi.mock("../server/db/index.js", () => {
               },
             }),
           }),
+          execute: async () => ({ rows: [] }),
         });
       },
     }),
   };
 });
 
+import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import action from "./create-design-from-template.js";
 
 describe("create-design-from-template", () => {
@@ -252,8 +256,6 @@ describe("create-design-from-template", () => {
   });
 
   it("treats a design holding only the board row as empty", async () => {
-    // The editor creates the board on mount, so requiring zero files would
-    // reject every design the New Design button just made.
     testState.targetDesignFiles = [];
 
     const result = await action.run({
@@ -266,8 +268,6 @@ describe("create-design-from-template", () => {
   });
 
   it("keeps the target's own editor state instead of replacing its data blob", async () => {
-    // boardFileId lives in designs.data; losing it makes the editor mint a
-    // second board the next time the design is opened.
     testState.targetDesignRows = [
       { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
     ];
@@ -295,7 +295,7 @@ describe("create-design-from-template", () => {
       } as never),
     ).rejects.toThrow(/only fill an empty design/i);
 
-    expect(testState.transactionCount).toBe(0);
+    expect(testState.transactionCount).toBe(1);
     expect(testState.updatedDesign).toBeNull();
   });
 
@@ -309,5 +309,27 @@ describe("create-design-from-template", () => {
 
     expect(testState.transactionCount).toBe(0);
     expect(testState.insertedDesign).toBeNull();
+  });
+
+  it("preserves stable retries without requiring callers to build the fingerprint", async () => {
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+    });
+    expect(first.id).toBe("retry-id");
+
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        newId: "retry-id",
+        retryKey: "wrong-key",
+      }),
+    ).rejects.toThrow(/cannot be reused/i);
+
+    const retryKey = designTemplateRetryKey({
+      templateId: "saved-template",
+      title: "Saved campaign",
+    });
+    expect(retryKey.length).toBeLessThanOrEqual(128);
   });
 });

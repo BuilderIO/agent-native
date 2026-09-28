@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "顧客フィードバック調査を作成",
     suggestionSubmissions: "日別の送信を表示",
     suggestionExport: "回答を CSV にエクスポート",
+    topSignal: "主な傾向",
+    draftFollowUp: "追加質問を下書き",
   },
   sidebar: {
     collapseSidebar: "サイドバーを折りたたむ",
@@ -348,6 +350,10 @@ const messages = {
     responseSubmitted: "回答を送信しました",
     noFields: "このフォームにはまだフィールドがありません。",
     failedSubmit: "フォームを送信できませんでした",
+    uncheckablePattern:
+      "このフォームの「{label}」のルールは検証できません。フォームの所有者に修正を依頼してください。",
+    patternTooLong:
+      "「{label}」の値が長すぎて、このフォームのルールを検証できません。",
   },
   responseInsights: {
     unavailable: "インサイトを利用できません",

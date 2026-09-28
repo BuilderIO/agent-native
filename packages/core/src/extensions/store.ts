@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, gte, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec } from "../db/client.js";
@@ -77,14 +77,12 @@ export async function ensureExtensionsTables(): Promise<void> {
     _initPromise = (async () => {
       const client = getDbExec();
       {
-        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
         await ensureTableExists("tools", EXTENSIONS_CREATE_SQL);
-        await migrateMisnamedExtensionsTable(client); // data migration, not DDL - unchanged
+        await migrateMisnamedExtensionsTable(client);
         await ensureTableExists("tool_shares", EXTENSION_SHARES_CREATE_SQL);
         await ensureTableExists("tool_data", EXTENSION_DATA_CREATE_SQL);
-        await ensureExtensionDataItemId(); // ADD COLUMN - guarded inside
-        await ensureExtensionDataScope(); // ADD COLUMN - guarded inside
-        // DROP INDEX (for old index) — safe DDL, runs via client.execute; keep on both paths
+        await ensureExtensionDataItemId();
+        await ensureExtensionDataScope();
         await client.execute(EXTENSION_DATA_DROP_OLD_INDEX_SQL);
         await ensureIndexExists(
           "tool_data_scoped_item_idx",
@@ -101,7 +99,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tools_archived_at_idx",
           EXTENSIONS_ARCHIVED_AT_INDEX_SQL,
         );
-        await ensureExtensionsGlobalHideColumns(); // ADD COLUMN - guarded inside
+        await ensureExtensionsGlobalHideColumns();
         await ensureIndexExists(
           "tools_hidden_at_idx",
           EXTENSIONS_HIDDEN_AT_INDEX_SQL,
@@ -189,8 +187,6 @@ async function ensureExtensionDataScope(): Promise<void> {
   await addCol("scope", "TEXT NOT NULL DEFAULT 'user'");
   await addCol("org_id", "TEXT");
   await addCol("scope_key", "TEXT NOT NULL DEFAULT 'local@localhost'");
-  // One-time backfill migration: replaces the dev-mode DEFAULT scope_key
-  // with each row's real owner_email. Not a per-request fallback.
   await getDbExec().execute(
     // guard:allow-localhost-fallback — one-time backfill migration replacing dev-mode default scope_key with the row's real owner_email
     `UPDATE tool_data SET scope_key = owner_email WHERE scope_key = 'local@localhost' AND owner_email != 'local@localhost'`,
@@ -198,9 +194,6 @@ async function ensureExtensionDataScope(): Promise<void> {
 }
 
 async function ensureExtensionsGlobalHideColumns(): Promise<void> {
-  // Global (admin) hide columns on the `tools` row, distinct from the
-  // per-user `tool_hidden_extensions` table. Additive — keep this idempotent
-  // for existing deployments. Postgres supports `ADD COLUMN IF NOT EXISTS`.
   const addCol = (sql: string, name: string, _def: string) =>
     ensureColumnExists("tools", name, sql);
   await addCol(EXTENSIONS_HIDDEN_AT_COLUMN_SQL, "hidden_at", "TEXT");
@@ -223,12 +216,6 @@ export function registerExtensionsShareable() {
     displayName: "Extension",
     titleColumn: "name",
     getDb: () => getDb(),
-    // Extension HTML executes inside an iframe and calls actions / SQL / the
-    // secrets-injecting proxy as the *viewer*. A public extension would let a
-    // random authenticated user run code with the viewer's credentials — and
-    // a malicious shared extension could re-share itself wider. Lock both:
-    // no public visibility, and individual user shares must already be (or
-    // be invited to) the org.
     allowPublic: false,
     requireOrgMemberForUserShares: true,
   });
@@ -248,6 +235,7 @@ export interface ExtensionRow {
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
+  contentLength?: number;
 }
 
 export type ExtensionHistoryOperation =
@@ -737,11 +725,8 @@ function diffStats(diff: ExtensionHistoryDiffLine[]): {
 
 export interface ListExtensionsOptions {
   includeHidden?: boolean;
-  /**
-   * Include extensions an admin/owner has globally hidden via `hidden_at`.
-   * Off by default so globally-hidden extensions disappear for everyone.
-   */
   includeGloballyHidden?: boolean;
+  includeContent?: boolean;
 }
 
 export async function listExtensions(
@@ -749,18 +734,44 @@ export async function listExtensions(
 ): Promise<ExtensionRow[]> {
   await ensureExtensionsTables();
   const db = getDb();
-  // Build the WHERE with a single `and()` — drizzle replaces (not ANDs)
-  // on repeated `.where()` calls, so combine the access filter and the
-  // global-hidden filter into one condition.
   const base = accessFilter(extensions, extensionShares);
   const visible = and(base, isNull(extensions.archivedAt));
   const where = options.includeGloballyHidden
     ? visible
     : and(visible, isNull(extensions.hiddenAt));
-  const rows = (await db
-    .select()
-    .from(extensions)
-    .where(where)) as ExtensionRow[];
+
+  const includeContent = options.includeContent === true;
+  let rows: ExtensionRow[];
+  if (includeContent) {
+    rows = (await db.select().from(extensions).where(where)) as ExtensionRow[];
+  } else {
+    const projected = await db
+      .select({
+        id: extensions.id,
+        name: extensions.name,
+        description: extensions.description,
+        icon: extensions.icon,
+        createdAt: extensions.createdAt,
+        updatedAt: extensions.updatedAt,
+        archivedAt: extensions.archivedAt,
+        hiddenAt: extensions.hiddenAt,
+        hiddenBy: extensions.hiddenBy,
+        ownerEmail: extensions.ownerEmail,
+        orgId: extensions.orgId,
+        visibility: extensions.visibility,
+        contentLength: sql<number>`length(${extensions.content})`.as(
+          "contentLength",
+        ),
+      })
+      .from(extensions)
+      .where(where);
+    rows = projected.map((row) => ({
+      ...row,
+      visibility: row.visibility as ExtensionRow["visibility"],
+      content: "",
+      contentLength: Number(row.contentLength) || 0,
+    }));
+  }
 
   if (options.includeHidden) return rows;
 
@@ -932,21 +943,6 @@ export async function createExtension(
   return row;
 }
 
-/**
- * Returns an extension with the exact same name and content created by the
- * current user — in the current org/workspace scope — in the last 5 minutes,
- * or null if none exists. Used to make create-extension idempotent when a
- * connection drop causes the agent to retry the same tool call.
- *
- * Scoped by `orgId` the same way `createExtension` stamps it, so the same
- * `ownerEmail` working in two different orgs can create identically-named,
- * identical-content extensions without this lookup cross-matching and skipping
- * the second insert. Keyed on the FULL create inputs (name + content +
- * description + icon, normalized exactly as `createExtension` stores them), so
- * two creates that differ in any of them are treated as distinct — only a
- * byte-identical re-create (the connection-retry case) recovers the prior row,
- * and no intentional second create silently loses its metadata.
- */
 export async function findRecentDuplicateExtension(data: {
   name: string;
   content: string;
@@ -985,11 +981,6 @@ export interface UpdateExtensionData {
   name?: string;
   description?: string;
   icon?: string;
-  /**
-   * Extensions cannot be public — `set-resource-visibility` and this store
-   * helper both reject `"public"`. The type lists it so the framework's
-   * generic share UI compiles, not because it's allowed at runtime.
-   */
   visibility?: "private" | "org" | "public";
 }
 
@@ -1000,10 +991,6 @@ export async function updateExtension(
   await ensureExtensionsTables();
   await assertAccess("extension", id, "editor");
   if (data.visibility === "public") {
-    // Defense in depth — `registerExtensionsShareable` sets
-    // `allowPublic: false`, so `set-resource-visibility` already rejects
-    // this. Block direct callers too (HTTP `PUT /extensions/:id`, internal
-    // refactors) so the rule holds regardless of entry point.
     throw new ForbiddenError(
       "Extensions cannot be made public — share with specific people or your organization instead.",
     );
@@ -1168,13 +1155,6 @@ export async function unhideExtension(id: string): Promise<boolean> {
   return true;
 }
 
-/**
- * Globally hide an extension from EVERYONE's list by stamping `hidden_at` /
- * `hidden_by` on the `tools` row. Distinct from the per-user `hideExtension`
- * (`tool_hidden_extensions`) — this affects all viewers. Requires admin/owner
- * access. The extension is not deleted and stays accessible by id; pass
- * `includeGloballyHidden: true` to `listExtensions` to surface it again.
- */
 export async function globalHideExtension(id: string): Promise<boolean> {
   await ensureExtensionsTables();
   await assertAccess("extension", id, "admin");
@@ -1194,10 +1174,6 @@ export async function globalHideExtension(id: string): Promise<boolean> {
   return true;
 }
 
-/**
- * Clear a global hide so the extension reappears in everyone's list. Requires
- * admin/owner access. Mirrors `globalHideExtension`.
- */
 export async function globalUnhideExtension(id: string): Promise<boolean> {
   await ensureExtensionsTables();
   await assertAccess("extension", id, "admin");

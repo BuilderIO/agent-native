@@ -16,6 +16,7 @@ export interface AttachmentUploadTicket extends Record<string, unknown> {
   filename: string;
   originalName: string;
   mimeType: string;
+  orgId?: string;
   tokenHash: string;
   expiresAt: number;
 }
@@ -99,9 +100,6 @@ function pruneTickets(
 async function readTicketsRow(
   ownerEmail: string,
 ): Promise<{ raw: string | null; collection: AttachmentUploadTickets }> {
-  // This initializes the framework-owned settings table without duplicating
-  // its schema/startup logic. The raw read below deliberately bypasses the
-  // per-request settings cache because compare-and-swap retries need fresh data.
   await getUserSetting(ownerEmail, SETTING_KEY);
   const { rows } = await getDbExec().execute({
     sql: `SELECT value FROM ${settingsTable()} WHERE key = $1`,
@@ -136,6 +134,7 @@ async function compareAndSwapTickets(
 export async function createAttachmentUploadTicket(
   ownerEmail: string,
   originalName: string,
+  orgId?: string,
 ): Promise<AttachmentUploadTicket & { token: string }> {
   const uploadId = nanoid(12);
   const filename = `${uploadId}${extensionForUpload(originalName)}`;
@@ -145,6 +144,7 @@ export async function createAttachmentUploadTicket(
     filename,
     originalName,
     mimeType: mimeTypeForUpload(originalName),
+    orgId,
     tokenHash: tokenHash(token),
     expiresAt: Date.now() + TICKET_TTL_MS,
   };
@@ -152,8 +152,6 @@ export async function createAttachmentUploadTicket(
   for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt += 1) {
     const { raw, collection } = await readTicketsRow(ownerEmail);
     const tickets = pruneTickets(
-      // Put the new ticket first so stable sorting keeps it when many tickets
-      // share the same millisecond expiry at the collection limit.
       { [uploadId]: ticket, ...collection.tickets },
       Date.now(),
     );
@@ -191,14 +189,6 @@ export async function verifyAttachmentUploadTicket(
   return null;
 }
 
-/**
- * Atomically validates and removes a one-time upload capability.
- *
- * The caller must claim immediately before the storage side effect. Once this
- * returns a ticket it cannot be reclaimed, even if storage later fails. That
- * fail-closed behavior prevents retries from turning an ambiguous write into a
- * replay vulnerability.
- */
 export async function claimAttachmentUploadTicket(
   uploadId: string,
   token: string,

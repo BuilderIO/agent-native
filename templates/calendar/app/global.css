@@ -1,4 +1,3 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
@@ -38,11 +37,15 @@
   --sidebar-ring: 0 0% 40%;
   --conference: 212 70% 48%;
   --conference-foreground: 0 0% 100%;
+  --success: 152 60% 36%;
+  --success-foreground: 0 0% 100%;
 }
 
 .dark {
   --conference: 210 64% 53%;
   --conference-foreground: 0 0% 100%;
+  --success: 152 52% 52%;
+  --success-foreground: 0 0% 10%;
   --background: 0 0% 13%;
   --foreground: 0 0% 90%;
   --card: 0 0% 15%;
@@ -132,7 +135,6 @@
   }
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -148,9 +150,9 @@
   background: hsl(var(--muted-foreground) / 0.34);
 }
 
-/* Exposes the conference accent to Tailwind utilities the same way
-   `agent-native.css` exposes the shared shadcn tokens. */
 @theme inline {
   --color-conference: hsl(var(--conference));
   --color-conference-foreground: hsl(var(--conference-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
 }

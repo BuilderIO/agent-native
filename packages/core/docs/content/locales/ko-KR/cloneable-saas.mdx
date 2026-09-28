@@ -63,8 +63,8 @@ branch, tag 또는 commit을 고정하세요. Ref를 생략하면 CLI는 `main`,
 `master` 순서로 시도합니다.
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx --yes @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
 ```
 
 Workspace repository에서 source 앱을 비대화형으로 선택하려면
@@ -72,8 +72,8 @@ Workspace repository에서 source 앱을 비대화형으로 선택하려면
 zsh 같은 shell은 `?`를 glob으로 처리하므로 전체 값을 따옴표로 묶으세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
-npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx --yes @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
 ```
 
 Workspace 밖에서 `create`는 선택한 source 앱을 standalone으로 만듭니다.
@@ -292,10 +292,10 @@ seed data 또는 provider 요구 사항을 문서화하세요. 설치의 source 
 새 앱을 스캐폴딩하려면:
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
-CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat과 Dispatch가 있는 최소 작업 공간을 만들려면 **Chat**을, 다중 선택 도구를 열려면 **First-party template(s)**를 선택하세요. Community와 Headless는 독립 실행형 앱을 위한 선택지입니다. 작업 공간 앱은 인증, 브랜드, 에이전트 구성 및 데이터베이스를 공유하며 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx @agent-native/core@latest create my-agent --headless`를 사용하세요.
+CLI는 먼저 **어떻게 시작하시겠습니까?**라고 묻습니다. Chat과 Dispatch가 있는 최소 작업 공간을 만들려면 **Chat**을, 다중 선택 도구를 열려면 **First-party template(s)**를 선택하세요. Community와 Headless는 독립 실행형 앱을 위한 선택지입니다. 작업 공간 앱은 인증, 브랜드, 에이전트 구성 및 데이터베이스를 공유하며 각 앱은 필요한 모든 파일과 함께 `apps/<name>/`에 스캐폴딩됩니다. 앱 UI 대신 브라우저 UI 없는 automation을 만들려면 `npx --yes @agent-native/core@latest create my-agent --headless`를 사용하세요.
 
 `.env`(`ANTHROPIC_API_KEY` 및 `DATABASE_URL`)를 입력한 다음 `pnpm install`과 `pnpm dev`를 실행하세요. 구현해야 할 로그인도, 자리 표시자 경로도 없습니다.
 

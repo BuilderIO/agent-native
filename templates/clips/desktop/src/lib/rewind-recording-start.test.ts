@@ -45,7 +45,6 @@ describe("prepareRewindRecordingStart", () => {
     await Promise.resolve();
     expect(events).toEqual(["prepare-start", "countdown-start"]);
 
-    // Countdown reaching zero must not activate while prepare is pending.
     countdownGate.resolve();
     await Promise.resolve();
     expect(events).not.toContain("activate:prepared");
@@ -142,8 +141,6 @@ describe("prepareRewindRecordingStart", () => {
       },
     });
 
-    // The cancel must wait for prepare to settle so backend cleanup never
-    // races an in-flight prepare.
     prepareGate.resolve();
     await expect(startPromise).rejects.toThrow(
       "Recording cancelled during countdown",

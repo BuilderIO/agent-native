@@ -17,10 +17,19 @@ export function publicDesignAccessRole(
   if (!designId || designSourceTypeFromData(resource?.data) !== "localhost") {
     return "viewer";
   }
-  return ctx.authCapability ===
-    `${VISUAL_EDIT_CAPABILITY_PREFIX}${encodeURIComponent(designId)}`
-    ? "editor"
-    : "viewer";
+  if (!ctx.authCapability?.startsWith(VISUAL_EDIT_CAPABILITY_PREFIX)) {
+    return "viewer";
+  }
+
+  try {
+    return decodeURIComponent(
+      ctx.authCapability.slice(VISUAL_EDIT_CAPABILITY_PREFIX.length),
+    ) === designId
+      ? "editor"
+      : "viewer";
+  } catch {
+    return "viewer";
+  }
 }
 
 function removeLocalhostCredentials(

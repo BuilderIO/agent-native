@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { getZoomToCursorScrollDelta } from "./design-canvas/coordinate-transforms";
-import { getSnapshotRetryDelayMs } from "./design-canvas/external-preview";
+import {
+  getSnapshotRetryDelayMs,
+  isPreviewTokenStaleStatus,
+} from "./design-canvas/external-preview";
 
 describe("getZoomToCursorScrollDelta", () => {
   it("returns zero delta when zoom does not change (ratio === 1)", () => {
@@ -15,11 +18,6 @@ describe("getZoomToCursorScrollDelta", () => {
   });
 
   it("computes the scroll delta needed to keep the cursor point stationary when zooming in", () => {
-    // Cursor sits 300px right / 200px down from the container's top-left,
-    // with no existing scroll offset. Zooming in by 2x (ratio = 2) should
-    // push that same content point twice as far from the (fixed) top-left
-    // origin, so the scroll container must shift by exactly that content
-    // point's distance from the origin (dx = cx * (ratio - 1)).
     const delta = getZoomToCursorScrollDelta(
       { x: 300, y: 200 },
       { left: 0, top: 0 },
@@ -40,10 +38,6 @@ describe("getZoomToCursorScrollDelta", () => {
   });
 
   it("accounts for an existing scroll offset and a non-zero container origin", () => {
-    // Container's viewport starts at (50, 40) on screen, already scrolled
-    // 500px right / 300px down, cursor at viewport (150, 120).
-    // Content-space point under cursor = (150 - 50 + 500, 120 - 40 + 300)
-    //                                  = (600, 380)
     const delta = getZoomToCursorScrollDelta(
       { x: 150, y: 120 },
       { left: 50, top: 40 },
@@ -75,5 +69,13 @@ describe("getSnapshotRetryDelayMs", () => {
   it("treats negative or non-finite attempt numbers as attempt 0", () => {
     expect(getSnapshotRetryDelayMs(-5)).toBe(1500);
     expect(getSnapshotRetryDelayMs(Number.NaN)).toBe(1500);
+  });
+});
+
+describe("isPreviewTokenStaleStatus", () => {
+  it("only treats unauthorized bridge responses as permanent token failures", () => {
+    expect(isPreviewTokenStaleStatus(401)).toBe(true);
+    expect(isPreviewTokenStaleStatus(403)).toBe(false);
+    expect(isPreviewTokenStaleStatus(500)).toBe(false);
   });
 });

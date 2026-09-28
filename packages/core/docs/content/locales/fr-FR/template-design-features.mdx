@@ -1,0 +1,381 @@
+---
+title: "Design : Fonctionnalités"
+description: "Chaque fonctionnalité principale de Design, organisée comme l'application elle-même : Designs, Modifier un design, Modèles, et Systèmes de conception, avec ce que fait réellement chaque écran, onglet et menu."
+---
+
+# Fonctionnalités
+
+Chaque fonctionnalité principale de Design : comment elle fonctionne, et
+comment la configurer. Consultez [Design](/docs/template-design) pour la vue
+d'ensemble et [Parler à l'agent](/docs/template-design-agent) pour la liste
+complète des invites. Les fonctionnalités sont regroupées selon les
+véritables écrans de l'application : **Designs**, **Modifier un design**,
+**Modèles**, et **Systèmes de conception**.
+
+## Designs {#designs}
+
+La page de liste `/home`. Chaque design auquel vous avez accès se trouve ici,
+et c'est là que vous démarrez un nouveau design.
+
+### Afficher les designs {#view-designs}
+
+Les designs s'affichent sous forme de grille de cartes : une miniature en
+direct, le titre, et la date de dernière modification. Passer au filtre
+**Tous** (au lieu de **Les miens**) affiche aussi qui possède chacun d'eux.
+
+- **Rechercher** filtre la grille par titre au fur et à mesure que vous
+  tapez.
+- La grille pagine à 11 designs par page, avec la tuile « Nouveau design »
+  toujours en premier.
+- Sélectionnez une ou plusieurs cartes (survolez pour révéler une case à
+  cocher) pour obtenir une barre d'outils de sélection groupée :
+  sélectionner/désélectionner tout ce qui est visible, ajouter à un contexte
+  créatif, ou supprimer la sélection.
+- Un compte vide affiche quatre invites de démarrage à cliquer au lieu d'une
+  grille vide (une page SaaS, un tableau de bord, une application mobile,
+  une page de tarification).
+
+### Créer un design {#create-a-design}
+
+Les deux points d'entrée « Nouveau design », le bouton d'en-tête et la
+tuile en pointillés de la grille, ouvrent la même fenêtre contextuelle. Vous
+pouvez saisir une invite, et choisir un modèle de départ, un système de
+conception, et un contexte créatif, tout cela avant même que l'éditeur ne
+s'ouvre. Cliquez plutôt sur **Ignorer** pour obtenir un design vierge (ou une
+copie sans invite du modèle choisi) sans aucune génération par IA.
+
+La validation vous emmène directement dans l'éditeur du nouveau design avec
+une superposition « Ouverture du design » pendant que toute génération se
+termine en arrière-plan.
+
+### Gérer un design {#manage-a-design}
+
+Le menu « ⋯ » sur une carte de design a quatre éléments :
+
+- **Renommer** : une petite boîte de dialogue avec un champ de texte.
+- **Dupliquer** : crée une copie immédiatement et l'ouvre, sans confirmation.
+- **Ajouter au contexte** : rattache le design à un contexte créatif.
+- **Supprimer** : demande d'abord une confirmation.
+
+## Modifier un design {#edit-a-design}
+
+Tout ce qui suit s'applique une fois que vous avez cliqué dans un design.
+
+### Paramètres de fichier {#file-settings}
+
+Les écrans et les couches vivent dans une seule arborescence combinée, et non
+deux panneaux séparés. Chaque écran du design (chacun étant son propre
+fichier HTML) est une entrée de premier niveau, avec les couches de cet
+écran imbriquées en dessous.
+
+- **Ajouter, renommer, dupliquer, supprimer et réorganiser** fonctionnent de
+  la même façon pour les écrans et pour les couches.
+- **Verrouiller** une couche pour la garder fixe. C'est le même concept de
+  « couche verrouillée » que préservent les modèles et les copies de
+  modèles.
+- **Afficher ou masquer** n'importe quelle couche sans la supprimer.
+
+### Agent {#agent-in-editor}
+
+Le même chat agent que possède chaque application Agent-Native se trouve
+aussi dans l'éditeur, ce n'est pas une surface de chat propre à Design.
+Demandez-lui de générer un écran, de comparer des variantes, d'ajuster des
+détails, ou de vérifier la qualité et l'accessibilité, de la même façon que
+vous demanderiez tout autre changement. Il effectue aussi automatiquement une
+vérification de qualité et d'accessibilité de sa propre initiative avant de
+déclarer un design prêt, sans aucune action nécessaire de votre part.
+Consultez [Parler à l'agent](/docs/template-design-agent) pour les invites
+par tâche.
+
+### Importer {#import}
+
+Un seul panneau, cinq façons d'intégrer du contenu externe :
+
+<Table
+  id="doc-block-design-import-table"
+  columns={["Méthode", "Comment ça fonctionne"]}
+  rows={[
+    [
+      "URL de cadre Figma",
+      "Collez un lien de partage Figma. Connectez votre compte Figma la première fois. S'importe comme un véritable écran modifiable.",
+    ],
+    [
+      "Coller depuis Figma",
+      "Copiez un cadre dans Figma, puis collez (Cmd+V) directement sur le canevas Design. C'est un raccourci de canevas, pas un bouton séparé dans le panneau Importer.",
+    ],
+    [
+      "Importer un fichier .fig",
+      "Importez directement un fichier .fig. Un import distinct, au niveau du design, différent de l'import d'un .fig dans un système de conception.",
+    ],
+    [
+      "Importer du HTML",
+      "Collez du HTML brut dans une zone de texte, ou importez un fichier .html, pour l'intégrer comme écran.",
+    ],
+    [
+      "Application locale",
+      "Pas en libre-service depuis ce panneau. Il affiche des commandes d'installation et de connexion destinées à être collées dans un agent de codage externe, qui ouvre ensuite votre application en cours d'exécution dans Design sous forme d'écrans propres. Consultez /visual-edit dans le Guide développeur.",
+    ],
+  ]}
+/>
+
+<Callout tone="info">
+
+Chaque import Figma renvoie un rapport de fidélité, pas une promesse. Il
+indique quelles propriétés correspondent exactement, lesquelles CSS ne peut
+qu'approximer (rotation, épaisseurs de trait par côté, certaines formes de
+dégradé), et quelles sous-arborescences ont dû se replier sur une image
+plate parce que la forme ne peut pas du tout être représentée en HTML/CSS.
+
+</Callout>
+
+### Barre d'outils {#toolbar}
+
+La barre d'outils du bas comporte deux groupes distincts : les outils avec
+lesquels vous dessinez ou sélectionnez, et un sélecteur de mode qui change ce
+que font ces outils.
+
+#### Outils
+
+<Table
+  id="doc-block-design-tools-table"
+  columns={["Outil", "Raccourci", "Ce qu'il fait"]}
+  rows={[
+    [
+      "Déplacer / Main / Échelle",
+      "V / H / K",
+      "Sélectionner et déplacer des éléments, faire un panoramique du canevas, ou mettre à l'échelle une sélection.",
+    ],
+    [
+      "Cadre / Écran",
+      "F pour Frame",
+      "Dessiner un nouveau cadre à l'intérieur d'un écran, ou démarrer un tout nouvel écran.",
+    ],
+    [
+      "Formes",
+      "R, L, Shift+L, O pour Rectangle, Ligne, Flèche, Ellipse",
+      "Rectangle, ligne, flèche, ellipse, polygone, ou étoile. L'insertion d'image/vidéo est un espace réservé désactivé pour le moment.",
+    ],
+    [
+      "Plume / Dessin",
+      "P, Shift+Y pour Dessin",
+      "Plume dessine des tracés vectoriels. Dessin est un pinceau à main levée, et ne s'affiche comme actif qu'en mode Annoter.",
+    ],
+    ["Texte", "T", "Ajoute une couche de texte."],
+    [
+      "Épingler un commentaire",
+      "C",
+      "Dépose un commentaire épinglé à un point précis, actif uniquement en mode Annoter. Voir l'onglet Commentaires.",
+    ],
+  ]}
+/>
+
+#### Modes
+
+Un sélecteur à trois positions séparé, à côté des outils :
+
+- **Modifier** : le mode normal. Déplacer, Cadre, Formes, Plume, et Texte
+  fonctionnent tous dans ce mode.
+- **Annoter** : le mode dans lequel Dessin et Épingler un commentaire
+  doivent être actifs.
+- **Interagir** : un mode distinct pour le canevas, séparé de Modifier et
+  Annoter.
+
+### Onglet Design {#design-tab}
+
+Le panneau de propriétés principal pour ce qui est sélectionné. Les sections
+n'apparaissent que lorsqu'elles s'appliquent à la sélection actuelle :
+
+- **Remplissage** et **Contour** : couleur, dégradé, ou image, avec une
+  palette de couleurs du document pour réutiliser les couleurs existantes.
+- **Effets** : ombre portée, flou de couche, flou d'arrière-plan, et un
+  effet de shader basé sur du code avec des curseurs nommés (vitesse,
+  couleur, point central) et un panneau Code pour le GLSL brut.
+- **Position et mise en page**, **Typographie**, **Apparence** (rayon des
+  coins, mode de fusion, visibilité) : les groupes de propriétés standards
+  par élément.
+- **Mise en page** et **Mise en page automatique** : disposition de type
+  flex pour les enfants d'un cadre.
+- **Grille de mise en page** : une superposition de guides de mise en page
+  pour un cadre.
+- **Composant** : une fois qu'un élément est une instance de composant,
+  cette section affiche ses variantes et ses props. Changer une prop se
+  prévisualise instantanément et s'applique à cette seule instance. Il
+  n'existe pas de définition de composant stockée séparément, chaque
+  instance est sa propre copie indépendante du balisage, si bien que
+  « Aller au composant principal » revient à la première instance comme
+  point de référence, pas comme modèle canonique.
+
+### Onglet Commentaires {#comments-tab}
+
+Un véritable onglet à côté de Design, avec un badge de nombre de non-lus.
+Toute personne ayant accès peut épingler un commentaire à un élément précis
+au lieu de laisser une note générique. Un commentaire peut rester une simple
+note, ou être envoyé directement à l'agent. Quand l'agent en traite un, il
+modifie exactement la partie du design que le commentaire cible, vérifie que
+le changement a bien été appliqué, puis résout le fil avec une note d'une
+ligne sur ce qui a changé, ou répond en demandant à la personne de décider
+quand ce n'est pas quelque chose que l'agent doit résoudre de sa propre
+initiative.
+
+### Onglet Code et mesures {#code-tab}
+
+Affiche, pour ce qui est sélectionné : la position et la taille exactes en
+pixels, les styles calculés (affichage, position, police, couleur), et le
+HTML sous-jacent avec un bouton **Copier** en un clic. C'est un inspecteur
+en lecture seule, pas un éditeur.
+
+### Aperçu du design {#design-preview}
+
+Le menu du bouton de lecture dans l'en-tête. **Aperçu du design** ouvre le
+véritable HTML rendu de l'écran actuel dans un nouvel onglet du navigateur,
+exactement comme il apparaîtra en dehors de l'éditeur. Il est désactivé tant
+que l'écran n'a pas de contenu.
+
+### Exporter {#export}
+
+Ouvrez le petit bouton de menu dans le rail latéral gauche de l'éditeur (il
+utilise le symbole Agent-Native comme icône, à côté de Retour aux designs,
+Enregistrer comme modèle, et Historique des versions). **Exporter** est un
+sous-menu près du bas de ce menu.
+
+<Table
+  id="doc-block-design-export-table"
+  columns={["Format", "À quoi ça sert"]}
+  rows={[
+    [
+      "Télécharger le HTML",
+      "Un seul fichier autonome avec les liens CDN Tailwind et Alpine intégrés. S'ouvre directement dans n'importe quel navigateur.",
+    ],
+    ["Télécharger le PNG", "Une image matricielle plate de l'écran actuel."],
+    [
+      "Télécharger le SVG",
+      "Une enveloppe SVG autour du HTML en direct. Pratique pour l'intégration, mais non modifiable dans Figma.",
+    ],
+    [
+      "Télécharger le SVG Figma",
+      "De véritables formes vectorielles, du texte, et des dégradés que Figma peut importer comme couches modifiables. Copiez-collez, ou glissez comme fichier.",
+    ],
+    [
+      "Télécharger le ZIP",
+      "Tous les fichiers du design organisés par type (HTML/CSS/JSX/assets) plus un fichier de métadonnées",
+    ],
+    [
+      "Télécharger le PDF (tous les écrans)",
+      "Affiché uniquement dans la vue d'ensemble multi-écrans, avec 2 écrans ou plus. Un PDF généré côté client couvrant chaque écran.",
+    ],
+    [
+      "Copier le transfert de codage",
+      "Copie les jetons de design, les fichiers du design, et une invite prête à coller pour qu'un agent de codage externe transforme le prototype en code de production.",
+    ],
+  ]}
+/>
+
+Quelle que soit la destination, l'exportation reflète toujours l'état actuel
+du design, y compris tous les réglages appliqués, et non la première version
+générée. Dupliquez d'abord le design si vous voulez continuer à itérer sur
+une copie après avoir transmis une version.
+
+### Historique des versions {#version-history}
+
+Dans ce même menu du rail latéral, **Historique des versions** ouvre un
+panneau qui liste les instantanés enregistrés du design avec un horodatage
+relatif (« À l'instant », « il y a 5 min », etc.). En sélectionner un
+affiche un aperçu de ses écrans, et **Restaurer cette version** ramène le
+design exactement à cet état.
+
+## Modèles {#templates}
+
+Deux façons de démarrer plus vite qu'avec un canevas vierge.
+
+### Afficher les modèles {#view-templates}
+
+La page Modèles comporte deux sections, **Vos modèles** et **Modèles
+intégrés**, plus une zone de recherche qui filtre par titre, description et
+catégorie. Chaque carte de modèle affiche un aperçu en direct, sa catégorie
+(publicité, document d'une page, page d'atterrissage, réseau social,
+présentation, ou autre), ses dimensions, et le nombre de couches verrouillées
+qu'il contient. Vos propres modèles (pas les modèles intégrés) reçoivent un
+menu « ⋯ » avec **Partager** (accès spectateur, éditeur, ou administrateur)
+et **Supprimer**.
+
+### Utiliser un modèle {#use-a-template}
+
+Cliquer sur **Utiliser le modèle** ouvre une petite boîte de dialogue : une
+invite facultative, un système de conception à appliquer (ou un lien pour en
+créer un), et un bouton **Utiliser tel quel** pour passer directement à une
+copie sans invite. Dans les deux cas, un nouveau design est créé et vous êtes
+emmené directement dans son éditeur.
+
+### Enregistrer comme modèle {#save-as-template}
+
+Ce n'est pas sur la page Modèles elle-même. Pendant que vous modifiez un
+design, ouvrez le même menu du rail latéral gauche utilisé pour Exporter et
+Historique des versions, et choisissez **Enregistrer comme modèle**. Ses
+dimensions, fichiers, et couches verrouillées sont conservés de la même
+façon que pour un modèle intégré.
+
+<Callout tone="info">
+
+Les modèles ne peuvent actuellement être enregistrés qu'à partir de projets
+Design en ligne. Un design adossé à `/visual-edit` ou à la Construction
+d'application complète ne peut pas être enregistré comme modèle.
+
+</Callout>
+
+### Ouvrir un design {#open-a-design}
+
+Il n'y a pas d'étape d'« ouverture » séparée. Utiliser un modèle, tout comme
+générer un nouveau design à partir d'une invite, se termine toujours par
+l'ouverture automatique de l'éditeur de ce design.
+
+## Systèmes de conception {#design-systems}
+
+Un système de conception est l'identité de marque, ses couleurs, polices,
+espacements, et logos, que Design applique à chaque prototype qui lui est
+lié.
+
+### Afficher et partager les systèmes de conception {#view-and-share}
+
+La page Systèmes de conception est une grille : une carte « Nouveau système
+de conception » en premier, puis une carte par système avec un aperçu de
+nuancier de couleurs, un badge **Par défaut** sur celui qui est votre
+système par défaut, et un badge de visibilité (privé, organisation, ou
+public). Chaque carte a un véritable bouton **Partager** avec des rôles
+spectateur, éditeur, ou administrateur, le même modèle de partage que celui
+utilisé par les modèles. Un bouton bascule **Sélectionner** dans l'en-tête
+active la multi-sélection avec suppression groupée.
+
+### Nouveau système de conception {#new-design-system}
+
+En créer un commence par un sélecteur de source :
+
+- **Figma** : importez un fichier `.fig`.
+- **Entreprise/marque** : une URL de site web.
+- **Code** : un dépôt GitHub connecté.
+- **Design.md** : un document écrit de directives de design.
+- **Fichiers de design** : importez des fichiers directement.
+- **Importer l'existant** : réutilisez un système de conception ou un projet
+  que vous avez déjà.
+- **Notes** : décrivez votre marque à partir de zéro, ou partez d'un
+  véritable système public maintenu, comme Material 3, Carbon, ou Primer, au
+  lieu d'en recréer un de mémoire.
+
+<Callout tone="info">
+
+Chaque système public livre de véritables jetons sémantiques, une échelle
+typographique, des espacements, et une attribution. Design ne laisse pas une
+invite transformer discrètement l'un d'eux en un sosie avec des données
+différentes en dessous. Chaque système de conception porte aussi un
+ensemble facultatif d'instructions personnalisées et un style d'image
+décrit, si bien que la photographie et l'illustration générées restent dans
+le même langage visuel que le reste de la marque.
+
+</Callout>
+
+## Et ensuite
+
+- [**Design**](/docs/template-design) — la vue d'ensemble et les étapes de démarrage
+- [**Parler à l'agent**](/docs/template-design-agent) — chaque invite par tâche et comment l'agent voit votre écran
+- [**Design dans un espace de travail multi-apps**](/docs/template-design-integrations) — la connexion à Dispatch et l'appel de Design via MCP
+- [**Guide développeur**](/docs/template-design-developers) — démarrage rapide, actions, modèle de données, et routes
+- [**Partage**](/docs/sharing) — le modèle de subvention de partage utilisé par les modèles et les systèmes de conception

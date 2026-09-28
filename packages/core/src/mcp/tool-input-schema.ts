@@ -1,6 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/server";
 
-function isObjectOnly(
+export function isObjectOnly(
   schema: unknown,
   ancestors = new Set<unknown>(),
 ): boolean {
@@ -20,8 +20,6 @@ function isObjectOnly(
   if (node.type !== undefined) return false;
 
   const next = new Set(ancestors).add(schema);
-  // An intersection needs only one object-only constraint; every alternative
-  // of a union must require an object before adding the MCP root type is safe.
   if (
     Array.isArray(node.allOf) &&
     node.allOf.some((branch) => isObjectOnly(branch, next))

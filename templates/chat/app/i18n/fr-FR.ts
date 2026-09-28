@@ -32,6 +32,12 @@ const messages = {
     newChat: "Nouveau chat",
     optionsFor: "Options pour",
     pinChat: "Épingler le chat",
+    pinned: "Épinglés",
+    recents: "Récents",
+    retryPreviousRequest:
+      "Réessaie ma demande précédente maintenant que le fournisseur du modèle est connecté.",
+    retryAttachmentUnavailable:
+      "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",
     renameFailed: "Échec du renommage",
     renameThread: "Renommer le fil",
@@ -39,6 +45,7 @@ const messages = {
     suggestionCapabilities: "Que peut faire cette app ?",
     suggestionCustomize: "Aidez-moi à personnaliser cette app",
     unpinChat: "Désépingler le chat",
+    untitledChat: "Chat sans titre",
   },
   navigation: {
     chat: "Chat",

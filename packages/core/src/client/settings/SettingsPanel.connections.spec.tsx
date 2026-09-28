@@ -1,25 +1,63 @@
 // @vitest-environment happy-dom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { act } from "react";
+import React, { act, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { WORKSPACE_SETTINGS_SECTIONS } from "./agent-settings-search.js";
 import {
   AgentSettingsContent,
   ConnectionsSettingsContent,
 } from "./SettingsPanel.js";
 
+const chatgptLab = vi.hoisted(() => ({ enabled: false }));
+const callActionMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../labs/use-lab.js", () => ({
+  useLabState: () => ({
+    enabled: chatgptLab.enabled,
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+  }),
+}));
+
+vi.mock("../use-action.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-action.js")>()),
+  callAction: (...args: unknown[]) => callActionMock(...args),
+}));
+
+async function flushLazyImport(isReady: () => boolean) {
+  for (let i = 0; i < 100; i++) {
+    if (isReady()) return;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+}
+
 describe("ConnectionsSettingsContent", () => {
+  beforeEach(() => {
+    chatgptLab.enabled = false;
+    callActionMock.mockImplementation((actionName: string) =>
+      actionName === "get-chatgpt-subscription-status"
+        ? Promise.resolve({ connected: false, reconnectRequired: false })
+        : Promise.resolve({ engines: [], current: { engine: "anthropic" } }),
+    );
+  });
+
   afterEach(() => {
+    chatgptLab.enabled = false;
+    callActionMock.mockReset();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
     document.body.innerHTML = "";
   });
 
-  it("leads with the integrations gallery before setup sections", () => {
+  it("leads with the merged integrations panel", () => {
     const content = ConnectionsSettingsContent({
       settingsPanelProps: {
         isDevMode: false,
@@ -27,18 +65,12 @@ describe("ConnectionsSettingsContent", () => {
         showDevToggle: false,
       },
     });
-    const children = React.Children.toArray(content.props.children) as Array<
-      React.ReactElement<Record<string, unknown>>
+    const child = content.props.children as React.ReactElement<
+      Record<string, unknown>
     >;
 
-    expect(content.props.className).toContain("w-full");
-    expect(children).toHaveLength(3);
-    expect(children[1]?.type).toBe(BuilderConnectCard);
-    expect(children[1]?.props.trackingSource).toBe("settings_connections");
-    expect(children[1]?.props.showManage).toBe(true);
-    expect(children[2]?.props.surface).toBe("page");
-    expect(children[2]?.props.showCapabilityStrip).toBe(false);
-    expect(children[2]?.props.builderConnectionOwnedExternally).toBe(true);
+    expect(content.props.className).toBe("w-full");
+    expect(child.type).toBe(Suspense);
   });
 
   it("has one Builder status owner and preserves its one-shot connect error", async () => {
@@ -125,8 +157,17 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    await flushLazyImport(
+      () =>
+        builderStatusRequests.length === 1 &&
+        container.textContent?.includes(
+          "Builder callback could not save credentials",
+        ) === true,
+    );
 
-    expect(builderStatusRequests).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(builderStatusRequests).toHaveLength(1);
+    });
     expect(container.textContent).toContain(
       "Builder callback could not save credentials",
     );
@@ -213,11 +254,18 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-
-    const connectButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Connect Builder"),
+    await flushLazyImport(
+      () =>
+        container.textContent?.includes("Builder.io") === true &&
+        Array.from(container.querySelectorAll("button")).some(
+          (button) => button.textContent?.trim() === "Connect",
+        ),
     );
-    expect(container.textContent).toContain("Ready to connect");
+
+    expect(container.textContent).not.toContain("Ready to connect");
+    const connectButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Connect",
+    );
     expect(connectButton?.disabled).toBe(false);
 
     act(() => root.unmount());
@@ -292,11 +340,119 @@ describe("ConnectionsSettingsContent", () => {
       await Promise.resolve();
     });
 
-    expect(
-      Array.from(container.querySelectorAll("button")).filter((button) =>
-        button.textContent?.includes("Connect Builder"),
+    await vi.waitFor(() => {
+      expect(
+        Array.from(container.querySelectorAll("button")).filter((button) =>
+          button.textContent?.includes("Connect Builder"),
+        ),
+      ).toHaveLength(5);
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("keeps workspace app discovery in workspace settings", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Object.defineProperty(window, "__AGENT_NATIVE_CONFIG__", {
+      configurable: true,
+      value: { workspaceRuntime: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify([]), {
+            headers: { "Content-Type": "application/json" },
+          }),
       ),
-    ).toHaveLength(5);
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Workspace apps");
+    expect(container.querySelector('a[href="/dispatch/apps"]')).not.toBe(null);
+
+    act(() => root.unmount());
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
+  });
+
+  it("stops waiting after the ChatGPT subscription popup is cancelled", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    chatgptLab.enabled = true;
+    callActionMock.mockImplementation((actionName: string) =>
+      actionName === "get-chatgpt-subscription-status"
+        ? Promise.resolve({ connected: false, reconnectRequired: false })
+        : Promise.resolve({
+            engines: [],
+            current: { engine: "anthropic", model: "" },
+          }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}")),
+    );
+
+    const popup = { closed: false } as Window;
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => popup),
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSettingsContent sections={["llm"]} />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Connect ChatGPT");
+    });
+    const connectButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim() === "Connect ChatGPT");
+    expect(connectButton).toBeDefined();
+    vi.useFakeTimers();
+    await act(async () => {
+      connectButton?.click();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("Connecting…");
+
+    popup.closed = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(26_000);
+    });
+
+    expect(container.textContent).not.toContain("Connecting…");
+    expect(
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.trim() === "Connect ChatGPT",
+      )?.disabled,
+    ).toBe(false);
 
     act(() => root.unmount());
   });

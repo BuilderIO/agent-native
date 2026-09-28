@@ -49,6 +49,8 @@ vi.mock("../db/index.js", () => ({
       id: "recordings.id",
       title: "recordings.title",
       status: "recordings.status",
+      updatedAt: "recordings.updatedAt",
+      sharePasswordVersion: "recordings.sharePasswordVersion",
       visibility: "recordings.visibility",
       password: "recordings.password",
       expiresAt: "recordings.expiresAt",
@@ -80,6 +82,8 @@ function recording(overrides: Record<string, unknown> = {}) {
     id: "rec-1",
     title: "Public clip",
     status: "ready",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     visibility: "public",
     password: null,
     expiresAt: null,
@@ -181,6 +185,19 @@ describe("Clips page agent discovery", () => {
     expect(tokenEvent.responseHeaders.get("referrer-policy")).toBe(
       "no-referrer",
     );
+  });
+
+  it("does not publish discovery for expired recordings in the anonymous shell", async () => {
+    mockRecording.value = recording({
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+
+    const response = (await (handler as any)({
+      url: "https://clips.example.com/share/rec-1",
+      query: {},
+    })) as Response;
+
+    expect(await response.text()).not.toContain("agent-context.json");
   });
 
   it("treats t as playback state rather than an access token", async () => {

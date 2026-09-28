@@ -14,12 +14,12 @@ This page is for developers customizing or extending the Forms template. It cove
 ### Create the app
 
 ```bash
-npx @agent-native/core@latest create my-forms --standalone --template forms
+npx --yes @agent-native/core@latest create my-forms --standalone --template forms
 cd my-forms
 pnpm install
 ```
 
-This needs [Node.js](https://nodejs.org) 22 or later and [pnpm](https://pnpm.io) installed first. See [Getting started](/docs/getting-started) if you haven't installed either yet, or don't have an LLM connection (Builder.io, an Anthropic/OpenAI key, or local Ollama) set up.
+This needs [Node.js](https://nodejs.org) 22.22 or later and [pnpm](https://pnpm.io) installed first. See [Getting started](/docs/getting-started) if you haven't installed either yet, or don't have an LLM connection (Builder.io, an Anthropic/OpenAI key, or local Ollama) set up.
 
 ### Start the dev server
 
@@ -31,11 +31,11 @@ The app opens at `http://localhost:8084`. If it doesn't open automatically, visi
 
 </Steps>
 
-For a workspace with Forms alongside other apps, run `npx @agent-native/core@latest create my-platform` and pick Forms in the template list.
+For a workspace with Forms alongside other apps, run `npx --yes @agent-native/core@latest create my-platform` and pick Forms in the template list.
 
 <Callout tone="info">
 
-**Exports need file storage configured.** `export-responses` calls `uploadFile()`. Without a file storage provider connected (Settings → File uploads, or a custom provider registered), the action throws instead of silently failing. Connect one before testing exports locally.
+**Exports need file storage configured.** `export-responses` calls `uploadFile()`. Without a file storage provider connected (the File storage row on Settings → Organization → Infrastructure, or a custom provider registered), the action throws instead of silently failing. Connect one before testing exports locally.
 
 </Callout>
 

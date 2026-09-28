@@ -41,6 +41,8 @@ const messages = {
     suggestionSurvey: "建立客戶意見回饋調查",
     suggestionSubmissions: "按天顯示提交",
     suggestionExport: "將回覆匯出為 CSV",
+    topSignal: "主要訊號",
+    draftFollowUp: "草擬後續問題",
   },
   sidebar: {
     collapseSidebar: "收合側邊欄",
@@ -327,6 +329,9 @@ const messages = {
     responseSubmitted: "回覆已提交",
     noFields: "此表單還沒有欄位。",
     failedSubmit: "提交表單失敗",
+    uncheckablePattern:
+      "此表單中「{label}」的規則無法檢核。請聯絡表單擁有者修正。",
+    patternTooLong: "欄位「{label}」的值過長，無法使用此表單規則檢核。",
   },
   responseInsights: {
     unavailable: "洞察不可用",

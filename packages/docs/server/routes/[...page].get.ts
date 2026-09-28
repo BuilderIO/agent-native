@@ -59,8 +59,6 @@ export default async function docsPageHandler(event: H3Event) {
       setHeader(event, name, value);
     }
     setSsrCacheHeaders(event);
-    // These page URLs can return either HTML or markdown based on Accept.
-    // Keep the variants isolated in browser/CDN caches.
     setHeader(event, "vary", "Accept, Accept-Encoding");
     for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
       setHeader(event, k, v);
@@ -88,10 +86,6 @@ export default async function docsPageHandler(event: H3Event) {
 }
 
 function setSsrCacheHeaders(event: H3Event) {
-  // Keep docs-only public text/markdown assets on the same framework SSR cache
-  // policy as HTML and React Router .data. Core owns the headers for function
-  // responses; prerendered HTML is served statically and is covered by the
-  // matching public SWR rules generated into the Netlify publish directory.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -100,9 +94,6 @@ function setSsrCacheHeaders(event: H3Event) {
   }
 }
 
-// Core has already promoted query-preserving HTML redirects to a full
-// query cache key. Keep that stronger key when adding Docs' Accept variant;
-// replacing it here would collapse distinct redirect targets again.
 function responseWithVaryAccept(
   response: Response,
   pathname: string,

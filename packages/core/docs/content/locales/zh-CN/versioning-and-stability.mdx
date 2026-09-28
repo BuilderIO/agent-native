@@ -1,0 +1,32 @@
+---
+title: 版本与稳定性
+description: 了解 nightly 和稳定版本、1.0 前兼容性、迁移及模板版本固定。
+---
+
+# 版本与稳定性
+
+Agent-Native 软件包尚未达到 1.0。发布流程提供 nightly 快照、稳定版本、迁移工具和 doctor 检查。Alpha 或 beta 不构成生产支持承诺。
+
+## 发布渠道
+
+合并到 `main` 后会使用 npm `nightly` 标签发布快照，不会移动 `latest` 标签。稳定版本通过 Changesets 协调。计划任务会在太平洋时间周一至周四中午准备 patch 版本。每次运行不一定都会发布。
+
+## 1.0 前的兼容性
+
+Patch 版本旨在修复问题并提供兼容改进。Minor 版本可能新增功能，也可能更改仍处于 alpha 或 beta 阶段的 API 或行为。Major 版本用于较大范围的破坏性更改。升级前请查看发行说明和迁移步骤。
+
+支持的迁移会在 `migration-manifest.json` 中记录 import 路径移动和符号重命名。先预览 codemod，审阅 diff，再应用：
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+agent-native doctor --only migration-manifest
+```
+
+移除的路径可能会暂时保留 tombstone 模块，说明替代项和迁移命令。没有固定的保留期限。
+
+## 模板版本和目标
+
+CLI 会将 `@agent-native/core` 固定到提供模板的精确版本。请使用迁移工具升级，不要手动改为 `latest`。
+
+当前目标是 2026 年 10 月中旬推出 beta，并在 2026 年底前达到 1.0。这些是目标，并非承诺。报告可复现问题时请附上软件包版本、数据库提供商和迁移输出。

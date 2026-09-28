@@ -2,15 +2,75 @@ import { useEffect, useCallback, useRef } from "react";
 
 type ShortcutHandler = (e: KeyboardEvent) => void;
 
+const INTERACTIVE_TARGET_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="combobox"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="option"]',
+  '[role="tab"]',
+].join(",");
+
+export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return false;
+  return (
+    (element instanceof HTMLElement && element.isContentEditable) ||
+    element.closest(INTERACTIVE_TARGET_SELECTOR) !== null
+  );
+}
+
+export function shouldCycleMailTab(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  if (!element) return true;
+
+  if (
+    element.closest(
+      '[role="dialog"], [role="alertdialog"], [data-radix-popper-content-wrapper]',
+    )
+  ) {
+    return false;
+  }
+  if (element.closest("[data-mail-tab-list]")) return true;
+
+  return (
+    !isKeyboardShortcutTarget(element) &&
+    element.closest('[tabindex]:not([tabindex="-1"])') === null
+  );
+}
+
+export function isMailSearchActive(): boolean {
+  const search = document.getElementById(
+    "mail-search",
+  ) as HTMLInputElement | null;
+  return Boolean(search?.value || document.activeElement === search);
+}
+
 interface Shortcut {
   key: string;
   meta?: boolean;
   ctrl?: boolean;
-  shift?: boolean;
+  shift?: boolean | "either";
   alt?: boolean;
   handler: ShortcutHandler;
   shouldHandle?: (e: KeyboardEvent) => boolean;
-  /** Skip when an input/textarea is focused */
   skipInInput?: boolean;
 }
 
@@ -21,30 +81,19 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
+      if (e.defaultPrevented) return;
 
       for (const shortcut of shortcutsRef.current) {
         if (shortcut.skipInInput !== false) {
-          const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-          const isEditable = (e.target as HTMLElement)?.isContentEditable;
-          if (
-            tag === "input" ||
-            tag === "textarea" ||
-            isEditable ||
-            (e.target instanceof HTMLElement &&
-              e.target.closest("[contenteditable]") != null)
-          )
-            continue;
+          if (isKeyboardShortcutTarget(e.target)) continue;
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
+        const shiftMatch =
+          shortcut.shift === "either" || e.shiftKey === Boolean(shortcut.shift);
         const modMatch = shortcut.meta
-          ? (e.metaKey || e.ctrlKey) &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey)
-          : !e.metaKey &&
-            !e.ctrlKey &&
-            !e.altKey &&
-            (shortcut.shift ? e.shiftKey : !e.shiftKey);
+          ? (e.metaKey || e.ctrlKey) && !e.altKey && shiftMatch
+          : !e.metaKey && !e.ctrlKey && !e.altKey && shiftMatch;
 
         if (keyMatch && modMatch) {
           if (shortcut.shouldHandle && !shortcut.shouldHandle(e)) continue;
@@ -63,11 +112,12 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
   }, [handleKeyDown]);
 }
 
-/** Sequence shortcut (e.g. g then i for go-to-inbox) */
 export function useSequenceShortcuts(
   sequences: { keys: string[]; handler: () => void }[],
   enabled = true,
 ) {
+  const sequencesRef = useRef(sequences);
+  sequencesRef.current = sequences;
   const bufferRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -75,18 +125,13 @@ export function useSequenceShortcuts(
     if (!enabled) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      const isEditable =
-        (e.target as HTMLElement)?.isContentEditable ||
-        (e.target instanceof HTMLElement &&
-          e.target.closest("[contenteditable]") != null);
-      if (tag === "input" || tag === "textarea" || isEditable) return;
+      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       clearTimeout(timerRef.current);
       bufferRef.current = [...bufferRef.current, e.key.toLowerCase()].slice(-3);
 
-      for (const seq of sequences) {
+      for (const seq of sequencesRef.current) {
         const buf = bufferRef.current;
         const keys = seq.keys;
         if (buf.length >= keys.length) {
@@ -109,6 +154,7 @@ export function useSequenceShortcuts(
     return () => {
       window.removeEventListener("keydown", handleKey);
       clearTimeout(timerRef.current);
+      bufferRef.current = [];
     };
-  }, [enabled, sequences]);
+  }, [enabled]);
 }

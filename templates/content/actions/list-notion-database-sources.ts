@@ -26,7 +26,7 @@ function plainText(value: unknown) {
 
 export default defineAction({
   description:
-    "List Notion data sources visible to the current user's connected Notion workspace so one can be attached read-only to a Content database.",
+    "List Notion data sources visible to the current user's connected Notion workspace so one can be attached read-only to a Content collection.",
   schema: z.object({
     query: z.string().trim().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),

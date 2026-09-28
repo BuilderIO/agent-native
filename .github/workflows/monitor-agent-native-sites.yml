@@ -1,8 +1,5 @@
 name: Monitor Agent-Native site availability
 
-# This is deliberately independent from app health and Netlify build status:
-# an edge outage can make both the app health endpoint and the dashboard
-# unavailable while the deploy metadata still says "ready".
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -15,8 +12,6 @@ permissions:
 
 concurrency:
   group: monitor-agent-native-sites
-  # Let an active outage run finish its paging and issue-reporting steps;
-  # GitHub still keeps at most one pending replacement for this concurrency group.
   cancel-in-progress: false
 
 jobs:
@@ -40,94 +35,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
-
-      - name: Check signup canary dead-man
-        run: |
-          set -o pipefail
-          node <<'NODE' | tee /tmp/agent-native-signup-deadman.log
-          (async () => {
-            const repository = process.env.GITHUB_REPOSITORY;
-            const token = process.env.GH_TOKEN;
-            const headers = {
-              accept: "application/vnd.github+json",
-              authorization: `Bearer ${token}`,
-              "x-github-api-version": "2022-11-28",
-            };
-            const runsUrl = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml/runs?event=schedule&per_page=20`;
-            const workflowUrl = `https://api.github.com/repos/${repository}/actions/workflows/signup-e2e-scheduled.yml`;
-            const [response, workflowResponse] = await Promise.all([
-              fetch(runsUrl, { headers }),
-              fetch(workflowUrl, { headers }),
-            ]);
-            if (!response.ok) {
-              console.error(`FAIL\tsignup-e2e\tGitHub Actions API HTTP ${response.status}`);
-              process.exitCode = 1;
-            } else if (!workflowResponse.ok) {
-              console.error(
-                `FAIL\tsignup-e2e\tGitHub Actions workflow API HTTP ${workflowResponse.status}`,
-              );
-              process.exitCode = 1;
-            } else {
-              const body = await response.json();
-              const workflow = await workflowResponse.json();
-              if (workflow.state !== "active") {
-                console.error(
-                  `FAIL\tsignup-e2e\tscheduled workflow state is ${workflow.state ?? "unknown"}`,
-                );
-                process.exitCode = 1;
-                return;
-              }
-              const workflowUpdatedAt = Date.parse(
-                workflow.updated_at ?? workflow.created_at,
-              );
-              const workflowAgeMs = Date.now() - workflowUpdatedAt;
-              const maxAgeMs = 48 * 60 * 60 * 1_000;
-              if (!Number.isFinite(workflowAgeMs)) {
-                console.error(
-                  "FAIL\tsignup-e2e\tscheduled workflow has no valid activation timestamp",
-                );
-                process.exitCode = 1;
-                return;
-              }
-              const completed = (body.workflow_runs ?? []).filter(
-                (run) => run.status === "completed",
-              );
-              const successful = completed.find(
-                (run) => run.conclusion === "success",
-              );
-              if (completed.length === 0 && workflowAgeMs > maxAgeMs) {
-                console.error(
-                  `FAIL\tsignup-e2e\tno completed scheduled run exists and workflow has been active for ${Math.round(workflowAgeMs / 3_600_000)}h`,
-                );
-                process.exitCode = 1;
-              } else if (completed.length === 0) {
-                console.log(
-                  `INFO\tsignup-e2e\tno completed scheduled run yet; ${Math.max(0, Math.round((maxAgeMs - workflowAgeMs) / 3_600_000))}h rollout grace remains`,
-                );
-              } else if (!successful) {
-                console.error(
-                  "FAIL\tsignup-e2e\tno successful scheduled run exists",
-                );
-                process.exitCode = 1;
-              } else {
-                const ageMs = Date.now() - Date.parse(successful.created_at);
-                if (!Number.isFinite(ageMs) || ageMs > maxAgeMs) {
-                  console.error(
-                    `FAIL\tsignup-e2e\tlast successful scheduled run is ${Math.round(ageMs / 3_600_000)}h old`,
-                  );
-                  process.exitCode = 1;
-                } else {
-                  console.log(
-                    `PASS\tsignup-e2e\tlast successful scheduled run is ${Math.round(ageMs / 3_600_000)}h old`,
-                  );
-                }
-              }
-            }
-          })().catch((error) => {
-            console.error(`FAIL\tsignup-e2e\t${error?.message ?? error}`);
-            process.exitCode = 1;
-          });
-          NODE
 
       - name: Probe every public host
         if: ${{ always() }}
@@ -407,11 +314,6 @@ jobs:
           NODE
 
       - name: Probe Google sign-in credentials
-        # The availability probe above stays green while sign-in is 100% broken:
-        # on 2026-08-20 every host reported ok:true for hours with a stale Google
-        # secret. The app's callback collapses invalid_client and invalid_grant
-        # into one identical error page, so this asks each deploy to ask Google
-        # directly and report which of the two it got.
         if: always()
         run: |
           set -o pipefail
@@ -628,20 +530,56 @@ jobs:
           node --experimental-strip-types scripts/check-google-redirect-uris.ts \
             --env all --budget-seconds 300 --allow-legacy-health | tee /tmp/agent-native-google-redirects.log
 
+      - name: Read previous scheduled probe result
+        id: previous-run
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          history_read=unavailable
+          previous_conclusion=unknown
+          previous_updated_at=
+          latest_failure_updated_at=
+          if schedule_history="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/monitor-agent-native-sites.yml/runs?event=schedule&per_page=100")" && \
+            run_history="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/monitor-agent-native-sites.yml/runs?per_page=100")"; then
+            if jq -e '.workflow_runs | type == "array"' <<<"$schedule_history" >/dev/null && \
+              jq -e '.workflow_runs | type == "array"' <<<"$run_history" >/dev/null; then
+              history_read=ok
+              previous_conclusion="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .conclusion // "unknown"' <<<"$schedule_history")"
+              previous_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$schedule_history")"
+              latest_failure_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed" and .conclusion == "failure")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$run_history")"
+            fi
+          fi
+          if [[ "$history_read" == "unavailable" ]]; then
+            echo "::warning::Run history is unavailable; paging fails open, while scheduled recovery waits for verified post-incident samples."
+          fi
+          echo "history_read=$history_read" >>"$GITHUB_OUTPUT"
+          echo "conclusion=$previous_conclusion" >>"$GITHUB_OUTPUT"
+          echo "updated_at=$previous_updated_at" >>"$GITHUB_OUTPUT"
+          echo "latest_failure_updated_at=$latest_failure_updated_at" >>"$GITHUB_OUTPUT"
+
       - name: Page and open a rolling incident
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
+          history_read='${{ steps.previous-run.outputs.history_read }}'
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            if [[ "$history_read" == "unavailable" ]]; then
+              echo "Run history is unavailable; paging this failure to avoid hiding an ongoing outage."
+            elif [[ "$previous_conclusion" != "failure" ]]; then
+              echo "No preceding completed scheduled failure; keeping details in Actions and waiting for confirmation before paging."
+              exit 0
+            fi
+          fi
           ISSUE_TITLE="Agent-Native site availability failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
           GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
           REDIRECT_FAILING="$(grep -E '^(FAIL|UNKNOWN|UNPROBEABLE)' /tmp/agent-native-google-redirects.log || true)"
-          SIGNUP_DEADMAN_FAILING="$(grep '^FAIL[[:space:]].*signup-e2e' /tmp/agent-native-signup-deadman.log || true)"
-          if [ -n "$SIGNUP_DEADMAN_FAILING" ]; then
-            FAILING="$SIGNUP_DEADMAN_FAILING${FAILING:+$'\n'}$FAILING"
-          fi
           if [ -n "$GOOGLE_FAILING" ]; then
             if [ -n "$FAILING" ]; then
               FAILING="$(printf '%s\n%s' "$FAILING" "$GOOGLE_FAILING")"
@@ -690,8 +628,11 @@ jobs:
 
           pagerduty_status=0
           page_oncall || pagerduty_status=$?
+          # Avoid GitHub's eventually consistent issue-search index here. A
+          # direct open-issue listing keeps one rolling incident even when a
+          # previous run created it moments ago.
           ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --limit 1000 --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
           if [ -z "$ISSUE_NUMBER" ]; then
             gh issue create --repo "${{ github.repository }}" \
@@ -715,6 +656,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          history_read='${{ steps.previous-run.outputs.history_read }}'
+          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          previous_updated_at='${{ steps.previous-run.outputs.updated_at }}'
+          latest_failure_updated_at='${{ steps.previous-run.outputs.latest_failure_updated_at }}'
+          post_failure_sample=0
+          # GitHub returns UTC ISO-8601 timestamps, so lexical order is chronological.
+          if [[ -n "$previous_updated_at" && -n "$latest_failure_updated_at" ]] && \
+            [[ "$previous_updated_at" > "$latest_failure_updated_at" ]]; then
+            post_failure_sample=1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            if [[ "$history_read" != "ok" || "$previous_conclusion" != "success" || \
+              "$post_failure_sample" != "1" ]]; then
+              echo "Recovery needs two clean scheduled probes after the latest failed workflow run; previous result was ${previous_conclusion:-unknown}."
+              exit 0
+            fi
+          fi
           ISSUE_TITLE="Agent-Native site availability failing"
           pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
@@ -732,7 +690,7 @@ jobs:
             echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
           fi
           ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --limit 1000 --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
           if [ -n "$ISSUE_NUMBER" ]; then
             gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \

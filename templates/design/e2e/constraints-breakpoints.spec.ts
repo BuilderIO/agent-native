@@ -3,12 +3,6 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers } from "./helpers";
 
-/**
- * Constraints assert Figma parity (doc-quoted). Breakpoints assert Design's
- * OWN Framer-model contract from .agents/skills/responsive-breakpoints — they
- * are deliberately not a Figma concept, so parity is not the bar there.
- */
-
 const PAGE_W = 1440;
 const PAGE_H = 900;
 
@@ -113,8 +107,6 @@ async function openEditor(page: Page, designId: string): Promise<void> {
     .locator("iframe[data-design-preview-iframe]")
     .first()
     .waitFor({ timeout: 30_000 });
-  // No blind settle: expandAllLayers waits for the first layer row, which
-  // the editor cannot render before it has parsed the document.
   await expandAllLayers(page);
   await page.waitForTimeout(500);
 }
@@ -126,8 +118,6 @@ async function rendered(page: Page, id: string) {
   });
 }
 
-/** Resize the parent through the inspector, isolating constraints from the
- *  broken resize handles. */
 async function setWidth(page: Page, value: string): Promise<void> {
   const input = page
     .getByText("W", { exact: true })
@@ -202,10 +192,11 @@ test.describe("constraints (Figma parity)", () => {
 
     const after = await rendered(page, "child");
     const parentAfter = await rendered(page, "parent");
-    test.skip(
-      Math.abs(parentAfter.width - parentBefore.width) < 1,
-      "the parent did not actually resize, so constraints are untestable here",
-    );
+    expect(
+      Math.abs(parentAfter.width - parentBefore.width),
+      `precondition: the parent must actually resize for this constraint to be testable. ` +
+        `width went ${parentBefore.width} -> ${parentAfter.width}.`,
+    ).toBeGreaterThanOrEqual(1);
     expect(
       Math.round(after.left - parentAfter.left),
       `Figma: Top+Left "will stay in the same position relative to the top left corner of ` +
@@ -222,11 +213,8 @@ test.describe("constraints (Figma parity)", () => {
     await layerRow(page, "Child").click();
     await page.waitForTimeout(1500);
     const opened = await openConstraints(page);
-    test.skip(!opened, "no Constraints control to set Scale with");
+    expect(opened, "no Constraints control to set Scale with").toBe(true);
 
-    // Scale lives inside the Horizontal axis Select, not on the widget itself:
-    // its options are not in the DOM until that trigger is opened, so the old
-    // `count() === 0` check skipped this test on every run.
     await page.getByRole("combobox", { name: "Horizontal" }).first().click();
     const scaleOption = page.getByRole("option", { name: /Scale/i });
     await expect(scaleOption.first()).toBeVisible({ timeout: 10_000 });
@@ -389,24 +377,56 @@ test.describe("breakpoints (Design's Framer model, not Figma)", () => {
 
   test("the default device set is a desktop base plus mobile only", async ({
     page,
-  }) => {
-    const id = await newDesign(page);
+  }, testInfo) => {
+    const created = await postAction(page, "create-design", {
+      title: "generated default device fixture",
+      projectType: "prototype",
+    });
+    const id = created?.id ?? created?.data?.id;
+    if (!id) throw new Error("create-design returned no id");
+
+    const generated = await postAction(page, "generate-design", {
+      designId: id,
+      prompt: "Create a responsive constraints test fixture.",
+      files: [
+        {
+          filename: "index.html",
+          content: FIXTURE,
+          fileType: "html",
+        },
+      ],
+    });
+    expect(generated.savedFiles).toHaveLength(1);
+
     const record = await designRecord(page, id);
     const data =
       typeof record.data === "string"
         ? JSON.parse(record.data || "{}")
         : (record.data ?? {});
-    const widths = (data.breakpointSet?.breakpoints ?? []).map(
-      (b: any) => b.widthPx,
+    const screen = (record.files ?? []).find(
+      (file: any) => file.filename === "index.html",
     );
-    test.skip(
-      widths.length === 0,
-      "create-design injects no breakpointSet; the documented default applies to generate-design",
-    );
-    expect(
-      widths,
-      `skill: the default injected set is "a Desktop base plus a single Mobile (390) ` +
-        `breakpoint frame ... never an auto-added tablet". Got ${JSON.stringify(widths)}.`,
-    ).not.toContain(810);
+    expect(screen, "generate-design must save index.html").toBeDefined();
+    expect(data.canvasFrames?.[screen.id]?.width).toBe(1440);
+
+    const breakpoints = data.breakpointSet?.breakpoints ?? [];
+    await testInfo.attach("generated-device-defaults", {
+      body: JSON.stringify(
+        {
+          designId: id,
+          screenId: screen.id,
+          primaryFrame: data.canvasFrames?.[screen.id],
+          breakpoints,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    expect(breakpoints).toHaveLength(1);
+    expect(breakpoints[0]).toMatchObject({
+      label: "Mobile",
+      widthPx: 390,
+    });
   });
 });

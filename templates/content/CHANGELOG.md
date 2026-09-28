@@ -3,6 +3,142 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-26
+
+### Fixed
+
+- An empty Recent list now loads without an error after first run.
+
+## 2026-09-25
+
+### Added
+
+- Ask the agent to turn comment, reply, and mention emails on or off.
+- Chat messages can be reverted to their autosaved version, including a shortcut to restore the start of a chat.
+
+### Improved
+
+- Suggested edits now highlight only the changed words and punctuation. Related edits appear together, with controls to review each edit or the whole proposal.
+
+## 2026-09-24
+
+### Fixed
+
+- Suggest edits on pages inside collections, with the same review flow as other pages.
+
+## 2026-09-23
+
+### Added
+
+- Every page in the sidebar now has a "…" menu to rename, duplicate, move, copy its link, open it in a new tab, or move it to Trash, and it shows who last edited the page. Duplicate copies sub-pages too, and Move can take a page and its sub-pages to another workspace after warning you that its sharing will change.
+
+### Improved
+
+- The sidebar is easier to scan: the page you're on is highlighted wherever it appears, nested pages show guide lines and Trash stays in reach below the page list.
+
+### Fixed
+
+- Edits to different parts of a page from multiple tabs save together without asking you to choose a version.
+- Tables inserted in the visual editor now let you resize columns.
+- Markdown tables with aligned columns now open as editable tables in pages, keeping column alignment and all cell content.
+- The Trash view no longer highlights a document that is not in Trash.
+
+## 2026-09-22
+
+### Fixed
+
+- Comments, replies, and suggested-edit decisions now appear immediately without leaving duplicate text in the composer while they save.
+
+## 2026-09-21
+
+### Added
+
+- Choose Tabler icons, any emoji, or uploaded images for pages, collections, properties, views, callouts, and workspaces.
+
+### Improved
+
+- Search now ranks exact and partial title matches above incidental matches in document bodies.
+
+## 2026-09-18
+
+### Improved
+
+- Mention a connected AI model in a comment, choose how it should respond, and keep the work in that thread.
+
+## 2026-09-16
+
+### Fixed
+
+- Content now combines non-overlapping edits from another tab or agent automatically, while recovery choices stay attached to the exact draft and saved page version you reviewed.
+
+## 2026-09-15
+
+### Fixed
+
+- Google sign-in and Notion connections now open reliably in embedded browsers
+
+## 2026-09-14
+
+### Added
+
+- Ask AI conversations now stay with the comment that started them, with inline progress, replies, recovery, and an explicit option to open the full conversation.
+
+### Improved
+
+- Trash now uses table-native metadata filters to find nested Pages, preview their content, and empty reviewed scopes with progress that survives navigation.
+- Search is now available from the Content sidebar, with clearer date filters and keyboard-friendly calendar navigation.
+
+### Fixed
+
+- Pages created in agent conversations now appear in navigation and open when they are ready.
+- Cmd+K now opens the command menu while writing in a page.
+- The block drag-handle menu now always opens beside the block instead of sometimes jumping to the corner of the window.
+- Pasting a checklist from Notion or GitHub now keeps its checkboxes instead of turning into plain bullets.
+- Asking the agent about Notion no longer reports "not connected" when the Notion MCP server is connected — it now names the account connection and the MCP connection separately.
+
+## 2026-09-13
+
+### Fixed
+
+- Tables now export as real tables. Downloading a page as PDF or HTML keeps rows, columns, header rows, header columns, and cell line breaks instead of flattening the table into plain text. Callouts, toggles, and column layouts survive the same export path, and printed tables repeat their header row across page breaks.
+- Suggestion previews and highlights stay aligned when editing text near lists.
+
+## 2026-09-12
+
+### Improved
+
+- Search with quoted phrases, exclusions, OR, and intitle: operators, search all workspaces, pick a modified date from the calendar, and see snippets anchored at the matching sentence deep inside long pages.
+
+### Fixed
+
+- Setting up Notion from a document now opens the Integrations settings, where Notion can actually be connected.
+
+### Changed
+
+- Databases are now called **collections** across Content — same pages, views, and sharing, friendlier name.
+
+## 2026-09-10
+
+### Fixed
+
+- Opening a page link your account cannot read now lands on a page you can open and says why, instead of stopping on a "Document unavailable" screen — so a brand-new account no longer arrives on a dead end after signing up.
+
+## 2026-09-09
+
+### Added
+
+- Connected agents can set up ordinary databases, configure fields and table views, and recover them from Trash with verified results.
+
+### Improved
+
+- Search pages and databases with scoped filters, result previews, and keyboard navigation across result pages.
+
+### Fixed
+
+- Sidebar Search opens the command picker, icon controls have accessible names, and the sidebar can be resized with the keyboard.
+- First title edits no longer hit a stale-version conflict, open databases recover after agent Trash and restore actions, and database settings preserve keyboard focus when closing or returning to Add property. Source-managed database fields stay read-only in tables, page property editors, and agent actions, while local fields remain editable. Property editors stay inside mobile Info so edits can be saved without closing the panel.
+- Remote collaborator cursors in the document editor now stay compact above the text instead of expanding into full-width color bars.
+
 ## 2026-09-03
 
 ### Fixed

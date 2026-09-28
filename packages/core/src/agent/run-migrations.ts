@@ -2,11 +2,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 
 export const AGENT_RUN_MIGRATIONS_TABLE = "_agent_run_migrations";
 
-/**
- * Authoritative release-time schema for durable agent runs and their ledgers.
- * The run store keeps a guarded ensure path for local development and older
- * databases, but production request functions cannot own schema setup.
- */
 export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -59,6 +54,28 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS peak_rss_mb INTEGER;
       ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS in_flight_since INTEGER;
       ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at INTEGER
+    `,
+  },
+  {
+    version: 3,
+    name: "agent-run-continuation-order",
+    sql: `
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS continuation_order BIGINT
+    `,
+  },
+  {
+    version: 4,
+    name: "agent-tool-ledger-result-type",
+    sql: `
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN
+    `,
+  },
+  {
+    version: 5,
+    name: "agent-tool-ledger-chat-ui-result",
+    sql: `
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT;
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT
     `,
   },
 ];

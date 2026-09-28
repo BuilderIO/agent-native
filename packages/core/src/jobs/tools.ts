@@ -17,13 +17,24 @@ import {
   getIntegrationRequestContext,
 } from "../server/request-context.js";
 import {
+  isReasoningEffort,
+  REASONING_EFFORTS,
+} from "../shared/reasoning-effort.js";
+import {
   isValidCron,
   nextOccurrence,
   describeCron,
   effectiveTimezone,
   isValidTimezone,
 } from "./cron.js";
-import { classifyJobResource, jobBelongsToApp } from "./frontmatter.js";
+import {
+  assertJobExecutionTargetFields,
+  classifyJobResource,
+  jobBelongsToApp,
+  patchJobFrontmatterFields,
+  replaceJobResourceBody,
+  type JobFrontmatterPatch,
+} from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
@@ -43,12 +54,6 @@ function getSharedOwner(): string {
   return sharedResourceOwner(getRequestOrgId());
 }
 
-/**
- * Determine if the current request's user is an org owner/admin in the
- * given org. Used to allow privileged users to update or delete shared
- * jobs created by other org members. Returns false when there is no org,
- * no user, no membership, or any error querying — fail closed.
- */
 async function isCurrentUserOrgAdmin(
   orgId: string | undefined,
 ): Promise<boolean> {
@@ -101,7 +106,6 @@ export async function authorizeJobMutation(
   const createdBy = meta.createdBy?.toLowerCase();
   if (createdBy && createdBy === caller.toLowerCase()) return null;
 
-  // Allow org owners/admins to manage shared jobs created by other members.
   const isAdmin = await isCurrentUserOrgAdmin(
     resourceOrgId ?? meta.orgId ?? getRequestOrgId() ?? undefined,
   );
@@ -120,6 +124,7 @@ async function runCreate(
     scope,
     runAs,
     model,
+    reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
@@ -142,6 +147,12 @@ async function runCreate(
     });
   }
 
+  if (reasoningEffort !== undefined && !isReasoningEffort(reasoningEffort)) {
+    return JSON.stringify({
+      error: `Invalid reasoningEffort: "${reasoningEffort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`,
+    });
+  }
+
   let mcpTools: string[] | undefined;
   try {
     mcpTools = normalizeJobMcpTools(args.mcpTools);
@@ -152,8 +163,6 @@ async function runCreate(
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  // A cron time with no zone silently means the host's zone, which is how an
-  // "8am" job ends up firing at 4am for the person who asked for it.
   if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
     return JSON.stringify({
       error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
@@ -190,6 +199,7 @@ async function runCreate(
     ...(typeof model === "string" && model.trim()
       ? { model: model.trim() }
       : {}),
+    ...(isReasoningEffort(reasoningEffort) ? { reasoningEffort } : {}),
     ...(typeof executionHostId === "string" && executionHostId.trim()
       ? { executionHostId: executionHostId.trim() }
       : {}),
@@ -224,7 +234,6 @@ async function runList(
 ): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
-  // Fetch only current user's and shared jobs (not other users')
   const [personal, shared] = await Promise.all([
     resourceList(owner, "jobs/"),
     resourceList(sharedOwner, "jobs/"),
@@ -260,6 +269,7 @@ async function runList(
         deliveryPlatform: meta.deliveryPlatform || null,
         deliveryDestination: meta.deliveryDestination || null,
         model: meta.model || null,
+        reasoningEffort: meta.reasoningEffort || null,
         executionHostId: meta.executionHostId || null,
         executionEngine: meta.executionEngine || null,
         executionCwd: meta.executionCwd || null,
@@ -288,13 +298,13 @@ async function runUpdate(
     scope,
     runAs,
     model,
+    reasoningEffort,
     executionHostId,
     executionEngine,
     executionCwd,
   } = args;
   const path = `jobs/${name}.md`;
 
-  // Try to find the resource
   let resource = await resourceGetByPath(getSharedOwner(), path);
   if (!resource && scope !== "shared") {
     resource = await resourceGetByPath(getOwner(), path);
@@ -304,24 +314,23 @@ async function runUpdate(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  const { meta, body } = parseJobFrontmatter(resource.content);
+  const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
       error: `"${name}" is an automation. Use manage-automations to update it.`,
     });
   }
 
-  // Reject when the caller doesn't own the shared job and isn't an org
-  // admin. Without this check, any user could rewrite a shared job whose
-  // `createdBy` is alice@…, and the next cron tick would run the
-  // attacker's instructions as alice (creator-runAs schedules in
-  // jobs/scheduler.ts line 273-278).
   const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
 
-  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
+  const fields: JobFrontmatterPatch = {};
+  if (!meta.appId && appId?.trim()) {
+    meta.appId = appId.trim();
+    fields.appId = meta.appId;
+  }
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -330,6 +339,7 @@ async function runUpdate(
       });
     }
     meta.schedule = schedule;
+    fields.schedule = schedule;
   }
 
   if (args.timezone !== undefined) {
@@ -339,6 +349,7 @@ async function runUpdate(
       });
     }
     meta.timezone = args.timezone;
+    fields.timezone = args.timezone;
   }
 
   if (schedule || args.timezone !== undefined) {
@@ -347,36 +358,63 @@ async function runUpdate(
       undefined,
       meta.timezone,
     ).toISOString();
+    fields.nextRun = meta.nextRun;
   }
 
   if (enabled !== undefined) {
-    // Accept both the schema's string enum ("true"/"false") and a real boolean
-    // from non-LLM callers. `enabled === "true"` alone treats a boolean `true`
-    // as false — silently *disabling* a job the caller meant to enable.
     meta.enabled = enabled === true || enabled === "true";
+    fields.enabled = meta.enabled;
   }
 
   if (runAs === "creator" || runAs === "shared") {
     meta.runAs = runAs;
+    fields.runAs = runAs;
   }
-  if (typeof model === "string" && model.trim()) meta.model = model.trim();
+  if (typeof model === "string" && model.trim()) {
+    meta.model = model.trim();
+    fields.model = meta.model;
+  }
+  if (reasoningEffort !== undefined) {
+    if (!isReasoningEffort(reasoningEffort)) {
+      return JSON.stringify({
+        error: `Invalid reasoningEffort: "${reasoningEffort}". Use one of: ${REASONING_EFFORTS.join(", ")}.`,
+      });
+    }
+    meta.reasoningEffort = reasoningEffort;
+    fields.reasoningEffort = reasoningEffort;
+  }
   if (executionHostId !== undefined) {
     meta.executionHostId =
       typeof executionHostId === "string" && executionHostId.trim()
         ? executionHostId.trim()
         : undefined;
+    fields.executionHostId = meta.executionHostId;
   }
   if (executionEngine !== undefined) {
     meta.executionEngine =
       typeof executionEngine === "string" && executionEngine.trim()
         ? executionEngine.trim()
         : undefined;
+    fields.executionEngine = meta.executionEngine;
   }
   if (executionCwd !== undefined) {
     meta.executionCwd =
       typeof executionCwd === "string" && executionCwd.trim()
         ? executionCwd.trim()
         : undefined;
+    fields.executionCwd = meta.executionCwd;
+  }
+
+  if (
+    Object.hasOwn(fields, "executionHostId") ||
+    Object.hasOwn(fields, "executionEngine") ||
+    Object.hasOwn(fields, "executionCwd")
+  ) {
+    try {
+      assertJobExecutionTargetFields(meta);
+    } catch (err) {
+      return JSON.stringify({ error: (err as Error).message });
+    }
   }
 
   if (args.mcpTools !== undefined) {
@@ -384,13 +422,16 @@ async function runUpdate(
       const mcpTools = normalizeJobMcpTools(args.mcpTools) ?? [];
       if (mcpTools.length) meta.mcpTools = mcpTools;
       else delete meta.mcpTools;
+      fields.mcpTools = meta.mcpTools;
     } catch (err) {
       return JSON.stringify({ error: (err as Error).message });
     }
   }
 
-  const newBody = instructions || body;
-  const content = buildJobContent(meta, newBody);
+  let content = patchJobFrontmatterFields(resource.content, fields);
+  if (instructions) {
+    content = replaceJobResourceBody(content, instructions);
+  }
   await resourcePut(resource.owner, resource.path, content);
 
   return JSON.stringify({
@@ -405,6 +446,7 @@ async function runUpdate(
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
+    reasoningEffort: meta.reasoningEffort || null,
     executionHostId: meta.executionHostId || null,
     executionEngine: meta.executionEngine || null,
     executionCwd: meta.executionCwd || null,
@@ -427,9 +469,6 @@ async function runDelete(
     return JSON.stringify({ error: `Job "${name}" not found` });
   }
 
-  // Same access check as runUpdate — only the creator or an org admin can
-  // remove a shared job. Otherwise any user could break another tenant's
-  // recurring schedule.
   const { meta } = parseJobFrontmatter(resource.content);
   if (classifyJobResource(resource.content).kind === "automation") {
     return JSON.stringify({
@@ -512,6 +551,12 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
               type: "string",
               description:
                 "Optional model id for this routine. The channel/app/engine default is used when omitted.",
+            },
+            reasoningEffort: {
+              type: "string",
+              description:
+                "Optional reasoning effort for this routine's model. Omitted uses the model's default.",
+              enum: [...REASONING_EFFORTS],
             },
             executionHostId: {
               type: "string",

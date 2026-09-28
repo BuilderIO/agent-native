@@ -98,6 +98,36 @@ Todas as cinco funções lançam um erro em caso de falha na solicitação, uma 
 
 `requestSource` é comumente definido como `TAB_ID`, uma constante simples que todo template exporta de `app/lib/tab-id.ts`: uma string curta e aleatória que permanece a mesma durante a vida de uma aba e difere entre abas. Combinar `requestSource: TAB_ID` em uma gravação com `useDbSync({ ignoreSource: TAB_ID })` no lado da leitura é como uma aba evita buscar novamente sua própria gravação enquanto ainda reage a todo o resto. Veja [Consciência do Contexto](/docs/context-awareness#jitter-prevention) para o passo a passo completo.
 
+## Sessões isoladas do agente em segundo plano {#isolated-background-agent-sessions}
+
+Use `startBackgroundAgentSession()` quando cada chamada precisar de uma thread
+nova e estável sem adicionar aba visível ou oculta, estado da barra lateral ou
+entrada na bandeja de execuções. A rota autenticada normal do chat e o gerenciador
+compartilhado continuam responsáveis por persistência, ferramentas, novas
+tentativas e execução durável hospedada.
+
+```ts
+import { startBackgroundAgentSession } from "@agent-native/core/client/agent-chat";
+
+const session = startBackgroundAgentSession({
+  message: "Analyze this import and create any missing records",
+  instructions: `Import batch id: ${batchId}`,
+  scope: { type: "import-batch", id: batchId },
+  model: "gpt-5.6-sol",
+  effort: "medium",
+});
+
+await session.accepted;
+const latest = await session.status();
+session.open({ prefill: "Show me what changed" });
+```
+
+O identificador expõe `operationId`, `threadId` e `turnId` imediatamente.
+`accepted` aguarda a aceitação, `completion` acompanha o fluxo de resposta e
+`status()` lê separadamente o estado durável. `cancel()` interrompe o turno.
+Ao tentar novamente após perder a confirmação, passe a `operationId` e a
+`threadId` originais.
+
 ## sendToAgentChat: envios em segundo plano {#background-send}
 
 Use `background: true` quando uma ação de UI deve iniciar trabalho real do agente sem

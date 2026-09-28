@@ -1,32 +1,18 @@
-/**
- * Dispatch-level proof for the cold-start fix reviewed in PR #4261.
- *
- * `auth-plugin.spec.ts` mocks `framework-request-handler.js` to assert call
- * order in isolation. This file runs the REAL readiness-gate/placeholder
- * machinery from `framework-request-handler.ts` (same harness pattern as
- * `framework-request-handler.spec.ts`) against the real `createAuthPlugin`,
- * mocking only `auth.js` and `better-auth-migrations.js` so the Better Auth
- * mount itself is controllable. It proves the specific concern the review
- * raised: marking `FRAMEWORK_AUTH_EARLY_PATHS` ready before the mount
- * promise resolves does not open a window where a request falls through to
- * a 404 before Better Auth's handler is registered.
- */
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   autoMountAuth: vi.fn(),
+  getSession: vi.fn(),
   runBetterAuthMigrations: vi.fn(),
 }));
 
 vi.mock("./auth.js", () => ({
   autoMountAuth: mocks.autoMountAuth,
+  getSession: mocks.getSession,
 }));
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
-// getH3App's first call kicks off default-plugin bootstrap discovery — keep
-// it a no-op so this file exercises only the auth mount's own gating.
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
@@ -37,7 +23,7 @@ function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
 }
 
-async function dispatch(nitroApp: any, pathname: string) {
+async function dispatchWithEvent(nitroApp: any, pathname: string) {
   const url = new URL(`http://example.test${pathname}`);
   const event = {
     method: "GET",
@@ -53,7 +39,11 @@ async function dispatch(nitroApp: any, pathname: string) {
     if (!middleware) return { fellThrough: true };
     return middleware(event, next);
   };
-  return next();
+  return { event, result: await next() };
+}
+
+async function dispatch(nitroApp: any, pathname: string) {
+  return (await dispatchWithEvent(nitroApp, pathname)).result;
 }
 
 describe("createAuthPlugin dispatch: no 404 window while the mount is pending", () => {
@@ -64,12 +54,12 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
   it("holds a request to /_agent-native/auth/session until Better Auth mounts, then dispatches to the registered handler", async () => {
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ ok: true });
     let resolveMount!: () => void;
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
       await new Promise<void>((resolve) => {
         resolveMount = resolve;
       });
-      // What the real mountBetterAuthRoutes does once init finishes.
       app.use("/_agent-native/auth/session", () => ({ ok: true }));
       return true;
     });
@@ -84,8 +74,6 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
       },
     );
 
-    // Give the readiness gate's microtask chain room to run without the
-    // mount resolving — this is the exact window the review flagged.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -93,7 +81,6 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
 
     resolveMount();
 
-    // Not `{ fellThrough: true }` — the handler autoMountAuth registered.
     await expect(pending).resolves.toEqual({ ok: true });
     expect(settled).toBe(true);
   });
@@ -131,11 +118,9 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
   });
 
   it("still does not wait on the unrelated default-plugin bootstrap once mounted", async () => {
-    // Companion assertion: the fix this file guards must not regress back
-    // into the original cold-start bug either. getMissingDefaultPlugins is
-    // mocked to resolve immediately above; a fast mount must dispatch fast.
     const nitroApp = createNitroApp();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ ok: true });
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
       app.use("/_agent-native/auth/session", () => ({ ok: true }));
       return true;
@@ -146,5 +131,24 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
     await expect(
       dispatch(nitroApp, "/_agent-native/auth/session"),
     ).resolves.toEqual({ ok: true });
+  });
+
+  it("marks the early session response no-store", async () => {
+    const nitroApp = createNitroApp();
+    mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.autoMountAuth.mockImplementation(async (app: any) => {
+      app.use("/_agent-native/auth/session", () => ({ ok: true }));
+      return true;
+    });
+
+    createAuthPlugin()(nitroApp);
+
+    const { event, result } = await dispatchWithEvent(
+      nitroApp,
+      "/_agent-native/auth/session",
+    );
+    expect(result).toEqual({ email: "owner@example.com" });
+    expect(event.res.headers.get("Cache-Control")).toBe("no-store");
   });
 });

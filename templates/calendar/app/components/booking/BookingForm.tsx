@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile } from "@agent-native/core/client/ui";
+import { testUserRegex } from "@agent-native/core/shared";
 import type { CustomField } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { useState } from "react";
@@ -108,14 +109,16 @@ export function BookingForm({
         }
       }
       if (field.pattern && typeof value === "string" && value) {
-        try {
-          const re = new RegExp(field.pattern);
-          if (!re.test(value)) {
-            errors[field.id] =
-              field.patternError ||
-              t("bookingLinks.fieldFormatError", { label: field.label });
-          }
-        } catch {}
+        const result = testUserRegex(field.pattern, value);
+        if (result.status === "unevaluated") {
+          errors[field.id] = t("bookingLinks.fieldPatternUncheckable", {
+            label: field.label,
+          });
+        } else if (result.status === "no-match") {
+          errors[field.id] =
+            field.patternError ||
+            t("bookingLinks.fieldFormatError", { label: field.label });
+        }
       }
     }
     setFieldErrors(errors);
@@ -184,7 +187,7 @@ export function BookingForm({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="shrink-0"
             onClick={() => removeAdditionalGuest(index)}
             aria-label={t("attendees.removeAttendee", {
               email: guestEmail || t("attendees.addAnotherGuest"),

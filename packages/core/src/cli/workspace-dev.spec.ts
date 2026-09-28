@@ -4,22 +4,30 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const sentryMock = vi.hoisted(() => ({
   captureException: vi.fn(),
 }));
+const spawnSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@sentry/node", () => sentryMock);
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: spawnSyncMock,
+}));
 
 import {
+  DEFAULT_PROXY_READY_TIMEOUT_MS,
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
   runWorkspaceDev,
   shouldEagerStartWorkspaceApps,
   shouldPrewarmWorkspaceApps,
   shouldUsePollingFileWatcher,
+  workspaceGatewayUrl,
   workspacePrewarmConcurrency,
   type WorkspaceDevHandle,
 } from "./workspace-dev.js";
@@ -29,6 +37,8 @@ let handle: WorkspaceDevHandle | undefined;
 
 afterEach(() => {
   handle?.shutdown();
+  vi.restoreAllMocks();
+  spawnSyncMock.mockReset();
   handle = undefined;
   sentryMock.captureException.mockClear();
   if (tmpDir) {
@@ -38,6 +48,65 @@ afterEach(() => {
 });
 
 describe("workspace dev startup", () => {
+  it.each([
+    ["127.0.0.1", "http://127.0.0.1:8080"],
+    ["0.0.0.0", "http://127.0.0.1:8080"],
+    ["::", "http://[::1]:8080"],
+    ["::1", "http://[::1]:8080"],
+  ])("advertises a usable URL for gateway host %s", (host, expected) => {
+    expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
+  });
+
+  it("prints the workspace root and usable app URLs", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+
+    expect(output).toContain(`[workspace] Root: ${tmpDir}`);
+    expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+  });
+
+  it("prints the actual URL when the requested gateway port is occupied", async () => {
+    const occupied = http.createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", () => resolve());
+    });
+    try {
+      const address = occupied.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Expected the occupied server to expose a TCP port");
+      }
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn();
+      let output = "";
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: { ...testEnv(), WORKSPACE_PORT: String(address.port) },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+      const { url, port } = await handle.ready;
+
+      expect(port).toBe(address.port + 1);
+      expect(output).toContain(
+        `[workspace] Gateway port ${address.port} was in use; listening on ${port} instead`,
+      );
+      expect(output).toContain(`[workspace] dispatch: ${url}/dispatch`);
+    } finally {
+      await new Promise<void>((resolve) => occupied.close(() => resolve()));
+    }
+  });
+
   it("starts only Dispatch by default and starts other apps on first visit", async () => {
     tmpDir = makeWorkspace(["dispatch", "starter"]);
     const fake = fakeSpawn();
@@ -216,8 +285,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Only the default app is started synchronously; prewarm catches up in
-    // the background.
     expect(fake.startedApps().includes("dispatch")).toBe(true);
 
     await waitUntil(() => {
@@ -245,7 +312,6 @@ describe("workspace dev startup", () => {
     });
     await handle.ready;
 
-    // Give any (hypothetically) scheduled prewarm a chance to fire.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fake.startedApps()).toEqual(["dispatch"]);
   });
@@ -266,6 +332,8 @@ describe("workspace dev startup", () => {
 
     const env = fake.calls()[0]?.options?.env;
     expect(env?.WORKSPACE_GATEWAY_URL).toMatch(/^http:\/\/127\.0\.0\.1:/);
+    expect(env?.AGENT_NATIVE_DEV_SUPERVISOR).toBe("1");
+    expect(env?.APP_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_WORKSPACE_GATEWAY_URL).toBe(env?.WORKSPACE_GATEWAY_URL);
     expect(env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
       env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,
@@ -320,6 +388,98 @@ describe("workspace dev startup", () => {
     });
   });
 
+  it("passes configured home paths through the local dev manifest", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "portal", { homePath: "/inbox" });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const portalEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "portal")?.options?.env;
+    expect(
+      JSON.parse(portalEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]").find(
+        (app: any) => app.id === "portal",
+      ),
+    ).toMatchObject({ homePath: "/inbox" });
+  });
+
+  it("infers a root home path when a local app has no home route", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    makeApp(tmpDir, "root-app", { rootRoute: true });
+    makeApp(tmpDir, "standard", { homeRoute: true, rootRoute: true });
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    await handle.ready;
+
+    const dispatchEnv = fake
+      .calls()
+      .find((call) => call.options?.env?.APP_NAME === "dispatch")?.options?.env;
+    const apps = JSON.parse(
+      dispatchEnv?.AGENT_NATIVE_WORKSPACE_APPS_JSON ?? "[]",
+    );
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "root-app", homePath: "/" }),
+        expect.objectContaining({ id: "standard", homePath: "/home" }),
+      ]),
+    );
+  });
+
+  it("keeps healthy apps discoverable when a sibling config or route tree is broken", async () => {
+    tmpDir = makeWorkspace([
+      "dispatch",
+      "healthy",
+      "config-broken",
+      "routes-broken",
+    ]);
+    const configDir = path.join(
+      tmpDir,
+      "apps",
+      "config-broken",
+      "server",
+      "plugins",
+    );
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, "config.ts"),
+      'import "missing-workspace-app-dependency";\n',
+    );
+    const brokenRoutes = path.join(
+      tmpDir,
+      "apps",
+      "routes-broken",
+      "app",
+      "routes",
+    );
+    fs.mkdirSync(path.dirname(brokenRoutes), { recursive: true });
+    fs.writeFileSync(brokenRoutes, "not a directory");
+
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      args: ["--eager"],
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+
+    expect(handle.apps.map((app) => app.id)).toEqual(["dispatch", "healthy"]);
+  });
+
   it("uses polling watchers in Builder-style remote dev environments", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -348,11 +508,8 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // Container detected (would normally auto-enable polling) ...
         BUILDER_PROJECT_ID: "builder-project",
-        // ... but operator explicitly disabled it.
         AGENT_NATIVE_DEV_USE_POLLING: "0",
-        // Inherited from a stale parent shell — must NOT leak through.
         CHOKIDAR_USEPOLLING: "1",
         CHOKIDAR_INTERVAL: "500",
         TSC_WATCHFILE: "DynamicPriorityPolling",
@@ -377,8 +534,6 @@ describe("workspace dev startup", () => {
       root: tmpDir,
       env: {
         ...testEnv(),
-        // No container, no explicit toggle — auto-detection says no polling.
-        // The user's custom TSC_WATCHFILE override must still pass through.
         TSC_WATCHFILE: "UseFsEventsWithFallbackDynamicPolling",
       },
       spawnProcess: fake.spawnProcess,
@@ -457,16 +612,18 @@ describe("workspace dev startup", () => {
       openBrowser: false,
     });
     const { url } = await handle.ready;
-    makeApp(tmpDir, "todo");
+    makeApp(tmpDir, "todo", { homePath: "/inbox" });
 
     const apps = (await (
       await fetch(`${url}/_workspace/apps`)
     ).json()) as Array<{
       id: string;
       running: boolean;
+      homePath: string;
     }>;
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "todo"]);
     expect(apps.find((app) => app.id === "todo")?.running).toBe(false);
+    expect(apps.find((app) => app.id === "todo")?.homePath).toBe("/inbox");
     expect(fake.startedApps()).toEqual(["dispatch"]);
 
     await fetch(`${url}/todo`, { headers: { accept: "text/html" } });
@@ -674,6 +831,7 @@ describe("workspace dev startup", () => {
   it("turns a never-ready child process into a visible retrying failure", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
     handle = await runWorkspaceDev({
       root: tmpDir,
       env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "50" },
@@ -686,6 +844,17 @@ describe("workspace dev startup", () => {
       headers: { accept: "text/html" },
     });
     expect(await first.text()).toContain("Starting Dispatch");
+    const appCall = fake.calls().at(-1);
+    expect(appCall?.options).toMatchObject({
+      detached: process.platform !== "win32",
+    });
+    expect(appCall?.options?.shell).toBeUndefined();
+    if (process.platform !== "win32") {
+      Object.defineProperty(appCall?.child, "pid", {
+        configurable: true,
+        value: 489,
+      });
+    }
 
     await waitUntil(() => Boolean(handle?.apps[0]?.lastFailure), 500);
 
@@ -698,11 +867,74 @@ describe("workspace dev startup", () => {
     expect(html).toContain("App failed to start: Dispatch");
     expect(html).toContain("Timed out waiting 50ms");
     expect(html).toContain("127.0.0.1:");
-    expect(fake.calls().at(-1)?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    if (process.platform === "win32") {
+      expect(appCall?.child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      expect(killProcessGroup).toHaveBeenCalledWith(-489, "SIGTERM");
+    }
+    expect(handle.apps[0].restartTimer).toBeDefined();
+    handle.shutdown();
+    expect(handle.apps[0].restartTimer).toBeUndefined();
+  });
+
+  it("force-kills the Windows process tree when taskkill cannot kill it softly", async () => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(
+      process,
+      "platform",
+    );
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "win32",
+    });
+    const killProcessGroup = vi.spyOn(process, "kill").mockReturnValue(true);
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 1 })
+      .mockReturnValueOnce({ status: 0 });
+
+    try {
+      tmpDir = makeWorkspace(["dispatch"]);
+      const fake = fakeSpawn(489);
+      handle = await runWorkspaceDev({
+        root: tmpDir,
+        env: {
+          ...testEnv(),
+          WORKSPACE_EAGER: "1",
+        },
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+      });
+      await handle.ready;
+      const appCall = fake.calls().at(-1);
+      appCall?.child.kill.mockClear();
+      handle.shutdown();
+
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        1,
+        "taskkill",
+        ["/pid", "489", "/T"],
+        { stdio: "ignore" },
+      );
+      expect(spawnSyncMock).toHaveBeenNthCalledWith(
+        2,
+        "taskkill",
+        ["/pid", "489", "/T", "/F"],
+        { stdio: "ignore" },
+      );
+      expect(appCall?.child.kill).not.toHaveBeenCalled();
+      expect(killProcessGroup).not.toHaveBeenCalled();
+    } finally {
+      if (originalPlatform) {
+        Object.defineProperty(process, "platform", originalPlatform);
+      }
+    }
   });
 });
 
 describe("workspace dev helpers", () => {
+  it("uses a 60-second default app readiness timeout", () => {
+    expect(DEFAULT_PROXY_READY_TIMEOUT_MS).toBe(60_000);
+  });
+
   it("parses eager mode from args or env", () => {
     expect(shouldEagerStartWorkspaceApps(["--eager"], {})).toBe(true);
     expect(shouldEagerStartWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
@@ -721,7 +953,6 @@ describe("workspace dev helpers", () => {
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_NO_PREWARM: "1" })).toBe(
       false,
     );
-    // Eager mode already starts every app, so prewarm has nothing to do.
     expect(shouldPrewarmWorkspaceApps(["--eager"], {})).toBe(false);
     expect(shouldPrewarmWorkspaceApps([], { WORKSPACE_EAGER: "1" })).toBe(
       false,
@@ -736,7 +967,6 @@ describe("workspace dev helpers", () => {
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "3" }),
     ).toBe(3);
-    // Bogus values clamp back to the default.
     expect(
       workspacePrewarmConcurrency([], { WORKSPACE_PREWARM_CONCURRENCY: "0" }),
     ).toBe(2);
@@ -745,7 +975,6 @@ describe("workspace dev helpers", () => {
         WORKSPACE_PREWARM_CONCURRENCY: "nope",
       }),
     ).toBe(2);
-    // CLI flag wins over env.
     expect(
       workspacePrewarmConcurrency(["--prewarm-concurrency=5"], {
         WORKSPACE_PREWARM_CONCURRENCY: "9",
@@ -811,9 +1040,12 @@ function makeApp(
   app: string,
   opts: {
     audience?: "internal" | "public";
+    homeRoute?: boolean;
+    homePath?: string;
     installVite?: boolean;
     protectedPaths?: string[];
     publicPaths?: string[];
+    rootRoute?: boolean;
   } = {},
 ): void {
   const appDir = path.join(workspaceRoot, "apps", app);
@@ -832,6 +1064,40 @@ function makeApp(
     };
   }
   fs.writeFileSync(path.join(appDir, "package.json"), JSON.stringify(pkg));
+  if (opts.homePath) {
+    const coreConfigPath = pathToFileURL(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../app-config/index.ts",
+      ),
+    ).href;
+    const pluginsDir = path.join(appDir, "server", "plugins");
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(pluginsDir, "config.ts"),
+      [
+        `import { defineAppConfig } from ${JSON.stringify(coreConfigPath)};`,
+        `export default defineAppConfig({ app: { homePath: ${JSON.stringify(opts.homePath)} } });`,
+        "",
+      ].join("\n"),
+    );
+  }
+  if (opts.rootRoute || opts.homeRoute) {
+    const routesDir = path.join(appDir, "app", "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    if (opts.rootRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_index.tsx"),
+        "export default function RootRoute() { return null; }\n",
+      );
+    }
+    if (opts.homeRoute) {
+      fs.writeFileSync(
+        path.join(routesDir, "_app.home.tsx"),
+        "export default function HomeRoute() { return null; }\n",
+      );
+    }
+  }
   if (opts.installVite !== false) createViteBin(appDir);
 }
 
@@ -853,12 +1119,16 @@ async function waitUntil(
   throw new Error("Timed out waiting for condition");
 }
 
-function fakeSpawn(): {
+function fakeSpawn(pid?: number): {
   spawnProcess: typeof spawn;
   calls: () => Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }>;
   startedApps: () => string[];
@@ -866,16 +1136,30 @@ function fakeSpawn(): {
   const calls: Array<{
     command: string;
     args: string[];
-    options?: { env?: NodeJS.ProcessEnv };
+    options?: {
+      detached?: boolean;
+      env?: NodeJS.ProcessEnv;
+      shell?: boolean | string;
+    };
     child: ChildProcess & EventEmitter;
   }> = [];
   const spawnProcess = vi.fn(
     (
       command: string,
       args: string[],
-      options?: { env?: NodeJS.ProcessEnv },
+      options?: {
+        detached?: boolean;
+        env?: NodeJS.ProcessEnv;
+        shell?: boolean | string;
+      },
     ) => {
       const child = new EventEmitter() as ChildProcess;
+      if (pid !== undefined) {
+        Object.defineProperty(child, "pid", {
+          configurable: true,
+          value: pid,
+        });
+      }
       child.stdout = new EventEmitter() as ChildProcess["stdout"];
       child.stderr = new EventEmitter() as ChildProcess["stderr"];
       child.killed = false;

@@ -31,7 +31,7 @@ Govern reusable Skills so the agent offers the right instructions for the curren
 ## Product contract
 
 - **Skills catalog:** Stores governed instructions with personal, workspace, organization, or public-core scope.
-- **Compatibility:** Surfaces only Skills that apply to the current selection, Block, Page, Database, Property, or View.
+- **Compatibility:** Surfaces only Skills that apply to the current selection, Block, Page, Collection, Property, or View.
 - **Scope precedence:** Ranks the most relevant allowed instruction without flooding the interface with the entire catalog.
 - **Declared effects:** Explains whether invocation proposes edits, replaces content, adds a Comment, or acts elsewhere.
 - **Shared invocation:** Lets people and agents use the same Skill through the ordinary Agent chat and Action fabric.

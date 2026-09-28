@@ -1,5 +1,6 @@
 import { getSetting } from "../settings/store.js";
 import {
+  CONNECT_APPS_FLAG,
   registerFeatureFlags,
   type FeatureFlagDefinition,
 } from "./registry.js";
@@ -7,21 +8,15 @@ import { mutateFeatureFlagRules } from "./store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/** A tiny startup plugin for app-local, explicit feature-flag registration. */
 export function createFeatureFlagsPlugin(options: {
   flags: readonly FeatureFlagDefinition[];
-  /**
-   * One-time compatibility bridge for apps that previously stored global
-   * booleans together in a single settings object. Only legacy `true` values
-   * are copied, and an explicit rule in the new store always wins.
-   */
   legacyBooleanSetting?: {
     settingKey: string;
     flagKeys: readonly string[];
   };
 }): NitroPluginDef {
   return async () => {
-    registerFeatureFlags(options.flags);
+    registerFeatureFlags([CONNECT_APPS_FLAG, ...options.flags]);
     if (!options.legacyBooleanSetting) return;
 
     const legacy = await getSetting(options.legacyBooleanSetting.settingKey);

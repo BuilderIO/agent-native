@@ -65,15 +65,26 @@ import {
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
 import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
+import {
+  isHeldForRedaction,
+  REDACTION_HOLD_MESSAGE,
+} from "../../../lib/pending-redactions.js";
+import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
-import { verifySharePassword } from "../../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../../lib/share-password.js";
 
 interface RecordingRow {
+  editsJson?: string | null;
   expiresAt?: string | null;
   organizationId?: string | null;
   ownerEmail?: string | null;
   password?: string | null;
+  sharePasswordVersion?: string | null;
+  updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -124,9 +135,15 @@ function isHttpsRequest(event: H3Event): boolean {
 function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
+  password: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): void {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      sharePasswordVersion,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -307,14 +324,6 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session?.email, orgId },
     async () => {
-      // Resolve via share grants first (owner / org / shared viewers). When
-      // there is no grant — e.g. an anonymous viewer on a public share/embed
-      // page — fall back to the public-visibility gate so public clips stay
-      // playable without signing in. This mirrors the visibility check in
-      // `/api/public-recording.get.ts` (which hands the player its videoUrl) so
-      // the metadata endpoint and this media endpoint never disagree about who
-      // can play a clip. Without this, anonymous viewers hit a 403 here and the
-      // player fails with "Could not start playback. Try again."
       const access = await resolveAccess("recording", recordingId);
       let recRow: RecordingRow | null =
         (access?.resource as RecordingRow | undefined) ?? null;
@@ -331,13 +340,6 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 404);
           return { error: "Not found" };
         }
-        // Org-visibility clips are playable by any signed-in member of the
-        // recording's org, mirroring the allowance in
-        // `/api/public-recording.get.ts` so the metadata endpoint and this
-        // media endpoint never disagree about who can play a clip. Never
-        // throw here — this route is anonymous-reachable, so an org-lookup
-        // failure (or no session at all) must fall through to the existing
-        // public-only gate instead of surfacing a 500.
         let viewerIsOrgMember = false;
         if (session?.email && row.visibility === "org" && row.organizationId) {
           try {
@@ -360,12 +362,18 @@ export default defineEventHandler(async (event: H3Event) => {
 
       const rec = recRow;
 
-      if (rec.expiresAt) {
-        const expires = new Date(rec.expiresAt).getTime();
-        if (Number.isFinite(expires) && expires < Date.now()) {
-          setResponseStatus(event, 410);
-          return { error: "Recording has expired" };
-        }
+      if (
+        isRecordingExpiredForViewer({
+          expiresAt: rec.expiresAt,
+          viewerIsOwner: role === "owner",
+        })
+      ) {
+        setResponseStatus(event, 410);
+        return { error: "Recording has expired" };
+      }
+      if (isHeldForRedaction(rec.editsJson, role)) {
+        setResponseStatus(event, 409);
+        return { error: REDACTION_HOLD_MESSAGE, redactionPending: true };
       }
 
       // Password gate — owners skip it (they set it). Same behavior as
@@ -392,12 +400,17 @@ export default defineEventHandler(async (event: H3Event) => {
         const supplied = typeof q.password === "string" ? q.password : "";
 
         let allowed = false;
+        const scopedRecordingId = getRecordingAccessTokenResourceId(
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        );
         if (token) {
-          const result = verifyShortLivedToken(token, recordingId);
+          const result = verifyShortLivedToken(token, scopedRecordingId);
           if (result.ok) allowed = true;
         }
         if (!allowed && cookieToken) {
-          const result = verifyShortLivedToken(cookieToken, recordingId);
+          const result = verifyShortLivedToken(cookieToken, scopedRecordingId);
           if (result.ok) allowed = true;
         }
         if (
@@ -411,7 +424,12 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
-        setProtectedMediaAccessCookie(event, recordingId);
+        setProtectedMediaAccessCookie(
+          event,
+          recordingId,
+          rec.password,
+          rec.sharePasswordVersion,
+        );
       }
 
       if (isLoomEmbedBackedRecording(rec)) {
@@ -428,12 +446,6 @@ export default defineEventHandler(async (event: H3Event) => {
         return loomEmbedResponse(embedUrl);
       }
 
-      // The `recording-blob-*` fallback only exists for local/dev recordings
-      // (production uses provider storage), and `readAppState` THROWS when there
-      // is no authenticated identity in context. An anonymous viewer of a public
-      // clip therefore has no blob to read anyway — swallow the missing-context
-      // error and fall through to the provider media URL instead of surfacing an
-      // unhandled 500 ("Could not start playback. Try again." in the player).
       const blob = await readAppState(`recording-blob-${recordingId}`).catch(
         () => null,
       );
@@ -503,11 +515,6 @@ export default defineEventHandler(async (event: H3Event) => {
           setResponseStatus(event, upstream.status);
           return { error: upstream.error };
         }
-        // The provider answered, but with a server error (e.g. the CDN asset is
-        // broken and returns 5xx). Don't proxy an opaque upstream error — and
-        // don't risk reconstructing a Response from it, which previously threw
-        // and surfaced as an unhandled 500 on every request. Capture it so the
-        // broken asset is diagnosable, and return a clean 502.
         if (upstream.status >= 500) {
           captureRouteError(
             new Error(
@@ -536,8 +543,6 @@ export default defineEventHandler(async (event: H3Event) => {
         try {
           return providerResponse(upstream);
         } catch (err) {
-          // Reconstructing the proxied Response should not happen, but if it
-          // does, fail cleanly instead of as an unhandled 500.
           captureRouteError(err, {
             route: "api/video",
             tags: { mediaPath: "provider-proxy-response" },
@@ -563,8 +568,6 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseHeader(event, "X-Content-Type-Options", "nosniff");
       setResponseHeader(event, "Accept-Ranges", "bytes");
       setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-      // Don't leak the URL (which carries a short-lived token) into the
-      // Referer of any outbound link rendered alongside the player.
       setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
       if (rangeHeader && rangeHeader.startsWith("bytes=")) {
@@ -573,7 +576,6 @@ export default defineEventHandler(async (event: H3Event) => {
         let end: number;
 
         if (spec.startsWith("-")) {
-          // Suffix range: bytes=-N → last N bytes.
           const suffixLen = Number.parseInt(spec.slice(1), 10);
           if (!Number.isFinite(suffixLen) || suffixLen <= 0) {
             setResponseStatus(event, 416);
@@ -590,7 +592,6 @@ export default defineEventHandler(async (event: H3Event) => {
             setResponseHeader(event, "Content-Range", `bytes */${total}`);
             return "";
           }
-          // Clamp oversized `end` to total-1 (RFC 9110 §14.1.2) instead of 416'ing.
           if (endStr === "" || endStr === undefined) {
             end = total - 1;
           } else {

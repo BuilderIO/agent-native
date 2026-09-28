@@ -35,6 +35,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  getCalendarEventRenderKey,
+  withCalendarEventSourceIdentity,
+} from "@/lib/calendar-event-identity";
 import { getDisplayDateInTimezone } from "@/lib/calendar-timezone";
 import { getEditableEventTitle } from "@/lib/event-form-utils";
 import { isOutOfOfficeEvent } from "@/lib/out-of-office";
@@ -63,6 +67,7 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
       responseStatus: attendee.responseStatus,
       organizer: attendee.organizer,
       optional: attendee.optional,
+      additionalGuests: attendee.additionalGuests,
       timeZone: attendee.timeZone,
       self: attendee.self,
     })),
@@ -72,8 +77,8 @@ function buildEventDetailSlotContext(event: CalendarEvent) {
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
   onClose: () => void;
-  onDelete: (eventId: string) => void;
-  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onDelete: (event: CalendarEvent) => void;
+  onTitleSave?: (event: CalendarEvent, title: string) => void;
   timezone?: string;
 }
 
@@ -86,12 +91,6 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-/**
- * Returns the URL only when it parses cleanly and uses http: or https:.
- * Defends against `javascript:` / `data:` / `vbscript:` URLs in
- * Google-Calendar-supplied attachment metadata reaching `<a href>` /
- * `<img src>` (audit 03 medium).
- */
 function safeUrl(u: string | undefined): string {
   if (!u) return "#";
   try {
@@ -100,6 +99,15 @@ function safeUrl(u: string | undefined): string {
   } catch {
     return "#";
   }
+}
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ).filter((element) => element.getAttribute("aria-hidden") !== "true");
 }
 
 function extractMeetingLink(event: CalendarEvent): {
@@ -144,6 +152,12 @@ export function EventDetailPanel({
     event?.description || "",
   );
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const isEditingTitleRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+  isEditingTitleRef.current = isEditingTitle;
+  onCloseRef.current = onClose;
   const updateEvent = useUpdateEvent();
   const [selectedAccountEmail, setSelectedAccountEmail] = useState(
     event?.accountEmail,
@@ -181,14 +195,14 @@ export function EventDetailPanel({
     () => (event ? buildEventDetailSlotContext(event) : null),
     [event],
   );
+  const eventRenderKey = event ? getCalendarEventRenderKey(event) : null;
 
-  // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
     setIsEditingDescription(false);
     setEditDescription(event?.description || "");
     lastSavedDescriptionRef.current = event?.description || "";
-  }, [event?.id]);
+  }, [eventRenderKey]);
 
   useEffect(() => {
     setSelectedAccountEmail(event?.accountEmail);
@@ -199,6 +213,69 @@ export function EventDetailPanel({
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
   }, [isEditingTitle]);
+
+  const restoreFocus = useCallback(() => {
+    const previousFocus = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (previousFocus?.isConnected) {
+      requestAnimationFrame(() => previousFocus.focus());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      restoreFocus();
+      return;
+    }
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusable = getFocusableElements(panel);
+    (focusable[0] ?? panel).focus();
+
+    const handleKeyDown = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.key === "Escape") {
+        if (
+          isEditingTitleRef.current &&
+          keyboardEvent.target === titleInputRef.current
+        ) {
+          return;
+        }
+        keyboardEvent.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (keyboardEvent.key !== "Tab") return;
+
+      const currentFocusable = getFocusableElements(panel);
+      if (currentFocusable.length === 0) {
+        keyboardEvent.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = currentFocusable[0];
+      const last = currentFocusable[currentFocusable.length - 1];
+      if (keyboardEvent.shiftKey && document.activeElement === first) {
+        keyboardEvent.preventDefault();
+        last.focus();
+      } else if (!keyboardEvent.shiftKey && document.activeElement === last) {
+        keyboardEvent.preventDefault();
+        first.focus();
+      }
+    };
+
+    panel.addEventListener("keydown", handleKeyDown);
+    return () => {
+      panel.removeEventListener("keydown", handleKeyDown);
+      restoreFocus();
+    };
+  }, [isOpen, restoreFocus]);
 
   const handleSaveDescription = useCallback(() => {
     if (!event) return;
@@ -218,12 +295,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            ...updates,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onError: () => {
               lastSavedDescriptionRef.current = prev;
@@ -262,12 +342,15 @@ export function EventDetailPanel({
           return;
         }
         updateEvent.mutate(
-          {
-            id: event.id,
-            accountEmail: event.accountEmail,
-            targetAccountEmail,
-            ...guestNotification,
-          },
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              targetAccountEmail,
+              ...guestNotification,
+            },
+            event,
+          ),
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
             onError: () => {
@@ -292,12 +375,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
           onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
@@ -320,12 +406,15 @@ export function EventDetailPanel({
       });
       if (!guestNotification) return;
       updateEvent.mutate(
-        {
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        },
+        withCalendarEventSourceIdentity(
+          {
+            id: event.id,
+            accountEmail: event.accountEmail,
+            ...updates,
+            ...guestNotification,
+          },
+          event,
+        ),
         {
           onError: () => toast.error(t("eventForm.updateFailed")),
         },
@@ -357,12 +446,17 @@ export function EventDetailPanel({
           updates,
         });
         if (!guestNotification) return;
-        updateEvent.mutate({
-          id: event.id,
-          accountEmail: event.accountEmail,
-          ...updates,
-          ...guestNotification,
-        });
+        updateEvent.mutate(
+          withCalendarEventSourceIdentity(
+            {
+              id: event.id,
+              accountEmail: event.accountEmail,
+              ...updates,
+              ...guestNotification,
+            },
+            event,
+          ),
+        );
       })();
     },
     [event, promptGuestNotification, updateEvent],
@@ -371,9 +465,15 @@ export function EventDetailPanel({
   const handleSaveWorkingLocation = useCallback(
     (selection: WorkingLocationSelection) => {
       if (!event) return;
-      updateEvent.mutate(buildWorkingLocationUpdate(event, selection), {
-        onError: () => toast.error(t("calendarView.failedUpdateEvent")),
-      });
+      updateEvent.mutate(
+        withCalendarEventSourceIdentity(
+          buildWorkingLocationUpdate(event, selection),
+          event,
+        ),
+        {
+          onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+        },
+      );
     },
     [event, t, updateEvent],
   );
@@ -387,11 +487,23 @@ export function EventDetailPanel({
         />
       )}
       <div
+        ref={panelRef}
         className={cn(
           "calendar-event-detail-panel fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden",
           isOpen ? "calendar-event-detail-panel-open" : "w-0",
           !isOpen && "pointer-events-none",
         )}
+        role={isOpen ? "dialog" : undefined}
+        aria-modal={isOpen ? "true" : undefined}
+        aria-labelledby={
+          isOpen && !isEditingTitle ? "calendar-event-detail-title" : undefined
+        }
+        aria-label={
+          isOpen && isEditingTitle
+            ? getWorkingLocationTitle(event, workingLocationLabels)
+            : undefined
+        }
+        tabIndex={-1}
       >
         <div className="calendar-event-detail-panel-inner flex h-full w-full flex-col border-l border-border bg-card">
           {event && (
@@ -438,6 +550,7 @@ export function EventDetailPanel({
                 {isEditingTitle && !isWorkingLocation && !isOverlay ? (
                   <input
                     ref={titleInputRef}
+                    id="calendar-event-detail-title"
                     value={editingTitle}
                     onChange={(e) => setEditingTitle(e.target.value)}
                     onKeyDown={(e) => {
@@ -448,7 +561,7 @@ export function EventDetailPanel({
                           trimmed &&
                           trimmed !== getEditableEventTitle(event)
                         ) {
-                          onTitleSave?.(event.id, trimmed, event.accountEmail);
+                          onTitleSave?.(event, trimmed);
                         }
                         setIsEditingTitle(false);
                       } else if (e.key === "Escape") {
@@ -460,7 +573,7 @@ export function EventDetailPanel({
                     onBlur={() => {
                       const trimmed = editingTitle.trim();
                       if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                        onTitleSave?.(event.id, trimmed, event.accountEmail);
+                        onTitleSave?.(event, trimmed);
                       }
                       setIsEditingTitle(false);
                     }}
@@ -469,6 +582,7 @@ export function EventDetailPanel({
                   />
                 ) : (
                   <h2
+                    id="calendar-event-detail-title"
                     className={cn(
                       "-mx-0.5 rounded px-0.5 text-lg font-semibold leading-tight text-foreground",
                       !isWorkingLocation &&
@@ -594,7 +708,7 @@ export function EventDetailPanel({
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="size-9 shrink-0"
+                          className="shrink-0"
                           aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           disabled={updateEvent.isPending}
@@ -712,7 +826,7 @@ export function EventDetailPanel({
                     variant="ghost"
                     size="sm"
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    onClick={() => onDelete(event.id)}
+                    onClick={() => onDelete(event)}
                   >
                     <IconTrash className="mr-1.5 h-3.5 w-3.5" />
                     {t("eventForm.delete")}

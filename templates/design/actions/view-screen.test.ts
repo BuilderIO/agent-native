@@ -122,12 +122,11 @@ describe("view-screen", () => {
   });
 
   it("reports the design's own linked design system, not just a template's", async () => {
-    // Choosing a system on an empty design writes it to the design row and
-    // nowhere else, so the agent's first read has to carry it.
     mocks.resolveAccess.mockResolvedValue({
       role: "editor",
       resource: {
         title: "Shared checkout",
+        liveCollaborationEnabled: true,
         designSystemId: "system-7",
         data: '{"canvasFrames":[]}',
       },
@@ -158,6 +157,7 @@ describe("view-screen", () => {
       expect.objectContaining({ compact: "true" }),
     );
     expect(result.design?.designSystemId).toBe("system-7");
+    expect(result.design?.liveCollaborationEnabled).toBe(true);
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
       scope: "summary",
@@ -227,6 +227,40 @@ describe("view-screen", () => {
       id: "file_index",
       filename: "index.html",
     });
+  });
+
+  it("does not report JSX support files as overview screens", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "support",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "support",
+        filename: "support.jsx",
+        fileType: "jsx",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.activeScreen).toBeNull();
+    expect(
+      result.design.screens.map((file: { id: string }) => file.id),
+    ).toEqual(["file_index"]);
   });
 
   it("lists candidate reviews waiting on any design screen", async () => {

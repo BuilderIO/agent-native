@@ -2,16 +2,26 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
+import type {
+  RemoteAgentAuth,
+  RemoteAgentKind,
+} from "../resources/metadata.js";
+import { HIDDEN_FIRST_PARTY_AGENT_IDS } from "../shared/first-party-agents.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
+  normalizeWorkspaceAppHomePath,
   normalizeWorkspaceAppPathList,
   workspaceAppAudienceFromPackageJson,
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  inferWorkspaceAppRootHomePath,
+  readConfiguredWorkspaceAppHomePath,
+} from "../workspace-app-config.js";
+import { resolveAppRuntimeUrl } from "./app-url.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export interface DiscoveredAgent {
@@ -20,6 +30,9 @@ export interface DiscoveredAgent {
   description: string;
   url: string;
   color: string;
+  cardUrl?: string;
+  auth?: RemoteAgentAuth;
+  kind?: RemoteAgentKind;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -52,11 +65,6 @@ interface AgentEntry {
   color: string;
 }
 
-/**
- * Built-in agent registry. Derive this from the published CLI metadata so
- * connected-agent discovery stays aligned with first-party template metadata
- * without depending on @agent-native/shared-app-config at runtime.
- */
 const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   (template) =>
     (!template.hidden || template.defaultAgent) && !!template.prodUrl,
@@ -69,23 +77,6 @@ const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   devPort: template.devPort,
   color: template.color,
 }));
-
-const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set([
-  ...TEMPLATES.filter(
-    (template) => template.hidden && !template.defaultAgent && template.prodUrl,
-  ).map((template) => template.name),
-  // Stale resources for removed first-party apps should not reappear as
-  // custom remote agents just because the template metadata entry is gone.
-  "calls",
-  "code",
-  "issues",
-  "meeting-notes",
-  "migration",
-  "recruiting",
-  "scheduling",
-  "voice",
-  "workbench",
-]);
 
 export function normalizeAgentId(id: string): string {
   const normalized = id.trim().toLowerCase();
@@ -109,8 +100,8 @@ export interface WorkspaceAppManifestEntry {
   name: string;
   description: string;
   path: string;
+  homePath: string;
   url?: string | null;
-  /** Local-only child port used to authorize loopback A2A calls. */
   port?: number;
   isDispatch?: boolean;
   audience?: WorkspaceAppAudience;
@@ -308,25 +299,13 @@ export function applyWorkspaceAppMetadataOverride<
   };
 }
 
-/**
- * Resolve the workspace app manifest from the same fallback chain that
- * `discoverWorkspaceAgents` uses: `AGENT_NATIVE_WORKSPACE_APPS_JSON` env →
- * `.agent-native/workspace-apps.json` (or sibling) on disk → live filesystem
- * scan of `apps/<id>/package.json` under the workspace root.
- *
- * Callers (e.g. the dispatch `/dispatch/<appId>` catch-all loader) need this
- * to behave the same in production deploys (which write the manifest file)
- * and during local dev (where new apps appear under `apps/` without an env
- * restart). Reading only the env var would silently downgrade the behavior
- * in both cases.
- */
-export function loadWorkspaceAppsManifest(
+export async function loadWorkspaceAppsManifest(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   return (
     readWorkspaceAppsFromEnv(strict) ??
     readWorkspaceAppsFromManifestFile(strict) ??
-    readWorkspaceAppsFromFilesystem(strict)
+    (await readWorkspaceAppsFromFilesystem(strict))
   );
 }
 
@@ -344,9 +323,6 @@ export function shouldIncludeRemoteAgentManifest(
   return !HIDDEN_FIRST_PARTY_AGENT_IDS.has(normalizedId);
 }
 
-/**
- * Get built-in agents (static, no DB). Used as fallback and for seeding.
- */
 export function getBuiltinAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -363,10 +339,6 @@ export function getBuiltinAgents(
   }));
 }
 
-/**
- * Discover all agents: built-in + custom agents stored as resources.
- * Custom agents override built-in agents with the same ID.
- */
 export async function discoverAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -374,12 +346,10 @@ export async function discoverAgents(
   const builtins = getBuiltinAgents(selfAppId, options);
   const agentsById = new Map<string, DiscoveredAgent>();
 
-  // Start with built-ins
   for (const agent of builtins) {
     agentsById.set(agent.id, agent);
   }
 
-  // Overlay custom agents from resources
   try {
     const { resourceList, resourceGet, SHARED_OWNER, sharedResourceOwner } =
       await import("../resources/store.js");
@@ -412,13 +382,6 @@ export async function discoverAgents(
           continue;
         const manifestId = normalizeAgentId(manifest.id);
 
-        // If the resource override carries a localhost URL but we're running
-        // in a hosted runtime (e.g. a stale dev-time seed got promoted to the prod
-        // DB), fall back to the matching built-in's prod URL instead of
-        // letting the override win — otherwise outbound `call-agent` fetches
-        // from a serverless function would target localhost and fail with
-        // "fetch failed" instantly. The override still wins for non-localhost
-        // URLs (the supported case for self-hosted custom agents).
         let url = manifest.url;
         const isHosted = isHostedRuntime();
         if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
@@ -455,6 +418,9 @@ export async function discoverAgents(
           description: manifest.description || "",
           url,
           color: manifest.color || builtin?.color || "#6B7280",
+          ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
+          ...(manifest.auth ? { auth: manifest.auth } : {}),
+          ...(manifest.kind ? { kind: manifest.kind } : {}),
         });
       } catch {
         // Skip unreadable resources
@@ -464,8 +430,6 @@ export async function discoverAgents(
     // Resources not available — use built-ins only
   }
 
-  // Overlay sibling workspace apps last so same-origin workspaces prefer the
-  // app mounted in this workspace over the public template with the same id.
   for (const agent of await discoverWorkspaceAgents(selfAppId, options)) {
     agentsById.set(agent.id, agent);
   }
@@ -473,12 +437,6 @@ export async function discoverAgents(
   return Array.from(agentsById.values());
 }
 
-/**
- * Complete-or-fail discovery for the authenticated organization directory.
- * Generic agent discovery intentionally remains best-effort; this sibling
- * avoids its N+1 manifest reads and never reports a failed authoritative
- * layer as a successful partial directory.
- */
 export async function discoverOrgDirectoryAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -618,6 +576,9 @@ async function overlayRemoteAgentResources(
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
       color: manifest.color || builtin?.color || "#6B7280",
+      ...(manifest.cardUrl ? { cardUrl: manifest.cardUrl } : {}),
+      ...(manifest.auth ? { auth: manifest.auth } : {}),
+      ...(manifest.kind ? { kind: manifest.kind } : {}),
     });
   }
 }
@@ -632,16 +593,30 @@ function isAbsoluteHttpUrl(value: string): boolean {
   }
 }
 
-/**
- * Look up a single agent by ID or name (case-insensitive).
- */
+export function agentHandleNumberVariant(handle: string): string | null {
+  const value = handle.trim().toLowerCase();
+  if (!value || value.endsWith("ss")) return null;
+  return value.endsWith("s") ? value.slice(0, -1) : `${value}s`;
+}
+
 export async function findAgent(
   idOrName: string,
   selfAppId?: string,
 ): Promise<DiscoveredAgent | undefined> {
   const lower = normalizeAgentId(idOrName);
   const agents = await discoverAgents(selfAppId);
-  return agents.find((a) => a.id === lower || a.name.toLowerCase() === lower);
+  const exact = agents.find(
+    (a) => a.id === lower || a.name.toLowerCase() === lower,
+  );
+  if (exact) return exact;
+
+  const variant = agentHandleNumberVariant(lower);
+  if (!variant) return undefined;
+  const handles = new Set([variant, normalizeAgentId(variant)]);
+  const near = agents.filter(
+    (a) => handles.has(a.id) || handles.has(a.name.toLowerCase()),
+  );
+  return near.length === 1 ? near[0] : undefined;
 }
 
 function hostnameFromUrlLike(value: string | undefined): string | null {
@@ -676,9 +651,6 @@ function isLoopbackUrl(value: string | undefined): boolean {
 }
 
 function hasPublicRuntimeUrl(): boolean {
-  // Intentionally omit generic `URL` / `DEPLOY_URL` here. Platforms that set
-  // those also expose a stronger hosted signal (for example `NETLIFY`), while
-  // local shells and unrelated tools can use generic URL vars for other work.
   const keys = [
     "WORKSPACE_GATEWAY_URL",
     "VITE_WORKSPACE_GATEWAY_URL",
@@ -688,6 +660,7 @@ function hasPublicRuntimeUrl(): boolean {
     "BETTER_AUTH_URL",
     "VITE_BETTER_AUTH_URL",
     "VERCEL_URL",
+    "VERCEL_BRANCH_URL",
     "VERCEL_PROJECT_PRODUCTION_URL",
   ];
 
@@ -781,6 +754,7 @@ function parseWorkspaceAppsManifest(
             : titleCase(id),
         description: typeof e.description === "string" ? e.description : "",
         path: pathValue,
+        homePath: normalizeWorkspaceAppHomePath(e.homePath),
         url: typeof e.url === "string" && e.url.trim() ? e.url.trim() : null,
         isDispatch:
           typeof e.isDispatch === "boolean" ? e.isDispatch : id === "dispatch",
@@ -854,58 +828,67 @@ function readWorkspaceAppsFromManifestFile(
   return null;
 }
 
-function readWorkspaceAppsFromFilesystem(
+async function readWorkspaceAppsFromFilesystem(
   strict = false,
-): WorkspaceAppManifestEntry[] | null {
+): Promise<WorkspaceAppManifestEntry[] | null> {
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) return null;
   const appsDir = path.join(workspaceRoot, "apps");
   if (!fs.existsSync(appsDir)) return null;
 
-  const apps = fs
+  const apps: WorkspaceAppManifestEntry[] = [];
+  for (const entry of fs
     .readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry): WorkspaceAppManifestEntry | null => {
-      const appDir = path.join(appsDir, entry.name);
-      const pkg = readJson(path.join(appDir, "package.json"));
-      if (!pkg) {
-        if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
-        return null;
+    .filter((entry) => entry.isDirectory())) {
+    const appDir = path.join(appsDir, entry.name);
+    const pkg = readJson(path.join(appDir, "package.json"));
+    if (!pkg) {
+      if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
+      continue;
+    }
+    const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
+    let configuredHomePath: string | undefined;
+    let inferredHomePath: "/" | undefined;
+    try {
+      configuredHomePath = await readConfiguredWorkspaceAppHomePath(appDir);
+      if (configuredHomePath === undefined) {
+        inferredHomePath = inferWorkspaceAppRootHomePath(appDir);
       }
-      const routeAccess = workspaceAppRouteAccessFromPackageJson(pkg);
-      return {
-        id: normalizeAgentId(entry.name),
-        name: pkg.displayName || titleCase(entry.name),
-        description: pkg.description || "",
-        path: `/${entry.name}`,
-        isDispatch: normalizeAgentId(entry.name) === "dispatch",
-        audience:
-          workspaceAppAudienceFromPackageJson(pkg) ??
-          DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: routeAccess.publicPaths ?? [],
-        protectedPaths: routeAccess.protectedPaths ?? [],
-      } satisfies WorkspaceAppManifestEntry;
-    })
-    .filter((app): app is WorkspaceAppManifestEntry => !!app)
-    .sort((a, b) => {
-      if (a.id === "dispatch") return -1;
-      if (b.id === "dispatch") return 1;
-      return a.name.localeCompare(b.name);
+    } catch (error) {
+      if (strict) throw error;
+      console.warn(
+        `[agent-discovery] Could not discover workspace app ${entry.name}; skipping app`,
+        error,
+      );
+      continue;
+    }
+    apps.push({
+      id: normalizeAgentId(entry.name),
+      name: pkg.displayName || titleCase(entry.name),
+      description: pkg.description || "",
+      path: `/${entry.name}`,
+      homePath: normalizeWorkspaceAppHomePath(
+        configuredHomePath ?? inferredHomePath,
+      ),
+      isDispatch: normalizeAgentId(entry.name) === "dispatch",
+      audience:
+        workspaceAppAudienceFromPackageJson(pkg) ??
+        DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: routeAccess.publicPaths ?? [],
+      protectedPaths: routeAccess.protectedPaths ?? [],
     });
+  }
+  apps.sort((a, b) => {
+    if (a.id === "dispatch") return -1;
+    if (b.id === "dispatch") return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return apps.length ? apps : null;
 }
 
 function workspaceBaseUrl(): string | null {
-  const config = getAppConfig();
-  // `URL` / `DEPLOY_URL` stay raw: they are platform facts, not app config.
-  return (
-    config.workspace.gatewayUrl ??
-    config.app.url ??
-    process.env.URL ??
-    process.env.DEPLOY_URL ??
-    null
-  );
+  return resolveAppRuntimeUrl() ?? null;
 }
 
 function workspaceAppUrl(
@@ -930,7 +913,7 @@ async function discoverWorkspaceAgents(
   options?: { preferLocalUrls?: boolean },
   strictMetadata = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = loadWorkspaceAppsManifest(strictMetadata);
+  const workspaceApps = await loadWorkspaceAppsManifest(strictMetadata);
   if (!workspaceApps) return [];
 
   const metadataSettings =
@@ -970,9 +953,10 @@ async function discoverWorkspaceAgents(
     .filter((agent): agent is DiscoveredAgent => !!agent);
 }
 
-/** Resolve only the Dispatch app designated by the receiver's own manifest. */
-export function findWorkspaceDispatchAgent(): DiscoveredAgent | undefined {
-  const app = loadWorkspaceAppsManifest()?.find(
+export async function findWorkspaceDispatchAgent(): Promise<
+  DiscoveredAgent | undefined
+> {
+  const app = (await loadWorkspaceAppsManifest())?.find(
     (candidate) => candidate.isDispatch === true,
   );
   if (!app) return undefined;
@@ -992,13 +976,6 @@ export function findWorkspaceDispatchAgent(): DiscoveredAgent | undefined {
   };
 }
 
-/**
- * Like `getBuiltinAgents`, but always returns the production URL — never the
- * env-resolved devUrl. Used by the resource seeder so that a one-time seed
- * (`ON CONFLICT DO NOTHING`) can't permanently bake a localhost URL into the
- * DB, which would override the built-in's prod URL for every later
- * production deploy.
- */
 export const BUILTIN_AGENTS_FOR_SEEDING: DiscoveredAgent[] =
   BUILTIN_AGENTS.filter((app) => app.url).map((app) => ({
     id: app.id,

@@ -339,6 +339,8 @@ export function InlineExtensionFrame({
   const [fetchedExtension, setFetchedExtension] =
     useState<InlineExtensionDefinition | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const hasSubmittedRef = useRef(false);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -405,8 +407,16 @@ export function InlineExtensionFrame({
       ? { role: "owner", isAuthor: true }
       : { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    hasSubmittedRef.current = false;
+    setHasSubmitted(false);
     setHeight(initialHeight);
-  }, [initialHeight, isTransient, resolvedId, extension?.updatedAt]);
+  }, [
+    extension?.content,
+    extension?.updatedAt,
+    initialHeight,
+    isTransient,
+    resolvedId,
+  ]);
 
   const sendThemeToIframe = () => {
     const win = iframeRef.current?.contentWindow;
@@ -489,6 +499,12 @@ export function InlineExtensionFrame({
       if (message.type === "agent-native-send-to-chat") {
         const text = serializeChatValue((message as any).message);
         if (!text?.trim()) return;
+        const submit = (message as any).submit === true;
+        if (isTransient && submit) {
+          if (hasSubmittedRef.current) return;
+          hasSubmittedRef.current = true;
+          setHasSubmitted(true);
+        }
         sendToAgentChat({
           message: text,
           context: serializeChatValue((message as any).context),
@@ -652,7 +668,15 @@ export function InlineExtensionFrame({
         srcDoc={srcDoc}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
-        style={{ width: "100%", border: 0, height, display: "block" }}
+        aria-disabled={isTransient && hasSubmitted ? true : undefined}
+        style={{
+          width: "100%",
+          border: 0,
+          height,
+          display: "block",
+          opacity: isTransient && hasSubmitted ? 0.65 : undefined,
+          pointerEvents: isTransient && hasSubmitted ? "none" : undefined,
+        }}
         onLoad={() => {
           sendThemeToIframe();
           sendContextToIframe();

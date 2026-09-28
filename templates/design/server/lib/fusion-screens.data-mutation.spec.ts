@@ -18,6 +18,12 @@ const state = vi.hoisted(() => {
       })),
       insert: vi.fn(() => insertChain),
       update: vi.fn(),
+      transaction: vi.fn(async (callback) =>
+        callback({
+          ...state.db,
+          execute: vi.fn().mockResolvedValue({ rows: [] }),
+        }),
+      ),
     },
     mutateDesignData: vi.fn(),
     seedFromText: vi.fn(),
@@ -34,6 +40,7 @@ vi.mock("@agent-native/core/collab", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...values: unknown[]) => values,
   eq: (left: unknown, right: unknown) => ({ left, right }),
   sql: vi.fn(),
 }));

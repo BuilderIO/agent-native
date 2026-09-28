@@ -57,7 +57,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   writeInlineSourceFile,
@@ -73,19 +73,13 @@ import {
   componentNameFor,
   componentNodeIdMatches,
   extractProps,
+  isComponentInstanceForInstanceActions,
   propNameToDataAttribute,
 } from "../shared/component-model.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
 import { applyRootAttributeEdit } from "./apply-component-prop-edit.js";
 
-// ─── Pure markup helpers ────────────────────────────────────────────────────
-
-/**
- * Find the end offset (exclusive) of the opening tag at the start of
- * `markup`, respecting quoted attribute values that may themselves contain
- * `>`. Returns `markup.length` if no unquoted `>` is found. Pure.
- */
 export function findOpenTagEnd(markup: string): number {
   let quote: '"' | "'" | null = null;
   for (let i = 0; i < markup.length; i++) {
@@ -103,12 +97,6 @@ export function findOpenTagEnd(markup: string): number {
   return markup.length;
 }
 
-/**
- * Set (or replace) a single attribute on a standalone markup string's opening
- * tag — the same splice `applyRootAttributeEdit` performs against a full
- * document, but for an already-extracted outerHTML fragment (e.g. copied from
- * another instance elsewhere in the design). Pure — exported for tests.
- */
 export function setAttributeOnMarkup(
   markup: string,
   attrName: string,
@@ -131,17 +119,18 @@ export interface SwapOverrideResult {
   defaultedProps: string[];
 }
 
-/**
- * Re-key every descendant in markup copied from another component instance.
- * Keeping the copied `data-agent-native-node-id` values would create duplicate
- * stable layer identities, so selection and the aggregate layer-owner map
- * could jump back to the source instance after a swap. The root keeps the
- * selected instance's id later in `mergeComponentSwapOverrides`; descendants
- * receive fresh ids here.
- *
- * `createNodeId` is injectable so the pure behavior stays deterministic in
- * tests while production uses cryptographically unique ids.
- */
+export function isSwapSourceCandidate(
+  node: CodeLayerNode,
+  targetComponentName: string,
+  excludedNode?: CodeLayerNode,
+): boolean {
+  return (
+    node.id !== excludedNode?.id &&
+    isComponentInstanceForInstanceActions(node) &&
+    componentNameFor(node) === targetComponentName
+  );
+}
+
 export function reassignCopiedDescendantNodeIds(
   markup: string,
   createNodeId: () => string = () => `an-${randomUUID()}`,
@@ -168,12 +157,6 @@ export function reassignCopiedDescendantNodeIds(
   return content;
 }
 
-/**
- * Apply the selected instance's `data-agent-native-prop-*` overrides onto a
- * copy of the target component's markup, carrying over only prop names the
- * target component ALSO declares, then stamp the selected instance's stable
- * node id onto the result. Pure — exported for tests.
- */
 export function mergeComponentSwapOverrides(
   targetMarkup: string,
   currentProps: Array<{ name: string; value: string }>,
@@ -211,8 +194,6 @@ export function mergeComponentSwapOverrides(
   return { markup, overriddenProps, droppedProps, defaultedProps };
 }
 
-// ─── Persistence ────────────────────────────────────────────────────────────
-
 async function persistEdit(file: {
   id: string;
   designId: string;
@@ -246,8 +227,6 @@ async function persistEdit(file: {
     agentLeaveDocument(file.id);
   }
 }
-
-// ─── Action ───────────────────────────────────────────────────────────────────
 
 export default defineAction({
   description:
@@ -394,6 +373,11 @@ export default defineAction({
         `Node "${nodeId}" is not a component root (no data-agent-native-component attribute) — nothing to swap.`,
       );
     }
+    if (!isComponentInstanceForInstanceActions(node)) {
+      throw new Error(
+        `Node "${nodeId}" is the canonical component main; swap an instance reference instead.`,
+      );
+    }
 
     if (componentName === targetComponentName) {
       return {
@@ -411,7 +395,6 @@ export default defineAction({
       );
     }
 
-    // ── Find a markup source for the target component ──────────────────────
     const allFiles = await db
       .select({
         id: schema.designFiles.id,
@@ -452,8 +435,11 @@ export default defineAction({
             });
 
       const match = rowProjection.nodes.find((n) => {
-        if (row.id === file.id && n.id === node.id) return false;
-        return componentNameFor(n) === targetComponentName;
+        return isSwapSourceCandidate(
+          n,
+          targetComponentName,
+          row.id === file.id ? node : undefined,
+        );
       });
 
       if (match) {

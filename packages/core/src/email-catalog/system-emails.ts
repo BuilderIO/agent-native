@@ -1,33 +1,88 @@
-/**
- * Catalog entries for the framework's own system emails.
- *
- * These ship with every app rather than belonging to one, so they register
- * under the `core` app instead of the running app's slug. Importing this module
- * performs the registration; `register-system-emails.ts` is the single import
- * site so the emails appear in every app's catalog without each template
- * remembering to opt in.
- */
-
+import englishMessages from "../localization/core-messages/en-US.js";
 import {
+  renderChangeEmailConfirmationEmail,
+  renderChangeEmailVerificationEmail,
+  renderBuilderCreditLimitEmail,
   renderInviteEmail,
+  renderMagicLinkEmail,
   renderResetPasswordEmail,
   renderVerifySignupEmail,
 } from "../server/email-templates.js";
+import { builderSubscriptionUpgradeUrl } from "../shared/builder-link-tracking.js";
 import { defineTransactionalEmail } from "./registry.js";
 
-/** Obviously-fake sample data — these render in a preview pane, never send. */
 const SAMPLE_URL = "https://example.com/accept/sample-token";
 const SAMPLE_EMAIL = "sam.rivera@example.com";
 
 export const CORE_INVITE_EMAIL_ID = "core.organization-invite";
 export const CORE_VERIFY_SIGNUP_EMAIL_ID = "core.verify-signup";
 export const CORE_RESET_PASSWORD_EMAIL_ID = "core.reset-password";
+export const CORE_MAGIC_LINK_EMAIL_ID = "core.magic-link";
+export const CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID =
+  "core.change-email-confirmation";
+export const CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID =
+  "core.change-email-verification";
+export const CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID = "core.builder-credit-limit";
 
 let registered = false;
 
 export function registerCoreSystemEmails(): void {
   if (registered) return;
   registered = true;
+
+  defineTransactionalEmail({
+    id: CORE_BUILDER_CREDIT_LIMIT_EMAIL_ID,
+    app: "core",
+    name: "Builder credits exhausted",
+    trigger:
+      "A Builder-backed agent run stops with an explicit Builder credits-limit error code.",
+    recipientLabel: "Affected account",
+    recipient: "The signed-in user whose Builder-backed run hit the limit.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderBuilderCreditLimitEmail({
+        subject: englishMessages["billing.builderCreditLimitTitle"],
+        heading: englishMessages["billing.builderCreditLimitTitle"],
+        body: englishMessages["billing.builderCreditLimitEmailBody"],
+        upgradeLabel: englishMessages["billing.builderCreditUpgrade"],
+        upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+    app: "core",
+    name: "Confirm email change",
+    trigger: "A signed-in user requests an email-address change.",
+    recipientLabel: "Current account address",
+    recipient: "The current verified address, before the requested change.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderChangeEmailConfirmationEmail({
+        email: SAMPLE_EMAIL,
+        newEmail: "new.address@example.com",
+        confirmationUrl: SAMPLE_URL,
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID,
+    app: "core",
+    name: "Verify new email",
+    trigger:
+      "A user confirms an email-address change at their current address.",
+    recipientLabel: "New account address",
+    recipient: "The new address supplied in the email-change request.",
+    senderLabel: "Default, app-branded",
+    sender: "The configured EMAIL_FROM, branded with the app name.",
+    preview: () =>
+      renderChangeEmailVerificationEmail({
+        email: "new.address@example.com",
+        verifyUrl: SAMPLE_URL,
+      }),
+  });
 
   defineTransactionalEmail({
     id: CORE_INVITE_EMAIL_ID,
@@ -84,6 +139,24 @@ export function registerCoreSystemEmails(): void {
       renderResetPasswordEmail({
         email: SAMPLE_EMAIL,
         resetUrl: SAMPLE_URL,
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CORE_MAGIC_LINK_EMAIL_ID,
+    app: "core",
+    name: "Magic link sign-in",
+    trigger:
+      "A user submits their email on the sign-in screen while magic-link is the active login mode.",
+    recipientLabel: "Sign-in address",
+    recipient: "The address typed into the sign-in form.",
+    senderLabel: "Default, app-branded",
+    sender:
+      "The configured EMAIL_FROM, branded with the app name the sign-in happened in.",
+    preview: () =>
+      renderMagicLinkEmail({
+        email: SAMPLE_EMAIL,
+        magicLinkUrl: SAMPLE_URL,
       }),
   });
 }

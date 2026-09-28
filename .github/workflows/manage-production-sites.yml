@@ -1,10 +1,5 @@
 name: Manage Agent-Native production sites
 
-# Production is intentionally manual. Use deploy-main to publish the latest
-# main commit, or rollback to restore each selected site's previous or chosen
-# live build. For rollback, rollback_depth=1 means the previous deploy; an
-# optional rollback_deploy_id selects an exact Netlify deploy for one site.
-# The sites input accepts `all` or a comma-separated list such as `clips,design`.
 on:
   workflow_dispatch:
     inputs:
@@ -36,9 +31,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep manager operations in their own queue. The prebuilt fleet has
-  # per-site child-job queues, so a queued manager operation cannot evict a
-  # pending fleet run from GitHub's single pending slot.
   group: agent-native-production-manager-${{ inputs.operation }}-${{ inputs.sites }}
   cancel-in-progress: false
 
@@ -118,10 +110,10 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Match the prebuilt fleet's per-site queue. GitHub can now retain one
-      # pending operation for every selected site instead of dropping an
-      # entire all-sites operation behind one shared workflow slot.
-      group: agent-native-production-site-${{ matrix.site }}
+      group: >-
+        ${{ (matrix.site == 'design' || matrix.site == 'slides')
+            && 'agent-native-production-site-design-slides'
+            || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -680,3 +672,33 @@ jobs:
             } catch (error) {
               core.setFailed(error instanceof Error ? error.message : String(error));
             }
+
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: manage
+    if: ${{ !cancelled() && needs.manage.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

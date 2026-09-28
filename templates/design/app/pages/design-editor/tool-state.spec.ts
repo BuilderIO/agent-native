@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDesignBottomToolbarMode,
   resolveModeChangeView,
+  resolveSpaceForwardTransition,
   resolveToolAfterSelection,
   shouldAskOnNewDesignArrival,
   shouldRevealLayersOnFirstCreate,
@@ -18,8 +19,6 @@ describe("resolveModeChangeView", () => {
   it.each(["edit", "annotate"] as const)(
     "returns to the canvas when %s is chosen from a focused screen",
     (next) => {
-      // overview -> Interact -> %s must land back on the infinite canvas, not
-      // leave the screen focused in a single-screen editing state.
       expect(resolveModeChangeView({ next, viewMode: "single" })).toBe(
         "enter-overview",
       );
@@ -63,8 +62,6 @@ describe("getDesignBottomToolbarMode", () => {
   });
 
   it("gives an editor the tools before any file exists", () => {
-    // A new design has no file rows; the draw tools create the first one, so
-    // gating the toolbar on a file hid it exactly when it was needed.
     expect(
       getDesignBottomToolbarMode({
         isSignedIn: true,
@@ -200,5 +197,46 @@ describe("shouldRevealLayersOnFirstCreate", () => {
         alreadyRevealed: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveSpaceForwardTransition", () => {
+  it("arms and forwards held:true when Space lands during a drag", () => {
+    expect(resolveSpaceForwardTransition("keydown", false, true)).toEqual({
+      armed: true,
+      broadcast: true,
+    });
+  });
+
+  it("leaves Space to the hand tool when no drag is running", () => {
+    expect(resolveSpaceForwardTransition("keydown", false, false)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
+  });
+
+  it("forwards held:false on keyup even though mouseup already ended the drag", () => {
+    expect(resolveSpaceForwardTransition("keyup", true, false)).toEqual({
+      armed: false,
+      broadcast: false,
+    });
+  });
+
+  it("forwards held:false on blur mid-hold", () => {
+    expect(resolveSpaceForwardTransition("blur", true, false)).toEqual({
+      armed: false,
+      broadcast: false,
+    });
+  });
+
+  it("does not forward a release it never armed", () => {
+    expect(resolveSpaceForwardTransition("keyup", false, true)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
+    expect(resolveSpaceForwardTransition("blur", false, false)).toEqual({
+      armed: false,
+      broadcast: null,
+    });
   });
 });

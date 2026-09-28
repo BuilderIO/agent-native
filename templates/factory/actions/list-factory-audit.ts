@@ -33,7 +33,6 @@ import {
 } from "../server/triage/metadata.js";
 import { readStoredUserLabels } from "../server/triage/slack-user-labels.js";
 
-/** Max runs `listAutomationRuns` will return; enough for merge-paging. */
 const AUTOMATION_RUN_FETCH_LIMIT = 100;
 
 export default defineAction({
@@ -88,8 +87,6 @@ export default defineAction({
           appId: "factory",
           limit: AUTOMATION_RUN_FETCH_LIMIT,
         });
-        // Absent must stay distinguishable from a stored label so the client
-        // can derive its own fallback instead of rendering the nested path.
         const displayName = readAutomationDisplayName(resource.content);
         return runs.map((run) => ({ run, displayName }));
       }),
@@ -175,6 +172,7 @@ export default defineAction({
             summary: triageItems.summary,
             source: triageItems.source,
             sourceUrl: triageItems.sourceUrl,
+            pullRequestNumber: triageItems.pullRequestNumber,
             status: triageItems.status,
             createdAt: triageItems.createdAt,
             lastSeenAt: triageItems.lastSeenAt,
@@ -196,6 +194,7 @@ export default defineAction({
         summary: item.summary,
         source: item.source,
         sourceUrl: item.sourceUrl,
+        pullRequestNumber: item.pullRequestNumber,
         status: item.status,
         createdAt: item.createdAt,
         lastSeenAt: item.lastSeenAt,
@@ -248,6 +247,10 @@ export default defineAction({
           runRows,
           { startedAt: run.startedAt, finishedAt: run.finishedAt },
         );
+        const promptEvent = mappedEvents.find(
+          (event) => event.action === "automation-run-prompt",
+        );
+        const promptDetails = promptEvent?.details ?? {};
         return {
           id: run.id,
           automation: run.automation,
@@ -258,6 +261,14 @@ export default defineAction({
           startedAt: run.startedAt,
           finishedAt: run.finishedAt,
           error: run.error,
+          promptVersion:
+            typeof promptDetails.promptVersion === "number"
+              ? promptDetails.promptVersion
+              : null,
+          executionPromptHash:
+            typeof promptDetails.executionPromptHash === "string"
+              ? promptDetails.executionPromptHash
+              : null,
           counts: report.counts,
           inbox: report.inbox,
           work: report.work,

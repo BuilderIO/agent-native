@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import { streamFile, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -30,7 +31,6 @@ import { getStoredUpload } from "../lib/upload-store.js";
 
 const UPLOADS_DIR = uploadsDirectory();
 
-// Ensure uploads directory exists (guarded for edge runtimes without filesystem)
 try {
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -62,6 +62,7 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
     const ext = path.extname(originalName).toLowerCase() || ".bin";
     return await storeMediaUpload({
       ownerEmail: session.email,
+      orgId: session.orgId,
       data: body instanceof Uint8Array ? body : new Uint8Array(body),
       filename: nanoid(12) + ext,
       originalName,
@@ -87,9 +88,6 @@ export const uploadAttachmentWithTicket = defineEventHandler(
     const token = authorization.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : "";
-    // Reject an invalid bearer before buffering request bytes. The later
-    // atomic claim remains the concurrency boundary immediately before the
-    // storage side effect.
     const verified = await verifyAttachmentUploadTicket(uploadId, token);
     if (!verified) {
       setResponseStatus(event, 401);
@@ -105,6 +103,11 @@ export const uploadAttachmentWithTicket = defineEventHandler(
       return { error: "File too large (max 10 MB)" };
     }
 
+    const orgId =
+      verified.ticket.orgId ??
+      (await resolveOrgIdForEmail(verified.ownerEmail)) ??
+      undefined;
+
     const claimed = await claimAttachmentUploadTicket(uploadId, token);
     if (!claimed) {
       setResponseStatus(event, 401);
@@ -114,6 +117,7 @@ export const uploadAttachmentWithTicket = defineEventHandler(
     try {
       const uploaded = await storeMediaUpload({
         ownerEmail: claimed.ownerEmail,
+        orgId,
         data: body instanceof Uint8Array ? body : new Uint8Array(body),
         filename: claimed.ticket.filename,
         originalName: claimed.ticket.originalName,
@@ -141,7 +145,6 @@ export const uploadAttachmentWithTicket = defineEventHandler(
 export const serveMedia = defineEventHandler(async (event: H3Event) => {
   const filename = getRouterParam(event, "filename") as string;
 
-  // Prevent directory traversal
   if (filename.includes("..") || filename.includes("/")) {
     setResponseStatus(event, 400);
     return { error: "Invalid filename" };
@@ -192,13 +195,7 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     "Cache-Control",
     "public, max-age=31536000, immutable",
   );
-  // Always send X-Content-Type-Options: nosniff so browsers don't MIME-sniff
-  // a polyglot upload (e.g. an SVG/HTML file uploaded with a `.png` extension)
-  // into HTML and execute any embedded `<script>`. The Content-Disposition
-  // attachment fallback below covers the documented SVG/HTML extensions; this
-  // header closes the polyglot bypass for every other type too.
   setResponseHeader(event, "X-Content-Type-Options", "nosniff");
-  // Force download for SVG and other types that could execute scripts inline.
   if (ext === ".svg" || ext === ".html" || ext === ".htm") {
     setResponseHeader(
       event,

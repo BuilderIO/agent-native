@@ -1,21 +1,3 @@
-/**
- * Framework-table store for the cross-app SSO client.
- *
- * The current protocol uses a fresh flow-state table instead of extending the
- * original `identity_sso_state` table. That keeps the migration additive for
- * deployments that already have the merged PR's schema:
- *
- *   - `identity_sso_flow_state` binds state to the exact app, client,
- *     authority, callback, and PKCE challenge. State is single-use.
- *   - `identity_sso_jti` is the legacy-named shared replay guard for short-lived
- *     server-to-server assertions, including identity SSO and privileged A2A
- *     mutations.
- *
- * Uses the same portable raw-SQL pattern as the other framework stores. Local
- * development may initialize these tables lazily; production release
- * migrations own their creation before serverless requests are served.
- */
-
 import { randomBytes } from "node:crypto";
 
 import {
@@ -31,6 +13,8 @@ const DESKTOP_SSO_USER_AGENT = /AgentNativeDesktop(?:SsoCanary)?\//i;
 const DESKTOP_SSO_CANARY_USER_AGENT = /AgentNativeDesktopSsoCanary\//i;
 export const CANONICAL_IDENTITY_SSO_HUB_URL =
   "https://dispatch.agent-native.com";
+export const NETLIFY_PREVIEW_IDENTITY_SSO_HUB_URL =
+  "https://beta.dispatch.agent-native.com";
 const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://analytics.agent-native.com",
   "https://assets.agent-native.com",
@@ -42,8 +26,8 @@ const CANONICAL_IDENTITY_SSO_APP_ORIGINS = new Set([
   "https://crm.agent-native.com",
   "https://design.agent-native.com",
   "https://dispatch.agent-native.com",
+  "https://factory.agent-native.com",
   "https://forms.agent-native.com",
-  "https://macros.agent-native.com",
   "https://mail.agent-native.com",
   "https://plan.agent-native.com",
   "https://slides.agent-native.com",
@@ -66,11 +50,17 @@ const CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS = new Set(
     (origin) => origin !== CANONICAL_IDENTITY_SSO_HUB_URL,
   ),
 );
-
-// ---------------------------------------------------------------------------
-// Feature switch — this module is intentionally dependency-light because the
-// auth guard and the route handler both import the same pure switch.
-// ---------------------------------------------------------------------------
+const NETLIFY_PREVIEW_SITE_NAMES = new Set(
+  [...CANONICAL_IDENTITY_SSO_APP_ORIGINS].map((origin) => {
+    const appId = new URL(origin).hostname.split(".")[0];
+    return appId === "chat" ? "agent-native-starter" : `agent-native-${appId}`;
+  }),
+);
+const NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES = new Set(
+  [...NETLIFY_PREVIEW_SITE_NAMES].filter(
+    (siteName) => siteName !== "agent-native-dispatch",
+  ),
+);
 
 function configuredAppOrigin(): string | undefined {
   for (const raw of [
@@ -113,8 +103,6 @@ export function getIdentityHubUrl(): string | undefined {
     }
   }
 
-  // Canonical hosted apps are all registered with Dispatch already. Keep
-  // self-hosted deployments opt-in, and never make Dispatch federate to itself.
   const appOrigin = configuredAppOrigin();
   return isCanonicalIdentitySsoClientOrigin(appOrigin)
     ? CANONICAL_IDENTITY_SSO_HUB_URL
@@ -168,6 +156,10 @@ export function isCanonicalIdentitySsoClientOrigin(
   return Boolean(origin && CANONICAL_IDENTITY_SSO_CLIENT_ORIGINS.has(origin));
 }
 
+export function isCanonicalIdentitySsoClientConfigured(): boolean {
+  return isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
+}
+
 export function isCanonicalAgentNativeAppRequest(
   host: string | undefined,
   forwardedProtocol: string | undefined,
@@ -184,29 +176,124 @@ export function isCanonicalIdentitySsoClientRequest(
   return isCanonicalIdentitySsoClientOrigin(`https://${host}`);
 }
 
-/**
- * The conditional login entry is available on exact canonical hosted clients
- * and on explicitly configured self-hosted deployments. The automatic browser
- * handoff is separately gated by Dispatch's user-scoped feature flag.
- */
-export function identitySsoLoginButtonHtml(
+export function isNetlifyDeployPermalinkIdentitySsoClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
+  );
+}
+
+export function isNetlifyDeployPermalinkGoogleOAuthClientRequest(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkRequestForSites(
+    host,
+    forwardedProtocol,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
+}
+
+function isNetlifyDeployPermalinkRequestForSites(
+  host: string | undefined,
+  forwardedProtocol: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  const requestProtocol = forwardedProtocol?.trim().toLowerCase() || "https";
+  const configuredSiteName = (
+    process.env.SITE_NAME?.trim() || process.env.NETLIFY_SITE_NAME?.trim()
+  )?.toLowerCase();
+  if (
+    !host ||
+    requestProtocol !== "https" ||
+    (configuredSiteName && !allowedSiteNames.has(configuredSiteName))
+  ) {
+    return false;
+  }
+  return isNetlifyDeployPermalinkHost(
+    host,
+    configuredSiteName,
+    allowedSiteNames,
+  );
+}
+
+function isNetlifyDeployPermalinkHost(
+  host: string,
+  siteName?: string,
+  allowedSiteNames: Set<string> = NETLIFY_PREVIEW_SITE_NAMES,
+): boolean {
+  const normalizedHost = host.toLowerCase();
+  const siteNames = siteName ? [siteName] : [...allowedSiteNames];
+  return siteNames.some((name) =>
+    new RegExp(`^[a-f0-9]{24}--${name}\\.netlify\\.app$`).test(normalizedHost),
+  );
+}
+
+export function isNetlifyDeployPermalinkIdentitySsoClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_IDENTITY_SSO_SITE_NAMES,
+  );
+}
+
+export function isNetlifyDeployPermalinkGoogleOAuthClientOrigin(
+  origin: string | undefined,
+): boolean {
+  return isNetlifyDeployPermalinkOriginForSites(
+    origin,
+    NETLIFY_PREVIEW_SITE_NAMES,
+  );
+}
+
+function isNetlifyDeployPermalinkOriginForSites(
+  origin: string | undefined,
+  allowedSiteNames: Set<string>,
+): boolean {
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    return (
+      url.origin === origin &&
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      isNetlifyDeployPermalinkHost(url.hostname, undefined, allowedSiteNames)
+    );
+  } catch {
+    // coercion-ok: malformed origins are rejected as invalid input.
+    return false;
+  }
+}
+
+export function isIdentitySsoAvailableForRequest(
   options: {
     requestHost?: string;
+    requestProtocol?: string;
   } = {},
-): string {
+): boolean {
   const canonicalRequest = options.requestHost
-    ? isCanonicalIdentitySsoClientRequest(options.requestHost, "https")
+    ? isCanonicalIdentitySsoClientRequest(
+        options.requestHost,
+        options.requestProtocol ?? "https",
+      )
     : isCanonicalIdentitySsoClientOrigin(configuredAppOrigin());
-  if (!canonicalRequest && !isIdentitySsoExplicitlyEnabled()) return "";
-  return (
-    `\n  <a class="btn-identity-sso" id="identity-sso-btn" ` +
-    `href="/_agent-native/identity/login" ` +
-    `style="display:flex;align-items:center;justify-content:center;gap:0.5rem;` +
-    `width:100%;padding:0.7rem 1rem;margin-bottom:0.75rem;border-radius:8px;` +
-    `border:1px solid rgba(255,255,255,0.18);background:transparent;` +
-    `color:inherit;font:inherit;font-weight:600;text-decoration:none;` +
-    `cursor:pointer">Sign in with Agent-Native</a>\n`
-  );
+  return canonicalRequest || isIdentitySsoExplicitlyEnabled();
+}
+
+/** @deprecated Browser sign-in with Agent-Native was removed. */
+export function identitySsoLoginButtonHtml(
+  _options: { requestHost?: string } = {},
+): string {
+  return "";
 }
 
 export interface CreateSsoStateInput {
@@ -339,7 +426,6 @@ function isSafeStateInput(input: CreateSsoStateInput): boolean {
   return true;
 }
 
-/** Mint and persist a bound, crypto-random state value. */
 export async function createSsoState(
   input: CreateSsoStateInput,
 ): Promise<string> {
@@ -460,12 +546,6 @@ export async function consumeSsoState(
   };
 }
 
-/**
- * Strict replay defense for the server-to-server assertion. A database error
- * fails closed here: code exchange already provides the primary single-use
- * guarantee, and refusing a login is safer than accepting an unverifiable
- * replay boundary.
- */
 export async function consumeOneTimeJti(
   jti: string | undefined,
 ): Promise<boolean> {

@@ -1,9 +1,12 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import {
+  CreativeContextComposerChip,
+  useCreativeContextLab,
+} from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
@@ -20,6 +23,7 @@ const DASHBOARD_CONTEXT_KEYS = new Set([
 
 export default function AskPage() {
   const t = useT();
+  const creativeContextEnabled = useCreativeContextLab();
   const chatContext = useAgentChatContext();
   const chatContextItems = chatContext.items;
   const removeChatContextItem = chatContext.remove.bind(chatContext);
@@ -41,9 +45,6 @@ export default function AskPage() {
     const pathnameAtMount = window.location.pathname;
 
     void readSelectedDashboardObject().then((selection) => {
-      // If the user already navigated away, this Ask instance no longer owns
-      // cleanup. The action also CASes the captured selection, covering a
-      // selection change that happens after this read but before the write.
       if (!mounted || window.location.pathname !== pathnameAtMount) return;
       if (selection) void clearSelectedDashboardObjectIfOwned(selection);
     });
@@ -54,33 +55,30 @@ export default function AskPage() {
   }, []);
 
   return (
-    <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="analytics-chat-panel"
-        defaultMode="chat"
-        storageKey={ANALYTICS_CHAT_STORAGE_KEY}
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("common.askAnalytics")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("common.askPlaceholder")}
-        composerSlot={
-          <>
-            <CreativeContextComposerChip />
-            <div className="analytics-chat-intro">
-              <h1>{t("common.askIntroTitle")}</h1>
-              <p>{t("common.askIntroBody")}</p>
-            </div>
-          </>
-        }
-      />
-    </div>
+    <AgentChatHome
+      className="analytics-ask-page h-full min-h-0"
+      surfaceClassName="analytics-chat-panel"
+      chatViewTransition
+      defaultMode="chat"
+      storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+      browserTabId={TAB_ID}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("common.askAnalytics")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("common.askPlaceholder")}
+      composerSlot={
+        creativeContextEnabled ? <CreativeContextComposerChip /> : null
+      }
+      homeIntroSlot={
+        <div className="analytics-chat-intro">
+          <h1>{t("common.askIntroTitle")}</h1>
+        </div>
+      }
+    />
   );
 }

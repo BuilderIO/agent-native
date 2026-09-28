@@ -4,6 +4,7 @@ import {
   canReceiveRecordingActivity,
   canOpenDirectRecordingPage,
   isRecordingExpired,
+  isRecordingExpiredForViewer,
 } from "./recording-page-access.js";
 
 describe("isRecordingExpired", () => {
@@ -23,6 +24,30 @@ describe("isRecordingExpired", () => {
       expect(isRecordingExpired(expiresAt, now)).toBe(false);
     },
   );
+});
+
+describe("isRecordingExpiredForViewer", () => {
+  const now = Date.parse("2026-07-15T12:00:00.000Z");
+
+  it("keeps an owner's expired recording available", () => {
+    expect(
+      isRecordingExpiredForViewer({
+        expiresAt: "2026-07-15T11:59:59.999Z",
+        viewerIsOwner: true,
+        now,
+      }),
+    ).toBe(false);
+  });
+
+  it("expires non-owner access after the configured time", () => {
+    expect(
+      isRecordingExpiredForViewer({
+        expiresAt: "2026-07-15T11:59:59.999Z",
+        viewerIsOwner: false,
+        now,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("canOpenDirectRecordingPage", () => {

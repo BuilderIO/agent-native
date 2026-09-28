@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({
   ownerEmail: "owner@example.com" as string | null,
+  orgId: "org-1" as string | undefined,
 }));
 const createTicket = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getAppProductionUrl: () => "https://apps.example.com",
+  getRequestOrgId: () => auth.orgId,
   getRequestUserEmail: () => auth.ownerEmail,
   withConfiguredAppBasePath: (url: string) => `${url}/mail`,
 }));
@@ -18,6 +20,7 @@ vi.mock("../server/lib/attachment-upload-ticket.js", () => ({
 describe("create-attachment-upload", () => {
   beforeEach(() => {
     auth.ownerEmail = "owner@example.com";
+    auth.orgId = "org-1";
     createTicket.mockReset().mockResolvedValue({
       uploadId: "upload-1",
       token: "secret-token",
@@ -36,6 +39,7 @@ describe("create-attachment-upload", () => {
     expect(createTicket).toHaveBeenCalledWith(
       "owner@example.com",
       "report.pdf",
+      "org-1",
     );
     expect(result).toMatchObject({
       method: "PUT",

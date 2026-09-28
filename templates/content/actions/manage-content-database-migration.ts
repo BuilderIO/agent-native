@@ -9,7 +9,7 @@ import {
 
 export default defineAction({
   description:
-    "Rollback an applied Content database row migration or finalize its legacy properties. Requires approval and the exact expected post-migration digest.",
+    "Rollback an applied Content collection row migration or finalize its legacy properties. Requires approval and the exact expected post-migration digest.",
   schema: approvalOperationalSchema,
   needsApproval: true,
   audit: migrationAudit,

@@ -1,4 +1,3 @@
-// Store
 export {
   getSetting,
   mutateSetting,
@@ -11,17 +10,14 @@ export {
   type StoreWriteOptions,
 } from "./store.js";
 
-// H3 route handlers
 export {
   getSettingHandler,
   putSettingHandler,
   deleteSettingHandler,
 } from "./handlers.js";
 
-// Script helpers
 export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 
-// User-scoped helpers
 export {
   getUserSetting,
   mutateUserSetting,
@@ -29,7 +25,6 @@ export {
   deleteUserSetting,
 } from "./user-settings.js";
 
-// Org-scoped helpers
 export {
   getOrgSetting,
   putOrgSetting,

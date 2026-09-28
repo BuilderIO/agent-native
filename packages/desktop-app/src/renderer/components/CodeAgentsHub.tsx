@@ -82,6 +82,7 @@ import {
   toAppDefinition,
   type AppConfig,
 } from "@shared/app-registry";
+import { CODE_AGENTS_SURFACE_ID } from "@shared/code-agents";
 import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
 import {
   IconArrowLeft,
@@ -274,6 +275,25 @@ export function isChatFirstSurfaceTabActive(input: {
   activeTabId?: string | null;
 }): boolean {
   return input.surfaceActive && input.tabId === input.activeTabId;
+}
+
+export function resolveDesktopChatFirstPrimaryTab(input: {
+  scheduledTasksOpen: boolean;
+  appSelected: boolean;
+  activeTab?: { kind: string; appId?: string; path?: string } | null;
+}): ChatFirstPrimaryTab | undefined {
+  if (input.scheduledTasksOpen) return "scheduled";
+  const tab = input.activeTab;
+  if (!input.appSelected || tab?.kind !== "app" || tab.appId !== "dispatch") {
+    return input.appSelected ? undefined : "new-chat";
+  }
+  if (tab.path === "/admin/integrations" || tab.path === "/integrations") {
+    return "integrations";
+  }
+  if (tab.path === "/admin/automations" || tab.path === "/automations") {
+    return "scheduled";
+  }
+  return undefined;
 }
 
 export function chatFirstPreviewPartitionKey(
@@ -622,8 +642,6 @@ export function updateAppAuthStateByTab(
   tabId: string,
   state: AppWebviewAuthState,
 ): Record<string, AppWebviewAuthState> {
-  // Navigation probes publish unknown while the guest session settles. Keep
-  // the last confirmed state so host-owned surfaces do not remount per route.
   if (state === "unknown" && current[tabId] !== undefined) return current;
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
@@ -876,31 +894,15 @@ export default function CodeAgentsHub({
     chatFirstAppSelected &&
     shouldUseDesktopAppChatShell(activeChatFirstSurfaceTab?.path);
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const activeChatFirstPrimaryTab = useMemo<
-    ChatFirstPrimaryTab | undefined
-  >(() => {
-    if (scheduledTasksOpen) return "scheduled";
-    if (
-      !chatFirstAppSelected ||
-      activeChatFirstSurfaceTab?.kind !== "app" ||
-      activeChatFirstSurfaceTab.appId !== "dispatch"
-    ) {
-      return chatFirstAppSelected ? undefined : "new-chat";
-    }
-    if (
-      activeChatFirstSurfaceTab.path === "/admin/integrations" ||
-      activeChatFirstSurfaceTab.path === "/integrations"
-    ) {
-      return "integrations";
-    }
-    if (
-      activeChatFirstSurfaceTab.path === "/admin/automations" ||
-      activeChatFirstSurfaceTab.path === "/automations"
-    ) {
-      return "scheduled";
-    }
-    return undefined;
-  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
+  const activeChatFirstPrimaryTab = useMemo(
+    () =>
+      resolveDesktopChatFirstPrimaryTab({
+        scheduledTasksOpen,
+        appSelected: chatFirstAppSelected,
+        activeTab: activeChatFirstSurfaceTab,
+      }),
+    [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen],
+  );
   const [, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -1071,6 +1073,10 @@ export default function CodeAgentsHub({
     setHasChatFirstActiveChat(false);
     returnToChatFirstChats();
   }, [returnToChatFirstChats]);
+  const openChatFirstToolbarNewChat = useCallback(() => {
+    openChatFirstNewChat();
+    window.dispatchEvent(new Event("agent-native:desktop-new-chat"));
+  }, [openChatFirstNewChat]);
   const handleTerminalPromptSubmit = useCallback((prompt: string) => {
     const request: DesktopTerminalPromptRequest = {
       id: ++terminalPromptSequence.current,
@@ -1309,6 +1315,7 @@ export default function CodeAgentsHub({
               ? activeChatFirstSurfaceTab.appId
               : undefined
           }
+          activeTab={activeChatFirstPrimaryTab}
           collapsed={chatFirstRailCollapsed}
           layout={chatFirstAppLayout}
           createAppTrigger={
@@ -1330,6 +1337,7 @@ export default function CodeAgentsHub({
       </>
     );
   }, [
+    activeChatFirstPrimaryTab,
     activeChatFirstSurfaceTab?.appId,
     activeChatFirstSurfaceTab?.kind,
     chatFirstAppItems,
@@ -1526,6 +1534,9 @@ export default function CodeAgentsHub({
   const activateChatFirstSurfaceTab = useCallback(
     (tab: ChatFirstSurfaceTab) => {
       chatFirstSurfaceTabsStore.activate(tab.id);
+      window.electronAPI?.setActiveApp?.(
+        tab.kind === "app" && tab.appId ? tab.appId : CODE_AGENTS_SURFACE_ID,
+      );
       if (tab.kind === "app" && tab.appId) {
         closeChatFirstSessionWatch();
         setChatFirstBrowserSelection(null);
@@ -2918,14 +2929,21 @@ export default function CodeAgentsHub({
             !showTerminalSurface &&
             !chatFirstAllAppsOpen &&
             !scheduledTasksOpen &&
+            hasChatFirstActiveChat &&
             !chatFirstAppSelected ? (
               <DesktopChatFirstSurfaceMenu
                 sidebarOpen={chatFirstSurfacePanel.open}
-                onToggleSidebar={chatFirstSurfacePanel.toggle}
+                onToggleSidebar={
+                  canToggleChatFirstSurfacePanel
+                    ? chatFirstSurfacePanel.toggle
+                    : undefined
+                }
                 onNewCliTab={handleNewCliTab}
-                onNewUiTab={openChatFirstNewChat}
+                onNewUiTab={openChatFirstToolbarNewChat}
                 onClose={
-                  hasChatFirstActiveChat ? openChatFirstNewChat : undefined
+                  hasChatFirstActiveChat
+                    ? openChatFirstToolbarNewChat
+                    : undefined
                 }
               />
             ) : undefined
@@ -3144,8 +3162,6 @@ export default function CodeAgentsHub({
                 }}
                 theme={theme}
                 urlParams={urlParams}
-                // Shell key folded in: a lane change remounts every hosted
-                // surface, not just the ones with their own refresh reason.
                 refreshKey={appRefreshKey + refreshKey}
               />
             </div>

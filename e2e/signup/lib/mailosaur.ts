@@ -123,18 +123,22 @@ export function createQaEmail(app: string, environment: string): string {
     "",
   );
   const nonce = randomUUID().replace(/-/g, "").slice(0, 10);
-  return `signup+qa-test-bot-${run || "local"}-${attempt || "1"}-${environment}-${app}-${nonce}@${serverId()}${MAILOSAUR_DOMAIN_SUFFIX}`;
+  return `signup+autoz-${run || "local"}-${attempt || "1"}-${environment}-${app}-${nonce}@${serverId()}${MAILOSAUR_DOMAIN_SUFFIX}`;
 }
 
 export async function waitForVerificationEmail(
   email: string,
   receivedAfter: number,
+  excludedMessageIds: ReadonlySet<string> = new Set(),
 ): Promise<MailosaurMessage> {
   const deadline = Date.now() + EMAIL_WAIT_TIMEOUT_MS;
   while (Date.now() <= deadline) {
     const summaries = await listMessages(receivedAfter);
     const summary = summaries.find(
-      (message) => messageIsForEmail(message, email) && isAuthMessage(message),
+      (message) =>
+        !excludedMessageIds.has(message.id) &&
+        messageIsForEmail(message, email) &&
+        isAuthMessage(message),
     );
     if (summary) {
       return getJson<MailosaurMessage>(

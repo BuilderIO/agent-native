@@ -1,5 +1,17 @@
 # CRM changelog
 
+## 2026-09-28
+
+### Improved
+
+- Ask CRM now starts with a focused title.
+
+## 2026-09-27
+
+### Fixed
+
+- Custom CRM field labels and settings stay unchanged when records update
+
 ## 2026-08-11
 
 ### Improved

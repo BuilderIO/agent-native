@@ -32,13 +32,13 @@ Toolkit 和 Templates 都是可选的。模板并不等同于框架本身，Tool
 当您想要一个框架连接已就位的最小应用程序时，请使用聊天模板：
 
 ```bash
-npx @agent-native/core@latest create my-template --template chat --standalone
+npx --yes @agent-native/core@latest create my-template --template chat --standalone
 ```
 
 对于具有多个应用程序的工作区，运行选择器并包含与您想要的任何域模板的聊天：
 
 ```bash
-npx @agent-native/core@latest create my-platform
+npx --yes @agent-native/core@latest create my-platform
 ```
 
 聊天为您提供身份验证、持久聊天线程、PostgreSQL 支持的资源、工具、应用程序状态、actions 和轮询同步。您添加域模型和产品 UI。
@@ -512,13 +512,13 @@ export default defineNitroPlugin(() => {
 社区模板可直接从公开 GitHub 仓库安装。请将 Agent-Native 应用放在仓库根目录：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo
 ```
 
 如需固定特定版本，可添加 `#branch`、`#tag` 或 `#commit`：
 
 ```bash
-npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+npx --yes @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
 ```
 
 CLI 只下载源代码，不会安装依赖或运行模板脚本。社区模板属于第三方代码；运行 `pnpm install` 前请检查仓库、许可证、依赖项和安装脚本。

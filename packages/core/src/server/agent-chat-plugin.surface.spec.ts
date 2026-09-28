@@ -17,6 +17,8 @@ import {
   filterPromptActionsToSurface,
   filterRuntimeActionsToSurface,
   resolveProductionCodeExecutionForActionSurface,
+  resolveObservabilityReviewSummaryActionSurface,
+  resolveConnectSetupInitialToolNames,
   resolveHostedBuilderHandoff,
   resolveConfiguredAgentModel,
   resolveInteractiveAgentRunOptions,
@@ -32,6 +34,16 @@ import {
   buildFrameworkCoreCompact,
 } from "./prompts/index.js";
 import { runWithRequestContext } from "./request-context.js";
+
+const agentChatPluginSourceUrl = new URL(
+  "./agent-chat-plugin.ts",
+  import.meta.url,
+);
+const devScriptSourceUrl = new URL("../scripts/dev/index.ts", import.meta.url);
+const productionAgentSourceUrl = new URL(
+  "../agent/production-agent.ts",
+  import.meta.url,
+);
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
   it("blocks app-rendered chat surfaces, including legacy iframe labels", () => {
@@ -128,8 +140,131 @@ describe("interactive agent run options", () => {
 });
 
 describe("request-scoped action surface", () => {
+  it("limits summary requests to the two run-bound review actions", async () => {
+    const details = {
+      actionScope: {
+        kind: "observability-review-summary",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+        "delete-workspace",
+      ],
+    } as any;
+    let hostResolverCalled = false;
+    const hostResolver = () => {
+      hostResolverCalled = true;
+      return { mode: "default" as const };
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: { kind: "observability-review-summary", runId: "run-42" },
+    });
+    expect(hostResolverCalled).toBe(false);
+  });
+
+  it("binds each bulk summary surface to its deduplicated run IDs", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: [" run-1 ", "run-2", "run-1"],
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).resolves.toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-review-summary",
+      ],
+      actionScope: {
+        kind: "observability-review-summary-batch",
+        runIds: ["run-1", "run-2"],
+      },
+    });
+  });
+
+  it("preserves the host resolver for non-summary requests", async () => {
+    const details = { actionScope: { kind: "host-flow" } } as any;
+    const hostResult = { allowedActionNames: ["host-action"] };
+    let receivedDetails: unknown;
+    const hostResolver = (value: unknown) => {
+      receivedDetails = value;
+      return hostResult;
+    };
+
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface(details, hostResolver),
+    ).resolves.toBe(hostResult);
+    expect(receivedDetails).toBe(details);
+  });
+
+  it("limits feedback improvement to a run-bound instruction draft", async () => {
+    const result = await resolveObservabilityReviewSummaryActionSurface({
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+      availableActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+        "delete-workspace",
+      ],
+    } as any);
+    expect(result).toEqual({
+      allowedActionNames: [
+        "get-observability-review-summary-source",
+        "save-observability-instruction-update",
+      ],
+      actionScope: {
+        kind: "observability-feedback-improvement",
+        runId: "run-42",
+      },
+    });
+  });
+
+  it("rejects malformed summary scopes and missing review actions", async () => {
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "" },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: { kind: "observability-review-summary", runId: "run-42" },
+        availableActionNames: ["get-observability-review-summary-source"],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      resolveObservabilityReviewSummaryActionSurface({
+        actionScope: {
+          kind: "observability-review-summary-batch",
+          runIds: Array.from({ length: 26 }, (_, index) => `run-${index}`),
+        },
+        availableActionNames: [
+          "get-observability-review-summary-source",
+          "save-observability-review-summary",
+        ],
+      } as any),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it("does not import the release migration script during dev discovery", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const skipFiles = source.match(
@@ -139,13 +274,13 @@ describe("request-scoped action surface", () => {
     expect(skipFiles).toContain('"migrate-production"');
   });
 
-  it("restores the durable worker org from the validated persisted surface", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  it("restores the durable worker from the persisted turn initiator", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
     expect(source).toMatch(
-      /const persistedSurface = readPersistedActionSurface\(\s*workerBody,\s*"__resolvedActionSurface",\s*\);[\s\S]*?seedBackgroundAgentRunOwnerContext\([\s\S]*?persistedSurface\?\.orgId,/,
+      /await seedBackgroundAgentRunOwnerContext\(event, prepared\.runId\)/,
     );
   });
 
@@ -204,7 +339,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("wires the safe code-execution mode into the interactive production registry", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -217,7 +352,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const devNativeBlock = source.match(
@@ -232,7 +367,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps request-scoped dev actions available without exposing them natively", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -245,7 +380,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("keeps local coding tools in every dev handler variant", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -260,11 +395,33 @@ describe("request-scoped action surface", () => {
     );
   });
 
-  it("keeps local coding tools available while scoping app actions in dev", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  it("generates chat tab titles with the shared completion engine", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
-    const devSource = readFileSync("src/scripts/dev/index.ts", {
+    const start = source.indexOf("`${routePath}/generate-title`");
+    const end = source.indexOf("// ─── Run management endpoints", start);
+    const route = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(route).toContain(
+      'if (titleOwnerContext.anonymous) return { title: "" };',
+    );
+    expect(route).toContain("runWithRequestContext");
+    expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
+    expect(route).toContain("{ userEmail: ownerEmail, orgId }");
+    expect(route).toContain("completeText({");
+    expect(route).toContain("appId: options?.appId");
+    expect(route).toContain('return { title: "" };');
+    expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
+  });
+
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync(devScriptSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -272,7 +429,7 @@ describe("request-scoped action surface", () => {
       /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
     );
     expect(source).toMatch(
-      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?if \(normalizedSurface\.actionScope\)[\s\S]*?allowedActionNames: normalizedSurface\.allowedActionNames,[\s\S]*?actionScope: normalizedSurface\.actionScope,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
     );
     expect(devSource).toMatch(
       /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
@@ -309,13 +466,15 @@ describe("request-scoped action surface", () => {
     expect(prompt).not.toContain("core.denied");
   });
 
-  it("forwards the resolver into every interactive production handler", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  it("wraps the resolver for every interactive production handler", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
     expect(
-      source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
+      source.match(
+        /resolveActionSurface: \(details\) =>\s+resolveObservabilityReviewSummaryActionSurface\(/g,
+      ),
     ).toHaveLength(2);
     expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
   });
@@ -358,7 +517,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("uses the request-filtered supplier for production, lean, and dev sandbox meta-tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -370,7 +529,7 @@ describe("request-scoped action surface", () => {
   });
 
   it("filters the action registry before agent-team tasks snapshot it", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -400,7 +559,7 @@ describe("hosted Builder handoff surface", () => {
   });
 
   it("wires the hosted handoff into the first-request and lean registries", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     expect(source).toMatch(
@@ -430,69 +589,86 @@ describe("hosted Builder handoff surface", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
-// nothing about whether the value it returns actually reaches the run
-// manager — that wiring lives inside `createAgentChatPlugin`'s and
-// `createProductionAgentHandler`'s multi-thousand-line request-handler
-// closures, which have no cheap unit seam (same rationale as the
-// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
-// guards close that gap: they fail if a future call site forgets to spread
-// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
-// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
-// exactly the class of bug the run-manager's own no-progress-backstop tests
-// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
+describe("connect setup initial tool names", () => {
+  const setupEntry = {
+    tool: { description: "Render a setup card.", parameters: {} },
+    run: async () => "card",
+  } as unknown as ActionEntry;
+
+  it("advertises each setup CTA the registry actually has", () => {
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+        "connect-builder": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage", "connect-builder"]);
+    expect(
+      resolveConnectSetupInitialToolNames({
+        "connect-file-storage": setupEntry,
+      }),
+    ).toEqual(["connect-file-storage"]);
+    expect(resolveConnectSetupInitialToolNames({})).toEqual([]);
+  });
+
+  it("names connect-builder on the first request outside hosted registries", () => {
+    const source = readFileSync(agentChatPluginSourceUrl, {
+      encoding: "utf-8",
+    });
+    const initialNamesStart = source.indexOf(
+      "const effectiveInitialToolNames = [",
+    );
+    const initialNamesBlock = source.slice(
+      initialNamesStart,
+      initialNamesStart + 900,
+    );
+    expect(initialNamesBlock).toContain(
+      "...resolveConnectSetupInitialToolNames(browserTools),",
+    );
+  });
+});
+
 describe("interactive agent run options — wiring guards", () => {
   it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
-    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
-    const spreadSites = source.match(
-      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
-    );
+    const handlerCallSites = [
+      ...source.matchAll(/createProductionAgentHandler\(\{/g),
+    ];
+    const handlerBlocks = handlerCallSites.map((handlerCallSite, index) => {
+      const start = handlerCallSite.index ?? 0;
+      const end = handlerCallSites[index + 1]?.index ?? source.length;
+      return source.slice(start, end);
+    });
 
-    // Three interactive handlers are created today (prod, anonymous
-    // read-only, dev). If this count changes, a new call site was added or
-    // removed — update this guard alongside it, and confirm the new/changed
-    // site still spreads the run options immediately before
-    // `finalResponseGuard`.
     expect(handlerCallSites).toHaveLength(3);
-    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+    for (const handlerBlock of handlerBlocks) {
+      expect(handlerBlock).toContain(
+        "...resolveInteractiveAgentRunOptions(options),",
+      );
+      expect(handlerBlock).toContain(
+        "finalResponseGuard: options?.finalResponseGuard,",
+      );
+    }
   });
 
   it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
-    // There is exactly one `startRun(...)` call in production-agent.ts — the
-    // interactive/production run start. Confirm it stays singular so the
-    // adjacency assertion below can't silently start matching a different,
-    // unrelated call site.
     expect(source.match(/\n {4}const startedRun = startRun\(\n/g)).toHaveLength(
       1,
     );
 
-    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
-    // (not hardcoded, not dropped) and live in the same options object as
-    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
-    // startRun's final argument.
     expect(source).toMatch(
       /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
     );
   });
 
-  // `/runs/active` is the only server surface the background-follow client can
-  // still read once a run is terminal, and its response object is field-picked
-  // by hand. The client owns the copy for terminal reasons that produce no error
-  // event, so without this field it has to guess who is reading a
-  // missing-credential failure — and guessed the owner, on a site whose visitors
-  // have no Builder account. No route test can see a hand-picked field, so this
-  // guard stands in for one.
   it("reports whether the deployment pays for its own AI on /runs/active", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -505,7 +681,7 @@ describe("interactive agent run options — wiring guards", () => {
   });
 
   it("keeps background workers alive through run-manager finalization", () => {
-    const source = readFileSync("src/agent/production-agent.ts", {
+    const source = readFileSync(productionAgentSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -518,7 +694,7 @@ describe("interactive agent run options — wiring guards", () => {
 
 describe("background automation action surface — wiring guards", () => {
   it("uses one shared background action builder with unattended email tools", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -532,14 +708,19 @@ describe("background automation action surface — wiring guards", () => {
   });
 });
 
-// `frameworkTools` gating happens inside `createAgentChatPlugin`'s multi-
-// thousand-line closure, which has no cheap unit seam (same rationale as the
-// run-options guards above). `framework-tools.spec.ts` proves the filter and
-// resolver in isolation; these source guards prove they are actually wired at
-// the two points that matter, and that the UI's routes stay out of it.
 describe("framework tool gating — wiring guards", () => {
-  const source = readFileSync("src/server/agent-chat-plugin.ts", {
+  const source = readFileSync(agentChatPluginSourceUrl, {
     encoding: "utf-8",
+  });
+
+  it("merges core actions before filtering an explicit agent registry", () => {
+    const merge = source.indexOf(
+      "await mergeCoreSharingActions(templateScriptsAll);",
+    );
+    expect(merge).toBeGreaterThan(source.indexOf("const rawActions ="));
+    expect(merge).toBeLessThan(
+      source.indexOf("filterAgentTools(templateScriptsAll)"),
+    );
   });
 
   it("resolves the framework tool surface once and gates both agent registries", () => {
@@ -547,8 +728,6 @@ describe("framework tool gating — wiring guards", () => {
       "const frameworkTools = resolveFrameworkTools(options);",
     );
 
-    // Both agent-facing registries must be filtered. Missing either one leaves
-    // a disabled kit reachable from that surface.
     for (const set of ["templateScriptsAll", "discoveredActionsAll"]) {
       expect(source, set).toMatch(
         new RegExp(
@@ -558,9 +737,24 @@ describe("framework tool gating — wiring guards", () => {
     }
   });
 
+  it("lets apps hide the raw browser-session tools from every agent surface", () => {
+    const start = source.indexOf(
+      "let browserSessionTools: Record<string, ActionEntry> = {};",
+    );
+    const remoteStart = source.indexOf("let remoteBrowserTools:", start);
+    const remoteEnd = source.indexOf("// Core send-email tool.", remoteStart);
+    const rawTools = source.slice(start, remoteStart);
+    const relayTools = source.slice(remoteStart, remoteEnd);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(rawTools).toMatch(
+      /if \(frameworkTools\.isEnabled\("browserSessions"\)\) \{[\s\S]*createBrowserSessionActionEntries\([\s\S]*?\}\s+\}\s+catch \{\}\s*$/,
+    );
+    expect(relayTools).toContain("createRemoteBrowserActionEntries");
+    expect(relayTools).not.toContain('isEnabled("browserSessions")');
+  });
+
   it("leaves httpActions ungated so the UI keeps its routes", () => {
-    // Disabling `sharing` must not 404 a share dialog that is still on screen:
-    // the UI reaches these through client hooks, not the agent tool surface.
     const start = source.indexOf(
       "const httpActions: Record<string, ActionEntry> = {",
     );
@@ -574,8 +768,6 @@ describe("framework tool gating — wiring guards", () => {
   });
 
   it("reads the deprecated flags only through the resolver", () => {
-    // A second read of `options.databaseTools` / `options.extensionTools` would
-    // bypass the conflict check and split the app's tool surface in two.
     expect(source).not.toContain("options?.databaseTools");
     expect(source).not.toContain("options?.extensionTools");
   });
@@ -583,7 +775,7 @@ describe("framework tool gating — wiring guards", () => {
 
 describe("lean workspace-app surface — wiring guards", () => {
   it("keeps cross-app discovery and delegation available when enabled", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
@@ -597,7 +789,7 @@ describe("lean workspace-app surface — wiring guards", () => {
 
 describe("delegated agent run policy — wiring guards", () => {
   it("forwards non-default delegated budgets to MCP ask_app", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
     const mcpCallStart = source.indexOf("await runMCPAgentLoop(");
@@ -639,12 +831,6 @@ describe("agent teams prompt guidance", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Token-budget regression tests
-// These assert rough character-count budgets so prompt drift is caught early.
-// Update the snapshot when you intentionally change the prompt content.
-// ---------------------------------------------------------------------------
-
 describe("prompt token-budget regressions", () => {
   const full = buildFrameworkCore();
   const compact = buildFrameworkCoreCompact();
@@ -658,7 +844,6 @@ describe("prompt token-budget regressions", () => {
   });
 
   it("compact prompt is materially smaller than the full prompt", () => {
-    // compact should be at most 75 % of full — if it's bigger, dedup is broken
     expect(compact.length).toBeLessThan(full.length * 0.75);
   });
 
@@ -669,11 +854,6 @@ describe("prompt token-budget regressions", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Prompt-content invariants
-// Spot-check that shared rules survived the modularisation.
-// ---------------------------------------------------------------------------
 
 describe("prompt content invariants", () => {
   const full = buildFrameworkCore();
@@ -727,7 +907,6 @@ describe("prompt content invariants", () => {
       ["resources", ["`resources`", "agent_scratch"]],
       ["chat", ["`chat-history`"]],
       ["automation", ["`manage-jobs`", "`manage-progress`"]],
-      // Bold in the full prompt, backticked in the compact one — match both.
       ["workspaceApps", ["call-agent"]],
     ];
 
@@ -748,7 +927,6 @@ describe("prompt content invariants", () => {
   });
 
   it("keeps the surrounding prose intact when a group is dropped", () => {
-    // Dropping a clause must not leave a dangling list or an empty heading.
     const gated = buildFrameworkCore(undefined, {
       disabledFrameworkGroups: new Set<FrameworkToolGroup>([
         "chat",
@@ -761,7 +939,6 @@ describe("prompt content invariants", () => {
     expect(gated).not.toMatch(/,\s*,/);
     expect(gated).not.toMatch(/for\s*,/);
     expect(gated).not.toMatch(/,\s*and\s*\./);
-    // The planning rule survives without its tool reference.
     expect(gated).toContain("**Plan and track multi-step work**");
   });
 
@@ -826,11 +1003,6 @@ describe("prompt content invariants", () => {
       { extensionTools: true },
     );
 
-    // The 7-row routing table and worked examples were cut in favor of one
-    // boundary sentence (routing among render-inline-extension/create-extension/
-    // show-extension-inline/update-extension is already derivable from each
-    // tool's own description; the "can't reach native chrome" case is also
-    // restated in connect-builder's own tool description).
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       "they cannot inject UI into arbitrary native components",
     );
@@ -846,13 +1018,10 @@ describe("prompt content invariants", () => {
   });
 
   it("registers extension actions only after an explicit opt-in", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 
-    // The default-false decision now lives in `resolveFrameworkTools`, which
-    // folds the deprecated `extensionTools` flag into `frameworkTools`.
-    // `framework-tools.spec.ts` asserts that default behaviorally.
     expect(source).toContain(
       "const extensionToolsEnabled = frameworkTools.extensions;",
     );
@@ -883,9 +1052,6 @@ describe("prompt content invariants", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("manage-progress");
       expect(prompt).toContain("never create single-step plans");
-      // The start/update/complete call sequence belongs to `manage-progress`'s
-      // own tool description, which the model reads before it can call the
-      // tool. Restating it here charges every turn for it.
       expect(prompt).not.toContain('action: "start"');
       expect(prompt).not.toContain('status: "succeeded"');
     }
@@ -943,10 +1109,6 @@ describe("available action prompt rendering", () => {
   });
 
   it("keeps framework kits out of the default first-request tool set", () => {
-    // The kits reach this same registry through autoDiscoverActions, so the
-    // plain "all template actions" default used to promote ~45 framework
-    // schemas into every app's first request. They stay in availableTools and
-    // remain reachable through tool-search.
     const withFrameworkKits = {
       ...(actions as Record<string, unknown>),
       "share-resource": { frameworkGroup: "sharing" },
@@ -959,7 +1121,6 @@ describe("available action prompt rendering", () => {
       ),
     ).toEqual(["common", "rare"]);
 
-    // An app that genuinely wants one on turn one still names it explicitly.
     expect(
       _agentChatPromptSectionsForTests.resolveInitialToolNames(
         withFrameworkKits,
@@ -1077,14 +1238,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
     expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
 
     const prompt = generateCorpusToolsPrompt(registry);
-    // "Available corpus-capable tools: ..." is the authoritative,
-    // registry-conditional line — this is the invariant
-    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
-    // to avoid teaching a tool as available when it isn't in the first
-    // request's active tool set. (The fixed prose below it separately
-    // explains `provider-corpus-job` / run-code usage unconditionally
-    // whenever the block renders at all — that static explanatory text is
-    // pre-existing and out of scope here.)
     const availabilityLine = prompt
       .split("\n")
       .find((line) => line.startsWith("Available corpus-capable tools:"));
@@ -1120,11 +1273,6 @@ describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency"
   });
 });
 
-// ---------------------------------------------------------------------------
-// Snapshot test — full assembled prompt at default config
-// Run `vitest --update` to regenerate after intentional changes.
-// ---------------------------------------------------------------------------
-
 describe("assembled prompt snapshots", () => {
   it("full prompt (default examples) matches snapshot", () => {
     const full = buildFrameworkCore();
@@ -1149,14 +1297,8 @@ describe("delegated tool surfaces in dev", () => {
     ).toBe(false);
   });
 
-  // The interactive surface routes template actions through bash in dev to
-  // dodge the degenerate empty-object tool call some models emit. A delegated
-  // caller (A2A, or `ask_app` over MCP) has nobody to retry for it: with no
-  // native action the sibling agent shells out, repeats the same command, and
-  // the run dies on the repetition guard minutes later. Both delegated
-  // surfaces therefore keep template actions native even in dev.
   it("keep template actions native so a sibling never has to shell out", () => {
-    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+    const source = readFileSync(agentChatPluginSourceUrl, {
       encoding: "utf-8",
     });
 

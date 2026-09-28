@@ -1,14 +1,5 @@
 name: Promote Netlify deploy
 
-# Netlify has no native "jump the queue" primitive: production builds share a
-# per-account concurrency pool, so when one site is busted it can sit behind a
-# backlog of other sites' queued builds. This manual workflow prioritizes a
-# single site by (a) cancelling queued-but-not-yet-started production deploys
-# for the target site, (b) optionally cancelling OTHER sites' queued production
-# deploys to free build slots, and (c) triggering a fresh production build of
-# the target site so the latest main ships immediately. In-progress deploys are
-# never cancelled.
-
 on:
   workflow_dispatch:
     inputs:
@@ -27,7 +18,6 @@ on:
           - starter
           - slides
           - mail
-          - macros
           - forms
           - plan
           - dispatch
@@ -51,8 +41,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Promotion has its own queue; the fleet caller coordinates individual
-  # sites at the job level so a promotion cannot replace a pending fleet run.
   group: agent-native-production-promote-${{ inputs.site }}
   cancel-in-progress: false
 
@@ -99,9 +87,10 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Use the same per-site queue as fleet deploys and manager operations.
-      # This prevents restore from racing a prebuilt unlock/upload window.
-      group: agent-native-production-site-${{ matrix.site }}
+      group: >-
+        ${{ (matrix.site == 'design' || matrix.site == 'slides')
+            && 'agent-native-production-site-design-slides'
+            || format('agent-native-production-site-{0}', matrix.site) }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
@@ -263,3 +252,33 @@ jobs:
             core.info(`[${target}] ${rebuild ? 'cleared' : 'rebuild not requested; cleared'} ${freedTarget} older queued deploys.`);
 
             core.info(`Promotion complete for ${target} (ref=${ref}, clear_others=${clearOthers}, rebuild=${rebuild}).`);
+
+  handoff-beta:
+    name: Hand off latest main to beta publisher
+    needs: promote
+    if: ${{ !cancelled() && needs.promote.result == 'success' }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue the current main source for beta
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-beta-sites-prebuilt.yml',
+              ref: 'main',
+              inputs: {
+                source_ref: mainSha,
+                handoff: 'true',
+              },
+            });
+            core.info(`Handed off current main ${mainSha} to the beta publisher.`);

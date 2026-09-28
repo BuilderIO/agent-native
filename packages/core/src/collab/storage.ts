@@ -1,11 +1,4 @@
-/**
- * SQL storage for Yjs collaborative document state.
- *
- * Uses a framework-level `_collab_docs` table with base64-encoded binary Yjs
- * state.
- */
-
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -31,7 +24,6 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
       );
     })().catch((err) => {
-      // Retry init on the next call after a failed startup.
       _initPromise = undefined;
       throw err;
     });
@@ -44,12 +36,17 @@ export interface YDocStateRecord {
   version: number;
 }
 
-/** Load Yjs state plus optimistic concurrency version. */
 export async function loadYDocRecord(
   docId: string,
 ): Promise<YDocStateRecord | null> {
   await ensureTable();
-  const client = getDbExec();
+  return loadYDocRecordWithClient(getDbExec(), docId);
+}
+
+export async function loadYDocRecordWithClient(
+  client: DbExec,
+  docId: string,
+): Promise<YDocStateRecord | null> {
   const { rows } = await client.execute({
     sql: `SELECT yjs_state, version FROM _collab_docs WHERE doc_id = ?`,
     args: [docId],
@@ -61,12 +58,6 @@ export async function loadYDocRecord(
   };
 }
 
-/**
- * Read only the CAS version. A cached Y.Doc lives in one process's memory
- * while any other instance can advance the row, so a reader that never
- * re-checks this number is serving state of unbounded age. `null` means no
- * row at all — never conflate it with version 0, which is real stored state.
- */
 export async function loadYDocVersion(docId: string): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
@@ -84,13 +75,11 @@ export async function loadYDocVersion(docId: string): Promise<number | null> {
   return version;
 }
 
-/** Load Yjs state as Uint8Array, or null if not found. */
 export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
   const record = await loadYDocRecord(docId);
   return record?.state ?? null;
 }
 
-/** Save only if the stored row still has the version the caller merged from. */
 export async function trySaveYDocState(
   docId: string,
   state: Uint8Array,
@@ -98,7 +87,22 @@ export async function trySaveYDocState(
   expectedVersion: number | null,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getDbExec();
+  return trySaveYDocStateWithClient(
+    getDbExec(),
+    docId,
+    state,
+    textSnapshot,
+    expectedVersion,
+  );
+}
+
+export async function trySaveYDocStateWithClient(
+  client: DbExec,
+  docId: string,
+  state: Uint8Array,
+  textSnapshot: string,
+  expectedVersion: number | null,
+): Promise<boolean> {
   const b64 = uint8ArrayToBase64(state);
   const nowExpr = "NOW()::text";
   if (expectedVersion === null) {
@@ -116,7 +120,6 @@ export async function trySaveYDocState(
   return result.rowsAffected > 0;
 }
 
-/** Save Yjs state (Uint8Array) and a plain-text snapshot. */
 export async function saveYDocState(
   docId: string,
   state: Uint8Array,
@@ -144,30 +147,16 @@ export async function saveYDocState(
   });
 }
 
-/** Check if a document has collaborative state. */
 export async function hasCollabState(docId: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ?`,
+    sql: `SELECT 1 FROM _collab_docs WHERE doc_id = ? AND yjs_state <> ''`,
     args: [docId],
   });
   return rows.length > 0;
 }
 
-/** Load all existing document ids in one query for startup reconciliation. */
-export async function listCollabDocIds(): Promise<Set<string>> {
-  await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute("SELECT doc_id FROM _collab_docs");
-  return new Set(
-    rows.flatMap((row) =>
-      typeof row.doc_id === "string" && row.doc_id ? [row.doc_id] : [],
-    ),
-  );
-}
-
-/** Delete collaborative state for a document. */
 export async function deleteCollabState(docId: string): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -177,10 +166,7 @@ export async function deleteCollabState(docId: string): Promise<void> {
   });
 }
 
-// ─── Base64 helpers ──────────────────────────────────────────────────
-
 function uint8ArrayToBase64(arr: Uint8Array): string {
-  // Works in both Node.js and edge runtimes
   if (typeof Buffer !== "undefined") {
     return Buffer.from(arr).toString("base64");
   }

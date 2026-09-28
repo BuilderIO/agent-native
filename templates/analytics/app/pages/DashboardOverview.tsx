@@ -618,9 +618,9 @@ function DashboardRow({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               aria-label={t("dashboardOverview.moveDashboard")}
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <IconDots className="size-4" />
             </Button>

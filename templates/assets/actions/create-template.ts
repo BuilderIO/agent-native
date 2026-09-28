@@ -3,6 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -22,7 +23,7 @@ export default defineAction({
   description:
     "Create a reusable asset template. A template may be global or associated with one Brand Kit.",
   schema: templateFieldsSchema.extend({ title: z.string().min(1) }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
     const libraryId = args.libraryId ?? null;
@@ -81,6 +82,17 @@ export default defineAction({
       updatedAt: now,
     };
     await db.insert(schema.assetTemplates).values(row);
+    track(
+      "template_saved",
+      {
+        app_name: "assets",
+        template_name: "assets",
+        output_id: row.id,
+        output_type: "asset_template",
+        library_id: libraryId,
+      },
+      ctx,
+    );
     return serializeTemplate(row);
   },
 });

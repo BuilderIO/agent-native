@@ -78,6 +78,8 @@ La arquitectura del marco evita vulnerabilidades comunes cuando se utilizan los 
 | Exposición secreta       | `.env` gitignorado; credenciales y bóveda cifradas en reposo (AES-256-GCM)    |
 | SSRF                     | `ssrfSafeFetch` bloquea destinos internos/metadatos + reenlace de redirección |
 
+El marco crea el contexto de solicitud desde la sesión y aplica la propiedad con `accessFilter()` y `assertAccess()` en las lecturas y escrituras de la aplicación. El SQL del agente recibe vistas temporales filtradas para la identidad y organización activas. RLS aún no está habilitado, por lo que las consultas directas de la aplicación deben seguir usando estos asistentes.
+
 ## Validación de entrada {#input-validation}
 
 Utilice `defineAction` con un Zod `schema:` para cada acción. El marco valida la entrada automáticamente antes de que se ejecute el código:

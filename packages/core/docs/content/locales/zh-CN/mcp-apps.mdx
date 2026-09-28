@@ -227,7 +227,7 @@ ChatGPT通过`window.openai`获得专用的兼容路径：启动文档直接读�
 
 Claude默认使用单帧移植路径。在调试主机模块加载行为时，您还可以在具有 `embedMode: "transplant"` 或 `frame: "transplant"` 的其他主机中强制使用它。您可以使用 `embedMode: "iframe"`、`renderMode: "iframe"`、`nested: true` 或 `frame: "iframe"` 强制嵌套诊断 iframe。如果 iframe 被阻止，`embedApp()` 会将其替换为开放应用后备：用户可以重试内联、通过主机打开新创建的嵌入会话，或使用可见路由 URL。保持动作的 `link` 目标本身有用，因为它仍然是通用逃生舱口。
 
-通过 ngrok 测试 Claude 时，请使用生产版本（`npx @agent-native/core@latest build` 然后 `npx @agent-native/core@latest start`）或已部署的预览/生产 URL。 Claude的单帧移植路径适用于生产资产块；原始 Vite 开发模块（例如 `/app/root.tsx`）可以受到应用程序身份验证的保护，并且无法从 Claude 资源源进行动态导入。
+通过 ngrok 测试 Claude 时，请使用生产版本（`pnpm build` 然后 `npx @agent-native/core@latest start`）或已部署的预览/生产 URL。 Claude的单帧移植路径适用于生产资产块；原始 Vite 开发模块（例如 `/app/root.tsx`）可以受到应用程序身份验证的保护，并且无法从 Claude 资源源进行动态导入。
 
 ## 主桥API {#host-bridge}
 

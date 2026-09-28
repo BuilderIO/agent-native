@@ -29,13 +29,8 @@ import {
   type RecurrencePreset,
   type CustomRecurrenceDraft,
 } from "@/lib/event-form-utils";
+import { buildTimeOptions } from "@/lib/event-time-range";
 import { cn } from "@/lib/utils";
-
-const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
-  const hour = Math.floor(index / 4);
-  const minute = (index % 4) * 15;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-});
 
 function formatTimeValue(value: string) {
   const [hourValue, minuteValue] = value.split(":").map(Number);
@@ -60,19 +55,20 @@ export function TimePickerPopover({
   label,
   getOptionMeta,
   className,
+  after,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   getOptionMeta?: (value: string) => string | undefined;
   className?: string;
+  after?: string;
 }) {
   const [open, setOpen] = useState(false);
   const selectedRef = useRef<HTMLButtonElement>(null);
   const options = useMemo(
-    () =>
-      TIME_OPTIONS.includes(value) ? TIME_OPTIONS : [value, ...TIME_OPTIONS],
-    [value],
+    () => buildTimeOptions({ value, after }),
+    [value, after],
   );
 
   useEffect(() => {
@@ -266,7 +262,6 @@ export function RepeatPicker({
   recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
   onCustomChange?: (draft: CustomRecurrenceDraft) => void;
-  /** Inline on the date line, the way Notion stacks repeat next to the timezone. */
   compact?: boolean;
 }) {
   const t = useT();
@@ -467,7 +462,7 @@ function CustomRecurrenceEditor({
           onChange={(event) =>
             update({ interval: Math.max(1, Number(event.target.value) || 1) })
           }
-          className="h-9 w-16 text-center"
+          className="w-16 text-center"
           aria-label={t("eventForm.repeatEvery")}
         />
         <Select
@@ -479,7 +474,7 @@ function CustomRecurrenceEditor({
             })
           }
         >
-          <SelectTrigger className="h-9 flex-1">
+          <SelectTrigger className="flex-1">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -504,8 +499,8 @@ function CustomRecurrenceEditor({
                   key={value}
                   type="button"
                   variant={selected ? "default" : "secondary"}
-                  size="icon"
-                  className="size-8 rounded-full text-xs"
+                  size="icon-sm"
+                  className="rounded-full text-xs"
                   aria-pressed={selected}
                   onClick={() => toggleDay(value)}
                 >
@@ -539,12 +534,13 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.on")}</span>
           <Input
+            size="sm"
             type="date"
             value={draft.endDate}
             onChange={(event) =>
               update({ endMode: "date", endDate: event.target.value })
             }
-            className="h-8 min-w-0 flex-1"
+            className="min-w-0 flex-1"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-foreground">
@@ -556,6 +552,7 @@ function CustomRecurrenceEditor({
           />
           <span>{t("eventForm.after")}</span>
           <Input
+            size="sm"
             type="number"
             min={1}
             max={999}
@@ -566,7 +563,7 @@ function CustomRecurrenceEditor({
                 count: Math.max(1, Number(event.target.value) || 1),
               })
             }
-            className="h-8 w-20"
+            className="w-20"
           />
           <span className="text-muted-foreground">
             {t("eventForm.occurrences")}

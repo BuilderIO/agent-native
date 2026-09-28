@@ -5,7 +5,10 @@ import {
   nativeCreativeArtifactFromMetadata,
   reassembleNativeCreativeArtifact,
 } from "@agent-native/creative-context";
-import { recordGenerationCreativeContext } from "@agent-native/creative-context/server";
+import {
+  assertCreativeContextLabEnabled,
+  recordGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
 import {
   createContextPack,
   getCreativeContextItem,
@@ -38,9 +41,10 @@ export default defineAction({
     { itemId, itemVersionId, designId: explicitDesignId },
     context,
   ) => {
-    const contextState = (await readAppState("creative-context").catch(
-      () => null,
-    )) as { contextMode?: "auto" | "off" } | null;
+    await assertCreativeContextLabEnabled();
+    const contextState = (await readAppState("creative-context")) as {
+      contextMode?: "auto" | "off";
+    } | null;
     if (contextState?.contextMode === "off") {
       throw new Error(
         "Creative Context is off. Enable it before cloning a library design.",

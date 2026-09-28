@@ -1,3 +1,5 @@
+import { fail } from "@agent-native/core/action";
+
 import { resolveCredential } from "../server/lib/credentials";
 import {
   tryRequestCredentialContext,
@@ -110,6 +112,10 @@ export async function requireActionCredentials(
   };
 }
 
-export function providerError(err: unknown): { error: string } {
-  return { error: err instanceof Error ? err.message : String(err) };
+export function providerError(err: unknown): never {
+  const message = err instanceof Error ? err.message : String(err);
+  fail(message, {
+    errorCode: "provider_error",
+    statusCode: 502,
+  });
 }

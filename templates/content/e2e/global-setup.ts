@@ -2,21 +2,14 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 import { chromium, type FullConfig } from "@playwright/test";
 
-/*
- * Establish a reusable authed session for the "authed" project.
- *
- * Mirrors templates/plan/e2e/global-setup.ts: uses the framework auth API
- * (/_agent-native/auth/{register,login,session}) via a SAME-ORIGIN fetch from a
- * loaded app page (passes Better Auth's origin check). Registers a fresh per-run
- * account (idempotent: falls back to login), then saves the session cookies to
- * e2e/.auth/state.json.
- *
- * A FIXED email deadlocks across a dev-server restart (stored hash no longer
- * verifies under a new BETTER_AUTH_SECRET), so default to a per-run email.
- */
+import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+
 const EMAIL =
   process.env.CONTENT_E2E_EMAIL ||
-  `e2e-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
+  `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
+if (!isAutozQaEmail(EMAIL)) {
+  throw new Error("CONTENT_E2E_EMAIL must contain +autoz.");
+}
 const PASS =
   process.env.CONTENT_E2E_PASS || ["example", "content", "e2e", "pw"].join("-");
 

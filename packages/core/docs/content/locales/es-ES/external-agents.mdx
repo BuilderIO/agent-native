@@ -99,9 +99,9 @@ Cada aplicación Agent-Native expone una URL MCP canónica:
 https://<your-app>.agent-native.com/mcp
 ```
 
-En la aplicación, abra **Settings → Integrations** y busque el nombre del host
+En la aplicación, abra **Settings → Connections → Integrations** y busque el nombre del host
 que ya conoce: Claude, Claude Cowork, Claude Code, Anthropic, ChatGPT, OpenAI,
-Codex, Grok o xAI. El único resultado de host externo abre **Settings → MCP**
+Codex, Grok o xAI. El único resultado de host externo abre **Settings → MCP server**
 con la guía más adecuada seleccionada. Copie la **MCP server URL** y péguela en
 el host de IA. La URL es la URL base de la aplicación desplegada más `/mcp`.
 
@@ -127,14 +127,24 @@ Cada aplicación alojada también tiene una página de ayuda en
 `https://&lt;app&gt;/mcp/connect` con el URL copiable y
 pestañas específicas del host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok y Otros.
 
+## Enlaces privados de Content {#private-content-links}
+
+Un enlace privado de Content puede identificar el documento sin exponer su contenido. Añade la URL `/mcp` de esa misma instancia de Content como servidor MCP remoto en tu agente, autentícate con tu cuenta de Agent-Native, activa la conexión o sus herramientas y vuelve a intentar la solicitud original. La página `/mcp/connect` ofrece opciones de configuración, pero abrirla por sí solo no instala la conexión.
+
+Este flujo funciona con cualquier host compatible con MCP, incluidos Claude, ChatGPT, Claude Code, Codex, Cursor, Antigravity, OpenCode y GitHub Copilot / VS Code. Las pantallas de configuración y autenticación varían según el host. Antigravity gestiona servidores remotos desde **Settings → Customizations → Installed MCP Servers** o su configuración MCP; el comando `connect` de Agent-Native todavía no configura Antigravity.
+
+La autenticación identifica la cuenta conectada; no amplía sus permisos sobre documentos. Un documento público sigue disponible desde su enlace. Un documento privado solo se puede leer mediante MCP si esa cuenta ya tiene acceso. Si `get-document` devuelve «no encontrado» después de conectar, la respuesta no distingue entre falta de permiso y un ID de documento obsoleto, eliminado o no válido. Comprueba el enlace y el acceso de la cuenta conectada antes de cambiar los permisos.
+
+Reinstalar el conector o cambiar el enlace público compartido no resuelve una denegación de permisos confirmada de la cuenta conectada.
+
 <a id="access-tab"></a>
 
 ### La opción MCP dentro de la aplicación {#mcp-settings}
 
-La configuración estándar de la aplicación incluye una pestaña **MCP** junto a
-**Integrations**. Muestra la URL MCP canónica de la aplicación, una tarjeta de
+La configuración incluye una página **MCP server** en el grupo de la
+aplicación. Muestra la URL MCP canónica de la aplicación, una tarjeta de
 agente A2A si está disponible y las mismas guías de configuración que la página
-de conexión completa. Use **Settings → MCP** como punto de partida o abra
+de conexión completa. Use **Settings → MCP server** como punto de partida o abra
 `/mcp/connect` directamente para el flujo completo y el token alternativo.
 
 ### Claude y ChatGPT OAuth {#oauth}

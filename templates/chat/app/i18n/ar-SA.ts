@@ -30,6 +30,11 @@ const messages = {
     newChat: "محادثة جديدة",
     optionsFor: "خيارات لـ",
     pinChat: "تثبيت المحادثة",
+    pinned: "المثبتة",
+    recents: "الأخيرة",
+    retryPreviousRequest: "أعِد محاولة طلبي السابق الآن بعد توصيل مزود النموذج.",
+    retryAttachmentUnavailable:
+      "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
     renameFailed: "فشلت إعادة التسمية",
     renameThread: "إعادة تسمية السلسلة",
@@ -37,6 +42,7 @@ const messages = {
     suggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     suggestionCustomize: "ساعدني في تخصيص هذا التطبيق",
     unpinChat: "إلغاء تثبيت المحادثة",
+    untitledChat: "محادثة بلا عنوان",
   },
   navigation: {
     chat: "المحادثة",

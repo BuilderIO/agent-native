@@ -1,10 +1,3 @@
-/**
- * Wheel/pinch zoom for the overview canvas.
- *
- * The device split and both curves are shared, because a surface that
- * re-implements either half reproduces the same mouse-reads-as-pinch bug.
- * Only the anchor below belongs to this surface.
- */
 export {
   accumulateZoomFactor,
   clampZoomFactor,
@@ -21,9 +14,6 @@ export {
   type ZoomGestureDevice,
 } from "@agent-native/core/client/zoom-gesture";
 
-/** Anchor for an externally driven zoom change. Only hold the frame centre when
- *  it is on screen: a frame taller than the viewport has its centre off-screen,
- *  and holding an invisible point fixed pushes the visible part out of view. */
 export function resolveExternalZoomAnchor(args: {
   frameCenter: { x: number; y: number } | null;
   surfaceSize: { width: number; height: number };
@@ -48,4 +38,12 @@ export function resolveExternalZoomAnchor(args: {
     frameCenter.y >= 0 &&
     frameCenter.y <= surfaceSize.height;
   return onScreen ? frameCenter : viewportCenter;
+}
+
+export function panAfterSurfaceLeftShift(
+  pan: { x: number; y: number },
+  deltaLeft: number,
+): { x: number; y: number } {
+  if (!Number.isFinite(deltaLeft) || deltaLeft === 0) return pan;
+  return { x: pan.x - deltaLeft, y: pan.y };
 }

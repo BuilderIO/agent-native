@@ -2,46 +2,31 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
 
-// Clips has public share pages, embeds, and view-event tracking that must
-// reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
-  // Keep the native tray token and the Better Auth cookie useful between
-  // infrequent recording sessions without making them permanent.
   maxAge: 60 * 60 * 24 * 90,
   workspaceAppPublicPaths: ["/"],
-  // Clips owns `/_agent-native/google/*` so the same registered Google
-  // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
-    screenshotPath: "/auth-marketing/clips.webp",
-    screenshotWidth: 914,
-    screenshotHeight: 818,
     learnMoreUrl: "https://agent-native.com/apps/clips",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
-      "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
-      "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+      "Calendar-synced meeting notes with live transcripts and AI action items",
+      "Push-to-talk voice dictation - hold Fn anywhere, get clean text back",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },
   publicPaths: [
     "/share",
     "/embed",
-    // Prerendered to static HTML, so the CDN answers without ever reaching this
-    // middleware. Sharing the constant keeps "prerendered" a strict subset of
-    // "public" instead of two lists that can drift into an auth bypass.
     ...PRERENDERED_PUBLIC_PAGE_PATHS,
-    // Legacy recording links are auth-aware: the route keeps the owner shell
-    // for signed-in viewers and redirects anonymous viewers to /share/:id.
     "/r",
     "/bug-report",
-    // React Router's lazy route-discovery endpoint. If this is gated by
-    // auth it returns an HTML login page; the client tries to parse it
-    // as JSON, fails, and can't resolve any public route the user lands
-    // on directly (/download, /share/:id, /embed/:id). Must be public.
+    "/record",
+    "/_agent-native/actions/create-intake-recording",
+    "/api/clip-intake",
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
@@ -53,10 +38,6 @@ export default createAuthPlugin({
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",
-    // Public media-serving routes enforce resolveAccess + password/expiry
-    // checks themselves. They need to bypass the app auth shell so anonymous
-    // viewers and crawlers can fetch public share media. Chunk upload POSTs
-    // stay behind auth under /api/uploads/*.
     "/api/video",
     "/api/thumbnail",
     "/api/auth/google-calendar",

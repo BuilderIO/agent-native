@@ -41,10 +41,6 @@ export interface ReviewResourceContext {
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
-  /**
-   * Deep link to the resource, used by review notification emails. Without it
-   * an email can only link to the app root.
-   */
   resolveUrl?: (
     resourceId: string,
   ) => Promise<string | null | undefined> | string | null | undefined;
@@ -58,6 +54,24 @@ export interface ReviewMention {
   label: string;
   email?: string | null;
   id?: string | null;
+}
+
+export interface ReviewCommentReaction {
+  reaction: string;
+  count: number;
+  reactedByMe: boolean;
+}
+
+export interface ReviewThreadPreference {
+  muted: boolean;
+  unread: boolean;
+}
+
+export interface ReviewDiscussionState {
+  reactions: Record<string, ReviewCommentReaction[]>;
+  threadPreferences: Record<string, ReviewThreadPreference>;
+  canReact: boolean;
+  canSetThreadPreferences: boolean;
 }
 
 export interface ReviewComment {
@@ -87,9 +101,7 @@ export interface ReviewComment {
   createdAt: string;
   updatedAt: string;
   metadata: Record<string, unknown> | null;
-  /** Persisted on the root comment's metadata when a thread is resolved. */
   resolutionNote?: string | null;
-  /** Caller-specific capability computed by list-review-comments. */
   canDelete?: boolean;
 }
 

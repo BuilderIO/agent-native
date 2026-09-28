@@ -1,4 +1,5 @@
 import {
+  MAX_ASSET_UPLOAD_BATCH_BYTES,
   MAX_ASSET_UPLOAD_FILES,
   type FailedAssetUpload,
   type SkippedAssetUploadDuplicate,
@@ -11,14 +12,27 @@ export type AssetUploadResult = {
   errors?: FailedAssetUpload[];
 };
 
-export function chunkAssetUploads<T>(
+export function chunkAssetUploads<T extends { size: number }>(
   files: T[],
   chunkSize = MAX_ASSET_UPLOAD_FILES,
+  maxBytes = MAX_ASSET_UPLOAD_BATCH_BYTES,
 ): T[][] {
   const chunks: T[][] = [];
-  for (let index = 0; index < files.length; index += chunkSize) {
-    chunks.push(files.slice(index, index + chunkSize));
+  let chunk: T[] = [];
+  let chunkBytes = 0;
+  for (const file of files) {
+    if (
+      chunk.length &&
+      (chunk.length === chunkSize || chunkBytes + file.size > maxBytes)
+    ) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkBytes = 0;
+    }
+    chunk.push(file);
+    chunkBytes += file.size;
   }
+  if (chunk.length) chunks.push(chunk);
   return chunks;
 }
 

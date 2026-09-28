@@ -3,7 +3,15 @@ import {
   type McpIntegrationsConfigInput,
   type NormalizedMcpIntegrationsConfig,
 } from "../../shared/mcp-integration-config.js";
+import {
+  hostMatches,
+  MCP_LINK_HOSTS,
+  normalizeMcpUrl,
+} from "../../shared/mcp-provider-hosts.js";
 import { mergeDefinitionsById } from "../../shared/merge-by-id.js";
+import { agentNativePath } from "../api-path.js";
+import { openOAuthPopup } from "../oauth-popup.js";
+import { markMcpConnectionPending } from "./mcp-connection-refresh.js";
 import { mcpIntegrationLogo } from "./mcp-integration-logos.js";
 
 export type McpIntegrationAuthMode = "none" | "headers" | "oauth";
@@ -41,17 +49,9 @@ export interface DefaultMcpIntegration {
   availability: McpIntegrationAvailability;
   verification: McpIntegrationVerification;
   logoUrl: string;
-  /**
-   * The server has a first-party OAuth client configured for this provider.
-   * Keep the connection user-scoped even when the client itself is shared.
-   */
   managedOAuth?: boolean;
-  /**
-   * The provider supports a workspace connection whose access can be shared
-   * with permitted workspace members. Keep this opt-in until provider scope
-   * semantics are verified.
-   */
   supportsOrganizationScope?: boolean;
+  organizationScopeOnly?: boolean;
   docsUrl?: string;
   setupNoteKey?: string;
   apiFallback?: {
@@ -63,12 +63,6 @@ export interface DefaultMcpIntegration {
   brandAliases?: string[];
   aliases?: string[];
   keywords: string[];
-  /**
-   * Overrides `name` for prose intent matching in `findMcpIntegrationForText`
-   * when the display name is a common English word (e.g. "Box") that would
-   * otherwise false-positive on unrelated text. Leave unset unless the name
-   * itself is the ambiguous term; `brandAliases` still apply.
-   */
   promptAliases?: string[];
 }
 
@@ -202,8 +196,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
       "exploration",
       "workbooks",
     ],
-    // "Sigma" is also a math term, so only suggest the connection for a
-    // qualified provider or dashboard/workbook request.
     promptAliases: [
       "Connect Sigma",
       "Sigma Computing",
@@ -409,7 +401,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     connectionMode: "oauth",
     availability: "provider-setup",
     verification: "restricted",
-    logoUrl: mcpIntegrationLogo("atlassian"),
+    logoUrl: mcpIntegrationLogo("jira"),
     docsUrl:
       "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
     setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
@@ -602,13 +594,19 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase: "repositories, issues, pull requests, code, engineering analytics",
     useCaseKey: "mcpIntegrations.catalog.github.useCase",
     url: "https://api.githubcopilot.com/mcp/",
-    authMode: "oauth",
-    connectionMode: "manual",
-    availability: "provider-setup",
-    verification: "restricted",
+    // GitHub's authorization server (https://github.com/login/oauth) advertises
+    // no registration_endpoint and no Client ID Metadata Documents, so the
+    // Connect button could never mint a client. A personal access token on the
+    // Authorization header is the connection GitHub actually accepts.
+    authMode: "headers",
+    connectionMode: "headers",
+    availability: "ready",
+    verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("github"),
-    docsUrl: "https://github.com/github/github-mcp-server",
+    docsUrl:
+      "https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md",
     setupNoteKey: "mcpIntegrations.catalog.github.setupNote",
+    headerPlaceholder: "Authorization: Bearer <github-token>",
     keywords: ["git", "repositories", "issues", "pull requests", "code"],
   },
   {
@@ -784,8 +782,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl: "https://developer.box.com/guides/box-mcp",
     setupNoteKey: "mcpIntegrations.catalog.box.setupNote",
     keywords: ["files", "folders", "documents", "enterprise content"],
-    // "Box" alone collides with everyday nouns (text box, checkbox, bounding
-    // box), so require a qualified phrase before suggesting the connection.
     promptAliases: [
       "Box.com",
       "Box file",
@@ -797,7 +793,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   },
   {
     id: "builder-cms",
-    name: "Builder.io",
+    name: "Builder.io Publish",
     provider: "builder",
     description: "Search Builder Publish and Hybrid Space content.",
     descriptionKey: "mcpIntegrations.catalog.builder.description",
@@ -812,6 +808,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("builder-cms"),
     docsUrl: "https://www.builder.io/c/docs/mcp-builder-server/",
     setupNoteKey: "mcpIntegrations.catalog.builder.setupNote",
+    organizationScopeOnly: true,
     keywords: [
       "Builder",
       "content",
@@ -961,6 +958,17 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   return "OAuth";
 }
 
+export function mcpUrlRequiresOrganizationScope(rawUrl: string): boolean {
+  if (!URL.canParse(rawUrl)) return false;
+  const url = new URL(rawUrl);
+  return (
+    url.origin === "https://mcp.builder.io" &&
+    url.pathname.replace(/\/+$/, "") === "/mcp/publish" &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 export function buildMcpOAuthStartUrl({
   name,
   url,
@@ -972,22 +980,26 @@ export function buildMcpOAuthStartUrl({
     name,
     url,
     description,
-    scope,
+    scope: mcpUrlRequiresOrganizationScope(url) ? "org" : scope,
     return: returnUrl,
   });
-  return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
+  return `${agentNativePath("/_agent-native/mcp/servers/oauth/start")}?${params.toString()}`;
 }
 
-export function navigateToMcpOAuthStart(url: string): void {
-  if (typeof window === "undefined") return;
-
-  const navigate = () => {
-    window.setTimeout(() => window.location.assign(url), 0);
-  };
-  if (typeof window.requestAnimationFrame === "function") {
-    window.requestAnimationFrame(navigate);
-  } else {
-    navigate();
+export function navigateToMcpOAuthStart(url: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const popup = openOAuthPopup({
+      initialUrl: url,
+      features: "width=640,height=760",
+    });
+    if (!popup) return false;
+    popup.opener = null;
+    markMcpConnectionPending();
+    return true;
+  } catch (error) {
+    console.error("Failed to open MCP OAuth popup.", error);
+    return false;
   }
 }
 
@@ -1019,6 +1031,21 @@ export function supportsMcpIntegrationOrganizationScope(
     integration.supportsOrganizationScope === true &&
     integration.managedOAuth !== true
   );
+}
+
+export function requiresMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.organizationScopeOnly === true ||
+    mcpUrlRequiresOrganizationScope(integration.url)
+  );
+}
+
+export function allowsMcpIntegrationPersonalScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return !requiresMcpIntegrationOrganizationScope(integration);
 }
 
 export function shouldOfferMcpIntegrationOrganizationScope(
@@ -1053,58 +1080,6 @@ export function filterMcpIntegrations(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-const MCP_LINK_HOSTS: Record<string, string[]> = {
-  amplitude: ["amplitude.com"],
-  apollo: ["apollo.io"],
-  "common-room": ["commonroom.io"],
-  context7: ["context7.com"],
-  exa: ["exa.ai"],
-  sentry: ["sentry.io", "sentry.dev"],
-  gong: ["gong.io"],
-  grafana: ["grafana.com", "grafana.net"],
-  "builder-cms": ["builder.io"],
-  sigma: ["sigmacomputing.com"],
-  notion: ["notion.so", "notion.site"],
-  granola: ["granola.ai"],
-  semgrep: ["semgrep.dev", "semgrep.com"],
-  canva: ["canva.com", "canva.ai"],
-  figma: ["figma.com"],
-  linear: ["linear.app"],
-  atlassian: ["atlassian.com", "atlassian.net", "jira.com", "confluence.com"],
-  supabase: ["supabase.com"],
-  neon: ["neon.tech"],
-  stripe: ["stripe.com"],
-  cloudflare: ["cloudflare.com"],
-  github: ["github.com", "github.dev"],
-  gitlab: ["gitlab.com"],
-  slack: ["slack.com"],
-  asana: ["asana.com"],
-  hubspot: ["hubspot.com"],
-  intercom: ["intercom.com"],
-  pylon: ["usepylon.com", "pylon.com"],
-  monday: ["monday.com"],
-  webflow: ["webflow.com"],
-  paypal: ["paypal.com"],
-  box: ["box.com"],
-  netlify: ["netlify.com"],
-  vercel: ["vercel.com"],
-  zapier: ["zapier.com"],
-};
-
-function hostMatches(hostname: string, domain: string): boolean {
-  return hostname === domain || hostname.endsWith(`.${domain}`);
-}
-
-function normalizeMcpUrl(value: string): string {
-  try {
-    const url = new URL(value.trim());
-    url.hash = "";
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return value.trim().replace(/\/+$/, "");
-  }
 }
 
 export function isMcpIntegrationUrl(
@@ -1175,11 +1150,6 @@ export function findMcpIntegrationForText(
   return null;
 }
 
-/**
- * Matches the server segment of an `mcp__<server>__<tool>` name, not prose, so
- * ambiguous brand words ("box", "monday", "linear") are safe here in a way they
- * are not in `findMcpIntegrationForText`.
- */
 export function findMcpIntegrationForToolName(
   toolName: string,
   integrations: readonly DefaultMcpIntegration[] = DEFAULT_MCP_INTEGRATIONS,
@@ -1204,13 +1174,6 @@ export function isMcpConnectionFailureText(text: string): boolean {
   );
 }
 
-/**
- * Agent responses need a stronger signal than a provider name alone before
- * they create an actionable card. This intentionally accepts both an
- * imperative ("connect HubSpot") and a blocked-work explanation ("HubSpot
- * access is required"), while avoiding positive status text such as
- * "HubSpot is connected".
- */
 export function isMcpConnectionSuggestionText(text: string): boolean {
   const normalized = text.trim();
   if (!normalized) return false;
@@ -1232,13 +1195,16 @@ export function isMcpConnectionSuggestionText(text: string): boolean {
     /\b(?:isn't|is not|aren't|are not|hasn't|has not|not|never)\s+(?:currently\s+)?connected\b/i.test(
       normalized,
     ) ||
-    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized);
+    /\b(?:no|without)\s+(?:a\s+)?(?:connection|access)\b/i.test(normalized) ||
+    /\b(?:needs?|requires?|must|should)\s+to\s+be\s+connected\b/i.test(
+      normalized,
+    );
   const hasMissingAccess =
     /\b(?:don't|do not|cannot|can't|unable)\b[\s\S]{0,80}\baccess\b/i.test(
       normalized,
     );
   const hasRequiredConnection =
-    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|needed|missing|unavailable)\b/i.test(
+    /\b(?:connection|access)\b[\s\S]{0,60}\b(?:required|requires?|needed|missing|unavailable)\b/i.test(
       normalized,
     );
   const hasRequiredAccess =

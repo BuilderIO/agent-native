@@ -3,11 +3,13 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertDesignSystemWorkflowsEnabled } from "../server/lib/design-system-workflows.js";
 import {
   DESIGN_SYSTEM_TEMPLATE_IDS,
   getProductionDesignSystemTemplate,
@@ -81,14 +83,11 @@ export default defineAction({
     "Create a design system from custom tokens or copy a source-linked production template (Material Design 3, Carbon, or Primer). " +
     "If this is the first design system for the user, it is automatically set as the default.",
   schema: createDesignSystemSchema,
-  run: async ({
-    templateId,
-    title,
-    description,
-    data,
-    assets,
-    customInstructions,
-  }) => {
+  run: async (
+    { templateId, title, description, data, assets, customInstructions },
+    ctx,
+  ) => {
+    await assertDesignSystemWorkflowsEnabled();
     const template = templateId
       ? getProductionDesignSystemTemplate(templateId)
       : undefined;
@@ -111,7 +110,6 @@ export default defineAction({
       throw new Error("title and data are required");
     }
 
-    // Validate that data is valid JSON and not an empty primitive.
     try {
       const parsed = JSON.parse(resolvedData);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -135,9 +133,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Check only this user's owned systems within the same org. Shared systems
-    // should not prevent the first system a user creates from becoming their
-    // default, and systems in other orgs must not suppress the default in this org.
     const existing = await db
       .select({ id: schema.designSystems.id })
       .from(schema.designSystems)
@@ -170,6 +165,19 @@ export default defineAction({
       createdAt: now,
       updatedAt: now,
     });
+
+    track(
+      "design_system_saved",
+      {
+        app_name: "design",
+        template_name: "design",
+        output_id: id,
+        output_type: "design_system",
+        design_system_id: id,
+        template_id: template?.id,
+      },
+      ctx,
+    );
 
     return {
       id,

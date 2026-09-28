@@ -54,17 +54,86 @@ react-router.config.ts # React Router framework config
 
 ## Chat-First Shape
 
-The `/` route is the app's primary chat surface. Keep it on
-`AgentChatSurface` unless you are intentionally replacing the whole chat
-experience. The left sidebar owns the durable thread list through
-`useChatThreads`; app-specific screens can be added alongside it as nav items
-when they become useful.
+Agent-Native is the application framework and execution platform. AgentKit is
+its agent interaction and experience layer. Toolkit supplies the semantic
+composer, design-system primitives, and workspace UI used around the
+conversation.
+
+The `/` route is the app's primary AgentKit surface. Its default integration is:
+
+- `createAgentNativeAgentKitTransport()` from
+  `@agent-native/core/client/agentkit-chat/transport` for the production Agent-Native
+  runtime.
+- `CoreAgentKitRoot` from `@agent-native/core/client/agentkit-chat` for one
+  managed controller, thread context, and the default action-widget renderer.
+- `AgentKitChat` for the reference transcript, composer, queue, approvals,
+  activities, and suggestions.
+- `CoreComposerRuntimeProvider` for Agent-Native composer capabilities.
+
+The surrounding Core app shell owns the full-height canvas, global navigation,
+durable thread routing, and route-level chrome. `AgentKitChat` owns the
+conversation column. Pass route controls through its `toolbar` prop. Use
+`slots` and `registry` on `AgentKitRoot` for presentation overrides without
+forking conversation state.
+
+Action UI is opt-in on each action through `chatUI.renderer`. `CoreAgentKitRoot`
+provides Core's `AgentKitActionWidget` in `slots.widget`; it resolves the
+declared React renderer from the stored tool input and result, then keeps the
+widget with its assistant message after activity rollup and thread reload. App
+renderers can register with `registerActionChatRenderer()` from
+`@agent-native/core/client/agentkit-chat` using the same renderer id declared by
+the action. Built-in Core renderers need no app registration.
+
+This template is also the canonical AgentKit reference surface. Develop and
+verify shared chat UX here first, then use domain apps such as Dispatch as
+consumer smoke tests. Queue behavior can be exercised by submitting follow-ups
+while a run is active. The shared composer remains mounted throughout these
+states. The route does not provide fallback suggestions: contextual next
+actions appear only when the agent injects them through AgentKit's structured
+`suggestions` input.
 
 For a headless app that later needs UI, this template is the intended landing
 zone: bring the existing actions over, keep their names stable, and let the chat
 call them before adding extra screens. For a custom agent backend, keep the app
-shell and swap the chat runtime with an `AgentChatRuntime` connector instead of
-rewriting the composer/transcript UI.
+shell and implement `AgentTransport`, or adapt an existing Core
+`AgentChatRuntime` with `createAgentKitProtocolAdapter()` from
+`@agent-native/core/client/chat`.
+
+### Package and scaffold path
+
+The Chat template depends on `@agent-native/core`,
+`@agent-native/agentkit`, and `@agent-native/toolkit` through workspace
+specifiers in this repository. The CLI resolves them for the generated shape:
+
+- A normal standalone scaffold receives published package ranges.
+- A local framework-development scaffold packages the local Core, AgentKit,
+  and Toolkit implementations. Missing compiled package exports are built
+  before the tarballs are created.
+- A workspacified Chat app inherits a concrete package version already pinned
+  by the workspace root. Otherwise it uses the compatible range supplied by
+  the running CLI.
+
+Do not replace these dependencies with direct `dist` paths or deep source
+imports. Install the generated manifest as written.
+
+### Migrate an older Core chat surface
+
+Migrate the presentation boundary while keeping application contracts stable:
+
+1. Keep actions, application-state keys, thread routes, auth, access checks,
+   and the Core agent runtime.
+2. Create one `createAgentNativeAgentKitTransport()` and pass it to
+   `AgentKitRoot` or `AgentChat`.
+3. Replace the old Core transcript component. Move visual overrides to AgentKit
+   slots and kind registries, and move commands to `useAgentKitControl()`.
+4. Remove the old controller, queue, approval store, and stream subscription.
+   One conversation must have one behavioral owner.
+
+Widgets invoke stable action ids through the transport. Map them to the same
+`defineAction` surface used by the app and agent. Smart objects and client
+effects request host navigation or context changes. They do not bypass action
+validation, application-state helpers, request context, or ownable-data access
+checks.
 
 ## Adding a Page
 

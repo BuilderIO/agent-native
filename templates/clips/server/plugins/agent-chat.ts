@@ -33,6 +33,7 @@ const INITIAL_TOOL_NAMES = [
   "update-ai-request-status",
   "remove-filler-words",
   "export-to-brain",
+  "complete-workflow",
   "navigate",
   "refresh-list",
 ];
@@ -41,13 +42,10 @@ export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
-  // Declared in source rather than left to AGENT_CHAT_DURABLE_BACKGROUND alone:
-  // a site-level env var silently overrides netlify.toml, which is how plan and
-  // brain each spent their whole lifetime pinned to the ~58s synchronous wall.
   durableBackgroundRuns: true,
   extraContext: async () =>
     `<clips-transcript-guidance>
-The transcript in view-screen and get-recording-player-data are bounded previews when called by the agent. When previewTruncated is true, the text is expected to end mid-sentence and is never evidence that transcription stopped early. Use the bounded payload for a concise summary and do not request or reconstruct the omitted transcript by searching other recordings. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.
+The transcript in view-screen and get-recording-player-data is bounded when called by the agent. When previewTruncated is true, the text is expected to end mid-sentence and is never evidence that transcription stopped early. Continue the same recording with get-recording-player-data and transcriptOffset set to each nextFullTextOffset until that value is null, then interpret the chunks together. Do not search other recordings to reconstruct omitted content. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.
 </clips-transcript-guidance>
 <clips-agent-routing>
 For summaries, action-item lists, follow-up lists, and todo lists based on the recording in view, use Clips' recording/transcript actions and answer directly in this chat. Do not call Plan or another app for a generic written list. Only delegate to Plan when the user explicitly asks for a visual or structured Agent-Native Plan, a Plan artifact, or the Plans app.

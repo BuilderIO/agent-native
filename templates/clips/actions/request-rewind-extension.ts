@@ -30,6 +30,8 @@ export interface RewindExtensionRequest {
   updatedAt: string;
   preRollRecordingId?: string;
   actualDurationMs?: number;
+  preRollWidth?: number;
+  preRollHeight?: number;
   error?: string;
 }
 

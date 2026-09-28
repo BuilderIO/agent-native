@@ -1,5 +1,6 @@
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
 import type { LiveScreenSnapshot } from "@/pages/design-editor/command-types";
@@ -31,6 +32,7 @@ export interface ToggleLayerLockedArgs {
     enabled: boolean,
   ) => void;
   canEditDesign: boolean;
+  canEditLiveScreens?: ReadonlySet<string>;
   codeLayerOwnerByNodeId: Map<
     string,
     {
@@ -71,6 +73,7 @@ export function runToggleLayerLocked(
     applyFileContentUpdate,
     applyLayerStatePreview,
     canEditDesign,
+    canEditLiveScreens,
     codeLayerOwnerByNodeId,
     designSourceType,
     files,
@@ -86,13 +89,13 @@ export function runToggleLayerLocked(
   layerId: string,
   locked: boolean,
 ) {
-  if (!canEditDesign) return;
   const owner = codeLayerOwnerByNodeId.get(layerId);
   const layerScreenId =
     owner?.fileId ??
     (files.some((file) => file.id === layerId)
       ? layerId
       : (activeFile?.id ?? layerId));
+  if (!canEditDesign && !canEditLiveScreens?.has(layerScreenId)) return;
   if (hasScopedLayerState(lockedLayerIds, layerScreenId, layerId) === locked)
     return;
   const ownerScreen = owner
@@ -100,8 +103,9 @@ export function runToggleLayerLocked(
     : undefined;
   if (
     owner &&
-    resolveOverviewScreenSourceType(ownerScreen, designSourceType) ===
-      "localhost" &&
+    isRunningAppSourceType(
+      resolveOverviewScreenSourceType(ownerScreen, designSourceType),
+    ) &&
     recordPendingLiveLayerStateEdit(layerId, "locked", locked, !locked)
   ) {
     applyLayerStatePreview(layerScreenId, layerId, "locked", locked);
@@ -125,17 +129,6 @@ export function runToggleLayerLocked(
     applyLayerStatePreview(layerScreenId, layerId, "locked", locked);
     return;
   }
-  // BUG-LOCK-HIDE-LIVE-SNAPSHOT: same fix as handleDeleteSelection —
-  // getFreshActiveContent()/file.content is a bare URL for a
-  // localhost/live-snapshot screen, so setCodeLayerAttributeInHtml below
-  // could never find `node` in it and this write silently no-opped.
-  // `node` itself is unusable against the live snapshot HTML too:
-  // setCodeLayerAttributeInHtml indexes by node.source.openStart/openEnd,
-  // raw offsets into whatever string the RUNTIME projection parsed
-  // (runtimeLayerSnapshotsById), not the separately-tracked live
-  // snapshot — re-resolve a node from that exact content by the one id
-  // that's stable across both (see codeLayerOwnerByNodeId's matching
-  // note above).
   const liveSnapshot = liveScreenSnapshotsById[owner.fileId];
   const nodeIdAttr = node.dataAttributes["data-agent-native-node-id"];
   const liveNode =

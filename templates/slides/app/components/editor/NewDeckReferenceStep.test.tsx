@@ -1,14 +1,55 @@
 // @vitest-environment happy-dom
+vi.mock("@/hooks/use-design-system-workflows", () => ({
+  useDesignSystemWorkflows: () => true,
+}));
+const isReferenceStorageReadyMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/prompt-file-uploads", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/prompt-file-uploads")>()),
+  isReferenceStorageReady: isReferenceStorageReadyMock,
+}));
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
   fireEvent,
-  render,
+  render as renderWithoutQueryClient,
   screen,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
+import { SLIDE_FILE_STORAGE_STATUS_KEY } from "@/hooks/use-slide-file-storage-status";
+
+vi.mock("@agent-native/core/client/setup-connections", () => ({
+  FileStorageSetupPopover: ({
+    open,
+    status,
+    onRetry,
+  }: {
+    open: boolean;
+    status?: "missing" | "unavailable";
+    onRetry?: () => void;
+  }) =>
+    open ? (
+      <div
+        role="dialog"
+        aria-label={
+          status === "unavailable"
+            ? "Couldn't check storage"
+            : "Connect storage to upload files"
+        }
+        data-testid="file-storage-setup-card"
+      >
+        {status === "unavailable" ? <h2>Couldn't check storage</h2> : null}
+        {status === "unavailable" ? (
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+        ) : null}
+      </div>
+    ) : null,
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { title?: string }) => {
@@ -23,10 +64,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "home.googleSlidesImportLabel": "Slides",
         "home.googleSlidesReferenceTitle": "Google Slides",
         "home.referenceImportSuccess": "Imported successfully",
+        "home.importMenu.networkFailed":
+          "The import request timed out or lost its network connection. Check your connection and retry.",
+        "home.importMenu.notStarted":
+          "Complete any required sign-in, then retry the import.",
+        "home.fileStorageStatusUnavailable":
+          "Couldn't check object storage. Retry before uploading files.",
+        "home.retry": "Retry",
         "home.none": "None",
         "home.continue": "Continue",
         "home.continueToGenerate": "Continue to generate",
         "home.noMatchingDecks": "No matching decks found.",
+        "home.addDesignSystem": "Add design system",
       }[key] ?? key
     );
   },
@@ -38,13 +87,44 @@ vi.mock("./GoogleDriveConnectionCta", () => ({
   ),
 }));
 
+vi.mock("@/components/design-system/DesignSystemSetup", () => ({
+  DesignSystemSetup: ({
+    open,
+    onComplete,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onComplete: () => void;
+  }) =>
+    open ? (
+      <div data-testid="design-system-setup-dialog">
+        <button type="button" onClick={onComplete}>
+          Finish setup
+        </button>
+      </div>
+    ) : null,
+}));
+
 import {
   NewDeckReferenceStep,
   type ImportedReference,
 } from "./NewDeckReferenceStep";
 
-function renderStep(
+function render(ui: ReactNode, configured: boolean | null = true) {
+  const queryClient = new QueryClient();
+  if (configured !== null) {
+    queryClient.setQueryData(SLIDE_FILE_STORAGE_STATUS_KEY, { configured });
+  }
+  return renderWithoutQueryClient(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
+async function renderStep(
   overrides: Partial<React.ComponentProps<typeof NewDeckReferenceStep>> = {},
+  storageConfigured: boolean | null = true,
 ) {
   const onSelect = vi.fn();
   const onImport =
@@ -56,43 +136,63 @@ function renderStep(
         value: string;
       }) => Promise<ImportedReference | null>
     >();
+  const onOpenChange = vi.fn();
+  const onDesignSystemsChanged = vi.fn();
 
-  render(
-    <NewDeckReferenceStep
-      open
-      designSystems={[{ id: "ds-1", title: "Builder" }]}
-      decks={[]}
-      defaultDesignSystemId="ds-1"
-      defaultReferenceDeckId={null}
-      onSelect={onSelect}
-      onImport={onImport}
-      onImportSource={onImportSource}
-      onSkip={vi.fn()}
-      onOpenChange={vi.fn()}
-      title="New presentation"
-      designSystemLabel="Design system"
-      referenceDeckLabel="Reference deck"
-      chooseDeckLabel="Match the style of an existing deck"
-      importingLabel="Importing..."
-      skipLabel="Skip"
-      searchDecksLabel="Search decks"
-      {...overrides}
-    />,
-  );
+  const props = {
+    open: true,
+    designSystems: [{ id: "ds-1", title: "Builder" }],
+    decks: [] as Deck[],
+    defaultDesignSystemId: "ds-1",
+    defaultReferenceDeckId: null,
+    onSelect,
+    onImport,
+    onImportSource,
+    onSkip: vi.fn(),
+    onOpenChange,
+    onDesignSystemsChanged,
+    title: "New presentation",
+    designSystemLabel: "Design system",
+    referenceDeckLabel: "Reference deck",
+    chooseDeckLabel: "Match the style of an existing deck",
+    importingLabel: "Importing...",
+    skipLabel: "Skip",
+    searchDecksLabel: "Search decks",
+    ...overrides,
+  };
+  const view = render(<NewDeckReferenceStep {...props} />, storageConfigured);
+  await act(async () => {
+    await Promise.resolve();
+  });
 
-  return { onSelect, onImport, onImportSource };
+  return {
+    onSelect,
+    onImport,
+    onImportSource,
+    onOpenChange,
+    onDesignSystemsChanged,
+    rerender: (
+      nextOverrides: Partial<
+        React.ComponentProps<typeof NewDeckReferenceStep>
+      > = {},
+    ) => view.rerender(<NewDeckReferenceStep {...props} {...nextOverrides} />),
+  };
 }
 
 describe("<NewDeckReferenceStep>", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    isReferenceStorageReadyMock.mockReset();
+  });
 
   it("confirms a PPTX import and keeps it selected until generation continues", async () => {
     const imported: ImportedReference = {
       id: "deck-pptx",
       title: "Reference PPT",
       source: "pptx",
+      referenceFilePaths: ["/uploads/reference.pptx"],
     };
-    const { onSelect, onImport } = renderStep();
+    const { onSelect, onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".pptx"]');
@@ -127,7 +227,52 @@ describe("<NewDeckReferenceStep>", () => {
       designSystemId: null,
       referenceDeckId: "deck-pptx",
       referenceSource: null,
+      referenceFilePaths: ["/uploads/reference.pptx"],
     });
+  });
+
+  it("only shows storage setup after a file import is requested", async () => {
+    isReferenceStorageReadyMock.mockRejectedValue(
+      new TypeError("Failed to fetch"),
+    );
+    await renderStep({}, null);
+
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    });
+    expect(isReferenceStorageReadyMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    Object.assign(new Error("private storage response"), {
+      code: "reference_storage_auth_required",
+    }),
+    Object.assign(new Error("Storage status request failed (503)"), {
+      code: "reference_storage_http_failed",
+    }),
+    Object.assign(new Error("Storage status response is invalid"), {
+      code: "reference_storage_contract_failed",
+    }),
+  ])("shows generic storage guidance after a failed check", async (error) => {
+    isReferenceStorageReadyMock.mockRejectedValue(error);
+    await renderStep({}, null);
+
+    expect(
+      screen.queryByRole("dialog", { name: "Couldn't check storage" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    const setup = await screen.findByRole("dialog", {
+      name: "Couldn't check storage",
+    });
+    expect(setup.textContent).toContain("Couldn't check storage");
+    expect(setup.textContent).not.toMatch(
+      /private storage|503|response is invalid/i,
+    );
   });
 
   it("confirms a PDF import as the selected reference deck", async () => {
@@ -136,7 +281,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Reference PDF",
       source: "pdf",
     };
-    const { onImport } = renderStep();
+    const { onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".pdf"]');
@@ -159,13 +304,61 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Reference PDF");
   });
 
+  it("shows storage setup only after a file import is requested", async () => {
+    const { onImport } = await renderStep({}, false);
+
+    const input = document.querySelector('input[accept=".pdf"]')!;
+    expect(input).toHaveProperty("disabled", true);
+    expect(screen.queryByTestId("file-storage-setup-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "PDF" }));
+    expect(screen.getByTestId("file-storage-setup-card")).toBeTruthy();
+
+    expect(onImport).not.toHaveBeenCalled();
+  });
+
+  it("only labels the selected file option while importing", async () => {
+    let resolveImport!: (reference: ImportedReference) => void;
+    const { onImport } = await renderStep({ importing: true });
+    onImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveImport = resolve;
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.change(document.querySelector('input[accept=".pdf"]')!, {
+        target: {
+          files: [
+            new File(["pdf"], "reference.pdf", { type: "application/pdf" }),
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector('button[aria-label="PDF - Importing..."]')
+        ?.textContent,
+    ).toContain("Importing...");
+    expect(
+      document.querySelector('button[aria-label="PPT"]')?.textContent,
+    ).toContain("PPT");
+    expect(
+      document.querySelector('button[aria-label="DOCX"]')?.textContent,
+    ).toContain("DOCX");
+
+    await act(async () => {
+      resolveImport({ id: "deck-pdf", title: "Reference PDF", source: "pdf" });
+    });
+  });
+
   it("confirms a DOCX import as the selected reference deck", async () => {
     const imported: ImportedReference = {
       id: "deck-docx",
       title: "Reference DOCX",
       source: "docx",
     };
-    const { onImport } = renderStep();
+    const { onImport } = await renderStep();
     onImport.mockResolvedValue(imported);
 
     const input = document.querySelector('input[accept=".docx"]');
@@ -196,7 +389,7 @@ describe("<NewDeckReferenceStep>", () => {
       title: "Quarterly plan",
       source: "google-slides",
     };
-    const { onSelect, onImportSource } = renderStep();
+    const { onSelect, onImportSource } = await renderStep();
     onImportSource.mockResolvedValue(imported);
 
     fireEvent.click(screen.getByRole("button", { name: "Slides" }));
@@ -222,13 +415,13 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByLabelText("Slides - Imported")).toBeTruthy();
   });
 
-  it("drops the imported reference deck when Slides is deselected", async () => {
+  it("requires a reference after Slides is deselected", async () => {
     const imported: ImportedReference = {
       id: "deck-google",
       title: "Quarterly plan",
       source: "google-slides",
     };
-    const { onSelect, onImportSource } = renderStep();
+    const { onSelect, onImportSource } = await renderStep();
     onImportSource.mockResolvedValue(imported);
 
     fireEvent.click(screen.getByRole("button", { name: "Slides" }));
@@ -247,19 +440,118 @@ describe("<NewDeckReferenceStep>", () => {
     fireEvent.click(screen.getByRole("button", { name: "Slides - Imported" }));
     expect(screen.queryByRole("status")).toBeNull();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    });
-
-    expect(onSelect).toHaveBeenCalledWith({
-      designSystemId: null,
-      referenceDeckId: null,
-      referenceSource: null,
-    });
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("only shows Google connection recovery after choosing Slides", () => {
-    renderStep();
+  it("disables Continue when no reference or design system is selected", async () => {
+    await renderStep({ designSystems: [], defaultDesignSystemId: null });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Figma link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Figma" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Figma link" }), {
+      target: { value: "https://www.figma.com/file/abc123" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Website link and enables it for a valid one", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Website" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "@" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Website link" }), {
+      target: { value: "https://example.com" },
+    });
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for an invalid Google Slides link but allows a bare picker file ID", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "@" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "presentation_123" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  });
+
+  it("keeps Continue disabled for a URL that is not a Google Slides presentation link", async () => {
+    await renderStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Slides" }));
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Google Slides link" }),
+      { target: { value: "https://example.com" } },
+    );
+
+    expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("only shows Google connection recovery after choosing Slides", async () => {
+    await renderStep();
 
     expect(screen.queryByTestId("google-drive-connection-cta")).toBeNull();
 
@@ -268,7 +560,7 @@ describe("<NewDeckReferenceStep>", () => {
     expect(screen.getByTestId("google-drive-connection-cta")).toBeTruthy();
   });
 
-  it("hides the recent section and sorts reference decks by recency", () => {
+  it("hides the recent section and sorts reference decks by recency", async () => {
     const deck = (id: string, title: string, updatedAt: string): Deck => ({
       id,
       title,
@@ -277,7 +569,7 @@ describe("<NewDeckReferenceStep>", () => {
       slides: [],
     });
 
-    renderStep({
+    await renderStep({
       decks: [
         deck("older", "Older deck", "2026-08-01T00:00:00.000Z"),
         deck("newer", "Newer deck", "2026-08-10T00:00:00.000Z"),
@@ -295,8 +587,8 @@ describe("<NewDeckReferenceStep>", () => {
     ]);
   });
 
-  it("shows the last selected reference deck when the step opens", () => {
-    renderStep({
+  it("shows the last selected reference deck when the step opens", async () => {
+    await renderStep({
       decks: [
         {
           id: "deck-last-used",
@@ -314,12 +606,27 @@ describe("<NewDeckReferenceStep>", () => {
     ).toContain("Last used deck");
   });
 
+  it("hydrates the default design system when the list resolves after opening", async () => {
+    const { rerender } = await renderStep({
+      designSystems: [],
+      defaultDesignSystemId: "ds-1",
+    });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain("None");
+
+    rerender({ designSystems: [{ id: "ds-1", title: "Builder" }] });
+
+    expect(screen.getAllByRole("combobox")[0]?.textContent).toContain(
+      "Builder",
+    );
+  });
+
   it("keeps the reference step locked until selection handling finishes", async () => {
     let resolveSelection!: () => void;
     const selection = new Promise<void>((resolve) => {
       resolveSelection = resolve;
     });
-    renderStep({ onSelect: () => selection });
+    await renderStep({ onSelect: () => selection });
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -342,9 +649,92 @@ describe("<NewDeckReferenceStep>", () => {
     ).toHaveProperty("disabled", false);
   });
 
-  it("does not render an Attached section on the reference step", () => {
-    renderStep({ promptSummary: "Some prompt" });
+  it("does not render an Attached section on the reference step", async () => {
+    await renderStep({ promptSummary: "Some prompt" });
 
     expect(screen.queryByText("Attached")).toBeNull();
+  });
+
+  it("opens design system creation inline instead of navigating away", async () => {
+    const { onOpenChange, onDesignSystemsChanged } = await renderStep({
+      designSystems: [],
+    });
+
+    expect(
+      screen.queryByRole("link", { name: "Add design system" }),
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add design system" }));
+
+    expect(screen.getByTestId("design-system-setup-dialog")).not.toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    expect(screen.queryByTestId("design-system-setup-dialog")).toBeNull();
+    expect(onDesignSystemsChanged).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the placeholder until the reference deck is touched", async () => {
+    await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Match the style of an existing deck");
+  });
+
+  it("shows None instead of the placeholder after explicitly selecting None", async () => {
+    await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "None" }));
+
+    const trigger = screen.getByRole("combobox", { name: "Reference deck" });
+    expect(trigger.textContent).toBe("None");
+    expect(trigger.textContent).not.toContain(
+      "Match the style of an existing deck",
+    );
+  });
+
+  it("shows the deck name in the trigger after selecting a deck", async () => {
+    await renderStep({
+      decks: [
+        {
+          id: "deck-1",
+          title: "Some deck",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-01T00:00:00.000Z",
+          slides: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Reference deck" }));
+    fireEvent.click(screen.getByRole("option", { name: "Some deck" }));
+
+    expect(
+      screen.getByRole("combobox", { name: "Reference deck" }).textContent,
+    ).toBe("Some deck");
   });
 });

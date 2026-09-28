@@ -14,6 +14,8 @@ import type {
 import { useToolkitComponent } from "../provider.js";
 import { cn } from "../utils.js";
 
+export type ButtonEmphasis = DesignSystemEmphasis | "ghost-inset";
+
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,border-color,box-shadow,transform,scale] duration-150 active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
@@ -22,17 +24,28 @@ const buttonVariants = cva(
         default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "bg-accent text-accent-foreground hover:bg-accent/80",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        // A destructive action that sits among ordinary row actions: the
+        // outline keeps the row calm; red text says what it does.
+        "outline-destructive":
+          "border bg-background text-destructive shadow-xs hover:bg-destructive/10 dark:border-input dark:bg-input/30 dark:hover:bg-destructive/20",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
+        "ghost-inset":
+          "text-muted-foreground hover:bg-accent/40 hover:text-foreground focus-visible:ring-inset focus-visible:ring-offset-0",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg]:size-3",
+        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+        "icon-xs": "size-6 rounded-md [&_svg]:size-3",
+        "icon-sm": "size-8",
+        "icon-lg": "size-10",
       },
     },
     defaultVariants: {
@@ -47,10 +60,8 @@ export interface ButtonProps
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
-  /** Semantic meaning forwarded to a registered design-system ActionButton. */
   intent?: DesignSystemIntent;
-  /** Semantic prominence forwarded independently of the default visual variant. */
-  emphasis?: DesignSystemEmphasis;
+  emphasis?: ButtonEmphasis;
 }
 
 const ButtonBase = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -99,20 +110,35 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     if (DesignSystemActionButton && !asChild && !isRenderingLegacyButton) {
       const semanticIntent =
         intent ??
-        (variant === "destructive"
+        (variant === "destructive" || variant === "outline-destructive"
           ? "danger"
           : variant === "default"
             ? "primary"
             : "neutral");
-      const semanticEmphasis =
-        emphasis ??
-        (variant === "outline"
-          ? "outline"
-          : variant === "ghost" || variant === "link"
-            ? "ghost"
-            : "solid");
+      const semanticEmphasis: DesignSystemEmphasis =
+        emphasis === "ghost-inset"
+          ? "ghost"
+          : (emphasis ??
+            (variant === "outline" || variant === "outline-destructive"
+              ? "outline"
+              : variant === "ghost-inset"
+                ? "ghost"
+                : variant === "ghost" || variant === "link"
+                  ? "ghost"
+                  : "solid"));
+      const inset =
+        semanticEmphasis === "ghost" &&
+        (emphasis === "ghost-inset" ||
+          (!emphasis && variant === "ghost-inset"));
       const semanticSize =
-        size === "sm" ? "compact" : size === "lg" ? "large" : "default";
+        size === "sm" ||
+        size === "xs" ||
+        size === "icon-sm" ||
+        size === "icon-xs"
+          ? "compact"
+          : size === "lg" || size === "icon-lg"
+            ? "large"
+            : "default";
       return (
         <DesignSystemErrorBoundary component="ActionButton" fallback={fallback}>
           <DesignSystemActionButton
@@ -128,6 +154,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             disabled={props.disabled}
             intent={semanticIntent}
             emphasis={semanticEmphasis}
+            inset={inset || undefined}
             size={semanticSize}
             onPress={(event) =>
               props.onClick?.(

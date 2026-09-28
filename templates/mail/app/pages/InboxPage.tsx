@@ -1,13 +1,14 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
-import {
-  isInboxScopedAppLabel,
-  mailLabelsInclude,
-  mailLabelsIncludeAny,
-} from "@shared/gmail-labels";
+import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
+import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
+import { inboxTabHref } from "@shared/inbox-threads";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
@@ -26,18 +27,35 @@ import {
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import {
+  INBOX_PAGE_SIZE,
+  inboxThreadsHasNextPage,
+  mergeInboxThreadPages,
+  resolveInboxTabId,
+  useInboxOverview,
+  useInboxThreads,
+  useInboxThreadsPages,
+} from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
+  resolveDefaultMailHref,
   pinnedTriageLabels,
   augmentSelfSentLabels,
   filterInboxTabEmails,
   inboxThreadKey,
+  isInboxScopedLabel,
+  resolveInboxEmailQueryScope,
   savedFilterThreadIds,
 } from "@/lib/inbox-tabs";
+import {
+  buildForwardDraft,
+  buildReplyDraft,
+} from "@/lib/message-draft-builders";
+import { savedEmailDraftMetadata } from "@/lib/saved-draft";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -53,7 +71,6 @@ function ContactPanel({
   emails: EmailMessage[];
 }) {
   const t = useT();
-  // Look up from already-cached list data instead of making a separate API call
   const email = useMemo(
     () =>
       emails.find((e) => e.id === emailId || (e.threadId || e.id) === emailId),
@@ -64,9 +81,6 @@ function ContactPanel({
     ? contactEmail
     : email?.from.name || email?.from.email;
   const normalizedDisplayEmail = displayEmail?.trim().toLowerCase() ?? "";
-  // Use all mail so contact activity survives sent/archive/inbox navigation.
-  // Search at the provider boundary so the contact panel does not page through
-  // the entire mailbox. The bounded follow-up fetches cover sparse histories.
   const {
     data: allEmails = [],
     isError: allEmailsError,
@@ -213,15 +227,13 @@ function ThreadListSidebar({
             <button
               key={email.id}
               onClick={() => {
-                // A plain click is a single-thread action — clear any
-                // in-progress multi-selection so the next keyboard shortcut
-                // doesn't act on a stale set.
                 setSelectedIds(new Set());
                 if (!email.isRead)
                   markRead.mutate({
                     id: email.id,
                     isRead: true,
                     accountEmail: email.accountEmail,
+                    threadId: email.threadId || email.id,
                   });
                 onNavigateThread(threadKey);
                 void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
@@ -275,9 +287,6 @@ function ThreadListSidebar({
   );
 }
 
-// Stable references for the default "empty" fallbacks of useQuery data —
-// using `[]` inline creates a fresh array on every render, which cascades
-// through memos into EmailThread's props and causes re-render storms.
 const EMPTY_ACCOUNTS: { email: string; displayName?: string }[] = [];
 const EMPTY_EMAILS: EmailMessage[] = [];
 
@@ -288,10 +297,6 @@ export function InboxPage() {
     threadId: string;
   }>();
   const navigate = useNavigate();
-  // Immediate thread route override. React Router wraps navigations in
-  // startTransition, which can leave the previous route visible until the new
-  // route commits. `undefined` means "use the URL", a string means "show this
-  // thread now", and `null` means "show the list now".
   const [optimisticThreadId, setOptimisticThreadId] = useState<
     string | null | undefined
   >(undefined);
@@ -305,7 +310,6 @@ export function InboxPage() {
     },
     [],
   );
-  // Clear the override once the URL catches up.
   useEffect(() => {
     if (optimisticThreadId === undefined) return;
     if (
@@ -318,6 +322,15 @@ export function InboxPage() {
   }, [routeThreadId, optimisticThreadId]);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<MailSortMode>(() => {
+    try {
+      return localStorage.getItem("mail-sort-mode") === "priority"
+        ? "priority"
+        : "newest";
+    } catch {
+      return "newest";
+    }
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const selectedThreadIds = useMemo(
     () => Array.from(selectedIds),
@@ -327,8 +340,47 @@ export function InboxPage() {
   const compose = useComposeState();
   const navState = useNavigationState();
   const [, setLastArchivedId] = useState<string | null>(null);
-  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const {
+    data: settings,
+    isLoading: settingsLoading,
+    isError: settingsError,
+  } = useSettings();
+  const jevAvailability = useActionQuery(
+    "get-jev-availability",
+    {},
+    {
+      enabled: view === "inbox" || navState.command.data?.sort === "priority",
+      staleTime: 0,
+      // request-storm-allow: the shared status query revalidates API-key setup when its settings tab returns.
+      refetchOnWindowFocus: true,
+      retry: 2,
+    },
+  );
+  const { refetch: refetchJevAvailability } = jevAvailability;
+  const jevConfigured =
+    !jevAvailability.isError && jevAvailability.data?.configured === true;
+  const onJevAvailabilityChange = useCallback(() => {
+    void refetchJevAvailability();
+  }, [refetchJevAvailability]);
+  const showPrioritySort =
+    jevConfigured || (jevAvailability.isError && sortMode === "priority");
+  const changeSortMode = useCallback((mode: MailSortMode) => {
+    setSortMode(mode);
+    try {
+      localStorage.setItem("mail-sort-mode", mode);
+      // coercion-ok: server preference remains available when browser storage is restricted.
+    } catch {
+      // The server preference remains available when browser storage is restricted.
+    }
+  }, []);
+  const toggleSortMode = useCallback(() => {
+    if (showPrioritySort) {
+      changeSortMode(sortMode === "priority" ? "newest" : "priority");
+    }
+  }, [changeSortMode, showPrioritySort, sortMode]);
+  useKeyboardShortcuts([{ key: "i", meta: true, handler: toggleSortMode }]);
   const [searchParams] = useSearchParams();
+  const isOnboardingPreview = searchParams.get("onboarding") === "preview";
   const activeLabel = searchParams.get("label");
   const activeInboxTab = searchParams.get("tab");
   const activeFilterId = searchParams.get("filter");
@@ -337,15 +389,18 @@ export function InboxPage() {
     : "";
 
   const googleStatus = useGoogleAuthStatus();
-  const { activeAccounts } = useAccountFilter();
-  const { data: labelsData } = useLabels(
+  const { activeAccounts, allAccounts } = useAccountFilter();
+  const myEmails = useMemo(() => {
+    const emails = new Set(
+      allAccounts.map((account) => account.email.toLowerCase()),
+    );
+    if (settings?.email) emails.add(settings.email.toLowerCase());
+    return emails;
+  }, [allAccounts, settings?.email]);
+  const { data: labelsData, accountErrors: labelAccountErrors } = useLabels(
     activeAccounts.size > 0 ? [...activeAccounts] : undefined,
   );
   const labels = labelsData ?? EMPTY_LABELS;
-
-  // Memoize every derived array — the emails memo depends on these, and fresh
-  // array refs on every render were cascading into EmailThread as unstable
-  // threads/emailIds props.
   const connectedAccounts = useMemo(
     () => googleStatus.data?.accounts ?? EMPTY_ACCOUNTS,
     [googleStatus.data?.accounts],
@@ -366,35 +421,8 @@ export function InboxPage() {
     [pinnedLabels],
   );
   const hasNoteToSelf = pinnedLabels.includes("note-to-self");
-  const activeLabelRecord = useMemo(() => {
-    if (!activeLabel) return undefined;
-    const normalizedId = activeLabel.includes("/")
-      ? activeLabel
-          .slice(activeLabel.lastIndexOf("/") + 1)
-          .replace(/_/g, " ")
-          .toLowerCase()
-      : activeLabel.toLowerCase();
-    return labels.find(
-      (label) =>
-        label.id === activeLabel ||
-        label.id === normalizedId ||
-        label.name.toLowerCase() === activeLabel.toLowerCase(),
-    );
-  }, [activeLabel, labels]);
-  const activeLabelIsInboxScoped =
-    !!activeLabel &&
-    activeLabelRecord?.type !== "user" &&
-    isInboxScopedAppLabel(activeLabelRecord?.id ?? activeLabel);
-  const shouldNormalizeCombinedInboxRoute =
-    combineInbox &&
-    view === "inbox" &&
-    (activeLabelIsInboxScoped || activeInboxTab === OTHER_INBOX_TAB_PARAM);
+  const activeLabelIsInboxScoped = isInboxScopedLabel(activeLabel, labels);
 
-  // Always fetch from the URL view (inbox, starred, etc.).
-  // Top-bar triage tabs (Important / pinned labels / "Other") are slices of
-  // the single inbox query — NOT a separate Gmail `label:` search — so the
-  // tab badge count and the list it shows always agree. Non-pinned sidebar
-  // labels (and label searches) still hit the server label query.
   const activeSavedFilter = settings?.savedFilters?.find(
     (filter) => filter.id === activeFilterId,
   );
@@ -404,35 +432,194 @@ export function InboxPage() {
   );
   const searchQuery =
     activeSavedFilter?.query ?? searchParams.get("q") ?? undefined;
+  const {
+    shouldNormalizeCombinedInboxRoute,
+    clientSliceTab,
+    effectiveLabel,
+    emailView,
+  } = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped,
+    activeSavedFilter: !!activeSavedFilter,
+    combineInbox,
+    triageLabels,
+    searchQuery,
+  });
+
+  const isInboxView = view === "inbox" && !searchParams.get("q");
+  useEffect(() => {
+    try {
+      if (
+        localStorage.getItem("mail-sort-mode") === null &&
+        settings?.sortMode
+      ) {
+        setSortMode(settings.sortMode);
+      }
+    } catch {
+      if (settings?.sortMode) setSortMode(settings.sortMode);
+    }
+  }, [settings?.sortMode]);
   useEffect(() => {
     if (
+      jevAvailability.isSuccess &&
+      !jevConfigured &&
+      sortMode === "priority"
+    ) {
+      changeSortMode("newest");
+    }
+  }, [changeSortMode, jevAvailability.isSuccess, jevConfigured, sortMode]);
+  useEffect(() => {
+    if (jevAvailability.isError && sortMode === "priority") {
+      toast.error(t("mail.sort.priorityFailed"));
+    }
+  }, [jevAvailability.isError, sortMode, t]);
+  const resolvedInboxTab = resolveInboxTabId(searchParams);
+  const inboxAccountEmails =
+    activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  const inboxThreads = useInboxThreads(
+    {
+      tab: resolvedInboxTab,
+      accountEmails: inboxAccountEmails,
+      limit: INBOX_PAGE_SIZE,
+      offset: 0,
+    },
+    { enabled: view === "inbox" },
+  );
+  const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const inboxMetadata =
+    inboxOverview.data ??
+    (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
+  const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
+  useEffect(() => {
+    const priorityExtraPages = Math.max(
+      0,
+      Math.ceil(AI_PRIORITY_MAX_EMAILS / INBOX_PAGE_SIZE) - 1,
+    );
+    setInboxExtraPageCount(
+      showPrioritySort && isInboxView && sortMode === "priority"
+        ? priorityExtraPages
+        : 0,
+    );
+  }, [
+    activeAccounts,
+    isInboxView,
+    showPrioritySort,
+    resolvedInboxTab,
+    sortMode,
+  ]);
+  const inboxExtraOffsets = useMemo(
+    () =>
+      Array.from(
+        { length: inboxExtraPageCount },
+        (_, i) => (i + 1) * INBOX_PAGE_SIZE,
+      ),
+    [inboxExtraPageCount],
+  );
+  const inboxExtraPages = useInboxThreadsPages(
+    {
+      tab: resolvedInboxTab,
+      accountEmails: inboxAccountEmails,
+      limit: INBOX_PAGE_SIZE,
+    },
+    inboxExtraOffsets,
+    { enabled: isInboxView && inboxExtraOffsets.length > 0 },
+  );
+  const inboxItems = useMemo(
+    () => [
+      ...(inboxThreads.data?.items ?? []),
+      ...mergeInboxThreadPages(inboxExtraPages.map((page) => page.data)),
+    ],
+    [inboxThreads.data?.items, inboxExtraPages],
+  );
+  const inboxHasNextPage =
+    isInboxView && inboxThreads.data !== undefined
+      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)
+      : false;
+  const inboxIsFetchingNextPage = inboxExtraPages.some(
+    (page) => page.isFetching,
+  );
+  const inboxIsFetchNextPageError = inboxExtraPages.some(
+    (page) => page.isError,
+  );
+  const fetchInboxNextPage = useCallback(() => {
+    if (!inboxHasNextPage || inboxIsFetchingNextPage) return Promise.resolve();
+    const lastPage = inboxExtraPages[inboxExtraPages.length - 1];
+    if (lastPage?.isError) {
+      return lastPage.refetch().then(() => undefined);
+    }
+    setInboxExtraPageCount((count) => count + 1);
+    return Promise.resolve();
+  }, [inboxHasNextPage, inboxIsFetchingNextPage, inboxExtraPages]);
+  const inboxAccountErrors = useMemo(() => {
+    if (inboxThreads.isPlaceholderData) return undefined;
+    const errored = inboxMetadata?.accounts.filter(
+      (account) =>
+        account.state === "error" || account.state === "needs_reauth",
+    );
+    const inboxErrors = errored?.length
+      ? errored.map((account) => ({
+          email: account.accountEmail,
+          error: account.error ?? "",
+        }))
+      : [];
+    const reportedEmails = new Set(inboxErrors.map((e) => e.email));
+    const labelErrors = (labelAccountErrors ?? []).filter(
+      (e) => !reportedEmails.has(e.email),
+    );
+    const combined = [...inboxErrors, ...labelErrors];
+    return combined.length ? combined : undefined;
+  }, [
+    inboxMetadata?.accounts,
+    inboxThreads.isPlaceholderData,
+    labelAccountErrors,
+  ]);
+
+  useEffect(() => {
+    if (
+      isOnboardingPreview ||
       settingsLoading ||
+      settingsError ||
+      !settings ||
       view !== "inbox" ||
       routeThreadId ||
       activeLabel ||
       activeInboxTab ||
+      activeFilterId ||
       searchQuery ||
-      combineInbox ||
-      userPinnedLabels !== undefined ||
-      !isGoogleConnected
+      combineInbox
     )
       return;
-    void navigate("/inbox?label=important", { replace: true });
+    const defaultHref = resolveDefaultMailHref({
+      combineInbox,
+      showAllTab: settings?.showAllTab,
+      pinnedLabels: userPinnedLabels,
+      savedFilters: settings?.savedFilters,
+      isGoogleConnected,
+    });
+    if (defaultHref !== "/inbox") {
+      void navigate(defaultHref, { replace: true });
+    }
   }, [
+    activeFilterId,
     activeInboxTab,
-    combineInbox,
     activeLabel,
+    combineInbox,
+    isOnboardingPreview,
     isGoogleConnected,
     navigate,
     routeThreadId,
     searchQuery,
+    settings,
+    settingsError,
     settingsLoading,
     userPinnedLabels,
     view,
   ]);
 
   useEffect(() => {
-    if (!shouldNormalizeCombinedInboxRoute) return;
+    if (isOnboardingPreview || !shouldNormalizeCombinedInboxRoute) return;
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("label");
     nextParams.delete("tab");
@@ -444,60 +631,76 @@ export function InboxPage() {
       },
       { replace: true },
     );
-  }, [navigate, searchParams, shouldNormalizeCombinedInboxRoute]);
+  }, [
+    isOnboardingPreview,
+    navigate,
+    searchParams,
+    shouldNormalizeCombinedInboxRoute,
+  ]);
 
-  const isPinnedTab =
-    !!activeLabel &&
-    view === "inbox" &&
-    mailLabelsInclude(triageLabels, activeLabel);
-  const mailboxWideLabelTab =
-    view === "inbox" && !!activeLabel && !activeLabelIsInboxScoped;
-  const clientSliceTab =
-    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;
   const isOtherTab =
     view === "inbox" &&
     !combineInbox &&
     activeInboxTab === OTHER_INBOX_TAB_PARAM &&
     !searchQuery;
-  const effectiveLabel = shouldNormalizeCombinedInboxRoute
-    ? undefined
-    : clientSliceTab
-      ? undefined
-      : (activeLabel ?? undefined);
-  const emailView = activeSavedFilter
-    ? "inbox"
-    : mailboxWideLabelTab
-      ? "all"
-      : view;
   const {
-    data: rawEmails,
-    isLoading,
-    isFetching,
-    isError,
-    error: emailsError,
-    refetch: refetchEmails,
-    hasNextPage,
-    fetchNextPage,
-    isFetchingNextPage,
-    isFetchNextPageError,
-  } = useEmails(emailView, searchQuery, effectiveLabel);
-  const hasEmailData = rawEmails !== undefined;
+    data: fetchedEmails,
+    isLoading: emailsIsLoading,
+    isFetching: emailsIsFetching,
+    isError: emailsIsError,
+    error: emailsFetchError,
+    refetch: refetchFetchedEmails,
+    hasNextPage: emailsHasNextPage,
+    fetchNextPage: emailsFetchNextPage,
+    isFetchingNextPage: emailsIsFetchingNextPage,
+    isFetchNextPageError: emailsIsFetchNextPageError,
+    accountErrors: emailsAccountErrors,
+  } = useEmails(emailView, searchQuery, effectiveLabel, {
+    enabled: !isInboxView,
+  });
+
+  const rawEmails = isInboxView ? inboxItems : fetchedEmails;
+  const hasEmailData = isInboxView
+    ? inboxThreads.data !== undefined
+    : fetchedEmails !== undefined;
+  const inboxStillSyncingEmpty =
+    isInboxView && inboxMetadata?.syncing === true && inboxItems.length === 0;
+  const isLoading = isInboxView
+    ? inboxThreads.isLoading ||
+      inboxThreads.isPlaceholderData ||
+      inboxStillSyncingEmpty
+    : emailsIsLoading;
+  const isFetching = isInboxView ? inboxThreads.isFetching : emailsIsFetching;
+  const isError = isInboxView ? inboxThreads.isError : emailsIsError;
+  const emailsError = isInboxView
+    ? (inboxThreads.error ?? null)
+    : emailsFetchError;
+  const refetchEmails = isInboxView
+    ? inboxThreads.refetch
+    : refetchFetchedEmails;
+  const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;
+  const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;
+  const isFetchingNextPage = isInboxView
+    ? inboxIsFetchingNextPage
+    : emailsIsFetchingNextPage;
+  const isFetchNextPageError = isInboxView
+    ? inboxIsFetchNextPageError
+    : emailsIsFetchNextPageError;
+  const accountErrors = isInboxView ? inboxAccountErrors : emailsAccountErrors;
   const emailListLoading =
     isLoading ||
     !hasEmailData ||
     (!googleStatus.data && googleStatus.isLoading);
 
   const emails = useMemo(() => {
-    // Self-sent mail → virtual "important"/"note-to-self" so it lands in the
-    // matching triage tab. Shared with the badge counts (AppLayout) so the
-    // two agree on self-sent threads.
+    if (isInboxView) return rawEmails ?? EMPTY_EMAILS;
+
     let filtered = augmentSelfSentLabels(rawEmails ?? EMPTY_EMAILS, {
       isGoogleConnected,
       connectedEmails,
       hasNoteToSelf,
     });
 
-    // Filter by active accounts (empty set = all accounts, no filtering)
     if (activeAccounts.size > 0) {
       filtered = filtered.filter(
         (e) => e.accountEmail && activeAccounts.has(e.accountEmail),
@@ -506,9 +709,6 @@ export function InboxPage() {
 
     if (shouldNormalizeCombinedInboxRoute) return filtered;
 
-    // Top-bar triage tab: slice the loaded inbox with the exact same
-    // membership rule the badge uses (qualifiesForInboxTab). This is what
-    // keeps the tab number equal to the emails listed under it.
     if (clientSliceTab && activeLabel) {
       return filterInboxTabEmails(
         filtered,
@@ -517,7 +717,6 @@ export function InboxPage() {
         savedFilterQueries,
       );
     }
-    // "Other" tab — the inbox remainder, same partition as its badge.
     if (isOtherTab) {
       return filterInboxTabEmails(
         filtered,
@@ -528,10 +727,6 @@ export function InboxPage() {
     }
 
     if (activeLabel) {
-      // Non-pinned sidebar label (or a label search): server-fetched. User
-      // Gmail labels keep thread membership when any fetched message carries
-      // the label, so replies don't disappear just because the latest row
-      // differs; inbox-scoped app labels stay a latest-message slice.
       const isInboxScopedLabel = activeLabelIsInboxScoped;
       const hasLabel = (e: (typeof filtered)[0]) =>
         mailLabelsInclude(e.labelIds, activeLabel);
@@ -545,7 +740,6 @@ export function InboxPage() {
           latestByThread.set(key, e);
         }
       }
-      // For "important", exclude threads that belong to any other pinned tab
       const otherPinnedLabels =
         activeLabel === "important"
           ? triageLabels.filter((l) => l !== "important")
@@ -580,6 +774,7 @@ export function InboxPage() {
     return filtered;
   }, [
     rawEmails,
+    isInboxView,
     view,
     searchQuery,
     activeLabel,
@@ -596,15 +791,11 @@ export function InboxPage() {
     savedFilterQueries,
   ]);
 
-  // Clear multi-selection when switching views or label tabs. Do NOT clear on
-  // threadId changes — shift+j/k in detail view navigates between threads while
-  // extending the selection, so selection must persist across thread nav.
   useEffect(
     () => setSelectedIds(new Set()),
     [view, activeLabel, activeInboxTab, activeFilterId],
   );
 
-  // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchQuery;
   useEffect(() => {
     navState.sync({
@@ -614,11 +805,15 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       filter: activeFilterId ?? undefined,
-      activeInboxTab: activeInboxTab ?? undefined,
+      activeInboxTab:
+        view === "inbox"
+          ? (inboxThreads.data?.activeTabId ?? resolvedInboxTab)
+          : (activeInboxTab ?? undefined),
       activeAccounts:
         activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
+      sort: sortMode === "priority" && showPrioritySort ? sortMode : undefined,
     });
   }, [
     view,
@@ -627,9 +822,15 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeFilterId,
+    isInboxView,
+    inboxThreads.data?.activeTabId,
+    resolvedInboxTab,
     activeInboxTab,
     activeAccounts,
     selectedThreadIds,
+    showPrioritySort,
+    jevAvailability.isError,
+    sortMode,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
@@ -637,6 +838,9 @@ export function InboxPage() {
   const lastCommandRef = useRef<string>("");
   useEffect(() => {
     if (!navCommand) return;
+    if (navCommand.sort === "priority" && jevAvailability.isLoading) {
+      return;
+    }
     const key = JSON.stringify(navCommand);
     if (key === lastCommandRef.current) return;
     lastCommandRef.current = key;
@@ -645,11 +849,15 @@ export function InboxPage() {
     const targetFilter = navCommand.filter;
     const targetThread = navCommand.threadId;
 
+    if (navCommand.sort === "newest") {
+      changeSortMode("newest");
+    } else if (navCommand.sort === "priority") {
+      changeSortMode(
+        jevAvailability.isError || jevConfigured ? "priority" : "newest",
+      );
+    }
+
     if (navCommand.composeDraftId && !targetThread) {
-      // A deep link reopened a compose draft. The open route already wrote the
-      // matching compose-<id> app-state entry, which the compose panel
-      // auto-opens via polling. Select the requested draft immediately so
-      // existing compose tabs do not keep focus when the draft arrives.
       compose.setActiveId(navCommand.composeDraftId);
       window.dispatchEvent(
         new CustomEvent(FOCUS_COMPOSE_DRAFT_EVENT, {
@@ -663,10 +871,9 @@ export function InboxPage() {
         : "/draft-queue";
       void navigate(target);
     } else if (targetView === "settings") {
-      const target = navCommand.settingsSection
-        ? `/settings?section=${encodeURIComponent(navCommand.settingsSection)}`
-        : "/settings";
-      void navigate(target);
+      void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
+    } else if (navCommand.tab) {
+      void navigate(inboxTabHref(navCommand.tab));
     } else if (targetFilter) {
       void navigate(`/inbox?filter=${encodeURIComponent(targetFilter)}`);
     } else if (targetThread) {
@@ -675,9 +882,8 @@ export function InboxPage() {
       void navigate(`/${targetView}`);
     }
 
-    // Delete the command file so it doesn't re-trigger
     void navState.clearCommand();
-  }, [navCommand, view, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navCommand, view, navigate, jevAvailability.isLoading, jevConfigured]); // eslint-disable-line react-hooks/exhaustive-deps
   // Stable-identity pattern: keep the previous array reference when the
   // content hasn't meaningfully changed. Without this, markThreadRead's
   // optimistic update (which rebuilds the emails array for a single isRead
@@ -729,9 +935,6 @@ export function InboxPage() {
     [threads],
   );
 
-  // Safety valve: if optimisticThreadId points to a thread that was removed from
-  // the view (archived/trashed before the route caught up), clear it so the
-  // app doesn't get stuck rendering a ghost thread.
   useEffect(() => {
     if (
       optimisticThreadId &&
@@ -747,38 +950,18 @@ export function InboxPage() {
   }, [optimisticThreadId, threads]);
 
   const handleCompose = useCallback(
-    (email: EmailMessage, mode: "reply" | "forward") => {
-      if (mode === "reply") {
-        compose.open({
-          to: email.from.email,
-          subject: email.subject.startsWith("Re:")
-            ? email.subject
-            : `Re: ${email.subject}`,
-          body: `\n\n\n\n— On ${new Date(email.date).toLocaleDateString()}, ${email.from.name || email.from.email} wrote:\n\n${email.body
-            .split("\n")
-            .map((l) => `> ${l}`)
-            .join("\n")}`,
-          mode: "reply",
-          replyToId: email.id,
-          replyToThreadId: email.threadId,
-        });
-      } else {
-        compose.open({
-          to: "",
-          subject: email.subject.startsWith("Fwd:")
-            ? email.subject
-            : `Fwd: ${email.subject}`,
-          body: `\n\n\n\n— Forwarded message —\nFrom: ${email.from.name} <${email.from.email}>\n\n${email.body}`,
-          mode: "forward",
-          replyToId: email.id,
-          replyToThreadId: email.threadId,
-        });
+    (email: EmailMessage, mode: "reply" | "replyAll" | "forward") => {
+      if (mode === "forward") {
+        compose.open(buildForwardDraft(email, myEmails));
+        return;
       }
+      compose.open(
+        buildReplyDraft(email, myEmails, { replyAll: mode === "replyAll" }),
+      );
     },
-    [compose],
+    [compose, myEmails],
   );
 
-  // Open a saved draft in the compose window
   const handleDraftOpen = useCallback(
     (email: EmailMessage) => {
       compose.open({
@@ -806,7 +989,7 @@ export function InboxPage() {
         mode: "compose",
         replyToId: (email as any).replyToId,
         replyToThreadId: (email as any).replyToThreadId,
-        savedDraftId: email.id,
+        ...savedEmailDraftMetadata(email),
       });
     },
     [compose],
@@ -825,22 +1008,18 @@ export function InboxPage() {
     isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
     hasNextPage: Boolean(hasNextPage),
+    hasAccountErrors: Boolean(accountErrors?.length),
   });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
   >();
 
-  // Reset sidebar contact when navigating away from a thread
   useEffect(() => {
     setSidebarContactEmail(undefined);
   }, [threadId]);
 
-  // Use the focused email ID for the contact panel, falling back to the selected thread
   const contactEmailId = threadId ?? focusedId ?? undefined;
 
-  // Error state — only show connect banner when Google is definitively not connected.
-  // For transient errors (rate limits, network blips), let EmailList render its
-  // richer retry/cooldown state instead of replacing it with a generic error.
   if (isError && !hasThread && threads.length === 0) {
     const message = emailsError?.message ?? "";
     const needsGoogleConnection =
@@ -855,7 +1034,6 @@ export function InboxPage() {
     }
   }
 
-  // Inbox Zero — full-bleed image, no sidebar
   if (isInboxZero) {
     return <InboxZero />;
   }
@@ -902,11 +1080,25 @@ export function InboxPage() {
             isLoading={emailListLoading}
             isFetching={isFetching}
             emailsError={emailsError}
+            accountErrors={accountErrors}
+            labels={
+              isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
+            }
             refetchEmails={refetchEmails}
             hasNextPage={hasNextPage}
             fetchNextPage={fetchNextPage}
             isFetchingNextPage={isFetchingNextPage}
             isFetchNextPageError={isFetchNextPageError}
+            sortMode={sortMode}
+            showPrioritySort={showPrioritySort}
+            jevConfigured={jevConfigured}
+            jevAvailabilityLoading={
+              jevAvailability.isLoading || jevAvailability.isFetching
+            }
+            jevAvailabilityError={jevAvailability.isError}
+            onJevConnected={onJevAvailabilityChange}
+            onJevRetry={onJevAvailabilityChange}
+            onSortModeChange={changeSortMode}
           />
         )}
       </div>

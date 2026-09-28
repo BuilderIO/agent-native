@@ -68,8 +68,9 @@ export const ViewerSwitch = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <Switch
     ref={ref}
+    size="sm"
     className={cn(
-      "relative !h-4 !w-7 after:absolute after:-inset-2 after:content-[''] [&>span]:!size-3 [&>span[data-state=checked]]:!translate-x-3 [&>span[data-state=unchecked]]:!translate-x-0",
+      "relative after:absolute after:-inset-2 after:content-['']",
       className,
     )}
     {...props}
@@ -85,7 +86,7 @@ export const ViewerTabsList = React.forwardRef<
     ref={ref}
     variant="line"
     className={cn(
-      "h-10 w-full shrink-0 justify-start overflow-x-auto rounded-none p-0",
+      "h-10 min-h-10 w-fit max-w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden rounded-none px-3 py-0",
       className,
     )}
     {...props}
@@ -100,7 +101,7 @@ export const ViewerTabsTrigger = React.forwardRef<
   <TabsTrigger
     ref={ref}
     className={cn(
-      "h-10 min-w-0 rounded-none px-2 py-0 text-xs after:bottom-0",
+      "h-10 min-w-0 flex-none rounded-none px-2 py-0 text-sm data-[state=active]:after:bottom-0 data-[state=active]:after:inset-x-2",
       className,
     )}
     {...props}

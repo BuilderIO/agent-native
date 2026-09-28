@@ -78,6 +78,8 @@ L'architecture du framework évite les vulnérabilités courantes lorsque vous u
 | Exposition secrète               | `.env` gitignoré ; informations d'identification et coffre-fort chiffrés au repos (AES-256-GCM) |
 | SSRF                             | `ssrfSafeFetch` bloque les cibles internes/métadonnées + redirection de liaison                 |
 
+Le framework crée le contexte de requête depuis la session et applique la propriété avec `accessFilter()` et `assertAccess()` aux lectures et écritures de l’application. Le SQL de l’agent reçoit des vues temporaires filtrées pour l’identité et l’organisation actives. RLS n’est pas encore activé ; les requêtes applicatives directes doivent donc continuer à utiliser ces assistants.
+
 ## Validation des entrées {#input-validation}
 
 Utilisez `defineAction` avec un Zod `schema:` pour chaque action. Le framework valide automatiquement les entrées avant l'exécution de votre code :

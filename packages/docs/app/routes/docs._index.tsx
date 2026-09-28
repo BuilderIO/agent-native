@@ -15,6 +15,7 @@ import {
 import DocContent from "../components/DocContent";
 import DocDraftBanner from "../components/DocDraftBanner";
 import {
+  hasLocalizedDoc,
   loadDocRespectingDraftVisibility,
   preloadDocBlocksForDoc,
   type DocEntry,
@@ -22,9 +23,11 @@ import {
 import {
   DEFAULT_DOCS_LOCALE,
   docsLocaleFromSegment,
+  docsPathForSlug,
 } from "../components/docs-locale";
 import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
+import DocTranslationBanner from "../components/DocTranslationBanner";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 const GETTING_STARTED_SLUG = "getting-started";
@@ -104,6 +107,12 @@ export default function DocsIndex() {
       ) : (
         <DocContent markdown={currentDoc.body} locale={locale} />
       )}
+      {locale !== DEFAULT_DOCS_LOCALE &&
+        hasLocalizedDoc(locale, currentDoc.slug) && (
+          <DocTranslationBanner
+            originalHref={docsPathForSlug(currentDoc.slug, DEFAULT_DOCS_LOCALE)}
+          />
+        )}
     </DocsLayout>
   );
 }

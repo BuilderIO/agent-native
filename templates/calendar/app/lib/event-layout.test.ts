@@ -1,6 +1,8 @@
 import type { CalendarEvent } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
+
 import { computeTimedEventLayout } from "./event-layout";
 
 const DAY = new Date("2026-08-10T00:00:00");
@@ -26,6 +28,36 @@ function event(
 }
 
 describe("computeTimedEventLayout", () => {
+  it("keeps duplicate provider IDs in separate calendar lanes", () => {
+    const firstCalendar: CalendarEvent = {
+      ...event("shared-id", "08:00", "09:00"),
+      source: "google",
+      accountEmail: "owner@example.com",
+      calendarSourceKey: "calendar-one",
+      calendarId: "calendar-one-id",
+    };
+    const secondCalendar: CalendarEvent = {
+      ...event("shared-id", "08:00", "09:00"),
+      source: "google",
+      accountEmail: "owner@example.com",
+      calendarSourceKey: "calendar-two",
+      calendarId: "calendar-two-id",
+    };
+    const layout = computeTimedEventLayout(
+      [firstCalendar, secondCalendar],
+      DAY,
+    );
+
+    expect(layout.get(getCalendarEventRenderKey(firstCalendar))).toMatchObject({
+      left: 0,
+      width: 100,
+      col: 0,
+    });
+    expect(layout.get(getCalendarEventRenderKey(secondCalendar))).toMatchObject(
+      { left: 50, width: 50, col: 1 },
+    );
+  });
+
   it("uses the full column for a single event", () => {
     const layout = computeTimedEventLayout([event("a", "08:00", "10:00")], DAY);
 

@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
@@ -29,6 +30,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
 import { cn } from "@/lib/utils";
 
 export interface PromptTemplateOption {
@@ -48,9 +50,8 @@ export interface PromptDesignSystemOption {
   title: string;
   description?: string | null;
   isDefault?: boolean;
-  /** The system's own palette, so the row can be picked by colour rather than
-   *  by reading a list of near-identical names. */
   colors?: string[];
+  ready: boolean;
 }
 
 export function TemplatePickerControl({
@@ -74,6 +75,19 @@ export function TemplatePickerControl({
   const builtInTemplates = options.filter((option) => option.isBuiltIn);
 
   const choose = (id: string | null) => {
+    const selectedTemplate = id
+      ? options.find((option) => option.id === id)
+      : null;
+    trackEvent("design_template_selected", {
+      app_name: "design",
+      template_name: "design",
+      template_source:
+        id === null
+          ? "blank"
+          : selectedTemplate?.isBuiltIn
+            ? "built_in"
+            : "user",
+    });
     onChange(id);
     onOpenChange(false);
   };
@@ -216,12 +230,19 @@ export function DesignSystemPickerControl({
   ) : designSystems.length > 0 ? (
     <Select
       value={selectedId ?? "none"}
-      onValueChange={(value) => onChange(value === "none" ? null : value)}
+      onValueChange={(value) => {
+        trackEvent("design_system_selected", {
+          app_name: "design",
+          template_name: "design",
+          has_design_system: value !== "none",
+        });
+        onChange(value === "none" ? null : value);
+      }}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) onSelectClosed?.();
       }}
     >
-      <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+      <SelectTrigger className="min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
         <IconComponents className="size-4 shrink-0 text-muted-foreground" />
         <span
           className="min-w-0 flex-1 truncate text-start"
@@ -238,6 +259,7 @@ export function DesignSystemPickerControl({
           <SelectItem
             key={system.id}
             value={system.id}
+            disabled={!system.ready}
             className="py-2 text-xs"
           >
             <span className="flex min-w-0 items-center gap-2.5">
@@ -256,6 +278,11 @@ export function DesignSystemPickerControl({
                 </span>
               ) : null}
               <span className="min-w-0 truncate">{system.title}</span>
+              {!system.ready ? (
+                <span className="shrink-0 text-muted-foreground">
+                  {t("promptDialog.designSystemIndexing")}
+                </span>
+              ) : null}
             </span>
           </SelectItem>
         ))}
@@ -269,11 +296,6 @@ export function DesignSystemPickerControl({
   );
 }
 
-/**
- * Swatches come from the system's own stored tokens. Unparseable data still
- * belongs in the list — it just loses its colour row, which the option renders
- * as absent rather than guessing a palette.
- */
 export function designSystemPickerOptions(
   systems: Array<{
     id: string;
@@ -304,6 +326,7 @@ export function designSystemPickerOptions(
       description: system.description,
       isDefault: system.isDefault,
       colors,
+      ready: isDesignSystemUsableForGeneration(system.data),
     };
   });
 }

@@ -26,9 +26,6 @@ const RAW_SLIDE = (inner: string) =>
   `<div style="color: rgb(41, 37, 36); background: #fdf6ec">${inner}</div>` +
   "</div>";
 
-/** What a "content"/"two-column" layout renders once the slide declares a
- *  color: the same palette-off marker, on the AutoFitContent container that
- *  carries `slide-content`. */
 const MARKDOWN_LAYOUT_SLIDE = (inner: string) =>
   '<div class="fmd-autofit-scale slide-content" ' +
   'data-slide-content-scope="authored-colors">' +
@@ -43,6 +40,13 @@ function colorOf(html: string, selector: string): string {
   const element = document.querySelector(selector);
   if (!element) throw new Error(`No element for ${selector}`);
   return getComputedStyle(element).color;
+}
+
+function backgroundColorOf(html: string, selector: string): string {
+  document.body.innerHTML = html;
+  const element = document.querySelector(selector);
+  if (!element) throw new Error(`No element for ${selector}`);
+  return getComputedStyle(element).backgroundColor;
 }
 
 beforeAll(() => {
@@ -75,17 +79,30 @@ describe("slide-content text colors", () => {
     });
   }
 
-  it("still applies the dark-deck default to markdown-rendered slides", () => {
-    expect(colorOf(MARKDOWN_SLIDE("<h1>Title</h1>"), "h1")).toBe("#ffffff");
+  it("applies the light-deck default to markdown-rendered slides", () => {
+    expect(colorOf(MARKDOWN_SLIDE("<h1>Title</h1>"), "h1")).toBe("#1f2933");
   });
 
   it("covers raw slide HTML whose root has no fmd-slide class", () => {
-    // The reset used to be scoped to `.fmd-slide`, so agent HTML that omitted
-    // the class kept the white heading. This is that exact markup.
     const html =
       '<div class="slide-content" data-slide-content-scope="scope-2">' +
       '<div style="padding: 80px 110px; background: #fdf6ec; color: #292524">' +
       "<h1>Onboarding New Customers</h1></div></div>";
     expect(colorOf(html, "h1")).toBe("inherit");
+  });
+
+  it("keeps the selected question option's primary background", () => {
+    const utilityStyle = document.createElement("style");
+    utilityStyle.textContent = String.raw`.bg-primary\/10 { background-color: rgb(1, 2, 3); }`;
+    document.head.appendChild(utilityStyle);
+
+    expect(
+      backgroundColorOf(
+        '<div class="slides-question-flow"><div class="guided-question-flow-options"><button class="bg-primary/10" aria-pressed="true"></button></div></div>',
+        "button",
+      ),
+    ).toBe("rgb(1, 2, 3)");
+
+    utilityStyle.remove();
   });
 });

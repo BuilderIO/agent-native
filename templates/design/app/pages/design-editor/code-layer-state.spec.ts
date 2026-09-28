@@ -1,24 +1,101 @@
-import type { CodeLayerNode } from "@shared/code-layer";
+import {
+  buildCodeLayerTree,
+  buildCodeLayerProjection,
+  type CodeLayerNode,
+} from "@shared/code-layer";
 import { describe, expect, it } from "vitest";
 
+import { gridValueForElement } from "@/components/design/edit-panel/layout-properties";
+import {
+  MIXED_VALUE,
+  mixedElementFromSelection,
+} from "@/components/design/edit-panel/selection-helpers";
 import type { ElementInfo } from "@/components/design/types";
 
 import {
   canonicalElementInfoForCodeLayerNode,
+  canonicalizeElementInfoFromProjection,
   codeLayerNodeLooksLikeComponent,
+  codeLayerPatchMessage,
   layerTypeForCodeLayer,
   codeLayerNodeMatchesBridgeTarget,
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
+  cssStyleAliases,
   elementInfoFromCodeLayerNode,
+  elementInfoForOwnedCodeLayerNode,
   isClientRenderedMountShell,
+  codeLayerSourceNodeIdAttrs,
+  codeLayerTreeToPanelNodes,
   isCodeLayerNodeRuntimeOnly,
   liveDeleteSelectorGroups,
   refreshedBoundingRectSize,
   refreshedComputedStyles,
   resolveCodeLayerNodeFromBridge,
+  resolveCodeLayerNodeFromElementInfo,
   runtimeLayerStateHandoffMode,
+  previewCodeLayerTreeMove,
 } from "./code-layer-state";
+
+describe("codeLayerPatchMessage", () => {
+  it("hides internal target-resolution details behind the caller fallback", () => {
+    expect(
+      codeLayerPatchMessage(
+        'Node with data-agent-native-node-id="layer-1" not found in sourceHtml.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+    expect(
+      codeLayerPatchMessage(
+        'Selector ".card" did not match a code layer node.',
+        "Could not move that layer",
+      ),
+    ).toBe("Could not move that layer");
+  });
+
+  it("preserves an actionable user-facing message", () => {
+    expect(
+      codeLayerPatchMessage(
+        "This screen is backed by a live route URL.",
+        "Could not move that layer",
+      ),
+    ).toBe("This screen is backed by a live route URL.");
+  });
+});
+
+describe("previewCodeLayerTreeMove", () => {
+  it("rejects a stale anchor instead of hiding the source", () => {
+    const tree = previewCodeLayerTreeMove(
+      buildCodeLayerTree(
+        buildCodeLayerProjection(
+          '<div data-agent-native-node-id="source">Source</div>',
+        ),
+      ),
+      {
+        sourceId: "source",
+        anchorId: "stale-anchor",
+        placement: "after",
+        insert: false,
+      },
+    );
+
+    expect(tree).toBeNull();
+  });
+});
+
+describe("cssStyleAliases", () => {
+  it("maps WebKit text truncation declarations to the inspector style keys", () => {
+    expect(
+      cssStyleAliases({
+        "-webkit-box-orient": "vertical",
+        "-webkit-line-clamp": "2",
+      }),
+    ).toMatchObject({
+      webkitBoxOrient: "vertical",
+      webkitLineClamp: "2",
+    });
+  });
+});
 
 function makeElementInfo(overrides: Partial<ElementInfo> = {}): ElementInfo {
   return {
@@ -39,6 +116,8 @@ function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
     tag: overrides.tag ?? "div",
     layerName: overrides.layerName ?? "Div",
     layerNameSource: overrides.layerNameSource ?? "tag",
+    paintsOwnText: overrides.paintsOwnText ?? false,
+    repeatXFor: overrides.repeatXFor ?? null,
     selector,
     selectors: overrides.selectors ?? [selector],
     path: overrides.path ?? selector,
@@ -64,6 +143,34 @@ function makeNode(overrides: Partial<CodeLayerNode> = {}): CodeLayerNode {
 }
 
 describe("elementInfoFromCodeLayerNode provenance", () => {
+  it("preserves explicit group identity from the source projection", () => {
+    const info = elementInfoFromCodeLayerNode(
+      makeNode({
+        dataAttributes: { "data-agent-native-group": "true" },
+      }),
+    );
+
+    expect(info.isGroup).toBe(true);
+  });
+
+  it("preserves authored constraints and sizing alongside paint in layer selections", () => {
+    const styles = {
+      position: "absolute",
+      left: "auto",
+      right: "12px",
+      top: "auto",
+      bottom: "12px",
+      width: "20px",
+      height: "20px",
+      whiteSpace: "nowrap",
+      backgroundColor: "blue",
+    };
+    const info = elementInfoFromCodeLayerNode(makeNode({ style: styles }));
+
+    expect(info.inlineStyles).toEqual(styles);
+    expect(info.inlineStyles).not.toBe(info.computedStyles);
+  });
+
   it("preserves complete React source anchors from runtime projection attributes", () => {
     const info = elementInfoFromCodeLayerNode(
       makeNode({
@@ -178,8 +285,6 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
       }),
     );
 
-    // The element's attribute position is authored; the owner line came from a
-    // transformed React 19 owner stack. One shared tier would misreport one.
     expect(info.provenance).toMatchObject({
       method: "data-attribute",
       ownerMethod: "debug-stack",
@@ -187,9 +292,6 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
   });
 
   it("keeps a stack-derived position labelled transformed instead of laundering it through data-source-*", () => {
-    // The bridge writes the projection's data-source-* from React 19's owner
-    // stack. Without the tier attribute those coordinates would read back as a
-    // build-time transform's authored ones.
     const info = elementInfoFromCodeLayerNode(
       makeNode({
         dataAttributes: {
@@ -300,6 +402,105 @@ describe("elementInfoFromCodeLayerNode provenance", () => {
   });
 });
 
+describe("whole text style roots from source projections", () => {
+  it("marks a paragraph with only inline text children, not a composite row", () => {
+    const projection = buildCodeLayerProjection(
+      '<main><article><p id="note"><span>Shared note</span></p>' +
+        '<div id="generic"><span>Generic note</span></div>' +
+        '<ul><li id="row"><span>Done</span><input type="checkbox"></li></ul>' +
+        "</article></main>",
+      { source: { kind: "design-file", fileId: "text-root-fixture" } },
+    );
+    const paragraph = projection.nodes.find(
+      (node) => node.attributes.id === "note",
+    );
+    const generic = projection.nodes.find(
+      (node) => node.attributes.id === "generic",
+    );
+    const row = projection.nodes.find((node) => node.attributes.id === "row");
+
+    expect(paragraph).toBeDefined();
+    expect(paragraph?.paintsOwnText).toBe(false);
+    expect(
+      paragraph && elementInfoFromCodeLayerNode(paragraph).wholeTextStyleRoot,
+    ).toBe(true);
+    expect(generic).toBeDefined();
+    expect(generic?.paintsOwnText).toBe(false);
+    expect(
+      generic && elementInfoFromCodeLayerNode(generic).wholeTextStyleRoot,
+    ).toBe(false);
+    expect(row).toBeDefined();
+    expect(row?.paintsOwnText).toBe(false);
+    expect(row && elementInfoFromCodeLayerNode(row).wholeTextStyleRoot).toBe(
+      false,
+    );
+  });
+
+  it("keeps marked multiline Text descendants in projection but renders one Layers row", () => {
+    const projection = buildCodeLayerProjection(
+      '<main><div id="text" data-an-primitive="text">' +
+        '<div id="home">Home</div><div id="browse"><span>Browse</span></div>' +
+        '</div><div id="ordinary"><div id="ordinary-child">Container child</div></div></main>',
+      { source: { kind: "design-file", fileId: "multiline-text-leaf" } },
+    );
+    const textSourceNode = projection.nodes.find(
+      (node) => node.attributes.id === "text",
+    );
+    const homeSourceNode = projection.nodes.find(
+      (node) => node.attributes.id === "home",
+    );
+    const browseSourceNode = projection.nodes.find(
+      (node) => node.attributes.id === "browse",
+    );
+    expect(textSourceNode?.children).toHaveLength(2);
+    expect(homeSourceNode).toBeDefined();
+    expect(browseSourceNode).toBeDefined();
+    const tree = buildCodeLayerTree(projection);
+    const findTreeNodeById = (
+      nodes: ReturnType<typeof buildCodeLayerTree>,
+      id: string,
+    ): ReturnType<typeof buildCodeLayerTree>[number] | undefined => {
+      for (const node of nodes) {
+        if (node.id === id) return node;
+        const child = findTreeNodeById(node.children, id);
+        if (child) return child;
+      }
+      return undefined;
+    };
+    const treeText =
+      textSourceNode && findTreeNodeById(tree, textSourceNode.id);
+    const ordinarySourceNode = projection.nodes.find(
+      (node) => node.attributes.id === "ordinary",
+    );
+    const treeOrdinary =
+      ordinarySourceNode && findTreeNodeById(tree, ordinarySourceNode.id);
+    expect(treeText?.children).toHaveLength(2);
+
+    const panel = codeLayerTreeToPanelNodes(tree, new Set(), new Set());
+    const findPanelNode = (
+      nodes: ReturnType<typeof codeLayerTreeToPanelNodes>,
+      id: string,
+    ): (typeof panel)[number] | undefined => {
+      for (const node of nodes) {
+        if (node.id === id) return node;
+        const child = findPanelNode(node.children ?? [], id);
+        if (child) return child;
+      }
+      return undefined;
+    };
+    const panelText = treeText && findPanelNode(panel, treeText.id);
+    const panelOrdinary = treeOrdinary && findPanelNode(panel, treeOrdinary.id);
+    expect(panelText?.children).toEqual([]);
+    expect(panelOrdinary?.children).toHaveLength(1);
+    expect(treeText?.isNativeTextPrimitive).toBe(true);
+    expect(treeOrdinary?.isNativeTextPrimitive).toBe(false);
+    expect(
+      textSourceNode &&
+        elementInfoFromCodeLayerNode(textSourceNode).wholeTextStyleRoot,
+    ).toBe(true);
+  });
+});
+
 describe("resolveCodeLayerNodeFromBridge", () => {
   it("resolves a unique sourceId match regardless of selector", () => {
     const target = makeNode({
@@ -319,9 +520,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
   });
 
   it("finds the sourceId match even when an unrelated earlier node matches the selector first", () => {
-    // Regression: the old implementation was a single combined `.find()`
-    // over (selector OR sourceId), so a selector-only match earlier in the
-    // array could win over the correct sourceId match later in the array.
     const selectorMatchButWrongNode = makeNode({
       id: "decoy",
       selector: "body > div",
@@ -364,11 +562,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
   });
 
   it("refuses to resolve (returns null) when a selector matches multiple nodes and no sourceId disambiguates", () => {
-    // Two repeated card instances share the same generic suffix selector —
-    // exactly the shape a bridge target for a not-yet-stamped repeated
-    // list/card item emits. Silently picking the first would risk mutating
-    // the wrong sibling; the resolver must fail closed instead, mirroring
-    // the server-side resolveTarget's ambiguity-conflict discipline.
     const cardA = makeNode({
       id: "card-a",
       selector: "div > p",
@@ -420,8 +613,6 @@ describe("resolveCodeLayerNodeFromBridge", () => {
 });
 
 describe("isClientRenderedMountShell", () => {
-  // Observed: a Vite SPA screen projected to [html, body, div#root], so every
-  // runtime selection resolved "absent" and the editor blamed the element.
   it("recognizes the served shell of a client-rendered app", () => {
     const projection = {
       nodes: [
@@ -468,8 +659,6 @@ describe("isClientRenderedMountShell", () => {
 });
 
 describe("resolveCodeLayerTargetFromBridge distinguishes absent from ambiguous", () => {
-  // The point of the typed result: `null` cannot say whether the element is gone
-  // or one of several identical instances, which need different remedies.
   function repeatedCards() {
     const shared = {
       selector: "div > p",
@@ -528,6 +717,34 @@ describe("resolveCodeLayerTargetFromBridge distinguishes absent from ambiguous",
 
     expect(resolution).toEqual({ status: "resolved", node: nodes[1] });
   });
+
+  it("uses a unique selector to disambiguate duplicated stable source ids", () => {
+    const nodes = repeatedCards();
+    nodes[0]!.dataAttributes = { "data-agent-native-node-id": "duplicate" };
+    nodes[1]!.dataAttributes = { "data-agent-native-node-id": "duplicate" };
+    nodes[0]!.path =
+      'div[data-agent-native-node-id="duplicate"]:nth-of-type(1)';
+    nodes[1]!.path =
+      'div[data-agent-native-node-id="duplicate"]:nth-of-type(2)';
+
+    const resolution = resolveCodeLayerTargetFromBridge(
+      { nodes },
+      nodes[1]!.path,
+      "duplicate",
+    );
+
+    expect(resolution).toEqual({ status: "resolved", node: nodes[1] });
+  });
+
+  it("keeps duplicate stable ids ambiguous without a matching selector", () => {
+    const nodes = repeatedCards();
+    nodes[0]!.dataAttributes = { "data-agent-native-node-id": "duplicate" };
+    nodes[1]!.dataAttributes = { "data-agent-native-node-id": "duplicate" };
+
+    expect(
+      resolveCodeLayerTargetFromBridge({ nodes }, undefined, "duplicate"),
+    ).toEqual({ status: "ambiguous", candidates: nodes.slice(0, 2) });
+  });
 });
 
 describe("resolveCodeLayerTargetFromElementInfo tie-breaking", () => {
@@ -577,6 +794,102 @@ describe("resolveCodeLayerTargetFromElementInfo tie-breaking", () => {
     ).toHaveLength(2);
   });
 
+  it("does not let text outside duplicate source-id candidates escape ambiguity", () => {
+    const nodes = [
+      makeNode({
+        id: "candidate-a",
+        tag: "p",
+        dataAttributes: { "data-agent-native-node-id": "duplicate" },
+        path: 'div[data-agent-native-node-id="duplicate"] > p:nth-of-type(1)',
+        textSnippet: "Alpha",
+      }),
+      makeNode({
+        id: "candidate-b",
+        tag: "p",
+        dataAttributes: { "data-agent-native-node-id": "duplicate" },
+        path: 'div[data-agent-native-node-id="duplicate"] > p:nth-of-type(2)',
+        textSnippet: "Beta",
+      }),
+      makeNode({
+        id: "outside",
+        tag: "p",
+        path: "section > p",
+        selector: "section > p",
+        selectors: ["section > p"],
+        textSnippet: "Gamma",
+      }),
+    ];
+
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes },
+      makeElementInfo({
+        tagName: "p",
+        id: "duplicate",
+        selector: "section > p",
+        textContent: "Gamma",
+      }),
+    );
+
+    expect(resolution).toEqual({
+      status: "ambiguous",
+      candidates: nodes.slice(0, 2),
+    });
+  });
+
+  it("still uses text to disambiguate within duplicate source-id candidates", () => {
+    const nodes = [
+      makeNode({
+        id: "candidate-a",
+        tag: "p",
+        dataAttributes: { "data-agent-native-node-id": "duplicate" },
+        path: "div > p",
+        textSnippet: "Alpha",
+      }),
+      makeNode({
+        id: "candidate-b",
+        tag: "p",
+        dataAttributes: { "data-agent-native-node-id": "duplicate" },
+        path: "div > p",
+        textSnippet: "Beta",
+      }),
+    ];
+
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes },
+      makeElementInfo({
+        tagName: "p",
+        id: "duplicate",
+        selector: "div > p",
+        textContent: "Beta",
+      }),
+    );
+
+    expect(resolution).toEqual({ status: "resolved", node: nodes[1] });
+  });
+
+  it("keeps whole-projection text fallback when the supplied id is absent", () => {
+    const nodes = [
+      makeNode({
+        id: "node-a",
+        tag: "p",
+        path: "main > p",
+        textSnippet: "Fallback target",
+      }),
+    ];
+
+    const resolution = resolveCodeLayerTargetFromElementInfo(
+      { nodes },
+      makeElementInfo({
+        tagName: "p",
+        id: "not-in-projection",
+        selector: "missing > p",
+        textContent: "Fallback target",
+      }),
+    );
+
+    expect(resolution).toEqual({ status: "resolved", node: nodes[0] });
+  });
+
   it("reports absent, not ambiguous, when the element is genuinely gone", () => {
     const resolution = resolveCodeLayerTargetFromElementInfo(
       { nodes: [makeNode({ id: "unrelated", tag: "section" })] },
@@ -584,6 +897,48 @@ describe("resolveCodeLayerTargetFromElementInfo tie-breaking", () => {
     );
 
     expect(resolution).toEqual({ status: "absent" });
+  });
+
+  it("refuses an ElementInfo owned by another Screen with the same authored id", () => {
+    const html = `<button data-agent-native-node-id="shared">Action</button>`;
+    const screenA = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-a" },
+    });
+    const screenB = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId: "screen-b" },
+    });
+    const nodeA = screenA.nodes[0]!;
+    const infoA = elementInfoForOwnedCodeLayerNode({
+      info: elementInfoFromCodeLayerNode(nodeA),
+      node: nodeA,
+      ownerFileId: "screen-a",
+    });
+
+    expect(screenA.nodes[0]!.id).not.toBe(screenB.nodes[0]!.id);
+    expect(resolveCodeLayerTargetFromElementInfo(screenB, infoA)).toEqual({
+      status: "absent",
+    });
+    expect(resolveCodeLayerNodeFromElementInfo(screenB, infoA)).toBeNull();
+
+    const infoCanonicalizedAgainstB = canonicalizeElementInfoFromProjection(
+      screenB,
+      infoA,
+      "screen-b",
+    );
+    expect(infoCanonicalizedAgainstB.sourceLayerIdentity).toEqual(
+      infoA.sourceLayerIdentity,
+    );
+    expect(
+      resolveCodeLayerNodeFromElementInfo(screenB, infoCanonicalizedAgainstB),
+    ).toBeNull();
+
+    expect(
+      canonicalizeElementInfoFromProjection(screenA, infoA, "screen-a")
+        .sourceLayerIdentity,
+    ).toEqual(infoA.sourceLayerIdentity);
+    expect(
+      resolveCodeLayerNodeFromElementInfo({ nodes: screenB.nodes }, infoA),
+    ).toBe(screenB.nodes[0]);
   });
 });
 
@@ -636,21 +991,8 @@ describe("codeLayerNodeMatchesBridgeTarget", () => {
   });
 });
 
-// BUG-UNDO-RESIZE-GEOMETRY regression coverage — live QA: undo after a canvas
-// drag-RESIZE reverted the DOM correctly but the right panel's Layout W/H
-// stayed stale (167x86 instead of the actually-reverted 116.8x36) until
-// deselect/reselect. Root cause: refreshElementInfoFromContent's resync
-// merged width/height additively (so a value absent from the reverted node
-// never overwrote the pre-undo one) AND never refreshed boundingRect at all,
-// which is what edit-panel/element-classification.ts's cssElementSize falls
-// back to when computedStyles has no parseable width/height.
 describe("refreshedComputedStyles geometry handling", () => {
   it("clears a stale width/height when the fresh source no longer authors one (fail-before case)", () => {
-    // Before the fix: the additive merge below (`{...info.computedStyles,
-    // ...sourceWithAliases}`) kept `width`/`height` from `info` whenever the
-    // fresh (reverted) node didn't carry them — exactly what happened for an
-    // undo that removed the drag-resize's inline width/height, reverting to
-    // a class-driven size the string parse can't see.
     const staleInfo = makeElementInfo({
       computedStyles: { width: "167px", height: "86px", color: "red" },
     });
@@ -661,7 +1003,6 @@ describe("refreshedComputedStyles geometry handling", () => {
     );
     expect(result.width).toBeUndefined();
     expect(result.height).toBeUndefined();
-    // Non-geometry properties still carry over/merge normally.
     expect(result.color).toBe("red");
   });
 
@@ -694,12 +1035,6 @@ describe("refreshedComputedStyles geometry handling", () => {
 
 describe("refreshedBoundingRectSize", () => {
   it("recomputes width/height from the freshly-resolved computedStyles instead of staying pinned to the pre-undo rect (fail-before case)", () => {
-    // Before the fix: refreshElementInfoFromContent's `{...info}` spread (via
-    // canonicalElementInfoForCodeLayerNode, and again in its DOM-parse
-    // fallback) left `boundingRect` completely untouched, so cssElementSize's
-    // fallback-to-boundingRect path kept reporting the pre-undo drag-resize
-    // rect forever — this is what the Layout panel's W/H fields showed when
-    // computedStyles itself had no parseable width/height.
     const staleInfo = makeElementInfo({
       boundingRect: { x: 4, y: 8, width: 167, height: 86 },
     });
@@ -721,10 +1056,6 @@ describe("refreshedBoundingRectSize", () => {
 
 describe("isCodeLayerNodeRuntimeOnly", () => {
   it("is never runtime-only for a file whose layers panel is showing its own source projection (fail-before case)", () => {
-    // Before the fix, callers gated on the FILE-level model.runtimeOnly flag
-    // directly, so a static/inline screen (fileIsRuntimeProjected: false)
-    // never hit this function at all and was fine either way — this case
-    // guards the base condition the narrower per-node check must preserve.
     expect(
       isCodeLayerNodeRuntimeOnly({
         fileIsRuntimeProjected: false,
@@ -735,12 +1066,6 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
   });
 
   it("is NOT runtime-only for a localhost node whose stamped node id also appears in the source projection (fail-before case)", () => {
-    // Before the fix: every node on a hydrated localhost screen was flagged
-    // runtimeOnly=true purely because the FILE used the runtime projection —
-    // even a node with a perfectly resolvable source match, and even on a
-    // plain static-HTML target with no React at all. That made
-    // handleToggleLayerLocked/Hidden always route through the
-    // React-semantic-handoff path and show "still loading" forever.
     expect(
       isCodeLayerNodeRuntimeOnly({
         fileIsRuntimeProjected: true,
@@ -760,6 +1085,38 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
     ).toBe(true);
   });
 
+  it("keeps editor-minted runtime ids out of authored source identity", () => {
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: new Set(["an-authored"]),
+      }),
+    ).toBe(true);
+
+    const sourceNodeIdAttrs = codeLayerSourceNodeIdAttrs(
+      '<main data-agent-native-node-id="an-authored"></main>',
+    );
+    expect(sourceNodeIdAttrs.has("runtime-1m2vou")).toBe(false);
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs,
+      }),
+    ).toBe(true);
+
+    expect(
+      isCodeLayerNodeRuntimeOnly({
+        fileIsRuntimeProjected: false,
+        nodeIdAttr: "runtime-1m2vou",
+        sourceNodeIdAttrs: codeLayerSourceNodeIdAttrs(
+          '<main data-agent-native-node-id="runtime-1m2vou"></main>',
+        ),
+      }),
+    ).toBe(false);
+  });
+
   it("is runtime-only when the node has no stamped id at all", () => {
     expect(
       isCodeLayerNodeRuntimeOnly({
@@ -773,11 +1130,6 @@ describe("isCodeLayerNodeRuntimeOnly", () => {
 
 describe("runtimeLayerStateHandoffMode", () => {
   it("is preview-only for a runtime node with no React source provenance (fail-before case)", () => {
-    // Before the fix this case was indistinguishable from an unresolvable
-    // anchor: hide/lock bailed with "React source anchors still loading" and
-    // never set hiddenLayerIds/lockedLayerIds, so DesignCanvas's layer-states
-    // message stayed empty and nothing hid in the live iframe. A plain-HTML
-    // localhost target never produces provenance, so that load never comes.
     expect(
       runtimeLayerStateHandoffMode({
         runtimeOnly: true,
@@ -850,6 +1202,331 @@ describe("canonicalElementInfoForCodeLayerNode runtime identity", () => {
       '[data-agent-native-node-id="runtime-xyz"]',
     );
     expect(twice.runtimeSourceId).toBe("runtime-xyz");
+  });
+
+  it("refreshes Group identity from the source node while keeping runtime identity", () => {
+    const groupNode = makeNode({
+      dataAttributes: { "data-agent-native-group": "true" },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({
+        isGroup: false,
+        selector: '[data-agent-native-node-id="runtime-xyz"]',
+        sourceId: "runtime-xyz",
+      }),
+      groupNode,
+    );
+
+    expect(canonical.isGroup).toBe(true);
+    expect(canonical.runtimeSelector).toBe(
+      '[data-agent-native-node-id="runtime-xyz"]',
+    );
+    expect(canonical.runtimeSourceId).toBe("runtime-xyz");
+  });
+
+  it("clears stale Group identity when the current source node is a Frame", () => {
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({ isGroup: true }),
+      makeNode({ dataAttributes: { "data-an-primitive": "frame" } }),
+    );
+
+    expect(canonical.isGroup).toBe(false);
+  });
+
+  it("refreshes a missing primitive kind from the source projection", () => {
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      makeElementInfo({ tagName: "svg" }),
+      makeNode({ tag: "svg", dataAttributes: { "data-an-primitive": "line" } }),
+    );
+
+    expect(canonical.primitiveKind).toBe("line");
+  });
+});
+
+describe("canonicalElementInfoForCodeLayerNode grid-template source overlay", () => {
+  const gridNode = makeNode({
+    id: "html:grid-a",
+    selectors: ['[data-agent-native-node-id="grid-a"]'],
+    selector: '[data-agent-native-node-id="grid-a"]',
+    dataAttributes: { "data-agent-native-node-id": "grid-a" },
+    style: { "grid-template-columns": "repeat(2, minmax(0, 1fr))" },
+  });
+
+  it("overlays the source-authored gridTemplateColumns onto the live CSSOM-read value, leaving computed/geometry untouched", () => {
+    const liveInfo = makeElementInfo({
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+      computedStyles: { display: "grid", gridTemplateColumns: "100px 100px" },
+      boundingRect: { x: 10, y: 20, width: 200, height: 80 },
+    });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+
+    expect(canonical.inlineStyles?.gridTemplateColumns).toBe(
+      "repeat(2, minmax(0, 1fr))",
+    );
+    expect(canonical.computedStyles).toEqual(liveInfo.computedStyles);
+    expect(canonical.boundingRect).toEqual(liveInfo.boundingRect);
+  });
+
+  it("leaves an undefined inlineStyles snapshot undefined when the source has no grid-template keys", () => {
+    const nonGridNode = makeNode({
+      id: "html:plain",
+      selectors: ['[data-agent-native-node-id="plain-a"]'],
+      selector: '[data-agent-native-node-id="plain-a"]',
+      dataAttributes: { "data-agent-native-node-id": "plain-a" },
+      style: { color: "red" },
+    });
+    const liveInfo = makeElementInfo({ inlineStyles: undefined });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      liveInfo,
+      nonGridNode,
+    );
+
+    expect(canonical.inlineStyles).toBeUndefined();
+  });
+
+  it("returns an existing inlineStyles object unchanged (same reference) when the source has no grid-template keys", () => {
+    const nonGridNode = makeNode({
+      id: "html:plain",
+      selectors: ['[data-agent-native-node-id="plain-a"]'],
+      selector: '[data-agent-native-node-id="plain-a"]',
+      dataAttributes: { "data-agent-native-node-id": "plain-a" },
+      style: { color: "red" },
+    });
+    const existingInlineStyles = { left: "10px" };
+    const liveInfo = makeElementInfo({ inlineStyles: existingInlineStyles });
+
+    const canonical = canonicalElementInfoForCodeLayerNode(
+      liveInfo,
+      nonGridNode,
+    );
+
+    expect(canonical.inlineStyles).toBe(existingInlineStyles);
+  });
+
+  it("merges a canonicalized primary with a passive member's source-parsed info without reporting Mixed", () => {
+    const liveInfo = makeElementInfo({
+      isGridContainer: true,
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+      computedStyles: {
+        display: "grid",
+        gridTemplateColumns: "100px 100px",
+        width: "200px",
+        height: "80px",
+      },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+    const passiveMember = elementInfoFromCodeLayerNode(gridNode);
+
+    const merged = mixedElementFromSelection([canonical, passiveMember]);
+    expect(merged?.inlineStyles?.gridTemplateColumns).not.toBe(MIXED_VALUE);
+    expect(merged?.inlineStyles?.gridTemplateColumns).toBe(
+      "repeat(2, minmax(0, 1fr))",
+    );
+
+    const grid = gridValueForElement(merged!);
+    expect(grid.columns).toBe(2);
+    expect(grid.columnSizing).toBe("fill");
+  });
+
+  it("still merges to Mixed when the source-authored templates genuinely differ", () => {
+    const differentGridNode = makeNode({
+      id: "html:grid-b",
+      selectors: ['[data-agent-native-node-id="grid-b"]'],
+      selector: '[data-agent-native-node-id="grid-b"]',
+      dataAttributes: { "data-agent-native-node-id": "grid-b" },
+      style: { "grid-template-columns": "repeat(3, 80px)" },
+    });
+    const liveInfo = makeElementInfo({
+      inlineStyles: { gridTemplateColumns: "repeat(2, minmax(0px, 1fr))" },
+    });
+    const canonical = canonicalElementInfoForCodeLayerNode(liveInfo, gridNode);
+    const passiveMember = elementInfoFromCodeLayerNode(differentGridNode);
+
+    const merged = mixedElementFromSelection([canonical, passiveMember]);
+    expect(merged?.inlineStyles?.gridTemplateColumns).toBe(MIXED_VALUE);
+  });
+});
+
+describe("pending Layers selection runtime info", () => {
+  const runtimeInfo = makeElementInfo({
+    tagName: "button",
+    sourceId: "button-a",
+    selector: '[data-agent-native-node-id="button-a"]',
+    computedStyles: { backgroundColor: "rgb(15, 118, 110)" },
+    portableStyleSnapshot: {
+      version: 1,
+      rootSourceId: "button-a",
+      nodes: [
+        {
+          sourceId: "button-a",
+          path: [],
+          styles: { backgroundColor: "rgb(15, 118, 110)" },
+        },
+      ],
+    },
+  });
+
+  it("keeps rich paint when the pending owner is the selected layer's Screen", () => {
+    const node = makeNode({
+      id: "screen-a:button-a",
+      tag: "button",
+      selector: '[data-agent-native-node-id="button-a"]',
+      selectors: ['[data-agent-native-node-id="button-a"]'],
+      path: '[data-agent-native-node-id="button-a"]',
+      dataAttributes: { "data-agent-native-node-id": "button-a" },
+      style: { backgroundColor: "teal" },
+    });
+    const selectedInfo = {
+      ...runtimeInfo,
+      sourceLayerIdentity: { screenId: "screen-a", nodeId: node.id },
+    };
+
+    const info = elementInfoForOwnedCodeLayerNode({
+      info: selectedInfo,
+      node,
+      ownerFileId: "screen-a",
+    });
+
+    expect(info.computedStyles.backgroundColor).toBe("rgb(15, 118, 110)");
+    expect(info.portableStyleSnapshot).toEqual(
+      runtimeInfo.portableStyleSnapshot,
+    );
+    expect(info.sourceLayerIdentity).toEqual({
+      screenId: "screen-a",
+      nodeId: node.id,
+    });
+  });
+
+  it("preserves an explicit snapshot failure for the exact owned layer", () => {
+    const node = makeNode({
+      id: "screen-a:button-a",
+      tag: "button",
+      selector: '[data-agent-native-node-id="button-a"]',
+      selectors: ['[data-agent-native-node-id="button-a"]'],
+      path: '[data-agent-native-node-id="button-a"]',
+      dataAttributes: { "data-agent-native-node-id": "button-a" },
+    });
+    const failedInfo = {
+      ...runtimeInfo,
+      portableStyleSnapshot: undefined,
+      styleSnapshotCaptureFailed: true,
+      sourceLayerIdentity: { screenId: "screen-a", nodeId: node.id },
+    };
+
+    const info = elementInfoForOwnedCodeLayerNode({
+      info: failedInfo,
+      node,
+      ownerFileId: "screen-a",
+    });
+
+    expect(info.portableStyleSnapshot).toBeUndefined();
+    expect(info.styleSnapshotCaptureFailed).toBe(true);
+    expect(info.sourceLayerIdentity).toEqual({
+      screenId: "screen-a",
+      nodeId: node.id,
+    });
+  });
+
+  it("does not reuse Screen A info after restoring Screen B layer ids with a duplicate authored id", () => {
+    const node = makeNode({
+      id: "screen-b:button-a",
+      tag: "button",
+      selector: '[data-agent-native-node-id="button-a"]',
+      selectors: ['[data-agent-native-node-id="button-a"]'],
+      path: '[data-agent-native-node-id="button-a"]',
+      dataAttributes: { "data-agent-native-node-id": "button-a" },
+      style: { backgroundColor: "teal" },
+    });
+    const staleInfo = {
+      ...runtimeInfo,
+      sourceLayerIdentity: {
+        screenId: "screen-a",
+        nodeId: "screen-a:button-a",
+      },
+    };
+
+    const info = elementInfoForOwnedCodeLayerNode({
+      info: staleInfo,
+      node,
+      ownerFileId: "screen-b",
+    });
+
+    expect(info.computedStyles.backgroundColor).toBe("teal");
+    expect(info.portableStyleSnapshot).toBeUndefined();
+  });
+
+  it("does not confuse duplicate authored IDs between two projected nodes on one Screen", () => {
+    const projection = buildCodeLayerProjection(
+      '<main><button data-agent-native-node-id="button-a" class="first">First</button><button data-agent-native-node-id="button-a" class="primary">Second</button></main>',
+      { source: { kind: "design-file", fileId: "screen-a" } },
+    );
+    const [firstNode, secondNode] = projection.nodes.filter(
+      (node) => node.tag === "button",
+    );
+    expect(firstNode).toBeDefined();
+    expect(secondNode).toBeDefined();
+    expect(firstNode!.id).not.toBe(secondNode!.id);
+
+    const selectedInfo = canonicalizeElementInfoFromProjection(
+      projection,
+      {
+        ...runtimeInfo,
+        tagName: "button",
+        sourceId: "button-a",
+        selector: secondNode!.path,
+        textContent: "Second",
+        classes: ["primary"],
+      },
+      "screen-a",
+    );
+
+    expect(selectedInfo.sourceLayerIdentity).toEqual({
+      screenId: "screen-a",
+      nodeId: secondNode!.id,
+    });
+
+    const info = elementInfoForOwnedCodeLayerNode({
+      info: selectedInfo,
+      node: secondNode!,
+      ownerFileId: "screen-a",
+    });
+
+    expect(info.computedStyles.backgroundColor).toBe("rgb(15, 118, 110)");
+    expect(info.portableStyleSnapshot).toEqual(
+      runtimeInfo.portableStyleSnapshot,
+    );
+
+    const unrelatedInfo = elementInfoForOwnedCodeLayerNode({
+      info: selectedInfo,
+      node: firstNode!,
+      ownerFileId: "screen-a",
+    });
+    expect(unrelatedInfo.computedStyles.backgroundColor).toBeUndefined();
+    expect(unrelatedInfo.portableStyleSnapshot).toBeUndefined();
+  });
+
+  it("does not treat unproven runtime info as belonging to the pending owner", () => {
+    const node = makeNode({
+      id: "screen-a:button-a",
+      tag: "button",
+      dataAttributes: { "data-agent-native-node-id": "button-a" },
+      style: { backgroundColor: "teal" },
+    });
+
+    const info = elementInfoForOwnedCodeLayerNode({
+      info: runtimeInfo,
+      node,
+      ownerFileId: "screen-a",
+    });
+
+    expect(info.computedStyles.backgroundColor).toBe("teal");
+    expect(info.portableStyleSnapshot).toBeUndefined();
+    expect(info.sourceLayerIdentity).toEqual({
+      screenId: "screen-a",
+      nodeId: node.id,
+    });
   });
 });
 
@@ -951,9 +1628,12 @@ describe("codeLayerNodeLooksLikeComponent", () => {
     );
   });
 
-  it("still treats a real component class as a component", () => {
-    expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(true);
-    expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(true);
+  it("does not infer a component from any class name", () => {
+    expect(codeLayerNodeLooksLikeComponent(node(["pricing-card"]))).toBe(false);
+    expect(codeLayerNodeLooksLikeComponent(node(["btn-primary"]))).toBe(false);
+    expect(
+      codeLayerNodeLooksLikeComponent(node(["product-card-wrapper"])),
+    ).toBe(false);
   });
 
   it("still treats a form control tag as a component", () => {

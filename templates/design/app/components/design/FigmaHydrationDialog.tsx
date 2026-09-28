@@ -1,10 +1,3 @@
-/**
- * FigmaHydrationDialog — shown after a no-token local-kiwi clipboard import
- * when IMAGE fills couldn't be resolved. Collects a Figma access token, saves
- * it, then calls `hydrate-figma-paste-images` for each imported file to
- * replace the `url("about:blank")` placeholders with real durable images.
- */
-
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +18,7 @@ import {
   MAX_FIG_UPLOAD_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
+import { figmaHydrationErrorMessage } from "@/lib/design-import";
 import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
@@ -139,17 +133,12 @@ export function FigmaHydrationDialog({
         }),
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : t("common.genericError");
-      const is403 =
-        message.includes("403") || message.toLowerCase().includes("forbidden");
-      const isServerError = /internal server error/i.test(message);
       setError(
-        is403
-          ? 'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.'
-          : isServerError
-            ? "Server error — Figma's API may be rate-limited. Wait ~1 minute then try again; repeated retries extend the cooldown."
-            : message,
+        figmaHydrationErrorMessage(
+          err,
+          t("common.genericError"),
+          'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.',
+        ),
       );
     } finally {
       setBusy(false);
@@ -195,6 +184,7 @@ export function FigmaHydrationDialog({
               ) : null}
             </div>
             <Input
+              size="sm"
               id="figma-hydration-token"
               type="password"
               value={token}
@@ -202,7 +192,7 @@ export function FigmaHydrationDialog({
               placeholder={t("designEditor.import.figmaTokenPlaceholder")}
               autoComplete="new-password"
               aria-invalid={error ? true : undefined}
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={busy}
             />
             {error ? (

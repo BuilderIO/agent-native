@@ -43,6 +43,8 @@ const messages = {
     suggestionSurvey: "أنشئ استطلاع ملاحظات العملاء",
     suggestionSubmissions: "اعرض الإرسالات حسب اليوم",
     suggestionExport: "صدر الردود إلى CSV",
+    topSignal: "أبرز إشارة",
+    draftFollowUp: "صياغة سؤال متابعة",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",
@@ -353,6 +355,10 @@ const messages = {
     responseSubmitted: "تم إرسال الرد",
     noFields: "لا يحتوي هذا النموذج على حقول بعد.",
     failedSubmit: "فشل إرسال النموذج",
+    uncheckablePattern:
+      "تعذّر التحقق من قاعدة هذا النموذج الخاصة بـ {label}. يرجى الطلب من مالك النموذج إصلاحها.",
+    patternTooLong:
+      "قيمة {label} طويلة جدًا بحيث يتعذر التحقق منها باستخدام قاعدة هذا النموذج.",
   },
   responseInsights: {
     unavailable: "الرؤى غير متاحة",

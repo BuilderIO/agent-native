@@ -114,8 +114,8 @@ export default defineAction({
     "Cancel one exact prepared Builder update only when every execution is provably pre-dispatch. This never calls Builder or deletes audit history.",
   schema: z
     .object({
-      databaseId: z.string().optional().describe("Database ID"),
-      documentId: z.string().optional().describe("Database document/page ID"),
+      databaseId: z.string().optional().describe("Collection ID"),
+      documentId: z.string().optional().describe("Collection document/page ID"),
       sourceId: z.string().describe("Exact Builder source ID"),
       changeSetId: z.string().describe("Exact prepared Builder change-set ID"),
       note: z
