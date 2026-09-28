@@ -1396,7 +1396,7 @@ describe("FirstRunOnboarding", () => {
         ([event, properties]) =>
           event === "onboarding_step_completed" &&
           (properties as { step_id?: string }).step_id ===
-            "extension:test-extension",
+            "extension:test-extension:1",
       );
     expect(completedExtensionEvents()).toBe(false);
 
