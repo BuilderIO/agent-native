@@ -176,6 +176,29 @@ function loadRememberUserFocusedElement() {
   };
 }
 
+function canvasFocusTransferIsSafe(options: {
+  activeElement: Element;
+  activeTextEditEl: HTMLElement | null;
+  userFocusedElement: Element | null;
+}): boolean {
+  const source = extractFunction(
+    loadEditorChromeBridgeScript(),
+    "isCanvasFocusTransferSafe",
+  );
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(
+    "activeElement",
+    "activeTextEditEl",
+    "userFocusedElement",
+    `var document = { activeElement: activeElement }; var trustedFocusIntent = null; ${source}\nreturn isCanvasFocusTransferSafe();`,
+  );
+  return factory(
+    options.activeElement,
+    options.activeTextEditEl,
+    options.userFocusedElement,
+  ) as boolean;
+}
+
 interface DragTargetArgs {
   selectedEl: unknown;
   selectedAlive: boolean;
@@ -224,6 +247,43 @@ const radiusDragMaximums =
   >("radiusDragMaximums");
 
 describe("editor-chrome bridge — focus ownership", () => {
+  it("only protects focus while the active element is inside a Design text edit", () => {
+    const appSearch = {
+      isConnected: true,
+      contains: () => false,
+    } as unknown as HTMLElement;
+    const textEdit = {
+      isConnected: true,
+      contains: (element: Element) => element !== appSearch,
+    } as unknown as HTMLElement;
+    const staleTextEdit = {
+      isConnected: false,
+      contains: () => false,
+    } as unknown as HTMLElement;
+
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: appSearch,
+        activeTextEditEl: textEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(true);
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: textEdit,
+        activeTextEditEl: textEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(false);
+    expect(
+      canvasFocusTransferIsSafe({
+        activeElement: appSearch,
+        activeTextEditEl: staleTextEdit,
+        userFocusedElement: null,
+      }),
+    ).toBe(true);
+  });
+
   it("does not treat programmatic refocus as user intent", () => {
     const input = {} as Element;
     const focusTracker = loadRememberUserFocusedElement();
