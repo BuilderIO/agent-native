@@ -1682,10 +1682,7 @@ const AgentKitAssistantChatBody = forwardRef<
       const message = options.contextAlreadyIncluded
         ? text
         : appendAgentChatContextToMessage(text, context);
-      const attachments = [
-        ...(options.attachments ?? []),
-        ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-      ];
+      const attachments = options.attachments ?? [];
       const needsFileStorage =
         files.length > 0 ||
         attachments.some(
@@ -1698,14 +1695,7 @@ const AgentKitAssistantChatBody = forwardRef<
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
       if (!options.recoveryAction) {
-        await deleteClientAppState("pending-selection-context", {
-          keepalive: true,
-        }).catch(() => {});
-        selectionRevisionRef.current += 1;
-        setPendingSelection(null);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-        }
+        clearPendingSelection();
       }
       const requestMode =
         options.requestMode ??
@@ -1826,6 +1816,7 @@ const AgentKitAssistantChatBody = forwardRef<
       fileStorageConfigured,
       t,
       pendingSelection,
+      clearPendingSelection,
     ],
   );
 
@@ -1870,10 +1861,7 @@ const AgentKitAssistantChatBody = forwardRef<
                 readiness.state === "unavailable")))
         ) {
           try {
-            const attachments = [
-              ...(options.attachments ?? []),
-              ...((composerOptions.attachments ?? []) as AgentChatAttachment[]),
-            ];
+            const attachments = options.attachments ?? [];
             const needsFileStorage =
               files.length > 0 ||
               attachments.some(

@@ -453,6 +453,7 @@ import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
+import { deleteClientAppState } from "./application-state.js";
 import type {
   AssistantChatHandle,
   AssistantChatSendOptions,
@@ -494,6 +495,11 @@ function baseProps(
 }
 
 beforeEach(() => {
+  vi.mocked(deleteClientAppState)
+    .mockReset()
+    .mockImplementation(async (key) => {
+      chatMocks.appState.delete(key);
+    });
   chatMocks.appState.clear();
   chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
@@ -864,6 +870,108 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("uploads composer files once and keeps pasted text in the prompt", async () => {
+    await mount(baseProps());
+    const image = new File(["image bytes"], "slide-image.png", {
+      type: "image/png",
+    });
+    chatMocks.control.uploadFiles.mockResolvedValueOnce([
+      {
+        type: "file",
+        name: image.name,
+        mediaType: image.type,
+        url: "https://files.example.test/slide-image.png",
+      },
+    ]);
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Describe this slide",
+        [image],
+        [],
+        {
+          attachments: [
+            { id: "image-1", type: "image", name: image.name, file: image },
+          ],
+        },
+      );
+    });
+
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(chatMocks.control.uploadFiles.mock.calls[0]?.[0]).toMatchObject([
+      { name: image.name, mediaType: "image/png", size: image.size },
+    ]);
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Describe this slide",
+      attachments: [
+        {
+          name: image.name,
+          url: "https://files.example.test/slide-image.png",
+        },
+      ],
+    });
+
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Summarize this pasted text:\n\nFull pasted document text",
+        [],
+        [],
+        {
+          attachments: [
+            {
+              id: "pasted-text-1",
+              type: "file",
+              name: "pasted-text-1.txt",
+              file: new File(
+                ["Full pasted document text"],
+                "pasted-text-1.txt",
+                {
+                  type: "text/plain",
+                },
+              ),
+            },
+          ],
+        },
+      );
+    });
+
+    expect(chatMocks.control.uploadFiles).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      text: "Summarize this pasted text:\n\nFull pasted document text",
+      attachments: [],
+    });
+  });
+
+  it("does not wait for pending-selection cleanup before sending", async () => {
+    let resolveDelete!: () => void;
+    vi.mocked(deleteClientAppState).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        }),
+    );
+    await mount(baseProps());
+
+    let submitPromise!: Promise<void>;
+    await act(async () => {
+      submitPromise = chatMocks.composerProps.onSubmit(
+        "Send promptly",
+        [],
+        [],
+        {},
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(resolveDelete).toBeDefined();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveDelete();
+      await submitPromise;
+    });
   });
 
   it("durably queues unresolved sends with files and references across remounts", async () => {
