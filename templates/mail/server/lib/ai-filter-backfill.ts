@@ -323,8 +323,8 @@ export function sanitizeBackfillError(error: unknown): string {
     .replace(/\nparams:[\s\S]*/i, "")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
     .replace(
-      /\b(access_token|refresh_token|id_token|token)=([^\s&]+)/gi,
-      "$1=[redacted]",
+      /(["']?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token)\b["']?\s*[:=]\s*["']?)[^"'\s,}&]+/gi,
+      "$1[redacted]",
     )
     .slice(0, 500);
 }
@@ -392,10 +392,18 @@ export async function dispatchMailAiFilterBackfill(
 }
 
 function googleClientErrorsError(
-  message: string,
-  errors: Array<{ retryable?: boolean }>,
+  errors: Array<{ email: string; retryable?: boolean }>,
 ): Error {
-  const error = new Error(message);
+  const error = new Error(
+    errors.length > 0
+      ? errors
+          .map(
+            ({ email }) =>
+              `${email}: Gmail account authorization could not be refreshed.`,
+          )
+          .join("; ")
+      : "Gmail account is unavailable.",
+  );
   if (errors.some(({ retryable }) => retryable))
     Object.assign(error, { retryable: true });
   return error;
@@ -432,7 +440,7 @@ function resultStatus(
     (row.undoExpiresAt ?? 0) > Date.now()
       ? { undoToken: row.undoToken }
       : {}),
-    ...(state.error ? { error: state.error } : {}),
+    ...(state.error ? { error: sanitizeBackfillError(state.error) } : {}),
   };
 }
 
@@ -952,10 +960,7 @@ async function captureCandidates(
 ): Promise<BackfillCandidate[]> {
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    const error = googleClientErrorsError(
-      errors.map((error) => `${error.email}: ${error.error}`).join("; "),
-      errors,
-    );
+    const error = googleClientErrorsError(errors);
     if (clients.length === 0) throw error;
     state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
@@ -1698,10 +1703,7 @@ async function processRunningBatch(
 
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    const error = googleClientErrorsError(
-      errors.map((error) => `${error.email}: ${error.error}`).join("; "),
-      errors,
-    );
+    const error = googleClientErrorsError(errors);
     if (clients.length === 0) throw error;
     state.incompleteCoverage = true;
     state.error ??= sanitizeBackfillError(error);
@@ -1815,7 +1817,7 @@ async function processRunningBatch(
         const message = sanitizeBackfillError(error);
         if (!state.failedKeys.includes(candidate.key))
           state.failedKeys.push(candidate.key);
-        state.error = message;
+        if (!state.incompleteCoverage || !state.error) state.error = message;
         throw error;
       }
       state.snapshots[candidate.key] = applied.snapshot;
@@ -1968,9 +1970,7 @@ async function restoreGmailSnapshot(
   );
   if (!client) {
     throw googleClientErrorsError(
-      clients.errors.map((error) => error.error).join("; ") ||
-        "Gmail account is unavailable.",
-      clients.errors,
+      clients.errors.length > 0 ? clients.errors : [{ email: accountEmail }],
     );
   }
   const current = await gmailGetThread(
@@ -2382,7 +2382,8 @@ export async function processMailAiFilterBackfills(
           }
           continue;
         }
-        state.error = sanitizeBackfillError(error);
+        if (!state.incompleteCoverage || !state.error)
+          state.error = sanitizeBackfillError(error);
         if (state.pendingDecisions.length > 0) {
           try {
             await recordAiFilterDecisions(
