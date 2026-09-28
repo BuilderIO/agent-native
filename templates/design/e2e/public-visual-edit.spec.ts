@@ -1044,13 +1044,9 @@ test.describe.serial("public visual edit", () => {
   test("signed-out live canvas sharing requires sign-in and returns to the canvas", async ({
     browser,
   }) => {
-    await expectReturnUrl(
+    await expectSharePopoverReturnUrl(
       browser,
       `/visual-edit/${collaborationDesignId}?editorView=overview`,
-      (page) =>
-        page.getByRole("link", {
-          name: "Sign up to share a live canvas",
-        }),
       appReturnPath(`/visual-edit/${collaborationDesignId}?intent=share`),
     );
   });
@@ -1137,13 +1133,9 @@ test.describe.serial("public visual edit", () => {
       .toContain(`/visual-edit/${collaborationDesignId}?share=1`);
     await page.keyboard.press("Escape");
 
-    await expectReturnUrl(
+    await expectSharePopoverReturnUrl(
       browser,
       `/design/${collaborationDesignId}`,
-      (signedOutPage) =>
-        signedOutPage.getByRole("link", {
-          name: /^sign up to share a live canvas$/i,
-        }),
       appReturnPath(`/design/${collaborationDesignId}?intent=share`),
     );
 
@@ -1628,6 +1620,38 @@ async function expectReturnUrl(
     const button = getButton(signedOut.page);
     await expect(button).toBeVisible();
     await button.click();
+    await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
+
+    const url = new URL(signedOut.page.url());
+    const continuation = url.searchParams.get("c");
+    expect(continuation).toBeTruthy();
+    expect(decodeContinuation(continuation)).toBe(expectedReturnPath);
+    await assertNoRuntimeErrors(signedOut);
+  } finally {
+    await signedOut.close();
+  }
+}
+
+async function expectSharePopoverReturnUrl(
+  browser: Browser,
+  pathname: string,
+  expectedReturnPath: string,
+): Promise<void> {
+  const signedOut = await openSignedOutPage(browser, pathname);
+  try {
+    const share = signedOut.page.getByRole("button", {
+      name: "Share",
+      exact: true,
+    });
+    await expect(share).toBeVisible();
+    await share.click();
+
+    const signUp = signedOut.page.getByRole("link", {
+      name: "Sign up to share a live canvas",
+      exact: true,
+    });
+    await expect(signUp).toBeVisible();
+    await signUp.click();
     await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
 
     const url = new URL(signedOut.page.url());

@@ -145,6 +145,44 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
+  it("keeps proactive setup open on outside interaction and Escape", async () => {
+    await act(async () => {
+      root.render(
+        <LocalNetworkAccessPrompt
+          kind="maybePermissionBlocked"
+          connecting={false}
+          onConnect={() => {}}
+          onDismiss={() => {}}
+          proactive
+        />,
+      );
+    });
+
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-state="open"]'),
+    ).find((element) => element.className.includes("backdrop-blur"));
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"][data-state="open"]',
+    );
+    expect(overlay?.className).toContain("backdrop-blur-[4px]");
+    expect(overlay?.className).not.toContain("backdrop-blur-[1px]");
+    expect(dialog).not.toBeNull();
+
+    await act(async () => {
+      overlay?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      dialog?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
     useActionQueryMock.mockReturnValue({
       data: {
@@ -811,6 +849,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       expect(container.textContent).toContain(
         "The running app is shielded until Design connects to the local bridge.",
       );
+      expect(container.textContent).not.toContain("Preparing the live editor");
     });
   });
 

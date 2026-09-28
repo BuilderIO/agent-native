@@ -102,13 +102,25 @@ export function LocalNetworkAccessPrompt({
   if (proactive) {
     return (
       <>
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setConfirmClose(true);
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
+        <Dialog open>
+          <DialogContent
+            className="sm:max-w-md"
+            overlayClassName="backdrop-blur-[4px]"
+            hideClose
+            onInteractOutside={(event) => event.preventDefault()}
+            onEscapeKeyDown={(event) => event.preventDefault()}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("designEditor.close")}
+              className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onClick={() => setConfirmClose(true)}
+            >
+              <IconX className="size-4" />
+              <span className="sr-only">{t("designEditor.close")}</span>
+            </Button>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <IconPlugConnected className="size-4" />
