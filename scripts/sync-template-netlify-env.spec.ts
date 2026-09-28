@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hostedTelemetryIdentityEnv,
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
@@ -38,6 +39,18 @@ describe("isAllowedHostedTemplateEnvKey", () => {
   it("allows server Sentry configuration for hosted error monitoring", () => {
     expect(isAllowedHostedTemplateEnvKey("SENTRY_DSN")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("SENTRY_SERVER_DSN")).toBe(true);
+  });
+
+  it("allows the OTLP exporter configuration without treating the relay token as forbidden", () => {
+    for (const key of [
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "OTEL_EXPORTER_OTLP_HEADERS",
+      "OTEL_SERVICE_NAME",
+      "OTEL_RESOURCE_ATTRIBUTES",
+    ]) {
+      expect(isAllowedHostedTemplateEnvKey(key)).toBe(true);
+      expect(isForbiddenHostedTemplateEnvKey(key)).toBe(false);
+    }
   });
 
   it("allows the hosted tools-only harness deployment gate", () => {
@@ -157,5 +170,31 @@ describe("resolveNetlifyTemplateName", () => {
 
   it("preserves current Netlify site names", () => {
     expect(resolveNetlifyTemplateName("clips")).toBe("clips");
+  });
+});
+
+describe("hostedTelemetryIdentityEnv", () => {
+  it("names the app and tags production sites", () => {
+    expect(hostedTelemetryIdentityEnv("chat", "production")).toEqual([
+      ["OTEL_SERVICE_NAME", "chat"],
+      [
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "deployment.environment.name=production,service.namespace=agent-native",
+      ],
+    ]);
+  });
+
+  it("keeps the same service name for the beta site", () => {
+    expect(hostedTelemetryIdentityEnv("chat", "branch:beta")).toEqual([
+      ["OTEL_SERVICE_NAME", "chat"],
+      [
+        "OTEL_RESOURCE_ATTRIBUTES",
+        "deployment.environment.name=beta,service.namespace=agent-native",
+      ],
+    ]);
+  });
+
+  it("derives no identity for other deploy contexts", () => {
+    expect(hostedTelemetryIdentityEnv("chat", "deploy-preview")).toEqual([]);
   });
 });

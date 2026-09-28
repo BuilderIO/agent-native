@@ -125,6 +125,10 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
   "SENDGRID_API_KEY",
   "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
@@ -192,6 +196,11 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
+  // OTEL_EXPORTER_OTLP_HEADERS carries the site's relay token, so it stays a
+  // Netlify secret.
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
   // The org/project slugs identify a Sentry project, not a credential -
   // SENTRY_AUTH_TOKEN is the actual secret and stays out of this set.
   "SENTRY_ORG",
@@ -202,6 +211,7 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
+const TELEMETRY_SERVICE_NAMESPACE = "agent-native";
 const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
     (entry): entry is [string, string] => Boolean(entry[1]),
@@ -502,6 +512,16 @@ function buildTemplateEnvPlan(
     entries.push([key, normalized.value] as const);
   }
 
+  if (values.get("OTEL_EXPORTER_OTLP_ENDPOINT")) {
+    const identity = hostedTelemetryIdentityEnv(site.sourceTemplate, context);
+    for (const [key, value] of identity) {
+      const index = entries.findIndex(([entryKey]) => entryKey === key);
+      if (index >= 0) entries.splice(index, 1);
+      entries.push([key, value] as const);
+      normalizedKeys.push(key);
+    }
+  }
+
   return {
     entries,
     forbiddenKeys,
@@ -537,6 +557,33 @@ export function normalizeProductionUrlEntry(
   // This syncs first-party Netlify sites. A local workspace URL must never
   // become a hosted auth origin because Google validates the exact URI.
   return { value: targetUrl, normalized: true };
+}
+
+/**
+ * OTel identity for a first-party site: one `service.name` per app across
+ * environments, so production versus beta is a label filter, and a shared
+ * `service.namespace` the collector routes Agent-Native metrics on. Netlify
+ * sets nothing like Cloud Run's K_SERVICE, so the sync derives it. Other deploy
+ * contexts get no identity rather than a guessed environment.
+ */
+export function hostedTelemetryIdentityEnv(
+  template: string,
+  context: string,
+): Array<readonly [string, string]> {
+  const environment =
+    context === "production"
+      ? "production"
+      : isBetaContext(context)
+        ? "beta"
+        : undefined;
+  if (!environment) return [];
+  return [
+    ["OTEL_SERVICE_NAME", template],
+    [
+      "OTEL_RESOURCE_ATTRIBUTES",
+      `deployment.environment.name=${environment},service.namespace=${TELEMETRY_SERVICE_NAMESPACE}`,
+    ],
+  ];
 }
 
 function isBetaContext(context: string): boolean {
@@ -775,7 +822,7 @@ async function main() {
     }
     if (plan.normalizedKeys.length > 0) {
       console.log(
-        `  normalized production URL key(s): ${plan.normalizedKeys
+        `  normalized per-site key(s): ${plan.normalizedKeys
           .sort()
           .join(", ")}`,
       );
