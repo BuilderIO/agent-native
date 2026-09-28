@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestPglite } from "../../a2a/test-pglite.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+const notifyReviewCommentWithReceipt = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+const notifyReviewComment = vi.hoisted(() => vi.fn(async () => ({ sent: [] })));
 
 const rawClient = {
   execute: vi.fn(async (input: string | { sql: string; args?: unknown[] }) => {
@@ -23,6 +27,11 @@ const rawClient = {
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
+}));
+
+vi.mock("../notifications.js", () => ({
+  notifyReviewComment,
+  notifyReviewCommentWithReceipt,
 }));
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))
@@ -56,10 +65,12 @@ const { __resetReviewableResourcesForTests, registerReviewableResource } =
   await import("../registry.js");
 const {
   __resetReviewInitForTests,
+  claimReviewNotificationDelivery,
   consumeReviewFeedback,
   ensureReviewTables,
   insertReviewComment,
   insertReviewReply,
+  finishReviewNotificationDelivery,
   queryReviewComments,
   upsertReviewStatus,
 } = await import("../store.js");
@@ -275,6 +286,217 @@ afterEach(async () => {
 });
 
 describe("review actions", () => {
+  it("claims a notification recipient once across concurrent retries", async () => {
+    const [first, second] = await Promise.all([
+      claimReviewNotificationDelivery("comment-1", OWNER_EMAIL),
+      claimReviewNotificationDelivery("comment-1", OWNER_EMAIL),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(["busy", "claimed"]);
+    const claimed = first.status === "claimed" ? first : second;
+    if (claimed.status !== "claimed") throw new Error("Missing claim");
+    await finishReviewNotificationDelivery(
+      "comment-1",
+      OWNER_EMAIL,
+      claimed.token,
+    );
+    expect(
+      (await claimReviewNotificationDelivery("comment-1", OWNER_EMAIL)).status,
+    ).toBe("sent");
+  });
+
+  it("replays after display name and resource access snapshots change", async () => {
+    const rootArgs = {
+      resourceType: "doc",
+      resourceId: "private",
+      body: "Stable request",
+      clientOperationId: "00000000-0000-4000-8000-000000000011",
+    };
+    const root = await createReviewCommentAction.run(rootArgs, {
+      userEmail: EDITOR_EMAIL,
+      userName: "Old Name",
+    });
+    __resetReviewableResourcesForTests();
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "editor",
+        ownerEmail: "new-owner@example.com",
+        orgId: "new-org",
+        visibility: "org",
+      }),
+    });
+    const replay = await createReviewCommentAction.run(rootArgs, {
+      userEmail: EDITOR_EMAIL,
+      userName: "New Name",
+    });
+    expect(replay).toMatchObject({
+      id: root.id,
+      replayed: true,
+      authorName: "Old Name",
+      ownerEmail: OWNER_EMAIL,
+    });
+  });
+
+  it("replays client-identified comments and replies without duplicate notifications", async () => {
+    notifyReviewCommentWithReceipt.mockClear();
+    const createOperationId = "00000000-0000-4000-8000-000000000001";
+    const root = await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        body: "Retry this comment",
+        clientOperationId: createOperationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    const replayedRoot = await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        body: "Retry this comment",
+        clientOperationId: createOperationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    expect(replayedRoot).toMatchObject({
+      id: root.id,
+      replayed: true,
+      notified: null,
+    });
+
+    const replyOperationId = "00000000-0000-4000-8000-000000000002";
+    const reply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: root.id,
+        body: "Retry this reply",
+        resolutionTarget: "human",
+        clientOperationId: replyOperationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    await resolveReviewThreadAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        threadId: root.threadId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    const replayedReply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: root.id,
+        body: "Retry this reply",
+        resolutionTarget: "human",
+        clientOperationId: replyOperationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    expect(replayedReply).toMatchObject({
+      id: reply.id,
+      replayed: true,
+      notified: null,
+    });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: root.id,
+          body: "Retry this reply",
+          resolutionTarget: "agent",
+          clientOperationId: replyOperationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
+    await pglite.query(
+      "UPDATE agent_review_comments SET reply_route_target = 'legacy' WHERE id = $1",
+      [reply.id],
+    );
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: root.id,
+          body: "Retry this reply",
+          resolutionTarget: "human",
+          clientOperationId: replyOperationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
+    expect(notifyReviewCommentWithReceipt).toHaveBeenCalledTimes(4);
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "private",
+      scope: { userEmail: OWNER_EMAIL },
+      includeResolved: true,
+    });
+    expect(comments.map((comment) => comment.id)).toEqual([root.id, reply.id]);
+  });
+
+  it("rejects a reused client operation ID with a different comment payload or parent", async () => {
+    const operationId = "00000000-0000-4000-8000-000000000003";
+    await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        body: "Original payload",
+        clientOperationId: operationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    await expect(
+      createReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          body: "Different payload",
+          clientOperationId: operationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
+
+    const firstRoot = await createReviewCommentAction.run(
+      { resourceType: "doc", resourceId: "private", body: "First root" },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    const secondRoot = await createReviewCommentAction.run(
+      { resourceType: "doc", resourceId: "private", body: "Second root" },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    const replyOperationId = "00000000-0000-4000-8000-000000000004";
+    await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "private",
+        commentId: firstRoot.id,
+        body: "Reply payload",
+        clientOperationId: replyOperationId,
+      },
+      { userEmail: EDITOR_EMAIL, caller: "frontend" },
+    );
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "private",
+          commentId: secondRoot.id,
+          body: "Reply payload",
+          clientOperationId: replyOperationId,
+        },
+        { userEmail: EDITOR_EMAIL, caller: "frontend" },
+      ),
+    ).rejects.toThrow("submission ID conflicts");
+  });
+
   it("lets authors edit bodies and editors move anchors within the resource", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",

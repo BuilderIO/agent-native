@@ -3,13 +3,40 @@
 import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/svg-paste", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/svg-paste")>()),
+  buildPastedSvgLayer: (markup: string, name: string) =>
+    markup.includes("<path")
+      ? {
+          html: `<div data-agent-native-node-id="svg-frame" data-agent-native-layer-name="${name}" data-an-primitive="frame" style="position:absolute;width:118px;height:24px"></div>`,
+          width: 118,
+          height: 24,
+        }
+      : null,
+}));
+
+import { findScreenFrameAtCanvasPoint } from "../overview-camera";
 import type { DesignFile } from "../types";
 import {
+  canvasPointFromClient,
+  pngDensityScale,
   getOverviewCanvasCenter,
   replacePastedMediaSource,
   runPastedImageFiles,
   type PastedImageFilesArgs,
 } from "./pasted-image-files";
+
+class DecodedImage {
+  set src(_value: string) {
+    queueMicrotask(() => this.onload?.());
+  }
+  onload?: () => void;
+  naturalWidth = 132;
+  naturalHeight = 80;
+  decode() {
+    return Promise.resolve();
+  }
+}
 
 function ref<T>(current: T): RefObject<T> {
   return { current } as RefObject<T>;
@@ -30,6 +57,7 @@ function args(
     boardFileId: undefined,
     canEditDesign: true,
     canvasContainerRef: ref(null),
+    getVisibleCanvasRect: () => null,
     canvasFrameGeometryById: {},
     getFreshActiveContent,
     getFreshActivePreviewContent,
@@ -48,8 +76,47 @@ function args(
 
 const file = new File(["image"], "photo.png", { type: "image/png" });
 
+describe("canvasPointFromClient", () => {
+  it("removes surface padding when mapping overview paste anchors", () => {
+    const surface = document.createElement("div");
+    surface.dataset.multiScreenCanvasSurface = "";
+    const world = document.createElement("div");
+    world.dataset.multiScreenCanvasWorld = "";
+    world.style.transform = "matrix(2, 0, 0, 2, -300, -200)";
+    surface.append(world);
+    document.body.append(surface);
+    vi.spyOn(surface, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 50,
+      right: 900,
+      bottom: 650,
+      width: 800,
+      height: 600,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    const frames = [
+      { id: "origin", geometry: { x: 0, y: 0, width: 1000, height: 1000 } },
+    ];
+    const origin = canvasPointFromClient(
+      { clientX: 280, clientY: 330 },
+      frames,
+    );
+    expect(origin).toEqual({ x: 0, y: 0 });
+    expect(findScreenFrameAtCanvasPoint(origin!, frames)?.id).toBe("origin");
+
+    expect(
+      canvasPointFromClient({ clientX: 1480, clientY: 1230 }, frames),
+    ).toEqual({ x: 600, y: 450 });
+    surface.remove();
+  });
+});
+
 describe("runPastedImageFiles", () => {
   beforeEach(() => {
+    vi.stubGlobal("Image", DecodedImage);
     vi.stubGlobal(
       "createImageBitmap",
       vi.fn(async () => ({ width: 160, height: 90, close: vi.fn() })),
@@ -97,10 +164,9 @@ describe("runPastedImageFiles", () => {
         { fileId: "screen-1", point: { x: 40, y: 60 } },
       ),
     ).toBe(true);
+    await vi.waitFor(() => expect(previews).toHaveLength(1));
     expect(createObjectURL).toHaveBeenCalledWith(file);
     expect(updates).toHaveLength(0);
-    await vi.waitFor(() => expect(previews).toHaveLength(1));
-    expect(previews).toHaveLength(1);
     expect(previews[0]).toContain('src="blob:preview"');
     expect(previews[0]).toContain("width: 160px");
     expect(previews[0]).toContain("height: 90px");
@@ -296,6 +362,182 @@ describe("runPastedImageFiles", () => {
   });
 });
 
+describe("runPastedImageFiles durable base", () => {
+  beforeEach(() => {
+    vi.stubGlobal("Image", DecodedImage);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not write a stale live preview back over a later reparent", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stale");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const durable =
+      '<main><div data-agent-native-node-id="board-frame"><div data-agent-native-node-id="icon"></div></div></main>';
+    const stalePreview =
+      '<main><div data-agent-native-node-id="board-frame"></div><div data-agent-native-node-id="icon"></div></main>';
+    let preview = stalePreview;
+    const applyLocalContentUpdate = vi.fn();
+
+    runPastedImageFiles(
+      args(
+        applyLocalContentUpdate,
+        (content: string) => {
+          preview = content;
+        },
+        async () => "https://cdn.example/photo.png",
+        () => durable,
+        () => preview,
+      ),
+      [file],
+      { fileId: "screen-1", point: { x: 0, y: 0 } },
+    );
+
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+    const written = new DOMParser().parseFromString(
+      applyLocalContentUpdate.mock.calls[0]![0] as string,
+      "text/html",
+    );
+    expect(
+      written.querySelector('[data-agent-native-node-id="icon"]')!.parentElement
+        ?.dataset.agentNativeNodeId,
+    ).toBe("board-frame");
+    expect(written.querySelector("img")?.getAttribute("src")).toBe(
+      "https://cdn.example/photo.png",
+    );
+  });
+});
+
+describe("runPastedImageFiles placement", () => {
+  beforeEach(() => {
+    vi.stubGlobal("Image", DecodedImage);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("pastes an image at its natural size, centred on the target point", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:sized");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const previews: string[] = [];
+
+    runPastedImageFiles(
+      args(
+        vi.fn(),
+        (content: string) => previews.push(content),
+        () => new Promise<string>(() => {}),
+      ),
+      [file],
+      { fileId: "screen-1", point: { x: 960, y: 540 } },
+    );
+
+    await vi.waitFor(() => expect(previews).toHaveLength(1));
+    const image = new DOMParser()
+      .parseFromString(previews[0]!, "text/html")
+      .querySelector<HTMLImageElement>("img")!;
+    expect(image.style.width).toBe("132px");
+    expect(image.style.height).toBe("80px");
+    expect(image.style.left).toBe("894px");
+    expect(image.style.top).toBe("500px");
+  });
+
+  it("pastes an SVG file as vector layers without uploading it", async () => {
+    const upload = vi.fn(async () => "https://cdn.example/unused.png");
+    const applyLocalContentUpdate = vi.fn();
+    const svg = new File(
+      ['<svg width="118" height="24"><path d="M0 0H10V10Z"/></svg>'],
+      "builderLogo.svg",
+      { type: "image/svg+xml" },
+    );
+
+    runPastedImageFiles(args(applyLocalContentUpdate, vi.fn(), upload), [svg], {
+      fileId: "screen-1",
+      point: { x: 960, y: 540 },
+    });
+
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+    const frame = new DOMParser()
+      .parseFromString(
+        applyLocalContentUpdate.mock.calls[0]![0] as string,
+        "text/html",
+      )
+      .querySelector<HTMLElement>('[data-an-primitive="frame"]')!;
+    expect(frame.dataset.agentNativeLayerName).toBe("builderLogo");
+    expect(frame.style.left).toBe("901px");
+    expect(frame.style.top).toBe("528px");
+    expect(upload).not.toHaveBeenCalled();
+  });
+});
+
+describe("pngDensityScale", () => {
+  const png = (chunks: Array<[string, number[]]>) => {
+    const bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    for (const [type, data] of chunks) {
+      const length = data.length;
+      bytes.push(
+        length >>> 24,
+        (length >>> 16) & 255,
+        (length >>> 8) & 255,
+        length & 255,
+      );
+      bytes.push(
+        ...Array.from(type, (char) => char.charCodeAt(0)),
+        ...data,
+        0,
+        0,
+        0,
+        0,
+      );
+    }
+    return new Uint8Array(bytes);
+  };
+  const phys = (pixelsPerMetre: number) => {
+    const b = [
+      pixelsPerMetre >>> 24,
+      (pixelsPerMetre >>> 16) & 255,
+      (pixelsPerMetre >>> 8) & 255,
+      pixelsPerMetre & 255,
+    ];
+    return [...b, ...b, 1];
+  };
+
+  it("halves a 144-dpi export", () => {
+    expect(
+      pngDensityScale(
+        png([
+          ["IHDR", Array(13).fill(0)],
+          ["pHYs", phys(5669)],
+          ["IDAT", [0]],
+        ]),
+      ),
+    ).toBe(2);
+  });
+
+  it("keeps 72-dpi and density-less images at one image pixel per CSS pixel", () => {
+    expect(
+      pngDensityScale(
+        png([
+          ["pHYs", phys(2835)],
+          ["IDAT", [0]],
+        ]),
+      ),
+    ).toBe(1);
+    expect(
+      pngDensityScale(
+        png([
+          ["IHDR", Array(13).fill(0)],
+          ["IDAT", [0]],
+        ]),
+      ),
+    ).toBe(1);
+  });
+});
+
 describe("replacePastedMediaSource", () => {
   it("changes only the image source for the inserted node", () => {
     const content =
@@ -394,6 +636,15 @@ describe("overview paste placement", () => {
     pasteArgs.viewModeRef = ref("overview");
     pasteArgs.overviewScreens = [
       {
+        id: "origin",
+        filename: "origin.html",
+        content: "<main></main>",
+        updatedAt: "",
+        heightPinned: false,
+        width: 1000,
+        height: 1000,
+      },
+      {
         id: "screen-1",
         filename: "screen.html",
         content: "<main></main>",
@@ -404,10 +655,12 @@ describe("overview paste placement", () => {
       },
     ];
     pasteArgs.canvasFrameGeometryById = {
+      origin: { x: 0, y: 0, width: 1000, height: 1000 },
       "screen-1": { x: 200, y: 50, width: 1000, height: 1000 },
     };
     pasteArgs.selectInsertedLayers = selectInsertedLayers;
     pasteArgs.getScreenContent = () => "<main></main>";
+    pasteArgs.overviewSelectedScreenIds = ["screen-1"];
 
     expect(runPastedImageFiles(pasteArgs, [file])).toBe(true);
     await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
@@ -421,7 +674,7 @@ describe("overview paste placement", () => {
       expect.any(String),
       expect.any(Array),
     );
-    expect(insertedImage?.style.left).toBe("100px");
-    expect(insertedImage?.style.top).toBe("100px");
+    expect(insertedImage?.style.left).toBe("420px");
+    expect(insertedImage?.style.top).toBe("455px");
   });
 });

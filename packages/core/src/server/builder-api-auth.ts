@@ -178,11 +178,6 @@ async function resolveBuilderPublishAuthorization(
   return null;
 }
 
-/**
- * Resolve the one effective authorization for an authenticated Builder
- * request. OAuth custody wins even when the grant needs reconnecting or lacks
- * a required scope; only a request with no OAuth custody may use a legacy key.
- */
 export async function resolveBuilderRequestAuthorization(
   input: {
     requiredScope?: BuilderOAuthPermissionScope;
@@ -334,16 +329,6 @@ export async function resolveBuilderApiAuthorization(
   return resolved.authorization;
 }
 
-/**
- * Whether Builder.io can authenticate an asset call for this request — an
- * OAuth grant, or a legacy private key.
- *
- * Storage gates and provider selection use this. It intentionally does not
- * verify the grant is usable: answering `false` for a connected user whose
- * grant needs re-authorizing would report storage as unconfigured and send
- * them to set up something they already have, instead of letting the upload
- * path say what is actually wrong.
- */
 export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId() ?? null;
@@ -353,10 +338,6 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
 }
 
-/**
- * Whether the effective Builder credential can authorize an API request with
- * the requested scope. OAuth custody deliberately wins over deploy keys here.
- */
 export async function canAuthorizeBuilderApiRequest(
   requiredScope?: BuilderOAuthPermissionScope,
 ): Promise<boolean> {

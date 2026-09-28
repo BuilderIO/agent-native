@@ -22,23 +22,21 @@ Read the relevant skill before deeper work:
 | --- | --- |
 | `view-screen` | Read the active deck, slide, and selection when unclear |
 | `navigate` | Move the UI to a deck, slide, or view |
-| `create-deck` | Create a deck, optionally pre-populated with slides |
+| `create-deck` | Create a deck for generation |
 | `add-slide` | Append one slide to a deck |
-| `add-slide-comment` | Add or reply to a comment |
-| `list-slide-comments` | List slide comments |
-| `update-slide-comment` | Edit, resolve, or reopen |
-| `delete-slide-comment` | Delete a comment or thread |
-| `toggle-slide-comment-reaction` | Toggle an emoji reaction |
+| `add-slide-comment` / `list-slide-comments` / `update-slide-comment` / `delete-slide-comment` / `toggle-slide-comment-reaction` | Manage comments |
 | `update-slide` | Edit one slide's content or style |
 | `patch-deck` | Delete, reorder, or patch multiple slides in one call |
 | `delete-deck` | Delete a deck and its saved versions |
 | `duplicate-deck` | Duplicate a deck, minting new slide ids |
 | `get-deck` | Read a deck or one targeted slide's full HTML |
 | `list-decks` | List decks with metadata, paged |
-| `apply-design-system` | Link a design system's colors and typography to a deck |
-| `export-pptx` | Export a deck as a PowerPoint file |
-| `export-html` | Export a deck as a standalone HTML file |
-| `export-google-slides` | Export a deck as a Google-Slides-importable PPTX |
+| `list-deck-templates` / `get-deck-template` | Browse template HTML |
+| `generate-home-suggestions` | Personalized home prompts |
+| `create-deck-from-template` | Copy a template without AI |
+| `read-composer-source` | Read bounded Slides, Design, or Figma references |
+| `apply-design-system` | Link design system to deck |
+| `export-pptx` / `export-html` / `export-google-slides` | Export decks |
 | `generate-image-api` | Generate a slide image via the Assets app |
 
 ## Core Rules
@@ -75,7 +73,7 @@ Read the relevant skill before deeper work:
   `slide-editing` and `mcp.instructions`).
 - For data requests, follow `analytics-data-for-decks`; delegate via Analytics
   over A2A, never write SQL or call providers directly.
-- Without a reference deck or design system, call `get-workspace-defaults`
+- For generation without a reference deck or design system, call `get-workspace-defaults`
   first (see `create-deck`).
 - Before generation, follow `creative-context` for source order, `contextMode`,
   and governed-context submission via `manage-context-membership`.

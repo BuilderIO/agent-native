@@ -5,7 +5,6 @@ import {
   IconDatabase,
   IconFileText,
   IconMessageQuestion,
-  IconSettings,
 } from "@tabler/icons-react";
 
 export type BrainView =
@@ -401,6 +400,24 @@ export interface BrainHealthResponse {
       counts?: Record<string, number>;
     };
     embeddings: {
+      readiness: {
+        status: "ready" | "not-configured" | "ambiguous" | "unavailable";
+        ready: boolean;
+        configuredProviders: string[];
+        unavailableProviders: string[];
+        configuredFamilies: number;
+        provider: string | null;
+        model: string | null;
+        embeddingSetId: string | null;
+        dimensions: number | null;
+        warning: string | null;
+      };
+      coverage: {
+        eligibleArtifacts: number;
+        embeddedArtifacts: number;
+        missingArtifacts: number;
+        percent: number;
+      };
       total: number;
       active: number;
       stale: number;
@@ -1045,12 +1062,6 @@ export const navItems: Array<{
     label: "Knowledge",
     href: "/knowledge",
     icon: IconBook2,
-  },
-  {
-    view: "settings",
-    label: "Settings",
-    href: "/settings",
-    icon: IconSettings,
   },
 ];
 

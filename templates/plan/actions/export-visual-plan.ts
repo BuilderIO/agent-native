@@ -30,9 +30,6 @@ export default defineAction({
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
-    // The bundle caps events at the most recent 50 for the hot polled path;
-    // an export is a rare, explicit "durable receipt" so it carries the full
-    // activity history. loadPlanBundle already resolved access above.
     bundle.events = await loadFullPlanEvents(args.planId);
     const path = planPath(bundle.plan.id, bundle.plan.kind);
     const mdx = await exportPlanContentToMdxFolder({

@@ -19,7 +19,7 @@ description: "에이전트 추적, 평가, 피드백, A/B 실험 및 내장 대�
 | **[CI Eval Gate](/docs/evals)** (`*.eval.ts`)          | "에이전트가 이 고정 입력에 대해 올바른 작업을 수행합니까?" | 활성, 결정적, CI/배포 게이트      | 품질        |
 | **[Observational Memory](/docs/observational-memory)** | "이 긴 스레드가 저렴하고 창 안에 남아 있습니까?"           | 긴 스레드의 배경 압축             | 비용 / 상황 |
 
-관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다.
+관찰 가능성과 CI 평가 게이트는 둘 다 _품질_ 점수를 매기지만 반대쪽 끝, 즉 실제 트래픽의 수동적 사후 점수와 고정 입력에 대한 활성 통과/실패 확인의 점수를 매깁니다. 관찰 기억은 품질과 관련이 없습니다. 토큰 비용과 컨텍스트 창 압박에 관한 것입니다. 완료된 프로덕션 트레이스를 `*.eval.ts` 케이스로 승격하세요(대시보드 **Promote to eval**, `promote-trace-eval`, 또는 `agent-native eval promote <runId> --write evals/from-trace.eval.ts`). [프로덕션 트레이스에서](/docs/evals#from-trace)를 보세요.
 
 ## 자동으로 캡처되는 내용 {#captured}
 
@@ -106,15 +106,26 @@ export default function ObservabilityPage() {
 
 모든 데이터의 범위는 로그인한 사용자로 제한됩니다. 현재는 교차 사용자 관리 보기가 없습니다.
 
-대시보드에는 5개의 탭이 있습니다:
+대시보드에는 6개의 탭이 있습니다:
 
-| 탭         | 표시 내용                                                                    |
-| ---------- | ---------------------------------------------------------------------------- |
-| **개요**   | 주요 지표 — 실행, 비용, 대기 시간, 도구 성공률, 만족도, 평가 점수            |
-| **대화**   | 개별 범위에 대한 드릴다운이 포함된 추적 목록(agent_run, llm_call, tool_call) |
-| **평가**   | 기준별 자동 평가 점수, 시간 경과에 따른 추세                                 |
-| **실험**   | 상태 배지가 포함된 A/B 테스트 목록, 신뢰 구간이 포함된 변형 결과             |
-| **피드백** | 좋아요/비추천 스트림, 카테고리 분류, 불만 점수                               |
+| 탭            | 표시 내용                                                                    |
+| ------------- | ---------------------------------------------------------------------------- |
+| **개요**      | 주요 지표 — 실행, 비용, 대기 시간, 도구 성공률, 만족도, 평가 점수            |
+| **대화**      | 개별 범위에 대한 드릴다운이 포함된 추적 목록(agent_run, llm_call, tool_call) |
+| **평가**      | 기준별 자동 평가 점수, 시간 경과에 따른 추세                                 |
+| **실험**      | 상태 배지가 포함된 A/B 테스트 목록, 신뢰 구간이 포함된 변형 결과             |
+| **피드백**    | 좋아요/비추천 스트림, 카테고리 분류, 불만 점수                               |
+| **사람 검토** | 요청과 답변을 검토하고 피드백을 기록한 뒤 지침 업데이트 초안을 작성합니다    |
+
+### 대화 세부 정보 {#conversations}
+
+대화 탭에는 기록된 실행이 표시됩니다. 실행을 선택해 스팬을 확인하고, 스팬을 펼쳐 캡처된 도구 입력, 출력, 오류 및 메타데이터를 볼 수 있습니다. **전체 대화 열기**를 선택하면 연결된 채팅 스레드로 이동합니다.
+
+도구 인수와 결과는 기본적으로 캡처되지 않습니다. 저장하려면 `observability` 설정에서 `captureToolArgs`와 `captureToolResults`를 활성화하세요. 민감한 필드와 도구 오류 메시지는 저장 전에 마스킹됩니다.
+
+### 사람 검토 {#review}
+
+사람 검토 탭에서는 각 실행의 요청과 답변을 확인하고, 피드백을 기록하며, 사람이 검토할 지침 업데이트 초안을 작성할 수 있습니다. 초안을 저장해도 지침이 자동으로 바뀌지는 않습니다.
 
 ## 사용자 피드백 {#feedback}
 
@@ -285,23 +296,24 @@ Content is **redacted by default** — only token counts, costs, and timing are 
 
 `/_agent-native/observability/`에 모두 자동 마운트됨:
 
-| 방법 | 경로                       | 목적                       |
-| ---- | -------------------------- | -------------------------- |
-| GET  | `/`                        | 개요 통계                  |
-| GET  | `/traces`                  | 추적 요약 나열             |
-| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위) |
-| GET  | `/traces/:runId/evals`     | 실행 평가                  |
-| POST | `/feedback`                | 의견 제출                  |
-| GET  | `/feedback`                | 피드백 나열                |
-| GET  | `/feedback/stats`          | 피드백 집계                |
-| GET  | `/satisfaction`            | 만족도 점수                |
-| GET  | `/evals/stats`             | 평가 통계                  |
-| POST | `/experiments`             | 실험 만들기                |
-| GET  | `/experiments`             | 실험 나열                  |
-| GET  | `/experiments/:id`         | 실험 세부정보 가져오기     |
-| PUT  | `/experiments/:id`         | 실험 업데이트              |
-| POST | `/experiments/:id/results` | 계산 결과                  |
-| GET  | `/experiments/:id/results` | 결과 얻기                  |
+| 방법 | 경로                       | 목적                         |
+| ---- | -------------------------- | ---------------------------- |
+| GET  | `/`                        | 개요 통계                    |
+| GET  | `/traces`                  | 추적 요약 나열               |
+| GET  | `/traces/:runId`           | 추적 세부정보(요약 + 범위)   |
+| GET  | `/traces/:runId/evals`     | 실행 평가                    |
+| POST | `/traces/:runId/promote`   | 완료된 실행을 CI eval로 승격 |
+| POST | `/feedback`                | 의견 제출                    |
+| GET  | `/feedback`                | 피드백 나열                  |
+| GET  | `/feedback/stats`          | 피드백 집계                  |
+| GET  | `/satisfaction`            | 만족도 점수                  |
+| GET  | `/evals/stats`             | 평가 통계                    |
+| POST | `/experiments`             | 실험 만들기                  |
+| GET  | `/experiments`             | 실험 나열                    |
+| GET  | `/experiments/:id`         | 실험 세부정보 가져오기       |
+| PUT  | `/experiments/:id`         | 실험 업데이트                |
+| POST | `/experiments/:id/results` | 계산 결과                    |
+| GET  | `/experiments/:id/results` | 결과 얻기                    |
 
 모든 엔드포인트는 `?since=N`(ms 타임스탬프) 및 `?limit=N` 쿼리 매개변수를 지원합니다.
 

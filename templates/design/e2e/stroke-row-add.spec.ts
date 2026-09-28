@@ -111,6 +111,19 @@ async function readSource(page: Page, designId: string, screenId: string) {
   return html;
 }
 
+async function expectSavedStroke(
+  page: Page,
+  designId: string,
+  screenId: string,
+) {
+  await expect
+    .poll(async () => readSource(page, designId, screenId), { timeout: 10_000 })
+    .toMatch(/border-width:\s*1px/i);
+  const source = await readSource(page, designId, screenId);
+  expect(source).toMatch(/border-style:\s*solid/i);
+  return source;
+}
+
 async function expectStroke(page: Page, screenId: string, nodeId: string) {
   await expect
     .poll(() => strokeState(page, screenId, nodeId))
@@ -182,18 +195,14 @@ test("clicking the empty Stroke heading adds and persists a stroke", async ({
     });
 
     await expectStroke(page, screenId, "mouse-rectangle");
-    const savedSource = await readSource(page, designId, screenId);
-    expect(savedSource).toMatch(/border-width:\s*1px/i);
-    expect(savedSource).toMatch(/border-style:\s*solid/i);
+    await expectSavedStroke(page, designId, screenId);
 
     await page.reload();
     await enterDirectMode(page);
     await expandAllLayers(page);
     await selectShape(page, "Mouse rectangle");
     await expectStroke(page, screenId, "mouse-rectangle");
-    const reloadedSource = await readSource(page, designId, screenId);
-    expect(reloadedSource).toMatch(/border-width:\s*1px/i);
-    expect(reloadedSource).toMatch(/border-style:\s*solid/i);
+    await expectSavedStroke(page, designId, screenId);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
@@ -207,8 +216,7 @@ test("the empty Stroke heading activates with Enter", async ({ page }) => {
     await expandAllLayers(page);
     await activateEmptyStrokeByKey(page, screenId, "Mouse rectangle", "Enter");
 
-    const savedSource = await readSource(page, designId, screenId);
-    expect(savedSource).toMatch(/border-width:\s*1px/i);
+    await expectSavedStroke(page, designId, screenId);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
@@ -227,8 +235,7 @@ test("the empty Stroke heading activates with Space", async ({ page }) => {
       "Space",
     );
 
-    const savedSource = await readSource(page, designId, screenId);
-    expect(savedSource).toMatch(/border-width:\s*1px/i);
+    await expectSavedStroke(page, designId, screenId);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

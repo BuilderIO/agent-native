@@ -1,4 +1,7 @@
-import { resolveCredential } from "@agent-native/core/credentials";
+import {
+  resolveCredentialDetailed,
+  type ResolvedCredential,
+} from "@agent-native/core/credentials";
 import {
   createProviderApiRuntime,
   defaultProviderApiCredentialResolver,
@@ -23,13 +26,16 @@ export type { ProviderApiMethod, ProviderApiRequestArgs };
 function legacyCredential(
   options: ProviderApiCredentialLookupOptions,
   key: string,
-  value: string,
+  credential: ResolvedCredential,
+  value = credential.value,
 ): ProviderApiResolvedCredential {
   return {
     key,
     value,
     source: `${CALENDAR_APP_ID}_legacy_credentials`,
     provider: options.provider,
+    scope: credential.scope,
+    scopeId: credential.scopeId,
   };
 }
 
@@ -43,8 +49,13 @@ async function resolveLegacyHubSpotCredential(
   ) {
     return null;
   }
-  const value = await resolveCredential("HUBSPOT_API_KEY", options.ctx);
-  return value ? legacyCredential(options, "HUBSPOT_API_KEY", value) : null;
+  const credential = await resolveCredentialDetailed(
+    "HUBSPOT_API_KEY",
+    options.ctx,
+  );
+  return credential
+    ? legacyCredential(options, "HUBSPOT_API_KEY", credential)
+    : null;
 }
 
 function parseLegacyGongApiKey(value: string): {
@@ -67,13 +78,17 @@ async function resolveLegacyGongCredential(
   ) {
     return null;
   }
-  const legacyValue = await resolveCredential("GONG_API_KEY", options.ctx);
-  if (!legacyValue) return null;
-  const parsed = parseLegacyGongApiKey(legacyValue);
+  const credential = await resolveCredentialDetailed(
+    "GONG_API_KEY",
+    options.ctx,
+  );
+  if (!credential) return null;
+  const parsed = parseLegacyGongApiKey(credential.value);
   if (!parsed) return null;
   return legacyCredential(
     options,
     "GONG_API_KEY",
+    credential,
     options.key === "GONG_ACCESS_SECRET"
       ? parsed.accessSecret
       : parsed.accessKey,

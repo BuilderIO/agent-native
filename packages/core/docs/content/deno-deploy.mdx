@@ -4,6 +4,8 @@ description: "Deploy an Agent-Native app to Deno Deploy with Nitro's deno-deploy
 search: "Deno Deploy deployment Nitro preset serverless"
 ---
 
+<!-- i18n-copy-ignore: only the build command changed; the localized pages are pointer stubs that link to these English build steps and carry no command text. -->
+
 # Deno Deploy
 
 Use Nitro's `deno-deploy` preset to generate a Deno-compatible server output.
@@ -19,7 +21,7 @@ export default defineConfig({
 Build the deployment output:
 
 ```bash
-npx @agent-native/core@latest build
+pnpm build
 ```
 
 Publish the generated output with Deno Deploy's current CLI or dashboard.

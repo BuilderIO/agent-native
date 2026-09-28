@@ -31,7 +31,7 @@ test.describe("drop containers", () => {
     const id = await newDesign(page, dropFixture(primitive));
     await openEditor(page, id);
     const preview = page
-      .locator("iframe[data-design-preview-iframe]")
+      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
       .contentFrame();
     const mover = (await preview
@@ -75,11 +75,6 @@ test.describe("drop containers", () => {
     ).toBe("target");
   });
 
-  // A canvas rectangle IS a drop target, but a free-placement one: the bridge
-  // calls it an "absolute-primitive-container" and returns dropMode
-  // "absolute-container" so onUp skips the auto-layout conversion. The Figma
-  // parity worth asserting is therefore "adopts without becoming a layout
-  // parent", not "never adopts".
   test("a rectangle adopts as a free-placement container, not a layout parent", async ({
     page,
   }) => {
@@ -90,7 +85,7 @@ test.describe("drop containers", () => {
     ).toBe("target");
 
     const placement = await page
-      .locator("iframe[data-design-preview-iframe]")
+      .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
       .contentFrame()
       .locator("body")
@@ -120,8 +115,6 @@ test.describe("drop containers", () => {
 });
 
 test.describe("modifier collisions", () => {
-  /** Synthetic input under-travels (the first move starts the drag and rAF
-   *  coalesces the rest), so compare the two drags rather than absolutes. */
   const dragUp = async (page: Page, withModifier: boolean) => {
     const id = await newDesign(page);
     await openEditor(page, id);
@@ -176,8 +169,6 @@ test.describe("marquee", () => {
   }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    // Starting outside the screen marquees the BOARD (screens), not the
-    // elements — the drag has to begin on empty space inside the screen.
     const a = (await node(page, "box-a").boundingBox())!;
     const scale = a.width / 120;
     const originX = a.x - 30 * scale;

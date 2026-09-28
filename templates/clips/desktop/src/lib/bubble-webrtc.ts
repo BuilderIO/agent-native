@@ -73,29 +73,10 @@ import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 const CONNECT_TIMEOUT_MS = 3000;
 
-// ---- bitrate tuning for the loopback preview ----------------------------
-//
-// This is a SAME-MACHINE loopback (popover → bubble, both on 127.0.0.1),
-// so there is effectively no bandwidth limit. Left untuned, WebKit's
-// congestion controller still starts the encoder at libwebrtc's cautious
-// ~300 kbps default and ramps up over several seconds, and with the
-// default `balanced` degradation preference it downscales the picture
-// while the bitrate is low. That produced the "bubble is blurry for the
-// first ~10s, then sharpens" regression after the bubble stopped owning a
-// direct local camera stream. We pin a high start/max bitrate and forbid
-// resolution downscaling so the bubble is crisp from the first frame.
-//
-// 720p webcam is comfortable at a few Mbps; these are generous, not silly.
 const BUBBLE_START_BITRATE_KBPS = 2500;
 const BUBBLE_MIN_BITRATE_KBPS = 1200;
 const BUBBLE_MAX_BITRATE_KBPS = 5000;
 
-/**
- * Pin the sender to a high, fixed bitrate and forbid resolution
- * downscaling. Called after `setLocalDescription` so `encodings` is
- * populated on every WebKit build. Best-effort — older WebViews may not
- * support every field, so we swallow failures.
- */
 async function configureBubbleSender(
   sender: RTCRtpSender | null,
 ): Promise<void> {
@@ -103,18 +84,12 @@ async function configureBubbleSender(
   try {
     const params = sender.getParameters();
     if (!params.encodings || params.encodings.length === 0) {
-      // Some WebKit builds report empty encodings until the first
-      // negotiation — seed one so our settings have somewhere to land.
       params.encodings = [{}];
     }
     params.encodings[0].maxBitrate = BUBBLE_MAX_BITRATE_KBPS * 1000;
     params.encodings[0].maxFramerate = 30;
-    // `minBitrate` is non-standard but honored by libwebrtc-based stacks
-    // (WebKit, Chromium); harmless where unsupported.
     (params.encodings[0] as { minBitrate?: number }).minBitrate =
       BUBBLE_MIN_BITRATE_KBPS * 1000;
-    // Never trade resolution for framerate — a soft bubble looks broken;
-    // a marginally lower fps does not.
     params.degradationPreference = "maintain-resolution";
     await sender.setParameters(params);
   } catch (err) {
@@ -122,13 +97,6 @@ async function configureBubbleSender(
   }
 }
 
-/**
- * Raise the encoder's START bitrate via SDP so it doesn't begin at
- * libwebrtc's cautious default and slowly climb (the visible quality
- * ramp). WebKit reads these codec params from our own local description
- * and applies them to our encoder. Also stamps a high `b=AS`/`b=TIAS`
- * ceiling on the video m-section.
- */
 function boostBubbleVideoBitrate(sdp: string | undefined): string {
   if (!sdp) return sdp ?? "";
   const eol = sdp.includes("\r\n") ? "\r\n" : "\n";
@@ -143,7 +111,6 @@ function boostBubbleVideoBitrate(sdp: string | undefined): string {
     }
     if (inVideo && line.startsWith("c=")) {
       out.push(line);
-      // b=AS is kbps; b=TIAS is bps. Both must follow the c= line.
       out.push(`b=AS:${BUBBLE_MAX_BITRATE_KBPS}`);
       out.push(`b=TIAS:${BUBBLE_MAX_BITRATE_KBPS * 1000}`);
       continue;
@@ -151,8 +118,6 @@ function boostBubbleVideoBitrate(sdp: string | undefined): string {
     if (
       inVideo &&
       line.startsWith("a=fmtp:") &&
-      // Skip RTX/FEC payloads (their fmtp carries `apt=`); only primary
-      // codecs honor the x-google-* hints.
       !line.includes("apt=") &&
       !line.includes("x-google-start-bitrate")
     ) {
@@ -169,40 +134,15 @@ function boostBubbleVideoBitrate(sdp: string | undefined): string {
 }
 
 export interface BubbleWebrtcHandle {
-  /** Tear down the peer connection and unsubscribe listeners. */
   stop(): void;
 }
 
 export interface StartBubbleWebrtcParams {
-  /** Live camera stream owned by the popover. We borrow one video track. */
   stream: MediaStream;
-  /**
-   * Called if ICE fails to reach `connected` in time, or flips to
-   * `failed` later. Caller should start the canvas fallback pump.
-   */
   onFailure: (reason: string) => void;
-  /**
-   * Called once the peer connection reaches `connected`. Informational —
-   * useful for logging / metrics.
-   */
   onConnected?: () => void;
 }
 
-/**
- * Start a WebRTC sender for the bubble overlay.
- *
- * Coordination flow:
- *   1. Subscribe to `clips:bubble-ready` — bubble emits this when its
- *      receiver is ready to accept an offer. Bubble may re-emit on
- *      re-mount; we tear down the old peer and start fresh each time.
- *   2. On `bubble-ready`: create RTCPeerConnection, add the camera
- *      video track, createOffer, setLocalDescription, emit offer.
- *   3. On `clips:webrtc-answer`: setRemoteDescription.
- *   4. On `clips:webrtc-ice-from-bubble`: addIceCandidate.
- *   5. `pc.onicecandidate` → emit `clips:webrtc-ice-from-popover`.
- *   6. If `iceConnectionState` doesn't reach `connected`/`completed`
- *      within CONNECT_TIMEOUT_MS, call onFailure and tear down.
- */
 export function startBubbleWebrtc(
   params: StartBubbleWebrtcParams,
 ): BubbleWebrtcHandle {
@@ -218,10 +158,6 @@ export function startBubbleWebrtc(
   let connectTimer: ReturnType<typeof setTimeout> | null = null;
   const unlistens: UnlistenFn[] = [];
   let connected = false;
-  // The bubble emits `clips:bubble-ready` every time it (re)mounts.
-  // Any stale peer connection we had must be torn down and rebuilt with
-  // a new offer — otherwise the new receiver and our old peer talk past
-  // each other forever.
   let handshakeId = 0;
 
   function cleanupPeer() {
@@ -230,11 +166,6 @@ export function startBubbleWebrtc(
       connectTimer = null;
     }
     if (pc) {
-      // Explicitly drop all senders before close so WebKit doesn't hold
-      // onto encoder state for the (already-borrowed) video track. The
-      // video track itself belongs to the popover's MediaStream — the
-      // bubble-session effect in app.tsx stops it — so we must NOT stop
-      // it here. Just detach from this peer.
       try {
         const senders = pc.getSenders ? pc.getSenders() : [];
         for (const s of senders) {
@@ -251,8 +182,6 @@ export function startBubbleWebrtc(
       } catch (err) {
         console.warn("[clips-bubble-webrtc] removeTrack failed", err);
       }
-      // Null out the handlers so WebKit doesn't keep the closure alive
-      // through a dangling event reference.
       try {
         pc.onicecandidate = null;
         pc.oniceconnectionstatechange = null;
@@ -280,25 +209,16 @@ export function startBubbleWebrtc(
         // ignore
       }
     }
-    // Empty the array so we don't retain listener closures if something
-    // holds a stale reference to this handle after stop().
     unlistens.length = 0;
     console.log("[clips-bubble-webrtc] stopped");
   }
 
   async function startHandshake(): Promise<void> {
-    // Each handshake gets a fresh id. If the bubble re-emits
-    // bubble-ready while we're mid-handshake, we bump the id, tear
-    // down, and start over — old answers / ICE for the previous id
-    // are ignored.
     handshakeId += 1;
     const myId = handshakeId;
     cleanupPeer();
     connected = false;
 
-    // `iceServers: []` + `iceTransportPolicy: "all"` — we're connecting
-    // over loopback. No STUN/TURN needed, and explicitly empty saves
-    // WebKit from a pointless "resolve server" round-trip on startup.
     const localPc = new RTCPeerConnection({
       iceServers: [],
       iceTransportPolicy: "all",
@@ -330,28 +250,17 @@ export function startBubbleWebrtc(
           onConnected?.();
         }
       } else if (state === "failed" || state === "disconnected") {
-        // `disconnected` can be transient on a flaky network, but on
-        // loopback there IS no network — a disconnect means something
-        // actually broke. Treat as failure for fallback purposes.
         onFailure(`ice-${state}`);
         stop();
       }
     };
 
-    // Hint the encoder to PRESERVE RESOLUTION. A raw camera track defaults
-    // to "motion" semantics — under any bitrate pressure WebKit downscales
-    // the picture to protect the frame rate, which on this loopback shows
-    // up as a soft/blurry bubble. "detail" flips the default toward keeping
-    // pixels, complementing the explicit `maintain-resolution` set below.
     try {
       videoTrack.contentHint = "detail";
     } catch {
       // contentHint is a harmless no-op on older WebViews.
     }
 
-    // Add the camera video track. WebRTC will renegotiate if the track
-    // id changes, but we only add once per handshake so this is a
-    // one-shot. Capture the sender so we can pin its bitrate below.
     let sender: RTCRtpSender | null = null;
     try {
       sender = localPc.addTrack(videoTrack, stream);
@@ -365,9 +274,6 @@ export function startBubbleWebrtc(
     let offer: RTCSessionDescriptionInit;
     try {
       offer = await localPc.createOffer();
-      // Raise the encoder's start/max bitrate before we commit the local
-      // description so the bubble is sharp immediately instead of ramping
-      // up over ~10s. See `boostBubbleVideoBitrate`.
       offer = { ...offer, sdp: boostBubbleVideoBitrate(offer.sdp) };
       await localPc.setLocalDescription(offer);
     } catch (err) {
@@ -381,9 +287,6 @@ export function startBubbleWebrtc(
     }
     if (stopped || myId !== handshakeId) return;
 
-    // Now that the local description is set, `getParameters().encodings`
-    // is populated on every WebKit build — pin the bitrate floor/ceiling
-    // and forbid resolution downscaling.
     await configureBubbleSender(sender);
     if (stopped || myId !== handshakeId) return;
 
@@ -400,9 +303,6 @@ export function startBubbleWebrtc(
       return;
     }
 
-    // Fail-closed timer. If ICE hasn't connected in CONNECT_TIMEOUT_MS,
-    // let the caller fall back to the canvas pump. Cleared when we
-    // reach `connected`.
     connectTimer = setTimeout(() => {
       if (stopped || myId !== handshakeId) return;
       if (connected) return;
@@ -441,8 +341,6 @@ export function startBubbleWebrtc(
   trackListen(
     listen<{ handshakeId?: number }>("clips:bubble-ready", (ev) => {
       if (stopped) return;
-      // If the bubble re-mounts (it emits bubble-ready on every mount),
-      // restart the handshake from scratch.
       console.log(
         "[clips-bubble-webrtc] bubble-ready received — starting handshake",
         ev.payload,
@@ -506,18 +404,11 @@ export function startBubbleWebrtc(
           sdpMLineIndex: sdpMLineIndex ?? undefined,
         });
       } catch (err) {
-        // Some candidates fail to add (e.g. already-closed peer, stale
-        // handshake). Not fatal — the surviving candidates can still form
-        // a connection on loopback.
         console.warn("[clips-bubble-webrtc] addIceCandidate failed", err);
       }
     }),
   );
 
-  // If the bubble window was already alive when we started (e.g. a
-  // re-start of the session), it might not re-emit bubble-ready. Ping
-  // for a fresh emit — the bubble responds by firing bubble-ready
-  // again.
   emit("clips:bubble-handshake-request", {}).catch(() => {});
 
   return { stop };

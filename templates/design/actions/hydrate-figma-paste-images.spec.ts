@@ -1,13 +1,3 @@
-/**
- * hydrate-figma-paste-images.spec.ts
- *
- * Covers:
- *  - collectImageRefHashes: scan HTML for data-figma-image-ref hashes
- *  - hydrateImageRefsInHtml: replace url("about:blank") with real URLs in order
- *  - Action routing: no-refs early return, full resolution, partial resolution,
- *    no-figmaFileKey guard, Figma-returns-empty guard
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -51,7 +41,6 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
-// db query chain builder that always resolves to whatever rows array is set
 let dbRows: unknown[] = [];
 vi.mock("../server/db/index.js", () => ({
   getDb: () => ({
@@ -83,10 +72,6 @@ import {
   hydrateImageRefsInHtml,
 } from "./hydrate-figma-paste-images.js";
 import action from "./hydrate-figma-paste-images.js";
-
-// ---------------------------------------------------------------------------
-// Pure HTML helpers
-// ---------------------------------------------------------------------------
 
 describe("collectImageRefHashes", () => {
   it("returns empty array for HTML with no data-figma-image-ref attrs", () => {
@@ -204,10 +189,6 @@ describe("hydrateImageRefsInHtml", () => {
     expect(out).toContain("url('https://cdn.example.com/img?a=1&amp;b=2')");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Action integration (with mocks)
-// ---------------------------------------------------------------------------
 
 const FILE_KEY = "testFileKey123";
 

@@ -3,22 +3,6 @@ import { z } from "zod";
 
 import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
 
-/**
- * Authoritative validation for a local plan MDX folder.
- *
- * This runs the SAME `parsePlanMdxFolder` + `planContentSchema` the renderer
- * uses, so a `valid: true` result here means the Plan app will actually render
- * the folder — closing the "passed locally, broken when rendered" gap between
- * the hand-rolled `plan local check` lint and the real renderer schema.
- *
- * It is intentionally a pure parse: it accepts the posted MDX folder, never
- * reads `schema.plans`, never touches the filesystem, and never writes to the
- * database. The local-files CLI calls it only on an explicit loopback Plan app;
- * it never posts private source to this action on a hosted deployment.
- */
-
-// Covers the CLI's 10 MiB raw asset cap (~13.3 MiB base64) plus MDX text, so
-// large-but-valid plans still get authoritative validation instead of the lint.
 const MAX_MDX_BYTES = 16 * 1024 * 1024;
 
 type ValidationIssue = { path: string; message: string };
@@ -72,8 +56,6 @@ export default defineAction({
   http: { method: "POST" },
   readOnly: true,
   requiresAuth: false,
-  // Route-level cap (413 before parse). 2x MAX_MDX_BYTES for JSON wire overhead;
-  // run() still enforces the precise content limit.
   maxBodyBytes: MAX_MDX_BYTES * 2,
   publicAgent: {
     expose: true,

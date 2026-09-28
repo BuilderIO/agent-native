@@ -1,6 +1,7 @@
 import { emailToName } from "@agent-native/core/client/collab";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import {
   closestCenter,
   DndContext,
@@ -82,6 +83,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -89,11 +91,11 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
+import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -140,6 +142,7 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import { ContentIcon } from "../icons/ContentIcon";
 import { ColumnPresentationMenuItems } from "./database/DatabaseColumnPresentation";
 import {
   clearDatabaseFiltersForColumn,
@@ -149,6 +152,7 @@ import {
   upsertDatabaseSort,
 } from "./database/filter-sort";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
+import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type TFunction = ReturnType<typeof useT>;
@@ -197,6 +201,25 @@ export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
   last_edited_time: IconClockFilled,
   last_edited_by: IconUserCircle,
 };
+
+function PropertyDefinitionIcon({
+  property,
+  className,
+}: {
+  property: DocumentProperty;
+  className?: string;
+}) {
+  const FallbackIcon = TYPE_ICONS[property.definition.type];
+  return property.definition.icon ? (
+    <ContentIcon
+      value={property.definition.icon}
+      size={16}
+      className={className}
+    />
+  ) : (
+    <FallbackIcon className={className} />
+  );
+}
 
 export const OPTION_COLOR_CLASSES: Record<DocumentPropertyOptionColor, string> =
   {
@@ -723,11 +746,6 @@ export function updatePropertyOptionDescription(
   );
 }
 
-/**
- * Keeps successive option edits based on the same local truth until the
- * server catches up. A rename followed immediately by a usage-description
- * edit must not let either request erase the other.
- */
 export function createPropertyOptionUpdateQueue(
   initialOptions: DocumentPropertyOption[],
   persist: (options: DocumentPropertyOption[]) => Promise<unknown>,
@@ -752,15 +770,9 @@ export function createPropertyOptionUpdateQueue(
 
 type PropertyMetadataSnapshot = Pick<
   DocumentProperty["definition"],
-  "name" | "type" | "description" | "visibility" | "options"
+  "name" | "type" | "description" | "visibility" | "options" | "icon"
 >;
 
-/**
- * Serializes property-definition edits against one local snapshot. The action
- * accepts the complete definition, so composing each request from render-time
- * props would let a fast description save restore the name from before an
- * overlapping rename completed.
- */
 export function createPropertyMetadataUpdateQueue(
   initialMetadata: PropertyMetadataSnapshot,
   persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
@@ -869,8 +881,6 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
-  // Blocks fields are rendered as body content (below the database/title), not
-  // as scalar property rows in this panel — exclude them here.
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
@@ -989,7 +999,6 @@ function HiddenPropertiesMenu({
         container={popoverContainer}
       >
         {properties.map((property) => {
-          const Icon = TYPE_ICONS[property.definition.type];
           return (
             <DropdownMenuItem
               key={property.definition.id}
@@ -999,7 +1008,10 @@ function HiddenPropertiesMenu({
                 void showProperty(property);
               }}
             >
-              <Icon className="mr-2 size-4 text-muted-foreground" />
+              <PropertyDefinitionIcon
+                property={property}
+                className="mr-2 size-4 text-muted-foreground"
+              />
               <span className="min-w-0 flex-1 truncate">
                 {property.definition.name}
               </span>
@@ -1053,7 +1065,10 @@ function PropertyRow({
         />
       ) : (
         <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-          <Icon className="size-4 shrink-0" />
+          <PropertyDefinitionIcon
+            property={property}
+            className="size-4 shrink-0"
+          />
           {property.definition.description ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1090,8 +1105,6 @@ function PropertyRow({
   );
 }
 
-// Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
-// gate which source fields can bind into a column (type compatibility).
 export function propertyTypeForSourceFieldType(
   sourceFieldType: string,
 ): DocumentPropertyType {
@@ -1117,7 +1130,6 @@ export function PropertyManagementPopover({
   databaseId,
   icon: Icon,
   triggerClassName,
-  onTriggerPointerDown,
   triggerTrailing,
   sourceField,
   sourceAttached = false,
@@ -1138,7 +1150,6 @@ export function PropertyManagementPopover({
   databaseId: string;
   icon: Icon;
   triggerClassName?: string;
-  onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   triggerTrailing?: ReactNode;
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
@@ -1198,9 +1209,6 @@ export function PropertyManagementPopover({
       });
     },
   });
-  // Per-source field bindings for THIS column (row-union): which source fields
-  // feed it, and which unmapped, type-compatible fields could be bound into it
-  // (at most one field per source per column).
   const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
     src.fields.map((field) => ({ source: src, field })),
   );
@@ -1225,8 +1233,6 @@ export function PropertyManagementPopover({
       "tags",
       "multi_select",
     ].includes(entry.field.sourceFieldType.trim().toLowerCase());
-    // text columns accept any SCALAR field but not multi-value ones (lossy);
-    // otherwise the derived type must match the column type.
     return columnType === "text"
       ? !fieldIsMultiValue
       : columnType ===
@@ -1236,8 +1242,6 @@ export function PropertyManagementPopover({
     !isComputedPropertyType(columnType) &&
     columnType !== "blocks" &&
     (boundSourceFields.length > 0 || bindableSourceFields.length > 0);
-  // Whether deleting THIS property removes the last Blocks field of the type —
-  // i.e. the body. Drives the yellow warning in the delete dialog.
   const blocksFieldCount = (propertiesData?.properties ?? []).filter(
     (item) => item.definition.type === "blocks",
   ).length;
@@ -1246,6 +1250,8 @@ export function PropertyManagementPopover({
     blocksFieldCount,
   });
   const [open, setOpen] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const propertyMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const [view, setView] = useState<"quick" | "edit">(
     hasColumnMenu ? "quick" : "edit",
   );
@@ -1269,6 +1275,7 @@ export function PropertyManagementPopover({
         description: property.definition.description,
         visibility: property.definition.visibility,
         options: property.definition.options,
+        icon: property.definition.icon ?? null,
       },
       (metadata) => persistMetadataSnapshotRef.current(metadata),
     ),
@@ -1292,6 +1299,7 @@ export function PropertyManagementPopover({
       description: property.definition.description,
       visibility: property.definition.visibility,
       options: property.definition.options,
+      icon: property.definition.icon ?? null,
     });
   }
 
@@ -1318,6 +1326,7 @@ export function PropertyManagementPopover({
     visibility?: DocumentPropertyVisibility;
     options?: DocumentProperty["definition"]["options"];
     description?: string;
+    icon?: DocumentProperty["definition"]["icon"];
   }) {
     await metadataUpdateQueueRef.current.enqueue((current) => ({
       name: next.name?.trim() || current.name,
@@ -1325,6 +1334,7 @@ export function PropertyManagementPopover({
       description: next.description ?? current.description,
       visibility: next.visibility ?? current.visibility,
       options: next.options ?? current.options,
+      icon: next.icon === undefined ? current.icon : next.icon,
     }));
   }
 
@@ -1450,6 +1460,7 @@ export function PropertyManagementPopover({
     <>
       <DropdownMenu
         open={open}
+        modal={false}
         onOpenChange={(nextOpen) => {
           if (nextOpen) {
             resetDraft();
@@ -1460,6 +1471,7 @@ export function PropertyManagementPopover({
       >
         <DropdownMenuTrigger asChild>
           <button
+            ref={propertyMenuTriggerRef}
             type="button"
             aria-label={t("editor.properties.propertyMenuFor", {
               name: property.definition.name,
@@ -1469,19 +1481,11 @@ export function PropertyManagementPopover({
               "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               triggerClassName,
             )}
-            onPointerDown={onTriggerPointerDown}
-            onClick={
-              onTriggerPointerDown
-                ? (event) => {
-                    event.preventDefault();
-                    resetDraft();
-                    setView(hasColumnMenu ? "quick" : "edit");
-                    setOpen(true);
-                  }
-                : undefined
-            }
           >
-            <Icon className="size-4 shrink-0" />
+            <PropertyDefinitionIcon
+              property={property}
+              className="size-4 shrink-0"
+            />
             <span className="truncate">{property.definition.name}</span>
             {triggerTrailing}
           </button>
@@ -1499,6 +1503,7 @@ export function PropertyManagementPopover({
                 {property.definition.name}
               </DropdownMenuLabel>
               <DropdownMenuItem
+                onPointerDown={(event) => event.preventDefault()}
                 onSelect={(event) => {
                   event.preventDefault();
                   setView("edit");
@@ -1672,8 +1677,22 @@ export function PropertyManagementPopover({
                 className="flex items-center gap-2 p-1"
                 onKeyDown={(event) => event.stopPropagation()}
               >
-                <IconEdit className="size-4 shrink-0 text-muted-foreground" />
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpen(false);
+                    setIconPickerOpen(true);
+                  }}
+                >
+                  <PropertyDefinitionIcon
+                    property={property}
+                    className="size-4"
+                  />
+                </button>
                 <Input
+                  size="sm"
                   ref={propertyNameInputRef}
                   value={name}
                   aria-label={t("editor.properties.propertyName")}
@@ -1685,7 +1704,6 @@ export function PropertyManagementPopover({
                       event.currentTarget.blur();
                     }
                   }}
-                  className="h-8"
                 />
               </div>
 
@@ -1821,11 +1839,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <Input
+                      size="sm"
                       value={newOption}
                       placeholder={t("editor.properties.addOption")}
                       onChange={(event) => setNewOption(event.target.value)}
                       onKeyDown={(event) => event.stopPropagation()}
-                      className="h-8"
                     />
                     <Button
                       type="submit"
@@ -1980,6 +1998,17 @@ export function PropertyManagementPopover({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <EmojiPicker
+        icon={property.definition.icon ?? null}
+        open={iconPickerOpen}
+        onOpenChange={setIconPickerOpen}
+        anchored
+        anchorElement={propertyMenuTriggerRef.current}
+        container={popoverContainer}
+        contentClassName="z-[310]"
+        onSelect={(icon) => configureProperty({ icon })}
+      />
+
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent className="max-w-sm gap-0 rounded-lg p-5">
           <AlertDialogHeader className="space-y-0 gap-1.5 text-start">
@@ -2000,11 +2029,16 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
           <AlertDialogFooter className="mt-4 flex-row items-center justify-end gap-2 sm:space-x-0">
-            <AlertDialogCancel className="mt-0 h-8 px-3 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1">
+            <AlertDialogCancel
+              size="sm"
+              className="mt-0 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+            >
               {t("editor.properties.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
-              className="h-8 bg-destructive px-3 text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
+              variant="destructive"
+              size="sm"
+              className="focus-visible:ring-1 focus-visible:ring-muted-foreground/40 focus-visible:ring-offset-1"
               onClick={() => void deleteProperty()}
             >
               {t("editor.properties.deleteProperty")}
@@ -2515,6 +2549,9 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
+  const fileUploadStatus = useFileUploadStatus();
+  const fileStorageConfigured =
+    fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true;
   const mutation = useSetDocumentProperty(
     documentId,
     property.definition.databaseId!,
@@ -2523,8 +2560,10 @@ function FilesMediaValueEditor({
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadFilesRef = useRef<File[] | null>(null);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -2561,31 +2600,47 @@ function FilesMediaValueEditor({
     onDone();
   }
 
-  async function uploadFiles(files: FileList | null) {
-    const selectedFiles = Array.from(files ?? []);
-    if (selectedFiles.length === 0) return;
-    setUploading(true);
-    try {
-      const uploadedUrls: string[] = [];
-      for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+  const uploadFiles = useCallback(
+    async (files: FileList | File[] | null) => {
+      const selectedFiles = Array.from(files ?? []);
+      if (selectedFiles.length === 0) return;
+      if (!fileStorageConfigured) {
+        pendingUploadFilesRef.current = selectedFiles;
+        setStorageSetupOpen(true);
+        return;
       }
-      setItems((current) => [...current, ...uploadedUrls]);
-      toast.success(
-        t(
-          uploadedUrls.length === 1
-            ? "editor.properties.imageUploaded_one"
-            : "editor.properties.imageUploaded_other",
-          { count: uploadedUrls.length },
-        ),
-      );
-    } catch (error) {
-      toast.error(imageUploadErrorMessage(error));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      setUploading(true);
+      try {
+        const uploadedUrls: string[] = [];
+        for (const file of selectedFiles) {
+          uploadedUrls.push(await uploadImageFile(file));
+        }
+        setItems((current) => [...current, ...uploadedUrls]);
+        toast.success(
+          t(
+            uploadedUrls.length === 1
+              ? "editor.properties.imageUploaded_one"
+              : "editor.properties.imageUploaded_other",
+            { count: uploadedUrls.length },
+          ),
+        );
+      } catch (error) {
+        toast.error(imageUploadErrorMessage(error));
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [fileStorageConfigured, t],
+  );
+
+  useEffect(() => {
+    if (!fileStorageConfigured) return;
+    setStorageSetupOpen(false);
+    const pendingFiles = pendingUploadFilesRef.current;
+    pendingUploadFilesRef.current = null;
+    if (pendingFiles) void uploadFiles(pendingFiles);
+  }, [fileStorageConfigured, uploadFiles]);
 
   return (
     <form
@@ -2672,15 +2727,32 @@ function FilesMediaValueEditor({
         type="file"
         accept="image/*"
         multiple
+        disabled={!fileStorageConfigured}
         className="sr-only"
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
+      />
+      <FileStorageStatusGate
+        status={fileUploadStatus}
+        open={storageSetupOpen}
+        onOpenChange={(open, reason) => {
+          if (!open && reason === "dismiss") {
+            pendingUploadFilesRef.current = null;
+          }
+          setStorageSetupOpen(open);
+        }}
       />
       <div className="flex justify-end gap-2">
         <Button
           type="button"
           variant="secondary"
           size="sm"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            if (fileStorageConfigured) {
+              fileInputRef.current?.click();
+            } else {
+              setStorageSetupOpen(true);
+            }
+          }}
           disabled={mutation.isPending || uploading}
         >
           <IconUpload className="size-3.5" />
@@ -2789,9 +2861,6 @@ function DateValueEditor({
         const submittedStartValue = formData.get("property-start-value");
         const submittedEndValue = formData.get("property-end-value");
 
-        // Native date controls can update their displayed DOM value before
-        // React receives the corresponding change event. Read the submitted
-        // form so Save never clears a date that is visibly present.
         void save(
           buildValue(
             typeof submittedStartValue === "string" ? submittedStartValue : "",
@@ -2806,7 +2875,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -2824,7 +2893,7 @@ function DateValueEditor({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 justify-start gap-1.5"
+          className="justify-start gap-1.5"
           disabled={mutation.isPending}
           onClick={() =>
             void save({
@@ -3468,8 +3537,6 @@ export function AddProperty({
     if (!onConnectSource || isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
-    // Radix keeps closing popovers mounted for their exit animation. Remove
-    // this one immediately so opening Sources cannot stack over it.
     setSourceHandoffClosing(true);
     setOpen(false);
     onConnectSource();
@@ -3485,7 +3552,7 @@ export function AddProperty({
         documentId,
         name: label,
         type,
-        options: defaultPropertyOptions(type),
+        options: type === "blocks" ? undefined : defaultPropertyOptions(type),
       });
       setTypeQuery("");
       setOpen(false);

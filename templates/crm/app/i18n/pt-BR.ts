@@ -24,6 +24,11 @@ const messages = {
     retry: "Tentar novamente",
     search: "Buscar",
   },
+  chatHome: {
+    description:
+      "Explore o contexto permitido das contas, tarefas de acompanhamento e evidências no Native SQL e nos registros conectados.",
+    placeholder: "Pergunte sobre seu CRM",
+  },
   commandMenu: {
     placeholder: "Busque registros, listas e comandos…",
     groupRecords: "Registros",
@@ -67,6 +72,8 @@ const messages = {
     languageDescription:
       "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
     languageLabel: "Idioma da interface",
+    mcpAbout:
+      "Conecte o CRM ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no CRM por você: encontrar registros, atualizar campos e gerenciar tarefas. Ele só vê o que você pode ver.",
   },
   connection: {
     tab: "Conexão",
@@ -611,6 +618,20 @@ const messages = {
     evaluatedThroughAsk: "Avaliado pelo Ask CRM.",
   },
   recordActions: {
+    reviewDuplicates: "Revisar duplicatas",
+    duplicateReviewTitle: "Possíveis registros duplicados",
+    duplicateReviewDescription:
+      "Compara este registro com candidatos acessíveis. O Jev envia à TypeSafe nomes, tipos de registro e sinais de até cinco candidatos. A probabilidade é apenas uma sugestão; a mesclagem exige revisão separada.",
+    duplicateReviewRun: "Verificar duplicatas",
+    duplicateReviewLoading: "Verificando…",
+    duplicateReviewFailed: "Não foi possível concluir a revisão de duplicatas.",
+    duplicateReviewUnavailable:
+      "O Jev não pôde revisar esses registros. Os candidatos encontrados por regras continuam visíveis.",
+    duplicateReviewEmpty: "Nenhuma duplicata provável encontrada.",
+    duplicateRuleConfidence: "Correspondência por regras: {{percent}}%",
+    duplicateJevProbability:
+      "Probabilidade Jev de mesma entidade: {{percent}}%",
+    duplicateMatchedOn: "Sinais em comum: {{values}}",
     evidenceAttached: "Evidência de chamada anexada.",
     evidenceAttachFailed: "Não foi possível anexar a evidência.",
     addEvidence: "Adicionar evidência",

@@ -12,6 +12,7 @@ export type ContentSpaceSummary = {
   filesDocumentId: string;
   orgId: string | null;
   role: "owner" | "editor" | "viewer";
+  canCreateDatabase?: boolean;
   catalogItemId: string;
   catalogDocumentId: string;
   catalogPosition: number;

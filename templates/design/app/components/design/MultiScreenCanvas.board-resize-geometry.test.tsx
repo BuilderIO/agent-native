@@ -94,7 +94,6 @@ async function mountBoardCanvas(
   await act(async () => {
     root.render(renderCanvas(boardFrameGeometry, options));
   });
-  // Let the board iframe's srcdoc finish loading into a real contentDocument.
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
@@ -164,13 +163,6 @@ afterEach(async () => {
   container.remove();
 });
 
-/**
- * The board bridge runs same-origin content the host also renders inside every
- * Screen's preview iframe, so the selection-rect listener must key on the
- * board surface's OWN contentWindow — a rect from any other window would plant
- * host-level resize handles (wired straight into startResize) over geometry
- * that window does not own.
- */
 describe("board-selection-rect sender boundary", () => {
   it("ignores the rect unless it came from the board surface iframe's own contentWindow", async () => {
     const boardIframe = await mountBoardCanvas({
@@ -192,8 +184,6 @@ describe("board-selection-rect sender boundary", () => {
         container.querySelector("[data-board-object-selection-box]"),
       ).toBeNull();
 
-      // Same payload from the board surface itself does render chrome, so the
-      // assertion above is a real source check and not a dead payload.
       await act(async () => {
         postBoardSelectionRect(boardIframe.contentWindow);
       });
@@ -468,17 +458,6 @@ describe("board element drag target resolution", () => {
   });
 });
 
-/**
- * beginBoardElementResize's move/up handlers are captured once at mousedown
- * and outlive any later render. If they map through the render geometry
- * captured in that mousedown-time closure instead of re-reading it fresh, a
- * wheel/pinch zoom mid-resize (not blocked during a drag) silently maps
- * every subsequent point through a stale origin. Proven here by shifting
- * `boardFrameGeometry` — a simpler, deterministic driver of the same
- * `boardSurfaceRenderGeometry` the real zoom path also feeds — between
- * mousedown and mouseup, and asserting the point the host forwards into the
- * board iframe shifts by exactly the geometry's own delta.
- */
 describe("beginBoardElementResize point mapping", () => {
   it("maps mouseup through the render geometry current at mouseup, not the one captured at mousedown", async () => {
     const boardIframe = await mountBoardCanvas({
@@ -526,8 +505,6 @@ describe("beginBoardElementResize point mapping", () => {
       );
     });
 
-    // Shift the render geometry's origin by (+100, +40) — the render must
-    // pick this up before the drag ends.
     await act(async () => {
       root.render(
         renderCanvas({ x: -900, y: -960, width: 2000, height: 2000 }),
@@ -551,11 +528,6 @@ describe("beginBoardElementResize point mapping", () => {
     expect(mousedownPoint).toBeDefined();
     expect(mouseupPoint).toBeDefined();
 
-    // Same client point, only the render geometry's origin shifted by
-    // (+100, +40) between mousedown and mouseup — a mapping that re-reads
-    // fresh geometry must shift the mapped point by the OPPOSITE delta
-    // (-100, -40); a mapping stuck on the stale mousedown-time geometry
-    // would report the exact same point twice.
     expect(mouseupPoint!.x - mousedownPoint!.x).toBeCloseTo(-100);
     expect(mouseupPoint!.y - mousedownPoint!.y).toBeCloseTo(-40);
   });
@@ -637,4 +609,96 @@ describe("beginBoardElementResize point mapping", () => {
       expect(forwardedEvents).toHaveLength(forwardedCount);
     },
   );
+});
+
+describe("board text editing", () => {
+  it("drops the host drag surface while a board text edit owns the pointer", async () => {
+    const boardIframe = await mountBoardCanvas({
+      x: -1000,
+      y: -1000,
+      width: 2000,
+      height: 2000,
+    });
+    const postTextEditingState = (active: boolean) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "text-editing-state",
+            active,
+            selector: BOARD_SELECTOR,
+            sourceId: "rect-1",
+            hasRange: false,
+          },
+          origin: window.location.origin,
+          source: boardIframe.contentWindow,
+        }),
+      );
+    await act(async () => {
+      postBoardSelectionRect(boardIframe.contentWindow);
+    });
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).not.toBeNull();
+
+    await act(async () => postTextEditingState(true));
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).toBeNull();
+
+    await act(async () => postTextEditingState(false));
+    expect(
+      container.querySelector("[data-board-object-selection-box]"),
+    ).not.toBeNull();
+  });
+});
+
+describe("board selection box click", () => {
+  it("hands a click without movement to the board bridge through its shield", async () => {
+    const boardIframe = await mountBoardCanvas({
+      x: -1000,
+      y: -1000,
+      width: 2000,
+      height: 2000,
+    });
+    const frameDoc = boardIframe.contentDocument!;
+    const shield = frameDoc.createElement("div");
+    shield.setAttribute("data-agent-native-edit-overlay", "shield");
+    const selection = frameDoc.createElement("div");
+    selection.setAttribute("data-agent-native-edit-overlay", "selection");
+    frameDoc.body.append(shield, selection);
+    const received: string[] = [];
+    for (const type of ["mousedown", "mouseup"]) {
+      shield.addEventListener(type, () => received.push(`shield:${type}`));
+      selection.addEventListener(type, () =>
+        received.push(`selection:${type}`),
+      );
+    }
+    await act(async () => {
+      postBoardSelectionRect(boardIframe.contentWindow);
+    });
+    const surface = container.querySelector<HTMLElement>(
+      "[data-board-object-selection-box] [data-frame-drag-surface]",
+    )!;
+    await act(async () => {
+      surface.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 30,
+          clientY: 30,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("mousemove", {
+          bubbles: true,
+          clientX: 31,
+          clientY: 30,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent("mouseup", { bubbles: true, clientX: 31, clientY: 30 }),
+      );
+    });
+    expect(received).toEqual(["shield:mousedown", "shield:mouseup"]);
+  });
 });

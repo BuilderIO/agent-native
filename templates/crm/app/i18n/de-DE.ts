@@ -24,6 +24,11 @@ const messages = {
     retry: "Erneut versuchen",
     search: "Suchen",
   },
+  chatHome: {
+    description:
+      "Erkunde den zulässigen Kontokontext, Folgeaufgaben und Belege in Native SQL und verbundenen Datensätzen.",
+    placeholder: "Frage zu deinem CRM",
+  },
   commandMenu: {
     placeholder: "Datensätze, Listen und Befehle suchen…",
     groupRecords: "Datensätze",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
     languageLabel: "Oberflächensprache",
+    mcpAbout:
+      "Verbinde CRM mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in CRM für dich arbeiten: Datensätze finden, Felder aktualisieren und Aufgaben verwalten. Sie sieht nur, was du sehen kannst.",
   },
   connection: {
     tab: "Verbindung",
@@ -614,6 +621,21 @@ const messages = {
     evaluatedThroughAsk: "Über Ask CRM ausgewertet.",
   },
   recordActions: {
+    reviewDuplicates: "Duplikate prüfen",
+    duplicateReviewTitle: "Mögliche doppelte Datensätze",
+    duplicateReviewDescription:
+      "Vergleicht diesen Datensatz mit zugänglichen Kandidaten. Jev sendet Namen, Datensatztypen und Treffermerkmale von höchstens fünf Kandidaten an TypeSafe. Die Wahrscheinlichkeit ist ein Hinweis; eine Zusammenführung erfordert eine gesonderte Prüfung.",
+    duplicateReviewRun: "Duplikate suchen",
+    duplicateReviewLoading: "Prüfung läuft…",
+    duplicateReviewFailed:
+      "Die Duplikatprüfung konnte nicht abgeschlossen werden.",
+    duplicateReviewUnavailable:
+      "Jev konnte diese Datensätze nicht prüfen. Regelbasierte Kandidaten bleiben sichtbar.",
+    duplicateReviewEmpty: "Keine wahrscheinlichen Duplikate gefunden.",
+    duplicateRuleConfidence: "Regelbasierte Übereinstimmung: {{percent}} %",
+    duplicateJevProbability:
+      "Jev-Wahrscheinlichkeit für dieselbe Entität: {{percent}} %",
+    duplicateMatchedOn: "Treffermerkmale: {{values}}",
     evidenceAttached: "Anrufbeleg angehängt.",
     evidenceAttachFailed: "Beleg konnte nicht angehängt werden.",
     addEvidence: "Beleg hinzufügen",

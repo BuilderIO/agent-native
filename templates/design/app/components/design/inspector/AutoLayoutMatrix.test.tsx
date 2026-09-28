@@ -185,8 +185,6 @@ describe("AutoLayoutMatrix", () => {
       }),
     );
 
-    // Both the horizontal padding field's aria-label and the literal "Mixed"
-    // placeholder text should be present.
     expect(markup).toContain("Mixed");
   });
 

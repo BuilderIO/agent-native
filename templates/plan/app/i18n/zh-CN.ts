@@ -31,6 +31,7 @@ const messages = {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
     openAgentSettings: "管理代理",
+    editorGroupTitle: "编辑器",
     editorTitle: "VS Code 扩展",
     editorDescription:
       "在 VS Code 的侧边面板中打开并审阅计划，而不是切换到单独的浏览器标签页。",
@@ -453,6 +454,7 @@ const messages = {
       requestAccess: "请求访问权限",
       requestAccessTitle: "请求访问此计划",
       requestSent: "请求已发送",
+      storageStatusUnavailable: "无法检查文件存储。",
       retry: "重试",
       sendFeedback: "发送反馈",
       feedbackPlaceholder: "描述此计划错误出现前发生了什么。",
@@ -679,6 +681,12 @@ const messages = {
       share: "分享{{noun}}",
       shareAria: "分享{{noun}}",
       shareThis: "分享这个 {{noun}}",
+      teammateSuggestion: {
+        message: "邀请团队成员加入 Plan。",
+        invite: "邀请团队成员",
+        enableDomain: "允许 @{{domain}} 的任何人加入",
+        enableFailed: "无法启用域名加入，请重试。",
+      },
       signedInRetry: "我已登录 - 重试",
       updateLink: "更新链接",
       updating: "更新中",

@@ -362,8 +362,6 @@ describe("single-screen linked component history", () => {
     ).not.toHaveBeenCalled();
     expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
 
-    // This older file-B clipboard redo is not the latest document state; the
-    // linked content group just undone above must remain the next Redo.
     state.args.clipboardPasteRedoStackRef.current = [
       {
         fileId: "file-b",
@@ -790,7 +788,6 @@ describe("single-screen linked component history", () => {
   });
 });
 
-// Exercise the actual editor wiring without mounting its unrelated UI/providers.
 const editorSource = readFileSync(
   new URL("../../DesignEditor.tsx", import.meta.url),
   "utf8",
@@ -1133,9 +1130,6 @@ describe("pending live multi-target style gestures", () => {
     expect(phaseProbe[3]?.id).not.toBe(phaseProbe[0]?.id);
     expect(phaseProbe[4]?.id).not.toBe(phaseProbe[5]?.id);
 
-    // A preview scrub emits several full commits for multi-selection because
-    // that route has no cheap multi-element preview channel. The final commit
-    // closes the same history gesture.
     runStyleChange(styleChangeArgs, "color", "blue", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "commit" });
@@ -1159,8 +1153,6 @@ describe("pending live multi-target style gestures", () => {
     expect(state.setSelectedLayerIdsState).not.toHaveBeenCalled();
     expect(selectedElementState?.sourceId).toBe("main-child");
 
-    // Exercise the batched multi-property inspector caller as a second,
-    // independent gesture on the same target set.
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "preview" });
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "commit" });
     expect(pendingStyleUndoStack()).toHaveLength(2);

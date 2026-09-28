@@ -15,7 +15,7 @@ interface AgentInspectorProps {
   chatHomeHandoffPending: boolean;
 }
 
-/** Legacy inspector sidebar, loaded only outside the primary AgentKit Chat. */
+/** Contextual inspector shell used on secondary chat routes. */
 export function AgentInspector({
   children,
   chatHomeHandoffActive,

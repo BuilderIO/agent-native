@@ -151,6 +151,8 @@ export default {
     untitledAnalysis: "تحليل بلا عنوان",
   },
   settings: {
+    agentObservability: "مراقبة الوكيل",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     agentTitle: "إدارة الوكيل",
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -170,6 +172,9 @@ export default {
     bellSound: "صوت الجرس",
     bellSoundDescription: "تشغيل صوت عند اكتمال تشغيل الوكيل. معطّل افتراضيًا.",
     bellSoundSaveFailed: "تعذّر حفظ تفضيل الصوت.",
+    notificationsTitle: "الإشعارات",
+    notificationsEmailGroup: "البريد الإلكتروني",
+    notificationsSoundGroup: "الصوت",
     replayStorage: "تخزين إعادة عرض الجلسات",
     replayStorageDescription:
       "تحتاج تسجيلات إعادة عرض الجلسات إلى مزوّد مُهيّأ لرفع الملفات. اربط Builder.io للحصول على تخزين كائنات بالباقة المجانية، أو استخدم حاوية متوافقة مع S3 خاصة بك.",
@@ -944,6 +949,10 @@ export default {
     recentSales: "المبيعات الأخيرة",
     recentSalesDescription: "حققت 265 عملية بيع هذا الشهر.",
   },
+  analysisResult: {
+    title: "نتيجة التحليل",
+    comparisonContext: "{{period}}: {{current}} مقابل {{previous}}",
+  },
   routeTitles: {
     notFound: "غير موجود - Analytics",
     analysis: "تحليل - Analytics",
@@ -1293,6 +1302,7 @@ export default {
     app: "التطبيق",
     unknownApp: "تطبيق غير معروف",
     lastSeen: "آخر ظهور",
+    includeZeroMinuteSessions: "تضمين الجلسات التي مدتها 0 دقيقة",
     duration: "المدة",
     events: "الأحداث",
     chunks: "المقاطع",

@@ -1,5 +1,6 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
+  type AgentChatHomeProps,
   insertAgentComposerReference,
   markAgentChatHomeHandoff,
   readChatFirstMode,
@@ -10,17 +11,11 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck, IconCopy } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchChatHomeApps } from "../../components/chat-home-apps";
 import { useDispatchExtensions } from "../../components/layout/Layout";
 import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -51,9 +46,6 @@ function stripBasePath(pathname: string): string {
   return pathname;
 }
 
-// The chat surface renders for both `/chat` and the `/chat/:threadId` deep
-// link. The thread id is read from the pathname (not `useParams`) because the
-// param is owned by the nested deep-link route, not this leaf component.
 function threadIdFromPath(pathname: string): string | null {
   const match = stripBasePath(pathname).match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -65,8 +57,6 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-// Mirror the basename handling Dispatch's nav links use: pass a router-local
-// path when the live URL is already under the mount, otherwise prefix it.
 function dispatchNavTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
@@ -81,14 +71,6 @@ interface DispatchThreadUrlSync {
   routeThreadId: string | null;
   getPath: (threadId: string | null) => string;
   navigate: (path: string, options?: { replace?: boolean }) => void;
-}
-
-type DispatchAgentChatSurfaceProps = ComponentProps<typeof AgentChatSurface> & {
-  threadUrlSync?: DispatchThreadUrlSync;
-};
-
-function DispatchAgentChatSurface(props: DispatchAgentChatSurfaceProps) {
-  return <AgentChatSurface {...props} />;
 }
 
 function DispatchRequestIdButton({ requestId }: { requestId: string | null }) {
@@ -137,7 +119,7 @@ interface DispatchChatLocationState {
     message?: string;
     selectedModel?: string | null;
     selectedEngine?: string | null;
-    selectedEffort?: ComponentProps<typeof AgentChatSurface>["selectedEffort"];
+    selectedEffort?: AgentChatHomeProps["selectedEffort"];
   };
   dispatchThread?: {
     id?: string | number;
@@ -326,11 +308,12 @@ export default function ChatRoute() {
           <DispatchRequestIdButton requestId={activeRunId} />
         </div>
       ) : null}
-      <DispatchAgentChatSurface
+      <AgentChatHome
         key={agent ? `agent-${agent.id}` : "dispatch"}
-        mode="page"
+        className="flex-1 min-h-0"
+        contentClassName="max-w-6xl"
+        surfaceClassName="dispatch-chat-panel px-4 sm:px-6"
         chatViewTransition
-        className="dispatch-chat-panel px-4 sm:px-6"
         defaultMode="chat"
         storageKey={agent ? `dispatch-agent-${agent.id}` : "dispatch"}
         scope={agentScope}
@@ -339,18 +322,21 @@ export default function ChatRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suppressInlineOpenApp={suppressInlineOpenApp}
-        suggestions={[]}
+        suggestions={
+          agent || routeThreadId || prompt?.message
+            ? []
+            : [
+                t("dispatch.pages.suggestionWorkspaceHealth"),
+                t("dispatch.pages.suggestionOnboardingApp"),
+                t("dispatch.pages.suggestionAnalyticsAgents"),
+              ]
+        }
         emptyStateText={t("dispatch.pages.chatAcrossAppsDescription", {
           defaultValue:
             "Route work, inspect status, or create something new from one place.",
         })}
-        emptyStateDisplay="hidden"
-        {...(!prompt?.message
-          ? {
-              centerComposerWhenEmpty: true,
-              composerLayoutVariant: "hero" as const,
-            }
-          : {})}
+        centerComposerWhenEmpty={!prompt?.message}
+        composerLayoutVariant={prompt?.message ? "default" : "hero"}
         composerPlaceholder={
           agent
             ? `Ask ${agent.name}...`
@@ -358,7 +344,7 @@ export default function ChatRoute() {
                 defaultValue: "Tell Dispatch what you’d like to make happen…",
               })
         }
-        composerSlot={
+        homeIntroSlot={
           agent ? (
             <div className="dispatch-chat-intro">
               <h1>{agent.name}</h1>
@@ -367,17 +353,16 @@ export default function ChatRoute() {
           ) : !prompt?.message ? (
             <div className="dispatch-chat-intro">
               <h1>
-                {t("dispatch.pages.chatAcrossApps", {
-                  defaultValue: "Chat across your apps",
+                {t("dispatch.pages.chatHomeTitle", {
+                  defaultValue: "What should we do?",
                 })}
               </h1>
-              <p>
-                {t("dispatch.pages.chatAcrossAppsDescription", {
-                  defaultValue:
-                    "Route work, inspect status, or create something new from one place.",
-                })}
-              </p>
             </div>
+          ) : null
+        }
+        afterComposerSlot={
+          !agent && !prompt?.message && !threadUrlSync.routeThreadId ? (
+            <DispatchChatHomeApps />
           ) : null
         }
       />

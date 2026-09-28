@@ -75,12 +75,6 @@ export async function runCopySelection({
     styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));
-  // Whole-screen copy (U6): getSelectedLayerSnapshots explicitly excludes
-  // file/screen ids from layer candidates, so selecting one or more whole
-  // screens/frames in the overview and pressing Cmd+C previously produced
-  // zero entries and silently no-opped, leaving the clipboard unchanged.
-  // Fall back to screen-level snapshots (full file content + geometry) when
-  // there is no deeper layer selection to copy.
   const screens: DesignClipboardPayload["screens"] =
     entries.length === 0 && viewModeRef.current === "overview"
       ? overviewSelectedScreenIds
@@ -126,10 +120,6 @@ export async function runCopySelection({
       ? entries.map((entry) => entry.html)
       : screens.map((screen) => screen.content),
   );
-  // The lossless layer payload stays in text/html while text/plain contains
-  // only readable content. This mirrors Figma's clipboard behavior: Design
-  // can round-trip structure across tabs without dumping source and marker
-  // data into ordinary text destinations.
   const clipboardHtml = serializeDesignClipboardPayload(
     copiedHtml,
     {
@@ -146,8 +136,6 @@ export async function runCopySelection({
   lastWrittenClipboardPlainTextRef.current = plainText;
   pasteCascadeRef.current = 0;
   setHasCanvasClipboard(true);
-  // Clipboard permission is tied to this key activation. The settled
-  // selection cache above has already collected richer marquee snapshots.
   const writePromise = writeDesignClipboard({ plainText, html: clipboardHtml });
   try {
     await writePromise;

@@ -1,5 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
+import type { IconValue } from "@agent-native/core/icons";
 import type {
   ContentDatabaseItem,
   ContentDatabaseNavigationItem,
@@ -16,18 +18,36 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
-  IconDots,
   IconFileText,
   IconFolder,
   IconFolderOpen,
   IconPlus,
-  IconPin,
-  IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
+import { ContentIcon } from "@/components/icons/ContentIcon";
 import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
-import { SidebarNavigationRow } from "@/components/sidebar/SidebarNavigationRow";
+import {
+  SidebarNavigationRow,
+  SidebarRowIcon,
+  revealActiveSidebarRow,
+  sidebarRowClassName,
+  sidebarShowMoreClassName,
+} from "@/components/sidebar/SidebarNavigationRow";
+import {
+  SidebarPageMenu,
+  SidebarRowActions,
+  sidebarPageLinks,
+  sidebarRowActionButtonClassName,
+  sidebarRowTitleFadeClassName,
+  useSidebarPageActions,
+} from "@/components/sidebar/SidebarRowActions";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -38,7 +58,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -148,7 +167,7 @@ export function PagedContentFilesSidebarView({
   return (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
       data-paged-files-navigation
     >
       <PagedContentFilesBranch
@@ -262,7 +281,7 @@ function PagedContentFilesBranch({
       documentId: document.id,
       parentId: document.parentId,
       title: document.title,
-      icon: document.icon,
+      icon: serializeIconValue(parseIconValue(document.icon)),
       type: document.database ? ("database" as const) : ("page" as const),
       hasChildren: props.activePathDocuments.some(
         (candidate) => candidate.parentId === document.id,
@@ -290,7 +309,10 @@ function PagedContentFilesBranch({
           navigationItem.documentId,
         );
         return (
-          <div key={navigationItem.membershipId} className="min-w-0">
+          <div
+            key={navigationItem.membershipId}
+            className="grid min-w-0 gap-0.5"
+          >
             <DatabaseSidebarRow
               item={item}
               openPagesIn="full_page"
@@ -304,6 +326,7 @@ function PagedContentFilesBranch({
               untitledLabel={props.untitledLabel}
               depth={props.depth}
               hasChildren={navigationItem.hasChildren}
+              isCollection={navigationItem.type === "database"}
               expanded={expanded}
               onToggleExpanded={(open) =>
                 props.onDocumentExpandedChange(navigationItem.documentId, open)
@@ -333,15 +356,17 @@ function PagedContentFilesBranch({
             type="button"
             size="sm"
             variant="ghost"
-            className="grid min-h-[38px] w-full items-center gap-1.5 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className={sidebarShowMoreClassName}
             style={{
-              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false) + 28}px minmax(0, 1fr)`,
+              gridTemplateColumns: `${databaseSidebarRowIndent(props.depth, false)}px 1.75rem minmax(0, 1fr)`,
             }}
             onClick={() => setNextPageVisible(true)}
           >
-            <span className="col-start-2 truncate">
-              {t("sidebar.showMore")}
-            </span>
+            <IconChevronDown
+              aria-hidden="true"
+              className="col-start-2 size-3.5 justify-self-center"
+            />
+            <span className="truncate ps-1.5">{t("sidebar.showMore")}</span>
           </Button>
         )
       ) : null}
@@ -458,7 +483,6 @@ export function ContentFilesSidebarView({
   isLoading: boolean;
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
-  /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
   serverOrdered?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
@@ -703,7 +727,7 @@ export function DatabaseSidebarView({
       node.item.document.id,
     );
     return (
-      <div key={node.item.id} className="min-w-0">
+      <div key={node.item.id} className="grid min-w-0 gap-0.5">
         <SidebarDatabaseRow
           item={node.item}
           openPagesIn={openPagesIn}
@@ -724,7 +748,7 @@ export function DatabaseSidebarView({
           manualReorder={manualReorder}
         />
         {open && node.children.length > 0 ? (
-          <div>
+          <div className="grid gap-0.5">
             {node.children.map((child) => renderTreeNode(child, depth + 1))}
           </div>
         ) : null}
@@ -770,7 +794,7 @@ export function DatabaseSidebarView({
   const navigation = (
     <nav
       aria-label={navigationLabel}
-      className="grid min-w-0 gap-1 overflow-x-hidden py-1 ps-1"
+      className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
     >
       {grouped
         ? groups.map((group) => {
@@ -948,7 +972,11 @@ function ReorderableDatabaseSidebarRow({
 }) {
   const reorder = useSidebarReorderItem(props.item.id);
   return (
-    <div ref={reorder.setNodeRef} style={reorder.style} className="relative">
+    <div
+      ref={reorder.setNodeRef}
+      style={reorder.style}
+      className="relative min-w-0"
+    >
       <SidebarDropIndicator placement={reorder.dropIndicator} />
       <DatabaseSidebarRow
         {...props}
@@ -974,8 +1002,10 @@ function DatabaseSidebarRow({
   expanded = false,
   onToggleExpanded,
   reorder,
+  isCollection = Boolean(item.document.database),
 }: {
   item: ContentDatabaseItem;
+  isCollection?: boolean;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
@@ -1021,18 +1051,47 @@ function DatabaseSidebarRow({
     onPreview(item);
   }
 
-  const title = item.document.title || untitledLabel;
+  const pageActions = useSidebarPageActions();
+  const [renaming, setRenaming] = useState(false);
+  const [pendingTitle, setPendingTitle] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingTitle !== null && item.document.title === pendingTitle) {
+      setPendingTitle(null);
+    }
+  }, [item.document.title, pendingTitle]);
+  const title = pendingTitle ?? (item.document.title || untitledLabel);
+  const expandLabel = expanded
+    ? t("sidebar.collapseItem", { title })
+    : t("sidebar.expandItem", { title });
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (active) revealActiveSidebarRow(rowRef.current);
+  }, [active]);
+  const isLocalFile = item.document.source?.mode === "local-files";
+  const canChangePage = canEdit && !isLocalFile && pageActions !== null;
+
+  function commitRename(nextTitle: string) {
+    setRenaming(false);
+    const trimmed = nextTitle.trim();
+    if (!pageActions || !trimmed || trimmed === item.document.title) return;
+    setPendingTitle(trimmed);
+    pageActions
+      .renamePage(item.document.id, trimmed)
+      .catch(() => setPendingTitle(null));
+  }
 
   if (item.document.source?.kind === "folder") {
     return (
       <div className="group relative min-w-0">
+        <SidebarDepthGuides depth={depth} />
         <button
           type="button"
-          className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded pe-1.5 text-start text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(sidebarRowClassName(), "w-full text-start")}
           style={{
             paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
           }}
-          aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+          title={title}
+          aria-label={expandLabel}
           aria-expanded={expanded}
           onClick={() => onToggleExpanded?.(!expanded)}
           onPointerUp={(event) => event.currentTarget.blur()}
@@ -1040,118 +1099,132 @@ function DatabaseSidebarRow({
           <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
             <IconChevronRight
               className={cn(
-                "size-3.5 transition-transform",
+                "size-3.5 transition-transform rtl:-scale-x-100",
                 expanded && "rotate-90",
               )}
             />
           </span>
-          {expanded ? (
-            <IconFolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <SidebarRowIcon
+            icon={
+              expanded ? (
+                <IconFolderOpen className="size-4 text-muted-foreground" />
+              ) : (
+                <IconFolder className="size-4 text-muted-foreground" />
+              )
+            }
+          />
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </button>
       </div>
     );
   }
 
+  const hasRowActions = hasMenuActions || canCreateChild;
+
   return (
     <>
-      <div className="group relative min-w-0">
+      <div ref={rowRef} className="group relative min-w-0">
+        <SidebarDepthGuides depth={depth} />
         {hasChildren ? (
           <button
             type="button"
-            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="pointer-events-none absolute top-0 z-10 flex size-7 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-background hover:text-foreground group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             style={{
               insetInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
             }}
-            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+            aria-label={expandLabel}
             aria-expanded={expanded}
             onPointerUp={(event) => event.currentTarget.blur()}
             onClick={() => onToggleExpanded?.(!expanded)}
           >
             <IconChevronRight
               className={cn(
-                "size-3.5 transition-transform",
+                "size-3.5 transition-transform rtl:-scale-x-100",
                 expanded && "rotate-90",
               )}
             />
           </button>
         ) : null}
-        <SidebarNavigationRow
-          to={`/page/${item.document.id}`}
-          icon={item.document.icon}
-          hideIconOnHover={hasChildren}
-          {...reorder?.controls.attributes}
-          {...reorder?.controls.listeners}
-          data-sidebar-reorder-item-id={reorder?.controls.itemId}
-          role="link"
-          className={cn(
-            reorder && "touch-none cursor-pointer select-none",
-            reorder?.controls.isDragging && "cursor-grabbing",
-            active && "font-semibold text-foreground",
-          )}
-          style={{
-            paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
-          }}
-          onClick={handleClick}
-          onPointerUp={(event) => event.currentTarget.blur()}
-          aria-current={active ? "page" : undefined}
-        >
-          <span
+        {renaming ? (
+          <SidebarRenameInput
+            initialTitle={item.document.title}
+            icon={item.document.icon}
+            indent={databaseSidebarRowIndent(depth, hasChildren)}
+            label={t("sidebar.pageName")}
+            onCommit={commitRename}
+            onCancel={() => setRenaming(false)}
+          />
+        ) : (
+          <SidebarNavigationRow
+            to={`/page/${item.document.id}`}
+            icon={item.document.icon}
+            hideIconOnHover={hasChildren}
+            active={active}
+            title={title}
+            {...reorder?.controls.attributes}
+            {...reorder?.controls.listeners}
+            data-sidebar-reorder-item-id={reorder?.controls.itemId}
+            role="link"
             className={cn(
-              "min-w-0 flex-1 truncate",
-              (hasMenuActions || canCreateChild) &&
-                "group-hover:pe-12 group-focus-within:pe-12",
+              !active && "group-hover:bg-sidebar-accent/60",
+              reorder && "touch-none cursor-pointer select-none",
+              reorder?.controls.isDragging && "cursor-grabbing",
             )}
+            style={{
+              paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+            }}
+            onClick={handleClick}
+            onPointerUp={(event) => event.currentTarget.blur()}
           >
-            {title}
-          </span>
-        </SidebarNavigationRow>
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                hasRowActions &&
+                  sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
+              )}
+            >
+              {title}
+            </span>
+          </SidebarNavigationRow>
+        )}
 
-        {(hasMenuActions || canCreateChild) && (
-          <div className="pointer-events-none absolute end-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        {hasRowActions && !renaming && (
+          <SidebarRowActions>
             {hasMenuActions && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={t("sidebar.moreActionsFor", { label: title })}
-                  >
-                    <IconDots size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  {canFavorite && onToggleFavorite ? (
-                    <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
-                      <IconPin
-                        className="me-2 size-4"
-                        strokeWidth={item.document.isFavorite ? 2.2 : 1.7}
-                      />
-                      {item.document.isFavorite
-                        ? t("sidebar.unpinFromSidebar")
-                        : t("sidebar.pinToSidebar")}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {canFavorite &&
-                  onToggleFavorite &&
-                  canManage &&
-                  onDeleteItem ? (
-                    <DropdownMenuSeparator />
-                  ) : null}
-                  {canManage && onDeleteItem ? (
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onSelect={() => onDeleteItem(item)}
-                    >
-                      <IconTrash className="me-2 size-4" />
-                      {t("database.delete")}
-                    </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <SidebarPageMenu
+                documentId={item.document.id}
+                title={title}
+                {...sidebarPageLinks(item.document.id, {
+                  localFile: isLocalFile,
+                })}
+                pinned={Boolean(item.document.isFavorite)}
+                onTogglePin={
+                  canFavorite && onToggleFavorite
+                    ? () => onToggleFavorite(item)
+                    : undefined
+                }
+                onRename={canChangePage ? () => setRenaming(true) : undefined}
+                onDuplicate={
+                  canChangePage && !isCollection
+                    ? () => pageActions.duplicatePage(item.document.id)
+                    : undefined
+                }
+                onMove={
+                  canChangePage
+                    ? () =>
+                        pageActions.movePage({
+                          documentId: item.document.id,
+                          title,
+                          spaceId: item.document.spaceId ?? null,
+                        })
+                    : undefined
+                }
+                onMoveToTrash={
+                  canManage && onDeleteItem
+                    ? () => onDeleteItem(item)
+                    : undefined
+                }
+              />
             )}
 
             {canCreateChild ? (
@@ -1161,7 +1234,7 @@ function DatabaseSidebarRow({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-6 items-center justify-center rounded text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className={sidebarRowActionButtonClassName}
                         aria-label={t("sidebar.addChildTo", { title })}
                         data-sidebar-add-child
                       >
@@ -1197,10 +1270,82 @@ function DatabaseSidebarRow({
                 <IconPlus size={14} />
               </button>
             )}
-          </div>
+          </SidebarRowActions>
         )}
       </div>
     </>
+  );
+}
+
+function SidebarRenameInput({
+  initialTitle,
+  icon,
+  indent,
+  label,
+  onCommit,
+  onCancel,
+}: {
+  initialTitle: string;
+  icon: IconValue | string | null | undefined;
+  indent: number;
+  label: string;
+  onCommit: (title: string) => void;
+  onCancel: () => void;
+}) {
+  const settledRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  function settle(action: () => void) {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    action();
+  }
+  return (
+    <div
+      className="flex h-7 min-w-0 items-center gap-1.5 rounded bg-sidebar-accent pe-1"
+      style={{ paddingInlineStart: `${indent}px` }}
+    >
+      <span className="flex size-7 shrink-0 items-center justify-center">
+        <SidebarRowIcon
+          icon={
+            <ContentIcon
+              value={icon}
+              size={14}
+              fallback={
+                <IconFileText className="size-3.5 text-muted-foreground" />
+              }
+            />
+          }
+        />
+      </span>
+      <input
+        ref={inputRef}
+        aria-label={label}
+        defaultValue={initialTitle}
+        maxLength={500}
+        className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const value = event.currentTarget.value;
+            settle(() => onCommit(value));
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            settle(onCancel);
+          }
+        }}
+        onBlur={(event) => {
+          const value = event.currentTarget.value;
+          settle(() => onCommit(value));
+        }}
+      />
+    </div>
   );
 }
 
@@ -1227,6 +1372,25 @@ export function databaseSidebarRootItems(
 
 export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {
   return depth * 18;
+}
+
+function SidebarDepthGuides({ depth }: { depth: number }) {
+  if (depth <= 0) return null;
+  return (
+    <>
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          key={level}
+          aria-hidden="true"
+          data-sidebar-depth-guide
+          className="pointer-events-none absolute -top-px -bottom-px w-px bg-border"
+          style={{
+            insetInlineStart: `${databaseSidebarRowIndent(level, false) + 14}px`,
+          }}
+        />
+      ))}
+    </>
+  );
 }
 
 export function databaseSidebarItemTree(

@@ -1,29 +1,27 @@
-/**
- * S3-compatible file upload provider.
- *
- * Works with AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO, Backblaze B2,
- * and any other S3-compatible object storage. Uses SigV4 signing via Web Crypto
- * — no SDK dependency.
- *
- * Env vars (S3_* or R2_* prefix, first found wins):
- *   S3_BUCKET | R2_BUCKET                — required
- *   S3_ACCESS_KEY_ID | R2_ACCESS_KEY_ID  — required
- *   S3_SECRET_ACCESS_KEY | R2_SECRET_ACCESS_KEY — required
- *   S3_ENDPOINT | R2_ENDPOINT            — required (e.g. https://s3.us-east-1.amazonaws.com
- *                                           or https://<acct>.r2.cloudflarestorage.com)
- *   S3_REGION | R2_REGION                — optional, default "auto"
- *   S3_PUBLIC_BASE_URL | R2_PUBLIC_BASE_URL — optional (for public read URLs)
- */
-
+import {
+  assertCredentialCanReachEndpoint,
+  type CredentialEndpointOwner,
+} from "@agent-native/core/credentials";
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
-import { resolveSecret } from "@agent-native/core/server";
+import {
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
+} from "@agent-native/core/server";
+
+interface S3Secret {
+  value: string;
+  owner: CredentialEndpointOwner;
+}
 
 interface S3Config {
   region: string;
   bucket: string;
   accessKeyId: string;
+  accessKeyIdOwner: CredentialEndpointOwner;
   secretAccessKey: string;
+  secretAccessKeyOwner: CredentialEndpointOwner;
   endpoint: string;
+  endpointOwner: CredentialEndpointOwner;
   publicBaseUrl: string | null;
 }
 
@@ -33,46 +31,88 @@ function cleanValue(value: string | null | undefined): string | undefined {
 }
 
 function buildS3Config(values: {
-  bucket?: string;
-  accessKeyId?: string;
-  secretAccessKey?: string;
-  endpoint?: string;
+  bucket?: S3Secret;
+  accessKeyId?: S3Secret;
+  secretAccessKey?: S3Secret;
+  endpoint?: S3Secret;
   region?: string;
   publicBaseUrl?: string;
 }): S3Config | null {
-  const bucket = cleanValue(values.bucket);
-  const accessKeyId = cleanValue(values.accessKeyId);
-  const secretAccessKey = cleanValue(values.secretAccessKey);
-  const endpoint = cleanValue(values.endpoint);
+  const bucket = cleanValue(values.bucket?.value);
+  const accessKeyId = cleanValue(values.accessKeyId?.value);
+  const secretAccessKey = cleanValue(values.secretAccessKey?.value);
+  const endpoint = cleanValue(values.endpoint?.value);
   if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) return null;
   return {
     region: cleanValue(values.region) ?? "auto",
     bucket,
     accessKeyId,
+    accessKeyIdOwner: values.accessKeyId!.owner,
     secretAccessKey,
+    secretAccessKeyOwner: values.secretAccessKey!.owner,
     endpoint: endpoint.replace(/\/+$/, ""),
+    endpointOwner: values.endpoint!.owner,
     publicBaseUrl:
       cleanValue(values.publicBaseUrl)?.replace(/\/+$/, "") ?? null,
+  };
+}
+
+function deploymentSecret(
+  value: string | null | undefined,
+): S3Secret | undefined {
+  const cleaned = cleanValue(value);
+  return cleaned
+    ? { value: cleaned, owner: { scope: "deployment" } }
+    : undefined;
+}
+
+function resolvedS3Secret(detail: ResolvedSecretDetail): S3Secret | undefined {
+  const value = cleanValue(detail.value);
+  if (!value) return undefined;
+  return {
+    value,
+    owner: {
+      scope:
+        detail.source === "env" ? "deployment" : (detail.source ?? "unknown"),
+      ...(detail.scopeId ? { scopeId: detail.scopeId } : {}),
+    },
   };
 }
 
 function readS3EnvConfig(): S3Config | null {
   const env = process.env;
   return buildS3Config({
-    bucket: env.S3_BUCKET || env.R2_BUCKET,
-    accessKeyId: env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
-    endpoint: env.S3_ENDPOINT || env.R2_ENDPOINT,
+    bucket: deploymentSecret(env.S3_BUCKET || env.R2_BUCKET),
+    accessKeyId: deploymentSecret(env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID),
+    secretAccessKey: deploymentSecret(
+      env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
+    ),
+    endpoint: deploymentSecret(env.S3_ENDPOINT || env.R2_ENDPOINT),
     region: env.S3_REGION || env.R2_REGION,
     publicBaseUrl: env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL,
   });
 }
 
-async function resolveS3Secret(primary: string, fallback: string) {
-  return (
-    cleanValue(await resolveSecret(primary).catch(() => null)) ??
-    cleanValue(await resolveSecret(fallback).catch(() => null))
-  );
+async function resolveS3Secret(
+  primary: string,
+  fallback: string,
+): Promise<S3Secret | undefined> {
+  let lookupFailure: unknown;
+  for (const key of [primary, fallback]) {
+    try {
+      const resolved = await resolveSecretDetailed(key);
+      const secret = resolvedS3Secret(resolved);
+      if (secret) return secret;
+      if (resolved.lookupFailed) {
+        lookupFailure ??=
+          resolved.cause ?? new Error(`Unable to read configured ${key}`);
+      }
+    } catch (error) {
+      lookupFailure ??= error;
+    }
+  }
+  if (lookupFailure) throw lookupFailure;
+  return undefined;
 }
 
 async function readS3Config(): Promise<S3Config | null> {
@@ -84,15 +124,12 @@ async function readS3Config(): Promise<S3Config | null> {
       "R2_SECRET_ACCESS_KEY",
     ),
     endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveS3Secret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveS3Secret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    region: (await resolveS3Secret("S3_REGION", "R2_REGION"))?.value,
+    publicBaseUrl: (
+      await resolveS3Secret("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL")
+    )?.value,
   });
 }
-
-// ── SigV4 helpers (Web Crypto, no SDK) ────────────────────────────────
 
 async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
   const k = await crypto.subtle.importKey(
@@ -146,6 +183,17 @@ async function putObject(
   body: Uint8Array,
   contentType: string,
 ): Promise<string> {
+  assertCredentialCanReachEndpoint(
+    cfg.endpointOwner,
+    cfg.accessKeyIdOwner,
+    "S3_ACCESS_KEY_ID",
+  );
+  assertCredentialCanReachEndpoint(
+    cfg.endpointOwner,
+    cfg.secretAccessKeyOwner,
+    "S3_SECRET_ACCESS_KEY",
+  );
+
   const now = new Date();
   const amzDate =
     now
@@ -226,8 +274,6 @@ async function putObject(
     ? `${cfg.publicBaseUrl}/${key}`
     : `${cfg.endpoint}/${cfg.bucket}/${key}`;
 }
-
-// ── Provider ──────────────────────────────────────────────────────────
 
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",

@@ -16,7 +16,9 @@ export default defineAction({
     if (!currentWorkflow.items.some((item) => item.id === id)) {
       throw new Error(`Unknown workflow item: ${id}`);
     }
-    await writeAppState("workflow-selection", { selectedId: id });
+    await writeAppState("linkedin-icp-prospect-tracker:workflow-selection", {
+      selectedId: id,
+    });
     return { selectedId: id };
   },
 });

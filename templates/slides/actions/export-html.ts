@@ -11,7 +11,7 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { sanitizeCssValue } from "../app/lib/sanitize-slide-html.js";
 import {
   safeGeneratedFilename,
@@ -29,12 +29,6 @@ import {
   resolveSlideBackground,
 } from "../shared/slide-background.js";
 
-/**
- * Minimal server-side HTML sanitizer for exported slide content.
- * DOMParser is not available in Node/Nitro, so we use a regex pass to strip
- * scripts, event handlers, and dangerous URL schemes before embedding slide
- * HTML into the standalone export file.
- */
 function sanitizeSlideContent(html: string): string {
   return html
     .replace(
@@ -244,25 +238,36 @@ function standaloneDesignSystemVars(
     builderTokenValues,
   );
   const darkBackground = isDarkStandaloneBackground(safeBackground);
+  // Must match SlideRenderer: publishing a token an unlinked deck never chose
+  // overrides the theme baked into its slide HTML.
+  const token = (name: string, value: unknown): string | null => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const resolved = safeCssToken(value, "", builderTokenValues);
+    return resolved ? `${name}: ${resolved}` : null;
+  };
+  const designSystemTokens = designSystem
+    ? [
+        token("--ds-text", colors?.text),
+        token("--ds-text-muted", colors?.textMuted),
+        token("--ds-accent", colors?.accent),
+        token("--ds-primary", colors?.primary),
+        token("--ds-secondary", colors?.secondary),
+        token("--ds-surface", colors?.surface),
+        token("--ds-heading-font", typography?.headingFont),
+        token("--ds-body-font", typography?.bodyFont),
+        token("--ds-radius", borders?.radius),
+      ].filter((entry): entry is string => entry !== null)
+    : [];
+  const needsDarkTextOverride =
+    darkBackground &&
+    (!colors?.text || isDarkStandaloneBackground(colors.text));
   return [
     `--ds-bg: ${safeBackground}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text: ${safeCssToken(colors?.text, darkBackground ? "#FFFFFF" : "#1F2933", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    // guard:allow-raw-color - standalone export dark-background fallback
-    `--ds-text-muted: ${safeCssToken(colors?.textMuted, darkBackground ? "rgba(255, 255, 255, 0.72)" : "#667085", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-accent: ${safeCssToken(colors?.accent, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-primary: ${safeCssToken(colors?.primary, "#2457D6", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-secondary: ${safeCssToken(colors?.secondary, "#C85C3A", builderTokenValues)}`,
-    // guard:allow-raw-color - standalone export fallback palette
-    `--ds-surface: ${safeCssToken(colors?.surface, "#FFFFFF", builderTokenValues)}`,
-    `--ds-heading-font: ${safeCssToken(typography?.headingFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-body-font: ${safeCssToken(typography?.bodyFont, "Inter, sans-serif", builderTokenValues)}`,
-    `--ds-radius: ${safeCssToken(borders?.radius, "14px", builderTokenValues)}`,
+    ...designSystemTokens,
+    ...(needsDarkTextOverride
+      ? // guard:allow-raw-color - readable defaults on explicit dark backgrounds
+        [`--ds-text: #FFFFFF`, `--ds-text-muted: rgba(255, 255, 255, 0.72)`]
+      : []),
     ...Object.entries(builderTokenValues ?? {})
       .filter(
         ([name, value]) =>
@@ -669,13 +674,6 @@ export default defineAction({
     );
     const filename = safeGeneratedFilename(row.title, ".html");
 
-    // Disk write is only useful when the same process can later serve the
-    // file. On serverless (Netlify / Vercel / Lambda), the function filesystem
-    // vanishes between invocations, so `/api/exports/:filename` requests land
-    // on a different container that doesn't have the file — the user sees
-    // "file doesn't exist on site". Skip the disk write entirely on those
-    // hosts; the route handler streams `html` directly. CLI and local-dev
-    // still get a real file path.
     let filePath: string | undefined;
     if (!isServerless()) {
       const exportDir = tenantExportDir(userEmail);

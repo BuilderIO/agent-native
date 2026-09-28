@@ -24,7 +24,7 @@ describe("Analytics layout sidebar route policy", () => {
     );
   });
 
-  it("keeps sidebar navigation compact and separate from its pinned footer", () => {
+  it("keeps sidebar navigation compact and footer gutters aligned", () => {
     const source = readFileSync(
       new URL("./Sidebar.tsx", import.meta.url),
       "utf8",
@@ -37,7 +37,13 @@ describe("Analytics layout sidebar route policy", () => {
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
     expect(source).toContain(
-      'className="mt-3 shrink-0 min-w-0 space-y-0.5 border-t border-border/70 px-2 pt-3"',
+      'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70 pt-3"',
+    );
+    expect(source).not.toContain("bottomItems");
+    expect(source).not.toContain('href: "/settings"');
+    expect(source).toContain('className="space-y-1 px-2"');
+    expect(source).toContain(
+      'className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"',
     );
     expect(source).toContain("<AppSidebarHeader");
     expect(source).toContain("<AppSidebarFooter");
@@ -77,6 +83,26 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).toContain("onVisibilityFilterChange={setAskFilter}");
     expect(source).toContain(
       "threadMatchesVisibilityFilter(thread, visibilityFilter)",
+    );
+  });
+
+  it("renews an active Ask handoff on route entry before the heartbeat interval", () => {
+    const source = readFileSync(
+      new URL("./Layout.tsx", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf("if (!isAskRoute) return;");
+    const end = source.indexOf(
+      "return () => window.clearInterval(interval);",
+      start,
+    );
+    const effectSource = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(effectSource).toContain("const refreshHandoff = () =>");
+    expect(effectSource.indexOf("refreshHandoff();")).toBeLessThan(
+      effectSource.indexOf("window.setInterval("),
     );
   });
 

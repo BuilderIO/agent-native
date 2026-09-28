@@ -46,6 +46,8 @@ export const mcpConnectMessages: McpConnectMessages = {
   revoke: "Revoke",
   couldNotRevoke: "Could not revoke token.",
   authorizeDevice: "Authorize device",
+  fullCatalogRequested:
+    "This device is requesting access to the full action catalog.",
   createToken: "Create connection token",
   authorizingDevice: "Authorizing device...",
   creatingToken: "Creating token...",

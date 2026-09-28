@@ -1,4 +1,12 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
+  agentChat: {
+    setup: {
+      checkingProvider: "Checking AI connection…",
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+    common: { retry: "Retry" },
+  },
   common: {
     cancel: "Cancel",
     create: "Create",
@@ -359,6 +367,9 @@ const messages = {
     downloadForWindows: "Download for Windows",
     downloadForLinux: "Download for Linux",
     downloadDesktopApp: "Download desktop app",
+    commentSignupTitle: "Screen recordings your AI agent can see and hear",
+    commentSignupDescription:
+      "Clips is a free and open-source screen recorder for sharing bugs, feedback, and walkthroughs with AI agents.",
     agentEmptyTitle: "Join the conversation",
     agentEmptyDescription:
       "Create a free Clips account to comment, react, and ask about this clip.",
@@ -495,6 +506,9 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    redactionsPendingTitle: "Finish redactions before sharing",
+    redactionsPendingBody:
+      "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",
     publicDescription:
       "Anyone with the link can view — sign in to comment or react",
     shareRecording: "Share recording",
@@ -550,9 +564,6 @@ const messages = {
     copyEmbedCode: "Copy embed code",
     customizeEmbed: "Customize embed",
     more: "More",
-    redactionsPendingBody:
-      "{{count}} redaction(s) are drawn on this recording but have not been burned into the video, so the file still shows everything under them. Open the editor, burn them in, and sharing comes back.",
-    redactionsPendingTitle: "Finish the redactions first",
   },
   shareUi: {
     owner: "Owner: {{email}}",
@@ -749,6 +760,12 @@ const messages = {
     uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
+    changelogCommentSignup:
+      "The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.",
+    changelogCommentsEmptyState:
+      "The empty comments state now explains how screen recordings help AI agents.",
+    changelogShareLink:
+      'Signed-in viewers who hit an unavailable, expired, or private share link now land in their library instead of the public marketing page when they choose "Go home."',
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
@@ -857,6 +874,50 @@ const messages = {
       "Clips will delete the stored bot token for {{team}} and stop sending playable Slack previews.",
     thisWorkspace: "this workspace",
     slackConnected: "Slack Connected",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "The browser blocked the popup. Allow popups for this site and try again.",
+    recordingsTab: "Recordings",
+    meetingsTab: "Meetings",
+    yourDefaults: "Your defaults",
+    orgDefault: "{{org}} default",
+    playbackSpeed: "Playback speed",
+    playbackSpeedDescription: "Applied when you open a recording.",
+    visibility: "Visibility",
+    visibilityDescription:
+      "Applied to recordings you create. You can change it on any recording.",
+    useOrgDefault: "Use the {{org}} default ({{visibility}})",
+    useDefault: "Use the default ({{visibility}})",
+    transcriptExport: "Transcript export",
+    logoDescription: "Shown in share emails and on public clip pages.",
+    change: "Change",
+    adminsOnly: "Only owners and admins can change this.",
+    brandColorInvalid: "Enter a hex color code.",
+    loadFailed: "Couldn't load these settings.",
+    emailGroup: "Email",
+    calendarGroup: "Calendar",
+    googleCalendar: "Google Calendar",
+    connect: "Connect",
+    reconnect: "Reconnect",
+    connectedAs: "Connected as {{account}}",
+    needsReconnect: "{{account}} needs to be reconnected.",
+    disconnectFailed: "Couldn't disconnect the calendar.",
+    disconnectCalendarDescription:
+      "Clips stops syncing upcoming meetings from {{account}}.",
+    calendarApp: "Google Calendar app",
+    desktopGroup: "Desktop",
+    meetingCapture: "Meeting capture",
+    meetingCaptureDescription:
+      "Notes, auto-start, and notifications are set on each device in Clips Desktop.",
+    openClipsDesktop: "Open Clips Desktop",
+    keySaved: "Saved",
+    keyNotSaved: "Not saved",
+    manage: "Manage",
+    add: "Add",
+    linkPreviews: "Link previews",
+    addWorkspace: "Add workspace",
+    storageAskAdmin: "Ask an owner or admin to set up storage.",
   },
   insightsHub: {
     title: "Insights",
@@ -1344,11 +1405,22 @@ const messages = {
     disconnected: "Microphone disconnected.",
   },
   storageSetup: {
+    builderConnectPopupError:
+      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, allow popups for this site and try again.",
+    builderConnectError:
+      "Couldn't connect Builder.io. Try again or contact support.",
+    checkingBuilderConnection: "Checking Builder connection…",
     builderTimeout:
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     connectBuilder: "Use Builder.io",
+    createBuilderAccount: "Create Builder.io account",
+    signInWithBuilderAccount: "Sign in with Builder.io account",
+    builderConsentPrefix: "By creating a Builder.io account, you agree to our",
+    builderTerms: "Terms of Service",
+    builderConsentAnd: "and",
+    builderPrivacy: "Privacy Policy",
     free: "Free",
     configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",
@@ -1397,11 +1469,6 @@ const messages = {
     styleBlur: "Blur",
     styleSolid: "Solid",
     helpTitle: "Using redaction",
-    /**
-     * First, and on its own: everything else here is about drawing boxes, and
-     * a box on its own hides nothing. Someone who reads only one line of this
-     * help should read this one.
-     */
     helpLead:
       "Nothing is hidden until you press Burn in. Until then the box is only drawn on top, and the video underneath still shows everything.",
     helpDrawTerm: "Cover something",
@@ -1421,18 +1488,8 @@ const messages = {
     helpStylesTerm: "Blur or Solid",
     styleBlurHint:
       "Blur: a smear of colour generated over the area. Nothing of what was underneath is used to make it, so there is nothing in it to recover.",
-    /**
-     * "Can sometimes" is deliberate, and as far as this should go. Pixelation
-     * is a repeatable average, so guesses can be pixelated the same way and
-     * compared — public tools do it. Whether it works on a given clip depends
-     * on the text being short, the rendering reproducible, and the blocks small
-     * against the glyphs; ours are frame width / 40, coarse enough that this is
-     * hard. Nobody can tell which case they are in while drawing a box, and
-     * Solid costs nothing, so the advice is flat.
-     */
     styleSolidHint:
       "Solid: fills the area with one colour. As safe as Blur — neither is built from what it covers — so pick whichever reads better on the clip.",
-    /** The whole judgement, in one line, for someone who does not want it. */
     helpWhenInDoubt: "Either style hides the area completely.",
     goTo: "Go to this redaction",
     remove: "Delete redaction {{number}}",

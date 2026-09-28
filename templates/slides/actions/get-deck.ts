@@ -1,9 +1,17 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  buildDeepLink,
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
+import { parseHTML } from "linkedom/worker";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -28,15 +36,52 @@ import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
 
-async function readDeck(deckId: string) {
-  const access = await resolveAccess("deck", deckId);
-  if (!access) {
-    // 404 rather than 403/500 so HTTP callers can't probe for decks they
-    // can't see, and so the slide preview can tell "missing" from "broken".
-    throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+async function readDeck(
+  deckId: string,
+  reviewPreview = false,
+  reviewOrgId?: string,
+) {
+  let row;
+  if (reviewPreview) {
+    const orgId = getRequestOrgId();
+    if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+      fail("Only organization owners and admins can preview reviewed decks.", {
+        statusCode: 403,
+      });
+    }
+    const isSuperOrg = getAppConfig().observability.superOrgId === orgId;
+    const targetOrgId = isSuperOrg ? reviewOrgId : orgId;
+    if (!targetOrgId) {
+      fail("A customer organization is required for this deck preview.", {
+        statusCode: 400,
+      });
+    }
+    const [scope] = await getDb()
+      .select({
+        ownerEmail: schema.decks.ownerEmail,
+        orgId: schema.decks.orgId,
+      })
+      .from(schema.decks)
+      .where(
+        and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, targetOrgId)),
+      )
+      .limit(1);
+    if (!scope) fail("Deck not found.", { statusCode: 404 });
+    const access = await resolveAccess("deck", deckId, {
+      userEmail: scope.ownerEmail,
+      orgId: targetOrgId,
+    });
+    if (!access || access.resource.orgId !== targetOrgId) {
+      fail("Deck not found.", { statusCode: 404 });
+    }
+    row = access.resource;
+  } else {
+    const access = await resolveAccess("deck", deckId);
+    if (!access) {
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+    }
+    row = access.resource;
   }
-
-  const row = access.resource;
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
@@ -44,7 +89,18 @@ async function readDeck(deckId: string) {
   return { row, data, ...normalized };
 }
 
-async function loadDeckWithUniqueSlideIds(deckId: string) {
+async function loadDeckWithUniqueSlideIds(
+  deckId: string,
+  reviewPreview = false,
+  reviewOrgId?: string,
+) {
+  if (reviewPreview) {
+    return {
+      ...(await readDeck(deckId, true, reviewOrgId)),
+      repaired: false,
+    };
+  }
+
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
@@ -104,6 +160,150 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+function hasVisibleBackgroundClass(html: string): boolean {
+  const { document } = parseHTML(html);
+  const attributeMatches = (
+    type: string,
+    value: string | null | undefined,
+    expected: string,
+  ) =>
+    type.toLowerCase() === "aria"
+      ? value?.toLowerCase() === expected.toLowerCase()
+      : value === expected;
+
+  return Array.from(document.querySelectorAll("*")).some((element) => {
+    const classNames =
+      element.getAttribute("class") ?? element.getAttribute("className") ?? "";
+    return classNames.split(/\s+/).some((className) => {
+      const variants =
+        className.match(
+          /^(?:(?:[\w-]+(?:-\[[^\]]+\])?(?:\/[\w-]+)?|\[[^\]]+\]):)+/,
+        )?.[0] ?? "";
+      const variantNames =
+        variants.slice(0, -1).match(/(?:\[[^\]]*\]|[^:])+/g) ?? [];
+      const hasInactiveState = variantNames.some((variant) => {
+        const selectorVariant = variant.match(/^(has|not)-\[(.+)\]$/i);
+        if (selectorVariant) {
+          const [, mode, selector] = selectorVariant;
+          let matches: boolean;
+          try {
+            matches =
+              mode.toLowerCase() === "has"
+                ? element.matches(`:has(${selector.replaceAll("_", " ")})`)
+                : element.matches(selector.replaceAll("_", " "));
+          } catch {
+            // coercion-ok: invalid variants stay active.
+            return false;
+          }
+          return mode.toLowerCase() === "has" ? !matches : matches;
+        }
+
+        const relatedAttribute = variant.match(
+          /^(group|peer)-(aria|data)-\[([\w-]+)=([^\]]+)\](?:\/([\w-]+))?$/i,
+        );
+        if (relatedAttribute) {
+          const [
+            ,
+            relation,
+            attributeType,
+            attributeName,
+            rawExpected,
+            relationName,
+          ] = relatedAttribute;
+          const attributeNameWithType = `${attributeType}-${attributeName}`;
+          const relationClass = `${relation.toLowerCase()}${relationName ? `/${relationName}` : ""}`;
+          const expected = rawExpected.replace(/^['"]|['"]$/g, "");
+          const matches = (candidate: Element | null | undefined) =>
+            attributeMatches(
+              attributeType,
+              candidate?.getAttribute(attributeNameWithType),
+              expected,
+            );
+          if (relation.toLowerCase() === "group") {
+            for (
+              let ancestor = element.parentElement;
+              ancestor;
+              ancestor = ancestor.parentElement
+            ) {
+              if (
+                ancestor.classList.contains(relationClass) &&
+                matches(ancestor)
+              ) {
+                return false;
+              }
+            }
+            return true;
+          }
+
+          for (
+            let sibling = element.previousElementSibling;
+            sibling;
+            sibling = sibling.previousElementSibling
+          ) {
+            if (sibling.classList.contains(relationClass) && matches(sibling)) {
+              return false;
+            }
+          }
+          return true;
+        }
+
+        // ponytail: dynamic group/peer pseudo states remain unknown; extend related-node checks as needed.
+        if (
+          /^(?:hover|focus(?:-visible|-within)?|active|visited|disabled|enabled|checked|indeterminate|required|optional|valid|invalid|in-range|out-of-range|placeholder-shown|autofill|read-only|read-write|open|modal|fullscreen|target|group-.+|peer-.+|has-.+|not-.+)$/i.test(
+            variant,
+          )
+        ) {
+          return true;
+        }
+
+        const aria = variant.match(/^aria-([\w-]+)$/i);
+        if (aria) {
+          const name = `aria-${aria[1]}`;
+          const expected =
+            aria[1].toLowerCase() === "current" ? "page" : "true";
+          return !attributeMatches(
+            "aria",
+            element.getAttribute(name),
+            expected,
+          );
+        }
+
+        const attribute = variant.match(/^(aria|data)-\[([\w-]+)=([^\]]+)\]$/i);
+        if (attribute) {
+          const name = `${attribute[1]}-${attribute[2]}`;
+          const expected = attribute[3].replace(/^['"]|['"]$/g, "");
+          return !attributeMatches(
+            attribute[1],
+            element.getAttribute(name),
+            expected,
+          );
+        }
+
+        return /^(?:aria|data)-/i.test(variant);
+      });
+      if (hasInactiveState) {
+        return false;
+      }
+      return /^bg-(?!(?:none|transparent)(?:\/|$)|opacity-|clip-|origin-|blend-|repeat(?:-|\/|$)|size-|position-|attachment-|(?:auto|cover|contain|fixed|local|scroll|center|top|bottom|left|right|no-repeat)(?:\/|$))\S+/i.test(
+        className.slice(variants.length),
+      );
+    });
+  });
+}
+
+function isBlankSlideContent(html: string): boolean {
+  if (stripHtml(html)) return false;
+  return !(
+    hasVisibleBackgroundClass(html) ||
+    /<(?:img|svg|video|canvas|table|iframe|object|embed)\b|data-slide-object-id|fmd-img-placeholder/i.test(
+      html,
+    ) ||
+    /(?:background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?|box-shadow)\s*:\s*(?!none\b|transparent\b)/i.test(
+      html,
+    )
+  );
+}
+
 function compactAnimationSummary(value: unknown, content: string) {
   if (!Array.isArray(value)) return null;
   const targetSummaries = summarizeSlideAnimationTargets(content, value);
@@ -152,40 +352,80 @@ function deckDeepLink(deckId: string): string {
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
+    "Read a Slides deck or selected slides. Pass the deck ID as `id` or `deckId` (either name works); pass `slideId` for one targeted read or `slideIds` with compact=false for one full read of several slides, including each slide's HTML and contentHash. Compact summaries include every slide in order and `isBlank` marks slides with no text or visible media; a blank slide still occupies its numbered position and is not missing. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
   timeoutMs: 60_000,
-  schema: z.object({
-    id: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Deck ID. `deckId` is accepted as an alias; pass either one."),
-    deckId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
-      ),
-    slideId: z
-      .string()
-      .optional()
-      .describe(
-        "Optional stable slide ID. When set, return only that slide for a targeted read.",
-      ),
-    compact: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId default to compact output.",
-      ),
-    format: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
-      ),
-  }),
+  schema: z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. `deckId` is accepted as an alias; pass either one.",
+        ),
+      deckId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
+        ),
+      slideId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional stable slide ID. When set, return only that slide for a targeted read.",
+        ),
+      slideIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .optional()
+        .describe(
+          "Optional ordered stable slide IDs. With compact=false, return the full source for only these slides in one read.",
+        ),
+      compact: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId or slideIds default to compact output.",
+        ),
+      format: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
+        ),
+      reviewPreview: z
+        .boolean()
+        .optional()
+        .describe(
+          "Human Review only: read a saved deck for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
+        ),
+      reviewOrgId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("The customer organization shown in this Human Review row."),
+    })
+    .superRefine((args, context) => {
+      if (args.slideId !== undefined && args.slideIds !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "Pass slideId or slideIds, not both",
+        });
+      }
+      if (
+        args.slideIds &&
+        new Set(args.slideIds).size !== args.slideIds.length
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "slideIds must not contain duplicates",
+        });
+      }
+    }),
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,
@@ -205,7 +445,11 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(deckId);
+    const { row, data, slides } = await loadDeckWithUniqueSlideIds(
+      deckId,
+      args.reviewPreview,
+      args.reviewOrgId,
+    );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -221,16 +465,34 @@ export default defineAction({
 
     const selectedSlide =
       selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
+    const slideIndexesById = new Map(
+      slides.map((slide: any, index: number) => [slide?.id, index] as const),
+    );
+    const selectedSlideIndices = (args.slideIds ?? []).map((slideId) => {
+      const index = slideIndexesById.get(slideId);
+      if (index === undefined) {
+        throw Object.assign(new Error(`Slide not found: ${slideId}`), {
+          statusCode: 404,
+        });
+      }
+      return index;
+    });
     const slideEntries: Array<{ slide: any; index: number }> =
       selectedSlideIndex >= 0
         ? [{ slide: selectedSlide, index: selectedSlideIndex }]
-        : slides.map((slide: any, index: number) => ({ slide, index }));
+        : selectedSlideIndices.length > 0
+          ? selectedSlideIndices.map((index) => ({
+              slide: slides[index],
+              index,
+            }))
+          : slides.map((slide: any, index: number) => ({ slide, index }));
 
     const compact =
       args.compact === "true" ||
       (args.compact === undefined &&
         ctx?.caller === "tool" &&
-        selectedSlideIndex < 0);
+        selectedSlideIndex < 0 &&
+        selectedSlideIndices.length === 0);
     const sourceImport = sourceImportForDeck(data?.sourceImport);
     const sourceCoverage = sourceImportCoverage(
       sourceImport,
@@ -274,12 +536,16 @@ export default defineAction({
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
         ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+        ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
         slides: slideEntries.map(({ slide: s, index: i }) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
           transition: s.transition ?? null,
+          isBlank: isBlankSlideContent(
+            typeof s.content === "string" ? s.content : "",
+          ),
           animations: compactAnimationSummary(
             s.animations,
             typeof s.content === "string" ? s.content : "",
@@ -329,6 +595,7 @@ export default defineAction({
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
       ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+      ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
       slides: fullSlides,
     };
   },

@@ -25,6 +25,7 @@ import type {
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
+import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
 import { updateElementContentInHtml } from "@/pages/design-editor/text-edit-utils";
 import type {
@@ -63,9 +64,6 @@ export interface ScreenTextContentChangeArgs {
   canEditDesign: boolean;
   canEditLiveScreen?: (screenId: string) => boolean;
   designSourceType: "inline" | "localhost" | "fusion";
-  /** Decides whether this write is the creation's first commit BEFORE the
-   *  content is applied, and hands back a `confirm` the caller runs only once
-   *  that publication is accepted. */
   prepareTextCreationFinalization: (
     fileId: string,
     nodeIds: readonly (string | null | undefined)[],
@@ -81,6 +79,7 @@ export interface ScreenTextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -95,6 +94,7 @@ export interface ScreenTextContentChangeArgs {
       originalValue?: string;
       originalHtml?: string;
       routePath?: string;
+      relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     },
   ) => void;
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
@@ -140,6 +140,8 @@ export function runScreenTextContentChange(
     html?: string;
     originalValue?: string;
     originalHtml?: string;
+    routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ): TextCommitStatus {
   const overviewScreen = overviewScreens.find(
@@ -162,8 +164,6 @@ export function runScreenTextContentChange(
     setActiveFileId(screenId);
     setActiveTool("move");
     setMode("edit");
-    // Queued against the running app: the edit is accepted, it simply lands
-    // through the live bridge rather than a source write.
     return "accepted";
   }
   const liveSnapshot = liveScreenSnapshotsById[screenId];
@@ -174,7 +174,12 @@ export function runScreenTextContentChange(
   const projection = buildCodeLayerProjection(baseContent, { source });
   const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
   const targetNode = targetInfo
-    ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+    ? (resolveCodeLayerNodeFromElementInfo(projection, targetInfo) ??
+      (elementInfo?.sourceLayerIdentity?.screenId === screenId
+        ? (projection.nodes.find(
+            (node) => node.id === elementInfo.sourceLayerIdentity?.nodeId,
+          ) ?? null)
+        : null))
     : resolveCodeLayerNodeFromBridge(projection, selector);
   if (
     screenSourceType === "inline" &&
@@ -240,10 +245,6 @@ export function runScreenTextContentChange(
         ),
       )
     : null;
-  // Mirrors handleTextContentChange's namedContent computation (Figma names
-  // a freshly typed text layer after its own content) so a board — or any
-  // other inactive-screen — text creation is named from its content exactly
-  // like an active-screen one, instead of staying "Text" forever.
   const namedContent = layerNamingNode
     ? (setCodeLayerAttributeInHtml(
         nextContent,
@@ -266,9 +267,6 @@ export function runScreenTextContentChange(
     : nextContent;
   let publication: ApplyFileContentUpdateResult | null = null;
   if (liveSnapshot) {
-    // A snapshot that vanished, or an integrity check that rejected this edit,
-    // leaves the source unchanged — consuming the creation's pending history
-    // here would spend it on a write that never happened.
     if (
       !updateLiveScreenSnapshotContent(screenId, contentToApply, {
         recordHistory: !finalizedCreation.historyHandled,
@@ -281,15 +279,10 @@ export function runScreenTextContentChange(
       skipPreview: true,
       recordHistory: !finalizedCreation.historyHandled,
     });
-    // A refused publication never wrote this text. Finalizing before it landed
-    // consumed the creation's pending history and left the typed text nowhere:
-    // keep the record so the retry still coalesces into one undo step.
     if (publication.status !== "accepted") return "refused";
   }
   finalizedCreation.confirm();
   setActiveFileId(screenId);
-  // T8: see the matching note in handleTextContentChange — commit
-  // should hand back to the move tool, not re-arm text.
   setActiveTool("move");
   setMode("edit");
   if (removedContent) {

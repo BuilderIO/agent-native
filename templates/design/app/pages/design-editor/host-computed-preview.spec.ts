@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// These compute on the host and never patch the live iframe, so they cannot
-// satisfy what `skipPreview` promises.
 const HOST_COMPUTED_COMMANDS = [
   "add-auto-layout",
   "change-selected-z-index",

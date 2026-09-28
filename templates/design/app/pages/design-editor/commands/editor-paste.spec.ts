@@ -142,6 +142,20 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("inserts SVG code copied as text instead of dropping the paste", async () => {
+    const h = harness();
+    const handlePastedSvg = vi.fn(() => true);
+    h.args.handlePastedSvg = handlePastedSvg;
+    const svg = '<svg viewBox="0 0 24 24"><path d="M0 0H1"/></svg>';
+    const event = pasteEvent({ "text/plain": `\n${svg}\n` });
+
+    runEditorPaste(h.args, event);
+
+    expect(handlePastedSvg).toHaveBeenCalledWith(`\n${svg}\n`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(h.pasted).toBe(0);
+  });
+
   it("routes video files to the immediate media insertion path", () => {
     const file = new File(["video"], "pasted.mp4", { type: "video/mp4" });
     const handlePastedFiles = vi.fn();

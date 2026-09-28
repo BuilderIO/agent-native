@@ -401,13 +401,6 @@ describe("CommentsPanel reply composer", () => {
   });
 
   it("keeps inline comments scrollable with the composer available, at every width", () => {
-    // Both recording routes render CommentsPanel with presentation="inline"
-    // inside the shared RecordingSidePanel rail, which is a fixed
-    // h-[min(420px,55dvh)] overflow-hidden box below the lg breakpoint too
-    // (not just at lg). Gating the scroll container behind lg: left that
-    // box with no way to scroll on mobile - content past 420px was just
-    // clipped. The scroll classes must apply unconditionally, matching the
-    // sibling transcript tab and the (dead) "default" preset.
     renderPanel("viewer@example.com", [rootComment], "inline");
 
     const panel = container.firstElementChild as HTMLElement | null;

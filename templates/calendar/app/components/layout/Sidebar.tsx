@@ -1,13 +1,15 @@
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
+import {
+  buildSettingsRoute,
+  openCommandMenu,
+} from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   AppSidebar,
   AppSidebarNavItem,
   FeedbackButton,
-  type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
 import type { GoogleCalendarSource, OverlayPerson } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
@@ -101,10 +103,6 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-];
-
-const bottomNavItems = [
-  { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
 interface SidebarProps {
@@ -209,7 +207,6 @@ function MiniCalendar({
   const { data: settings } = useSettings();
   const weekStartsOn = getWeekStartsOn(settings?.weekStart);
 
-  // Sync viewMonth when selectedDate changes without undoing explicit month navigation.
   useEffect(() => {
     setViewMonth((currentMonth) =>
       isSameMonth(currentMonth, selectedDate)
@@ -378,7 +375,6 @@ function GoogleConnectSidebarButton() {
   );
 }
 
-/** A conic-gradient dot indicating "multiple colors" (by-type mode). */
 function MultiColorDot({ className }: { className?: string }) {
   const colors = Object.values(EVENT_CATEGORY_COLORS).slice(0, 4);
   const pct = 100 / colors.length;
@@ -394,7 +390,6 @@ function MultiColorDot({ className }: { className?: string }) {
   );
 }
 
-/** Popover color picker for a single-color selection */
 function ColorPickerPopover({
   color,
   onColorChange,
@@ -623,7 +618,7 @@ function GoogleCalendarsSections({ onClose }: { onClose: () => void }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
-                to="/settings"
+                to={buildSettingsRoute("app", "calendars")}
                 onClick={onClose}
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
@@ -745,12 +740,6 @@ export function Sidebar({
     if (!item.google) return personVisible;
     const explicitGoogleVisible =
       googleCalendarVisibility[item.google.canonicalKey];
-    // Google's own "selected" default is about which calendars Google shows
-    // in its own UI, not whether this person's overlay events should show
-    // here. For a merged row, a peer the owner deliberately added must not
-    // default to hidden just because that default hasn't been overridden —
-    // only an explicit toggle (present in `googleCalendarVisibility`) should
-    // hide it.
     const googleVisible =
       explicitGoogleVisible ??
       (item.person ? true : item.google.primary || item.google.selected);
@@ -809,8 +798,8 @@ export function Sidebar({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground"
+          size="icon-sm"
+          className="shrink-0 text-muted-foreground"
           onClick={openCommandMenu}
           aria-label={t("root.commandSearch")}
         >
@@ -820,16 +809,6 @@ export function Sidebar({
       <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
-    (item) => ({
-      to: item.path,
-      label: t(item.labelKey),
-      icon: item.icon,
-      active: location.pathname.startsWith(item.path),
-      onClick: onClose,
-    }),
-  );
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -854,7 +833,6 @@ export function Sidebar({
         brandName={t("navigation.brand")}
         appId="calendar"
         brandHref="/home"
-        secondaryItems={secondaryItems}
         feedback={feedbackButton}
         orgSwitcher={orgSwitcher}
         footerExtras={
@@ -865,7 +843,6 @@ export function Sidebar({
         }
         className={cn(
           "calendar-app-sidebar",
-          // Match calendar's lg mobile breakpoint (shared sidebar defaults to md).
           "max-lg:!fixed max-lg:inset-y-0 max-lg:start-0 max-lg:z-50 lg:!static",
           open
             ? "translate-x-0"

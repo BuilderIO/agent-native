@@ -1,21 +1,3 @@
-/**
- * The byte and codec primitives the `.fig` decoder needs, on `Uint8Array` and
- * nothing else.
- *
- * The decoder used `Buffer`, `node:zlib` and `node:crypto`, which pinned it to
- * the server — so a `.fig` had to be uploaded before it could be read, and
- * Netlify caps a function request at ~6 MB while a real file runs to tens of
- * megabytes. Decoding in the browser removes that hop entirely, and keeping
- * these helpers isomorphic means the SAME decoder still runs under Node for the
- * API path and for the fidelity harness that measures it.
- *
- * `fflate` and `@noble/hashes` were chosen because both are synchronous: the
- * decoder is a synchronous tree walk, and the Web Crypto and DecompressionStream
- * equivalents are async, which would have made every caller async for no gain.
- * Both were verified byte-identical to `zlib.inflateRawSync`,
- * `zlib.inflateSync` and `crypto.createHash("sha1")`.
- */
-
 import { sha1 as nobleSha1 } from "@noble/hashes/legacy.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { Inflate } from "fflate";
@@ -103,13 +85,6 @@ export function indexOfBytes(
   return -1;
 }
 
-/**
- * Inflate with a hard output ceiling, streaming so the ceiling is enforced
- * BEFORE the memory is allocated. `fflate`'s one-shot form grows past a
- * pre-sized output buffer instead of refusing, which would let a crafted `.fig`
- * allocate gigabytes before any check could see it — the same reason the
- * Zstandard path is streamed.
- */
 export function inflateCapped(
   bytes: Uint8Array,
   maxBytes: number,
@@ -124,13 +99,10 @@ export function inflateCapped(
     }
     parts.push(chunk);
   });
-  // A zlib stream is a 2-byte header, the raw deflate body and a checksum;
-  // fflate's Inflate reads raw deflate, so skip the header for the framed form.
   stream.push(raw ? bytes : bytes.subarray(2), true);
   return concatBytes(parts, total);
 }
 
-/** Byte length of `TextEncoder().encode(text)`, without encoding a copy. */
 export function utf8ByteLength(text: string): number {
   let bytes = text.length;
   for (let i = 0; i < text.length; i++) {
@@ -140,8 +112,6 @@ export function utf8ByteLength(text: string): number {
       bytes += 1;
       continue;
     }
-    // A surrogate pair is 2 UTF-16 units and 4 bytes; any other unit,
-    // including a lone surrogate (encoded as U+FFFD), is 3 bytes.
     bytes += 2;
     if (code >= 0xd800 && code <= 0xdbff) {
       const next = text.charCodeAt(i + 1);
@@ -151,11 +121,6 @@ export function utf8ByteLength(text: string): number {
   return bytes;
 }
 
-/**
- * Base64 without `Buffer`. Chunked because `String.fromCharCode(...bytes)`
- * blows the argument limit on anything megabyte-sized, which every embedded
- * `.fig` image is.
- */
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const CHUNK = 0x8000;

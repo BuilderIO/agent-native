@@ -78,12 +78,6 @@
   font: inherit;
 }
 
-/*
- * AgentKit owns the complete visual contract for the shared composer
- * primitives it renders internally. Keep this stylesheet independent from the
- * Toolkit Tailwind source-registration stylesheet: AgentKit must remain valid
- * CSS in hosts that do not use Tailwind.
- */
 .agentkit-composer-stack [data-agent-composer-slot="area"] {
   position: relative;
   z-index: 1;
@@ -231,7 +225,6 @@
   flex: none;
 }
 
-/* Recessed queued work grows from behind the composer as one workflow. */
 .agentkit-composer-stack
   [data-agent-message-queue="true"][data-agent-message-queue-variant="recessed"] {
   position: relative;
@@ -407,8 +400,6 @@
   color: var(--agentkit-text);
 }
 
-/* The slash and mention palette is portaled to body, so it resolves host
- * tokens directly instead of relying on inheritance from .agentkit-chat. */
 [data-agent-native-composer-popover="true"] {
   --agentkit-palette-surface: var(
     --agent-kit-popover-surface,
@@ -502,6 +493,26 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   > div
   > div:not(:has([data-mention-index])) {
   color: var(--agentkit-palette-muted);
+}
+
+.agentkit-chat {
+  position: relative;
+}
+
+.agentkit-file-drop-overlay {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  border: 2px dashed var(--agentkit-accent);
+  border-radius: var(--agentkit-radius);
+  color: var(--agentkit-text);
+  background: color-mix(in srgb, var(--agentkit-canvas) 88%, transparent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  pointer-events: none;
 }
 
 .agentkit-chat[data-empty="true"] {
@@ -612,6 +623,36 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   padding: 1.5rem 1rem;
 }
 
+.agentkit-scroll-to-bottom-control {
+  position: sticky;
+  z-index: 2;
+  inset-block-end: 0.75rem;
+  display: flex;
+  block-size: 0;
+  justify-content: center;
+  margin-block-start: -2.25rem;
+  pointer-events: none;
+}
+
+.agentkit-scroll-to-bottom-control > * {
+  pointer-events: auto;
+  border: 1px solid var(--agentkit-border);
+  border-radius: 999px;
+  color: var(--agentkit-text);
+  background: var(--agentkit-surface);
+  box-shadow: 0 2px 8px
+    color-mix(in srgb, var(--agentkit-text) 14%, transparent);
+}
+
+.agentkit-visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .agentkit-message {
   display: flex;
   flex-direction: column;
@@ -652,6 +693,108 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 .agentkit-message-content p[data-format="plain"] {
   font-weight: inherit;
   font-style: normal;
+}
+
+.agentkit-user-message-text-content {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agentkit-user-message-text-clip[data-clamped="true"] {
+  position: relative;
+  max-block-size: 200px;
+  overflow: hidden;
+}
+
+.agentkit-user-message-text-clip[data-clamped="true"]::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: 3rem;
+  background: linear-gradient(to bottom, transparent, var(--agentkit-subtle));
+  content: "";
+  pointer-events: none;
+}
+
+.agentkit-mention {
+  display: inline-flex;
+  max-inline-size: 200px;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline: 0.125rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--agentkit-radius-inner);
+  color: var(--agentkit-text);
+  background: color-mix(in srgb, var(--agentkit-subtle) 75%, transparent);
+  font-size: 0.75rem;
+  font-weight: 550;
+  vertical-align: middle;
+  user-select: text;
+}
+
+.agentkit-mention-icon {
+  flex: none;
+  color: var(--agentkit-text-muted);
+}
+
+.agentkit-mention-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentkit-message-expand {
+  position: relative;
+  z-index: 1;
+  margin-block-start: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  border: 0;
+  border-radius: var(--agentkit-radius-inner);
+  color: var(--agentkit-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.6875rem;
+  cursor: pointer;
+}
+
+.agentkit-message-expand:hover {
+  color: var(--agentkit-text);
+}
+
+.agentkit-image-attachment-trigger {
+  display: block;
+  inline-size: 4rem;
+  block-size: 4rem;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--agentkit-radius-inner);
+  background: var(--agentkit-canvas);
+  cursor: zoom-in;
+}
+
+.agentkit-image-attachment-trigger img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.agentkit-image-preview {
+  display: flex;
+  min-block-size: min(70vh, 35rem);
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: var(--agentkit-canvas);
+}
+
+.agentkit-image-preview img {
+  max-inline-size: 92vw;
+  max-block-size: 90vh;
+  border-radius: var(--agentkit-radius);
+  object-fit: contain;
 }
 
 .agentkit-markdown {
@@ -759,71 +902,33 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-message-actions {
   display: flex;
+  inline-size: 100%;
   min-block-size: 1.5rem;
   align-items: center;
-  gap: 0.125rem;
+  justify-content: space-between;
+  gap: 0.25rem;
+  flex-wrap: wrap;
   margin-block-start: 0.25rem;
   color: var(--agentkit-text-muted);
   opacity: 0;
   transition: opacity 140ms ease;
 }
 
+.agentkit-message-actions-leading,
+.agentkit-message-actions-trailing {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.agentkit-message-actions-trailing {
+  margin-inline-start: auto;
+}
+
 .agentkit-message:hover .agentkit-message-actions,
 .agentkit-message:focus-within .agentkit-message-actions {
   opacity: 1;
-}
-
-.agentkit-message-actions[data-action-mode="expanded"] {
-  opacity: 1;
-}
-
-.agentkit-message-action-swap {
-  display: grid;
-  min-inline-size: max-content;
-  grid-template-areas: "actions";
-  overflow: hidden;
-}
-
-.agentkit-message-action-group {
-  grid-area: actions;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.125rem;
-  transition:
-    opacity 180ms ease,
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s linear 180ms;
-}
-
-.agentkit-message-action-group--default {
-  opacity: 1;
-  transform: translateX(0);
-  visibility: visible;
-}
-
-.agentkit-message-action-group--request-id {
-  opacity: 0;
-  transform: translateX(0.4rem);
-  pointer-events: none;
-  visibility: hidden;
-}
-
-.agentkit-message-actions[data-action-mode="expanded"]
-  .agentkit-message-action-group--default {
-  opacity: 0;
-  transform: translateX(-0.4rem);
-  pointer-events: none;
-  visibility: hidden;
-}
-
-.agentkit-message-actions[data-action-mode="expanded"]
-  .agentkit-message-action-group--request-id {
-  opacity: 1;
-  transform: translateX(0);
-  pointer-events: auto;
-  visibility: visible;
-  transition-delay: 0s;
 }
 
 .agentkit-message-actions button {
@@ -884,6 +989,44 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
 
 .agentkit-message-actions time {
   margin-inline-start: 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.agentkit-branch-navigation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: 0.375rem;
+  font-size: 0.6875rem;
+}
+
+.agentkit-feedback-popover {
+  z-index: 20;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid var(--agentkit-border);
+  border-radius: var(--agentkit-radius-inner);
+  color: var(--agentkit-text);
+  background: var(--agentkit-surface);
+  box-shadow: 0 8px 24px
+    color-mix(in srgb, var(--agentkit-text) 16%, transparent);
+}
+
+.agentkit-feedback-form {
+  display: grid;
+  gap: 0.625rem;
+}
+
+.agentkit-feedback-textarea {
+  inline-size: 100%;
+}
+
+.agentkit-feedback-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--agentkit-text-muted);
   font-size: 0.6875rem;
 }
 
@@ -1351,6 +1494,13 @@ button.agentkit-object {
   text-decoration: none;
 }
 
+.agentkit-file--pasted-text {
+  border: 1px solid var(--agentkit-border);
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .agentkit-annotations {
   display: flex;
   flex-wrap: wrap;
@@ -1537,7 +1687,6 @@ button.agentkit-object {
   }
 
   .agentkit-message-actions,
-  .agentkit-message-action-group,
   .agentkit-summary-chevron,
   .agentkit-disclosure-icon,
   .agentkit-reasoning-chevron,

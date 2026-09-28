@@ -52,10 +52,6 @@ function buildArgs(
       return { status: "accepted", ...publication };
     },
     canEditDesign: true,
-    // Mirrors prepareTextCreationFinalization's own contract: only this exact
-    // node's creation commit names the layer. historyHandled is deliberately
-    // false — an unrelated write can leave the undo stack stale without making
-    // this any less the creation's first commit, and the name must still land.
     prepareTextCreationFinalization: (_fileId, nodeIds) => ({
       isCreationCommit:
         isPendingCreation && nodeIds.some((id) => id === nodeId),
@@ -78,9 +74,6 @@ function buildArgs(
 
 describe("runTextContentChange default text-layer naming", () => {
   it("names a freshly created text layer after its typed content", () => {
-    // The draft primitive is committed with an empty draft and the "Text"
-    // placeholder name (primitiveLayerName's text case), exactly as
-    // appendCanvasPrimitiveToHtml stamps it at creation.
     const content = `<body><div data-agent-native-node-id="t1" data-agent-native-layer-name="Text"></div></body>`;
     const { args, nodeId, getContent } = buildArgs(content, true);
 
@@ -111,6 +104,56 @@ describe("runTextContentChange default text-layer naming", () => {
 });
 
 describe("runTextContentChange selected live element", () => {
+  it("uses the source-layer identity when the bridge selector no longer resolves", () => {
+    const content = `<body><div data-agent-native-node-id="t1">Before</div><div data-agent-native-node-id="t2">Other</div></body>`;
+    const { args, nodeId, getContent } = buildArgs(content, false);
+    const selectedElement: { current: ElementInfo | null } = { current: null };
+    const sourceIdentityInfo: ElementInfo = {
+      tagName: "span",
+      sourceId: "stale-runtime-id",
+      selector: `[data-agent-native-node-id="missing"]`,
+      sourceLayerIdentity: { screenId: "index.html", nodeId },
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 24 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+
+    expect(
+      runTextContentChange(
+        {
+          ...args,
+          setSelectedElement: (update) => {
+            selectedElement.current =
+              typeof update === "function"
+                ? update(selectedElement.current)
+                : update;
+          },
+        },
+        sourceIdentityInfo.selector!,
+        "After",
+        sourceIdentityInfo,
+      ),
+    ).toBe("accepted");
+
+    const projection = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    });
+    expect(
+      projection.nodes.find((node) => node.id === nodeId)?.textSnippet,
+    ).toContain("After");
+    expect(
+      projection.nodes.find(
+        (node) => node.dataAttributes["data-agent-native-node-id"] === "t2",
+      )?.textSnippet,
+    ).toContain("Other");
+    expect(selectedElement.current?.sourceLayerIdentity).toEqual({
+      screenId: "index.html",
+      nodeId,
+    });
+  });
+
   it("retains the host layer identity and mixed style snapshot after the source commit", () => {
     const content = `<body><div data-agent-native-node-id="t1">Before</div></body>`;
     const { args, getContent } = buildArgs(content, false);
@@ -179,7 +222,6 @@ describe("runTextContentChange rejected live-snapshot write", () => {
       liveScreenSnapshotsById: {
         "index.html": { html: content } as never,
       },
-      // The snapshot vanished, or integrity validation refused this edit.
       updateLiveScreenSnapshotContent: () => false,
       prepareTextCreationFinalization: () => ({
         isCreationCommit: true,
@@ -194,7 +236,6 @@ describe("runTextContentChange rejected live-snapshot write", () => {
       "Standalone",
     );
 
-    // The source is unchanged, so the creation still owns its pending history.
     expect(confirm).not.toHaveBeenCalled();
   });
 });

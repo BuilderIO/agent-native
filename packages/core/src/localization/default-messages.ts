@@ -1,12 +1,9 @@
-// Canonical English catalog used by core UI for translation fallbacks.
-// Lives under src/ so tsc emits it to dist/*.js and Node's strict ESM resolver
-// can load it during SSR. Do not import core runtime code from src/templates:
-// templates ship as verbatim copy-only scaffolding (.ts), so their compiled
-// .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
+import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
+  iconPicker: ICON_PICKER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
@@ -14,6 +11,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Connect Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -32,6 +30,9 @@ const messages = {
     confirmDisconnect: "Confirm disconnect",
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
+  },
+  routeTitles: {
+    agentObservability: "Agent observability navigation",
   },
   onboarding: {
     back: "Back",
@@ -56,10 +57,11 @@ const messages = {
       "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
     openBackgroundAgentSettings: "Open Background Agent settings",
     fileStorage: {
-      title: "Choose file storage",
+      title: "Connect storage to upload files",
       description:
-        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-      custom: "Use custom storage keys",
+        "Connect Builder.io (free) or configure your own S3-compatible object storage.",
+      reconnectBuilder: "Reconnect Builder.io",
+      custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -212,6 +214,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",
@@ -638,6 +645,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -662,6 +672,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -706,6 +717,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
     chatgptSubscriptionPopupBlocked:
       "Allow pop-ups for this site, then try again.",
     chatgptSubscriptionTitle: "ChatGPT subscription",
@@ -942,6 +955,8 @@ const messages = {
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
+    deleting: "Deleting…",
+    running: "Running…",
     updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
@@ -1013,6 +1028,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -1230,12 +1247,27 @@ const messages = {
     yourOrganization: "Your organization",
     joinYourTeam: "Join your team",
     openToDomainEmails: "Open to @{{domain}} emails",
+    enableDomainJoin: "Enable for @{{domain}}",
     joinOrg: "Join {{name}}",
     pendingInvitations: "Pending invitations",
     invitedBy: "from {{name}}",
     accept: "Accept",
     createSeparate: "or create a separate organization",
     organizationName: "Organization name",
+    workspaceIcon: "Workspace icon",
+    icons: "Icons",
+    emoji: "Emoji",
+    upload: "Upload",
+    searchIcons: "Search icons",
+    noIconsFound: "No icons found",
+    recentIcons: "Recent icons",
+    iconColors: "Colors",
+    defaultColor: "Default",
+    removeIcon: "Remove icon",
+    uploadIcon: "Upload icon",
+    uploadingIcon: "Uploading…",
+    workspaceIconSyncPending:
+      "Saved here. Other apps may take longer to update.",
     organizationPlaceholder: "Acme Inc.",
     createOrganization: "Create organization",
     create: "Create",
@@ -1430,7 +1462,12 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect",
+    connecting: "Connecting…",
     useApiToken: "Use API token",
+    customOAuthDefault: "Sign in with OAuth",
+    customHeadersMode: "Use an API key",
+    useApiKeyInstead: "Use an API key instead",
+    useOAuthInstead: "Use OAuth instead",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
       "Connect {{name}} with an API token to use it in chat",
@@ -1487,6 +1524,7 @@ const messages = {
     openSetupDocs: "Open setup docs",
     viewSetup: "Open setup guide",
     test: "Test",
+    testing: "Testing…",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
@@ -1750,6 +1788,19 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    input: "Input",
+    output: "Output",
+    error: "Error",
+    metadata: "Metadata",
+    notCaptured: "Not captured",
+    openFullConversation: "Open full conversation",
+    learnAboutTab: "Learn about this tab",
+    promoteToEval: "Promote to eval",
+    promotingToEval: "Promoting…",
+    promotedEval: "Eval dataset {{id}}",
+    promotedEvalHint:
+      "agent-native eval promote {{runId}} --write evals/from-trace.eval.ts",
+    promoteEvalFailed: "Could not promote this run",
     spans: "Spans",
     type: "Type",
     name: "Name",
@@ -1785,6 +1836,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
     reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
     closePreview: "Hide preview",
     addFeedback: "Add feedback",
     draftInstruction: "Draft instruction",
@@ -1807,6 +1859,23 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
+    regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
+    searchReviews: "Search prompts, outcomes, people, or artifacts",
+    allArtifactTypes: "All types",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
+    readOnlyTenant: "Cross-organization review is read-only.",
+    showReviewDetails: "Show review details",
+    hideReviewDetails: "Hide review details",
   },
   error: {
     genericTitle: "Something went wrong",

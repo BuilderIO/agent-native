@@ -200,9 +200,6 @@ export default function AutomationsRoute() {
       : null
     : null;
 
-  // URL-backed selection (mirrors dreams.tsx's `?dreamId=`): the currently
-  // open automation lives in `automationId` so it survives reload, Back, and
-  // sharing a link, instead of vanishing local state.
   const selectedAutomationId = searchParams.get("automationId");
   const detailsTarget = selectedAutomationId
     ? (filtered.find(
@@ -211,9 +208,6 @@ export default function AutomationsRoute() {
     : null;
 
   function selectAutomation(item: DispatchAutomationItem) {
-    // Push, don't replace: each row click is an explicit selection the user
-    // should be able to Back out of one step at a time, not a URL
-    // canonicalization that should collapse into the current entry.
     const next = new URLSearchParams(searchParams);
     next.set("automationId", automationIdentity(item));
     setSearchParams(next);
@@ -234,11 +228,12 @@ export default function AutomationsRoute() {
                 className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
               <Input
+                size="sm"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search automations"
                 aria-label="Search automations"
-                className="h-8 pl-8 text-xs"
+                className="pl-8 text-xs"
               />
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -257,7 +252,8 @@ export default function AutomationsRoute() {
               }}
             >
               <SelectTrigger
-                className="h-8 w-[10.5rem] text-xs"
+                size="sm"
+                className="w-[10.5rem] text-xs"
                 aria-label="Automation view"
               >
                 <SelectValue />

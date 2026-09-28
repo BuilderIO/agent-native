@@ -25,12 +25,6 @@ export async function getNotionDocumentOwner(documentId: string) {
   return owner;
 }
 
-/**
- * Flush the live collaborative editor before a user-triggered Notion operation
- * reads or replaces SQL content. The Y.Doc can be ahead of the debounced
- * documents row; without this handshake "Use local" can push a stale snapshot,
- * while "Use Notion" can discard edits that never reached version history.
- */
 export async function flushNotionDocumentEditor(
   documentId: string,
   ownerEmail: string,

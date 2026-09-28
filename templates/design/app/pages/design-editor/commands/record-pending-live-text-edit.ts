@@ -13,6 +13,7 @@ import type {
   PendingLiveNonStyleUndoEntry,
   PendingLiveStructureUndoEntry,
   PendingLiveTextEdit,
+  PendingRelativeStyleOperation,
   PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 import {
@@ -84,6 +85,7 @@ export function runRecordPendingLiveTextEdit(
     originalValue?: string;
     originalHtml?: string;
     routePath?: string;
+    relativeOperations?: Record<string, PendingRelativeStyleOperation>;
   },
 ) {
   if (!canEditDesign && !canEditLiveScreens?.has(screenId)) return;
@@ -137,6 +139,9 @@ export function runRecordPendingLiveTextEdit(
     classes: elementInfo?.classes ?? [],
     value,
     html: details?.html,
+    ...(details?.relativeOperations
+      ? { relativeOperations: details.relativeOperations }
+      : {}),
     originalValue,
     originalHtml,
     updatedAt: nextPendingLiveEditTimestamp(),
@@ -145,9 +150,6 @@ export function runRecordPendingLiveTextEdit(
     pendingLiveNonStyleEditsRef.current,
     nextEdit,
   );
-  // Document undo stays at MAX_DESIGN_UNDO_STACK (50). Pending-live edits
-  // stay painted until Apply, so sharing that cap silently drops them from
-  // the Apply payload. Consecutive keystrokes on the same node coalesce.
   const previousUndoLength = pendingLiveNonStyleUndoStackRef.current.length;
   appendPendingLiveNonStyleUndoEntry(
     pendingLiveNonStyleUndoStackRef.current,

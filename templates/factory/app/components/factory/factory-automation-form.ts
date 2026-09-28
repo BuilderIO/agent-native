@@ -164,10 +164,6 @@ export function isDestinationFilled(
   return false;
 }
 
-/**
- * List rows store unused destinations as `null`. The save schema is an optional
- * string, so `null` fails validation. Empty string stays empty (explicit clear).
- */
 export function omitNullDestination(
   value: string | null | undefined,
 ): string | undefined {
@@ -209,9 +205,6 @@ export function applyAutomationSnapshotToDraft<
   const { config } = snapshot;
   return {
     ...current,
-    // `?? ""`, not `?? current.displayName ?? ""`: a null displayName on the
-    // snapshot means it had no name, and the draft must clear the field
-    // rather than silently keeping whatever is currently in it.
     displayName: snapshot.displayName ?? "",
     prompt: snapshot.userPrompt,
     source: config.source,
@@ -283,11 +276,6 @@ export type AutomationEditorSnapshot = {
   pastRuns?: unknown;
 };
 
-/**
- * Only fields the server round-trips through `list-factory-automations`. A
- * client-only field here would never match the saved row, so the editor would
- * look permanently unsaved and stop accepting server updates.
- */
 export function automationEditorConfigKey(
   automation: AutomationEditorSnapshot,
 ): string {
@@ -316,8 +304,6 @@ export function automationEditorConfigKey(
     intervalMinutes: automation.intervalMinutes ?? null,
     dailyHour: automation.dailyHour ?? null,
     dailyMinute: automation.dailyMinute ?? null,
-    // Save clears the timezone outside daily mode, so an interval draft that
-    // still carries the browser zone must not read as a pending change.
     timezone: scheduleMode === "daily" ? (automation.timezone ?? "") : "",
     inboxLimit: automation.inboxLimit ?? null,
     workLimit: automation.workLimit ?? null,
@@ -346,9 +332,6 @@ export function mergeListedAutomationDraft<T extends AutomationEditorSnapshot>(
       syncedKey,
     };
   }
-  // `authorFilter` is a radio selection, not stored config: Include with no ids
-  // yet has the same saved shape as Everyone, so adopting the row would snap the
-  // radio back while the user is still adding ids.
   return {
     draft: {
       ...listed,

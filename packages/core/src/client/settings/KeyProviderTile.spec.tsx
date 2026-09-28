@@ -6,6 +6,7 @@ describe("providerLogoForKey", () => {
   it.each([
     ["OPENAI_API_KEY", "openai"],
     ["ANTHROPIC_API_KEY", "anthropic"],
+    ["JEV_API_KEY", "typesafe"],
     ["OPENROUTER_API_KEY", "openrouter"],
     ["GOOGLE_GENERATIVE_AI_API_KEY", "google-gemini"],
     ["GOOGLE_CLOUD_API_KEY", "google-workspace"],

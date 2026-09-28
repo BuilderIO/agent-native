@@ -12,7 +12,6 @@ export interface IfftStage {
 export const OCEAN_RESOLUTION = 512 as const;
 const AXIS_STAGES = 9;
 
-/** The one immutable 18-pass Stockham table for the canonical 512² ocean. */
 export function createIfftStageTable(): readonly IfftStage[] {
   return Object.freeze(
     Array.from({ length: AXIS_STAGES * 2 }, (_, index): IfftStage => {

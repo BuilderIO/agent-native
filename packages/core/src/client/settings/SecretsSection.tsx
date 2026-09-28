@@ -1,9 +1,3 @@
-/**
- * <SecretsSection /> — renders the registered secrets from the framework
- * secrets registry. Configured keys stay compact; adding or editing one
- * progressively discloses its controls.
- */
-
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
@@ -11,6 +5,7 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconLock,
   IconPlugConnected,
   IconTrash,
   IconRefresh,
@@ -29,6 +24,11 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrgSwitcherAppLinks } from "../org/workspace-app-links.js";
+import {
+  listRegisteredSecrets,
+  type SecretSource,
+  type SecretStatus,
+} from "../secrets.js";
 import { cn } from "../utils.js";
 import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
@@ -52,50 +52,20 @@ const Button = React.forwardRef<
 ));
 Button.displayName = "SecretsPrimitiveButton";
 
-/** Where a stored value's effective source is, as reported by the server. */
-type SecretSource = "personal" | "workspace" | "vault" | "env";
-
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
   workspace: "secrets.sourceWorkspace",
-  env: "secrets.sourceEnvironment",
 };
 
 const OUTLINE_LINK_CLASSNAME =
   "inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground";
 
-interface SecretStatus {
-  key: string;
-  label: string;
-  description?: string;
-  docsUrl?: string;
-  scope: "user" | "workspace" | "org";
-  kind: "api-key" | "oauth";
-  required: boolean;
-  /**
-   * "set" = a value is in effect; "unset" = not configured; "invalid" = the
-   * validator rejected the stored value; "unknown" = the credential store
-   * could not be read.
-   */
-  status: "set" | "unset" | "invalid" | "unknown";
-  /** Where the effective value comes from — only present when status === "set". */
-  source?: SecretSource;
-  /**
-   * True when the effective value is the row this UI writes for the
-   * registered scope, so Rotate/Remove apply. False when a Vault,
-   * workspace, or env value is in use instead.
-   */
-  managedHere?: boolean;
-  /** A shared value this row overrides; removing the row falls back to it. */
-  overrides?: "vault" | "workspace";
-  last4?: string;
-  updatedAt?: number;
-  oauthProvider?: string;
-  oauthConnectUrl?: string;
-  error?: string;
-}
-
 const ENDPOINT = agentNativePath("/_agent-native/secrets");
+const SECRETS_REQUEST_TIMEOUT_MS = 15_000;
+
+function hasValueInEffect(secret: SecretStatus): boolean {
+  return secret.status === "set" || secret.status === "invalid";
+}
 
 function notifySecretsChanged() {
   if (typeof window === "undefined") return;
@@ -107,11 +77,11 @@ function notifySecretsChanged() {
 }
 
 export interface SecretsSectionProps {
-  /** Optional hash fragment to focus a specific secret (e.g. "secrets:OPENAI_API_KEY"). */
   focusKey?: string;
 }
 
 export function SecretsSection({ focusKey }: SecretsSectionProps) {
+  const t = useT();
   const [secrets, setSecrets] = useState<SecretStatus[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -127,25 +97,45 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(ENDPOINT)
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(`Failed to load secrets (${r.status})`);
-        }
-        return (await r.json()) as SecretStatus[];
-      })
+    const controller =
+      typeof AbortController === "undefined" ? null : new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const request = listRegisteredSecrets({
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error("Secrets request timed out after 15 seconds"));
+        controller?.abort();
+      }, SECRETS_REQUEST_TIMEOUT_MS);
+    });
+    void Promise.race([request, timeout])
       .then((data) => {
         if (!cancelled) setSecrets(data);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load");
+        if (!cancelled) {
+          console.error("Failed to load registered secrets", err);
+          setError(err?.message ?? "Failed to load");
+        }
+      })
+      .finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        controller?.abort();
       });
     return () => {
       cancelled = true;
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      controller?.abort();
     };
   }, [reloadToken]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
+  const retry = useCallback(() => {
+    setError(null);
+    setSecrets(null);
+    setReloadToken((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     if (focusKey) {
@@ -156,9 +146,15 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
 
   if (error) {
     return (
-      <p className="text-[10px] text-red-500">
-        Failed to load secrets: {error}
-      </p>
+      <div
+        className="flex items-center gap-2 text-xs text-destructive"
+        role="alert"
+      >
+        <span>{t("agentChat.common.chunkLoadFailed")}</span>
+        <Button type="button" onClick={retry}>
+          {t("agentChat.common.retry")}
+        </Button>
+      </div>
     );
   }
   if (secrets === null) {
@@ -189,10 +185,8 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
   const availableSecrets = secrets.filter(
     (secret) => secret.status === "unset" && secret.key !== openSecretKey,
   );
-  // Keys the Vault or the environment provide still count as "set", but until
-  // someone adds a key of their own the quick-add tiles are the useful view.
   const hasOwnKey = visibleSecrets.some(
-    (secret) => secret.status === "set" && secret.managedHere !== false,
+    (secret) => hasValueInEffect(secret) && secret.managedHere !== false,
   );
   const showProviderEmptyState = !hasOwnKey && !customKeyOpen.open;
 
@@ -278,8 +272,6 @@ function KeysEmptyState({
   onPick: (key: string) => void;
 }) {
   const t = useT();
-  // OAuth client pairs are app setup, not "your own account"; keep them
-  // behind New so the tiles stay the keys people actually paste.
   const tiles = availableSecrets
     .filter(
       (secret) =>
@@ -349,7 +341,6 @@ function KeysHeader({
 interface SecretCardProps {
   secret: SecretStatus;
   onChanged: () => void;
-  /** Dispatch Vault page, when running inside a workspace. */
   vaultHref: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -488,8 +479,9 @@ function SecretCard({
     }
   };
 
-  const isManagedSet = secret.status === "set" && secret.managedHere !== false;
-  const isShadowedSet = secret.status === "set" && secret.managedHere === false;
+  const isManagedSet = hasValueInEffect(secret) && secret.managedHere !== false;
+  const isShadowedSet =
+    hasValueInEffect(secret) && secret.managedHere === false;
 
   const pill = useMemo(() => {
     if (secret.status === "set") {
@@ -501,6 +493,16 @@ function SecretCard({
         <span className="flex items-center gap-1 text-[10px] text-green-500">
           <IconCheck size={10} />
           {sourceLabel ? `Set · ${sourceLabel}` : "Set"}
+        </span>
+      );
+    }
+    if (secret.status === "invalid") {
+      return (
+        <span
+          className="rounded-full bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-destructive"
+          title={secret.error}
+        >
+          {t("secrets.invalid")}
         </span>
       );
     }
@@ -536,13 +538,8 @@ function SecretCard({
   ]);
 
   const isOAuth = secret.kind === "oauth";
-  // Vault/workspace-shadowed rows only show the value form once the user
-  // opts into a personal override; an env-shadowed row shows it directly
-  // since a saved row always wins over env.
   const showRotationForm =
-    (secret.status !== "set" && secret.status !== "unknown") ||
-    (isShadowedSet && secret.source === "env") ||
-    isRotating;
+    (!hasValueInEffect(secret) && secret.status !== "unknown") || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
@@ -561,7 +558,7 @@ function SecretCard({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
           {secret.label}
         </span>
-        {secret.status === "set" && secret.last4 && (
+        {hasValueInEffect(secret) && secret.last4 && (
           <code className="text-[10px] text-muted-foreground">
             ••••{secret.last4}
           </code>
@@ -668,9 +665,7 @@ function SecretCard({
                   <p className="text-[10px] text-muted-foreground">
                     {secret.source === "vault"
                       ? t("secrets.managedInVault")
-                      : secret.source === "workspace"
-                        ? t("secrets.setForWorkspace")
-                        : t("secrets.fromEnvironment")}
+                      : t("secrets.setForWorkspace")}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Button
@@ -698,7 +693,7 @@ function SecretCard({
                         <IconExternalLink size={10} />
                       </a>
                     )}
-                    {secret.source !== "env" && secret.scope === "user" && (
+                    {secret.scope === "user" && (
                       <Button
                         type="button"
                         intent="neutral"
@@ -726,7 +721,7 @@ function SecretCard({
                       if (event.key === "Enter") void handleSave();
                     }}
                     placeholder={
-                      secret.status === "set"
+                      hasValueInEffect(secret)
                         ? "Enter new value to rotate"
                         : "Paste key"
                     }
@@ -845,8 +840,6 @@ function SecretCard({
   );
 }
 
-// ─── Ad-hoc Keys Section ──────────────────────────────────────────────────
-
 interface AdHocKey {
   name: string;
   scope: "user" | "workspace" | "org";
@@ -856,9 +849,16 @@ interface AdHocKey {
   last4: string;
   createdAt: number;
   updatedAt: number;
+  /** Present when another Settings surface owns this key. */
+  managedBy?: { id: string; owner: string; route: string };
 }
 
 const ADHOC_ENDPOINT = agentNativePath("/_agent-native/secrets/adhoc");
+
+/** One name can be listed once per scope, so rows are told apart by both. */
+function adHocKeyId(key: AdHocKey): string {
+  return `${key.scope}-${key.name}`;
+}
 
 function AdHocKeysSection({
   showForm,
@@ -883,10 +883,8 @@ function AdHocKeysSection({
   const [formScope, setFormScope] = useState<"user" | "workspace">("user");
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(
-    null,
-  );
-  const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -986,18 +984,23 @@ function AdHocKeysSection({
   ]);
 
   const handleDelete = useCallback(
-    async (name: string) => {
-      setDeletingName(name);
+    async (key: AdHocKey) => {
+      setDeletingId(adHocKeyId(key));
       try {
         const res = await fetch(
-          `${ADHOC_ENDPOINT}/${encodeURIComponent(name)}`,
+          `${ADHOC_ENDPOINT}/${encodeURIComponent(key.name)}?scope=${key.scope}`,
           {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
           },
         );
         if (!res.ok) {
-          showToast("err", "Failed to delete key");
+          const err = await res
+            .json()
+            .then((j: { error?: string }) => j.error)
+            // coercion-ok: the error body is optional; the toast still reports the failure.
+            .catch(() => null);
+          showToast("err", err ?? "Failed to delete key");
           return;
         }
         const body = (await res.json()) as { removed?: boolean };
@@ -1006,11 +1009,11 @@ function AdHocKeysSection({
           return;
         }
         showToast("ok", "Key deleted");
-        setConfirmDeleteName(null);
+        setConfirmDeleteId(null);
         notifySecretsChanged();
         reload();
       } finally {
-        setDeletingName(null);
+        setDeletingId(null);
       }
     },
     [showToast, reload],
@@ -1100,7 +1103,7 @@ function AdHocKeysSection({
         <div className="overflow-hidden rounded-md border border-border">
           {keys.map((key) => (
             <div
-              key={`${key.scope}-${key.name}`}
+              key={adHocKeyId(key)}
               className="border-b border-border px-2.5 py-2 last:border-b-0"
             >
               <div className="flex items-center justify-between gap-2">
@@ -1156,17 +1159,36 @@ function AdHocKeysSection({
                         <IconExternalLink size={10} />
                       </a>
                     )
-                  ) : confirmDeleteName === key.name ? (
+                  ) : key.managedBy ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          aria-label={t("secrets.managedByOwner", {
+                            owner: key.managedBy.owner,
+                          })}
+                          className="inline-flex p-1 text-muted-foreground"
+                        >
+                          <IconLock size={12} />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("secrets.managedByOwner", {
+                          owner: key.managedBy.owner,
+                        })}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : confirmDeleteId === adHocKeyId(key) ? (
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         intent="danger"
                         emphasis="solid"
-                        onClick={() => handleDelete(key.name)}
-                        disabled={deletingName === key.name}
+                        onClick={() => handleDelete(key)}
+                        disabled={deletingId === adHocKeyId(key)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
                       >
-                        {deletingName === key.name ? (
+                        {deletingId === adHocKeyId(key) ? (
                           <IconLoader2 size={10} className="animate-spin" />
                         ) : (
                           "Confirm"
@@ -1176,7 +1198,7 @@ function AdHocKeysSection({
                         type="button"
                         intent="neutral"
                         emphasis="solid"
-                        onClick={() => setConfirmDeleteName(null)}
+                        onClick={() => setConfirmDeleteId(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
                         Cancel
@@ -1189,7 +1211,7 @@ function AdHocKeysSection({
                           type="button"
                           intent="danger"
                           emphasis="ghost"
-                          onClick={() => setConfirmDeleteName(key.name)}
+                          onClick={() => setConfirmDeleteId(adHocKeyId(key))}
                           className="text-muted-foreground hover:text-red-500"
                         >
                           <IconTrash size={12} />

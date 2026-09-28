@@ -95,11 +95,44 @@ describe("buildAssistantMessage", () => {
     );
   });
 
+  it("persists raw action widget data beside the transcript result", () => {
+    const result = { deepLink: "/_agent-native/open?composeDraftId=draft-1" };
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "call_draft",
+            tool: "manage-draft",
+            input: { action: "create" },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "tool_done",
+            id: "call_draft",
+            tool: "manage-draft",
+            result: JSON.stringify(result, null, 2),
+            chatUI: { renderer: "mail.draft-created" },
+            chatUIResult: result,
+          },
+        },
+      ],
+      "run-action-widget-result",
+    );
+
+    expect(message?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        result: JSON.stringify(result, null, 2),
+        chatUIResult: result,
+      }),
+    );
+  });
+
   it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
-    // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
-    // call that already ran in an interrupted chunk. The live client coalesces
-    // those onto the original card, so persisting both is how a tool output the
-    // user saw once came back duplicated after a reload.
     const events: RunEvent[] = [
       {
         seq: 0,
@@ -194,9 +227,6 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
-  // The live client stops clearing at the last completed tool call, so this
-  // narration survives the retry on screen. A rebuild that splices it anyway
-  // makes it vanish on reload — visible loss, and only after the user leaves.
   it("keeps narration from before the last completed tool call", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Checked the schema." } },
@@ -240,9 +270,6 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
-  // Each failed engine attempt emits its own `clear`, so three failures in a
-  // row is the ordinary shape. Skipping only the last one still applied the
-  // other two and destroyed the answer the user had already been shown.
   it("ignores a whole trailing run of clears, not just the last one", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Here is the answer" } },
@@ -258,9 +285,6 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
-  // The second-order effect: with the text spliced out and no tool call to keep
-  // `content` non-empty, the builder returned null and the user's message was
-  // persisted with no assistant reply at all.
   it("still persists an assistant message after a trailing clear streak", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Partial answer" } },
@@ -271,8 +295,6 @@ describe("buildAssistantMessage", () => {
     expect(buildAssistantMessage(events, "run-no-reply")).not.toBeNull();
   });
 
-  // A clear with real events after it still applies — the successor chunk
-  // re-emits what it wiped, which is the whole point of the event.
   it("applies a clear that is followed by more content", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Discarded draft" } },
@@ -659,9 +681,6 @@ describe("buildAssistantMessage", () => {
     });
   });
 
-  // A truncated stream is a continuation boundary on every lane. Identity-lane
-  // deployments got that from the message text; a Builder-credits deployment
-  // replaces the message with one visitor line, so the code has to carry it.
   it("folds a truncated gateway stream by its code, not its sentence", () => {
     for (const error of [
       "Builder gateway stream ended without a stop event",
@@ -692,8 +711,6 @@ describe("buildAssistantMessage", () => {
     }
   });
 
-  // Uncoded, this stored Builder's internal correlation id as the assistant's
-  // visible answer — the exact text 14 Analytics turns ended on.
   it("folds the gateway internal-error envelope by its code, not its sentence", () => {
     for (const error of [
       "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
@@ -725,10 +742,6 @@ describe("buildAssistantMessage", () => {
   });
 
   it("keeps a breaker stop that preserved its underlying transient code", () => {
-    // The no-progress breaker ends the turn with the gateway's own code and
-    // reference id so the failure stays diagnosable. Folding it as a
-    // continuation boundary would drop the one error the user is supposed to
-    // see, and record a turn nothing is continuing as continued.
     const message = buildAssistantMessage(
       [
         {
@@ -759,10 +772,6 @@ describe("buildAssistantMessage", () => {
     });
   });
 
-  // `providerRetryable` is the ENGINE's "another attempt may succeed", which is
-  // not the same claim as "this run stopped at an internal boundary". Reading it
-  // here would drop a provider throttle from the persisted turn and record the
-  // turn as continued when nothing continues it.
   it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
     const message = buildAssistantMessage(
       [
@@ -781,9 +790,6 @@ describe("buildAssistantMessage", () => {
       { suppressInternalContinuation: true, turnId: "turn-throttled" },
     );
 
-    // `too_many_concurrent_requests` is in this builder's own code list, so the
-    // fold is expected — what must not happen is the error being dropped
-    // because of `providerRetryable`. Re-run with a code it does not list.
     expect(message?.metadata).toMatchObject({ custom: { continued: true } });
 
     const unlisted = buildAssistantMessage(
@@ -857,8 +863,6 @@ describe("buildAssistantMessage", () => {
       suppressInternalContinuation: true,
     });
 
-    // Friendly copy, same as the live client (client/sse-event-processor.ts) —
-    // not the raw gateway dump this used to append verbatim.
     expect(message?.content).toEqual([
       {
         type: "text",
@@ -878,11 +882,6 @@ describe("buildAssistantMessage", () => {
   });
 
   it("never persists a raw provider connection dump as user-visible text", () => {
-    // Reproduces the Slack-reported repro: switching to a non-Anthropic model
-    // surfaces a raw SSL handshake failure. classifyProviderError tags this
-    // shape as errorCode "provider_network_error" upstream; the persisted
-    // text must go through the same friendly-copy layer as the live client
-    // instead of appending the raw diagnostic string.
     const rawSslError =
       "write EPROTO 140:error:1417C0C7:SSL routines:tls_process_client_certificate:" +
       "sslv3 alert bad certificate:../ssl/record/rec_layer_s3.c:1584:SSL alert number 42";
@@ -1276,6 +1275,126 @@ describe("buildAssistantMessage", () => {
     ).toBe(55_000);
   });
 
+  it("keeps an AgentKit approval continuation out of the legacy placeholder", () => {
+    const approvedToolCallId = "accept-release-call";
+    const releaseMessage = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "Release accepted." } },
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            id: approvedToolCallId,
+            tool: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: approvedToolCallId,
+            tool: "accept-agentkit-release",
+            result: "Release accepted.",
+          },
+        },
+      ],
+      "runtime-continuation",
+      { turnId: "turn-approval" },
+    );
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "server-run-approval",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "Waiting for your approval to run accept-agentkit-release.",
+              },
+              {
+                type: "tool-call",
+                toolCallId: approvedToolCallId,
+                toolName: "accept-agentkit-release",
+                args: { release: "agentkit-acceptance" },
+                result: "Awaiting human approval. This action did NOT execute.",
+                approval: { approvalKey: "accept-agentkit-release:approval" },
+              },
+            ],
+            metadata: {
+              runId: "runtime-approval",
+              custom: { turnId: "turn-approval" },
+            },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          {
+            id: "message-approval",
+            role: "assistant",
+            parts: [
+              {
+                type: "text",
+                text: "Waiting for your approval to run accept-agentkit-release.",
+              },
+            ],
+          },
+          {
+            id: "message-canonical",
+            role: "assistant",
+            parts: [{ type: "text", text: "Release accepted." }],
+          },
+        ],
+        toolCalls: [
+          {
+            id: approvedToolCallId,
+            name: "accept-agentkit-release",
+            input: { release: "agentkit-acceptance" },
+            output: "Release accepted.",
+            status: "completed",
+            messageId: "message-canonical",
+          },
+        ],
+      },
+    };
+
+    const saved = foldAssistantTurn(repo, releaseMessage!, {
+      turnId: "turn-approval",
+      runId: "runtime-continuation",
+      agentKitOwnsContinuation: true,
+    });
+    const restored = JSON.parse(JSON.stringify(saved));
+    const releaseText = [
+      ...restored.messages.flatMap((entry: any) =>
+        entry.message.content.flatMap((part: any) =>
+          part.type === "text" ? [part.text] : [],
+        ),
+      ),
+      ...restored.agentKit.messages.flatMap((message: any) =>
+        message.parts.flatMap((part: any) =>
+          part.type === "text" ? [part.text] : [],
+        ),
+      ),
+    ].filter((text: string) => text.includes("Release accepted"));
+
+    expect(restored.messages[0].message.content).toHaveLength(2);
+    expect(restored.messages[0].message.content[1]).toMatchObject({
+      type: "tool-call",
+      toolCallId: approvedToolCallId,
+      result: "Awaiting human approval. This action did NOT execute.",
+    });
+    expect(restored.agentKit.toolCalls).toContainEqual(
+      expect.objectContaining({
+        id: approvedToolCallId,
+        status: "completed",
+        messageId: "message-canonical",
+      }),
+    );
+    expect(releaseText).toEqual(["Release accepted."]);
+  });
+
   it("keeps tool call ids unique when folding continuation chunks", () => {
     const firstChunk = buildAssistantMessage(
       [
@@ -1648,14 +1767,6 @@ describe("mergeThreadDataForClientSave", () => {
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
-    // The runtime's saveThreadData PUT sends the runtime export, which
-    // assigns every user message `attachments: []`. The server's
-    // `persistSubmittedUserMessage` → `buildUserMessage` writes the same
-    // logical message but omits `attachments` entirely. Without
-    // attachment normalization in `messageIdentityKeys`, the merge sees
-    // them as different fingerprints and keeps both, producing a duplicate
-    // user-message row per turn (observed on slides prod: every turn
-    // ended up as `client_user → assistant → server_user`).
     const existing = {
       messages: [
         {
@@ -1724,13 +1835,6 @@ describe("mergeThreadDataForClientSave", () => {
   });
 
   it("dedupes a clean client tool-call turn against the server fold of the same turn", () => {
-    // Regression: the server now scopes rebuilt tool-call ids by run
-    // (`${runId}:tc_1`) while the client's live stream uses a bare counter
-    // (`tc_1`). A cleanly-completed client export carries neither runId nor
-    // turnId (only requestMode), so without stripping the render-only id from
-    // the dedup fingerprint these two copies of ONE turn no longer match and the
-    // turn renders twice. The fingerprint must ignore toolCallId.
-    // Server fold of a tool-call turn: runId-scoped tool ids, has runId+turnId.
     const existing = {
       messages: [
         {
@@ -1754,8 +1858,6 @@ describe("mergeThreadDataForClientSave", () => {
         },
       ],
     };
-    // Client export of the SAME turn after a clean completion: tc_N ids, and the
-    // adapter stamps only requestMode (no runId, no turnId).
     const incoming = {
       messages: [
         {
@@ -1881,20 +1983,6 @@ describe("mergeThreadDataForClientSave", () => {
   });
 
   it("does not rewrite a child's parentId onto the wrong twin when two structurally identical messages are merged", () => {
-    // `a1` and `a2` are two DIFFERENT assistant turns (different ids,
-    // different runId) that happen to render identical text ("identical
-    // reply") — e.g. two regenerated answers to the same prompt. Their
-    // incoming twins (regenerated ids, same runId, no other incoming
-    // counterpart yet reachable via id) are listed with run-2's twin FIRST.
-    // A pure content fingerprint (role+content+attachments) can't tell `a1`
-    // and `a2` apart, so if a fingerprint-only match is allowed to win over
-    // an available runId match, the scan pairs existing `a1` (run-1) with
-    // incoming `ca2` (run-2) — the first unused array slot sharing ANY key —
-    // and vice versa. `followup` only exists on the existing side and still
-    // points at the OLD id `a1`; the merge's final pass must rewrite that
-    // reference onto whichever incoming id actually replaced `a1`. A wrong
-    // pairing rewrites it onto `ca2` instead — silently reparenting a reply
-    // onto an unrelated answer.
     const existing = {
       messages: [
         {
@@ -1927,8 +2015,6 @@ describe("mergeThreadDataForClientSave", () => {
           parentId: "u1",
         },
         {
-          // Only exists on the existing side (e.g. not yet round-tripped to
-          // the client) and still names the OLD id `a1` as its parent.
           message: {
             id: "followup",
             role: "user",
@@ -1950,7 +2036,6 @@ describe("mergeThreadDataForClientSave", () => {
           },
           parentId: null,
         },
-        // run-2's incoming twin is listed BEFORE run-1's.
         {
           message: {
             id: "ca2",
@@ -1986,8 +2071,6 @@ describe("mergeThreadDataForClientSave", () => {
     );
     expect(byRunId("run-1").message.metadata.custom.label).toBe("first");
     expect(byRunId("run-2").message.metadata.custom.label).toBe("second");
-    // `followup` replied to run-1's answer — its parent must resolve to
-    // whichever id now carries run-1, not run-2's unrelated twin.
     expect(followup.parentId).toBe(byRunId("run-1").message.id);
   });
 });
@@ -2441,8 +2524,6 @@ describe("upsertUserMessage", () => {
   });
 
   it("stores image attachments as URL references when a hosted URL exists", () => {
-    // Simulate a pre-uploaded image: the `url` property has been injected by
-    // preUploadAttachments; base64 `data` is still present for the current turn.
     const attWithUrl = {
       type: "image",
       name: "screenshot.png",
@@ -2461,12 +2542,10 @@ describe("upsertUserMessage", () => {
     const updated = upsertUserMessage({}, message);
     const storedAtt = updated.messages[0].message.attachments?.[0];
     expect(storedAtt).toBeDefined();
-    // Content should use the hosted URL, not the base64 string.
     expect(storedAtt.content[0]).toEqual({
       type: "image",
       image: "https://cdn.example.com/screenshot.png",
     });
-    // Reference metadata must be present for tooling.
     expect(storedAtt.metadata).toMatchObject({
       uploadUrl: "https://cdn.example.com/screenshot.png",
       uploadProvider: "builder",
@@ -2615,13 +2694,6 @@ describe("upsertUserMessage", () => {
   });
 });
 
-/**
- * The rebuild path re-implements two pieces of the live SSE client because the
- * dependency cannot go the other way. A comment asking the next author to keep
- * them in sync is what already failed: the client copy was rescoped and this
- * one was not, so narration survived live and vanished on reload. These read
- * both sources and fail on the drift itself.
- */
 describe("live-client twins", () => {
   const sourceOf = (relativePath: string): string =>
     readFileSync(new URL(relativePath, import.meta.url), "utf8");

@@ -144,6 +144,24 @@ describe("extractDocumentColorPalette", () => {
     ).toContain("--color-bg: #000000");
   });
 
+  it("reads and rewrites svg paint attributes that an inline style does not override", () => {
+    const content = `<svg fill="none" viewBox="0 0 20 20"><path d="M0 0" fill="rgb(255, 255, 255)"></path><path d="M1 1" stroke="#000000" style="stroke: #a62e2e"></path></svg>`;
+    const scopes = [{ fileId: "file-1", content, wholeDocument: true }];
+
+    expect(selectionColorValues([], scopes).map((c) => c.value)).toEqual([
+      "rgb(255, 255, 255)",
+      "#a62e2e",
+    ]);
+    expect(
+      replaceSelectionColorsInHtml(
+        content,
+        scopes,
+        "rgb(255, 255, 255)",
+        "#ff0000",
+      ),
+    ).toContain('fill="#ff0000"');
+  });
+
   it("orders results by descending frequency (most-used colors first)", () => {
     const palette = extractDocumentColorPalette([
       {
@@ -177,8 +195,6 @@ describe("extractDocumentColorPalette", () => {
   it("caps results at the given limit, keeping the most frequent colors", () => {
     const content = Array.from({ length: 30 }, (_, i) => {
       const hex = i.toString(16).padStart(2, "0");
-      // Repeat earlier colors more often than later ones so frequency order
-      // is unambiguous once capped.
       const repeats = 30 - i;
       return `<div style="color:#${hex}${hex}${hex};">`.repeat(repeats);
     }).join("");
@@ -186,7 +202,6 @@ describe("extractDocumentColorPalette", () => {
     const palette = extractDocumentColorPalette([{ id: "f", content }], 5);
 
     expect(palette).toHaveLength(5);
-    // The 5 most-repeated colors are the first 5 generated (i = 0..4).
     expect(palette).toEqual([
       "#000000",
       "#010101",
@@ -577,10 +592,6 @@ describe("selectionColorValues", () => {
   });
 
   it("skips any other zero-alpha color, not just the two literal spellings", () => {
-    // Regression: this used to only filter the exact strings "transparent"
-    // and "rgba(0, 0, 0, 0)" — a zero-alpha color with any other RGB
-    // channels or formatting (e.g. a non-black rgba, or hsla) slipped
-    // through as a bogus, effectively-invisible "selection color" swatch.
     const values = selectionColorValues(
       fakeElement({
         color: "rgb(0, 0, 0)",
@@ -911,8 +922,6 @@ describe("selectionColorValues", () => {
       phase: "preview",
     });
 
-    // Undo restores the source from before the prior commit while the picker
-    // remains open; the old gesture must not target a color in that new source.
     args.scopes = [{ fileId: "screen", content: initial, sourceId: "root" }];
     expect(
       runSelectionColorChange(args, "#f97316", "#22c55e", {

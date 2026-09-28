@@ -81,9 +81,6 @@ const GRADIENT_LAYER = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
 function gradientLayerElement(backgroundImage = GRADIENT_LAYER): ElementInfo {
   return element({
     computedStyles: {
-      // Fully transparent base color — hides the base fill row so only the
-      // layer row under test renders (matches the reported scenario: an
-      // element whose only fill is a background-image gradient layer).
       backgroundColor: "rgba(0, 0, 0, 0)",
       backgroundImage,
       backgroundSize: "",
@@ -130,8 +127,10 @@ function findButtonByText(
   text: string,
 ): HTMLButtonElement | null {
   return (
-    Array.from(root.querySelectorAll("button")).find((btn) =>
-      btn.textContent?.includes(text),
+    Array.from(root.querySelectorAll("button")).find(
+      (btn) =>
+        btn.textContent?.includes(text) ||
+        btn.getAttribute("aria-label")?.includes(text),
     ) ?? null
   );
 }
@@ -167,8 +166,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  // Radix portals content onto document.body directly — clean up anything
-  // left behind between tests (defensive; unmount should already do this).
   document
     .querySelectorAll("[data-radix-popper-content-wrapper]")
     .forEach((node) => node.remove());
@@ -615,9 +612,6 @@ describe("FillProperties — existing layer fill popover", () => {
       trigger!.click();
     });
 
-    // Before the fix, this first click only opened an *outer* popover
-    // containing DesignColorPicker's own (still-closed) default trigger —
-    // the real gradient editor needed a second click to appear.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -659,9 +653,6 @@ describe("FillProperties — existing layer fill popover", () => {
       );
     });
 
-    // Before the fix, the outer popover's dismissable layer treated this
-    // click on the inner picker's portaled content as "outside" and closed
-    // both popovers.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -697,8 +688,6 @@ describe("FillProperties — existing layer fill popover", () => {
       expect.stringContaining("radial-gradient"),
       undefined,
     );
-    // The row previously remounted (content-derived key) or closed (nested
-    // popover dismissal) the instant this commit landed.
     expect(gradientStopsBar()).not.toBeNull();
   });
 
@@ -718,11 +707,6 @@ describe("FillProperties — existing layer fill popover", () => {
     });
     expect(gradientStopsBar()).not.toBeNull();
 
-    // Simulate the parent committing an edit to this same layer (e.g. a
-    // stop color/position change, or a paint-type switch) — the row was
-    // previously keyed by the layer's own CSS string, so this remounted the
-    // popover (an uncontrolled `Popover` remount always starts closed) and
-    // silently closed it.
     act(() => {
       root.render(
         <FillProperties
@@ -756,7 +740,6 @@ describe("FillProperties — existing layer fill popover", () => {
 
     expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="None"]')).not.toBeNull();
-    // Other supported tabs remain available alongside the conversion tabs.
     expect(document.querySelector('[aria-label="Radial"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Image"]')).not.toBeNull();
   });

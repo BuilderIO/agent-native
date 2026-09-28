@@ -5,11 +5,6 @@ import {
   IconDatabaseOff,
   IconX,
 } from "@tabler/icons-react";
-/**
- * Left sidebar for the database admin: a mode toggle (Table Editor / SQL
- * Editor), a debounced search box, and a scrollable list of tables and views
- * with row counts.
- */
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { DbAdminTableSummary } from "../../db-admin/types.js";

@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { iconValueSchema, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
@@ -59,6 +60,7 @@ const legacyConfigureDocumentPropertySchema = z
       .describe(
         "Stable guidance describing what this property means and which value belongs here",
       ),
+    icon: iconValueSchema.nullable().optional(),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
     naturalKey: z
       .boolean()
@@ -325,6 +327,12 @@ export default defineAction({
             ...(args.description === undefined
               ? {}
               : { description: args.description.trim() }),
+            ...(args.icon === undefined
+              ? {}
+              : {
+                  icon:
+                    args.icon === null ? null : serializeIconValue(args.icon),
+                }),
             type,
             visibility:
               args.visibility === undefined
@@ -384,6 +392,10 @@ export default defineAction({
               databaseId: database.id,
               name,
               description: args.description?.trim() ?? "",
+              icon:
+                args.icon === undefined || args.icon === null
+                  ? null
+                  : serializeIconValue(args.icon),
               type,
               visibility: normalizePropertyVisibility(args.visibility),
               optionsJson,

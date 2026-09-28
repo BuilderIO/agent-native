@@ -91,11 +91,6 @@ describe("Factory route factory switching", () => {
     expect(source).toContain(
       "if (open) clearPersistedLastAutomationId(factoryId);",
     );
-    // A deep link (?automationId=B) resolves `selected` without ever going
-    // through selectAutomation's click handler. Persist as soon as `selected`
-    // is known, before branching on selectedId, so leaving the tab (which
-    // drops automationId from the URL) and coming back doesn't fall back to
-    // a stale persisted id or row 0 instead of the one the link pointed to.
     expect(source).toContain(
       "persistLastAutomationId(factoryId, selected.id);",
     );
@@ -108,8 +103,6 @@ describe("Factory route factory switching", () => {
 
   it("resyncs the editor after a save and refuses to run a stale config", () => {
     const source = readSource();
-    // Save normalizes the row, so the draft must stop counting as unsaved or it
-    // never accepts a server update again.
     expect(source).toMatch(
       /syncedConfigKeyRef\.current = null;\n\s+await automationsQuery\.refetch\(\);/,
     );
@@ -145,8 +138,6 @@ describe("Factory route tabs", () => {
     expect(source).toContain('<IconLoader2 className="size-4 animate-spin" />');
     expect(source).toContain("onFetchingChange={setAuditFetching}");
     expect(source).toContain("refreshToken={auditRefreshToken}");
-    // The spinner branch must live inside the audit refresh button, not just
-    // anywhere in the file.
     const buttonIdx = source.indexOf(
       'aria-label={t("factoryRoute.auditRefresh")}',
     );

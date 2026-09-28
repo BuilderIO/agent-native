@@ -1,9 +1,3 @@
-/**
- * Presentation for the tray Settings surface, built on Tailwind + the shadcn
- * primitives in `@/components/ui`. Everything here is layout and typography —
- * no Tauri calls, no feature state — so a row's behavior stays in app.tsx and
- * its shape stays here.
- */
 import { IconCheck, IconChevronDown, IconX } from "@tabler/icons-react";
 import { useState, type ReactElement, type ReactNode } from "react";
 
@@ -23,25 +17,9 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-/**
- * The single shape every control in a settings row wears: same height, same
- * radius, same fill, same type size, same hover. Dropdowns, keycaps, value
- * triggers, and action buttons are interchangeable in a row, so a control that
- * invents its own size is the thing that reads as sloppy.
- *
- * At rest it is the page's own background inside a hairline the same weight as
- * the card's — `border-border`, not the heavier `border-input`. The grey fill is
- * the hover state and nothing else, so a row of controls reads as quiet until
- * the pointer is actually over one.
- */
-// `rounded-md` (radius − 2px), not the card's own `rounded-lg`: a control
-// nested inside a rounded card wants a concentrically smaller radius, or its
-// corners read puffier than the surface containing it.
 const ROW_CONTROL =
   "h-8 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
-/** A card of rows. `label` is the small uppercase divider; omit it when the
- *  tab is a single card and its heading already names the group. */
 export function SettingsGroup({
   label,
   children,
@@ -63,17 +41,6 @@ export function SettingsGroup({
   );
 }
 
-/**
- * One setting per row: label and a grounding line on the left, its current
- * state on the right.
- *
- * Every row carries a `description` by product decision — a desktop setting
- * that silently changes OS-level behavior needs grounding the label alone
- * cannot give. It must say something the label does not: where the setting
- * applies, what the user will see, what it costs. Restating the label ("Keep
- * dictation visible — keeps dictation visible") is the failure mode, and the
- * reason to delete a line rather than pad it.
- */
 export function SettingsRow({
   label,
   description,
@@ -90,11 +57,6 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        // The divider is a pseudo-element inset to the row's own padding, not a
-        // `border-b`. An edge-to-edge rule cuts the card into stacked boxes;
-        // stopping it short of the corners keeps one card with rows inside it.
-        // Dimmer than the card's own outline too — it separates siblings rather
-        // than bounding the card, so it should not compete with the edge.
         "relative grid min-h-[46px] min-w-0 items-center gap-4 px-3.5 py-2.5",
         "after:absolute after:inset-x-3.5 after:bottom-0 after:h-px after:bg-border/50 after:content-[''] last:after:hidden",
         stacked
@@ -129,14 +91,11 @@ export function SettingsRow({
   );
 }
 
-/** A dropdown wearing the shared row-control shape. */
 export function SettingsSelect({
   value,
   onValueChange,
   options,
   ariaLabel,
-  /** Shown when `value` matches no option — a catalog still loading, or empty.
-   *  Without it the trigger renders as a bare chevron. */
   placeholder,
   disabled = false,
 }: {
@@ -147,9 +106,6 @@ export function SettingsSelect({
   placeholder?: string;
   disabled?: boolean;
 }) {
-  // Radix renders the placeholder only for an empty value, so a stored value
-  // that matches no option (a catalog still loading) would otherwise leave the
-  // trigger showing nothing but its chevron.
   const selected = options.some((option) => option.value === value);
 
   return (
@@ -160,9 +116,6 @@ export function SettingsSelect({
     >
       <SelectTrigger
         aria-label={ariaLabel}
-        /* The registry trigger ships focus:ring-2 + ring-offset-2; zero BOTH or
-           the offset halo survives ring-0 and doubles up with ROW_CONTROL's
-           focus-visible ring. */
         className={cn(
           ROW_CONTROL,
           "w-auto gap-1.5 shadow-none focus:ring-0 focus:ring-offset-0",
@@ -186,8 +139,6 @@ export function SettingsSelect({
   );
 }
 
-/** Shows the current value and opens its detail — a dropdown in every respect
- *  a user can see, so it wears the same shape. */
 export function SettingsValueTrigger({
   value,
   mono = false,
@@ -219,12 +170,6 @@ export function SettingsValueTrigger({
   );
 }
 
-/**
- * An action in a settings row: a real button, never a bare text link, and by
- * default the same soft filled shape as the dropdowns it sits beside.
- * `primary` is for the single action a row wants you to take; `quiet` is for a
- * secondary one that should not compete with the control next to it.
- */
 export function SettingsActionButton({
   className,
   emphasis = "soft",
@@ -242,8 +187,6 @@ export function SettingsActionButton({
         emphasis === "primary" && "h-8 rounded-md px-3 text-sm font-medium",
         emphasis === "quiet" &&
           "h-8 rounded-md px-2 text-sm font-medium text-muted-foreground hover:bg-accent",
-        // Quiet-red, not a filled slab: red text that gains a red-tinted wash
-        // on hover. For actions that permanently delete data — nothing else.
         emphasis === "destructive" &&
           "h-8 rounded-md px-2 text-sm font-medium text-destructive hover:bg-destructive/10 hover:text-destructive",
         className,
@@ -253,11 +196,6 @@ export function SettingsActionButton({
   );
 }
 
-/**
- * A titled popover for a setting's detail. The tray window is small and
- * chromeless, so the title and close button orient the user inside a layer
- * that has no window frame of its own.
- */
 export function SettingsPopover({
   title,
   trigger,
@@ -303,11 +241,6 @@ export function SettingsPopover({
   );
 }
 
-/**
- * A one-of-many setting whose choices need more room than a select — because
- * picking one reveals a follow-up control. `keepOpenValues` names those, so the
- * popover does not close before the user can finish.
- */
 export function SettingsChoicePopover({
   title,
   value,
@@ -373,7 +306,6 @@ export function SettingsChoicePopover({
   );
 }
 
-/** The keycap rendering of a shortcut, e.g. `⌘⇧Space`. */
 export function SettingsKeycap({
   children,
   active = false,

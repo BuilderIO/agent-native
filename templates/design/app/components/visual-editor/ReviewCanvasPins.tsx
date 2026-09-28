@@ -1335,8 +1335,6 @@ export function ReviewCanvasPins({
             });
             successfulThreadIds.push(migration.threadId);
           } catch {
-            // Keep the local anchor for stable rendering, but allow a later
-            // review refresh to retry persistence after a transient failure.
             migratedBoardAnchorIdsRef.current.delete(migration.threadId);
           }
         }
@@ -1349,7 +1347,6 @@ export function ReviewCanvasPins({
               return next;
             });
           } catch (error) {
-            // Keep the local anchor until a later refresh can reconcile it.
             console.warn(
               "[ReviewCanvasPins] board-anchor refresh failed",
               error,
@@ -2114,8 +2111,6 @@ export function ReviewCanvasPins({
   );
 
   if (hidden || !canvas) return null;
-  // Every live editor mounts one of these; reading the canvas rect during
-  // render forces a synchronous layout of the whole board on each commit.
   if (
     !active &&
     !draftPin &&
@@ -2895,9 +2890,9 @@ function ReviewImageAttachments({
       <Button
         type="button"
         variant="ghost"
-        size="icon"
+        size="icon-sm"
         data-review-attachment-button
-        className="size-8 text-muted-foreground"
+        className="text-muted-foreground"
         disabled={
           disabled ||
           uploading ||
@@ -2988,7 +2983,7 @@ function DraftComposer({
         type="button"
         size="sm"
         variant={initialAgentMode === "preview" ? "default" : "outline"}
-        className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
+        className="min-w-0 flex-1 gap-1.5 rounded-e-none"
         disabled={busy || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
       >
@@ -3005,7 +3000,7 @@ function DraftComposer({
             type="button"
             size="sm"
             variant={initialAgentMode === "preview" ? "default" : "outline"}
-            className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
+            className="shrink-0 rounded-s-none border-s-0 px-2"
             disabled={busy}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
           >

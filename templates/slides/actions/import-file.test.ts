@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockWorkflowsEnabled = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: mockWorkflowsEnabled,
+}));
+beforeEach(() => {
+  mockWorkflowsEnabled.mockResolvedValue(true);
+});
+
 const mockReadUserUploadedFile = vi.hoisted(() => vi.fn());
 const mockPdfText = vi.hoisted(() => vi.fn());
 const mockPdfScreenshot = vi.hoisted(() => vi.fn());
@@ -196,6 +204,7 @@ beforeEach(() => {
 
 describe("import-file PDF source extraction", () => {
   it("reopens a private raster reference as a vision tool result", async () => {
+    mockWorkflowsEnabled.mockResolvedValue(false);
     const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     mockReadUserUploadedFile.mockResolvedValue({
       data: image,
@@ -206,6 +215,7 @@ describe("import-file PDF source extraction", () => {
       filePath: "private-reference.png",
       format: "image",
     })) as any;
+    expect(mockWorkflowsEnabled).not.toHaveBeenCalled();
 
     expect(result).toMatchObject({
       format: "image",
@@ -416,6 +426,57 @@ describe("import-file PDF source extraction", () => {
     expect(updatedDeck.sourceImport.slides[0].editableText).toBe(true);
   });
 
+  it("uses the uploaded filename when the extracted PDF title is corrupted", async () => {
+    mockPdfText.mockResolvedValue({
+      pages: [{ num: 1, text: "Ùæx :\nQuarterly data" }],
+    });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        widthEmu: 9144000,
+        heightEmu: 5143500,
+        backgroundColor: "#ffffff",
+        elements: [{ kind: "text", content: "Ùæx :" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue({ rowsAffected: 1 });
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Imported deck",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("%PDF-1.7\n"),
+      filename: "CPC_2425_A1_reference.pdf",
+    });
+
+    const result = (await action.run({
+      filePath: "source.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result.title).toBe("CPC_2425_A1_reference");
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    expect(JSON.parse(updateCall.data).title).toBe("CPC_2425_A1_reference");
+  });
+
   it("keeps every PDF page when text extraction omits a page", async () => {
     mockPdfText.mockResolvedValue({
       pages: [
@@ -534,7 +595,6 @@ describe("import-file PDF source extraction", () => {
     mockParsePdfFidelity.mockResolvedValue([
       {
         pageNumber: 1,
-        // 10in x 7.5in in EMU (914400 EMU/in) — the standard 4:3 PPTX page.
         widthEmu: 9144000,
         heightEmu: 6858000,
         backgroundColor: undefined,
@@ -631,12 +691,6 @@ describe("import-file PDF source extraction", () => {
     });
   });
 
-  /**
-   * The deck's own theme palette/fonts are what `export-pptx` writes back
-   * into a generated PPTX's `ppt/theme/theme1.xml`. `parsePptx` returns it,
-   * but nothing used to persist it onto `decks.data`, so every imported deck
-   * exported with the stock Office palette instead of its own.
-   */
   function pptxDeckHarness(existingSlides: unknown[], existingData = {}) {
     mockParsePptx.mockResolvedValue({
       title: "Themed deck",
@@ -727,6 +781,20 @@ describe("import-file PDF source extraction", () => {
       colorsByName: { accent1: "#123456" },
       fonts: ["Georgia"],
     });
+  });
+
+  it("blocks only .fig indexing when design system workflows are off", async () => {
+    mockWorkflowsEnabled.mockResolvedValue(false);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: Buffer.from("fixture"),
+      filename: "brand.fig",
+    });
+    await expect(action.run({ filePath: "brand.fig" })).rejects.toMatchObject({
+      errorCode: "design_system_workflows_disabled",
+      statusCode: 403,
+    });
+    expect(mockStartBuilderDesignSystemIndex).not.toHaveBeenCalled();
+    expect(mockUpsertBuilderProxyDesignSystem).not.toHaveBeenCalled();
   });
 
   it("starts Builder indexing for .fig files", async () => {

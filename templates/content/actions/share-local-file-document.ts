@@ -1,5 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -86,18 +87,51 @@ export default defineAction({
     }),
   },
   run: async ({ id }) => {
-    if (!isLocalFileDocumentId(id)) {
-      throw new Error("Only local file documents can be upgraded for sharing.");
-    }
-
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
-    const localDocument = await getLocalFileDocument(id);
-    const sourcePath = localDocumentPathFromId(id);
-    const now = new Date().toISOString();
     const orgId = getRequestOrgId() ?? null;
+    const organizationFilter = orgId
+      ? eq(schema.documents.orgId, orgId)
+      : isNull(schema.documents.orgId);
     const db = getDb();
+    const localDocument = isLocalFileDocumentId(id)
+      ? await getLocalFileDocument(id)
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, userEmail),
+              organizationFilter,
+              eq(schema.documents.sourceMode, "local-files"),
+              eq(schema.documents.sourceKind, "file"),
+              isNull(schema.documents.trashedAt),
+            ),
+          )
+          .limit(1)
+          .then(
+            ([row]) =>
+              row && {
+                title: row.title,
+                content: row.content,
+                icon: row.icon,
+                isFavorite: parseDocumentFavorite(row.isFavorite),
+                hideFromSearch: parseDocumentHideFromSearch(row.hideFromSearch),
+                source: serializeDocumentSource(row),
+              },
+          );
+    if (!localDocument) {
+      throw new Error("Only local file documents can be upgraded for sharing.");
+    }
+    const sourcePath = isLocalFileDocumentId(id)
+      ? localDocumentPathFromId(id)
+      : localDocument.source?.path;
+    if (!sourcePath) {
+      throw new Error("The local file document has no source path.");
+    }
+    const now = new Date().toISOString();
     const provisioned = await provisionContentSpaces(db, userEmail);
     const targetSpaceId = orgId
       ? organizationContentSpaceId(orgId)
@@ -114,9 +148,13 @@ export default defineAction({
       .where(
         and(
           eq(schema.documents.ownerEmail, userEmail),
+          organizationFilter,
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
+          localDocument.source?.rootPath
+            ? eq(schema.documents.sourceRootPath, localDocument.source.rootPath)
+            : isNull(schema.documents.sourceRootPath),
           or(
             eq(schema.documents.spaceId, targetSpaceId),
             isNull(schema.documents.spaceId),
@@ -133,7 +171,10 @@ export default defineAction({
           title: localDocument.title,
           content: localDocument.content,
           bodyRevision: bodyRevisionForContent(localDocument.content),
-          icon: localDocument.icon,
+          icon:
+            typeof localDocument.icon === "string"
+              ? localDocument.icon
+              : serializeIconValue(parseIconValue(localDocument.icon)),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
           sourceRootPath: localDocument.source?.rootPath ?? null,
@@ -182,7 +223,10 @@ export default defineAction({
           parentId: null,
           title: localDocument.title,
           content: localDocument.content,
-          icon: localDocument.icon,
+          icon:
+            typeof localDocument.icon === "string"
+              ? localDocument.icon
+              : serializeIconValue(parseIconValue(localDocument.icon)),
           position: nextAppendPosition(maxPosition),
           isFavorite: localDocument.isFavorite ? 1 : 0,
           hideFromSearch: localDocument.hideFromSearch ? 1 : 0,

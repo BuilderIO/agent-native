@@ -282,6 +282,7 @@ const mocks = vi.hoisted(() => {
       return { rowsAffected: 1 };
     }),
   };
+  const track = vi.fn();
 
   const tableRows = (tableRef: Row) => {
     if (tableRef === schema.brainSources) return rows.sources;
@@ -533,6 +534,7 @@ const mocks = vi.hoisted(() => {
     queueClaimRowsAffected,
     audienceHook,
     dbExec,
+    track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
     settings: {
@@ -557,6 +559,8 @@ vi.mock("@agent-native/core/db", () => ({
   createGetDb: () => () => mocks.db,
   getDbExec: () => mocks.dbExec,
 }));
+
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 
 vi.mock("@agent-native/core/db/schema", () => ({
   boolean: (name: string) => ({
@@ -621,6 +625,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => mocks.userEmail,
   getRequestOrgId: () => mocks.orgId,
+  getRequestContext: () => undefined,
   runWithRequestContext: async (_context: Row, fn: () => Promise<unknown>) =>
     fn(),
 }));
@@ -644,6 +649,13 @@ vi.mock("h3", () => ({
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: vi.fn(async () => "test-token"),
+  resolveCredentialDetailed: vi.fn(
+    async (_key: string, ctx: { userEmail: string }) => ({
+      value: "test-token",
+      scope: "user",
+      scopeId: ctx.userEmail,
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
@@ -661,9 +673,28 @@ vi.mock("@agent-native/core/settings", () => ({
   putSetting: vi.fn(async (_key: string, value: typeof mocks.settings) => {
     mocks.settings = { ...mocks.settings, ...value };
   }),
+  // Mirrors the store's compare-and-swap: a write lands only when the row is
+  // still the one the updater read, otherwise the updater reruns.
+  mutateSetting: vi.fn(
+    async (
+      _key: string,
+      updater: (
+        current: typeof mocks.settings,
+      ) => typeof mocks.settings | Promise<typeof mocks.settings>,
+    ) => {
+      for (;;) {
+        const snapshot = mocks.settings;
+        const next = await updater(snapshot);
+        if (mocks.settings !== snapshot) continue;
+        mocks.settings = next;
+        return next;
+      }
+    },
+  ),
 }));
 
 vi.mock("./audiences.js", () => ({
+  refreshSlackPrivateChannelAudience: vi.fn(async () => undefined),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -754,6 +785,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import { mutateSetting, putSetting } from "@agent-native/core/settings";
+
 import claimDistillationAction from "../../actions/claim-distillation.js";
 import getCaptureAction from "../../actions/get-capture.js";
 import { buildPilotTrustLane } from "../../actions/get-pilot-report.js";
@@ -762,7 +795,10 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import { ensureCaptureAudience } from "./audiences.js";
+import {
+  ensureCaptureAudience,
+  refreshSlackPrivateChannelAudience,
+} from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -776,6 +812,7 @@ import {
   setKnowledgeCanonicalResource,
   sha256Hex,
   validateEvidence,
+  writeBrainSettings,
   writeKnowledgeRecord,
 } from "./brain.js";
 import { buildSanitizerSystemPrompt } from "./capture-sanitization.js";
@@ -783,6 +820,7 @@ import {
   isSlackDirectConversation,
   normalizeSlackThreadCapture,
   normalizeGranolaNote,
+  refreshSlackThreadCapture,
   runConnectorSync,
   runSlackPilot,
   testSlackConnection,
@@ -792,6 +830,7 @@ import { enqueueCaptureInvalidation } from "./ingest-queue.js";
 
 function resetMocks() {
   vi.clearAllMocks();
+  mocks.track.mockReset();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.rows.audiences.push({
@@ -1825,6 +1864,31 @@ describe("Brain knowledge quality gates", () => {
       audienceId: "aud_org",
       audienceAclHash: "acl-hash",
     });
+  });
+
+  it("keeps saved knowledge successful when creation telemetry throws", async () => {
+    seedSource();
+    seedCapture();
+    mocks.track.mockImplementationOnce(() => {
+      throw new Error("tracking unavailable");
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      proposalMode: "never",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.knowledge).toHaveLength(1);
+    expect(mocks.track).toHaveBeenCalledOnce();
   });
 
   it("keeps auto-redacted knowledge unpublished when its evidence source opts out of review", async () => {
@@ -3672,6 +3736,259 @@ describe("Brain connector smoke coverage", () => {
     ).toEqual(segments.map((segment) => segment.text));
   });
 
+  it("refreshes private-channel membership even when no new messages exist", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: ["U123", "U456"] });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        const email =
+          url.searchParams.get("user") === "U123"
+            ? "ada@example.test"
+            : "grace@example.test";
+        return Response.json({ ok: true, user: { profile: { email } } });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({ ok: true, messages: [], has_more: false });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-idle-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
+      source,
+      channelId: "G123",
+      memberEmails: ["ada@example.test", "grace@example.test"],
+    });
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an idle audience with a revoked Slack member removed", async () => {
+    let memberIds = ["U123", "U456"];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: memberIds });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        const email =
+          url.searchParams.get("user") === "U123"
+            ? "ada@example.test"
+            : "grace@example.test";
+        return Response.json({ ok: true, user: { profile: { email } } });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        return Response.json({ ok: true, messages: [], has_more: false });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-revoked-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    await runConnectorSync(source as never);
+    memberIds = ["U123"];
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
+      [
+        {
+          source,
+          channelId: "G123",
+          memberEmails: ["ada@example.test", "grace@example.test"],
+        },
+      ],
+      [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
+    ]);
+  });
+
+  it.each([
+    ["bot-only", ["UBOT"]],
+    ["empty", []],
+  ])(
+    "revokes a private audience with a verified %s roster",
+    async (label, removedIds) => {
+      let memberIds = ["U123"];
+      const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({
+            ok: true,
+            channel: {
+              id: "G123",
+              name: "leadership",
+              is_group: true,
+              is_private: true,
+              is_archived: false,
+            },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.members")) {
+          return Response.json({ ok: true, members: memberIds });
+        }
+        if (url.pathname.endsWith("/users.info")) {
+          return Response.json({
+            ok: true,
+            user:
+              url.searchParams.get("user") === "UBOT"
+                ? { is_bot: true }
+                : { profile: { email: "ada@example.test" } },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          return Response.json({ ok: true, messages: [], has_more: false });
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      });
+      vi.stubGlobal("fetch", fetchSpy);
+      const source = seedSource({
+        id: `slack-private-${label}-source`,
+        provider: "slack",
+        configJson: JSON.stringify({ channelIds: ["G123"] }),
+      });
+
+      await runConnectorSync(source as never);
+      memberIds = removedIds;
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({
+        status: "success",
+        capturesCreated: 0,
+        stats: { rejectedChannels: 1 },
+      });
+      expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
+        [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
+        [{ source, channelId: "G123", memberEmails: [] }],
+      ]);
+      expect(ensureCaptureAudience).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["unresolved email", { members: ["U123"] }],
+    ["missing roster", {}],
+  ])("does not refresh a private audience with %s", async (_label, roster) => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, ...roster });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        return Response.json({ ok: true, user: { profile: {} } });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-unresolved-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 0,
+      stats: { rejectedChannels: 1 },
+    });
+    expect(refreshSlackPrivateChannelAudience).not.toHaveBeenCalled();
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
+  });
+
+  it("revokes a verified empty audience during thread-only refresh", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(requestString(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "G123",
+            name: "leadership",
+            is_group: true,
+            is_private: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.members")) {
+        return Response.json({ ok: true, members: ["UBOT"] });
+      }
+      if (url.pathname.endsWith("/users.info")) {
+        return Response.json({ ok: true, user: { is_bot: true } });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-private-thread-empty-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+
+    await expect(
+      refreshSlackThreadCapture(
+        source as never,
+        JSON.stringify({ channelId: "G123", threadTs: "1770919200.000100" }),
+      ),
+    ).rejects.toThrow("no human members");
+    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
+      source,
+      channelId: "G123",
+      memberEmails: [],
+    });
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
+  });
+
   it("paginates private Slack membership before deriving the member-scoped audience", async () => {
     const membershipCursors: Array<string | null> = [];
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
@@ -5115,5 +5432,45 @@ describe("Brain demo eval", () => {
     expect(mocks.rows.sources).toHaveLength(1);
     expect(mocks.rows.captures).toHaveLength(6);
     expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+});
+
+describe("writeBrainSettings", () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it("keeps both of two overlapping one-field saves", async () => {
+    // A plain read-then-overwrite loses the first save under these semantics.
+    const overwrite = async (_key: string, value: Record<string, unknown>) => {
+      mocks.settings = value as typeof mocks.settings;
+    };
+    vi.mocked(putSetting)
+      .mockImplementationOnce(overwrite)
+      .mockImplementationOnce(overwrite);
+    await Promise.all([
+      writeBrainSettings({ requireCitations: false }),
+      writeBrainSettings({ autoArchiveResolved: false }),
+    ]);
+
+    expect(mocks.settings).toMatchObject({
+      requireCitations: false,
+      autoArchiveResolved: false,
+      distillationInstructions:
+        "Distill durable, reusable institutional knowledge. Preserve short direct quotes as evidence.",
+      connectorPollMinutes: 60,
+    });
+  });
+
+  it("fails the save instead of writing defaults when the read fails", async () => {
+    const before = mocks.settings;
+    vi.mocked(mutateSetting).mockRejectedValueOnce(
+      new Error("settings read failed"),
+    );
+
+    await expect(
+      writeBrainSettings({ requireCitations: false }),
+    ).rejects.toThrow("settings read failed");
+    expect(mocks.settings).toBe(before);
   });
 });

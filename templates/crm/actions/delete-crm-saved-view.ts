@@ -61,8 +61,6 @@ export default defineAction({
     await db
       .delete(schema.crmSavedViewShares)
       .where(eq(schema.crmSavedViewShares.resourceId, args.id));
-    // A dashboard-backed view keeps its data program: the program is a separate
-    // shareable resource that other views may reference.
     return { ...view, deleted: true };
   },
 });

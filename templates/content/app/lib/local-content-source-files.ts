@@ -1,3 +1,4 @@
+import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type { Document, DocumentSourceInfo } from "@shared/api";
 import {
   CONTENT_SOURCE_ROOT,
@@ -101,7 +102,6 @@ export type LinkedLocalSourceWatchResult =
   | { ok: false; error: string; unavailable?: boolean };
 
 export type LinkedLocalSourceWriteOptions = {
-  /** Opaque revision observed when the editor loaded the physical file. */
   expectedRevision?: string;
 };
 
@@ -427,7 +427,10 @@ export function sourceFileContent(document: Document, existingSource?: string) {
     title: document.title,
     content: document.content,
     description: document.description,
-    icon: document.icon,
+    icon:
+      typeof document.icon === "string"
+        ? document.icon
+        : serializeIconValue(parseIconValue(document.icon)),
     position: document.position,
     isFavorite: document.isFavorite,
     hideFromSearch: document.hideFromSearch,
@@ -629,10 +632,6 @@ export async function writeDocumentToLinkedLocalSource(
   };
 }
 
-/**
- * Subscribe only through an already-authorized Desktop grant. Browser folder
- * handles intentionally have no ambient watcher capability.
- */
 export async function watchLinkedLocalSource(
   source: DocumentSourceInfo | undefined,
   onChange: (change: LinkedLocalSourceChange) => void,

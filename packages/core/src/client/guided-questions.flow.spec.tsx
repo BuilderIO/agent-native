@@ -16,13 +16,6 @@ import {
   _resetChangeVersionStoreForTests,
 } from "./use-change-version.js";
 
-// The agent's `ask-question` action writes the guided-questions payload to a
-// per-tab application-state key (`guided-questions:<tabId>`) whenever the run
-// carries a browser tab id, which it almost always does. The client hook must
-// therefore read the scoped key first (falling back to the bare key) and clear
-// whichever key actually held the payload. These tests lock that contract so
-// the clarifying-question card cannot silently stop rendering again.
-
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
 }));
@@ -37,7 +30,6 @@ function keyFromUrl(url: string): string {
   return idx >= 0 ? url.slice(idx + STATE_PREFIX.length) : url;
 }
 
-/** Keys a read touched — one per single-key URL, several per batched URL. */
 function keysFromUrl(url: string): string[] {
   const idx = url.indexOf(BATCH_PREFIX);
   if (idx < 0) return [keyFromUrl(url)];
@@ -47,11 +39,6 @@ function keysFromUrl(url: string): string[] {
     .map(decodeURIComponent);
 }
 
-/**
- * Batched-read response. `lookup` returns the stored JSON string, or "" when
- * the key has never been written — which lands the key in `missing` rather
- * than in `values`, exactly as the server does.
- */
 function readResponse(url: string, lookup: (key: string) => string): Response {
   const values: Record<string, unknown> = {};
   const missing: string[] = [];
@@ -115,7 +102,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
     let latest: HookResult | null = null;
     function Harness() {
-      latest = useGuidedQuestionFlow(options);
+      latest = useGuidedQuestionFlow({
+        providerStatusChecksEnabled: false,
+        ...options,
+      });
       return null;
     }
     await act(async () => {
@@ -125,8 +115,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
         </QueryClientProvider>,
       );
     });
-    // The query resolves asynchronously and then `setPayload` triggers a
-    // re-render; pump microtasks/timers until the hook reports its questions.
     for (let i = 0; i < 20 && !latest?.questions; i += 1) {
       await flush();
     }
@@ -139,7 +127,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         seen.push(...keysFromUrl(String(input)));
-        // Only the scoped key holds the payload; the bare key is empty.
         return readResponse(String(input), (key) =>
           key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
         );
@@ -173,8 +160,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       refetchInterval: false,
     });
 
-    // The question renders from the bare key, and the hook must never probe a
-    // malformed `guided-questions:undefined` key when there is no tab id.
     expect(result.current().questions?.length).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
     const requestedKeys = fetchMock.mock.calls.flatMap((call) =>
@@ -184,9 +169,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(requestedKeys).not.toContain("guided-questions:undefined");
   });
 
-  // The per-tab key is shared by every chat in that browser tab, so an
-  // agent-written payload names the thread that asked. Without this the same
-  // card followed the user into every other conversation.
   it("hides a question asked in another chat", async () => {
     vi.stubGlobal(
       "fetch",
@@ -235,8 +217,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   });
 
   it("renders a payload with no threadId in any chat", async () => {
-    // Client-initiated `askUserQuestion` and deterministic writes are not
-    // thread-bound; they must keep rendering wherever the flow is mounted.
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) =>
@@ -300,6 +280,37 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
   });
 
+  it("confirms a question written after the caller's own trigger, without a DB-sync wakeup", async () => {
+    let hasQuestion = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), () =>
+          hasQuestion ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+    expect(result.current().questions).toBeNull();
+
+    hasQuestion = true;
+    let stillWaiting = false;
+    await act(async () => {
+      stillWaiting = await result.current().refetchPendingQuestion();
+    });
+
+    expect(stillWaiting).toBe(true);
+    for (let i = 0; i < 20 && !result.current().questions; i += 1) {
+      await flush();
+    }
+    expect(result.current().questions?.length).toBe(1);
+  });
+
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {
     let reads = 0;
     let resolveRefresh: (() => void) | null = null;
@@ -322,7 +333,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
     await act(async () => {
       bumpChangeVersion("app-state:guided-questions", 10);
-      // Reads are batched on a macrotask, so pump timers, not just microtasks.
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -438,10 +448,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
   });
 
-  // askUserQuestion() is the client-side twin of the agent's `ask-question`
-  // tool: it writes a payload carrying a `clientResolveId`, and the mounted
-  // hook resolves the caller's promise with the answer instead of forwarding
-  // it to the agent chat. These lock that round-trip.
   function appStateFetchMock(store: Map<string, string>) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const key = keyFromUrl(String(input));
@@ -469,11 +475,13 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       ],
       allowFreeText: false,
     });
-    await flush(); // let the PUT land in the store
+    await flush();
 
     const result = await renderFlow({
       stateKey: "guided-questions",
       queryKey: ["guided-questions"],
+      providerStatusChecksEnabled: true,
+      providerStatus: "missing",
       refetchInterval: false,
     });
     expect(result.current().questions?.length).toBe(1);
@@ -484,6 +492,34 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
 
     await expect(answer).resolves.toBe("medium");
+  });
+
+  it("blocks agent answers until provider status is configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      providerStatusChecksEnabled: true,
+      providerStatus: "missing",
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ q1: "7d" });
+      result.current().handleSkip();
+      await Promise.resolve();
+    });
+
+    expect(result.current().isSubmissionBlocked).toBe(true);
+    expect(sendToAgentChatMock).not.toHaveBeenCalled();
   });
 
   it("resolves null when the user skips", async () => {
@@ -556,6 +592,46 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(onSubmit).toHaveBeenCalledWith({ variant: "soft-cards" });
   });
 
+  it("disables question inputs and continuation controls while provider setup is required", async () => {
+    const onSubmit = vi.fn();
+    const onSkip = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              submitOnSelect: true,
+              options: [{ label: "Soft Cards", value: "soft-cards" }],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={onSkip}
+          isSubmissionBlocked
+          providerStatus="unavailable"
+        />,
+      );
+    });
+
+    const softCards = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes("Soft Cards"),
+    );
+    expect(container.querySelector("fieldset")?.disabled).toBe(true);
+    expect(container.textContent).toContain("Couldn't check AI connection.");
+
+    await act(async () => {
+      softCards?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
   it("submits selected option values as authoritative context", async () => {
     const selectedInstruction =
       'Keep "Command Deck" (variant-command-deck.html, file id file-command). Then call edit-design with fileId file-command.';
@@ -615,9 +691,6 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   });
 
   it("forwards the payload's submitContext to the continuation turn", async () => {
-    // The answer opens a fresh turn that inherits nothing from the turn that
-    // posed the card, so context the follow-up work needs (a linked design
-    // system, the original brief) has to travel on the payload itself.
     vi.stubGlobal(
       "fetch",
       appStateFetchMock(
@@ -705,5 +778,56 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       }),
     );
     expect(sendToAgentChatMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps guided questions available when correlated delivery is rejected", async () => {
+    let resolveDelivery!: (result: { delivered: boolean }) => void;
+    const onSubmitMessage = vi.fn(
+      () =>
+        new Promise<{ delivered: boolean }>((resolve) => {
+          resolveDelivery = resolve;
+        }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              questions: [
+                {
+                  id: "format",
+                  type: "text-options",
+                  question: "Which format should I use?",
+                  options: [{ label: "Summary", value: "summary" }],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+      onSubmitMessage,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ format: "A concise memo" });
+      await Promise.resolve();
+    });
+    expect(result.current().questions).toHaveLength(1);
+    expect(result.current().isSubmitting).toBe(true);
+
+    await act(async () => {
+      resolveDelivery({ delivered: false });
+      await Promise.resolve();
+    });
+    expect(result.current().questions).toHaveLength(1);
+    expect(result.current().isSubmitting).toBe(false);
   });
 });

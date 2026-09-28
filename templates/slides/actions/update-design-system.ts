@@ -30,9 +30,6 @@ export default defineAction({
       ),
   }),
   run: async ({ id, title, description, data, assets, customInstructions }) => {
-    // Validate that data/assets are valid JSON, and that data has the shape
-    // the Design Systems page and slide renderers read unconditionally
-    // (data.colors.*, data.typography.*) — see create-design-system.ts.
     if (data !== undefined) {
       let parsedData: unknown;
       try {

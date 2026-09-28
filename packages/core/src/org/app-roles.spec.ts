@@ -30,8 +30,6 @@ import {
 
 const CALLER = { userEmail: "ae@acme.com", orgId: "org1" };
 
-// The registry is module-level and rejects a second descriptor for the same
-// appId, so every `defineAppRoles` call in this file needs its own id.
 let idSeq = 0;
 const uniqueAppId = (label: string) => `${label}-${++idSeq}`;
 
@@ -43,23 +41,17 @@ function defineTestRoles(overrides: Partial<{ defaultRole: "member" }> = {}) {
   });
 }
 
-/** One row shape from the membership + assignment join. */
 const joinRow = (...roles: string[]) => ({ rows: [{ roles }] });
 
 describe("app roles", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockExecute.mockResolvedValue({ rows: [] });
-    // Ambient request context is empty unless a test opts in, so a caller
-    // passed as `{ userEmail: null }` cannot silently inherit an identity.
     mockGetRequestUserEmail.mockReturnValue(undefined);
     mockGetRequestOrgId.mockReturnValue(undefined);
   });
 
   describe("guards deny an unassigned member", () => {
-    // The load-bearing one: `defaultRole` is a display value. If it satisfied a
-    // guard, "nobody assigned this person" and "this person was granted the
-    // role" would be the same answer.
     it("requireAny rejects an org member with no assignment even when a defaultRole is declared", async () => {
       const access = defineAppRoles({
         appId: uniqueAppId("coach-default"),
@@ -105,8 +97,6 @@ describe("app roles", () => {
   describe("a stale assignment cannot authorize", () => {
     it("denies a caller who is not in org_members for the active org", async () => {
       const access = defineTestRoles();
-      // The join drives off org_members, so a leftover app_member_roles row for
-      // this email+org produces no result set at all.
       mockExecute.mockResolvedValueOnce({ rows: [] });
 
       expect(await access.resolve(CALLER)).toEqual({
@@ -452,8 +442,6 @@ describe("app roles", () => {
   });
 
   describe("an explicitly absent identity is not an unspecified one", () => {
-    // A system/cron caller that declares it has no user must not authorize as
-    // whichever request happens to be on the stack.
     it("does not fall back to ambient identity when userEmail is null", async () => {
       mockGetRequestUserEmail.mockReturnValue("someone-else@acme.com");
       mockGetRequestOrgId.mockReturnValue("org1");
