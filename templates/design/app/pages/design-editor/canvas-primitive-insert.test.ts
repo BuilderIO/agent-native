@@ -757,7 +757,32 @@ describe("pen path paint defaults", () => {
   );
 
   it.each(["polygon", "star"] as const)(
-    "updates %s path data and editable points when a draft is resized",
+    "updates %s draft polygon points when the preview is resized",
+    (kind) => {
+      const svg = new DOMParser()
+        .parseFromString(
+          '<svg xmlns="http://www.w3.org/2000/svg"><polygon points="0,0" /></svg>',
+          "image/svg+xml",
+        )
+        .querySelector<SVGSVGElement>("svg")!;
+
+      updateCanvasPolygonSvgGeometry(svg, kind, 100, 100);
+      const initialPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      updateCanvasPolygonSvgGeometry(svg, kind, 160, 60);
+
+      expect(svg.getAttribute("viewBox")).toBe("0 0 160 60");
+      const resizedPoints = svg
+        .querySelector(":scope > polygon")!
+        .getAttribute("points");
+      expect(resizedPoints).not.toBe(initialPoints);
+      expect(resizedPoints?.split(" ")[0]).toBe("80,0");
+    },
+  );
+
+  it.each(["polygon", "star"] as const)(
+    "updates %s path data and editable points when an inserted path is resized",
     (kind) => {
       const svg = new DOMParser()
         .parseFromString(

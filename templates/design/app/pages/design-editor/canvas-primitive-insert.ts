@@ -227,6 +227,16 @@ export function updateCanvasPolygonSvgGeometry(
 ): void {
   const safeWidth = Math.max(1, width);
   const safeHeight = Math.max(1, height);
+  svg.setAttribute("viewBox", `0 0 ${safeWidth} ${safeHeight}`);
+  const polygon = svg.querySelector<SVGPolygonElement>(":scope > polygon");
+  if (polygon) {
+    polygon.setAttribute(
+      "points",
+      polygonPointsForHtmlShape(kind, safeWidth, safeHeight),
+    );
+    return;
+  }
+
   const nodes = polygonPointsForHtmlShape(kind, safeWidth, safeHeight)
     .split(/\s+/)
     .map((pair) => {
@@ -234,7 +244,6 @@ export function updateCanvasPolygonSvgGeometry(
       return { point: { x: x!, y: y! } };
     });
   const path: PenPath = { closed: true, nodes };
-  svg.setAttribute("viewBox", `0 0 ${safeWidth} ${safeHeight}`);
   svg.setAttribute("data-an-pen-nodes", serializePenNodes(path));
   svg
     .querySelector<SVGPathElement>(":scope > path")
