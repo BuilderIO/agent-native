@@ -94,6 +94,7 @@ import {
   gmailBatchGetMessages,
   estimateRequestCost,
   gmailListHistory,
+  gmailWatch,
   googleFetch,
   registerGmailAccountToken,
 } from "./google-api.js";
@@ -126,6 +127,8 @@ describe("googleFetch quota handling", () => {
       "streak-token-b",
       "streak-token-c",
       "shared-owner-token",
+      "watch-abort-token",
+      "scheduled-send-cancel-token",
     ]) {
       registerGmailAccountToken(
         token,
@@ -221,6 +224,69 @@ describe("googleFetch quota handling", () => {
 
     await expect(request).rejects.toBe(controller.signal.reason);
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("aborts an in-flight Gmail watch renewal when its sweep signal is aborted", async () => {
+    let markStarted = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            throw new Error("Expected an AbortSignal in the Gmail request.");
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          markStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const request = gmailWatch(
+      "watch-abort-token",
+      "projects/example/topics/mail",
+      {
+        signal: controller.signal,
+      },
+    );
+    await requestStarted;
+    controller.abort();
+
+    await expect(request).rejects.toBe(controller.signal.reason);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
+  it("rolls back a send claim if cancellation wins before the provider request starts", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const onRequestStart = vi.fn(async () => {
+      controller.abort();
+    });
+    const onRequestCancelled = vi.fn(async () => {});
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "scheduled-send-cancel-token",
+        {
+          method: "POST",
+          signal: controller.signal,
+          onRequestStart,
+          onRequestCancelled,
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(onRequestStart).toHaveBeenCalledOnce();
+    expect(onRequestCancelled).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("preserves the final 503 error body after read retries are exhausted", async () => {

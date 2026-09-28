@@ -42,6 +42,7 @@ export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
 const INBOX_THREADS_STALE_TIME_MS = Infinity;
+const INBOX_THREADS_REQUEST_TIMEOUT_MS = 15_000;
 
 export type InboxOverview = Pick<
   ListInboxThreadsResult,
@@ -299,7 +300,11 @@ function fetchInboxThreads(
   return callActionWithRetry<ListInboxThreadsResult>(
     "list-inbox-threads",
     input,
-    { method: "GET", signal },
+    {
+      method: "GET",
+      signal,
+      timeoutMs: INBOX_THREADS_REQUEST_TIMEOUT_MS,
+    },
   ).then((data) => {
     const incoming = { ...data, clientSnapshotId };
     publishInboxOverview(qc, input.accountEmails, {

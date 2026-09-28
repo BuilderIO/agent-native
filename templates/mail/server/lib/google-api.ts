@@ -220,6 +220,23 @@ function waitWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+type GoogleFetchOptions = RequestInit & {
+  onRequestStart?: () => Promise<void>;
+  onRequestCancelled?: () => Promise<void>;
+};
+
+function makeGoogleRequestAggregateError(
+  errors: Iterable<unknown>,
+  message: string,
+): Error {
+  const NativeAggregateError = (
+    globalThis as unknown as {
+      AggregateError: new (errors: Iterable<unknown>, message: string) => Error;
+    }
+  ).AggregateError;
+  return new NativeAggregateError(errors, message);
+}
+
 async function markSuccessfulGmailRequest(
   accessToken: string,
   clearCooldown: boolean,
@@ -227,20 +244,25 @@ async function markSuccessfulGmailRequest(
   try {
     await markGmailQuotaSuccess(accessToken, clearCooldown);
   } catch (error) {
-    console.warn("[gmail-quota] Failed to clear cooldown after a successful request:", error);
+    console.warn(
+      "[gmail-quota] Failed to clear cooldown after a successful request:",
+      error,
+    );
   }
 }
 
 export async function googleFetch(
   url: string,
   accessToken: string,
-  opts?: RequestInit,
+  opts?: GoogleFetchOptions,
   lane: GmailQuotaLane = "interactive",
   allowUnregisteredProfile = false,
 ): Promise<any> {
-  const signal = opts?.signal ?? undefined;
+  const { onRequestStart, onRequestCancelled, ...requestOptions } = opts ?? {};
+  const signal = requestOptions.signal ?? undefined;
+  signal?.throwIfAborted();
   const maxRetries = 3;
-  const method = opts?.method?.toUpperCase() ?? "GET";
+  const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
   const gmailRequest = url.includes("gmail.googleapis.com");
 
@@ -264,13 +286,31 @@ export async function googleFetch(
       signal?.throwIfAborted();
     }
 
-    const headers = new Headers(opts?.headers);
+    if (onRequestStart) {
+      await onRequestStart();
+      if (signal?.aborted) {
+        try {
+          await onRequestCancelled?.();
+        } catch (releaseError) {
+          throw makeGoogleRequestAggregateError(
+            [signal.reason, releaseError],
+            "Google request was cancelled before dispatch and its claim could not be released.",
+          );
+        }
+        signal.throwIfAborted();
+      }
+    }
+
+    const headers = new Headers(requestOptions.headers);
     headers.set("Authorization", `Bearer ${accessToken}`);
-    const res = await fetch(url, { ...opts, headers });
+    const res = await fetch(url, { ...requestOptions, headers });
 
     if (res.status === 204) {
       if (gmailRequest) {
-        await markSuccessfulGmailRequest(accessToken, clearCooldownAfterSuccess);
+        await markSuccessfulGmailRequest(
+          accessToken,
+          clearCooldownAfterSuccess,
+        );
       }
       return null;
     }
@@ -429,11 +469,13 @@ export function gmailModifyThread(
   threadId: string,
   addLabelIds?: string[],
   removeLabelIds?: string[],
+  signal?: AbortSignal,
 ) {
   return googleFetch(`${GMAIL_BASE}/threads/${threadId}/modify`, accessToken, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addLabelIds, removeLabelIds }),
+    signal,
   });
 }
 
@@ -494,11 +536,12 @@ export function gmailGetThread(
   format?: string,
   metadataHeaders?: string[],
   lane: GmailQuotaLane = "interactive",
+  signal?: AbortSignal,
 ) {
   return googleFetch(
     `${GMAIL_BASE}/threads/${id}${metadataQs(format, metadataHeaders)}`,
     accessToken,
-    undefined,
+    { signal },
     lane,
   );
 }
@@ -631,7 +674,11 @@ export function gmailListHistory(
 export function gmailWatch(
   accessToken: string,
   topicName: string,
-  opts?: { labelIds?: string[]; labelFilterBehavior?: "include" | "exclude" },
+  opts?: {
+    labelIds?: string[];
+    labelFilterBehavior?: "include" | "exclude";
+    signal?: AbortSignal;
+  },
 ): Promise<{ historyId: string; expiration: string }> {
   return googleFetch(`${GMAIL_BASE}/watch`, accessToken, {
     method: "POST",
@@ -641,6 +688,7 @@ export function gmailWatch(
       labelIds: opts?.labelIds ?? ["INBOX"],
       labelFilterBehavior: opts?.labelFilterBehavior ?? "include",
     }),
+    signal: opts?.signal,
   });
 }
 

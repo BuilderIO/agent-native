@@ -399,6 +399,18 @@ CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
     },
     {
       version: 33,
+      name: "mail-scheduled-job-processing-leases",
+      sql: `ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_claim_id TEXT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS processing_lease_until BIGINT;
+ALTER TABLE scheduled_jobs ADD COLUMN IF NOT EXISTS send_started_at BIGINT;
+UPDATE scheduled_jobs
+  SET send_started_at = COALESCE(created_at, run_at, 0)
+  WHERE status = 'processing' AND type = 'send_later' AND send_started_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_processing_lease
+  ON scheduled_jobs(status, processing_lease_until, run_at, id);`,
+    },
+    {
+      version: 34,
       name: "mail-gmail-account-quota-budget",
       sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
     id TEXT PRIMARY KEY,
@@ -417,7 +429,7 @@ CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
   ON mail_gmail_quota_budgets(owner_email);`,
     },
     {
-      version: 34,
+      version: 35,
       name: "mail-inbox-id-reconciliation",
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;

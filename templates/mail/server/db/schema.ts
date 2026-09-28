@@ -34,6 +34,9 @@ export const scheduledJobs = table("scheduled_jobs", {
   })
     .notNull()
     .default("pending"),
+  processingClaimId: text("processing_claim_id"),
+  processingLeaseUntil: integer("processing_lease_until"),
+  sendStartedAt: integer("send_started_at"),
   createdAt: integer("created_at").notNull(),
 });
 

@@ -976,10 +976,10 @@ function LayersPanelImpl(
   useEffect(() => {
     if (!selectedScrollRowKey) return;
     const frame = window.requestAnimationFrame(() => {
-      rowElementRefs.current.get(selectedScrollRowKey)?.scrollIntoView({
-        block: "nearest",
-        inline: "nearest",
-      });
+      rowElementRefs.current
+        .get(selectedScrollRowKey)
+        ?.querySelector<HTMLElement>("[data-layer-row-name]")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [selectedScrollRowKey]);
@@ -1419,9 +1419,7 @@ function LayersPanelImpl(
             onPointerDown={handleScreenResizePointerDown}
             onPointerMove={handleScreenResizePointerMove}
             onPointerUp={stopScreenResize}
-          >
-            <span className="absolute inset-x-2 top-1/2 h-px -translate-y-1/2 bg-[var(--design-editor-panel-divider-color)] transition-colors group-hover:bg-[var(--design-editor-selection-color)]" />
-          </div>
+          ></div>
         ) : null}
 
         <div
@@ -2167,6 +2165,7 @@ const LayerRow = memo(function LayerRow({
               </span>
               {isRenaming ? (
                 <input
+                  data-layer-row-name
                   autoFocus
                   value={renameDraft}
                   onClick={(event) => event.stopPropagation()}
@@ -2198,6 +2197,7 @@ const LayerRow = memo(function LayerRow({
                 />
               ) : (
                 <span
+                  data-layer-row-name
                   className={cn(
                     "min-w-0 flex-1 truncate font-normal leading-4",
                     node.hidden ? "text-muted-foreground" : "text-foreground",

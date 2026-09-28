@@ -340,6 +340,7 @@ function getWatchTopic(): string | null {
 
 export async function startWatch(
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<{ historyId: string; expiration: string } | null> {
   const topic = getWatchTopic();
   if (!topic) return null;
@@ -347,9 +348,12 @@ export async function startWatch(
     const res = await gmailWatch(accessToken, topic, {
       labelIds: ["INBOX"],
       labelFilterBehavior: "include",
+      signal,
     });
     return res;
   } catch (err: any) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (err instanceof Error && err.name === "AbortError") throw err;
     console.warn(`[gmail-watch] start failed: ${err.message}`);
     return null;
   }

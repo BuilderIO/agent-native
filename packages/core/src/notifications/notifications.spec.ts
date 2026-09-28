@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockInsertNotification = vi.fn();
 const mockUpdateDeliveredChannels = vi.fn();
+const mockAddDeliveredChannel = vi.fn();
+const mockClaimNotificationDelivery = vi.fn();
+const mockMarkNotificationDeliveryDispatching = vi.fn();
+const mockMarkNotificationDeliveryUncertain = vi.fn();
+const mockCompleteNotificationDelivery = vi.fn();
+const mockReleaseNotificationDelivery = vi.fn();
+const mockListCompletedNotificationChannels = vi.fn();
+const mockNotificationIdForIdempotencyKey = vi.fn();
 const mockListNotifications = vi.fn();
 const mockCountUnread = vi.fn();
 const mockMarkNotificationRead = vi.fn();
@@ -9,6 +17,18 @@ const mockMarkAllNotificationsRead = vi.fn();
 const mockDeleteNotification = vi.fn();
 const mockEmit = vi.fn();
 const mockGetSession = vi.fn();
+const completedDeliveries = new Set<string>();
+const pendingDeliveries = new Map<string, string>();
+const dispatchingDeliveries = new Map<string, string>();
+const uncertainDeliveries = new Set<string>();
+
+function deliveryStateKey(
+  notificationId: string,
+  key: string,
+  kind = "channel",
+) {
+  return `${notificationId}\0${kind}\0${key}`;
+}
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -34,6 +54,21 @@ vi.mock("./store.js", () => ({
   insertNotification: (...args: unknown[]) => mockInsertNotification(...args),
   updateDeliveredChannels: (...args: unknown[]) =>
     mockUpdateDeliveredChannels(...args),
+  addDeliveredChannel: (...args: unknown[]) => mockAddDeliveredChannel(...args),
+  claimNotificationDelivery: (...args: unknown[]) =>
+    mockClaimNotificationDelivery(...args),
+  markNotificationDeliveryDispatching: (...args: unknown[]) =>
+    mockMarkNotificationDeliveryDispatching(...args),
+  markNotificationDeliveryUncertain: (...args: unknown[]) =>
+    mockMarkNotificationDeliveryUncertain(...args),
+  completeNotificationDelivery: (...args: unknown[]) =>
+    mockCompleteNotificationDelivery(...args),
+  releaseNotificationDelivery: (...args: unknown[]) =>
+    mockReleaseNotificationDelivery(...args),
+  listCompletedNotificationChannels: (...args: unknown[]) =>
+    mockListCompletedNotificationChannels(...args),
+  notificationIdForIdempotencyKey: (...args: unknown[]) =>
+    mockNotificationIdForIdempotencyKey(...args),
   listNotifications: (...args: unknown[]) => mockListNotifications(...args),
   countUnread: (...args: unknown[]) => mockCountUnread(...args),
   markNotificationRead: (...args: unknown[]) =>
@@ -89,6 +124,76 @@ describe("notifications registry", () => {
       createdAt: "2026-04-22T16:00:00.000Z",
       readAt: null,
     });
+    completedDeliveries.clear();
+    pendingDeliveries.clear();
+    dispatchingDeliveries.clear();
+    uncertainDeliveries.clear();
+    mockNotificationIdForIdempotencyKey.mockImplementation(
+      (owner: string, key: string) => `idem:${owner}:${key}`,
+    );
+    mockClaimNotificationDelivery.mockImplementation(
+      async (id: string, key: string, kind = "channel") => {
+        const stateKey = deliveryStateKey(id, key, kind);
+        if (
+          completedDeliveries.has(stateKey) ||
+          uncertainDeliveries.has(stateKey) ||
+          dispatchingDeliveries.has(stateKey) ||
+          pendingDeliveries.has(stateKey)
+        ) {
+          return undefined;
+        }
+        const token = `claim-${stateKey}`;
+        pendingDeliveries.set(stateKey, token);
+        return token;
+      },
+    );
+    mockMarkNotificationDeliveryDispatching.mockImplementation(
+      async (id: string, key: string, token: string, kind = "channel") => {
+        const stateKey = deliveryStateKey(id, key, kind);
+        if (pendingDeliveries.get(stateKey) !== token) {
+          throw new Error("claim token mismatch");
+        }
+        pendingDeliveries.delete(stateKey);
+        dispatchingDeliveries.set(stateKey, token);
+      },
+    );
+    mockCompleteNotificationDelivery.mockImplementation(
+      async (id: string, key: string, token: string, kind = "channel") => {
+        const stateKey = deliveryStateKey(id, key, kind);
+        if (dispatchingDeliveries.get(stateKey) !== token) {
+          throw new Error("claim token mismatch");
+        }
+        dispatchingDeliveries.delete(stateKey);
+        completedDeliveries.add(stateKey);
+      },
+    );
+    mockMarkNotificationDeliveryUncertain.mockImplementation(
+      async (id: string, key: string, token: string, kind = "channel") => {
+        const stateKey = deliveryStateKey(id, key, kind);
+        if (dispatchingDeliveries.get(stateKey) !== token) {
+          throw new Error("claim token mismatch");
+        }
+        dispatchingDeliveries.delete(stateKey);
+        uncertainDeliveries.add(stateKey);
+      },
+    );
+    mockReleaseNotificationDelivery.mockImplementation(
+      async (id: string, key: string, token: string, kind = "channel") => {
+        const stateKey = deliveryStateKey(id, key, kind);
+        if (pendingDeliveries.get(stateKey) === token) {
+          pendingDeliveries.delete(stateKey);
+        }
+        if (dispatchingDeliveries.get(stateKey) === token) {
+          dispatchingDeliveries.delete(stateKey);
+        }
+      },
+    );
+    mockListCompletedNotificationChannels.mockImplementation(
+      async (id: string) =>
+        Array.from(completedDeliveries)
+          .filter((key) => key.startsWith(`${id}\0channel\0`))
+          .map((key) => key.slice(`${id}\0channel\0`.length)),
+    );
   });
 
   describe("notify()", () => {
@@ -157,6 +262,148 @@ describe("notifications registry", () => {
       await expect(request).rejects.toBe(controller.signal.reason);
       expect(deliver).not.toHaveBeenCalled();
       expect(mockEmit).not.toHaveBeenCalled();
+    });
+
+    it("retries an idempotent inbox commit that finished just before abort", async () => {
+      let finishInsert!: (notification: {
+        id: string;
+        owner: string;
+        severity: "info";
+        title: string;
+        deliveredChannels: string[];
+        createdAt: string;
+        readAt: null;
+      }) => void;
+      mockInsertNotification.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishInsert = resolve;
+          }),
+      );
+      const deliver = vi.fn();
+      registerNotificationChannel({ name: "slack", deliver });
+      const controller = new AbortController();
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-1",
+      };
+      const request = notifyWithDelivery(
+        input,
+        { owner: "boni@local" },
+        {
+          signal: controller.signal,
+        },
+      );
+
+      await vi.waitFor(() => expect(finishInsert).toBeTypeOf("function"));
+      controller.abort();
+      finishInsert({
+        id: "n-1",
+        owner: "boni@local",
+        severity: "info",
+        title: "Mail arrived",
+        deliveredChannels: ["inbox"],
+        createdAt: "2026-09-28T16:00:00.000Z",
+        readAt: null,
+      });
+
+      await expect(request).rejects.toBe(controller.signal.reason);
+      expect(deliver).not.toHaveBeenCalled();
+      expect(mockEmit).not.toHaveBeenCalled();
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(mockEmit).toHaveBeenCalledTimes(1);
+      expect(mockEmit).toHaveBeenCalledWith(
+        "notification.sent",
+        expect.objectContaining({ notificationId: "n-1" }),
+        { owner: "boni@local" },
+      );
+    });
+
+    it("records channel and sent-event completion before returning an abort", async () => {
+      const controller = new AbortController();
+      const deliver = vi.fn(() => {
+        controller.abort();
+      });
+      registerNotificationChannel({ name: "slack", deliver });
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-2",
+      };
+
+      await expect(
+        notifyWithDelivery(
+          input,
+          { owner: "boni@local" },
+          {
+            signal: controller.signal,
+          },
+        ),
+      ).rejects.toMatchObject({ name: "AbortError" });
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(mockEmit).toHaveBeenCalledTimes(1);
+      expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
+        "idem:boni@local:mail-rule:rule-1:message-2",
+        "slack",
+        expect.any(String),
+      );
+      expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
+        "idem:boni@local:mail-rule:rule-1:message-2",
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+    });
+
+    it("skips completed idempotent channels and does not re-emit the sent event", async () => {
+      const deliver = vi.fn();
+      registerNotificationChannel({ name: "slack", deliver });
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-3",
+      };
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(mockEmit).toHaveBeenCalledTimes(1);
+    });
+
+    it("suppresses an idempotent retry after a channel throws during dispatch", async () => {
+      const deliver = vi.fn(async () => {
+        throw new Error("connection ended after the request was sent");
+      });
+      registerNotificationChannel({ name: "slack", deliver });
+      const input = {
+        severity: "critical" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-4",
+      };
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      const stateKey = deliveryStateKey(
+        "idem:boni@local:mail-rule:rule-1:message-4",
+        "slack",
+      );
+      expect(deliver).toHaveBeenCalledTimes(1);
+      expect(mockMarkNotificationDeliveryUncertain).toHaveBeenCalledTimes(1);
+      expect(uncertainDeliveries.has(stateKey)).toBe(true);
+      expect(mockReleaseNotificationDelivery).not.toHaveBeenCalledWith(
+        "idem:boni@local:mail-rule:rule-1:message-4",
+        "slack",
+        expect.any(String),
+      );
     });
 
     it("requires meta.owner", async () => {
@@ -267,10 +514,7 @@ describe("notifications registry", () => {
         expect.arrayContaining(["inbox", "pager"]),
       );
       expect(payload.deliveredChannels).not.toContain("slack");
-      expect(mockUpdateDeliveredChannels).toHaveBeenCalledWith(
-        "n-1",
-        expect.arrayContaining(["inbox", "pager"]),
-      );
+      expect(mockAddDeliveredChannel).toHaveBeenCalledWith("n-1", "pager");
     });
 
     it("truncates overlong titles + bodies", async () => {
