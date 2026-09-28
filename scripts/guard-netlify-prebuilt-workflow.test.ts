@@ -224,14 +224,13 @@ describe("Netlify PR preview workflow guard", () => {
     for (const site of previewEligibleSiteNames()) {
       assert.ok(
         previewConcurrencyGroup.includes(
-          `github.event.comment.body == '/preview ${site}' && '${site}'`,
+          `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
         ),
       );
     }
     assert.equal(previewDeploy.concurrency, undefined);
     assert.deepEqual(previewDeploy.permissions, { contents: "read" });
     assert.deepEqual(previewRevalidate.permissions, {
-      contents: "read",
       "pull-requests": "read",
     });
     assert.deepEqual(previewRevalidate.needs, ["authorize", "build"]);
@@ -259,7 +258,7 @@ describe("Netlify PR preview workflow guard", () => {
     );
     assert.deepEqual(previewJobs.cleanup.concurrency, {
       group:
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
       "cancel-in-progress": true,
     });
     const authorize = previewJobs.authorize;
@@ -360,16 +359,16 @@ describe("Netlify PR preview workflow guard", () => {
       ],
       ["issue_comment:", "workflow_dispatch:"],
       [
-        "github.event.comment.body == '/preview analytics' && 'analytics'",
-        "github.event.comment.body == '/preview analytics' && 'assets'",
+        "github.event.comment.body == '/preview analytics' && 'authorized-analytics'",
+        "github.event.comment.body == '/preview analytics' && 'authorized-assets'",
       ],
       [
-        'contains(fromJSON(\'["OWNER","MEMBER"]\'), github.event.comment.author_association)',
-        "false",
+        "github.event.comment.author_association == 'MEMBER'",
+        "github.event.comment.author_association == 'CONTRIBUTOR'",
       ],
       [
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
         "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}-invalid",
       ],
       ["cancel-in-progress: false", "cancel-in-progress: true"],
       ["cancel-in-progress: true", "cancel-in-progress: false"],

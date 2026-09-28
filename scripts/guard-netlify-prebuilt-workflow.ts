@@ -279,10 +279,11 @@ export function validateNetlifyPrPreviewWorkflow(
   const workflowConcurrency = asRecord(workflow.concurrency);
   const previewSiteConcurrency = previewEligibleSiteNames()
     .map(
-      (site) => `github.event.comment.body == '/preview ${site}' && '${site}'`,
+      (site) =>
+        `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
     )
     .join(" || ");
-  const expectedPreviewConcurrencyExpression = `contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;
+  const expectedPreviewConcurrencyExpression = `( github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' ) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;
   const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${expectedPreviewConcurrencyExpression} }}`;
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
@@ -458,10 +459,9 @@ export function validateNetlifyPrPreviewWorkflow(
       "needs.authorize.result == 'success'",
     ) ||
     !String(revalidate.if ?? "").includes("needs.build.result == 'success'") ||
-    revalidatePermissions?.contents !== "read" ||
     revalidatePermissions?.["pull-requests"] !== "read" ||
     Object.keys(revalidatePermissions ?? {}).some(
-      (permission) => !["contents", "pull-requests"].includes(permission),
+      (permission) => permission !== "pull-requests",
     ) ||
     !revalidateStep ||
     revalidateEnv?.PULL_REQUEST_NUMBER !==
@@ -633,7 +633,7 @@ export function validateNetlifyPrPreviewWorkflow(
     JSON.stringify(cleanupMatrix.site) !==
       JSON.stringify(previewEligibleSiteNames()) ||
     cleanupConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}" ||
     cleanupConcurrency["cancel-in-progress"] !== true ||
     !source.includes('--site "$SITE_NAME"')
   ) {

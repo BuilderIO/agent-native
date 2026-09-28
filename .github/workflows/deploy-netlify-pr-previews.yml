@@ -11,25 +11,28 @@ permissions:
   contents: read
 
 concurrency:
-  # Match each site so a different app's pending preview is not replaced.
+  # Separate authorized site requests from ignored comments before they queue.
   group: >-
     netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{
-      contains(fromJSON('["OWNER","MEMBER"]'), github.event.comment.author_association) &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER'
+      ) &&
       github.event.comment.user.type == 'User' &&
       (
-        github.event.comment.body == '/preview analytics' && 'analytics' ||
-        github.event.comment.body == '/preview assets' && 'assets' ||
-        github.event.comment.body == '/preview calendar' && 'calendar' ||
-        github.event.comment.body == '/preview clips' && 'clips' ||
-        github.event.comment.body == '/preview content' && 'content' ||
-        github.event.comment.body == '/preview design' && 'design' ||
-        github.event.comment.body == '/preview dispatch' && 'dispatch' ||
-        github.event.comment.body == '/preview forms' && 'forms' ||
-        github.event.comment.body == '/preview mail' && 'mail' ||
-        github.event.comment.body == '/preview plan' && 'plan' ||
-        github.event.comment.body == '/preview slides' && 'slides' ||
-        github.event.comment.body == '/preview starter' && 'starter' ||
-        github.event.comment.body == '/preview fw' && 'fw' ||
+        github.event.comment.body == '/preview analytics' && 'authorized-analytics' ||
+        github.event.comment.body == '/preview assets' && 'authorized-assets' ||
+        github.event.comment.body == '/preview calendar' && 'authorized-calendar' ||
+        github.event.comment.body == '/preview clips' && 'authorized-clips' ||
+        github.event.comment.body == '/preview content' && 'authorized-content' ||
+        github.event.comment.body == '/preview design' && 'authorized-design' ||
+        github.event.comment.body == '/preview dispatch' && 'authorized-dispatch' ||
+        github.event.comment.body == '/preview forms' && 'authorized-forms' ||
+        github.event.comment.body == '/preview mail' && 'authorized-mail' ||
+        github.event.comment.body == '/preview plan' && 'authorized-plan' ||
+        github.event.comment.body == '/preview slides' && 'authorized-slides' ||
+        github.event.comment.body == '/preview starter' && 'authorized-starter' ||
+        github.event.comment.body == '/preview fw' && 'authorized-fw' ||
         format('unrecognized-{0}', github.run_id)
       ) ||
       format('ignored-{0}', github.run_id)
@@ -172,7 +175,6 @@ jobs:
     if: needs.authorize.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: read
     steps:
       - name: Confirm the authorized PR head is still current
@@ -382,7 +384,7 @@ jobs:
           - starter
           - fw
     concurrency:
-      group: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}
+      group: netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
