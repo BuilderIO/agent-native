@@ -231,12 +231,17 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
       if (!claim) continue;
       const client = await getClientFromAccount({
         accountId: acc.accountEmail,
-        owner: ownerEmail,
+        owner: acc.oauthOwner ?? ownerEmail,
         tokens,
       });
       if (!client) throw new Error("No usable Google account token.");
       if (!(await startWatch(client.accessToken))) {
         throw new Error("Gmail did not start the watch.");
+      }
+      if (isDeadlineReached(context)) {
+        throw incompleteSweepError(
+          `Gmail watch renewal remains pending for ${acc.accountEmail}.`,
+        );
       }
       await completeWatchRenewal(acc.accountEmail, claim);
     } catch (error) {
@@ -255,9 +260,12 @@ async function renewAllWatches(context: RecurringSweepContext): Promise<void> {
             error,
             releaseError,
           );
+          if (context.signal?.aborted) context.signal.throwIfAborted();
           continue;
         }
       }
+      if (context.signal?.aborted) context.signal.throwIfAborted();
+      if (error instanceof Error && error.name === "AbortError") throw error;
       failures.push(error);
       console.warn(
         `[gmail-watch] renew failed for ${acc.accountEmail}:`,
@@ -348,16 +356,24 @@ async function processAutomations(
       if (!tokens) continue;
       const client = await getClientFromAccount({
         accountId: account.accountEmail,
-        owner: ownerEmail,
+        owner: account.oauthOwner ?? ownerEmail,
         tokens,
       });
       if (!client) continue;
+      if (isDeadlineReached(context)) {
+        throw incompleteSweepError(
+          `Mail automation remains pending for ${account.accountEmail}.`,
+        );
+      }
       await processAutomationsForAccount(
         ownerEmail,
         account.accountEmail,
         client.accessToken,
+        context.signal,
       );
     } catch (error) {
+      if (context.signal?.aborted) context.signal.throwIfAborted();
+      if (error instanceof Error && error.name === "AbortError") throw error;
       failures.push(error);
       console.error(
         `[mail-jobs] automation processing failed for ${account.accountEmail}:`,

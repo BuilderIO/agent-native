@@ -117,6 +117,48 @@ describe("notifications registry", () => {
       );
     });
 
+    it("does not deliver or emit after an inbox persist finishes after abort", async () => {
+      let finishInsert!: (notification: {
+        id: string;
+        owner: string;
+        severity: "info";
+        title: string;
+        deliveredChannels: string[];
+        createdAt: string;
+        readAt: null;
+      }) => void;
+      mockInsertNotification.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishInsert = resolve;
+          }),
+      );
+      const deliver = vi.fn();
+      registerNotificationChannel({ name: "slow", deliver });
+      const controller = new AbortController();
+      const request = notify(
+        { severity: "info", title: "Mail arrived" },
+        { owner: "boni@local" },
+        { signal: controller.signal },
+      );
+
+      await vi.waitFor(() => expect(finishInsert).toBeTypeOf("function"));
+      controller.abort();
+      finishInsert({
+        id: "n-1",
+        owner: "boni@local",
+        severity: "info",
+        title: "Mail arrived",
+        deliveredChannels: ["inbox"],
+        createdAt: "2026-09-28T16:00:00.000Z",
+        readAt: null,
+      });
+
+      await expect(request).rejects.toBe(controller.signal.reason);
+      expect(deliver).not.toHaveBeenCalled();
+      expect(mockEmit).not.toHaveBeenCalled();
+    });
+
     it("requires meta.owner", async () => {
       await expect(
         notify({ severity: "info", title: "x" }, { owner: "" }),

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Enforce recurring sweep deadlines and stop slow handlers from blocking durable background work.
+Enforce recurring sweep deadlines, cancel abandoned Mail work, and stop notification fanout after a sweep aborts.

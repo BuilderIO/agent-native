@@ -352,11 +352,19 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     });
     releasedRsvpClaims.delete(id);
   };
+  const throwIfAbortedAfterClaim = async (id: string, token?: string) => {
+    if (!signal?.aborted) return;
+    if (token) await releaseRsvpClaim(id, token);
+    signal.throwIfAborted();
+  };
 
   for (const [id, pending] of Object.entries(pendingRsvps)) {
     signal?.throwIfAborted();
     const claimToken = await claimPendingReconciliation(pending);
-    signal?.throwIfAborted();
+    await throwIfAbortedAfterClaim(
+      eventKey(pending.accountEmail, "primary", pending.eventId),
+      claimToken,
+    );
     if (!claimToken) continue;
     try {
       const event = await googleCalendar.getEvent(
@@ -376,11 +384,11 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
       delete pendingRsvps[id];
       resolvedPendingRsvps.add(id);
     } catch (error) {
-      signal?.throwIfAborted();
       await releaseRsvpClaim(
         eventKey(pending.accountEmail, "primary", pending.eventId),
         claimToken,
       );
+      signal?.throwIfAborted();
       pendingReconciliationErrors.push(
         error instanceof Error
           ? error
@@ -526,7 +534,10 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           occurredAt: new Date().toISOString(),
         };
         const claim = await claimPendingRsvp(entry, version);
-        signal?.throwIfAborted();
+        await throwIfAbortedAfterClaim(
+          identity,
+          releasedRsvpClaims.get(identity),
+        );
         if (claim === "claimed") {
           let currentEvent;
           try {
@@ -538,15 +549,25 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
               },
               { signal },
             );
-          } catch (error) {
             signal?.throwIfAborted();
+          } catch (error) {
             await releaseRsvpClaim(identity, releasedRsvpClaims.get(identity)!);
+            signal?.throwIfAborted();
             throw error;
           }
-          signal?.throwIfAborted();
-          const latestRules = (await getFreshCalendarSettings(owner))
-            .eventRules;
-          signal?.throwIfAborted();
+          let latestRules: ReturnType<
+            typeof normalizeCalendarSettings
+          >["eventRules"];
+          try {
+            latestRules = (await getFreshCalendarSettings(owner)).eventRules;
+            signal?.throwIfAborted();
+          } catch (error) {
+            if (!signal?.aborted) throw error;
+            const token = releasedRsvpClaims.get(identity);
+            if (token) await releaseRsvpClaim(identity, token);
+            signal.throwIfAborted();
+            throw error;
+          }
           for (const action of actions) {
             const prompt = rules[action as keyof typeof rules]?.trim();
             if (
@@ -619,13 +640,13 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         );
         signal?.throwIfAborted();
       } catch (error) {
-        signal?.throwIfAborted();
         for (const entry of activity) {
           if (entry.action === "hidden") continue;
           const key = eventKey(entry.accountEmail, calendarId, entry.eventId);
           const token = releasedRsvpClaims.get(key);
           if (token) await releaseRsvpClaim(key, token);
         }
+        signal?.throwIfAborted();
         throw error;
       }
       for (const entry of activity) {

@@ -78,6 +78,10 @@ const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTOMATION_POLL_LEASE_MS = 5 * 60 * 1000;
 
+function throwIfAborted(signal?: AbortSignal): void {
+  signal?.throwIfAborted();
+}
+
 interface StoredTokens {
   access_token: string;
   refresh_token?: string;
@@ -180,8 +184,12 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
   return tokens.access_token;
 }
 
-async function getWatermark(ownerEmail: string): Promise<Watermark> {
+async function getWatermark(
+  ownerEmail: string,
+  signal?: AbortSignal,
+): Promise<Watermark> {
   const data = await getUserSetting(ownerEmail, "automation-watermark");
+  throwIfAborted(signal);
   if (data && typeof data === "object") return data as unknown as Watermark;
   return { lastTimestamp: 0 };
 }
@@ -189,12 +197,19 @@ async function getWatermark(ownerEmail: string): Promise<Watermark> {
 async function setWatermark(
   ownerEmail: string,
   watermark: Watermark,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   await putUserSetting(ownerEmail, "automation-watermark", watermark as any);
+  throwIfAborted(signal);
 }
 
-async function getProcessedIds(ownerEmail: string): Promise<Set<string>> {
+async function getProcessedIds(
+  ownerEmail: string,
+  signal?: AbortSignal,
+): Promise<Set<string>> {
   const data = await getUserSetting(ownerEmail, "automation-processed-ids");
+  throwIfAborted(signal);
   if (data && typeof data === "object") {
     const stored = data as unknown as ProcessedIds;
     if (Date.now() - stored.updatedAt > PROCESSED_IDS_MAX_AGE_MS) {
@@ -208,12 +223,15 @@ async function getProcessedIds(ownerEmail: string): Promise<Set<string>> {
 async function saveProcessedIds(
   ownerEmail: string,
   ids: Set<string>,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const arr = [...ids].slice(-MAX_PROCESSED_IDS);
   await putUserSetting(ownerEmail, "automation-processed-ids", {
     ids: arr,
     updatedAt: Date.now(),
   } as any);
+  throwIfAborted(signal);
 }
 
 function pendingNotificationSettingKey(accountEmail: string): string {
@@ -251,11 +269,13 @@ function isPendingNotificationAction(
 async function getPendingNotificationActions(
   ownerEmail: string,
   accountEmail: string,
+  signal?: AbortSignal,
 ): Promise<PendingNotificationAction[]> {
   const value = await getUserSetting(
     ownerEmail,
     pendingNotificationSettingKey(accountEmail),
   );
+  throwIfAborted(signal);
   if (value === null || value === undefined) return [];
   if (!Array.isArray(value) || !value.every(isPendingNotificationAction)) {
     throw new Error("The saved Mail notification retries are unreadable.");
@@ -269,6 +289,7 @@ async function retryPendingNotificationActions(
   accessToken: string,
   processedIds: Set<string>,
   pendingActions: PendingNotificationAction[],
+  signal?: AbortSignal,
 ): Promise<{
   pendingActions: PendingNotificationAction[];
   errors: number;
@@ -279,6 +300,7 @@ async function retryPendingNotificationActions(
   const now = Date.now();
   let errors = 0;
   for (const action of pendingActions) {
+    throwIfAborted(signal);
     if (
       action.attempts >= MAX_PENDING_NOTIFICATION_ATTEMPTS ||
       now - action.createdAt >= MAX_PENDING_NOTIFICATION_AGE_MS
@@ -301,16 +323,19 @@ async function retryPendingNotificationActions(
   const failed: PendingNotificationAction[] = [];
   let successes = 0;
   for (const action of ready) {
+    throwIfAborted(signal);
     const result = await executeActions([{ type: "notify" }], {
       accessToken,
       messageId: action.messageId,
       ownerEmail,
       accountEmail,
       labelCache: new Map(),
+      signal,
       from: action.from,
       subject: action.subject,
       snippet: action.snippet,
     });
+    throwIfAborted(signal);
     if (result.failures > 0) {
       errors += result.failures;
       const attempts = action.attempts + 1;
@@ -336,6 +361,7 @@ async function retryPendingNotificationActions(
 
   const remaining = [...deferred, ...failed];
   if (pendingActions.length !== remaining.length || ready.length > 0) {
+    throwIfAborted(signal);
     await putUserSetting(
       ownerEmail,
       pendingNotificationSettingKey(accountEmail),
@@ -397,11 +423,13 @@ async function assertAutomationPollClaim(
   ownerEmail: string,
   accountEmail: string,
   claimToken: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const claim = await getUserSetting(
     ownerEmail,
     automationPollLeaseSettingKey(accountEmail),
   );
+  throwIfAborted(signal);
   if (
     claim?.claimToken !== claimToken ||
     typeof claim.leaseUntil !== "number" ||
@@ -417,9 +445,11 @@ async function refreshReceivedEventCursor(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
-  const profile = await gmailGetProfile(accessToken);
+  const profile = await gmailGetProfile(accessToken, signal);
+  throwIfAborted(signal);
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
   }
@@ -427,18 +457,26 @@ async function refreshReceivedEventCursor(
     lastHistoryId: profile.historyId,
     lastTimestamp: Date.now(),
   } as any);
+  throwIfAborted(signal);
 }
 
 async function emitNewReceivedEvents(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<number> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
   const storedWatermark = await getUserSetting(ownerEmail, watermarkKey);
+  throwIfAborted(signal);
   if (storedWatermark === null || storedWatermark === undefined) {
     // Do not replay the recent inbox on first poll; only subsequent arrivals start automations.
-    await refreshReceivedEventCursor(ownerEmail, accountEmail, accessToken);
+    await refreshReceivedEventCursor(
+      ownerEmail,
+      accountEmail,
+      accessToken,
+      signal,
+    );
     return 0;
   }
   if (
@@ -494,9 +532,11 @@ async function emitNewReceivedEvents(
     accountEmail,
     watermark,
     processedIds,
+    signal,
   );
 
   for (const message of messages) {
+    throwIfAborted(signal);
     await emitAsync(
       "mail.message.received",
       {
@@ -514,10 +554,13 @@ async function emitNewReceivedEvents(
         eventId: `mail.message.received:${accountEmail.trim().toLowerCase()}:${message.id}`,
       },
     );
+    throwIfAborted(signal);
     processedIds.add(message.id);
   }
 
+  throwIfAborted(signal);
   await putUserSetting(ownerEmail, watermarkKey, nextWatermark as any);
+  throwIfAborted(signal);
   await putUserSetting(
     ownerEmail,
     receivedEventSettingKey(accountEmail, "processed-ids"),
@@ -526,6 +569,7 @@ async function emitNewReceivedEvents(
       updatedAt: Date.now(),
     } as any,
   );
+  throwIfAborted(signal);
   if (fetchError) throw fetchError;
   return messages.length;
 }
@@ -565,7 +609,9 @@ async function fetchNewInboxMessages(
   accountEmail: string,
   watermark: Watermark,
   processedIds: Set<string>,
+  signal?: AbortSignal,
 ): Promise<{ messages: EmailSummary[]; watermark: Watermark; error?: Error }> {
+  throwIfAborted(signal);
   let messageIds = (watermark.pendingMessageIds || []).filter(
     (id) => !processedIds.has(id),
   );
@@ -586,14 +632,21 @@ async function fetchNewInboxMessages(
     while (messageIds.length < MAX_EMAILS_PER_RUN) {
       let history: any;
       try {
-        history = await gmailListHistory(accessToken, {
-          startHistoryId: watermark.lastHistoryId,
-          historyTypes: ["messageAdded"],
-          labelId: "INBOX",
-          maxResults: MAX_EMAILS_PER_RUN,
-          ...(pageToken ? { pageToken } : {}),
-        });
+        history = await gmailListHistory(
+          accessToken,
+          {
+            startHistoryId: watermark.lastHistoryId,
+            historyTypes: ["messageAdded"],
+            labelId: "INBOX",
+            maxResults: MAX_EMAILS_PER_RUN,
+            ...(pageToken ? { pageToken } : {}),
+          },
+          signal,
+        );
+        throwIfAborted(signal);
       } catch (err: any) {
+        if (signal?.aborted) signal.throwIfAborted();
+        if (err instanceof Error && err.name === "AbortError") throw err;
         if (pageToken) throw err;
         console.warn(
           "[automation-engine] History list failed, falling back to message list:",
@@ -671,7 +724,8 @@ async function fetchNewInboxMessages(
   if (fallbackToList || watermark.fallbackPageToken) {
     try {
       if (fallbackToList) {
-        const profile = await gmailGetProfile(accessToken);
+        const profile = await gmailGetProfile(accessToken, signal);
+        throwIfAborted(signal);
         if (typeof profile.historyId !== "string" || !profile.historyId) {
           throw new Error(
             "Gmail did not return a history cursor before listing.",
@@ -683,13 +737,18 @@ async function fetchNewInboxMessages(
           lastTimestamp: Date.now(),
         };
       }
-      const res = await gmailListMessages(accessToken, {
-        q: "in:inbox newer_than:3d",
-        maxResults: MAX_EMAILS_PER_RUN,
-        ...(watermark.fallbackPageToken
-          ? { pageToken: watermark.fallbackPageToken }
-          : {}),
-      });
+      const res = await gmailListMessages(
+        accessToken,
+        {
+          q: "in:inbox newer_than:3d",
+          maxResults: MAX_EMAILS_PER_RUN,
+          ...(watermark.fallbackPageToken
+            ? { pageToken: watermark.fallbackPageToken }
+            : {}),
+        },
+        signal,
+      );
+      throwIfAborted(signal);
       const listedMessageIds = new Set<string>();
       for (const message of res.messages || []) {
         if (typeof message?.id === "string") {
@@ -710,6 +769,8 @@ async function fetchNewInboxMessages(
       }
       nextWatermark.lastTimestamp = Date.now();
     } catch (err: any) {
+      if (signal?.aborted) signal.throwIfAborted();
+      if (err instanceof Error && err.name === "AbortError") throw err;
       console.error(
         "[automation-engine] Failed to list inbox messages or refresh history cursor:",
         err.message,
@@ -744,8 +805,12 @@ async function fetchNewInboxMessages(
       accessToken,
       messageIds,
       "metadata",
+      signal,
     );
+    throwIfAborted(signal);
   } catch (error) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (error instanceof Error && error.name === "AbortError") throw error;
     console.error(
       "[automation-engine] Failed to fetch Gmail message batch:",
       error,
@@ -771,9 +836,18 @@ async function fetchNewInboxMessages(
     const refills = await Promise.all(
       missing.map(async (id) => {
         try {
-          const data = await gmailGetMessage(accessToken, id, "metadata");
+          throwIfAborted(signal);
+          const data = await gmailGetMessage(
+            accessToken,
+            id,
+            "metadata",
+            signal,
+          );
+          throwIfAborted(signal);
           return { id, data };
         } catch (err: any) {
+          if (signal?.aborted) signal.throwIfAborted();
+          if (err instanceof Error && err.name === "AbortError") throw err;
           if (/^Google API error \(404\):/.test(err?.message || "")) {
             permanentlyMissingMessageIds.add(id);
             console.info(
@@ -1055,7 +1129,9 @@ async function evaluateRulesWithJev(
   ownerEmail: string,
   credentials: JevContextCredentials,
   legacyTypesafeApiKey?: string,
+  signal?: AbortSignal,
 ): Promise<Map<string, RuleMatch[]>> {
+  throwIfAborted(signal);
   const questionEntries = emails.flatMap((email, emailIndex) =>
     rules.map((rule, ruleIndex) => {
       const id = `q_${emailIndex}_${ruleIndex}`;
@@ -1106,19 +1182,27 @@ async function evaluateRulesWithJev(
   if (credentials.builderAuth && !legacyTypesafeApiKey) {
     try {
       payload = await requestJevThroughBuilder(credentials.builderAuth, body, {
+        ...(signal ? { signal } : {}),
         timeoutMs: 12_000,
       });
     } catch (error) {
+      if (signal?.aborted) signal.throwIfAborted();
+      if (error instanceof Error && error.name === "AbortError") throw error;
       if (!credentials.personalApiKey) throw error;
-      payload = await requestJevDirect(credentials.personalApiKey, body);
+      payload = await requestJevDirect(
+        credentials.personalApiKey,
+        body,
+        signal,
+      );
     }
   } else if (credentials.personalApiKey) {
-    payload = await requestJevDirect(credentials.personalApiKey, body);
+    payload = await requestJevDirect(credentials.personalApiKey, body, signal);
   } else if (legacyTypesafeApiKey) {
-    payload = await requestJevDirect(legacyTypesafeApiKey, body);
+    payload = await requestJevDirect(legacyTypesafeApiKey, body, signal);
   } else {
     throw new Error("Jev is not enabled.");
   }
+  throwIfAborted(signal);
   if (
     !payload.answers ||
     typeof payload.answers !== "object" ||
@@ -1144,6 +1228,7 @@ async function evaluateRulesWithJev(
       console.warn("[automation-engine] Jev usage recording failed:", error);
     }
   }
+  throwIfAborted(signal);
 
   const results = new Map<string, RuleMatch[]>(
     emails.map((email) => [
@@ -1190,7 +1275,9 @@ async function evaluateRules(
   aiFilterState?: AiFilterState,
   jevCredentials?: JevContextCredentials,
   legacyTypesafeApiKey?: string,
+  signal?: AbortSignal,
 ): Promise<Map<string, RuleMatch[]>> {
+  throwIfAborted(signal);
   const results = new Map<string, RuleMatch[]>(
     emails.map((email) => [
       aiPriorityEmailKey(email.accountEmail, email.id),
@@ -1219,6 +1306,7 @@ async function evaluateRules(
       ownerEmail,
       jevCredentials,
       legacyTypesafeApiKey,
+      signal,
     );
   }
 
@@ -1240,6 +1328,7 @@ async function evaluateRules(
       ),
     );
     for (let i = 0; i < emails.length; i += batchSize) {
+      throwIfAborted(signal);
       const batch = emails.slice(i, i + batchSize);
 
       const rulesText = ruleBatch
@@ -1287,7 +1376,8 @@ For each email, evaluate ALL rules shown above. Include one result for every rul
 
 Be precise: only mark a rule as matching if the email clearly fits the condition. When a condition mentions a specific sender, check the From field. When it mentions a topic or category, use the subject and snippet. Confidence must be between 0 and 1. Give a short reason for every match.`;
 
-      const text = await callModel(prompt, ownerEmail, modelSettings);
+      const text = await callModel(prompt, ownerEmail, modelSettings, signal);
+      throwIfAborted(signal);
 
       const jsonStr = text
         .replace(/```json?\n?/g, "")
@@ -1733,8 +1823,10 @@ async function runAutomationsForAccount(
   accountEmail: string,
   accessToken: string,
   claimToken: string,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
-  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
+  throwIfAborted(signal);
+  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken, signal);
   const result: ProcessResult = {
     accountEmail,
     messagesProcessed: 0,
@@ -1751,11 +1843,23 @@ async function runAutomationsForAccount(
       throw new Error("Could not refresh Mail event automation subscriptions.");
     }
     if (listSubscriptions("mail.message.received").length > 0) {
-      await emitNewReceivedEvents(ownerEmail, accountEmail, accessToken);
+      await emitNewReceivedEvents(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        signal,
+      );
     } else {
-      await refreshReceivedEventCursor(ownerEmail, accountEmail, accessToken);
+      await refreshReceivedEventCursor(
+        ownerEmail,
+        accountEmail,
+        accessToken,
+        signal,
+      );
     }
   } catch (error) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (error instanceof Error && error.name === "AbortError") throw error;
     console.error(
       `[automation-engine] Failed to emit received-mail events for ${accountEmail}:`,
       error,
@@ -1763,12 +1867,15 @@ async function runAutomationsForAccount(
     result.errors += 1;
   }
 
-  const watermark = await getWatermark(ownerEmail);
-  const processedIds = await getProcessedIds(ownerEmail);
+  throwIfAborted(signal);
+  const watermark = await getWatermark(ownerEmail, signal);
+  const processedIds = await getProcessedIds(ownerEmail, signal);
   let pendingNotifications = await getPendingNotificationActions(
     ownerEmail,
     accountEmail,
+    signal,
   );
+  throwIfAborted(signal);
   const committedNotifications = pendingNotifications.map((action) =>
     processedIds.has(action.messageId)
       ? { ...action, committed: true }
@@ -1781,11 +1888,13 @@ async function runAutomationsForAccount(
     )
   ) {
     pendingNotifications = committedNotifications;
+    throwIfAborted(signal);
     await putUserSetting(
       ownerEmail,
       pendingNotificationSettingKey(accountEmail),
       pendingNotifications as any,
     );
+    throwIfAborted(signal);
   }
   const retriedNotifications = await retryPendingNotificationActions(
     ownerEmail,
@@ -1793,12 +1902,15 @@ async function runAutomationsForAccount(
     accessToken,
     processedIds,
     pendingNotifications,
+    signal,
   );
+  throwIfAborted(signal);
   pendingNotifications = retriedNotifications.pendingActions;
   result.errors += retriedNotifications.errors;
   result.actionsExecuted += retriedNotifications.successes;
 
   const aiFilterState = await getAiFilterState(ownerEmail);
+  throwIfAborted(signal);
   const rules = (await loadActiveRules(ownerEmail, "mail")).filter(
     (rule) =>
       rule.kind !== "ai-filter" ||
@@ -1806,13 +1918,17 @@ async function runAutomationsForAccount(
         (rule.name !== AI_FILTER_RULE_NAME ||
           aiFilterState.feedback.length >= AI_FILTER_MIN_LEARNED_EXAMPLES)),
   );
+  throwIfAborted(signal);
   if (rules.length === 0) return result;
 
   const modelSettings = await getAutomationModelSettings(ownerEmail);
+  throwIfAborted(signal);
   let modelAccess: Awaited<ReturnType<typeof canUseAutomationModel>>;
   try {
     modelAccess = await canUseAutomationModel(ownerEmail, modelSettings);
   } catch (error) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (error instanceof Error && error.name === "AbortError") throw error;
     console.error(
       "[automation-engine] Model availability check failed:",
       error,
@@ -1820,6 +1936,7 @@ async function runAutomationsForAccount(
     result.errors += 1;
     return result;
   }
+  throwIfAborted(signal);
   if (!modelAccess.available) {
     result.errors += 1;
     return result;
@@ -1830,11 +1947,18 @@ async function runAutomationsForAccount(
     accountEmail,
     watermark,
     processedIds,
+    signal,
   );
+  throwIfAborted(signal);
 
   if (messages.length === 0) {
-    await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
-    await setWatermark(ownerEmail, nextWatermark);
+    await assertAutomationPollClaim(
+      ownerEmail,
+      accountEmail,
+      claimToken,
+      signal,
+    );
+    await setWatermark(ownerEmail, nextWatermark, signal);
     return result;
   }
 
@@ -1848,7 +1972,9 @@ async function runAutomationsForAccount(
     aiFilterState,
     modelAccess.jevCredentials,
     modelAccess.legacyTypesafeApiKey,
+    signal,
   );
+  throwIfAborted(signal);
   const pendingNotificationKeys = new Set(
     pendingNotifications.map((action) =>
       pendingNotificationActionKey(action.ruleId, action.messageId),
@@ -1857,12 +1983,19 @@ async function runAutomationsForAccount(
   let pendingNotificationsChanged = false;
 
   if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
-    await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
-    const labelCache = await buildLabelCache(accessToken);
+    await assertAutomationPollClaim(
+      ownerEmail,
+      accountEmail,
+      claimToken,
+      signal,
+    );
+    const labelCache = await buildLabelCache(accessToken, signal);
+    throwIfAborted(signal);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
 
     for (const [emailKey, matchedRules] of matches) {
+      throwIfAborted(signal);
       const message = messages.find(
         (candidate) =>
           aiPriorityEmailKey(candidate.accountEmail, candidate.id) === emailKey,
@@ -1871,6 +2004,7 @@ async function runAutomationsForAccount(
       const messageId = message.id;
 
       for (const matchedRule of matchedRules) {
+        throwIfAborted(signal);
         const ruleId = matchedRule.ruleId;
         const rule = rulesById.get(ruleId);
         if (!rule) continue;
@@ -1891,6 +2025,7 @@ async function runAutomationsForAccount(
           ownerEmail,
           accountEmail,
           labelCache,
+          signal,
           from: message.from,
           subject: message.subject,
           snippet: message.snippet,
@@ -1911,6 +2046,7 @@ async function runAutomationsForAccount(
               failures,
               failedActions = [],
             } = await executeActions(actions, ctx);
+            throwIfAborted(signal);
             result.actionsExecuted += successes;
             result.errors += failures;
             if (failedActions.some((action) => action.type === "notify")) {
@@ -1978,6 +2114,7 @@ async function runAutomationsForAccount(
           failures,
           failedActions = [],
         } = await executeActions(actions, ctx);
+        throwIfAborted(signal);
         result.actionsExecuted += successes;
         result.errors += failures;
         if (failedActions.some((action) => action.type === "notify")) {
@@ -2001,19 +2138,23 @@ async function runAutomationsForAccount(
       }
     }
 
+    throwIfAborted(signal);
     await recordAiFilterDecisions(ownerEmail, aiDecisions);
+    throwIfAborted(signal);
   }
 
   for (const message of messages) processedIds.add(message.id);
   if (pendingNotificationsChanged) {
+    throwIfAborted(signal);
     await putUserSetting(
       ownerEmail,
       pendingNotificationSettingKey(accountEmail),
       pendingNotifications as any,
     );
+    throwIfAborted(signal);
   }
-  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
-  await saveProcessedIds(ownerEmail, processedIds);
+  await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken, signal);
+  await saveProcessedIds(ownerEmail, processedIds, signal);
   const committedRetries = pendingNotifications.map((action) =>
     processedIds.has(action.messageId)
       ? { ...action, committed: true }
@@ -2025,13 +2166,15 @@ async function runAutomationsForAccount(
         action.committed !== pendingNotifications[index].committed,
     )
   ) {
+    throwIfAborted(signal);
     await putUserSetting(
       ownerEmail,
       pendingNotificationSettingKey(accountEmail),
       committedRetries as any,
     );
+    throwIfAborted(signal);
   }
-  await setWatermark(ownerEmail, nextWatermark);
+  await setWatermark(ownerEmail, nextWatermark, signal);
 
   return result;
 }
@@ -2040,7 +2183,9 @@ export async function processAutomationsForAccount(
   ownerEmail: string,
   accountEmail: string,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
+  throwIfAborted(signal);
   const claimToken = await claimAutomationPoll(ownerEmail, accountEmail);
   if (!claimToken) {
     return {
@@ -2052,11 +2197,13 @@ export async function processAutomationsForAccount(
     };
   }
   try {
+    throwIfAborted(signal);
     return await runAutomationsForAccount(
       ownerEmail,
       accountEmail,
       accessToken,
       claimToken,
+      signal,
     );
   } finally {
     try {
@@ -2070,17 +2217,24 @@ export async function processAutomationsForAccount(
   }
 }
 
-export async function processAutomations(ownerEmail?: string): Promise<{
+export async function processAutomations(
+  ownerEmail?: string,
+  signal?: AbortSignal,
+): Promise<{
   result: string;
   details: ProcessResult[];
 }> {
+  throwIfAborted(signal);
   const accounts = ownerEmail
     ? await listOAuthAccountsByOwner("google", ownerEmail)
     : await listOAuthAccounts("google");
+  throwIfAborted(signal);
   const details: ProcessResult[] = [];
 
   for (const account of accounts) {
+    throwIfAborted(signal);
     const accessToken = await getAccessToken(account.accountId);
+    throwIfAborted(signal);
     if (!accessToken) continue;
 
     const accountOwnerEmail =
@@ -2091,9 +2245,12 @@ export async function processAutomations(ownerEmail?: string): Promise<{
         accountOwnerEmail,
         account.accountId,
         accessToken,
+        signal,
       );
       details.push(result);
     } catch (err: any) {
+      if (signal?.aborted) signal.throwIfAborted();
+      if (err instanceof Error && err.name === "AbortError") throw err;
       console.error(
         `[automation-engine] Failed for ${account.accountId}:`,
         err.message,

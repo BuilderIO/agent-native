@@ -77,14 +77,18 @@ const MAX_BODY_LEN = 2000;
 export async function notify(
   input: NotificationInput,
   meta: NotificationMeta,
+  options?: { signal?: AbortSignal },
 ): Promise<Notification | undefined> {
-  return (await notifyWithDelivery(input, meta)).notification;
+  return (await notifyWithDelivery(input, meta, options)).notification;
 }
 
 export async function notifyWithDelivery(
   input: NotificationInput,
   meta: NotificationMeta,
+  options?: { signal?: AbortSignal },
 ): Promise<NotificationDeliveryResult> {
+  const signal = options?.signal;
+  signal?.throwIfAborted();
   if (!meta?.owner) {
     throw new Error("notify: meta.owner is required");
   }
@@ -102,6 +106,7 @@ export async function notifyWithDelivery(
 
   if (runInbox) {
     try {
+      signal?.throwIfAborted();
       stored = await insertNotification({
         owner: meta.owner,
         severity: input.severity,
@@ -112,17 +117,22 @@ export async function notifyWithDelivery(
       });
       delivered.push("inbox");
     } catch (err) {
+      if (signal?.aborted) signal.throwIfAborted();
       console.error("[notifications] inbox persist failed:", err);
     }
   }
 
+  // DbExec cannot cancel an in-flight INSERT, so stop before fan-out and event emission.
+  signal?.throwIfAborted();
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
+      signal?.throwIfAborted();
       const delivered = await channel.deliver(input, meta);
       if (delivered === false) return null;
       return channel.name;
     }),
   );
+  signal?.throwIfAborted();
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
       if (r.value) delivered.push(r.value);
@@ -137,6 +147,7 @@ export async function notifyWithDelivery(
   const hasExtraChannel = delivered.some((c) => c !== "inbox");
   if (stored && hasExtraChannel) {
     try {
+      signal?.throwIfAborted();
       await updateDeliveredChannels(stored.id, delivered);
       stored = { ...stored, deliveredChannels: delivered };
     } catch (err) {
@@ -145,6 +156,7 @@ export async function notifyWithDelivery(
   }
 
   if (delivered.length > 0) {
+    signal?.throwIfAborted();
     try {
       emitBusEvent(
         "notification.sent",

@@ -316,7 +316,7 @@ describe("Mail background job scheduling", () => {
       sync_account_id: null,
       owner_email: "alice@example.com",
       account_id: "mailbox@example.com",
-      oauth_owner: "alice@example.com",
+      oauth_owner: "Alice@Example.com",
     };
     mocks.oauthCandidateQuery
       .mockResolvedValueOnce({ rows: [candidate] })
@@ -347,8 +347,10 @@ describe("Mail background job scheduling", () => {
 
     const plugin = await loadMailJobsPlugin();
     plugin();
+    const signal = new AbortController().signal;
     await sweepHandlers.get("mail-background-jobs")!({
       deadlineAt: Date.now() + 60_000,
+      signal,
     });
 
     expect(mocks.ensureSyncAccountRow).toHaveBeenCalledOnce();
@@ -357,7 +359,39 @@ describe("Mail background job scheduling", () => {
       "mailbox@example.com",
     );
     expect(mocks.getOAuthTokens).toHaveBeenCalledTimes(2);
+    expect(mocks.getOAuthTokens).toHaveBeenNthCalledWith(
+      1,
+      "google",
+      "mailbox@example.com",
+      "Alice@Example.com",
+    );
+    expect(mocks.getOAuthTokens).toHaveBeenNthCalledWith(
+      2,
+      "google",
+      "mailbox@example.com",
+      "Alice@Example.com",
+    );
     expect(mocks.processAutomationsForAccount).toHaveBeenCalledOnce();
+    expect(mocks.processAutomationsForAccount).toHaveBeenCalledWith(
+      "alice@example.com",
+      "mailbox@example.com",
+      "fake-token",
+      signal,
+    );
+    expect(mocks.getClientFromAccount).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        accountId: "mailbox@example.com",
+        owner: "Alice@Example.com",
+      }),
+    );
+    expect(mocks.getClientFromAccount).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        accountId: "mailbox@example.com",
+        owner: "Alice@Example.com",
+      }),
+    );
     expect(mocks.startWatch).toHaveBeenCalledOnce();
     for (const [query] of mocks.oauthCandidateQuery.mock.calls) {
       expect(query.sql).toContain("LEFT JOIN mail_sync_accounts");

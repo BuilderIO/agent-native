@@ -194,7 +194,85 @@ describe("calendar event rules sweep", () => {
   });
 
   it("aborts a pending event lookup before applying its RSVP", async () => {
-    configureOwnerSweep();
+    const { owner, settingsByOwner } = configureOwnerSweep();
+    mocks.getEvent.mockImplementationOnce(
+      (_eventId, _account, { signal }: { signal?: AbortSignal }) =>
+        new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    );
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+
+    await vi.waitFor(() => expect(mocks.getEvent).toHaveBeenCalledTimes(1));
+    const mutationCount = mocks.mutateUserSetting.mock.calls.length;
+    expect(mocks.getEvent.mock.calls[0]?.[2]).toEqual({
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount + 1);
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      pendingRsvps: {
+        "google:one@example.com:primary:event-1|2026-09-25T12:00:00.000Z:confirmed|accepted":
+          { eventId: "event-1", action: "accepted" },
+      },
+      rsvpClaims: {},
+    });
+  });
+
+  it("releases the RSVP claim when rules load after the sweep aborts", async () => {
+    const { owner, settingsByOwner } = configureOwnerSweep();
+    let finishSettingsRead!: (settings: Record<string, any>) => void;
+    mocks.getSetting
+      .mockResolvedValueOnce(settingsByOwner[owner]["calendar-settings"])
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSettingsRead = resolve;
+          }),
+      );
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+
+    await vi.waitFor(() => expect(mocks.getSetting).toHaveBeenCalledTimes(2));
+    const mutationCount = mocks.mutateUserSetting.mock.calls.length;
+    controller.abort();
+    finishSettingsRead(settingsByOwner[owner]["calendar-settings"]);
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount + 1);
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      rsvpClaims: {},
+      pendingRsvps: {
+        "google:one@example.com:primary:event-1|2026-09-25T12:00:00.000Z:confirmed|accepted":
+          { eventId: "event-1", action: "accepted" },
+      },
+    });
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+  });
+
+  it("releases a reconciliation claim when its lookup finishes after abort", async () => {
+    const pending = {
+      id: "pending-rsvp",
+      eventId: "event-1",
+      accountEmail: "one@example.com",
+      title: "Planning review",
+      action: "accepted",
+      occurredAt: "2026-09-25T12:00:00.000Z",
+    };
+    const { owner, settingsByOwner } = configureOwnerSweep({
+      rules: {},
+      runtime: { pendingRsvps: { [pending.id]: pending } },
+    });
     let finishEventLookup!: (event: { responseStatus: string }) => void;
     mocks.getEvent.mockImplementationOnce(
       () =>
@@ -207,16 +285,79 @@ describe("calendar event rules sweep", () => {
 
     await vi.waitFor(() => expect(mocks.getEvent).toHaveBeenCalledTimes(1));
     const mutationCount = mocks.mutateUserSetting.mock.calls.length;
-    expect(mocks.getEvent.mock.calls[0]?.[2]).toEqual({
-      signal: controller.signal,
-    });
     controller.abort();
-    finishEventLookup({ responseStatus: "needsAction" });
+    finishEventLookup({ responseStatus: "accepted" });
 
     await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
-    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount);
-    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount + 1);
+    expect(
+      settingsByOwner[owner]["calendar-event-rules-runtime"],
+    ).toMatchObject({
+      pendingRsvps: { [pending.id]: pending },
+      rsvpClaims: {},
+    });
   });
+
+  it.each(["active RSVP", "pending reconciliation"] as const)(
+    "releases its newly acquired claim if abort races the %s claim write",
+    async (claimPath) => {
+      const identity = "google:one@example.com:primary:event-1";
+      const pending = {
+        id: "pending-rsvp",
+        eventId: "event-1",
+        accountEmail: "one@example.com",
+        title: "Planning review",
+        action: "accepted",
+        occurredAt: "2026-09-25T12:00:00.000Z",
+      };
+      const { owner, settingsByOwner } =
+        claimPath === "pending reconciliation"
+          ? configureOwnerSweep({
+              rules: {},
+              runtime: { pendingRsvps: { [pending.id]: pending } },
+            })
+          : configureOwnerSweep();
+      const originalMutation = mocks.mutateUserSetting.getMockImplementation()!;
+      let finishClaimWrite!: () => void;
+      let claimWriteStarted!: () => void;
+      const claimWrite = new Promise<void>((resolve) => {
+        finishClaimWrite = resolve;
+      });
+      const claimStarted = new Promise<void>((resolve) => {
+        claimWriteStarted = resolve;
+      });
+      let heldClaim = false;
+      mocks.mutateUserSetting.mockImplementation(async (...args) => {
+        const result = await originalMutation(...args);
+        if (
+          !heldClaim &&
+          args[1] === "calendar-event-rules-runtime" &&
+          (result as any)?.rsvpClaims?.[identity]
+        ) {
+          heldClaim = true;
+          claimWriteStarted();
+          await claimWrite;
+        }
+        return result;
+      });
+      const controller = new AbortController();
+      const sweep = runCalendarEventRulesOnce(controller.signal);
+
+      await claimStarted;
+      expect(
+        settingsByOwner[owner]["calendar-event-rules-runtime"].rsvpClaims,
+      ).toHaveProperty(identity);
+      controller.abort();
+      finishClaimWrite();
+
+      await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+      expect(
+        settingsByOwner[owner]["calendar-event-rules-runtime"].rsvpClaims,
+      ).toEqual({});
+      expect(mocks.getEvent).not.toHaveBeenCalled();
+      expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it("passes the sweep signal to Google Calendar reads and RSVP writes", async () => {
     configureOwnerSweep();

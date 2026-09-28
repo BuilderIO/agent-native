@@ -684,6 +684,61 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.isJevEnabled).not.toHaveBeenCalled();
   });
 
+  it("aborts an in-flight Gmail read and still releases the poll lease", async () => {
+    mocks.activeRules = [];
+    mocks.listSubscriptions.mockReturnValue([
+      { id: "received-mail", event: "mail.message.received" },
+    ]);
+    const ownerEmail = "owner@example.com";
+    const accountEmail = "mailbox@example.com";
+    const watermarkKey = `${ownerEmail}:mail-received-events:${accountEmail}:watermark`;
+    mocks.userSettings.set(watermarkKey, {
+      lastHistoryId: "history-1",
+      lastTimestamp: Date.now(),
+    });
+
+    let signalHistoryStarted = () => {};
+    const historyStarted = new Promise<void>((resolve) => {
+      signalHistoryStarted = resolve;
+    });
+    mocks.gmailListHistory.mockImplementationOnce(
+      (_accessToken: string, _params: unknown, signal?: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          if (!signal) throw new Error("Expected the sweep signal.");
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          signalHistoryStarted();
+        }),
+    );
+
+    const controller = new AbortController();
+    const poll = processAutomationsForAccount(
+      ownerEmail,
+      accountEmail,
+      "google-access-token",
+      controller.signal,
+    );
+    await historyStarted;
+    controller.abort();
+
+    await expect(poll).rejects.toBe(controller.signal.reason);
+    expect(mocks.gmailListHistory).toHaveBeenCalledWith(
+      "google-access-token",
+      expect.objectContaining({ startHistoryId: "history-1" }),
+      controller.signal,
+    );
+    expect(mocks.gmailListMessages).not.toHaveBeenCalled();
+    expect(mocks.gmailBatchGetMessages).not.toHaveBeenCalled();
+    expect(mocks.emitAsync).not.toHaveBeenCalled();
+    expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get(
+        `${ownerEmail}:mail-automation-poll:${accountEmail}:lease`,
+      ),
+    ).toEqual({ claimToken: "", leaseUntil: 0 });
+  });
+
   it("drains paginated received-mail history without skipping overflow", async () => {
     mocks.activeRules = [];
     mocks.listSubscriptions.mockReturnValue([
@@ -767,6 +822,7 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-2",
       }),
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(50);
 
@@ -782,6 +838,7 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-3",
       }),
+      undefined,
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "history-final",
@@ -1332,6 +1389,7 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(60);
     expect(
@@ -1393,6 +1451,7 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.gmailListMessages).toHaveBeenCalledWith(
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      undefined,
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "fallback-base",
@@ -1408,6 +1467,7 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ startHistoryId: "fallback-base" }),
+      undefined,
     );
     expect(mocks.emitAsync).toHaveBeenCalledWith(
       "mail.message.received",
