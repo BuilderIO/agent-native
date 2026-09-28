@@ -461,10 +461,9 @@ export function mergeChatFirstWorkspaceApps(
     });
   }
   for (const app of apps ?? []) {
-    const id = app.id.trim();
-    const normalizedId = id.toLowerCase();
-    const fallback = merged.get(normalizedId);
-    merged.set(normalizedId, {
+    const id = app.id.trim().toLowerCase();
+    const fallback = merged.get(id);
+    merged.set(id, {
       ...app,
       id,
       description: app.description ?? fallback?.description,
@@ -481,10 +480,9 @@ export function mergeChatFirstWorkspaceApps(
     [...merged.values()].map((app) => app.id.trim().toLowerCase()),
   );
   for (const app of grantedApps) {
-    const id = app.id.trim();
-    const normalizedId = id.toLowerCase();
-    if (!id || existingIds.has(normalizedId)) continue;
-    existingIds.add(normalizedId);
+    const id = app.id.trim().toLowerCase();
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
     merged.set(id, {
       id,
       name: app.name.trim() || id,

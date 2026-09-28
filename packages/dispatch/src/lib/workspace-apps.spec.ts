@@ -100,7 +100,7 @@ describe("workspace app routes", () => {
     );
     expect(calendarApps).toHaveLength(1);
     expect(calendarApps[0]).toMatchObject({
-      id: "Calendar",
+      id: "calendar",
       name: "Workspace Calendar",
       path: "/calendar",
     });

@@ -45,7 +45,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.pages.chatFirstOpenInNewTab": "Open in new tab",
       "dispatch.pages.chatFirstDefaultDescriptionCalendar":
         "Localized Calendar description",
-      "extensions.moreOptions": "Localized more options",
+      "extensions.optionsFor": "Options for {{name}}",
       "dispatch.pages.searchApps": "Search apps",
       "dispatch.pages.searchAppsPlaceholder": "Search apps",
     })[key]?.replace("{{name}}", values?.name ?? "") ?? key,
@@ -118,7 +118,10 @@ describe("DispatchChatHomeApps", () => {
     );
     expect(container.textContent).toContain("Structured project plans");
     expect(
-      container.querySelector("button[aria-label='Localized more options']"),
+      container.querySelector("button[aria-label='Options for Mail']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("button[aria-label='Options for Plan']"),
     ).not.toBeNull();
     expect(container.querySelector("button[aria-label='Open Plan']")).not.toBe(
       null,

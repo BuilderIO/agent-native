@@ -137,7 +137,9 @@ export function DispatchChatHomeApps() {
                         name: app.name,
                       }),
                       openInNewTab: t("dispatch.pages.chatFirstOpenInNewTab"),
-                      moreOptions: t("extensions.moreOptions"),
+                      moreOptions: t("extensions.optionsFor", {
+                        name: app.name,
+                      }),
                     }}
                   />
                 </article>

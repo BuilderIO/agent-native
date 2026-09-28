@@ -107,8 +107,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         ? "Workspace apps"
         : key === "dispatch.pages.chatFirstOpenApp"
           ? `Open ${values?.name}`
-          : key === "extensions.moreOptions"
-            ? "More options"
+          : key === "extensions.optionsFor"
+            ? `Options for ${values?.name}`
             : key),
 }));
 
