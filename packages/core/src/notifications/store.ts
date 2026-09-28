@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -76,6 +76,7 @@ export interface InsertNotificationInput {
   body?: string;
   metadata?: Record<string, unknown>;
   deliveredChannels?: string[];
+  idempotencyKey?: string;
 }
 
 export async function insertNotification(
@@ -83,12 +84,17 @@ export async function insertNotification(
 ): Promise<Notification> {
   await ensureTable();
   const client = getDbExec();
-  const id = randomUUID();
+  const id = input.idempotencyKey
+    ? `idem_${createHash("sha256")
+        .update(`${input.owner}\0${input.idempotencyKey}`)
+        .digest("hex")}`
+    : randomUUID();
   const createdAt = Date.now();
-  await client.execute({
+  const inserted = await client.execute({
     sql: `INSERT INTO notifications
       (id, owner, severity, title, body, metadata, delivered_channels, created_at, read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ${input.idempotencyKey ? "ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       id,
       input.owner,
@@ -100,6 +106,18 @@ export async function insertNotification(
       createdAt,
     ],
   });
+  if (input.idempotencyKey && inserted.rowsAffected === 0) {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM notifications WHERE id = ? AND owner = ? LIMIT 1`,
+      args: [id, input.owner],
+    });
+    if (!rows[0]) {
+      throw new Error(
+        "Idempotent notification insert conflicted without a row.",
+      );
+    }
+    return parseRow(rows[0]);
+  }
   bumpPoll(input.owner);
   return {
     id,
