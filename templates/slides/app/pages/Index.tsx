@@ -540,7 +540,7 @@ export default function Index({ active = true }: { active?: boolean }) {
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
-  const { generating, submit: agentSubmit } = useAgentGenerating();
+  const { generating, submitAndConfirm: agentSubmit } = useAgentGenerating();
   const effectiveDefaultDesignSystemId = resolveSelectableDesignSystemId(
     designSystems,
     defaultSystem?.id,
@@ -1256,17 +1256,28 @@ export default function Index({ active = true }: { active?: boolean }) {
     deleteClientAppState("guided-questions").catch(() => {});
 
     try {
-      agentSubmit(createDeckAgentMessage(prompt), context, {
-        newTab: true,
-        reuseEmptyTab: true,
-        openSidebar: true,
-        submitMessageId: generationSubmitMessageId,
-        generationAttemptId,
-        generationOutputId: deckId,
-        ...getUploadedImageAgentOptions(filesForGeneration),
-        attachments: attachmentsForGeneration,
-        ...modelSelection,
-      });
+      const submission = await agentSubmit(
+        createDeckAgentMessage(prompt),
+        context,
+        {
+          newTab: true,
+          reuseEmptyTab: true,
+          openSidebar: true,
+          submitMessageId: generationSubmitMessageId,
+          generationAttemptId,
+          generationOutputId: deckId,
+          ...getUploadedImageAgentOptions(filesForGeneration),
+          attachments: attachmentsForGeneration,
+          ...modelSelection,
+        },
+      );
+      if (!submission.delivered) {
+        recoverFromGenerationSetupFailure(
+          submission.reason ?? t("home.generationStartFailedDescription"),
+          "agent_submit_failed",
+        );
+        return;
+      }
       trackEvent("generation_request_accepted", {
         app_name: "slides",
         template_name: "slides",

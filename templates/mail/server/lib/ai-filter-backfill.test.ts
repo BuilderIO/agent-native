@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aiFilterBackfillRetryDelay,
+  backfillActionEffects,
   canonicalAiFilterBackfillRuleSetKey,
   hasLocalInboxMessage,
   isCurrentAiFilterBackfillRule,
@@ -55,6 +56,15 @@ describe("backfill retry handling", () => {
 });
 
 describe("backfill undo state", () => {
+  it("applies notify-rule highlighting without historical notifications", () => {
+    expect(
+      backfillActionEffects([
+        { type: "label", labelName: "agent-native-important" },
+        { type: "notify" },
+      ]),
+    ).toEqual({ labels: ["agent-native-important"], archive: false });
+  });
+
   it("only restores fields that still equal the post-apply value", () => {
     expect(
       planConditionalUndo(

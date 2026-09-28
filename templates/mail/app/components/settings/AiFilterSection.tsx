@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { AI_FILTER_RULE_NAME } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
@@ -68,10 +69,17 @@ import { labelTabHref } from "@/lib/inbox-tabs";
 
 type RuleMode = AiFilterRuleMode;
 
-const RULE_MODES: RuleMode[] = ["important", "tag", "filtered", "archive"];
+const RULE_MODES: RuleMode[] = [
+  "important",
+  "notify",
+  "tag",
+  "filtered",
+  "archive",
+];
 const EMPTY_RULES: AutomationRule[] = [];
 const RULE_MODE_HELP_KEYS: Record<RuleMode, string> = {
   important: "mail.aiFilter.importantRuleHelp",
+  notify: "mail.aiFilter.notifyModeHelp",
   tag: "mail.aiFilter.aiTagRuleHelp",
   filtered: "mail.aiFilter.spamRuleHelp",
   archive: "mail.aiFilter.skipInboxRuleHelp",
@@ -603,6 +611,7 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
 
   const modeLabel = (mode: RuleMode) => {
     if (mode === "important") return t("mail.aiFilter.importantMode");
+    if (mode === "notify") return t("mail.aiFilter.notifyMode");
     if (mode === "tag") return t("mail.aiFilter.aiTagsTitle");
     if (mode === "filtered") return t("mail.aiFilter.filteredMode");
     return t("mail.aiFilter.autoArchiveMode");
@@ -868,24 +877,38 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
       disabled={!jevConfigured && !state.enabled}
     />
   );
+  const manageAutomationsLink = (
+    <Link
+      to={buildSettingsRoute("agent:automations")}
+      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+    >
+      {t("mail.aiFilter.manageAutomationsLink")}
+    </Link>
+  );
 
   return (
     <>
       <div className="max-w-180 space-y-7 pb-10">
         {embedded ? (
-          <SettingsGroup id="ai-filter-settings">
-            <SettingsRow
-              id="ai-filter-enabled"
-              label={t("mail.aiFilter.triageTitle")}
-              control={enabledSwitch}
-            />
-          </SettingsGroup>
+          <>
+            <SettingsGroup id="ai-filter-settings">
+              <SettingsRow
+                id="ai-filter-enabled"
+                label={t("mail.aiFilter.triageTitle")}
+                control={enabledSwitch}
+              />
+            </SettingsGroup>
+            <div className="flex justify-end">{manageAutomationsLink}</div>
+          </>
         ) : (
           <div className="flex items-center justify-between border-b border-border/50 pb-4">
             <h2 className="text-base font-semibold text-foreground">
               {t("mail.aiFilter.triageTitle")}
             </h2>
-            {enabledSwitch}
+            <div className="flex items-center gap-3">
+              {manageAutomationsLink}
+              {enabledSwitch}
+            </div>
           </div>
         )}
 
@@ -952,6 +975,11 @@ export function AiFilterSection({ embedded = false }: { embedded?: boolean }) {
                   </Tooltip>
                 ))}
               </div>
+              {newRuleMode === "notify" ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("mail.aiFilter.notifyModeHelp")}
+                </p>
+              ) : null}
               {newRuleMode === "tag" && (
                 <div className="space-y-1.5">
                   <label

@@ -39,9 +39,13 @@ Read the relevant skill before deeper work:
 3. **Escalate on a miss.** If the catalog has no usable result, make one discovery
    pass (`list-data-dictionary`, `search-bigquery-schema`, `data-source-status`),
    then query; don't cross-check or add unasked breakdowns.
-4. **Answer in chat.** Return a short table, chart, or export, not just a path;
-   for >50 rows, state the total and top rows.
-6. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
+4. **Answer in chat.** Give a concise, grounded answer; return a table only
+   when the user asks to see query rows, and for >50 rows state the total and
+   top rows.
+   For `query-agent-native-analytics`, set `showTable: true` only when the user
+   explicitly asks to see query rows; one-cell numeric results render as a
+   compact Analysis result card.
+5. **Chunk only reading.** Group 5-10 only for 30+ qualitative items when a query
    cannot answer; don't chunk queryable questions. See `adhoc-analysis`.
 
 State confidence, never a dead end: cite the dashboard or query used (note

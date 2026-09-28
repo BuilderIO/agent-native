@@ -44,6 +44,8 @@ const messages = {
     suggestionSurvey: "고객 피드백 설문 만들기",
     suggestionSubmissions: "일별 제출 보기",
     suggestionExport: "응답을 CSV로 내보내기",
+    topSignal: "주요 신호",
+    draftFollowUp: "후속 질문 초안 작성",
   },
   sidebar: {
     collapseSidebar: "사이드바 접기",

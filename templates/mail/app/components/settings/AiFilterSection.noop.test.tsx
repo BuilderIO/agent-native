@@ -374,6 +374,23 @@ describe("AiFilterSection", () => {
     ).toBe("true");
   });
 
+  it("links to general automations and explains browser notifications", () => {
+    renderSection();
+
+    expect(
+      screen
+        .getByRole("link", {
+          name: "mail.aiFilter.manageAutomationsLink",
+        })
+        .getAttribute("href"),
+    ).toBe("/settings/agent/automations");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("browser popup");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain("Mail is open");
+    expect(enUS.mail.aiFilter.notifyModeHelp).toContain(
+      "Mobile app coming soon",
+    );
+  });
+
   it("uses a styled Filtered disclosure button and wraps rule sentences", () => {
     const condition =
       "Unsolicited promotional offers from senders I have never replied to";
@@ -416,6 +433,7 @@ describe("AiFilterSection", () => {
 
   it.each([
     ["importantMode", "importantRuleHelp"],
+    ["notifyMode", "notifyModeHelp"],
     ["aiTagsTitle", "aiTagRuleHelp"],
     ["filteredMode", "spamRuleHelp"],
     ["autoArchiveMode", "skipInboxRuleHelp"],
@@ -473,6 +491,43 @@ describe("AiFilterSection", () => {
       expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
         operation: "start",
         ruleIds: ["filtered-rule"],
+      });
+    });
+  });
+
+  it("creates a notify rule that highlights and queues recent mail", async () => {
+    mocks.createRule.mockResolvedValue({ id: "notify-rule" });
+    renderSection();
+
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "mail.aiFilter.newRule" })[0]!,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.notifyMode" }),
+    );
+    expect(screen.getByText("mail.aiFilter.notifyModeHelp")).not.toBeNull();
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "mail.aiFilter.instructionsTitle" }),
+      { target: { value: "Emails from the school" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.addInstruction" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.createRule).toHaveBeenCalledWith({
+        name: "AI notify: Emails from the school",
+        condition: "Emails from the school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+        domain: "mail",
+      });
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["notify-rule"],
       });
     });
   });

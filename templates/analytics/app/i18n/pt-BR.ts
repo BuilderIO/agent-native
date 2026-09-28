@@ -971,6 +971,7 @@ export default {
     recentSales: "Vendas recentes",
     recentSalesDescription: "Você fez 265 vendas este mês.",
   },
+  analysisResult: { title: "Resultado da análise" },
   routeTitles: {
     notFound: "Não encontrado - Analytics",
     analysis: "Análise - Analytics",

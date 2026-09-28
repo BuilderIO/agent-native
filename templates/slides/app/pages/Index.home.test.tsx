@@ -224,7 +224,10 @@ vi.mock("@/components/templates/DeckTemplateLibrary", () => ({
   },
 }));
 vi.mock("@/hooks/use-agent-generating", () => ({
-  useAgentGenerating: () => ({ generating: false, submit: agentSubmit }),
+  useAgentGenerating: () => ({
+    generating: false,
+    submitAndConfirm: agentSubmit,
+  }),
   clearStartedGenerationAttempt: vi.fn(),
 }));
 vi.mock("@/hooks/use-design-systems", () => ({
@@ -366,6 +369,7 @@ function renderHome(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  agentSubmit.mockReset().mockResolvedValue({ delivered: true });
   systemFlag.enabled = true;
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;

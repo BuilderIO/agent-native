@@ -347,6 +347,7 @@ describe("DeckEditor generation signal wiring", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     router?.dispose();
     router = undefined;
     if (originalLocksDescriptor) {
@@ -1017,6 +1018,29 @@ describe("DeckEditor generation signal wiring", () => {
     expect(
       screen.getByTestId("generating-preview").getAttribute("data-busy"),
     ).toBe("false");
+  });
+
+  it("offers a retry after a submit-only generation route fails to start", async () => {
+    vi.useFakeTimers();
+    mocks.broadGenerating = false;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: ["/deck/deck-1?generationSubmitId=submit-1"],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    expect(
+      screen.getByTestId("generating-preview").getAttribute("data-busy"),
+    ).toBe("true");
+    act(() => vi.runOnlyPendingTimers());
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("generating-preview")).toBeNull();
   });
 
   it("recovers an empty-deck failure after its terminal save fails and reloads", async () => {
