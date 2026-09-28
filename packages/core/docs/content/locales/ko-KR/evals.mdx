@@ -249,6 +249,18 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 
 득점자를 임계값 아래로 떨어뜨리는 회귀는 단계에 실패하고 배포를 차단합니다. 평가 파일이 없는 앱은 `0`를 종료하므로 앱별로 평가 채택이 선택됩니다.
 
+## 프로덕션 트레이스에서 {#from-trace}
+
+실제 실행이 예상과 다를 때 — 데모에서는 됐는데 프로덕션에서 깨졌거나 잘못된 도구를 호출했을 때 — 프롬프트를 지어내지 말고 완료된 트레이스를 CI 케이스로 승격하세요.
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+이 명령은 `EvalDataset` 행을 저장하고(대시보드와 `promote-trace-eval`과 같은 헬퍼) 기존 `agent-native eval` 게이트가 이미 발견하는 `defineEval` 픽스처를 씁니다. 기본 스코어러는 성공한 도구마다 `usesTool(...)`이며 선택적 `--must-contain`을 더할 수 있습니다. 잘리거나 중단되었거나 사용자 메시지가 없는 실행은 닫혀 실패합니다.
+
+호스티드 액션과 `POST /_agent-native/observability/traces/:runId/promote`는 앱 트리를 쓰지 않습니다. CI에는 `--write`를 쓰세요. Observability 트레이스 상세에 **Promote to eval**이 있습니다.
+
 ## 다음 단계
 
 - [**Observability**](/docs/observability) — 실제 생산 실행의 사후 점수 매기기(보완 계층)
