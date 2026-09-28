@@ -28,12 +28,13 @@ describe("workspace app layout", () => {
     const apps = mergeChatFirstWorkspaceApps([
       { id: "Calendar", name: "Calendar", path: "/calendar" },
     ]);
+    const layout = normalizeWorkspaceAppLayout({
+      pinnedIds: ["Calendar"],
+      orderedIds: ["Calendar", "Mail"],
+    });
 
     expect(
-      orderWorkspaceApps(apps, {
-        pinnedIds: ["calendar"],
-        orderedIds: ["calendar", "mail"],
-      })
+      orderWorkspaceApps(apps, layout)
         .slice(0, 2)
         .map((app) => app.id),
     ).toEqual(["calendar", "mail"]);
@@ -51,11 +52,11 @@ describe("workspace app layout", () => {
 
   it("normalizes persisted layout ids and toggles pin state", () => {
     const layout = normalizeWorkspaceAppLayout({
-      pinnedIds: ["mail", "mail", 42],
-      orderedIds: ["calendar", "", "calendar"],
+      pinnedIds: ["Mail", "mail", 42],
+      orderedIds: ["Calendar", "", "calendar"],
     });
 
-    expect(toggleWorkspaceAppPinned(layout, "calendar")).toEqual({
+    expect(toggleWorkspaceAppPinned(layout, "CALENDAR")).toEqual({
       pinnedIds: ["calendar", "mail"],
       orderedIds: ["calendar"],
     });

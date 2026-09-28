@@ -112,6 +112,7 @@ import { toast } from "sonner";
 
 import { useIsMobile } from "../../hooks/use-mobile";
 import { cn } from "../../lib/utils";
+import { normalizeWorkspaceAppLayout } from "../../lib/workspace-app-layout";
 import {
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
@@ -1440,7 +1441,9 @@ export function Layout({
     );
   }, [electronEmbedded, location.pathname, location.search]);
   const [chatFirstAppLayout, setChatFirstAppLayout] =
-    useState<ChatFirstAppLayoutPreference>(() => readChatFirstAppLayout());
+    useState<ChatFirstAppLayoutPreference>(() =>
+      normalizeWorkspaceAppLayout(readChatFirstAppLayout()),
+    );
   const chatFirstAppLayoutHydratedRef = useRef(false);
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
@@ -1482,9 +1485,9 @@ export function Layout({
       });
     }
     for (const app of chatFirstGrantedAppsQuery.data?.apps ?? []) {
-      const id = app.id.trim();
-      if (!id || registrations.has(id.toLowerCase())) continue;
-      registrations.set(id.toLowerCase(), {
+      const id = app.id.trim().toLowerCase();
+      if (!id || registrations.has(id)) continue;
+      registrations.set(id, {
         id,
         name: app.name,
         url: app.url,
@@ -1851,18 +1854,7 @@ export function Layout({
     void readClientAppState<unknown>("chat-first-app-layout")
       .then((value) => {
         if (!value || typeof value !== "object") return;
-        const candidate = value as Partial<ChatFirstAppLayoutPreference>;
-        const ids = (input: unknown) =>
-          Array.isArray(input)
-            ? input.filter(
-                (id): id is string =>
-                  typeof id === "string" && id.trim().length > 0,
-              )
-            : [];
-        setChatFirstAppLayout({
-          pinnedIds: [...new Set(ids(candidate.pinnedIds))],
-          orderedIds: [...new Set(ids(candidate.orderedIds))],
-        });
+        setChatFirstAppLayout(normalizeWorkspaceAppLayout(value));
       })
       .catch(() => {
         // Device-local layout remains the fallback when workspace state is unavailable.
@@ -1871,12 +1863,15 @@ export function Layout({
 
   const persistChatFirstAppLayout = useCallback(
     (layout: ChatFirstAppLayoutPreference) => {
-      setChatFirstAppLayout(layout);
-      void writeClientAppState("chat-first-app-layout", layout).catch(() => {
-        setChatFirstNotice(
-          "App order changed locally, but workspace state could not be synced.",
-        );
-      });
+      const normalizedLayout = normalizeWorkspaceAppLayout(layout);
+      setChatFirstAppLayout(normalizedLayout);
+      void writeClientAppState("chat-first-app-layout", normalizedLayout).catch(
+        () => {
+          setChatFirstNotice(
+            "App order changed locally, but workspace state could not be synced.",
+          );
+        },
+      );
     },
     [],
   );
