@@ -46,6 +46,16 @@ export function isPromptUploadLimitError(error: unknown): boolean {
   );
 }
 
+export function isPromptUploadUnsupportedFileTypeError(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof Error &&
+    "failureReason" in error &&
+    error.failureReason === "unsupported-file-type"
+  );
+}
+
 export function isPromptUploadStorageStatusError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -248,6 +258,7 @@ function promptUploadNetworkError(cause: unknown, fileName?: string): Error {
 export function promptUploadHttpError(
   status: number,
   fileName?: string,
+  failureReason?: "unsupported-file-type",
 ): Error {
   return Object.assign(new Error("Reference file upload failed"), {
     code:
@@ -258,6 +269,7 @@ export function promptUploadHttpError(
           : "reference_storage_http_failed",
     status,
     ...(fileName ? { fileName } : {}),
+    ...(failureReason ? { failureReason } : {}),
   });
 }
 
@@ -282,13 +294,22 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
   }
   if (!response.ok) {
     let failedFileName: unknown;
+    let failureReason: "unsupported-file-type" | undefined;
     try {
       const error = (await response.json()) as {
+        error?: unknown;
         failedFileName?: unknown;
       };
       failedFileName = error?.failedFileName;
+      if (
+        typeof error?.error === "string" &&
+        error.error.includes(": Unsupported file type. Allowed: ")
+      ) {
+        failureReason = "unsupported-file-type";
+      }
     } catch {
       failedFileName = undefined;
+      failureReason = undefined;
     }
     const matchedFileName =
       typeof failedFileName === "string"
@@ -296,7 +317,13 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
         : undefined;
     throw promptUploadHttpError(
       response.status,
-      matchedFileName ?? (files.length === 1 ? files[0]?.name : undefined),
+      matchedFileName ??
+        (typeof failedFileName === "string" && failedFileName.trim()
+          ? failedFileName
+          : files.length === 1
+            ? files[0]?.name
+            : undefined),
+      failureReason,
     );
   }
   const data = await readUploadJson(response);

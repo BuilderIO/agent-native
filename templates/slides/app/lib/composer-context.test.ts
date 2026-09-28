@@ -58,6 +58,32 @@ describe("Slides composer reference contract", () => {
       statusMessage: "Figma could not read this reference.",
     });
   });
+  it("gives website read failures a manual-paste recovery path", async () => {
+    callAction.mockRejectedValue(new Error("Cloudflare blocked the request"));
+
+    const [item] = await readSlidesComposerContext(
+      {
+        designSystemId: null,
+        references: [
+          {
+            source: "website",
+            id: "https://example.com",
+            url: "https://example.com",
+            title: "Example",
+          },
+        ],
+      },
+      "Empty source",
+      "Figma read failed",
+      "Copy and paste the relevant website text instead.",
+    );
+
+    expect(item).toMatchObject({
+      status: "error",
+      statusMessage: "Copy and paste the relevant website text instead.",
+    });
+    expect(item.statusMessage).not.toContain("Cloudflare");
+  });
   it("separates the same frame in different Figma files and branches", () => {
     const keys = [
       "https://www.figma.com/design/FILE_A/Name",

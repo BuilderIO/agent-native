@@ -877,6 +877,8 @@ const messages = {
       networkFailed:
         "La demande d’importation a expiré ou la connexion réseau a été interrompue. Vérifiez votre connexion et réessayez.",
       notStarted: "Connectez-vous si nécessaire, puis réessayez l’importation.",
+      unsupportedFileType:
+        "Ce type de fichier n’est pas pris en charge. Choisissez un fichier compatible.",
       uploadLimitExceeded:
         "Le téléversement dépasse une limite autorisée. Réduisez la taille du fichier ou choisissez moins de fichiers, puis réessayez.",
     },
@@ -918,6 +920,8 @@ const messages = {
       notReady:
         "Le contexte est en cours de chargement ou indisponible. Réessayez ou retirez-le avant l’envoi.",
       emptySource: "Cette source n’a fourni aucun contexte utilisable.",
+      websiteReadFailed:
+        "Impossible de lire automatiquement ce site web. Copiez-collez plutôt le texte pertinent.",
       figmaReadFailed:
         "Design n’a pas pu lire cette référence Figma. Vérifiez le jeton d’accès Figma enregistré dans Design et que le compte associé peut ouvrir le fichier, puis réessayez.",
       tooMany: "Choisissez jusqu’à 20 références.",

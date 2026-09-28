@@ -3139,7 +3139,7 @@ function AgentKitComposerSurface({
           onSwitchToAct={() => props.onExecModeChange?.("build")}
         />
       ) : null}
-      {setupMissing ? (
+      {setupMissing && props.showMissingApiKeySetup !== false ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -3696,6 +3696,7 @@ function AgentKitRunFailure({
     error.code === "AGENT_CHAT_AI_SETUP_REQUIRED" ||
     error.code === "missing_api_key"
   ) {
+    if (surface.setupMissing) return null;
     return (
       <BuilderSetupCard
         fullWidth

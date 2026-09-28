@@ -249,6 +249,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   isReferenceStorageReady,
   uploadPromptFiles as uploadPromptFilesImpl,
 } from "@/lib/prompt-file-uploads";
@@ -760,6 +761,54 @@ describe("uploadPromptFiles", () => {
     expect(error.message).not.toContain("private storage provider");
     expect(formatPromptUploadFailure(error, "Upload failed")).toBe(
       "bad.html: Upload failed",
+    );
+  });
+
+  it("keeps the server-reported filename when it does not exactly match a File", async () => {
+    const files = [
+      new File(["good"], "good.txt", { type: "text/plain" }),
+      new File(["bad"], "bad.html", { type: "text/html" }),
+    ];
+    stubReadyStorageUpload(
+      async () =>
+        new Response(JSON.stringify({ failedFileName: "bad.html " }), {
+          status: 400,
+        }),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      files,
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(error).toMatchObject({ fileName: "bad.html " });
+    expect(formatPromptUploadFailure(error, "Upload failed")).toBe(
+      "bad.html : Upload failed",
+    );
+  });
+
+  it("surfaces a safe unsupported-type reason without exposing server details", async () => {
+    stubReadyStorageUpload(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: 'File "reference.exe": Unsupported file type. Allowed: PDF',
+            failedFileName: "reference.exe",
+          }),
+          { status: 400 },
+        ),
+    );
+
+    const error = await uploadPromptFilesImpl(
+      [new File(["bad"], "reference.exe")],
+      "Storage unavailable",
+    ).catch((cause) => cause);
+
+    expect(isPromptUploadUnsupportedFileTypeError(error)).toBe(true);
+    expect(error.message).toBe("Reference file upload failed");
+    expect(error.message).not.toContain("Allowed: PDF");
+    expect(formatPromptUploadFailure(error, "Unsupported file type.")).toBe(
+      "reference.exe: Unsupported file type.",
     );
   });
 

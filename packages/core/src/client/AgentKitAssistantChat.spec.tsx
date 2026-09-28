@@ -310,7 +310,7 @@ vi.mock("./chat/run-recovery.js", () => ({
   },
   BuilderSetupCard: (props: unknown) => {
     chatMocks.setupCardProps = props;
-    return null;
+    return React.createElement("div", { "data-testid": "builder-setup-card" });
   },
   LoopLimitContinueCard: () => null,
   PlanModeCallout: () => null,
@@ -2041,6 +2041,43 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
+  });
+
+  it("does not repeat the composer setup card in a missing-key run failure", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    chatMocks.failureError = {
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      message: "An AI provider needs to be connected.",
+    };
+
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+
+    expect(
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(1);
+  });
+
+  it("lets a host suppress its duplicate missing-provider setup card", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        showMissingApiKeySetup: false,
+      }),
+    );
+
+    expect(
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(0);
   });
 
   it("dispatches custom-transport running changes to the chat host", async () => {

@@ -992,7 +992,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           source: "new_deck_prompt",
         });
       }
-      settlePendingDeckAttachments("discard");
+      settlePendingDeckAttachments("commit");
       if (
         !savePromptForRetry(prompt, {
           context: additionalContext,
@@ -1353,11 +1353,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!agentEngineConfigured) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
-      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
       if (options?.slidesContext) {
+        setNewDeckPromptOpen(false, { clearInitialPrompt: false });
         void runPendingDeckGeneration(
           prompt,
           files,
@@ -2312,17 +2312,8 @@ export default function Index({ active = true }: { active?: boolean }) {
         open={isHome && showNewDeckReferenceStep}
         onOpenChange={(open) => {
           if (!open && !pendingDeckGenerationRef.current) {
-            const pending = pendingDeck;
-            settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
-            if (pending) {
-              setNewDeckInitialPrompt({
-                text: pending.prompt,
-                key: Date.now(),
-              });
-              setShowNewDeckPrompt(true);
-            }
           }
         }}
         designSystems={designSystems}

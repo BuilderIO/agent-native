@@ -411,6 +411,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={location.pathname !== "/home"}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

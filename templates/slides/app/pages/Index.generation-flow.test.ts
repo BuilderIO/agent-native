@@ -96,6 +96,30 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("submission.reason ??");
   });
 
+  it("retains uploaded files for retries and while returning from references", () => {
+    const recovery = flow.slice(
+      flow.indexOf("const recoverFromGenerationSetupFailure"),
+      flow.indexOf("const persisted = await ensureDeckPersisted"),
+    );
+    const promptSubmit = source.slice(
+      source.indexOf("const handlePromptSubmit"),
+      source.indexOf("const handlePromptSkip"),
+    );
+    const referenceStep = source.slice(
+      source.indexOf("<NewDeckReferenceStep"),
+      source.indexOf(
+        "onDesignSystemsChanged",
+        source.indexOf("<NewDeckReferenceStep"),
+      ),
+    );
+
+    expect(recovery).toContain('settlePendingDeckAttachments("commit")');
+    expect(promptSubmit.indexOf("if (options?.slidesContext)")).toBeLessThan(
+      promptSubmit.indexOf("setNewDeckPromptOpen(false"),
+    );
+    expect(referenceStep).not.toContain("settlePendingDeckAttachments");
+  });
+
   it("carries hidden prompt context through generation retries", () => {
     expect(source).toContain("PENDING_PROMPT_CONTEXT_KEY");
     expect(source).toContain("PENDING_PROMPT_MODEL_SELECTION_KEY");

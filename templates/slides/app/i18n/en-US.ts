@@ -850,6 +850,8 @@ const messages = {
       networkFailed:
         "The import request timed out or lost its network connection. Check your connection and retry.",
       notStarted: "Complete any required sign-in, then retry the import.",
+      unsupportedFileType:
+        "This file type isn't supported. Choose a supported file.",
       uploadLimitExceeded:
         "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
     },
@@ -890,6 +892,8 @@ const messages = {
       notReady:
         "Context is still loading or unavailable. Retry or remove it before sending.",
       emptySource: "This source returned no usable context.",
+      websiteReadFailed:
+        "This website couldn't be read automatically. Copy and paste the relevant text instead.",
       figmaReadFailed:
         "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
