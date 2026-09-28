@@ -744,6 +744,95 @@ describe("AgentKitClient", () => {
     }
   });
 
+  it("keeps a locally completed answer when a stale snapshot omits it", async () => {
+    const timestamp = "2026-08-29T00:00:00.000Z";
+    const previousMessage: AgentMessage = {
+      id: "assistant-before",
+      role: "assistant",
+      status: "complete",
+      parts: [{ type: "text", text: "Earlier reply." }],
+    };
+    const initialSnapshot: AgentThreadSnapshot = {
+      id: "thread-1",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      messages: [previousMessage],
+    };
+    const staleSnapshot: AgentThreadSnapshot = {
+      ...initialSnapshot,
+      activeRunIds: [],
+    };
+    const terminalSnapshot = Promise.withResolvers<AgentThreadSnapshot>();
+    const terminalSnapshotRead = Promise.withResolvers<void>();
+    let snapshotReads = 0;
+    const transport = createTransport([
+      protocolEvent(1, { type: "run.started" }),
+      protocolEvent(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      }),
+      protocolEvent(3, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Full answer.",
+      }),
+      protocolEvent(4, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [{ type: "text", text: "Full answer." }],
+        },
+      }),
+      protocolEvent(5, { type: "run.completed" }),
+    ]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      if (snapshotReads === 1) return initialSnapshot;
+      terminalSnapshotRead.resolve();
+      return terminalSnapshot.promise;
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    const run = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Question",
+    });
+    try {
+      await terminalSnapshotRead.promise;
+      expect(
+        client
+          .getThread("thread-1")
+          .messages.find((message) => message.id === "assistant-1"),
+      ).toMatchObject({
+        status: "complete",
+        parts: [{ type: "text", text: "Full answer." }],
+      });
+
+      terminalSnapshot.resolve(staleSnapshot);
+      await run.completed;
+
+      expect(
+        client
+          .getThread("thread-1")
+          .messages.find((message) => message.id === "assistant-1"),
+      ).toMatchObject({
+        status: "complete",
+        parts: [{ type: "text", text: "Full answer." }],
+      });
+    } finally {
+      terminalSnapshot.resolve(staleSnapshot);
+      await client.dispose();
+    }
+  });
+
   it("settles the snapshot message associated with a terminal run", async () => {
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({

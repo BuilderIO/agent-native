@@ -74,6 +74,8 @@ async function countStaleA2ATasks(now: number): Promise<number> {
   }
   if (!(tableRows[0] as Record<string, unknown>).relation) return 0;
 
+  const { ensureTable } = await import("../a2a/task-store.js");
+  await ensureTable();
   const { getA2ATaskRecoveryLimits } = await import("../a2a/handlers.js");
   const {
     queuedLifetimeMaxMs,
@@ -83,7 +85,7 @@ async function countStaleA2ATasks(now: number): Promise<number> {
   const { rows } = await client.execute({
     sql: `SELECT COUNT(*)::int AS stale_tasks
           FROM a2a_tasks
-          WHERE strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0
+          WHERE status_state IN ('submitted', 'working', 'processing')
             AND (
               (status_state IN ('submitted', 'working') AND created_at <= ?)
               OR

@@ -8,6 +8,7 @@ let turnQueryThrows = false;
 let a2aQueryThrows = false;
 let memberQueryThrows = false;
 let deleteClaimThrows = false;
+const ensureA2ATable = vi.hoisted(() => vi.fn(async () => {}));
 
 const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
   if (sql.includes("org_members")) {
@@ -34,6 +35,8 @@ const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute }),
 }));
+
+vi.mock("../a2a/task-store.js", () => ({ ensureTable: ensureA2ATable }));
 
 const settings = new Map<string, Record<string, unknown>>();
 let settingsReadThrows = false;
@@ -90,6 +93,7 @@ beforeEach(() => {
   a2aTableExists = true;
   turnQueryThrows = false;
   a2aQueryThrows = false;
+  ensureA2ATable.mockClear();
   memberQueryThrows = false;
   deleteClaimThrows = false;
   settings.clear();
@@ -147,13 +151,15 @@ describe("checkChatHealthAndAlert", () => {
     );
     expect(a2aQuery?.sql).toContain("updated_at <= ? OR created_at <= ?");
     expect(a2aQuery?.sql).toContain(
-      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+      "status_state IN ('submitted', 'working', 'processing')",
     );
+    expect(a2aQuery?.sql).not.toContain("strpos(");
     expect(a2aQuery?.args).toEqual([
       NOW - 3 * 60_000,
       NOW - 5 * 60_000,
       NOW - 30 * 60_000,
     ]);
+    expect(ensureA2ATable).toHaveBeenCalledOnce();
   });
 
   it("uses the same configured recovery windows as A2A task recovery", async () => {
@@ -182,6 +188,7 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out).toMatchObject({ status: "healthy", turns: 20 });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+    expect(ensureA2ATable).not.toHaveBeenCalled();
   });
 
   it("pages Slack once when the app stops answering", async () => {

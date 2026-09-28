@@ -2494,8 +2494,8 @@ export class AgentKitClient implements AgentKitController {
       const loadedMessage = loadedMessages.get(event.message.id);
       return (
         currentMessage !== undefined &&
-        loadedMessage !== undefined &&
-        (currentMessage.status !== loadedMessage.status ||
+        (loadedMessage === undefined ||
+          currentMessage.status !== loadedMessage.status ||
           this.messageContentKey(currentMessage) !==
             this.messageContentKey(loadedMessage))
       );
