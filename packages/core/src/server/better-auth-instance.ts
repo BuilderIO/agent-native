@@ -124,6 +124,7 @@ import {
   recordActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
+import { isBuilderPreviewHttpsEnvironment } from "./https-request.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
 import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
@@ -2484,7 +2485,7 @@ async function createBetterAuthInstance(
     },
     advanced: {
       cookiePrefix: cookieNamespace.betterAuthCookiePrefix,
-      ...(appUrl.startsWith("https://")
+      ...(appUrl.startsWith("https://") || isBuilderPreviewHttpsEnvironment()
         ? {
             defaultCookieAttributes: {
               sameSite: "none" as const,
