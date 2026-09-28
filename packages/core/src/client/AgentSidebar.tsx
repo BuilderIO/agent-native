@@ -517,13 +517,14 @@ export function AgentSidebar({
 
   const setOpenPersisted = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
+      if (!enabled) return;
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
         setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [sidebarOpenStorageKey],
+    [enabled, sidebarOpenStorageKey],
   );
 
   useEffect(() => {
@@ -570,8 +571,8 @@ export function AgentSidebar({
   }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
-    if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
-  }, [isPerAppChatHosted, openOnChatRunning]);
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning]);
 
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
@@ -656,6 +657,7 @@ export function AgentSidebar({
   ]);
 
   useEffect(() => {
+    if (!enabled) return;
     const preparePanel = () => setBackgroundPanelActive(true);
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -691,9 +693,10 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const replayAfterMount = (type: string, event: Event) => {
       if (shouldMountPanelRef.current) return;
 
@@ -728,9 +731,10 @@ export function AgentSidebar({
         handleOpenSettings,
       );
     };
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       const focusOnOpen =
@@ -805,6 +809,7 @@ export function AgentSidebar({
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    enabled,
     isPerAppChatHosted,
     open,
     perAppChatState.open,
@@ -813,7 +818,7 @@ export function AgentSidebar({
   ]);
 
   useEffect(() => {
-    if (window.parent === window) return;
+    if (!enabled || window.parent === window) return;
 
     function handleMessage(event: MessageEvent) {
       if (event.data?.type !== "agentNative.sidebarMode") return;
@@ -871,7 +876,7 @@ export function AgentSidebar({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
   useEffect(() => {
     if (!enabled) return;

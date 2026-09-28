@@ -291,7 +291,7 @@ describe("AgentSidebar lazy panel boundary", () => {
     ).toBeTruthy();
   });
 
-  it("does not handle global shortcuts or URL overrides while disabled", async () => {
+  it("does not handle global shortcuts, URL overrides, or sidebar events while disabled", async () => {
     localStorage.setItem("agent-native-sidebar-open", "false");
     window.history.replaceState({}, "", "/?agentSidebar=open");
     const setEnabled = renderSidebar(false, undefined, false, false);
@@ -331,6 +331,28 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(localStorage.getItem("agent-native-sidebar-open")).toBe("false");
     expect(window.location.search).toBe("?agentSidebar=open");
 
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+    });
+    expect(localStorage.getItem("agent-native-sidebar-open")).toBe("false");
+    expect(
+      container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+    ).toBeTruthy();
+
+    localStorage.setItem("agent-native-sidebar-open", "true");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-panel:close"));
+    });
+    expect(localStorage.getItem("agent-native-sidebar-open")).toBe("true");
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-panel:toggle"));
+    });
+    expect(
+      container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
+    ).toBeTruthy();
+
+    localStorage.setItem("agent-native-sidebar-open", "false");
     window.history.replaceState({}, "", "/");
     setEnabled(true);
     expect(

@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep a disabled Agent sidebar from handling global shortcuts or URL overrides.
+Ignore global sidebar events and preference updates while the Agent sidebar is disabled.
