@@ -46,6 +46,12 @@ describe("SlideEditor transformed-object interactions", () => {
     expect(rotateSource).toContain(
       "member.element.style.transform = next.transform",
     );
+    expect(rotateSource).toContain(
+      "freezeElementForFreeformSelection(element)",
+    );
+    expect(rotateSource).toContain(
+      "preserveSlideObjectLayoutSpacer(promotion.element)",
+    );
   });
 
   it("renders single-object handles in the measured local transform frame", () => {
