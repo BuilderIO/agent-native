@@ -2551,11 +2551,23 @@ async function assertAgentKitChatAcceptance(
     "agent-authored suggestion submission",
     () => provider.suggestionPromptSeen,
   );
-  await page
-    .getByText("The AgentKit release is ready for focused framework review.", {
-      exact: true,
-    })
-    .waitFor({ state: "visible" });
+  const suggestionReplyText =
+    "The AgentKit release is ready for focused framework review.";
+  const suggestionReply = page
+    .locator('.agentkit-message[data-role="assistant"]')
+    .filter({ hasText: suggestionReplyText });
+  await suggestionReply.waitFor({ state: "visible" });
+  await page.waitForFunction(
+    (text) =>
+      Array.from(
+        document.querySelectorAll('.agentkit-message[data-role="assistant"]'),
+      ).some(
+        (message) =>
+          message.textContent?.includes(text) &&
+          message.getAttribute("aria-busy") === "false",
+      ),
+    suggestionReplyText,
+  );
   await assertComposerFocused(page);
 
   await helloMessage.getByRole("button", { name: "Message actions" }).click();
