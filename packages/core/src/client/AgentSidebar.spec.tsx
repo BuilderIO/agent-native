@@ -219,6 +219,12 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(
       container?.querySelector("[data-agent-sidebar-panel-loaded='true']"),
     ).toBeNull();
+    const panel = container?.querySelector<HTMLElement>(
+      ".agent-sidebar-panel[data-agent-sidebar-layout='desktop']",
+    );
+    expect(panel?.style.getPropertyValue("--agent-sidebar-background")).toBe(
+      "var(--agent-native-raised-surface, hsl(var(--background)))",
+    );
 
     await act(async () => {
       await Promise.resolve();
