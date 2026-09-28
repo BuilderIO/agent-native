@@ -1128,6 +1128,25 @@ export const migrations = runMigrations(
         WHERE share_password_version IS NULL;
         ALTER TABLE recordings ALTER COLUMN share_password_version SET DEFAULT 'initial';
         ALTER TABLE recordings ALTER COLUMN share_password_version SET NOT NULL;
+        CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS 'BEGIN
+          IF NEW.password IS DISTINCT FROM OLD.password THEN
+            NEW.share_password_version := ''password-change:'' || COALESCE(NEW.share_password_version, OLD.share_password_version, ''initial'');
+          END IF;
+          RETURN NEW;
+        END;';
+        DO 'BEGIN
+          BEGIN
+            CREATE TRIGGER clips_recordings_rotate_share_password_version
+              BEFORE UPDATE OF password ON public.recordings
+              FOR EACH ROW
+              EXECUTE FUNCTION public.clips_recordings_rotate_share_password_version();
+          EXCEPTION WHEN duplicate_object THEN
+            NULL;
+          END;
+        END';
       `,
     },
   ],
