@@ -7,7 +7,7 @@ import { clearBuilderCreditLimitNotice } from "../builder-credit-notice.js";
 
 export default defineAction({
   description:
-    "Check whether the connected Builder account has run out of credits. Returns only the exhausted status, without exposing usage details.",
+    "Check whether the connected Builder account has exhausted its active quota. Returns the quota period without usage totals.",
   http: { method: "GET" },
   schema: z.object({ orgId: z.string().nullable().optional() }),
   run: async ({ orgId }, ctx) => {
@@ -19,10 +19,10 @@ export default defineAction({
     const usage = await getBuilderCreditUsage();
     if (!usage) return null;
 
-    const exhausted = usage.balance <= 0 || usage.quota.remaining <= 0;
+    const exhausted = usage.quota.remaining <= 0;
     if (!exhausted) {
       await clearBuilderCreditLimitNotice(ctx.userEmail, getRequestOrgId());
     }
-    return { exhausted };
+    return { exhausted, period: usage.quota.period };
   },
 });

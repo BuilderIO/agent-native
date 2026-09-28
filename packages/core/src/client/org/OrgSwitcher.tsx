@@ -132,7 +132,10 @@ export function BuilderCreditNotice({
   className?: string;
 }) {
   const { data: org } = useOrg();
-  const builderCreditStatus = useActionQuery<{ exhausted: boolean } | null>(
+  const builderCreditStatus = useActionQuery<{
+    exhausted: boolean;
+    period?: "daily" | "monthly";
+  } | null>(
     "get-builder-credit-status",
     { orgId: org?.orgId ?? null },
     {
@@ -150,8 +153,20 @@ export function BuilderCreditNotice({
     return null;
   }
 
+  const quotaLabel =
+    builderCreditStatus.data.period === "daily"
+      ? t("agentChat.usage.dailyFreeLimit")
+      : builderCreditStatus.data.period === "monthly"
+        ? t("agentChat.usage.monthlyPlan")
+        : null;
+  const title = [t("agentChat.billing.builderCreditLimitTitle"), quotaLabel]
+    .filter((label): label is string => label !== null)
+    .join(" · ");
   const builderUpgradeUrl = builderSubscriptionUpgradeUrl(
     "builder_credit_limit_sidebar",
+  );
+  const noticeLabel = [title, t("agentChat.billing.builderCreditUpgrade")].join(
+    " · ",
   );
 
   return compact ? (
@@ -162,16 +177,13 @@ export function BuilderCreditNotice({
             href={builderUpgradeUrl}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`${t("agentChat.billing.builderCreditLimitTitle")} · ${t("agentChat.billing.builderCreditUpgrade")}`}
+            aria-label={noticeLabel}
             className="mx-auto inline-flex size-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <IconAlertCircle className="size-4" aria-hidden="true" />
           </a>
         </TooltipTrigger>
-        <TooltipContent side="right">
-          {t("agentChat.billing.builderCreditLimitTitle")} ·{" "}
-          {t("agentChat.billing.builderCreditUpgrade")}
-        </TooltipContent>
+        <TooltipContent side="right">{noticeLabel}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   ) : (
@@ -188,9 +200,7 @@ export function BuilderCreditNotice({
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1">
-          <p className="leading-snug text-foreground">
-            {t("agentChat.billing.builderCreditLimitTitle")}
-          </p>
+          <p className="leading-snug text-foreground">{title}</p>
           <a
             href={builderUpgradeUrl}
             target="_blank"

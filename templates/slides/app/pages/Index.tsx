@@ -128,6 +128,7 @@ import {
 import { deckListViewState } from "@/lib/deck-list-loading";
 import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { resolveSelectableDesignSystemId } from "@/lib/design-system-selection";
+import { resolveGoogleSlidesImportPayload } from "@/lib/google-slides-reference-source";
 import {
   IMPORT_ACTION_TIMEOUT_MS,
   importUploadedDeckIntoDeck,
@@ -1816,9 +1817,9 @@ export default function Index({ active = true }: { active?: boolean }) {
       if (source.kind !== "google-docs") return null;
       setReferenceImporting(true);
       try {
-        const imported = (await callAction("import-google-slides-reference", {
-          presentationUrl: source.value,
-        })) as {
+        const payload = resolveGoogleSlidesImportPayload(source.value);
+        const raw = await callAction("import-google-slides-reference", payload);
+        const imported = raw as {
           id?: unknown;
           imported?: unknown;
           slideCount?: unknown;
