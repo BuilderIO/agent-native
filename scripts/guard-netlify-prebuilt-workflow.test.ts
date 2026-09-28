@@ -188,6 +188,7 @@ describe("Netlify PR preview workflow guard", () => {
     );
     const previewJobs = preview.jobs as Record<string, Workflow>;
     const previewDeploy = previewJobs.deploy;
+    const previewRevalidate = previewJobs.revalidate;
     assert.equal(
       (previewDeploy.with as Workflow).checkout_ref,
       "${{ needs.authorize.outputs.checkout_ref }}",
@@ -213,15 +214,43 @@ describe("Netlify PR preview workflow guard", () => {
       ["created"],
     );
     assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
-    assert.equal(preview.concurrency, undefined);
-    assert.deepEqual(previewDeploy.concurrency, {
-      group:
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
-      "cancel-in-progress": false,
-    });
     assert.equal(
-      (previewDeploy.permissions as Workflow)["pull-requests"],
-      "read",
+      (preview.concurrency as Workflow)["cancel-in-progress"],
+      false,
+    );
+    const previewConcurrencyGroup = String(
+      (preview.concurrency as Workflow).group,
+    );
+    for (const site of previewEligibleSiteNames()) {
+      assert.ok(
+        previewConcurrencyGroup.includes(
+          `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
+        ),
+      );
+    }
+    assert.equal(previewDeploy.concurrency, undefined);
+    assert.deepEqual(previewDeploy.permissions, { contents: "read" });
+    assert.deepEqual(previewRevalidate.permissions, {
+      "pull-requests": "read",
+    });
+    assert.deepEqual(previewRevalidate.needs, ["authorize", "build"]);
+    const revalidateStart = pullRequestPreviewSource.indexOf(
+      "name: Confirm the authorized PR head is still current",
+    );
+    const invertedHeadRepositoryCheck =
+      pullRequestPreviewSource.slice(0, revalidateStart) +
+      pullRequestPreviewSource
+        .slice(revalidateStart)
+        .replace(
+          "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
+          "pullRequest.head.repo?.full_name?.toLowerCase() === fullName",
+        );
+    assert.match(
+      validateNetlifyPrPreviewWorkflow(
+        parse(invertedHeadRepositoryCheck) as Workflow,
+        invertedHeadRepositoryCheck,
+      ).join("\n"),
+      /revalidate the pinned internal PR/,
     );
     assert.deepEqual(
       ((previewJobs.cleanup.strategy as Workflow).matrix as Workflow).site,
@@ -229,7 +258,7 @@ describe("Netlify PR preview workflow guard", () => {
     );
     assert.deepEqual(previewJobs.cleanup.concurrency, {
       group:
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
       "cancel-in-progress": true,
     });
     const authorize = previewJobs.authorize;
@@ -330,12 +359,25 @@ describe("Netlify PR preview workflow guard", () => {
       ],
       ["issue_comment:", "workflow_dispatch:"],
       [
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-${{ needs.authorize.outputs.site }}",
-        "netlify-pr-preview-${{ needs.authorize.outputs.pull_request_number }}-all",
+        "github.event.comment.body == '/preview analytics' && 'authorized-analytics'",
+        "github.event.comment.body == '/preview analytics' && 'authorized-assets'",
       ],
+      [
+        "github.event.comment.author_association == 'MEMBER'",
+        "github.event.comment.author_association == 'CONTRIBUTOR'",
+      ],
+      [
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-authorized-${{ matrix.site }}",
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+      ],
+      ["cancel-in-progress: false", "cancel-in-progress: true"],
       ["cancel-in-progress: true", "cancel-in-progress: false"],
       ["          - fw", "          - unknown"],
       ["types: [closed]", "types: [opened]"],
+      [
+        "      pull-requests: read\n    steps:\n      - name: Confirm the authorized PR head is still current",
+        "      pull-requests: write\n    steps:\n      - name: Confirm the authorized PR head is still current",
+      ],
     ]) {
       assert.notDeepEqual(mutate(needle, replacement), [], needle);
     }
@@ -353,26 +395,26 @@ describe("Reusable workflow permission guard", () => {
       validateReusablePreviewRecordPlacement(
         parse(
           reusableSource.replace(
-            "Revalidate the internal PR before preview upload",
-            "Skip the internal PR recheck",
+            "const requested = process.env.SOURCE_REF.trim();",
+            "await github.rest.pulls.get({});\n            const requested = process.env.SOURCE_REF.trim();",
           ),
         ) as Workflow,
       ).join("\n"),
-      /revalidate the current internal PR/,
+      /keep PR API reads in the caller/,
     );
     assert.match(
       validateReusableWorkflowPermissions({
         ...reusable,
         permissions: { contents: "read", issues: "write" },
       }).join("\n"),
-      /must declare only contents: read and pull-requests: read/,
+      /must declare only contents: read/,
     );
-    assert.match(
+    assert.deepEqual(
       validateReusableWorkflowPermissions({
         ...reusable,
         permissions: { contents: "read" },
-      }).join("\n"),
-      /pull-requests: read/,
+      }),
+      [],
     );
     const beta = readWorkflow(
       ".github/workflows/deploy-beta-sites-prebuilt.yml",

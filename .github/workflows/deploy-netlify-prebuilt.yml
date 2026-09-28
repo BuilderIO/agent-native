@@ -180,7 +180,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
 
 concurrency:
   # Beta and production lanes share the canonical production site queue so a
@@ -309,36 +308,6 @@ jobs:
               return;
             }
             core.setFailed(`Unknown deployment target: ${target}`);
-
-      - name: Revalidate the internal PR before preview upload
-        if: inputs.target == 'preview' && inputs.deploy && inputs.pull_request_number > 0
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
-          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
-        with:
-          script: |
-            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
-            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
-              throw new Error('Pull request number must be a positive integer.');
-            }
-            const { data: pullRequest } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pullRequestNumber,
-            });
-            const fullName = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
-            if (
-              pullRequest.state !== 'open' ||
-              pullRequest.base.ref !== 'main' ||
-              pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
-              pullRequest.head.repo?.full_name?.toLowerCase() !== fullName ||
-              pullRequest.user?.type !== 'User' ||
-              !['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
-              pullRequest.head.sha !== process.env.SOURCE_REF
-            ) {
-              throw new Error('PR preview requires the current head of an open, internal PR targeting main.');
-            }
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:

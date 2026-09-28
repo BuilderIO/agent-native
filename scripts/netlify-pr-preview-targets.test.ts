@@ -19,8 +19,9 @@ test("workspacePackages throws when a checkout has no package manifests", () => 
   );
 });
 
-test("preview command must match one eligible site exactly", () => {
+test("preview command must match one eligible site exactly, ignoring case", () => {
   assert.equal(previewSiteFromCommand("/preview analytics"), "analytics");
+  assert.equal(previewSiteFromCommand("/PREVIEW ANALYTICS"), "analytics");
   assert.equal(previewSiteFromCommand("/preview analytics\n"), undefined);
   assert.equal(previewSiteFromCommand("/preview analytics\r\n"), undefined);
   assert.equal(previewSiteFromCommand("/preview unknown"), undefined);
