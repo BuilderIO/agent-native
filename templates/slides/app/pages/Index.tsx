@@ -1356,8 +1356,8 @@ export default function Index({ active = true }: { active?: boolean }) {
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       if (options?.slidesContext) {
-        setNewDeckPromptOpen(false, { clearInitialPrompt: false });
         void runPendingDeckGeneration(
           prompt,
           files,
@@ -2313,8 +2313,26 @@ export default function Index({ active = true }: { active?: boolean }) {
         open={isHome && showNewDeckReferenceStep}
         onOpenChange={(open) => {
           if (!open && !pendingDeckGenerationRef.current) {
+            const pending = pendingDeck;
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
+            if (pending) {
+              settlePendingDeckAttachments("commit");
+              setNewDeckRetryPrompt(pending.prompt);
+              setNewDeckRetryFiles((files) =>
+                mergeUploadedFilesForRetry(files, pending.files),
+              );
+              setNewDeckRetryReferenceFilePaths(pending.referenceFilePaths);
+              setNewDeckRetryImportedReference(pending.importedReference);
+              setNewDeckRetryContext(pending.context);
+              setNewDeckRetryAttachments(pending.attachments);
+              setNewDeckRetryModelSelection(pending.modelSelection);
+              setNewDeckInitialPrompt({
+                text: pending.prompt,
+                key: Date.now(),
+              });
+              setShowNewDeckPrompt(true);
+            }
           }
         }}
         designSystems={designSystems}

@@ -96,7 +96,7 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("submission.reason ??");
   });
 
-  it("retains uploaded files for retries and while returning from references", () => {
+  it("closes before references and restores prompt state when returning", () => {
     const recovery = flow.slice(
       flow.indexOf("const recoverFromGenerationSetupFailure"),
       flow.indexOf("const persisted = await ensureDeckPersisted"),
@@ -114,10 +114,18 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
-    expect(promptSubmit.indexOf("if (options?.slidesContext)")).toBeLessThan(
-      promptSubmit.indexOf("setNewDeckPromptOpen(false"),
+    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
+      promptSubmit.indexOf("if (options?.slidesContext)"),
     );
-    expect(referenceStep).not.toContain("settlePendingDeckAttachments");
+    expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');
+    expect(referenceStep).toContain("text: pending.prompt");
+    expect(referenceStep).toContain("pending.files");
+    expect(referenceStep).toContain("pending.referenceFilePaths");
+    expect(referenceStep).toContain("pending.importedReference");
+    expect(referenceStep).toContain("pending.context");
+    expect(referenceStep).toContain("pending.attachments");
+    expect(referenceStep).toContain("pending.modelSelection");
+    expect(referenceStep).toContain("setShowNewDeckPrompt(true)");
   });
 
   it("carries hidden prompt context through generation retries", () => {
