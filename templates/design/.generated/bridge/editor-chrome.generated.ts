@@ -945,6 +945,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var repairingEditorChromeHost = false;
     var userFocusedElement = null;
     var trustedFocusIntent = null;
+    var rovingGroupSelector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
     var focusTargetSelector = 'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
     function isCanvasFocusTarget(target) {
       return !!(target && (isEditorTypingTarget(target) || target.matches(focusTargetSelector)));
@@ -963,10 +964,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
-    function armTrustedFocusIntent(target, kind) {
+    function armTrustedFocusIntent(target, kind, key) {
+      var rovingGroup = kind === "navigation" && target ? target.closest(rovingGroupSelector) : null;
       trustedFocusIntent = {
         target,
         kind,
+        ...key ? { key } : {},
+        ...rovingGroup ? {
+          rovingGroup,
+          activeDescendantBefore: rovingGroup.getAttribute(
+            "aria-activedescendant"
+          ),
+          tabIndexesBefore: Array.from(
+            rovingGroup.querySelectorAll("[tabindex]")
+          ).map(function(element) {
+            return {
+              element,
+              value: element.getAttribute("tabindex")
+            };
+          })
+        } : {},
         expiresAt: Date.now() + 1e3
       };
     }
@@ -980,18 +997,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         }, 0);
       }, 0);
     }
-    function isRovingFocusSibling(current, next) {
+    function isRovingFocusSibling(current, next, key, intent) {
       if (!current) return false;
-      var selector = '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
-      var currentGroup = current.closest(selector);
-      if (!currentGroup || currentGroup !== next.closest(selector)) return false;
+      var currentGroup = current.closest(rovingGroupSelector);
+      if (!currentGroup || currentGroup !== next.closest(rovingGroupSelector) || intent.rovingGroup !== currentGroup) {
+        return false;
+      }
+      var role = currentGroup.getAttribute("role");
       var itemSelector = null;
-      var requireMatchingItemRole = false;
-      switch (currentGroup.getAttribute("role")) {
+      switch (role) {
         case "grid":
         case "treegrid":
-          itemSelector = '[role="row"], [role="gridcell"]';
-          requireMatchingItemRole = true;
+          itemSelector = '[role="row"], [role="gridcell"], [role="columnheader"], [role="rowheader"], tr, td, th';
           break;
         case "listbox":
           itemSelector = '[role="option"]';
@@ -1016,12 +1033,153 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!itemSelector) return false;
       var currentItem = current.closest(itemSelector);
       var nextItem = next.closest(itemSelector);
-      return currentItem === current && nextItem === next && currentItem !== nextItem && (!requireMatchingItemRole || current.getAttribute("role") === next.getAttribute("role"));
+      if (!currentItem || !nextItem || currentItem === nextItem) return false;
+      function belongsToGroup(item) {
+        if (item.closest(rovingGroupSelector) !== currentGroup) return false;
+        if (item.getAttribute("role")) return true;
+        if (item.tagName !== "TR" && item.tagName !== "TD" && item.tagName !== "TH") {
+          return true;
+        }
+        return item.closest('table[role="grid"], table[role="treegrid"]') === currentGroup;
+      }
+      function isGridRow(item) {
+        return item.getAttribute("role") === "row" || item.tagName === "TR" && belongsToGroup(item);
+      }
+      function gridRows() {
+        return Array.from(
+          currentGroup.querySelectorAll('[role="row"], tr')
+        ).filter(function(row) {
+          return belongsToGroup(row) && isGridRow(row);
+        });
+      }
+      function gridCells(row) {
+        return Array.from(
+          row.querySelectorAll(
+            '[role="gridcell"], [role="columnheader"], [role="rowheader"], td, th'
+          )
+        ).filter(function(cell) {
+          if (!belongsToGroup(cell)) return false;
+          if (cell.getAttribute("role")) {
+            return cell.closest('[role="row"]') === row;
+          }
+          if (cell.tagName === "TD" || cell.tagName === "TH") {
+            return cell.closest("tr") === row && cell.closest('table[role="grid"], table[role="treegrid"]') === currentGroup;
+          }
+          return cell.closest('[role="row"]') === row;
+        });
+      }
+      function ariaIndex(element, name, fallback) {
+        var value = Number(element.getAttribute(name));
+        return Number.isInteger(value) && value > 0 ? value - 1 : fallback;
+      }
+      function hasRovingFocusTransition(currentRovingItem2, nextRovingItem2) {
+        var activeDescendant = currentGroup.getAttribute("aria-activedescendant");
+        var previousActiveDescendant = intent.activeDescendantBefore || null;
+        if (activeDescendant && activeDescendant !== previousActiveDescendant && (activeDescendant === nextRovingItem2.id || activeDescendant === next.id)) {
+          return true;
+        }
+        var previousTabIndex = intent.tabIndexesBefore?.find(function(entry) {
+          return entry.element === currentRovingItem2;
+        });
+        var nextTabIndex = intent.tabIndexesBefore?.find(function(entry) {
+          return entry.element === nextRovingItem2;
+        });
+        return previousTabIndex?.value === "0" && currentRovingItem2.getAttribute("tabindex") !== "0" && nextTabIndex !== void 0 && nextTabIndex.value !== "0" && nextRovingItem2.getAttribute("tabindex") === "0";
+      }
+      if (role === "grid" || role === "treegrid") {
+        var currentRow = currentItem.closest('[role="row"], tr');
+        var nextRow = nextItem.closest('[role="row"], tr');
+        if (!currentRow || !nextRow || !belongsToGroup(currentRow) || !belongsToGroup(nextRow)) {
+          return false;
+        }
+        var rows = gridRows();
+        var currentRowIndex = ariaIndex(
+          currentRow,
+          "aria-rowindex",
+          rows.indexOf(currentRow)
+        );
+        var nextRowIndex = ariaIndex(
+          nextRow,
+          "aria-rowindex",
+          rows.indexOf(nextRow)
+        );
+        var verticalDelta = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+        if (isGridRow(currentItem) && isGridRow(nextItem)) {
+          return verticalDelta !== 0 && nextRowIndex === currentRowIndex + verticalDelta && hasRovingFocusTransition(currentItem, nextItem);
+        }
+        if (isGridRow(currentItem) || isGridRow(nextItem)) {
+          if (role !== "treegrid" || currentRow !== nextRow) return false;
+          var currentIsRow = isGridRow(currentItem);
+          var cells = gridCells(currentRow);
+          if (currentIsRow && key === "ArrowRight") {
+            return cells[0] === nextItem && hasRovingFocusTransition(currentItem, nextItem);
+          }
+          if (!currentIsRow && key === "ArrowLeft") {
+            return cells[0] === currentItem && hasRovingFocusTransition(currentItem, nextItem);
+          }
+          return false;
+        }
+        var currentColumnIndex = ariaIndex(
+          currentItem,
+          "aria-colindex",
+          gridCells(currentRow).indexOf(currentItem)
+        );
+        var nextColumnIndex = ariaIndex(
+          nextItem,
+          "aria-colindex",
+          gridCells(nextRow).indexOf(nextItem)
+        );
+        if (key === "ArrowLeft" || key === "ArrowRight") {
+          var columnDelta = key === "ArrowRight" ? 1 : -1;
+          if (window.getComputedStyle(currentGroup).direction === "rtl") {
+            columnDelta *= -1;
+          }
+          return currentRow === nextRow && nextColumnIndex === currentColumnIndex + columnDelta && hasRovingFocusTransition(currentItem, nextItem);
+        }
+        return verticalDelta !== 0 && nextRowIndex === currentRowIndex + verticalDelta && nextColumnIndex === currentColumnIndex && hasRovingFocusTransition(currentItem, nextItem);
+      }
+      function itemFor(target) {
+        if (role === "tree") return target.closest('[role="treeitem"]');
+        return target.closest(itemSelector);
+      }
+      var currentRovingItem = itemFor(current);
+      var nextRovingItem = itemFor(next);
+      if (!currentRovingItem || !nextRovingItem || !belongsToGroup(currentRovingItem) || !belongsToGroup(nextRovingItem)) {
+        return false;
+      }
+      if (role === "tree" && key === "ArrowRight") {
+        return nextRovingItem.parentElement?.closest('[role="treeitem"]') === currentRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      }
+      if (role === "tree" && key === "ArrowLeft") {
+        return currentRovingItem.parentElement?.closest('[role="treeitem"]') === nextRovingItem && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
+      }
+      var items = Array.from(currentGroup.querySelectorAll(itemSelector)).filter(
+        function(item) {
+          return belongsToGroup(item) && itemFor(item) === item;
+        }
+      );
+      var currentIndex = items.indexOf(currentRovingItem);
+      var nextIndex = items.indexOf(nextRovingItem);
+      if (currentIndex === -1 || nextIndex === -1) return false;
+      var orientation = currentGroup.getAttribute("aria-orientation");
+      if (!orientation) {
+        orientation = role === "toolbar" || role === "menubar" || role === "tablist" || role === "radiogroup" ? "horizontal" : "vertical";
+      }
+      var delta = key === "ArrowRight" ? 1 : key === "ArrowLeft" ? -1 : key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+      if (!delta) return false;
+      if (orientation === "horizontal") {
+        if (key !== "ArrowLeft" && key !== "ArrowRight") return false;
+        if (window.getComputedStyle(currentGroup).direction === "rtl")
+          delta *= -1;
+      } else if (key !== "ArrowUp" && key !== "ArrowDown") {
+        return false;
+      }
+      return nextIndex === currentIndex + delta && hasRovingFocusTransition(currentRovingItem, nextRovingItem);
     }
     function rememberUserFocusedElement(event) {
       var intent = trustedFocusIntent;
       var target = getCanvasFocusTarget(event);
-      var navigationTargetMatches = intent?.kind !== "navigation" || target === intent.target || target !== null && isRovingFocusSibling(intent.target, target);
+      var navigationTargetMatches = intent?.kind !== "navigation" || target === intent.target || target !== null && isRovingFocusSibling(intent.target, target, intent.key, intent);
       if (!intent || Date.now() > intent.expiresAt || !target || !navigationTargetMatches || intent.kind !== "tab" && intent.kind !== "navigation" && (intent.target === null || intent.target !== target && !event.composedPath().includes(intent.target) && !intent.target.contains(target) && !target.contains(intent.target))) {
         trustedFocusIntent = null;
         userFocusedElement = null;
@@ -1074,7 +1232,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (active instanceof Element && isCanvasFocusTarget(active)) {
           userFocusedElement = active;
           if (keyEvent.key.startsWith("Arrow")) {
-            armTrustedFocusIntent(active, "navigation");
+            armTrustedFocusIntent(active, "navigation", keyEvent.key);
             clearNavigationFocusIntentAfterAppTasks();
           } else if (keyEvent.key === "Enter" || keyEvent.key === " " || keyEvent.key === "Escape") {
             armTrustedFocusIntent(active, "activation");
