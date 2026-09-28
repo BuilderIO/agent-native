@@ -311,7 +311,7 @@ export async function runCreateCommand(
     initialCommunityTemplate,
     installedApps,
     addToWorkspace: Boolean(workspace && requestedCommunityTemplate),
-    validateName(value) {
+    validateName(value: string) {
       if (!/^[a-z][a-z0-9-]*$/.test(value)) {
         return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
       }
@@ -327,7 +327,7 @@ export async function runCreateCommand(
       }
       return undefined;
     },
-    validateCommunityTemplate(value) {
+    validateCommunityTemplate(value: string) {
       try {
         parseCommunityPromptValue(value);
         return undefined;
