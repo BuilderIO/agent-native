@@ -20,7 +20,6 @@ const archiveCacheMocks = vi.hoisted(() => ({
   where: vi.fn(),
 }));
 
-import { schema } from "../db/index.js";
 import {
   createOAuth2Client,
   gmailBatchGetMessages,
@@ -1970,7 +1969,7 @@ describe("gmailBatchArchiveByAccount", () => {
     ] as any);
   });
 
-  it("batches cached message IDs for larger selections", async () => {
+  it("refreshes live thread message IDs before batching larger selections", async () => {
     const otherTargets = Array.from({ length: 25 }, (_, index) => ({
       id: `other-message-${index}`,
       threadId: `other-thread-${index}`,
@@ -1986,6 +1985,21 @@ describe("gmailBatchArchiveByAccount", () => {
         messageIds: [id],
       })),
     ]);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages: (threadId === "thread-1"
+              ? ["message-1", "message-2", "message-3", "message-4"]
+              : [
+                  otherTargets.find((target) => target.threadId === threadId)!
+                    .id,
+                ]
+            ).map((id) => ({ id })),
+          },
+        })),
+    );
 
     const result = await gmailBatchArchiveByAccount(OWNER, [
       {
@@ -2010,19 +2024,18 @@ describe("gmailBatchArchiveByAccount", () => {
         "message-1",
         "message-2",
         "message-3",
+        "message-4",
         ...otherTargets.map(({ id }) => id),
       ],
       removeLabelIds: ["INBOX"],
     });
     expect(gmailModifyThread).not.toHaveBeenCalled();
-    expect(archiveCacheMocks.select).toHaveBeenCalledWith({
-      threadId: schema.mailInboxThreads.threadId,
-      messageIdsJson: schema.mailInboxThreads.messageIdsJson,
-    });
-    expect(archiveCacheMocks.from).toHaveBeenCalledWith(
-      schema.mailInboxThreads,
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "archive-token",
+      ["thread-1", ...otherTargets.map(({ threadId }) => threadId)],
+      "minimal",
     );
-    expect(archiveCacheMocks.where).toHaveBeenCalledTimes(1);
+    expect(archiveCacheMocks.select).not.toHaveBeenCalled();
   });
 
   it("archives Gmail-only newer messages through threads.modify for small selections", async () => {
@@ -2092,7 +2105,7 @@ describe("gmailBatchArchiveByAccount", () => {
     );
   });
 
-  it("batches INBOX and a resolved removeLabel ID together", async () => {
+  it("batches live thread messages with INBOX and a resolved removeLabel ID", async () => {
     const otherTargets = Array.from({ length: 25 }, (_, index) => ({
       id: `other-message-${index}`,
       threadId: `other-thread-${index}`,
@@ -2108,6 +2121,24 @@ describe("gmailBatchArchiveByAccount", () => {
     vi.mocked(gmailListLabels).mockResolvedValue({
       labels: [{ id: "Label_projects", name: "Projects" }],
     } as any);
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: {
+            messages:
+              threadId === "thread-1"
+                ? [{ id: "message-1" }, { id: "message-2" }]
+                : [
+                    {
+                      id: otherTargets.find(
+                        (target) => target.threadId === threadId,
+                      )!.id,
+                    },
+                  ],
+          },
+        })),
+    );
 
     const result = await gmailBatchArchiveByAccount(
       OWNER,
@@ -2161,13 +2192,26 @@ describe("gmailBatchArchiveByAccount", () => {
     expect(gmailModifyThread).not.toHaveBeenCalled();
   });
 
-  it("clears UNREAD from every cached message in selected threads", async () => {
+  it("clears UNREAD from every current message in selected threads", async () => {
     setCachedThreads([
       {
         threadId: "thread-read",
         messageIds: ["message-old", "message-middle", "message-new"],
       },
     ]);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-read",
+        data: {
+          messages: [
+            { id: "message-old" },
+            { id: "message-middle" },
+            { id: "message-new" },
+            { id: "message-arrived-after-cache" },
+          ],
+        },
+      },
+    ] as any);
 
     const result = await gmailBatchModifyThreadsByAccount(
       OWNER,
@@ -2187,13 +2231,25 @@ describe("gmailBatchArchiveByAccount", () => {
     expect(result.remaining).toEqual([]);
     const body = vi.mocked(googleFetch).mock.calls[0][2]!.body as string;
     expect(JSON.parse(body)).toEqual({
-      ids: ["message-old", "message-middle", "message-new"],
+      ids: [
+        "message-old",
+        "message-middle",
+        "message-new",
+        "message-arrived-after-cache",
+      ],
       removeLabelIds: ["UNREAD"],
     });
     expect(gmailModifyThread).not.toHaveBeenCalled();
   });
 
-  it("uses bounded threads.modify when selected read targets lack cached message IDs", async () => {
+  it("refreshes Gmail messages when the cache lacks the selected thread", async () => {
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-missing-cache",
+        data: { messages: [{ id: "message-new" }, { id: "message-late" }] },
+      },
+    ] as any);
+
     const result = await gmailBatchModifyThreadsByAccount(
       OWNER,
       [
@@ -2209,123 +2265,94 @@ describe("gmailBatchArchiveByAccount", () => {
 
     expect(result.succeeded).toEqual(["message-new"]);
     expect(result.remaining).toEqual([]);
-    expect(gmailModifyThread).toHaveBeenCalledWith(
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
       "archive-token",
-      "thread-missing-cache",
-      undefined,
-      ["UNREAD"],
+      ["thread-missing-cache"],
+      "minimal",
     );
-    expect(googleFetch).not.toHaveBeenCalled();
-  });
-
-  it("returns the interrupted chunk and later IDs without server-side retry", async () => {
-    const ids = Array.from({ length: 2_500 }, (_, index) => `message-${index}`);
-    setCachedThreads(
-      ids.map((id, index) => ({
-        threadId: `thread-${index}`,
-        messageIds: [id],
-      })),
-    );
-    const attempts: string[][] = [];
-    let wrapperCalls = 0;
-    vi.mocked(googleFetch).mockImplementation(async (_url, _token, options) => {
-      wrapperCalls += 1;
-      const chunk = JSON.parse(options!.body as string).ids as string[];
-      attempts.push(chunk);
-      if (wrapperCalls === 2) {
-        throw new GmailQuotaCooldownError("cooldown", 20);
-      }
-      return {} as any;
-    });
-
-    const result = await gmailBatchArchiveByAccount(
-      OWNER,
-      ids.map((id, index) => ({
-        id,
-        threadId: `thread-${index}`,
-        accountEmail: ACCOUNT,
-      })),
-    );
-
-    expect(result.succeeded).toHaveLength(1_000);
-    expect(result.failed).toEqual([]);
-    expect(result.remaining).toEqual(ids.slice(1_000));
-    expect(result.retryAfterSeconds).toBe(1);
-    expect(attempts).toHaveLength(2);
-    expect(attempts[0]).toHaveLength(1_000);
-    expect(attempts[0]).not.toEqual(attempts[1]);
-    expect(attempts[1]).toHaveLength(1_000);
+    expect(googleFetch).toHaveBeenCalledOnce();
     expect(gmailModifyThread).not.toHaveBeenCalled();
   });
 
-  it("resumes 10,000 selected rows after preflight cooldown in ten batchModify calls", async () => {
-    const targets = Array.from({ length: 10_000 }, (_, index) => ({
+  it("does not report success when a live thread refresh is missing", async () => {
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      {
+        id: "thread-unavailable",
+        data: null,
+        error: "No response part",
+      },
+    ] as any);
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      [
+        {
+          id: "message-new",
+          threadId: "thread-unavailable",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([
+      { id: "message-new", error: "No response part" },
+    ]);
+    expect(result.remaining).toEqual([]);
+    expect(googleFetch).not.toHaveBeenCalled();
+  });
+
+  it("limits live thread refreshes and returns untouched targets", async () => {
+    const targets = Array.from({ length: 130 }, (_, index) => ({
       id: `message-${index}`,
       threadId: `thread-${index}`,
       accountEmail: ACCOUNT,
     }));
-    setCachedThreads(
-      targets.map(({ id, threadId }) => ({
-        threadId,
-        messageIds: [id],
-      })),
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: { messages: [{ id: threadId.replace("thread-", "message-") }] },
+        })),
     );
-    let wrapperCalls = 0;
-    const providerBatches: string[][] = [];
-    vi.mocked(googleFetch).mockImplementation(async (_url, _token, options) => {
-      wrapperCalls += 1;
-      const chunk = JSON.parse(options!.body as string).ids as string[];
-      if (wrapperCalls === 1) {
-        throw new GmailQuotaCooldownError("quota preflight cooldown", 15);
-      }
-      providerBatches.push(chunk);
-      return {} as any;
-    });
-
-    const preflight = await gmailBatchArchiveByAccount(OWNER, targets);
-
-    expect(preflight.succeeded).toEqual([]);
-    expect(preflight.remaining).toEqual(targets.map((target) => target.id));
-    expect(preflight.retryAfterSeconds).toBe(1);
-    expect(providerBatches).toEqual([]);
-
-    const result = await gmailBatchArchiveByAccount(
-      OWNER,
-      targets.filter((target) => preflight.remaining.includes(target.id)),
-    );
-
-    expect(result.succeeded).toHaveLength(10_000);
-    expect(result.failed).toEqual([]);
-    expect(result.remaining).toEqual([]);
-    expect(providerBatches).toHaveLength(10);
-    expect(providerBatches.every((batch) => batch.length === 1_000)).toBe(true);
-    expect(providerBatches.flat()).toEqual(targets.map((target) => target.id));
-    expect(wrapperCalls).toBe(11); // One quota preflight, then ten provider requests.
-    expect(gmailModifyThread).not.toHaveBeenCalled();
-    expect(
-      vi
-        .mocked(googleFetch)
-        .mock.calls.every(([url]) =>
-          String(url).includes("/messages/batchModify"),
-        ),
-    ).toBe(true);
-  });
-
-  it("limits unknown-thread fallback calls and returns the unprocessed targets", async () => {
-    const targets = Array.from({ length: 30 }, (_, index) => ({
-      id: `latest-${index}`,
-      threadId: `unknown-${index}`,
-      accountEmail: ACCOUNT,
-    }));
 
     const result = await gmailBatchArchiveByAccount(OWNER, targets);
 
-    expect(gmailModifyThread).toHaveBeenCalledTimes(25);
-    expect(result.succeeded).toHaveLength(25);
-    expect(result.remaining).toEqual(
-      targets.slice(25).map((target) => target.id),
+    expect(gmailBatchGetThreads).toHaveBeenCalledWith(
+      "archive-token",
+      targets.slice(0, 100).map(({ threadId }) => threadId),
+      "minimal",
     );
+    expect(result.succeeded).toHaveLength(100);
     expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(targets.slice(100).map(({ id }) => id));
+    expect(googleFetch).toHaveBeenCalledOnce();
+    expect(gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("returns every selected target when refreshing threads hits a quota cooldown", async () => {
+    const targets = Array.from({ length: 3 }, (_, index) => ({
+      id: `message-${index}`,
+      threadId: `thread-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    vi.mocked(gmailBatchGetThreads).mockRejectedValueOnce(
+      new GmailQuotaCooldownError("thread refresh cooldown", 15_000),
+    );
+
+    const result = await gmailBatchModifyThreadsByAccount(
+      OWNER,
+      targets,
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result.succeeded).toEqual([]);
+    expect(result.failed).toEqual([]);
+    expect(result.remaining).toEqual(targets.map(({ id }) => id));
+    expect(result.retryAfterSeconds).toBe(15);
     expect(googleFetch).not.toHaveBeenCalled();
   });
 

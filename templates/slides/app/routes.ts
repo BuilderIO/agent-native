@@ -5,6 +5,7 @@ export default flatRoutes({
   ignoredRouteFiles: [
     "**/*.test.{ts,tsx}",
     "**/*.spec.{ts,tsx}",
+    "routes/deck.$id.tsx",
     "routes/home.tsx",
     "routes/home-layout.tsx",
     "routes/templates.tsx",
@@ -14,5 +15,6 @@ export default flatRoutes({
   layout("./routes/home-layout.tsx", [
     route("home", "./routes/home.tsx"),
     route("templates", "./routes/templates.tsx"),
+    route("deck/:id", "./routes/deck.$id.tsx"),
   ]),
 ]) satisfies RouteConfig;

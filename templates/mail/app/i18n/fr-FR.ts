@@ -46,10 +46,10 @@ const messages = {
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
       aiSetupSave: "Enregistrer la configuration",
       aiSetupSkip: "Ignorer pour le moment",
-      aiSetupSkipSetup: "Ignorer la configuration de la boîte de réception",
-      aiSetupImportantHeadline: "Ce qui est important",
-      aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
-      aiSetupTagsHeadline: "Choisissez vos onglets",
+      aiSetupImportantHeadline: "Qu’est-ce qui est important pour vous ?",
+      aiSetupSkipInboxHeadline:
+        "Que peut-on retirer de votre boîte de réception ?",
+      aiSetupTagsHeadline: "Trier les e-mails dans des onglets",
       aiSetupArchiveSpamHeadline: "Ignorer la boîte de réception et spam",
       aiSetupTagReceipts: "Reçus",
       aiSetupTagUpdates: "Mises à jour produit",
@@ -65,6 +65,16 @@ const messages = {
         "Ignorer la boîte de réception : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
       aiSetupCustomTag: "Personnalisé",
       aiSetupDone: "Terminé",
+      aiSetupConnectGmailHeadline:
+        "Connectez Gmail pour trier votre boîte de réception",
+      aiSetupConnectGmailDescription:
+        "Connectez Google pour appliquer vos règles aux e-mails récents.",
+      aiSetupConnectJevHeadline:
+        "Connectez Jev pour trier votre boîte de réception",
+      aiSetupConnectJevDescription:
+        "Connectez Jev pour appliquer vos règles aux e-mails récents.",
+      aiSetupCustomTabName: "Nom de l’onglet",
+      aiSetupCustomTabExample: "ex. factures de fournisseurs",
       aiSetupRunAgain: "Relancer la configuration",
       aiSetupTagCalendar: "Calendrier",
       aiSetupPromptCalendar:
@@ -79,14 +89,26 @@ const messages = {
       aiSetupFilteredExample:
         "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
       aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupSortingDescription:
+        "Voici ce que vos règles ont trouvé dans les e-mails récents.",
       aiSetupFindingRecentMail: "Recherche des e-mails récents…",
+      aiSetupRetry: "Réessayer",
+      aiSetupGmailStatusFailed: "Impossible de vérifier la connexion à Gmail",
+      aiSetupAutomationSettingsFailed:
+        "Impossible de vérifier les paramètres du modèle d’IA",
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupUndoBeforeRetry:
+        "Annulez les modifications partielles avant de réessayer.",
       aiSetupSortingFailed:
         "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
       aiSetupUndoComplete:
         "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupUndoFailed:
+        "Impossible d’annuler ces changements dans votre boîte de réception. Réessayez.",
+      aiSetupUndoStatusFailed:
+        "L’annulation a été demandée, mais les derniers résultats n’ont pas pu être chargés.",
       aiSetupRuleCount: "{{count}} correspondances",
       aiSetupNoMatches:
         "Aucun message des 14 derniers jours ne correspond à ces règles.",
@@ -96,7 +118,29 @@ const messages = {
       aiSetupNoRules: "Aucune règle n’a été sélectionnée.",
       aiSetupPartialFailure: "{{count}} messages n’ont pas pu être mis à jour.",
       aiSetupSortInbox: "Trier ma boîte de réception",
-      aiSetupImportantExample: "Tout ce qui vient de ma responsable, Priya…",
+      aiSetupImportantExample:
+        "Tout message de mon responsable, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "L’IA attribue des tags aux e-mails correspondants et crée un onglet par tag à côté de votre boîte de réception.",
+      aiSetupImportantDescription:
+        "L’IA ajoute le libellé Important aux e-mails correspondants pour les afficher dans l’onglet Important.",
+      aiSetupSkipInboxDescription:
+        "L’IA archive les e-mails correspondants pour qu’ils n’arrivent pas dans votre boîte de réception. Ils restent accessibles dans Tous les messages et dans la recherche.",
+      aiSetupAddTab: "Ajouter un onglet",
+      aiSetupAdjustRules: "Ajuster les règles",
+      aiSetupImportantBoss: "Messages de mon patron, ",
+      aiSetupImportantBossChip: "Messages de mon patron",
+      aiSetupImportantReply: "À répondre",
+      aiSetupImportantDeadlines: "Échéances",
+      aiSetupImportantCustomers: "Clients",
+      aiSetupImportantGitHub: "Personnes sur GitHub",
+      aiSetupImportantCalendar: "Invitations",
+      aiSetupSkipNewsletters: "Newsletters",
+      aiSetupSkipPromotions: "Promotions",
+      aiSetupSkipBots: "Alertes bot et CI",
+      aiSetupSkipColdSales: "Ventes non sollicitées",
+      aiSetupSkipRecruiters: "Recruteurs",
+      aiSetupSkipSocial: "Alertes sociales",
       priorityFeedbackLabel: "Retour sur l’importance",
       priorityScoreHigh: "Importance élevée",
       priorityScoreMedium: "Importance moyenne",

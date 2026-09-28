@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { RECORDING_TITLE_SOURCES } from "./title-source.js";
+import { RECORDING_TITLE_SOURCES } from "../../shared/title-source.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])

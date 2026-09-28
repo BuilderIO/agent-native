@@ -886,10 +886,11 @@ export async function syncInboxAccount(
       );
       if (
         syncResult.status.state === "ready" &&
-        !syncResult.changed &&
-        !changed
+        !syncResult.restartedFullSync &&
+        Date.now() < deadline
       ) {
-        syncResult = await runReconciliationStep(
+        const incrementalResult = syncResult;
+        const reconciliationResult = await runReconciliationStep(
           ownerEmail,
           accountEmail,
           accessToken,
@@ -900,6 +901,10 @@ export async function syncInboxAccount(
             changed = true;
           },
         );
+        syncResult = {
+          ...reconciliationResult,
+          changed: incrementalResult.changed || reconciliationResult.changed,
+        };
       }
     } else if (row.historyId == null) {
       syncResult = await runFullSyncStep(

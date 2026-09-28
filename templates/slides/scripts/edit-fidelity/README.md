@@ -15,6 +15,13 @@ Run the script from `templates/slides`:
 pnpm exec tsx scripts/edit-fidelity/run.ts [case-filter] [options]
 ```
 
+Run the focused chat caret regression while a synthetic slide text edit session
+is open in Chromium:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+```
+
 By default the harness starts its own scratch dev server with this command,
 run from the repo root:
 
@@ -47,6 +54,7 @@ because it creates and rewrites decks.
 | `--resume <run>`               | Reuse `<run>`'s output and keep every result that did not error                            |
 | `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                   |
 | `--headed`                     | Show the browser                                                                           |
+| `--typing-chat`                | Run only the Agent chat typing regression with a slide text edit session open              |
 
 Exit codes:
 
@@ -136,8 +144,9 @@ them per slide. For each target and scenario:
    stylesheet per slide font, so `fonts.ready` alone can resolve before the
    slide's font is requested. Scenarios never contaminate each other: a
    `pagehide` keepalive write from the previous page that carries other
-   content for this slide could land after the restore, so it errors the
-   scenario.
+   content for this slide could land after the restore. The harness retains
+   those request bodies, waits for the restored content to settle when one
+   could overwrite it, and errors if the fixture did not survive.
 2. **View.** Capture `view.png` and a style snapshot of the slide.
 3. **Enter edit.** Try click, then a second click, then double-click. The
    gesture that worked is recorded. A click must leave a caret within one

@@ -8161,6 +8161,7 @@ export function createProductionAgentHandler(
       scope,
       harness: requestHarness,
       trackInRunsTray,
+      skipPendingSelectionContext,
     } = body;
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
@@ -8804,6 +8805,7 @@ export function createProductionAgentHandler(
     const SELECTION_TTL_MS = 5 * 60 * 1000;
     const selectionContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
+        if (skipPendingSelectionContext === true) return "";
         try {
           const sel = (await readAppState("pending-selection-context")) as {
             text?: string;
@@ -10230,6 +10232,9 @@ export function createProductionAgentHandler(
         backgroundFunction: runsInBackgroundFunction,
         noProgressTimeoutMs: options.runNoProgressTimeoutMs,
         turnId: effectiveTurnId,
+        agentKitApprovalContinuation:
+          internalContinuation &&
+          Boolean(approvedToolCallsForExecution?.length),
         turnInitiator,
         parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,

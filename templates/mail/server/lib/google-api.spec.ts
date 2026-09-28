@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const quotaState = vi.hoisted(() => ({
   rows: new Map<string, any>(),
   clearCalls: 0,
+  failClear: false,
 }));
 
 vi.mock("./inbox-store.js", () => ({
@@ -77,6 +78,7 @@ vi.mock("./inbox-store.js", () => ({
     now = Date.now(),
   ) => {
     quotaState.clearCalls++;
+    if (quotaState.failClear) throw new Error("quota cleanup failed");
     const key = accountEmail.toLowerCase();
     const row = quotaState.rows.get(key);
     if (row && (row.cooldownUntil ?? 0) <= now) {
@@ -91,6 +93,7 @@ import {
   createOAuth2Client,
   gmailBatchGetMessages,
   estimateRequestCost,
+  gmailListHistory,
   googleFetch,
   registerGmailAccountToken,
 } from "./google-api.js";
@@ -106,6 +109,7 @@ describe("googleFetch quota handling", () => {
   beforeEach(() => {
     quotaState.rows.clear();
     quotaState.clearCalls = 0;
+    quotaState.failClear = false;
     for (const token of [
       "gateway-token-a",
       "gateway-token-b",
@@ -178,6 +182,45 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow("Google API error (502): bad gateway");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts an in-flight Gmail read when its sweep signal is aborted", async () => {
+    let markStarted = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            throw new Error("Expected an AbortSignal in the Gmail request.");
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          markStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    registerGmailAccountToken(
+      "sweep-abort-token",
+      "owner@example.com",
+      "mailbox@example.com",
+    );
+
+    const controller = new AbortController();
+    const request = gmailListHistory(
+      "sweep-abort-token",
+      { startHistoryId: "history-1" },
+      "incremental",
+      controller.signal,
+    );
+    await requestStarted;
+    controller.abort();
+
+    await expect(request).rejects.toBe(controller.signal.reason);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("preserves the final 503 error body after read retries are exhausted", async () => {
@@ -653,5 +696,29 @@ describe("googleFetch quota handling", () => {
 
     expect(quotaState.clearCalls).toBe(1);
     expect(quotaState.rows.get("account@example.com").attempts).toBe(0);
+  });
+
+  it("preserves Gmail success when cooldown cleanup fails", async () => {
+    quotaState.rows.set("account@example.com", {
+      windowStartedAt: Date.now() - 60_001,
+      units: 0,
+      background: 0,
+      backfill: 0,
+      attempts: 1,
+    });
+    quotaState.failClear = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(200, { id: "sent-message" })),
+    );
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "gateway-token-a",
+        { method: "POST" },
+      ),
+    ).resolves.toEqual({ id: "sent-message" });
+    expect(quotaState.clearCalls).toBe(1);
   });
 });

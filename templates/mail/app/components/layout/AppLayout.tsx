@@ -130,9 +130,13 @@ import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_PARAM,
+  isInboxScopedLabel,
+  pinnedTriageLabels,
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -574,6 +578,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   );
   const labelAliases = settings?.labelAliases ?? {};
   const savedFilters = settings?.savedFilters ?? EMPTY_SAVED_FILTERS;
+  const activeSavedFilterQuery = savedFilters.find(
+    (filter) => filter.id === activeFilterId,
+  )?.query;
   const { data: automations = [] } = useAutomations();
   const aiTags = useMemo(() => {
     const tags = new Map<string, { id: string; name: string }>();
@@ -820,11 +827,57 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    undefined,
-    undefined,
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const {
+    data: currentViewEmails = [],
+    isPlaceholderData: currentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
     { enabled: isMailboxView },
+  );
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
   );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
@@ -853,14 +906,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(

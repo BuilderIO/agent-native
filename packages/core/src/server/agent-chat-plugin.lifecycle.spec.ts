@@ -26,13 +26,17 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../settings/store.js", () => ({
-  deleteSetting: vi.fn(async () => false),
-  getAllSettings: vi.fn(async () => ({})),
-  getSetting: vi.fn(async () => null),
-  getSettingsEmitter: () => lifecycle.settingsEmitter,
-  putSetting: vi.fn(async () => {}),
-}));
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
+  return {
+    ...actual,
+    deleteSetting: vi.fn(async () => false),
+    getSetting: vi.fn(async () => null),
+    getSettingsEmitter: () => lifecycle.settingsEmitter,
+    listSettingsByKeySegments: vi.fn(async () => []),
+    putSetting: vi.fn(async () => {}),
+  };
+});
 
 vi.mock("../agent/run-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../agent/run-store.js")>();

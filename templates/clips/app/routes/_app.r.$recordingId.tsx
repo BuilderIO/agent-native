@@ -1,9 +1,4 @@
-import {
-  focusAgentChat,
-  requestAgentSidebarOpen,
-  SIDEBAR_STATE_CHANGE_EVENT,
-  type AgentSidebarStateChangeDetail,
-} from "@agent-native/core/client/agent-chat";
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
@@ -24,7 +19,10 @@ import { useLab } from "@agent-native/core/client/labs";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
+  AGENT_SIDEBAR_QUERY_PARAM,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "@agent-native/core/shared";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
 import type {
   ClipsAiRequestKind,
   ClipsAiRequestStatus,
@@ -43,6 +41,7 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
+import { isDefaultTitle } from "@shared/title-source";
 import type { WorkflowKind } from "@shared/workflow";
 import {
   IconCalendar,
@@ -53,6 +52,8 @@ import {
   IconBolt,
   IconMessage,
   IconExternalLink,
+  IconLayoutSidebarRightCollapse,
+  IconLayoutSidebarRightExpand,
   IconMoodSmile,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -141,7 +142,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle, notifyAiRequestQueued } from "@/hooks/use-auto-title";
+import { notifyAiRequestQueued } from "@/hooks/use-auto-title";
 import { useCompletionAudioCue } from "@/hooks/use-completion-audio-cue";
 import { useFolders, useSpaces } from "@/hooks/use-library";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
@@ -465,34 +466,8 @@ export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
-type SidePanel = "transcript" | "comments" | "debug" | "settings";
+type SidePanel = "transcript" | "comments" | "debug" | "settings" | "agent";
 type ToolbarPanel = Exclude<SidePanel, "comments">;
-
-function useGlobalAgentSidebarOpen() {
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    const handleStateChange = (event: Event) => {
-      const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
-        .detail;
-      if (detail && typeof detail.open === "boolean") {
-        setOpen(detail.open);
-      }
-    };
-
-    window.addEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
-    const mountedPanel = document.querySelector<HTMLElement>(
-      ".agent-sidebar-panel[data-agent-sidebar-state='open']",
-    );
-    setOpen(Boolean(mountedPanel));
-
-    return () => {
-      window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, handleStateChange);
-    };
-  }, []);
-
-  return open;
-}
 
 const WORKFLOW_MENU_ITEMS: Array<{
   kind: WorkflowKind;
@@ -600,7 +575,12 @@ export default function RecordingPage() {
     searchParams.get("at") ?? searchParams.get("t"),
   );
   const routePlaybackParam = searchParams.get("at") ?? searchParams.get("t");
-  const panelParam = searchParams.get("panel");
+  const panelParam =
+    searchParams.get("panel") ??
+    (searchParams.get(AGENT_SIDEBAR_QUERY_PARAM) ===
+    AGENT_SIDEBAR_QUERY_VALUE_OPEN
+      ? "agent"
+      : null);
   const legacyShareQuery = buildShareContinuationQuery(
     { ref: CLIP_SHARE_REF, via: undefined },
     routePlaybackParam,
@@ -611,9 +591,41 @@ export default function RecordingPage() {
   const meetingsLabEnabled = useLab(CLIPS_MEETINGS.key);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
+  const agentPanelContentRef = useRef<HTMLDivElement | null>(null);
+  const focusAgentComposerRef = useRef(false);
+  const selectionHandoffRevisionRef = useRef(0);
+  const focusAgentComposer = useCallback(() => {
+    const focus = (attempt = 0) => {
+      const composer = agentPanelContentRef.current?.querySelector<HTMLElement>(
+        ".ProseMirror, textarea",
+      );
+      if (
+        composer &&
+        composer.getAttribute("contenteditable") !== "false" &&
+        !composer.hasAttribute("disabled")
+      ) {
+        composer.focus();
+        return;
+      }
+      if (attempt < 40) window.setTimeout(() => focus(attempt + 1), 50);
+    };
+    requestAnimationFrame(() => focus());
+  }, []);
 
   const [panel, setPanel] = useState<SidePanel | null>("comments");
-  const globalAgentSidebarOpen = useGlobalAgentSidebarOpen();
+  const [pendingSelectionText, setPendingSelectionText] = useState<
+    string | null
+  >(null);
+  useEffect(
+    () => () => {
+      selectionHandoffRevisionRef.current += 1;
+    },
+    [],
+  );
+  const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: "clips:share-sidebar-collapsed",
+    });
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(startMs);
@@ -639,6 +651,7 @@ export default function RecordingPage() {
         });
       }
       setPanel(next);
+      setSidePanelCollapsed(false);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
       setSearchParams(nextParams, { replace: true });
@@ -649,7 +662,13 @@ export default function RecordingPage() {
           ?.scrollIntoView({ block: "start" });
       });
     },
-    [isCompactLayout, panel, searchParams, setSearchParams],
+    [
+      isCompactLayout,
+      panel,
+      searchParams,
+      setSearchParams,
+      setSidePanelCollapsed,
+    ],
   );
   const openCommentsPanel = useCallback(() => {
     if (panel !== "comments") {
@@ -661,6 +680,7 @@ export default function RecordingPage() {
       });
     }
     setPanel("comments");
+    setSidePanelCollapsed(false);
     const nextParams = new URLSearchParams(searchParams);
     nextParams.set("panel", "comments");
     setSearchParams(nextParams, { replace: true });
@@ -672,7 +692,13 @@ export default function RecordingPage() {
         });
       });
     }
-  }, [isCompactLayout, panel, searchParams, setSearchParams]);
+  }, [
+    isCompactLayout,
+    panel,
+    searchParams,
+    setSearchParams,
+    setSidePanelCollapsed,
+  ]);
   const openAgentPanel = useCallback(() => {
     if (recordingId) {
       trackEvent("builtin_agent_used", {
@@ -684,8 +710,8 @@ export default function RecordingPage() {
         surface: "recording_page",
       });
     }
-    focusAgentChat();
-  }, [recordingId]);
+    openSidePanel("agent");
+  }, [openSidePanel, recordingId]);
   const transcriptKickedRef = useRef<string | null>(null);
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
@@ -698,6 +724,69 @@ export default function RecordingPage() {
   const [pendingReactions, setPendingReactions] = useState<
     PendingRecordingReaction[]
   >([]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.key !== "i"
+      ) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable ||
+          target.closest?.("[contenteditable]"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      selectionHandoffRevisionRef.current += 1;
+      const selectionText = window.getSelection()?.toString().trim() ?? "";
+      setPendingSelectionText(selectionText || null);
+
+      focusAgentComposerRef.current = panel !== "agent";
+      openAgentPanel();
+      if (panel === "agent") focusAgentComposer();
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [browserTabId, focusAgentComposer, openAgentPanel, panel]);
+
+  useEffect(() => {
+    if (panel !== "agent") return;
+    if (focusAgentComposerRef.current) {
+      focusAgentComposerRef.current = false;
+      focusAgentComposer();
+    }
+    if (!pendingSelectionText) return;
+
+    const selectionRevision = selectionHandoffRevisionRef.current;
+    setPendingSelectionText(null);
+    const dispatchSelectionAttached = () => {
+      if (selectionRevision !== selectionHandoffRevisionRef.current) return;
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: {
+            text: pendingSelectionText,
+            length: pendingSelectionText.length,
+          },
+        }),
+      );
+    };
+    void writeClientAppState(
+      "pending-selection-context",
+      { text: pendingSelectionText, capturedAt: Date.now() },
+      { requestSource: browserTabId, keepalive: true },
+    ).then(dispatchSelectionAttached, dispatchSelectionAttached);
+  }, [browserTabId, focusAgentComposer, panel, pendingSelectionText]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -1022,9 +1111,21 @@ export default function RecordingPage() {
   }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
+    const legacyAgentSidebar = searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
+    if (legacyAgentSidebar !== null) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete(AGENT_SIDEBAR_QUERY_PARAM);
+      if (
+        !nextParams.has("panel") &&
+        legacyAgentSidebar === AGENT_SIDEBAR_QUERY_VALUE_OPEN
+      ) {
+        nextParams.set("panel", "agent");
+      }
+      setSearchParams(nextParams, { replace: true });
+    }
+
     if (panelParam === "agent") {
-      setPanel("transcript");
-      requestAgentSidebarOpen();
+      setPanel("agent");
       return;
     }
     if (panelParam === "comments") {
@@ -1054,6 +1155,9 @@ export default function RecordingPage() {
     isCompactLayout,
     panelParam,
     recording?.enableComments,
+    searchParams,
+    setSearchParams,
+    setSidePanelCollapsed,
   ]);
 
   const builderCredits =
@@ -2020,42 +2124,86 @@ export default function RecordingPage() {
   }
 
   const renderPanelTabs = () => (
-    <ViewerTabsList className="min-w-0 shrink-0 bg-background">
-      {recording.enableComments ? (
-        <ViewerTabsTrigger
-          value="comments"
-          className="px-0 data-[state=active]:after:inset-x-0"
-        >
-          {t("playerSettings.comments")}
+    <div
+      className={cn(
+        "flex min-w-0 items-center border-b border-border",
+        sidePanelCollapsed && "lg:border-0",
+      )}
+    >
+      <ViewerTabsList
+        className={cn(
+          "min-w-0 shrink-0 bg-background",
+          sidePanelCollapsed && "lg:hidden",
+        )}
+      >
+        {recording.enableComments ? (
+          <ViewerTabsTrigger
+            value="comments"
+            className="px-0 data-[state=active]:after:inset-x-0"
+          >
+            {t("playerSettings.comments")}
+          </ViewerTabsTrigger>
+        ) : null}
+        <ViewerTabsTrigger value="transcript">
+          {t("recordingPage.transcript")}
         </ViewerTabsTrigger>
-      ) : null}
-      <ViewerTabsTrigger value="transcript">
-        {t("recordingPage.transcript")}
-      </ViewerTabsTrigger>
-      {browserDiagnostics ? (
-        <ViewerTabsTrigger value="debug">
-          <span className="flex items-center justify-center gap-1.5">
-            {t("browserDiagnostics.debug")}
-            {unviewedDebugEventCount > 0 ? (
-              <Badge
-                variant="secondary"
-                className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
-                aria-label={t("browserDiagnostics.unviewedCount", {
-                  count: unviewedDebugEventCount,
-                })}
-              >
-                {unviewedDebugEventCount}
-              </Badge>
-            ) : null}
-          </span>
+        <ViewerTabsTrigger value="agent">
+          {t("sharePage.agent")}
         </ViewerTabsTrigger>
-      ) : null}
-      {canEdit ? (
-        <ViewerTabsTrigger value="settings">
-          {t("recordingPage.settings")}
-        </ViewerTabsTrigger>
-      ) : null}
-    </ViewerTabsList>
+        {browserDiagnostics ? (
+          <ViewerTabsTrigger value="debug">
+            <span className="flex items-center justify-center gap-1.5">
+              {t("browserDiagnostics.debug")}
+              {unviewedDebugEventCount > 0 ? (
+                <Badge
+                  variant="secondary"
+                  className="h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+                  aria-label={t("browserDiagnostics.unviewedCount", {
+                    count: unviewedDebugEventCount,
+                  })}
+                >
+                  {unviewedDebugEventCount}
+                </Badge>
+              ) : null}
+            </span>
+          </ViewerTabsTrigger>
+        ) : null}
+        {canEdit ? (
+          <ViewerTabsTrigger value="settings">
+            {t("recordingPage.settings")}
+          </ViewerTabsTrigger>
+        ) : null}
+      </ViewerTabsList>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ViewerIconButton
+            variant="ghost"
+            className="ms-auto me-1 hidden size-8 shrink-0 border-0 shadow-none lg:inline-flex"
+            aria-label={t(
+              sidePanelCollapsed
+                ? "navigation.expandSidebar"
+                : "navigation.collapseSidebar",
+            )}
+            aria-controls="clip-recording-side-panel-content"
+            aria-expanded={!sidePanelCollapsed}
+            onClick={() => setSidePanelCollapsed((collapsed) => !collapsed)}
+          >
+            {sidePanelCollapsed ? (
+              <IconLayoutSidebarRightExpand className="size-4" />
+            ) : (
+              <IconLayoutSidebarRightCollapse className="size-4" />
+            )}
+          </ViewerIconButton>
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          {t(
+            sidePanelCollapsed
+              ? "navigation.expandSidebar"
+              : "navigation.collapseSidebar",
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </div>
   );
 
   const renderCommentsSection = (compact = false) => (
@@ -2138,6 +2286,27 @@ export default function RecordingPage() {
                 : undefined
             }
             isRegenerating={requestTranscript.isPending}
+          />
+        </TabsContent>
+        <TabsContent
+          value="agent"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
+          ref={agentPanelContentRef}
+        >
+          <AgentPanel
+            emptyStateText={t("recordingPage.askAboutClip")}
+            dynamicSuggestions={false}
+            scope={{ type: "recording", id: recording.id }}
+            missingApiKeySetupLayout="sidebar"
+            suggestions={[
+              t("recordingPage.summarizeClip"),
+              t("recordingPage.findKeyMoments"),
+              t("recordingPage.listFollowUpActions"),
+              t("recordingPage.draftQuestions"),
+            ]}
+            browserTabId={browserTabId}
+            showHeader={false}
+            showTabBar={false}
           />
         </TabsContent>
         {browserDiagnostics ? (
@@ -2478,7 +2647,10 @@ export default function RecordingPage() {
           }
           openSidePanel(value as ToolbarPanel);
         }}
-        className="clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
+        className={cn(
+          "clips-recording-view grid h-full min-h-0 w-full max-w-full grid-cols-1 overflow-x-hidden bg-background lg:grid-cols-[minmax(0,1fr)_auto] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden",
+          sidePanelCollapsed && "lg:grid-cols-[minmax(0,1fr)_40px]",
+        )}
       >
         {/* Main video column */}
         <div className="contents">
@@ -2673,13 +2845,18 @@ export default function RecordingPage() {
                   </div>
                 </div>
 
-                {isCompactLayout && !globalAgentSidebarOpen ? (
+                {isCompactLayout ? (
                   <RecordingSidePanel
                     id="clip-activity-panel"
                     className="mt-2 lg:hidden"
                     tabs={renderPanelTabs()}
                   >
-                    {renderSidePanel(true)}
+                    <div
+                      id="clip-recording-side-panel-content"
+                      className="contents"
+                    >
+                      {renderSidePanel(true)}
+                    </div>
                   </RecordingSidePanel>
                 ) : null}
               </div>
@@ -2688,12 +2865,21 @@ export default function RecordingPage() {
         </div>
 
         {/* Side panel */}
-        {!editing && !isCompactLayout && !globalAgentSidebarOpen && panel ? (
+        {!editing && !isCompactLayout && panel ? (
           <RecordingSidePanel
-            className="hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px] 2xl:w-[440px]"
+            className={cn(
+              "hidden lg:col-start-2 lg:row-start-1 lg:flex lg:w-[360px] xl:w-[420px] 2xl:w-[440px]",
+              sidePanelCollapsed &&
+                "lg:me-0 lg:h-10 lg:w-10 lg:border-0 lg:bg-transparent lg:shadow-none xl:w-10 2xl:w-10",
+            )}
             tabs={renderPanelTabs()}
           >
-            {renderSidePanel()}
+            <div
+              id="clip-recording-side-panel-content"
+              className={cn("contents", sidePanelCollapsed && "lg:hidden")}
+            >
+              {renderSidePanel()}
+            </div>
           </RecordingSidePanel>
         ) : null}
       </Tabs>

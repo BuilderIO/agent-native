@@ -90,6 +90,47 @@ describe("transactional email store", () => {
     ]);
   });
 
+  it("lists AI claim candidates only for the claimant's open two-Clip jobs", async () => {
+    const store = createTransactionalEmailStore();
+    const twoClips = (recipient: string, requestedBy: string) => ({
+      type: "two-clips" as const,
+      recipient,
+      recordingIds: ["recording-1", "recording-2"],
+      requestedBy,
+    });
+    await store.enqueue(
+      "two-clips:recipient",
+      twoClips("me@example.com", "sender@example.com"),
+      "awaiting_ai",
+    );
+    await store.enqueue(
+      "two-clips:requester",
+      twoClips("other@example.com", "Me@Example.com"),
+      "awaiting_ai",
+    );
+    await store.enqueue(
+      "two-clips:unrelated",
+      twoClips("other@example.com", "sender@example.com"),
+      "awaiting_ai",
+    );
+    await store.enqueue(
+      "two-clips:pending",
+      twoClips("me@example.com", "sender@example.com"),
+    );
+    await store.enqueue(
+      "first-view:awaiting-ai",
+      { ...firstViewPayload, recipient: "me@example.com" },
+      "awaiting_ai",
+    );
+
+    const candidates = await store.listAiClaimCandidates(" ME@example.com ");
+
+    expect(candidates.map((job) => job.logicalKey).sort()).toEqual([
+      "two-clips:recipient",
+      "two-clips:requester",
+    ]);
+  });
+
   it("claims AI work once and enforces valid transitions", async () => {
     const store = createTransactionalEmailStore();
     await store.enqueue("first-view:share-1", firstViewPayload, "awaiting_ai");

@@ -108,7 +108,8 @@ vi.mock("./store.js", () => ({
   ),
 }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   mutateSetting: vi.fn(
     async (
       key: string,

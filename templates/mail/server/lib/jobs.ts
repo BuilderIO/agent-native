@@ -19,6 +19,7 @@ import {
   gmailModifyMessage,
   gmailModifyThread,
   googleFetch,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import {
   getAccountDisplayName,
@@ -83,6 +84,7 @@ export interface ScheduledJobRecord {
 
 async function getAccessToken(
   accountEmail: string,
+  ownerEmail?: string,
   requireFreshToken = false,
 ): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
@@ -119,6 +121,11 @@ async function getAccessToken(
         accountEmail,
         updated as unknown as Record<string, unknown>,
       );
+      registerGmailAccountToken(
+        refreshed.access_token,
+        ownerEmail ?? accountEmail,
+        accountEmail,
+      );
       return refreshed.access_token;
     } catch (err: any) {
       console.error(
@@ -129,6 +136,11 @@ async function getAccessToken(
     }
   }
 
+  registerGmailAccountToken(
+    tokens.access_token,
+    ownerEmail ?? accountEmail,
+    accountEmail,
+  );
   return tokens.access_token;
 }
 
@@ -138,7 +150,11 @@ async function getFirstAccountToken(
   strictPreference = false,
 ): Promise<{ email: string; accessToken: string } | null> {
   if (preferEmail) {
-    const token = await getAccessToken(preferEmail, strictPreference);
+    const token = await getAccessToken(
+      preferEmail,
+      ownerEmail,
+      strictPreference,
+    );
     if (token) return { email: preferEmail, accessToken: token };
     if (strictPreference) return null;
   }
@@ -147,7 +163,11 @@ async function getFirstAccountToken(
     ? await listOAuthAccountsByOwner("google", ownerEmail)
     : await listOAuthAccounts("google");
   for (const account of accounts) {
-    const token = await getAccessToken(account.accountId);
+    const accountOwner = "owner" in account ? account.owner : null;
+    const token = await getAccessToken(
+      account.accountId,
+      accountOwner ?? ownerEmail ?? account.accountId,
+    );
     if (token) return { email: account.accountId, accessToken: token };
   }
 

@@ -8,6 +8,7 @@ import {
   createOAuth2Client,
   gmailGetMessage,
   googleFetch,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import { getOAuth2Credentials } from "./google-auth.js";
 import { buildRawEmail } from "./outgoing-email.js";
@@ -67,8 +68,10 @@ async function getAccessToken(
       accountEmail,
       updated as unknown as Record<string, unknown>,
     );
+    registerGmailAccountToken(refreshed.access_token, ownerEmail, accountEmail);
     return refreshed.access_token;
   }
+  registerGmailAccountToken(tokens.access_token, ownerEmail, accountEmail);
   return tokens.access_token;
 }
 

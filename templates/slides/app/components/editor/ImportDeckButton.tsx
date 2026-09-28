@@ -95,6 +95,7 @@ export function ImportDeckButton({
                 ref={menuTrigger}
                 type="button"
                 size="sm"
+                className="slides-home-import-button"
                 disabled={busy}
                 aria-busy={busy}
                 aria-label={t(
@@ -102,8 +103,12 @@ export function ImportDeckButton({
                 )}
               >
                 <IconUpload />
-                {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
-                <IconChevronDown />
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
+                <IconChevronDown className="slides-home-import-chevron" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

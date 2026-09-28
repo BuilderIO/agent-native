@@ -873,6 +873,8 @@ const messages = {
       networkFailed:
         "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      unsupportedFileType:
+        "Dieser Dateityp wird nicht unterstützt. Wähle eine unterstützte Datei aus.",
       uploadLimitExceeded:
         "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
@@ -914,6 +916,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      websiteReadFailed:
+        "Diese Website konnte nicht automatisch gelesen werden. Kopieren Sie stattdessen den relevanten Text und fügen Sie ihn ein.",
       figmaReadFailed:
         "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
@@ -1072,6 +1076,11 @@ const messages = {
     createFirstDeck: "Erstelle dein erstes Deck",
     emptyDescription:
       "Erstelle schöne Präsentationen mit KI-gestützter Generierung.",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "KI-Verbindung konnte nicht geprüft werden.",
+    },
   },
 };
 

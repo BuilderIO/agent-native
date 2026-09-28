@@ -14,6 +14,7 @@ import {
 import {
   createOAuth2Client,
   gmailGetAttachment,
+  registerGmailAccountToken,
 } from "../../lib/google-api.js";
 import { getOAuth2Credentials, isConnected } from "../../lib/google-auth.js";
 
@@ -23,7 +24,10 @@ interface StoredTokens {
   expiry_date?: number;
 }
 
-async function getAccessToken(accountEmail: string): Promise<string | null> {
+async function getAccessToken(
+  accountEmail: string,
+  ownerEmail: string,
+): Promise<string | null> {
   const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
     | StoredTokens
     | undefined;
@@ -49,12 +53,14 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
         accountEmail,
         updated as unknown as Record<string, unknown>,
       );
+      registerGmailAccountToken(refreshed.access_token, ownerEmail, accountEmail);
       return refreshed.access_token;
     } catch {
       // Use existing token
     }
   }
 
+  registerGmailAccountToken(tokens.access_token, ownerEmail, accountEmail);
   return tokens.access_token;
 }
 
@@ -97,7 +103,7 @@ export default defineEventHandler(async (event) => {
   const accounts = await listOAuthAccountsByOwner("google", userEmail);
   for (const account of accounts) {
     try {
-      const accessToken = await getAccessToken(account.accountId);
+      const accessToken = await getAccessToken(account.accountId, userEmail);
       if (!accessToken) continue;
 
       const res = await gmailGetAttachment(accessToken, messageId, id);

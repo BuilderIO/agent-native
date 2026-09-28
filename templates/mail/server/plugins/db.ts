@@ -391,6 +391,14 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
     },
     {
       version: 32,
+      name: "mail-background-account-sweep-order",
+      sql: `CREATE INDEX IF NOT EXISTS mail_sync_accounts_automation_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_automation_attempted_at, 0), id);
+CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
+    },
+    {
+      version: 33,
       name: "mail-gmail-account-quota-budget",
       sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
     id TEXT PRIMARY KEY,
@@ -409,7 +417,7 @@ CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
   ON mail_gmail_quota_budgets(owner_email);`,
     },
     {
-      version: 33,
+      version: 34,
       name: "mail-inbox-id-reconciliation",
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;
