@@ -125,9 +125,12 @@ import { runUndo } from "@/hooks/use-undo";
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_PARAM,
+  isInboxScopedLabel,
+  pinnedTriageLabels,
   resolvePinnedLabels,
   resolveDefaultMailHref,
   labelTabHref,
+  resolveInboxEmailQueryScope,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -220,6 +223,7 @@ function isStandardLayoutPath(pathname: string): boolean {
   return (
     isSettingsPath(pathname) ||
     pathname === "/agent" ||
+    pathname === "/chat" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -324,6 +328,8 @@ const filteredView = {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const isAgentChatRoute = location.pathname === "/chat";
 
   const t = useT();
   const settingsRedesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
@@ -349,12 +355,14 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <AgentSidebar
+      enabled={!isAgentChatRoute}
       browserTabId={getBrowserTabId()}
       position="right"
       disableChatShortcut
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
+      onFullscreenRequest={() => void navigate("/chat")}
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       dynamicSuggestions={false}
@@ -810,12 +818,30 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
-    isMailboxView ? view : "inbox",
-    activeSavedFilterQuery ?? activeSearchQuery ?? undefined,
-    activeLabel ?? undefined,
+  const shellSearchQuery =
+    activeSavedFilterQuery ?? activeSearchQuery ?? undefined;
+  const shellQueryScope = resolveInboxEmailQueryScope({
+    view,
+    activeLabel,
+    activeInboxTab,
+    activeLabelIsInboxScoped: isInboxScopedLabel(activeLabel, labels),
+    activeSavedFilter: activeSavedFilterQuery !== undefined,
+    combineInbox,
+    triageLabels: pinnedTriageLabels(pinnedLabels),
+    searchQuery: shellSearchQuery,
+  });
+  const {
+    data: currentViewEmails = [],
+    isPlaceholderData: currentViewEmailsArePlaceholder,
+  } = useEmails(
+    isMailboxView ? shellQueryScope.emailView : "inbox",
+    shellSearchQuery,
+    shellQueryScope.effectiveLabel,
     { enabled: isMailboxView },
   );
+  const actionTargetEmails = currentViewEmailsArePlaceholder
+    ? []
+    : currentViewEmails;
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();
@@ -843,14 +869,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const targetEmail = useMemo(() => {
     if (threadId) {
-      return currentViewEmails.find((e) => (e.threadId || e.id) === threadId);
+      return actionTargetEmails.find((e) => (e.threadId || e.id) === threadId);
     }
     if (focusedListId) {
-      const focused = currentViewEmails.find((e) => e.id === focusedListId);
+      const focused = actionTargetEmails.find((e) => e.id === focusedListId);
       if (focused) return focused;
     }
-    return currentViewEmails[0] ?? undefined;
-  }, [threadId, focusedListId, currentViewEmails]);
+    return actionTargetEmails[0] ?? undefined;
+  }, [threadId, focusedListId, actionTargetEmails]);
 
   const dismissEmail = useCallback((emailId: string) => {
     window.dispatchEvent(
@@ -2148,6 +2174,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
+  const isAgentChatRoute = location.pathname === "/chat";
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();
@@ -2240,7 +2267,7 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {headerActions}
-            <AgentToggleButton />
+            {!isAgentChatRoute && <AgentToggleButton />}
           </div>
         </header>
       )}

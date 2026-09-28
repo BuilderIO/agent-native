@@ -47,14 +47,9 @@ export function PlanChatPage() {
       composerPlaceholder={t("chat.placeholder")}
       homeIntroSlot={
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 text-center">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
-              {t("chat.heading")}
-            </h1>
-            <p className="mx-auto max-w-2xl text-sm leading-6 text-muted-foreground">
-              {t("chat.description")}
-            </p>
-          </div>
+          <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+            {t("chat.heading")}
+          </h1>
           <LocalCodebasePicker />
         </div>
       }

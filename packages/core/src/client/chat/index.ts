@@ -176,6 +176,7 @@ export {
   type AgentTeamProgressTask,
 } from "../../action-ui.js";
 export { ActionCard } from "./widgets/ActionCard.js";
+export { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

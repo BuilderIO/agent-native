@@ -372,28 +372,40 @@ describe("OrgSwitcher (account menu)", () => {
     },
   );
 
-  it("shows the Builder credit notice and upgrade link when credits run out", () => {
-    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
-    mocks.useActionQuery
-      .mockReturnValueOnce({
-        data: { email: ownerOrg.email, name: "Olivia Owner" },
-      })
-      .mockReturnValueOnce({ data: { exhausted: true }, isError: false });
+  it.each([
+    { period: "daily", label: "Free daily limit" },
+    { period: "monthly", label: "Monthly plan" },
+  ] as const)(
+    "shows the $period Builder limit with its upgrade link",
+    ({ period, label }) => {
+      mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
+      mocks.useActionQuery
+        .mockReturnValueOnce({
+          data: { email: ownerOrg.email, name: "Olivia Owner" },
+        })
+        .mockReturnValueOnce({
+          data: { exhausted: true, period },
+          isError: false,
+        });
 
-    render(<OrgSwitcher />);
+      render(<OrgSwitcher />);
 
-    expect(container.textContent).toContain("Your Builder credits are used up");
-    const upgrade = container.querySelector<HTMLAnchorElement>(
-      'a[href^="https://builder.io/account/subscription"]',
-    );
-    expect(upgrade?.textContent).toContain("Upgrade plan");
-    expect(upgrade?.getAttribute("target")).toBe("_blank");
-    expect(mocks.useActionQuery).toHaveBeenCalledWith(
-      "get-builder-credit-status",
-      { orgId: "org-1" },
-      expect.objectContaining({ refetchInterval: 60_000 }),
-    );
-  });
+      expect(container.textContent).toContain(
+        "Your Builder credits are used up",
+      );
+      expect(container.textContent).toContain(label);
+      const upgrade = container.querySelector<HTMLAnchorElement>(
+        'a[href^="https://builder.io/account/subscription"]',
+      );
+      expect(upgrade?.textContent).toContain("Upgrade plan");
+      expect(upgrade?.getAttribute("target")).toBe("_blank");
+      expect(mocks.useActionQuery).toHaveBeenCalledWith(
+        "get-builder-credit-status",
+        { orgId: "org-1" },
+        expect.objectContaining({ refetchInterval: 60_000 }),
+      );
+    },
+  );
 
   it("hides the Builder credit notice when live status is unreadable", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });

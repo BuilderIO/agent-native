@@ -58,13 +58,6 @@
   letter-spacing: -0.02em;
 }
 
-.agentkit-chat-empty-copy p {
-  margin: 0.5rem 0 0;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
 .agent-kit-chat-footer-stack {
   inline-size: min(100%, 47rem);
   margin-inline: auto;

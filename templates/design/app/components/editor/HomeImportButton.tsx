@@ -98,7 +98,7 @@ export function HomeImportButton() {
       />
       <Popover open={open} onOpenChange={changeOpen}>
         <PopoverAnchor asChild>
-          <div className="inline-flex">
+          <div className="inline-flex shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button

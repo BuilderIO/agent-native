@@ -70,21 +70,20 @@ describe("Inbox navigation commands", () => {
       "const combineInbox = settings?.combineInbox === true;",
     );
     expect(source).toContain("combineInbox\n    )");
-    expect(source).toContain("!combineInbox && isPinnedTab");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
     expect(source).toContain("!combineInbox &&\n    activeInboxTab");
   });
 
   it("loads legacy custom-label inbox links from the whole mailbox", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const mailboxWideLabelTab =");
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
     expect(source).toContain(
-      "const clientSliceTab =\n    !combineInbox && isPinnedTab && !searchQuery && !mailboxWideLabelTab;",
+      "const activeLabelIsInboxScoped = isInboxScopedLabel(",
     );
-    expect(source).toContain(
-      'const emailView = activeSavedFilter\n    ? "inbox"',
-    );
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("mailboxWideLabelTab,");
+    expect(source).toContain("clientSliceTab,");
+    expect(source).toContain("emailView,");
     expect(source).toContain(
       "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
     );
@@ -125,7 +124,7 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain(
-      'import { ALL_TAB_PARAM, inboxTabHref } from "@shared/inbox-threads";',
+      'import { inboxTabHref } from "@shared/inbox-threads";',
     );
     expect(source).toContain(
       "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
@@ -178,13 +177,11 @@ describe("Inbox navigation commands", () => {
   it("normalizes hidden combined-inbox triage routes", () => {
     const source = inboxSource();
 
-    expect(source).toContain("const shouldNormalizeCombinedInboxRoute =");
-    expect(source).toContain("activeLabelIsInboxScoped ||");
+    expect(source).toContain("resolveInboxEmailQueryScope({");
+    expect(source).toContain("shouldNormalizeCombinedInboxRoute,");
     expect(source).toContain('nextParams.delete("label")');
     expect(source).toContain('nextParams.delete("tab")');
-    expect(source).toContain(
-      "const effectiveLabel = shouldNormalizeCombinedInboxRoute",
-    );
+    expect(source).toContain("effectiveLabel,");
     expect(source).toContain(
       "if (shouldNormalizeCombinedInboxRoute) return filtered;",
     );
@@ -309,7 +306,7 @@ describe("Inbox navigation commands", () => {
   it("disambiguates custom labels that share a system label name", () => {
     const source = inboxSource();
 
-    expect(source).toContain('activeLabelRecord?.type !== "user"');
+    expect(source).toContain("isInboxScopedLabel(activeLabel, labels)");
     expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
     expect(source).toContain("const activeLabelIsInboxScoped =");
   });

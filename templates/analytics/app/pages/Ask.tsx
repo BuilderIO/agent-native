@@ -77,7 +77,6 @@ export default function AskPage() {
       homeIntroSlot={
         <div className="analytics-chat-intro">
           <h1>{t("common.askIntroTitle")}</h1>
-          <p>{t("common.askIntroBody")}</p>
         </div>
       }
     />

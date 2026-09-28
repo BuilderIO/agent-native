@@ -936,7 +936,10 @@ export default {
     recentSales: "हाल की बिक्री",
     recentSalesDescription: "आपने इस महीने 265 बिक्री की।",
   },
-  analysisResult: { title: "विश्लेषण परिणाम" },
+  analysisResult: {
+    title: "विश्लेषण परिणाम",
+    comparisonContext: "{{period}}: {{previous}} की तुलना में {{current}}",
+  },
   routeTitles: {
     notFound: "नहीं मिला - Analytics",
     analysis: "विश्लेषण - Analytics",

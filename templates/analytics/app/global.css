@@ -147,7 +147,6 @@
 
 .analytics-chat-intro {
   display: grid;
-  gap: 0.5rem;
 }
 
 .dark .analytics-ask-page .analytics-chat-panel {
@@ -388,11 +387,6 @@
 
   .analytics-chat-intro h1 {
     font-size: 1.5rem;
-    white-space: nowrap;
-  }
-
-  .analytics-chat-intro p {
-    font-size: 0.875rem;
     white-space: nowrap;
   }
 

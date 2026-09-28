@@ -1305,7 +1305,7 @@ async function waitForAuthenticatedShell(
 const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
-  "Call accept-agentkit-release with release agentkit-acceptance and wait for my approval.";
+  "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1647,7 +1647,10 @@ async function handleLoopbackCompletion(
       await streamToolCallResponse(response, requestNumber, {
         id: approvalToolCallId,
         name: "accept-agentkit-release",
-        arguments: { release: "agentkit-acceptance" },
+        arguments: {
+          release: "agentkit-acceptance",
+          environment: "production",
+        },
       });
       return;
     }
@@ -2564,11 +2567,30 @@ async function assertAgentKitChatAcceptance(
   await fillAndSubmitComposer(page, approvalPrompt);
   const approval = page.locator(".agentkit-approval");
   await approval.waitFor({ state: "visible" });
+  await approval
+    .getByText("Release agentkit-acceptance to production", { exact: true })
+    .waitFor({ state: "visible" });
   await approval.getByRole("button", { name: "Approve" }).waitFor({
     state: "visible",
   });
   await assertViewportContract(page, "narrow dark approval", { dark: true });
   await assertComposerFocused(page);
+
+  const pendingActivity = page.locator(".agentkit-activities").last();
+  if (
+    await pendingActivity.evaluate(
+      (element) => (element as HTMLDetailsElement).open,
+    )
+  ) {
+    await pendingActivity.locator("summary").click();
+  }
+  await approval.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: path.join(
+      repoRoot,
+      ".tmp/action-cards-gallery/mock-approval-release-target-dark-mobile-after.png",
+    ),
+  });
 
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
