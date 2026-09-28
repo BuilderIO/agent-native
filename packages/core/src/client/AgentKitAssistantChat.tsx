@@ -101,6 +101,7 @@ import { agentNativePath } from "./api-path.js";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
+  isClientAppStateMutationPending,
   readClientAppState,
 } from "./application-state.js";
 import { isInBuilderFrame } from "./builder-frame.js";
@@ -174,7 +175,6 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
-let pendingSelectionClear: Promise<void> | null = null;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
 const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
@@ -188,32 +188,6 @@ const deferredProviderSubmissionOperations = new Map<
   string,
   Promise<unknown>
 >();
-
-function clearPendingSelectionState(): Promise<void> {
-  const previous = pendingSelectionClear;
-  const clear = previous
-    ? previous
-        .catch(() => undefined)
-        .then(() =>
-          deleteClientAppState("pending-selection-context", {
-            keepalive: true,
-          }),
-        )
-    : deleteClientAppState("pending-selection-context", { keepalive: true });
-  pendingSelectionClear = clear;
-  void clear.then(
-    () => {
-      if (pendingSelectionClear === clear) pendingSelectionClear = null;
-    },
-    () => {},
-  );
-  return clear;
-}
-
-async function readPendingSelectionState(): Promise<unknown> {
-  while (pendingSelectionClear) await pendingSelectionClear;
-  return readClientAppState<unknown>("pending-selection-context");
-}
 // i18n-ignore: Internal recovery instruction sent to the agent, never shown as product copy.
 const RECOVERY_CONTINUE_PROMPT =
   "Continue from where you left off and finish my last request. Do not repeat completed work.";
@@ -1364,13 +1338,13 @@ const AgentKitAssistantChatBody = forwardRef<
     thread.messages.some((message) => message.role === "assistant");
 
   const clearPendingSelection = useCallback(() => {
-    const selectionRevision = ++selectionRevisionRef.current;
-    return clearPendingSelectionState().then(() => {
-      if (selectionRevision !== selectionRevisionRef.current) return;
-      setPendingSelection(null);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("agent-panel:selection-cleared"));
-      }
+    selectionRevisionRef.current += 1;
+    setPendingSelection(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-panel:selection-cleared"));
+    }
+    return deleteClientAppState("pending-selection-context", {
+      keepalive: true,
     });
   }, []);
   const requestPendingSelectionClear = useCallback(() => {
@@ -1382,7 +1356,7 @@ const AgentKitAssistantChatBody = forwardRef<
   useEffect(() => {
     let cancelled = false;
     const selectionRevision = selectionRevisionRef.current;
-    void readPendingSelectionState()
+    void readClientAppState<unknown>("pending-selection-context")
       .then((value) => {
         if (cancelled || selectionRevision !== selectionRevisionRef.current) {
           return;
@@ -1726,6 +1700,9 @@ const AgentKitAssistantChatBody = forwardRef<
       const fileParts =
         options.deferredFileParts ??
         (await uploadAgentChatAttachments(control, attachments, files));
+      const skipAmbientSelectionContext =
+        isClientAppStateMutationPending("pending-selection-context") ||
+        Boolean(pendingSelectionPromptContext(pendingSelection));
       if (!options.recoveryAction) {
         requestPendingSelectionClear();
       }
@@ -1758,6 +1735,9 @@ const AgentKitAssistantChatBody = forwardRef<
           : {}),
         ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
         ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
+        ...(skipAmbientSelectionContext
+          ? { agentNativeSkipPendingSelectionContext: true }
+          : {}),
         ...(actionScope ? { actionScope } : {}),
         ...(options.approvedToolCalls
           ? { approvedToolCalls: options.approvedToolCalls }

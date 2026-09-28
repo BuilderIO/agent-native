@@ -74,6 +74,155 @@ describe("client application-state helpers", () => {
     expect(url).toBeNull();
   });
 
+  it("retries reads that overlap a state deletion", async () => {
+    let resolveRead!: (response: Response) => void;
+    let resolveDelete!: (response: Response) => void;
+    let deleteStarted!: () => void;
+    const deletionStarted = new Promise<void>((resolve) => {
+      deleteStarted = resolve;
+    });
+    let startRead!: () => void;
+    const readStarted = new Promise<void>((resolve) => {
+      startRead = resolve;
+    });
+    let getCount = 0;
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deleteStarted();
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      }
+      if (init?.method === "PUT") {
+        return Promise.resolve(
+          jsonResponse({ text: "new selection", capturedAt: 2 }),
+        );
+      }
+      getCount += 1;
+      if (getCount === 1) {
+        startRead();
+        return new Promise<Response>((resolve) => {
+          resolveRead = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({
+          values: {
+            "pending-selection-context": {
+              text: "new selection",
+              capturedAt: 2,
+            },
+          },
+          missing: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const read = readClientAppStateMany(["pending-selection-context"]);
+    await readStarted;
+    const deletion = deleteClientAppState("pending-selection-context");
+    await deletionStarted;
+    const write = writeClientAppState("pending-selection-context", {
+      text: "new selection",
+      capturedAt: 2,
+    });
+    resolveRead(
+      jsonResponse({
+        values: { "pending-selection-context": { text: "stale" } },
+        missing: [],
+      }),
+    );
+    let readSettled = false;
+    void read.then(() => {
+      readSettled = true;
+    });
+    await Promise.resolve();
+    expect(readSettled).toBe(false);
+
+    resolveDelete(jsonResponse({ ok: true }));
+    const [batch] = await Promise.all([read, deletion, write]);
+    expect(batch).toEqual({
+      values: {
+        "pending-selection-context": {
+          text: "new selection",
+          capturedAt: 2,
+        },
+      },
+      missing: [],
+    });
+    expect(getCount).toBe(2);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "GET",
+      "DELETE",
+      "PUT",
+      "GET",
+    ]);
+  });
+
+  it("waits for an in-flight selection clear before reading", async () => {
+    let resolveDelete!: (response: Response) => void;
+    let deleteStarted!: () => void;
+    const deletionStarted = new Promise<void>((resolve) => {
+      deleteStarted = resolve;
+    });
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deleteStarted();
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({ values: {}, missing: ["pending-selection-context"] }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deletion = deleteClientAppState("pending-selection-context");
+    await deletionStarted;
+    const read = readClientAppStateMany(["pending-selection-context"]);
+    await Promise.resolve();
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "DELETE",
+    ]);
+
+    resolveDelete(jsonResponse({ ok: true }));
+    const [, batch] = await Promise.all([deletion, read]);
+
+    expect(batch).toEqual({
+      values: {},
+      missing: ["pending-selection-context"],
+    });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "DELETE",
+      "GET",
+    ]);
+  });
+
+  it("does not let a failed unrelated mutation block later reads", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "write failed" }, { status: 503 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ values: { navigation: { view: "home" } }, missing: [] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      writeClientAppState("navigation", { view: "next" }),
+    ).rejects.toThrow(
+      'Write application state "navigation" failed: write failed',
+    );
+    await expect(readClientAppState("navigation")).resolves.toEqual({
+      view: "home",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps absent keys distinguishable from stored null or empty values", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse({

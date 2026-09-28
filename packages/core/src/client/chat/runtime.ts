@@ -2634,6 +2634,9 @@ export function createAgentNativeChatRuntime(
         true
           ? { internalContinuation: true }
           : {}),
+        ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
+          ? { skipPendingSelectionContext: true }
+          : {}),
         ...(approvedToolCalls ? { approvedToolCalls } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
         ...((turn.model ?? options.model)

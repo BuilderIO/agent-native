@@ -53,6 +53,7 @@ const TAB_SCOPED_KEYS = new Set([
   "__url__",
   "__set_url__",
   "settings-view",
+  "pending-selection-context",
 ]);
 
 function requestScopedKey(key: string, event: H3Event): string {

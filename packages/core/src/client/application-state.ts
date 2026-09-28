@@ -3,6 +3,8 @@ import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
+const pendingMutations = new Map<string, Promise<unknown>>();
+const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -38,6 +40,55 @@ function browserTabHeaders(): Record<string, string> | undefined {
   return typeof window === "undefined"
     ? undefined
     : { "X-Agent-Native-Browser-Tab": getBrowserTabId() };
+}
+
+function requestKey(key: string): string {
+  return `${typeof window === "undefined" ? "" : getBrowserTabId()}:${key}`;
+}
+
+export function isClientAppStateMutationPending(key: string): boolean {
+  return pendingMutations.has(requestKey(key));
+}
+
+async function runClientAppStateMutation<T>(
+  key: string,
+  operation: () => Promise<T>,
+  clearOnSuccess: (result: T) => boolean = () => true,
+): Promise<T> {
+  const id = requestKey(key);
+  const previous = pendingMutations.get(id);
+  mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
+  let previousFailed = false;
+  const mutation = (async () => {
+    if (previous) {
+      try {
+        await previous;
+      } catch {
+        previousFailed = true;
+      }
+    }
+    return operation();
+  })();
+  pendingMutations.set(id, mutation);
+  let result: T;
+  try {
+    result = await mutation;
+  } catch (error) {
+    // A failed clear must not let a later chat reuse stale selection context.
+    if (
+      pendingMutations.get(id) === mutation &&
+      key !== "pending-selection-context"
+    ) {
+      pendingMutations.delete(id);
+    }
+    throw error;
+  }
+  if (pendingMutations.get(id) === mutation) {
+    if (clearOnSuccess(result) || !previousFailed) pendingMutations.delete(id);
+    else if (previous) pendingMutations.set(id, previous);
+    else pendingMutations.delete(id);
+  }
+  return result;
 }
 
 async function parseAppStateResponse<T>(
@@ -120,32 +171,63 @@ export async function readClientAppStateMany(
   for (const key of unique) appStateUrl(key);
   if (unique.length === 0) return { values: {}, missing: [] };
 
-  const merged: ClientAppStateBatch = { values: {}, missing: [] };
-  for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
-    const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
-    const browserHeaders = browserTabHeaders();
-    const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
-      .map(encodeURIComponent)
-      .join(",")}`;
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      ...(browserHeaders ? { headers: browserHeaders } : {}),
-      signal: options.signal,
-    });
-    const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
-      response,
-      `Read application state [${chunk.join(", ")}]`,
+  while (true) {
+    const revisions = new Map(
+      unique.map((key) => {
+        const id = requestKey(key);
+        return [id, mutationRevisions.get(id) ?? 0] as const;
+      }),
     );
-    if (!batch || typeof batch !== "object" || !batch.values) {
-      throw new Error(
-        `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
-      );
+    await awaitWithAbort(
+      Promise.all(
+        unique
+          .map((key) => pendingMutations.get(requestKey(key)))
+          .filter(Boolean),
+      ),
+      options.signal,
+    );
+    if (
+      unique.some((key) => {
+        const id = requestKey(key);
+        return revisions.get(id) !== (mutationRevisions.get(id) ?? 0);
+      })
+    ) {
+      continue;
     }
-    Object.assign(merged.values, batch.values);
-    merged.missing.push(...(batch.missing ?? []));
+    const merged: ClientAppStateBatch = { values: {}, missing: [] };
+    for (let i = 0; i < unique.length; i += MAX_BATCH_KEYS) {
+      const chunk = unique.slice(i, i + MAX_BATCH_KEYS);
+      const browserHeaders = browserTabHeaders();
+      const url = `${agentNativePath("/_agent-native/application-state")}?keys=${chunk
+        .map(encodeURIComponent)
+        .join(",")}`;
+      const response = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        ...(browserHeaders ? { headers: browserHeaders } : {}),
+        signal: options.signal,
+      });
+      const batch = await parseAppStateResponse<ClientAppStateBatch | null>(
+        response,
+        `Read application state [${chunk.join(", ")}]`,
+      );
+      if (!batch || typeof batch !== "object" || !batch.values) {
+        throw new Error(
+          `Read application state [${chunk.join(", ")}] returned an unexpected payload.`,
+        );
+      }
+      Object.assign(merged.values, batch.values);
+      merged.missing.push(...(batch.missing ?? []));
+    }
+    if (
+      unique.every((key) => {
+        const id = requestKey(key);
+        return revisions.get(id) === (mutationRevisions.get(id) ?? 0);
+      })
+    ) {
+      return merged;
+    }
   }
-  return merged;
 }
 
 let pendingBatch:
@@ -215,14 +297,19 @@ export async function writeClientAppState<T = unknown>(
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
   assertAgentNativeApiEnabled(`write application state "${key}"`);
-  const response = await fetch(appStateUrl(key), {
-    method: "PUT",
-    headers: buildHeaders(options.requestSource),
-    body: jsonBody(value),
-    keepalive: options.keepalive,
-    signal: options.signal,
+  return runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "PUT",
+      headers: buildHeaders(options.requestSource),
+      body: jsonBody(value),
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    return parseAppStateResponse<T>(
+      response,
+      `Write application state "${key}"`,
+    );
   });
-  return parseAppStateResponse<T>(response, `Write application state "${key}"`);
 }
 
 export async function compareAndSetClientAppState(
@@ -232,23 +319,29 @@ export async function compareAndSetClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  const response = await fetch(appStateUrl(key), {
-    method: "PATCH",
-    headers: buildHeaders(options.requestSource),
-    body: jsonBody({ expected, next }),
-    keepalive: options.keepalive,
-    signal: options.signal,
-  });
-  const result = await parseAppStateResponse<{ changed?: unknown }>(
-    response,
-    `Compare application state \"${key}\"`,
+  return runClientAppStateMutation(
+    key,
+    async () => {
+      const response = await fetch(appStateUrl(key), {
+        method: "PATCH",
+        headers: buildHeaders(options.requestSource),
+        body: jsonBody({ expected, next }),
+        keepalive: options.keepalive,
+        signal: options.signal,
+      });
+      const result = await parseAppStateResponse<{ changed?: unknown }>(
+        response,
+        `Compare application state \"${key}\"`,
+      );
+      if (typeof result?.changed !== "boolean") {
+        throw new Error(
+          `Compare application state \"${key}\" returned an unexpected payload.`,
+        );
+      }
+      return result.changed;
+    },
+    (changed) => changed,
   );
-  if (typeof result?.changed !== "boolean") {
-    throw new Error(
-      `Compare application state \"${key}\" returned an unexpected payload.`,
-    );
-  }
-  return result.changed;
 }
 
 export async function deleteClientAppState(
@@ -256,22 +349,24 @@ export async function deleteClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
-  const response = await fetch(appStateUrl(key), {
-    method: "DELETE",
-    headers: {
-      "X-Agent-Native-CSRF": "1",
-      ...(browserTabHeaders() ?? {}),
-      ...(options.requestSource
-        ? { "X-Request-Source": options.requestSource }
-        : {}),
-    },
-    keepalive: options.keepalive,
-    signal: options.signal,
+  await runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "DELETE",
+      headers: {
+        "X-Agent-Native-CSRF": "1",
+        ...(browserTabHeaders() ?? {}),
+        ...(options.requestSource
+          ? { "X-Request-Source": options.requestSource }
+          : {}),
+      },
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    return parseAppStateResponse<unknown>(
+      response,
+      `Delete application state "${key}"`,
+    );
   });
-  await parseAppStateResponse<unknown>(
-    response,
-    `Delete application state "${key}"`,
-  );
 }
 
 export async function setClientAppState<T = unknown>(
