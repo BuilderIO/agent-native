@@ -22,7 +22,12 @@ export type DocumentContentBase = {
   revision?: string;
 };
 export type RebasedDocumentSaveResult =
-  | { status: "saved"; document: Document; content: string }
+  | {
+      status: "saved";
+      document: Document;
+      content: string;
+      baseRevision?: string;
+    }
   | { status: "displaced"; document: Document; localDraft: string }
   | { status: "superseded"; document: Document }
   | {
@@ -87,9 +92,17 @@ export async function saveDocumentWithRebase({
       base: current && !ownsCurrentSnapshot() ? undefined : attemptedBase,
     };
   };
-  const confirmed = (document: Document): RebasedDocumentSaveResult => {
+  const confirmed = (
+    document: Document,
+    baseRevision?: string,
+  ): RebasedDocumentSaveResult => {
     if (owner && ownsCurrentSnapshot()) owner.confirm(document.content);
-    return { status: "saved", document, content: document.content };
+    return {
+      status: "saved",
+      document,
+      content: document.content,
+      ...(baseRevision ? { baseRevision } : {}),
+    };
   };
   for (let attempt = 0; attempt <= 2; attempt++) {
     const saved = await persist(candidate, attemptedBase);
@@ -105,7 +118,7 @@ export async function saveDocumentWithRebase({
       };
     }
     if (!isDocumentUpdateConflict(saved)) {
-      return confirmed(saved);
+      return confirmed(saved, attemptedBase.revision);
     }
     const winner = saved.document;
     if (winner.content === candidate && confirmsWrite(winner)) {

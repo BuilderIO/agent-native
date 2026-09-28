@@ -53,7 +53,7 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("./page-draft-journal", () => ({
   readPageDraftJournal: () => null,
   listPageDraftJournal: () => [],
-  sweepLegacyRetainedPageDraftMarkers: () => undefined,
+  sweepLegacyRetainedPageDraftMarkers: () => true,
   clearPageDraftJournal: () => true,
 }));
 vi.mock("./document-save-rebase", () => ({

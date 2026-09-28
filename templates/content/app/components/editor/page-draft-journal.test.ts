@@ -110,13 +110,36 @@ describe("Page draft journal", () => {
     values.set("content-page-draft-retained-v1:a:org:page-one:old-writer", "1");
     values.set("content-page-draft-retained-v1:a:org:page-two:other", "1");
     writePageDraftJournal({ scope, snapshot });
-    sweepLegacyRetainedPageDraftMarkers();
+    expect(sweepLegacyRetainedPageDraftMarkers()).toBe(true);
     expect(
       Array.from(values.keys()).filter((key) =>
         key.startsWith("content-page-draft-retained-v1:"),
       ),
     ).toEqual([]);
     expect(readPageDraftJournal(scope)?.snapshot.content).toBe("Local body");
+  });
+
+  it("reports when legacy marker cleanup cannot access storage", () => {
+    const marker = "content-page-draft-retained-v1:a:org:page-one:old-writer";
+    values.set(marker, "1");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: store.clear,
+        get length() {
+          return values.size;
+        },
+        getItem: store.getItem,
+        key: store.key,
+        removeItem: () => {
+          throw new Error("blocked");
+        },
+        setItem: store.setItem,
+      },
+    });
+
+    expect(sweepLegacyRetainedPageDraftMarkers()).toBe(false);
+    expect(values.has(marker)).toBe(true);
   });
 
   it("rejects an older queued write after a newer edit", () => {

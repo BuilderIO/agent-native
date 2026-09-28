@@ -3109,6 +3109,7 @@ function PageEditorSessionBody({
         editorSnapshotTitle: title,
         editorSnapshotContent: content,
       };
+      const confirmedTitleBase = lastSavedTitleRef.current.title;
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
@@ -3160,12 +3161,13 @@ function PageEditorSessionBody({
       if (
         titleRenamedByAnotherWriter({
           documentTitle: documentTitleRef.current,
-          titleBase: options.titleBase,
+          titleBase: confirmedTitleBase,
           title,
         })
       ) {
         return { contentPersisted: false };
       }
+      options = { ...options, titleBase: confirmedTitleBase };
       const contentIsStale =
         !isLinkedLocalSourceDocument &&
         !!documentRevisionRef.current &&
@@ -3211,6 +3213,7 @@ function PageEditorSessionBody({
       }
 
       let saved: Document | DocumentUpdateResult;
+      let confirmedSaveBaseRevision: string | undefined;
       if (
         updates.content !== undefined &&
         !isLinkedLocalSourceDocument &&
@@ -3334,6 +3337,7 @@ function PageEditorSessionBody({
           saved = result.document;
           content = result.content;
           updates.content = content;
+          confirmedSaveBaseRevision = result.baseRevision;
         }
       } else {
         saved = await persistDocumentUpdates(updates, options);
@@ -3358,11 +3362,11 @@ function PageEditorSessionBody({
       if (
         updates.content !== undefined &&
         saved.revision &&
-        contentBase.revision &&
+        confirmedSaveBaseRevision &&
         saved.content === options.editorSnapshotContent
       ) {
         recordOwnContentSave(ownContentSaveLineageRef.current, saved.revision, {
-          baseRevision: contentBase.revision,
+          baseRevision: confirmedSaveBaseRevision,
           editGeneration: editorEditGeneration,
         });
       }
@@ -3612,8 +3616,7 @@ function PageEditorSessionBody({
                     revision: recovery.baseRevision,
                   }
                 : contentBase,
-              // The editor keeps this text and a later save of it lands.
-              true,
+              reason === null && result === undefined,
             );
           },
           clear: () =>

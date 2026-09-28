@@ -201,8 +201,8 @@ export function readPageDraftJournal(
   );
 }
 
-/** Removes every legacy retained-draft marker. Never throws. */
-export function sweepLegacyRetainedPageDraftMarkers(): void {
+/** Removes every legacy retained-draft marker and reports whether cleanup completed. */
+export function sweepLegacyRetainedPageDraftMarkers(): boolean {
   try {
     const store = storage();
     const keys: string[] = [];
@@ -211,8 +211,9 @@ export function sweepLegacyRetainedPageDraftMarkers(): void {
       if (itemKey?.startsWith(LEGACY_RETAINED_PREFIX)) keys.push(itemKey);
     }
     for (const itemKey of keys) store.removeItem(itemKey);
+    return true;
   } catch {
-    // The markers only drove a notice, so a failed sweep is harmless.
+    return false;
   }
 }
 

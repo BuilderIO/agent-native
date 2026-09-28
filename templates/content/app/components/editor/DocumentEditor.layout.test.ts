@@ -2798,5 +2798,12 @@ describe("document editor layout", () => {
         title: "Fourth",
       }),
     ).toBe(false);
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Fourth",
+        titleBase: "Fourth",
+        title: "Fifth",
+      }),
+    ).toBe(false);
   });
 });
