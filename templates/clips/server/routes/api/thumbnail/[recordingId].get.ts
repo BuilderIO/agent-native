@@ -56,6 +56,7 @@ type ThumbnailRecording = {
   expiresAt?: string | null;
   organizationId?: string | null;
   password?: string | null;
+  sharePasswordVersion?: string | null;
   updatedAt?: string | null;
   visibility?: string | null;
 };
@@ -87,13 +88,13 @@ function renewProtectedMediaCookie(
   event: H3Event,
   recordingId: string,
   password: string | null | undefined,
-  updatedAt: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): void {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
       recordingId,
       password,
-      updatedAt,
+      sharePasswordVersion,
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -224,6 +225,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
+        sharePasswordVersion: schema.recordings.sharePasswordVersion,
         updatedAt: schema.recordings.updatedAt,
         visibility: schema.recordings.visibility,
       })
@@ -297,7 +299,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const scopedRecordingId = getRecordingAccessTokenResourceId(
           recordingId,
           recording.password,
-          recording.updatedAt,
+          recording.sharePasswordVersion,
         );
         const password =
           typeof query.password === "string" ? query.password : "";
@@ -315,7 +317,7 @@ export default defineEventHandler(async (event: H3Event) => {
           event,
           recordingId,
           recording.password,
-          recording.updatedAt,
+          recording.sharePasswordVersion,
         );
       }
 

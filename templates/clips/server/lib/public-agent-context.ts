@@ -308,7 +308,7 @@ export async function loadPublicAgentAccess(
   const scopedRecordingId = getRecordingAccessTokenResourceId(
     recording.id,
     recording.password,
-    recording.updatedAt,
+    recording.sharePasswordVersion,
   );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken

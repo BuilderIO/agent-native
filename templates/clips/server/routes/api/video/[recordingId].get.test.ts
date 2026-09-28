@@ -73,7 +73,7 @@ vi.mock("../../../lib/share-password.js", () => ({
   getRecordingAccessTokenResourceId: (
     id: string,
     password: string | null,
-    _updatedAt?: string | null,
+    _sharePasswordVersion?: string | null,
   ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
   verifySharePassword: vi.fn(() => false),
 }));

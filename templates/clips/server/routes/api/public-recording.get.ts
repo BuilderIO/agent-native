@@ -99,13 +99,13 @@ function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
   password: string | null | undefined,
-  updatedAt: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): string {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
       recordingId,
       password,
-      updatedAt,
+      sharePasswordVersion,
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -225,7 +225,7 @@ export default defineEventHandler(async (event) => {
         resourceId: getRecordingAccessTokenResourceId(
           rec.id,
           rec.password,
-          rec.updatedAt,
+          rec.sharePasswordVersion,
         ),
       }).ok
     : false;
@@ -311,14 +311,14 @@ export default defineEventHandler(async (event) => {
       event,
       recordingId,
       rec.password,
-      rec.updatedAt,
+      rec.sharePasswordVersion,
     );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
     protectedMediaToken = setProtectedMediaAccessCookie(
       event,
       recordingId,
       rec.password,
-      rec.updatedAt,
+      rec.sharePasswordVersion,
     );
   }
 
@@ -431,7 +431,7 @@ export default defineEventHandler(async (event) => {
             resourceId: getRecordingAccessTokenResourceId(
               recordingId,
               rec.password,
-              rec.updatedAt,
+              rec.sharePasswordVersion,
             ),
           })
         : undefined;

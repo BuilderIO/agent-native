@@ -66,7 +66,7 @@ export default defineAction({
     const recording = access.resource as {
       id: string;
       password: string | null;
-      updatedAt: string;
+      sharePasswordVersion: string;
       archivedAt?: string | null;
       trashedAt?: string | null;
     };
@@ -91,7 +91,7 @@ export default defineAction({
       resourceId: getRecordingAccessTokenResourceId(
         recording.id,
         recording.password,
-        recording.updatedAt,
+        recording.sharePasswordVersion,
       ),
       viewerEmail: getRequestUserEmail() || undefined,
       agentLabel: args.agentLabel,

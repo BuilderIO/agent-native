@@ -1117,6 +1117,19 @@ export const migrations = runMigrations(
       name: "recording-failure-backfill-completion",
       sql: `ALTER TABLE clips_backfill_leases ADD COLUMN IF NOT EXISTS completed_at TEXT`,
     },
+    {
+      version: 77,
+      name: "recording-share-password-version",
+      // guard:allow-unscoped — initializes each row from its existing token scope.
+      sql: `
+        ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT;
+        UPDATE recordings
+        SET share_password_version = updated_at
+        WHERE share_password_version IS NULL;
+        ALTER TABLE recordings ALTER COLUMN share_password_version SET DEFAULT 'initial';
+        ALTER TABLE recordings ALTER COLUMN share_password_version SET NOT NULL;
+      `,
+    },
   ],
   { table: "clips_migrations" },
 );

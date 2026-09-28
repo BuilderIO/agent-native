@@ -91,6 +91,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     videoSizeBytes: null,
     durationMs: 10_000,
     updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     ...overrides,
   };
 }

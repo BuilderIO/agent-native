@@ -267,6 +267,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -292,7 +293,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         resourceId: getRecordingAccessTokenResourceId(
           id,
           rec.password,
-          rec.updatedAt,
+          rec.sharePasswordVersion,
         ),
       }).ok
     : false;

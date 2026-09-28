@@ -10,7 +10,7 @@ import { getRecordingAccessTokenResourceId } from "./share-password.js";
 type PlayerVideoRecording = {
   id: string;
   password?: string | null;
-  updatedAt?: string | null;
+  sharePasswordVersion?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -72,7 +72,7 @@ export function resolvePlayerVideoUrl(
       resourceId: getRecordingAccessTokenResourceId(
         recording.id,
         recording.password,
-        recording.updatedAt,
+        recording.sharePasswordVersion,
       ),
     });
     resolvedVideoUrl = appendQueryParam(resolvedVideoUrl, "t", token);

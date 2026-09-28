@@ -88,6 +88,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
       title: schema.recordings.title,
       status: schema.recordings.status,
       updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       password: schema.recordings.password,
       expiresAt: schema.recordings.expiresAt,
@@ -118,7 +119,7 @@ async function buildClipAgentDiscovery(event: H3Event): Promise<{
         resourceId: getRecordingAccessTokenResourceId(
           recording.id,
           recording.password,
-          recording.updatedAt,
+          recording.sharePasswordVersion,
         ),
       }).ok
     : false;

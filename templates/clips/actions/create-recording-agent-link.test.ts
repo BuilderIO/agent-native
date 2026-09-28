@@ -56,7 +56,7 @@ const recording = (password: string | null) => ({
   archivedAt: null,
   trashedAt: null,
   password,
-  updatedAt: "2026-01-01T00:00:00.000Z",
+  sharePasswordVersion: "initial",
 });
 
 beforeEach(() => {

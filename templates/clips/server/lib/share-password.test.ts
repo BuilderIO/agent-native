@@ -61,30 +61,52 @@ describe("share-password storage", () => {
     );
   });
 
-  it("uses the update timestamp for legacy plaintext rows without exposing the password", () => {
+  it("uses the password version for legacy plaintext rows without exposing the password", () => {
     const previous = getRecordingAccessTokenResourceId(
       "rec-1",
       "example-legacy-value",
-      "2026-01-01T00:00:00.000Z",
+      "legacy-version",
     );
     const current = getRecordingAccessTokenResourceId(
       "rec-1",
       "example-legacy-value",
-      "2026-01-02T00:00:00.000Z",
+      "rotated-version",
     );
 
     expect(previous).not.toBe(current);
     expect(previous).not.toContain("example-legacy-value");
     expect(() =>
       getRecordingAccessTokenResourceId("rec-1", "example-legacy-value", null),
-    ).toThrow("Recording access scope requires an update timestamp");
+    ).toThrow("Recording access scope requires a password version");
   });
 
-  it("versions passwordless recording links so removed passwords do not revive old links", () => {
-    expect(
-      getRecordingAccessTokenResourceId("rec-1", null, "before-password"),
-    ).not.toBe(
-      getRecordingAccessTokenResourceId("rec-1", null, "after-password"),
+  it("keeps passwordless scopes stable across metadata changes", () => {
+    const beforeMetadataEdit = getRecordingAccessTokenResourceId(
+      "rec-1",
+      null,
+      "password-version-1",
     );
+    const afterMetadataEdit = getRecordingAccessTokenResourceId(
+      "rec-1",
+      null,
+      "password-version-1",
+    );
+
+    expect(afterMetadataEdit).toBe(beforeMetadataEdit);
+  });
+
+  it("rotates passwordless scopes after a password is removed", () => {
+    const beforePassword = getRecordingAccessTokenResourceId(
+      "rec-1",
+      null,
+      "password-version-1",
+    );
+    const afterPassword = getRecordingAccessTokenResourceId(
+      "rec-1",
+      null,
+      "password-version-2",
+    );
+
+    expect(afterPassword).not.toBe(beforePassword);
   });
 });

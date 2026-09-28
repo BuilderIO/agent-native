@@ -125,6 +125,23 @@ describe("recording viewer identity migration", () => {
   });
 });
 
+describe("recording share password version migration", () => {
+  it("preserves existing passwordless token scopes and defaults new rows", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*77,\s*name:\s*"recording-share-password-version"/,
+    );
+    expect(dbTsSource).toMatch(
+      /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
+    );
+    expect(dbTsSource).toMatch(
+      /SET share_password_version = updated_at\s+WHERE share_password_version IS NULL/,
+    );
+    expect(dbTsSource).toMatch(
+      /ALTER COLUMN share_password_version SET DEFAULT 'initial'/,
+    );
+  });
+});
+
 describe("organization recording visibility default migration", () => {
   it("promotes untouched legacy private defaults without overwriting explicit choices", () => {
     expect(dbTsSource).toContain('name: "clips-public-organization-default"');

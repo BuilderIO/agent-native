@@ -93,7 +93,7 @@ describe("resolvePlayerVideoUrl", () => {
         {
           id: "rec-1",
           password: "encrypted",
-          updatedAt: "2026-09-28T00:00:00.000Z",
+          sharePasswordVersion: "initial",
           videoUrl: "/api/uploads/rec-1/blob",
         },
         { addPasswordToken: true },
@@ -102,7 +102,7 @@ describe("resolvePlayerVideoUrl", () => {
     expect(mockGetRecordingAccessTokenResourceId).toHaveBeenCalledWith(
       "rec-1",
       "encrypted",
-      "2026-09-28T00:00:00.000Z",
+      "initial",
     );
 
     expect(

@@ -83,6 +83,7 @@ interface RecordingRow {
   organizationId?: string | null;
   ownerEmail?: string | null;
   password?: string | null;
+  sharePasswordVersion?: string | null;
   updatedAt?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -135,13 +136,13 @@ function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
   password: string | null | undefined,
-  updatedAt: string | null | undefined,
+  sharePasswordVersion: string | null | undefined,
 ): void {
   const token = signShortLivedToken({
     resourceId: getRecordingAccessTokenResourceId(
       recordingId,
       password,
-      updatedAt,
+      sharePasswordVersion,
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -402,7 +403,7 @@ export default defineEventHandler(async (event: H3Event) => {
         const scopedRecordingId = getRecordingAccessTokenResourceId(
           recordingId,
           rec.password,
-          rec.updatedAt,
+          rec.sharePasswordVersion,
         );
         if (token) {
           const result = verifyShortLivedToken(token, scopedRecordingId);
@@ -427,7 +428,7 @@ export default defineEventHandler(async (event: H3Event) => {
           event,
           recordingId,
           rec.password,
-          rec.updatedAt,
+          rec.sharePasswordVersion,
         );
       }
 
