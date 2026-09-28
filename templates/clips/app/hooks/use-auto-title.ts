@@ -286,7 +286,13 @@ export function useAutoTitleBridge(): void {
           callAction(
             "regenerate-title" as any,
             { recordingId: candidate.id } as any,
-          ).catch(() => {});
+          )
+            .then((result) => {
+              if ((result as { queued?: boolean } | null)?.queued === true) {
+                bumpAiRequestRefresh();
+              }
+            })
+            .catch(() => {});
         }
       } finally {
         inflight.current = false;

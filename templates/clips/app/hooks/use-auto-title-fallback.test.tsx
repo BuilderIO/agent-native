@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bumpChangeVersion: vi.fn(),
   callAction: vi.fn(),
   sendToAgentChatAndConfirm: vi.fn(async (options: { tabId?: string }) => ({
     tabId: options.tabId,
@@ -22,7 +23,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 vi.mock("@agent-native/core/client/hooks", async () => {
   const React = await import("react");
   return {
-    bumpChangeVersion: vi.fn(),
+    bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
     callAction: (...args: unknown[]) => mocks.callAction(...args),
     getChangeVersion: () => 0,
     useChangeVersion: () => 0,
@@ -107,6 +108,43 @@ describe("auto-title fallback", () => {
       "regenerate-title",
       { recordingId: "rec_old" },
     ]);
+  });
+
+  it("refreshes the request list when the fallback queues a title request", async () => {
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    mocks.callAction.mockImplementation(async (name: string) =>
+      name === "list-ai-requests"
+        ? snapshot
+        : name === "regenerate-title"
+          ? { queued: true, kind: "regenerate-title" }
+          : {},
+    );
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.bumpChangeVersion).toHaveBeenCalledWith(
+        "app-state:refresh-signal",
+        expect.any(Number),
+      ),
+    );
+  });
+
+  it("does not refresh when the fallback titled the clip directly", async () => {
+    await renderWith({
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
+    await act(async () => {});
+    expect(mocks.bumpChangeVersion).not.toHaveBeenCalled();
   });
 
   it("waits for a candidate younger than two minutes", async () => {
