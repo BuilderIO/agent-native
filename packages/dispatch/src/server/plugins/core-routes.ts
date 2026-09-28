@@ -7,6 +7,7 @@ import {
 import { WORKSPACE_APP_CHAT_PROXY_PREFIX } from "../../shared/workspace-app-chat.js";
 import { envKeys } from "../lib/env-config.js";
 import { registerDispatchOnboardingSteps } from "../lib/onboarding-steps.js";
+import { createPrivateIconAssetsHandler } from "../lib/private-icon-assets.js";
 import { createWorkspaceAppChatProxyHandler } from "../lib/workspace-app-chat-proxy.js";
 
 // Register before the core plugin so "create your first app" (order 5) appears
@@ -25,6 +26,10 @@ const dispatchCoreRoutesPlugin: NitroPluginDef = (nitroApp) => {
   getH3App(nitroApp).use(
     WORKSPACE_APP_CHAT_PROXY_PREFIX,
     createWorkspaceAppChatProxyHandler(),
+  );
+  getH3App(nitroApp).use(
+    "/_agent-native/private-icons",
+    createPrivateIconAssetsHandler(),
   );
   return coreInit;
 };

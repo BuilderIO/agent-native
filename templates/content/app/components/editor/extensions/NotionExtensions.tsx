@@ -1,3 +1,4 @@
+import { useActionMutation } from "@agent-native/core/client/hooks";
 import {
   safeParseIconValue,
   serializeIconValue,
@@ -67,6 +68,7 @@ export interface NotionPageLink {
 }
 
 interface NotionBlockAtomOptions {
+  documentId?: string;
   resolvePageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenPageLink?: (documentId: string) => void;
 }
@@ -948,10 +950,21 @@ export const NotionToggle = Node.create({
   },
 });
 
-function CalloutView({ editor, getPos, node }: NodeViewProps) {
+function CalloutView({ editor, getPos, node, extension }: NodeViewProps) {
+  const documentId = (extension.options as NotionBlockAtomOptions).documentId;
+  const registerPrivateIcon = useActionMutation(
+    "register-private-callout-icon",
+  );
   const icon = typeof node.attrs.icon === "string" ? node.attrs.icon : "💡";
-  const updateIcon = (value: IconValue | null) => {
+  const updateIcon = async (value: IconValue | null) => {
     if (!editor.isEditable) throw new Error("Callout is not editable");
+    if (value?.kind === "image" && value.authority === "private-icon") {
+      if (!documentId) throw new Error("Callout document is unavailable");
+      await registerPrivateIcon.mutateAsync({
+        documentId,
+        assetId: value.assetId,
+      });
+    }
     const pos = getPos();
     if (typeof pos !== "number") throw new Error("Callout is unavailable");
     const currentNode = editor.state.doc.nodeAt(pos);
@@ -972,7 +985,12 @@ function CalloutView({ editor, getPos, node }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
     >
       <div data-notion-callout-icon="true" contentEditable={false}>
-        <EmojiPicker icon={icon} variant="compact" onSelect={updateIcon} />
+        <EmojiPicker
+          icon={icon}
+          assetScopeDocumentId={documentId}
+          variant="compact"
+          onSelect={updateIcon}
+        />
       </div>
       <NodeViewContent data-notion-callout-content="true" />
     </NodeViewWrapper>
@@ -1339,7 +1357,7 @@ export function createNotionEditorExtensions(
   return [
     NotionSpanMark,
     NotionToggle,
-    NotionCallout,
+    NotionCallout.configure({ documentId: blockAtomOptions.documentId }),
     NotionColumns,
     NotionColumn,
     NotionBlockAtom.configure(blockAtomOptions),

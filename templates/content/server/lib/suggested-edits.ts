@@ -32,6 +32,7 @@ import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.j
 import { schema } from "../db/index.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
+import { syncPrivateCalloutReferences } from "./private-icon-references.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
@@ -553,7 +554,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     }
     const current = (
       await tx.execute({
-        sql: "SELECT id,title,content,body_revision,owner_email,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
+        sql: "SELECT id,title,content,body_revision,owner_email,org_id,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ?",
         args: [context.resourceId],
       })
     ).rows[0];
@@ -638,6 +639,25 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         return updated.rowsAffected === 1;
       },
       afterWrite: async () => {
+        if (
+          currentContent.includes("<callout") ||
+          nextContent.includes("<callout")
+        ) {
+          const actorEmail = context.ctx?.userEmail;
+          if (typeof actorEmail !== "string" || !actorEmail) {
+            throw new Error(
+              "Authentication is required to accept a suggestion",
+            );
+          }
+          await syncPrivateCalloutReferences(identityTx, {
+            documentId: context.resourceId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: actorEmail,
+            ownerEmail: String(current.owner_email),
+            orgId: current.org_id === null ? null : String(current.org_id),
+          });
+        }
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: identityTx,

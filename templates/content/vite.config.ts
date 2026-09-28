@@ -424,7 +424,12 @@ const cloudflareSsrStubs =
       ]
     : [];
 
+const devAllowedHost = process.env.CONTENT_DEV_ALLOWED_HOST?.trim();
+
 export default defineConfig({
+  server: {
+    allowedHosts: devAllowedHost ? [devAllowedHost] : [],
+  },
   plugins: [
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),

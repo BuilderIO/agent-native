@@ -107,7 +107,11 @@ import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   useShareOrgMemberSearch,
 } from "../sharing/share-controller-helpers.js";
-import { uploadEditorImage } from "../uploads/index.js";
+import {
+  uploadWorkspacePrivateIcon,
+  workspacePrivateIconLibraryUrl,
+  workspacePrivateIconUrl,
+} from "../uploads/private-icon.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 import { cn } from "../utils.js";
 import {
@@ -911,6 +915,9 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
   const switchOrg = useSwitchOrg();
   const setVisualIdentity = useSetOrgVisualIdentity();
   const isOwnerOrAdmin = org?.role === "owner" || org?.role === "admin";
+  const uploadedIcons = useActionQuery<{
+    assets: Array<{ id: string; alt?: string }>;
+  }>("list-workspace-icons", {}, { enabled: isOwnerOrAdmin });
   const groupsQuery = useActionQuery<WorkspaceUserGroup[]>(
     "list-workspace-user-groups",
     {},
@@ -988,21 +995,33 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               {isOwnerOrAdmin ? (
                 <ResourceIconPicker
                   value={org.icon}
+                  uploadedImages={(uploadedIcons.data?.assets ?? []).map(
+                    (asset) => ({
+                      version: 1,
+                      kind: "image",
+                      authority: "private-icon",
+                      assetId: asset.id,
+                      ...(asset.alt ? { alt: asset.alt } : {}),
+                    }),
+                  )}
+                  uploadedImagesError={Boolean(uploadedIcons.error)}
+                  onUploadedImagesRetry={() => {
+                    void uploadedIcons.refetch();
+                  }}
                   onValueChange={async (icon) => {
                     await setVisualIdentity.mutateAsync(icon);
                   }}
                   onUpload={async (file) => {
-                    const uploaded = await uploadEditorImage(file);
-                    return {
-                      version: 1,
-                      kind: "image",
-                      authority: "url",
-                      assetId: uploaded.src,
-                      alt: uploaded.alt || file.name,
-                    };
+                    const uploaded = await uploadWorkspacePrivateIcon(file);
+                    void uploadedIcons.refetch();
+                    return uploaded;
                   }}
+                  formatUploadError={() => iconPickerLabels.uploadFailed}
                   resolveImageUrl={(image) =>
-                    image.authority === "url" ? image.assetId : undefined
+                    image.assetId ===
+                    (org.icon?.kind === "image" ? org.icon.assetId : null)
+                      ? workspacePrivateIconUrl(org.orgId!, image)
+                      : workspacePrivateIconLibraryUrl(org.orgId!, image)
                   }
                   disabled={setVisualIdentity.isPending}
                   labels={{
@@ -1048,7 +1067,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
                       value={org.icon}
                       size={16}
                       resolveImageUrl={(image) =>
-                        image.authority === "url" ? image.assetId : undefined
+                        workspacePrivateIconUrl(org.orgId!, image)
                       }
                       fallback={
                         <IconUsersGroup className="size-4 text-muted-foreground" />
@@ -1061,7 +1080,7 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
                   value={org.icon}
                   size={16}
                   resolveImageUrl={(image) =>
-                    image.authority === "url" ? image.assetId : undefined
+                    workspacePrivateIconUrl(org.orgId!, image)
                   }
                   fallback={
                     <IconUsersGroup className="size-4 text-muted-foreground" />

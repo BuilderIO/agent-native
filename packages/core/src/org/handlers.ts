@@ -42,6 +42,7 @@ import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
+import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { resolveVercelDeploymentProtectionHeaders } from "../server/credential-provider.js";
@@ -69,6 +70,10 @@ import {
   syncOrganizationToIdentityHub,
 } from "./federation.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import {
+  assertOwnedLocalWorkspaceIcon,
+  requirePrivateWorkspaceIconId,
+} from "./private-icon-handlers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import { isBootstrapAdmin } from "./signup-admission.js";
 import type {
@@ -1392,7 +1397,7 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
 
     const e = await exec();
     const currentResult = await e.execute({
-      sql: `SELECT name, icon_revision, identity_authority, identity_id
+      sql: `SELECT name, icon_revision, identity_authority, identity_id, allowed_domain
             FROM organizations WHERE id = ? LIMIT 1`,
       args: [ctx.orgId],
     });
@@ -1405,6 +1410,36 @@ export const setOrgVisualIdentityHandler = defineEventHandler(
       String(current.identity_authority ?? "").trim() ||
       String(current.identity_id ?? "").trim(),
     );
+    if (icon?.kind === "image") {
+      if (icon.authority !== "private-icon") {
+        throw createError({
+          statusCode: 400,
+          message: "Workspace images must use private icon storage",
+        });
+      }
+      requirePrivateWorkspaceIconId(icon.assetId);
+      if (isFederated) {
+        const owned = await verifyFederatedWorkspaceIconOwner(
+          event,
+          {
+            identityAuthority: String(current.identity_authority ?? "") || null,
+            identityId: String(current.identity_id ?? "") || null,
+            allowedDomain: String(current.allowed_domain ?? "") || null,
+          },
+          ctx.email,
+          icon.assetId,
+        );
+        if (!owned) {
+          throw createError({
+            statusCode: 403,
+            message:
+              "Workspace icon asset is not owned by this organization administrator",
+          });
+        }
+      } else {
+        await assertOwnedLocalWorkspaceIcon(icon.assetId, ctx.email, ctx.orgId);
+      }
+    }
     const updated = await e.execute({
       sql: `UPDATE organizations
             SET icon_json = ?, icon_revision = ?

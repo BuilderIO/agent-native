@@ -51,6 +51,32 @@ const colors: Array<ResourceIconColor | undefined> = [
 const columns = 7;
 const rowHeight = 36;
 const MAX_ICON_UPLOAD_BYTES = 5 * 1024 * 1024;
+const ICON_UPLOAD_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/svg+xml",
+]);
+const ICON_UPLOAD_EXTENSION_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+};
+
+function supportedIconUpload(file: File): File | null {
+  const mimeType = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (ICON_UPLOAD_MIME_TYPES.has(mimeType)) return file;
+  if (mimeType && mimeType !== "application/octet-stream") return null;
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const inferredType = ICON_UPLOAD_EXTENSION_TYPES[extension];
+  if (!inferredType) return null;
+  return new File([file], file.name, {
+    type: inferredType,
+    lastModified: file.lastModified,
+  });
+}
 
 export interface ResourceIconPickerLabels {
   trigger: string;
@@ -69,7 +95,9 @@ export interface ResourceIconPickerLabels {
   saveError?: string;
   retry?: string;
   uploadHint?: string;
+  uploadFailed?: string;
   uploadTooLarge?: string;
+  uploadUnsupportedType?: string;
   allCategories?: string;
   colorNames?: Partial<Record<ResourceIconColor, string>>;
   categoryNames?: Record<string, string>;
@@ -83,8 +111,11 @@ export interface ResourceIconPickerProps {
   recentValues?: readonly ResourceIconValue[];
   onRecentsChange?: (recents: ResourceIconValue[]) => void;
   uploadedImages?: readonly ResourceIconImage[];
+  uploadedImagesError?: boolean;
+  onUploadedImagesRetry?: () => void;
   onUpload?: (file: File) => Promise<ResourceIconImage>;
   onUploadError?: (error: unknown) => void;
+  formatUploadError?: (error: unknown) => string;
   resolveImageUrl?: (
     image: Extract<ResourceIconValue, { kind: "image" }>,
   ) => string | undefined;
@@ -323,8 +354,11 @@ export function ResourceIconPicker({
   recentValues,
   onRecentsChange,
   uploadedImages = [],
+  uploadedImagesError = false,
+  onUploadedImagesRetry,
   onUpload,
   onUploadError,
+  formatUploadError,
   resolveImageUrl,
   disabled,
   className,
@@ -475,13 +509,22 @@ export function ResourceIconPicker({
       if (fileInput.current) fileInput.current.value = "";
       return;
     }
+    const supportedFile = supportedIconUpload(file);
+    if (!supportedFile) {
+      setSaveFailed(false);
+      setUploadError(labels.uploadUnsupportedType ?? labels.saveError);
+      if (fileInput.current) fileInput.current.value = "";
+      return;
+    }
     setUploading(true);
     setSaveFailed(false);
     setUploadError(undefined);
     try {
-      await select(await onUpload(file));
+      await select(await onUpload(supportedFile));
     } catch (error) {
-      setSaveFailed(true);
+      setUploadError(
+        formatUploadError?.(error) || labels.uploadFailed || labels.saveError,
+      );
       onUploadError?.(error);
     } finally {
       setUploading(false);
@@ -524,7 +567,14 @@ export function ResourceIconPicker({
   const uploadChoices = [
     ...uploadedImages,
     ...effectiveRecents.filter(
-      (entry): entry is ResourceIconImage => entry.kind === "image",
+      (entry): entry is ResourceIconImage =>
+        entry.kind === "image" &&
+        (entry.authority !== "private-icon" ||
+          uploadedImages.some(
+            (uploaded) =>
+              uploaded.authority === entry.authority &&
+              uploaded.assetId === entry.assetId,
+          )),
     ),
   ].filter(
     (entry, index, all) =>
@@ -709,7 +759,7 @@ export function ResourceIconPicker({
               <input
                 ref={fileInput}
                 type="file"
-                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml,.png,.jpg,.jpeg,.webp,.svg"
                 className="hidden"
                 disabled={uploading}
                 onChange={(event) => {
@@ -717,6 +767,24 @@ export function ResourceIconPicker({
                   if (file) void upload(file);
                 }}
               />
+              {uploadedImagesError && (
+                <div
+                  role="alert"
+                  className="flex items-center justify-between gap-2 text-sm text-destructive"
+                >
+                  <span>{labels.loadError}</span>
+                  {onUploadedImagesRetry && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={onUploadedImagesRetry}
+                    >
+                      {labels.retry}
+                    </Button>
+                  )}
+                </div>
+              )}
               {uploadChoices.length > 0 && (
                 <div className="grid grid-cols-7 gap-1">
                   {uploadChoices.map((entry) => (

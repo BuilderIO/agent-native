@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireDocumentRequestActor } from "../server/lib/document-attribution.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
@@ -14,6 +15,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -63,6 +65,7 @@ export default defineAction({
       .describe("Current document updatedAt observed before choosing restore"),
   }),
   run: async (args, ctx) => {
+    const actor = requireDocumentRequestActor(ctx);
     if (!args.documentId) throw new Error("--documentId is required");
     if (!args.versionId) throw new Error("--versionId is required");
     const documentId = args.documentId;
@@ -176,6 +179,17 @@ export default defineAction({
           },
         );
       }
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId,
+          before: current.content,
+          after: version.content,
+          userEmail: actor,
+          ownerEmail,
+          orgId: current.orgId,
+        },
+      );
       if (current.title !== version.title) {
         await propagateDocumentTitle({
           db: tx as unknown as ReturnType<typeof getDb>,

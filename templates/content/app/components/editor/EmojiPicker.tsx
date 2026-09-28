@@ -1,17 +1,19 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useIconPickerLabels, useT } from "@agent-native/core/client/i18n";
 import { safeParseIconValue, type IconValue } from "@agent-native/core/icons";
 import { ResourceIcon, ResourceIconPicker } from "@agent-native/toolkit/icons";
 import { IconMoodSmile } from "@tabler/icons-react";
-import type { ReactNode } from "react";
-import { toast } from "sonner";
+import { useState, type ReactNode } from "react";
 
+import {
+  contentImageIconUrl,
+  uploadPrivateIconFile,
+} from "@/components/icons/private-icon-assets";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type EmojiCategory = { name: string; emojis: string[] };
 
@@ -627,6 +629,7 @@ export function filterEmojiCategories(search: string): EmojiCategory[] {
 
 interface EmojiPickerProps {
   icon: IconValue | string | null;
+  assetScopeDocumentId?: string;
   onSelect: (icon: IconValue | null) => void | Promise<void>;
   defaultIcon?: ReactNode;
   defaultIconLabel?: string;
@@ -642,6 +645,7 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({
   icon,
+  assetScopeDocumentId,
   onSelect,
   defaultIcon,
   defaultIconLabel = "page",
@@ -656,6 +660,13 @@ export function EmojiPicker({
 }: EmojiPickerProps) {
   const t = useT();
   const iconPickerLabels = useIconPickerLabels();
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const pickerOpen = open ?? uncontrolledOpen;
+  const uploadedAssets = useActionQuery(
+    "list-private-icon-assets",
+    { documentId: assetScopeDocumentId ?? "" },
+    { enabled: pickerOpen && !!assetScopeDocumentId },
+  );
   const parsed = safeParseIconValue(icon);
   const value = parsed.success ? parsed.data : null;
   const triggerLabel =
@@ -670,24 +681,42 @@ export function EmojiPicker({
       container={container}
       contentClassName={contentClassName}
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(nextOpen) => {
+        setUncontrolledOpen(nextOpen);
+        onOpenChange?.(nextOpen);
+      }}
       anchored={anchored}
       anchorElement={anchorElement}
       onValueChange={onSelect}
-      onUpload={async (file) => {
-        const url = await uploadImageFile(file);
-        return {
-          version: 1,
-          kind: "image",
-          authority: "url",
-          assetId: url,
-          alt: file.name,
-        };
-      }}
-      onUploadError={(error) => toast.error(imageUploadErrorMessage(error))}
-      resolveImageUrl={(image) =>
-        image.authority === "url" ? image.assetId : undefined
+      uploadedImages={(uploadedAssets.data?.assets ?? []).map((asset) => ({
+        version: 1,
+        kind: "image",
+        authority: "private-icon",
+        assetId: asset.id,
+        alt: asset.alt ?? asset.filename ?? undefined,
+      }))}
+      uploadedImagesError={uploadedAssets.isError}
+      onUploadedImagesRetry={() => void uploadedAssets.refetch()}
+      onUpload={
+        assetScopeDocumentId
+          ? async (file) => {
+              const assetId = await uploadPrivateIconFile(
+                file,
+                assetScopeDocumentId,
+              );
+              void uploadedAssets.refetch();
+              return {
+                version: 1,
+                kind: "image",
+                authority: "private-icon",
+                assetId,
+                alt: file.name,
+              };
+            }
+          : undefined
       }
+      formatUploadError={() => iconPickerLabels.uploadFailed}
+      resolveImageUrl={contentImageIconUrl}
       labels={{
         ...iconPickerLabels,
         trigger: triggerLabel,
@@ -719,9 +748,7 @@ export function EmojiPicker({
               <ResourceIcon
                 value={value}
                 size={variant === "compact" ? 22 : 48}
-                resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
-                }
+                resolveImageUrl={contentImageIconUrl}
               />
             </button>
           ) : defaultIcon ? (

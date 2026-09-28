@@ -3040,6 +3040,7 @@ function DatabaseTable({
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
+          assetScopeDocumentId={databaseDocumentId}
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
           onViewConfigChange={handleViewConfigChange}
@@ -15158,12 +15159,14 @@ export function databaseBoardOptionForGroup(group: DatabaseBoardGroup) {
 }
 
 function DatabaseViewTabs({
+  assetScopeDocumentId,
   viewConfig,
   canEdit,
   onViewConfigChange,
   onViewIconChange,
   onViewSelect,
 }: {
+  assetScopeDocumentId: string;
   viewConfig: ContentDatabaseViewConfig;
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
@@ -15527,6 +15530,7 @@ function DatabaseViewTabs({
             </DropdownMenuContent>
             <EmojiPicker
               icon={view.icon ?? null}
+              assetScopeDocumentId={assetScopeDocumentId}
               open={iconPickerViewId === view.id}
               onOpenChange={(open) =>
                 setIconPickerViewId(open ? view.id : null)

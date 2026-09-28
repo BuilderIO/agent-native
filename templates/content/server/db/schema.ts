@@ -43,6 +43,29 @@ export const documents = table("documents", {
   ...ownableColumns(),
 });
 
+export const privateIconReferences = table(
+  "content_private_icon_references",
+  {
+    elementType: text("element_type").notNull(),
+    elementId: text("element_id").notNull(),
+    assetId: text("asset_id").notNull(),
+    documentId: text("document_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (reference) => [
+    uniqueIndex("content_private_icon_reference_element_unique").on(
+      reference.elementType,
+      reference.elementId,
+    ),
+    index("content_private_icon_reference_asset_idx").on(reference.assetId),
+    index("content_private_icon_reference_document_idx").on(
+      reference.documentId,
+    ),
+  ],
+);
+
 export const contentSpaces = table(
   "content_spaces",
   {

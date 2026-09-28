@@ -704,6 +704,24 @@ describe("pushDocumentToNotionPage icons", () => {
       "icon",
     );
   });
+
+  it("refuses to publish a private icon ID as an external Notion URL", async () => {
+    await expect(
+      pushDocumentToNotionPage({
+        accessToken: "token",
+        pageId: "page-1",
+        title: "Local title",
+        content: "Local body",
+        icon: {
+          version: 1,
+          kind: "image",
+          authority: "private-icon",
+          assetId: "asset_123",
+        },
+      }),
+    ).rejects.toThrow("Private image icons cannot be pushed to Notion");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("listNotionComments", () => {

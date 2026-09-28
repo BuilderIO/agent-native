@@ -56,10 +56,39 @@ import {
   setOrgVisualIdentityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
+import {
+  readWorkspacePrivateIconHandler,
+  uploadWorkspacePrivateIconHandler,
+} from "./private-icon-handlers.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
+
+async function workspaceIconUploadResponse(event: H3Event) {
+  try {
+    return await uploadWorkspacePrivateIconHandler(event);
+  } catch (error) {
+    const statusCode =
+      error &&
+      typeof error === "object" &&
+      "statusCode" in error &&
+      typeof error.statusCode === "number"
+        ? error.statusCode
+        : 500;
+    setResponseStatus(event, statusCode);
+    return {
+      message:
+        statusCode < 500 &&
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof error.message === "string"
+          ? error.message
+          : "Workspace icon upload failed.",
+    };
+  }
+}
 
 /**
  * Mounts the org REST routes under `/_agent-native/org/*` and runs the org
@@ -102,6 +131,27 @@ export function createOrgPlugin(): NitroPluginDef {
     await migrate(nitroApp);
 
     const app = getH3App(nitroApp);
+
+    app.use(
+      `${ORG_PREFIX}/private-icons`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (
+          tail === "/" ||
+          tail === "" ||
+          tail === `${ORG_PREFIX}/private-icons` ||
+          tail === `${ORG_PREFIX}/private-icons/`
+        ) {
+          if (method === "POST") return workspaceIconUploadResponse(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (method === "GET") return readWorkspacePrivateIconHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
 
     // GET /me
     app.use(

@@ -31,6 +31,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
+import { workspacePrivateIconUrl } from "../uploads/private-icon.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { useSession } from "../use-session.js";
 import {
@@ -245,7 +246,7 @@ export function OrgSwitcher({
                     value={buttonIcon}
                     size={14}
                     resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
+                      workspacePrivateIconUrl(org.orgId ?? "", image)
                     }
                     fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
                   />
@@ -266,7 +267,7 @@ export function OrgSwitcher({
               value={buttonIcon}
               size={14}
               resolveImageUrl={(image) =>
-                image.authority === "url" ? image.assetId : undefined
+                workspacePrivateIconUrl(org.orgId ?? "", image)
               }
               fallback={<ButtonIcon className="h-3.5 w-3.5 shrink-0" />}
             />
@@ -376,7 +377,7 @@ export function OrgSwitcher({
                     value={o.icon}
                     size={14}
                     resolveImageUrl={(image) =>
-                      image.authority === "url" ? image.assetId : undefined
+                      workspacePrivateIconUrl(o.orgId, image)
                     }
                     fallback={
                       <IconBriefcase className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

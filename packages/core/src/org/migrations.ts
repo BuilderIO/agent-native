@@ -310,4 +310,25 @@ export const ORG_MIGRATIONS = [
       ALTER TABLE organizations ADD COLUMN IF NOT EXISTS icon_revision BIGINT NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 1034,
+    name: "private-icon-assets",
+    sql: `
+      CREATE TABLE IF NOT EXISTS private_icon_assets (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        mime_type TEXT NOT NULL,
+        filename TEXT,
+        alt TEXT,
+        size BIGINT NOT NULL,
+        sha256 TEXT NOT NULL,
+        blob_handle_json TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS private_icon_assets_owner_org_created_idx
+        ON private_icon_assets (owner_email, org_id, created_at);
+    `,
+  },
 ];
