@@ -941,7 +941,7 @@ describe("AiInboxSetup", () => {
   });
 
   it("shows a retry instead of a Gmail connect prompt when status fails", () => {
-    mocks.googleStatus.data = { accounts: [], configured: true };
+    mocks.googleStatus.data = undefined;
     mocks.googleStatus.isError = true;
     mocks.googleStatus.isSuccess = false;
 
@@ -955,6 +955,41 @@ describe("AiInboxSetup", () => {
       screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
     );
     expect(mocks.googleStatus.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a cached Gmail connection after a status refetch fails", () => {
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByText("mail.sort.aiSetupGmailStatusFailed")).toBeNull();
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+  });
+
+  it("keeps an open setup dialog and its edits after a Gmail refetch fails", () => {
+    const view = render(<AiInboxSetup forceOpen />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupAddTab" }),
+    );
+    const tabName = screen.getByRole("textbox", {
+      name: "mail.sort.aiSetupCustomTabName",
+    });
+    fireEvent.change(tabName, { target: { value: "Personal" } });
+
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+    view.rerender(<AiInboxSetup forceOpen />);
+
+    expect(screen.getByTestId("dialog")).not.toBeNull();
+    expect(
+      screen.getByRole("textbox", {
+        name: "mail.sort.aiSetupCustomTabName",
+      }),
+    ).toHaveProperty("value", "Personal");
+    expect(screen.queryByText("mail.sort.aiSetupGmailStatusFailed")).toBeNull();
   });
 
   it("offers Skip for now while Gmail or Jev setup is still needed", () => {

@@ -254,6 +254,7 @@ describe("onboarding app profiles", () => {
       ),
     ).toMatchObject({
       required: true,
+      satisfiedBySignIn: true,
       keySummary: "Connect Gmail with OAuth",
     });
   });

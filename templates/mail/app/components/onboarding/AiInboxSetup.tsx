@@ -473,10 +473,8 @@ export function AiInboxSetup({
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
-  const connected =
-    googleStatus.isSuccess &&
-    !googleStatus.isError &&
-    (googleStatus.data?.accounts.length ?? 0) > 0;
+  const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const gmailStatusUnknown = googleStatus.isError && !googleStatus.data;
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
     [],
@@ -798,7 +796,7 @@ export function AiInboxSetup({
           : t("mail.sort.aiSetupSortingDescription");
   const needsSetupToSort = firstRunSorting && (!connected || !jevConfigured);
   const displayHeadline =
-    firstRunSorting && googleStatus.isError
+    firstRunSorting && gmailStatusUnknown
       ? headline
       : needsSetupToSort
         ? connected
@@ -806,7 +804,7 @@ export function AiInboxSetup({
           : t("mail.sort.aiSetupConnectGmailHeadline")
         : headline;
   const displayDescription =
-    firstRunSorting && googleStatus.isError
+    firstRunSorting && gmailStatusUnknown
       ? undefined
       : needsSetupToSort
         ? connected
@@ -1241,7 +1239,7 @@ export function AiInboxSetup({
         </div>
       ) : (
         <div className={cn(!firstRunSorting && "mt-7", "space-y-5")}>
-          {firstRunSorting && googleStatus.isError ? (
+          {firstRunSorting && gmailStatusUnknown ? (
             <div className="flex items-center gap-3" role="alert">
               <p className="text-sm text-muted-foreground">
                 {t("mail.sort.aiSetupGmailStatusFailed")}
@@ -1258,7 +1256,9 @@ export function AiInboxSetup({
               </Button>
             </div>
           ) : null}
-          {firstRunSorting && googleStatus.isSuccess && !connected ? (
+          {firstRunSorting &&
+          googleStatus.data &&
+          googleStatus.data.accounts.length === 0 ? (
             googleStatus.data?.configured === true ||
             canOfferGoogleOAuthSetup ? (
               <GoogleConnectBanner variant="button" />

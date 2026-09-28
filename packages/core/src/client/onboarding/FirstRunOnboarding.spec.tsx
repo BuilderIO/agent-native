@@ -891,6 +891,7 @@ describe("FirstRunOnboarding", () => {
             label: "Gmail",
             required: true,
             builderIncluded: false,
+            satisfiedBySignIn: true,
             keySummary: "Connect Gmail with OAuth",
             why: "Google sign-in already connects Mail.",
           },

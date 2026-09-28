@@ -521,11 +521,6 @@ export function FirstRunOnboarding({
       capability.builderIncluded &&
       (!!capability.service || isHeadlineCapability(capability)),
   );
-  const manualCapabilities =
-    profile.appId === "mail"
-      ? profile.capabilities.filter((capability) => capability.id !== "gmail")
-      : profile.capabilities;
-
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       handleFinish(null);
@@ -819,7 +814,7 @@ export function FirstRunOnboarding({
                   </p>
                 </div>
                 <CapabilityList
-                  capabilities={manualCapabilities}
+                  capabilities={profile.capabilities}
                   className="flex-1"
                 />
                 <button
@@ -1185,7 +1180,10 @@ function CapabilityList({
 }) {
   const t = useT();
   const visibleCapabilities = useMemo(() => {
-    const headline = capabilities.filter(isHeadlineCapability);
+    const headline = capabilities.filter(
+      (capability) =>
+        !capability.satisfiedBySignIn && isHeadlineCapability(capability),
+    );
     const required = headline.filter((capability) => capability.required);
     const suggested = headline.filter(
       (capability) => !capability.required && capability.suggested,
