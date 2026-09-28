@@ -104,9 +104,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var userFocusedElement: Element | null = null;
   var trustedFocusIntent: {
     target: Element | null;
-    kind: "pointer" | "tab" | "activation";
+    kind: "pointer" | "tab" | "activation" | "navigation";
+    key?: string;
+    rovingGroup?: Element | null;
+    activeDescendantBefore?: string | null;
+    tabIndexesBefore?: Array<{ element: Element; value: string | null }>;
     expiresAt: number;
   } | null = null;
+  var rovingGroupSelector =
+    '[role="grid"], [role="listbox"], [role="menu"], [role="menubar"], [role="radiogroup"], [role="tablist"], [role="toolbar"], [role="tree"], [role="treegrid"]';
   var focusTargetSelector =
     'a[href], area[href], button, input:not([type="hidden"]), select, textarea, summary, iframe, audio[controls], video[controls], [tabindex], [contenteditable]:not([contenteditable="false"]), [role="button"], [role="link"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="spinbutton"], [role="menuitem"], [role="textbox"], [role="combobox"], [role="searchbox"]';
 
@@ -134,23 +140,472 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function armTrustedFocusIntent(
     target: Element | null,
-    kind: "pointer" | "tab" | "activation",
+    kind: "pointer" | "tab" | "activation" | "navigation",
+    key?: string,
   ): void {
+    var rovingGroup =
+      kind === "navigation" && target
+        ? target.closest(rovingGroupSelector)
+        : null;
     trustedFocusIntent = {
       target: target,
       kind: kind,
+      ...(key ? { key: key } : {}),
+      ...(rovingGroup
+        ? {
+            rovingGroup: rovingGroup,
+            activeDescendantBefore: rovingGroup.getAttribute(
+              "aria-activedescendant",
+            ),
+            tabIndexesBefore: Array.from(
+              rovingGroup.querySelectorAll("[tabindex]"),
+            ).map(function (element) {
+              return {
+                element: element,
+                value: element.getAttribute("tabindex"),
+              };
+            }),
+          }
+        : {}),
       expiresAt: Date.now() + 1000,
     };
+  }
+
+  function clearNavigationFocusIntentAfterAppTasks(): void {
+    var navigationIntent = trustedFocusIntent;
+    // Let app key handlers enqueue their roving-focus task before clearing intent.
+    window.setTimeout(function () {
+      window.setTimeout(function () {
+        if (trustedFocusIntent === navigationIntent) {
+          trustedFocusIntent = null;
+        }
+      }, 0);
+    }, 0);
+  }
+
+  function isRovingFocusSibling(
+    current: Element | null,
+    next: Element,
+    key: string | undefined,
+    intent: {
+      rovingGroup?: Element | null;
+      activeDescendantBefore?: string | null;
+      tabIndexesBefore?: Array<{ element: Element; value: string | null }>;
+    },
+  ): boolean {
+    if (!current) return false;
+
+    function isNativeRadio(element: Element): element is HTMLInputElement {
+      return (
+        element.tagName === "INPUT" &&
+        (element as HTMLInputElement).type === "radio"
+      );
+    }
+
+    if (isNativeRadio(current) && isNativeRadio(next)) {
+      var radioName = current.name;
+      var radioForm = current.form || current.closest("form");
+      var radios = Array.from(
+        (current.getRootNode() as ParentNode).querySelectorAll(
+          'input[type="radio"]',
+        ),
+      ).filter(function (candidate) {
+        var radio = candidate as HTMLInputElement;
+        return (
+          radioName !== "" &&
+          radio.name === radioName &&
+          (radio.form || radio.closest("form")) === radioForm
+        );
+      });
+      var currentRadioIndex = radios.indexOf(current);
+      var nextRadioIndex = radios.indexOf(next);
+      var delta =
+        key === "ArrowRight" || key === "ArrowDown"
+          ? 1
+          : key === "ArrowLeft" || key === "ArrowUp"
+            ? -1
+            : 0;
+      if (key === "ArrowLeft" || key === "ArrowRight") {
+        if (window.getComputedStyle(current).direction === "rtl") {
+          delta *= -1;
+        }
+      }
+      if (
+        radios.length > 1 &&
+        currentRadioIndex !== -1 &&
+        nextRadioIndex !== -1 &&
+        delta !== 0
+      ) {
+        return (
+          nextRadioIndex ===
+          (currentRadioIndex + delta + radios.length) % radios.length
+        );
+      }
+    }
+
+    var currentGroup = current.closest(rovingGroupSelector);
+    if (
+      !currentGroup ||
+      currentGroup !== next.closest(rovingGroupSelector) ||
+      intent.rovingGroup !== currentGroup
+    ) {
+      return false;
+    }
+    var role = currentGroup.getAttribute("role");
+    var itemSelector: string | null = null;
+    switch (role) {
+      case "grid":
+      case "treegrid":
+        itemSelector =
+          '[role="row"], [role="gridcell"], [role="columnheader"], [role="rowheader"], tr, td, th';
+        break;
+      case "listbox":
+        itemSelector = '[role="option"]';
+        break;
+      case "menu":
+      case "menubar":
+        itemSelector =
+          '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]';
+        break;
+      case "radiogroup":
+        itemSelector = '[role="radio"], input[type="radio"]';
+        break;
+      case "tablist":
+        itemSelector = '[role="tab"]';
+        break;
+      case "toolbar":
+        itemSelector = 'button, a[href], [role="button"], [role="link"]';
+        break;
+      case "tree":
+        itemSelector = '[role="treeitem"]';
+        break;
+    }
+    if (!itemSelector) return false;
+    var currentItem = current.closest(itemSelector);
+    var nextItem = next.closest(itemSelector);
+    if (!currentItem || !nextItem || currentItem === nextItem) return false;
+
+    function belongsToGroup(item: Element): boolean {
+      if (item.closest(rovingGroupSelector) !== currentGroup) return false;
+      if (item.getAttribute("role")) return true;
+      if (
+        item.tagName !== "TR" &&
+        item.tagName !== "TD" &&
+        item.tagName !== "TH"
+      ) {
+        return true;
+      }
+      return (
+        item.closest('table[role="grid"], table[role="treegrid"]') ===
+        currentGroup
+      );
+    }
+
+    function isGridRow(item: Element): boolean {
+      return (
+        item.getAttribute("role") === "row" ||
+        (item.tagName === "TR" && belongsToGroup(item))
+      );
+    }
+
+    function gridRows(): Element[] {
+      return Array.from(
+        currentGroup.querySelectorAll('[role="row"], tr'),
+      ).filter(function (row) {
+        return belongsToGroup(row) && isGridRow(row);
+      });
+    }
+
+    function gridCells(row: Element): Element[] {
+      return Array.from(
+        row.querySelectorAll(
+          '[role="gridcell"], [role="columnheader"], [role="rowheader"], td, th',
+        ),
+      ).filter(function (cell) {
+        if (!belongsToGroup(cell)) return false;
+        if (cell.getAttribute("role")) {
+          return cell.closest('[role="row"]') === row;
+        }
+        if (cell.tagName === "TD" || cell.tagName === "TH") {
+          return (
+            cell.closest("tr") === row &&
+            cell.closest('table[role="grid"], table[role="treegrid"]') ===
+              currentGroup
+          );
+        }
+        return cell.closest('[role="row"]') === row;
+      });
+    }
+
+    function ariaIndex(
+      element: Element,
+      name: string,
+      fallback: number,
+    ): number {
+      var value = Number(element.getAttribute(name));
+      return Number.isInteger(value) && value > 0 ? value - 1 : fallback;
+    }
+
+    function hasRovingFocusTransition(
+      currentRovingItem: Element,
+      nextRovingItem: Element,
+    ): boolean {
+      var activeDescendant = currentGroup.getAttribute("aria-activedescendant");
+      var previousActiveDescendant = intent.activeDescendantBefore || null;
+      if (
+        activeDescendant &&
+        activeDescendant !== previousActiveDescendant &&
+        (activeDescendant === (nextRovingItem as HTMLElement).id ||
+          activeDescendant === (next as HTMLElement).id)
+      ) {
+        return true;
+      }
+      var previousTabIndex = intent.tabIndexesBefore?.find(function (entry) {
+        return entry.element === currentRovingItem;
+      });
+      var nextTabIndex = intent.tabIndexesBefore?.find(function (entry) {
+        return entry.element === nextRovingItem;
+      });
+      if (
+        previousTabIndex?.value === "0" &&
+        currentRovingItem.getAttribute("tabindex") !== "0" &&
+        nextTabIndex !== undefined &&
+        nextTabIndex.value !== "0" &&
+        nextRovingItem.getAttribute("tabindex") === "0"
+      ) {
+        return true;
+      }
+
+      function isGridCell(item: Element): boolean {
+        return (
+          item.getAttribute("role") === "gridcell" ||
+          item.getAttribute("role") === "columnheader" ||
+          item.getAttribute("role") === "rowheader" ||
+          item.tagName === "TD" ||
+          item.tagName === "TH"
+        );
+      }
+
+      return (
+        (role === "grid" || role === "treegrid") &&
+        isGridCell(currentRovingItem) &&
+        isGridCell(nextRovingItem) &&
+        current !== currentRovingItem &&
+        next !== nextRovingItem &&
+        current.matches(focusTargetSelector) &&
+        next.matches(focusTargetSelector)
+      );
+    }
+
+    if (role === "grid" || role === "treegrid") {
+      var currentRow = currentItem.closest('[role="row"], tr');
+      var nextRow = nextItem.closest('[role="row"], tr');
+      if (
+        !currentRow ||
+        !nextRow ||
+        !belongsToGroup(currentRow) ||
+        !belongsToGroup(nextRow)
+      ) {
+        return false;
+      }
+      var rows = gridRows();
+      var currentRowIndex = ariaIndex(
+        currentRow,
+        "aria-rowindex",
+        rows.indexOf(currentRow),
+      );
+      var nextRowIndex = ariaIndex(
+        nextRow,
+        "aria-rowindex",
+        rows.indexOf(nextRow),
+      );
+      var verticalDelta = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+      if (isGridRow(currentItem) && isGridRow(nextItem)) {
+        return (
+          verticalDelta !== 0 &&
+          nextRowIndex === currentRowIndex + verticalDelta &&
+          hasRovingFocusTransition(currentItem, nextItem)
+        );
+      }
+      if (isGridRow(currentItem) || isGridRow(nextItem)) {
+        if (role !== "treegrid" || currentRow !== nextRow) return false;
+        var currentIsRow = isGridRow(currentItem);
+        var cells = gridCells(currentRow);
+        if (currentIsRow && key === "ArrowRight") {
+          return (
+            cells[0] === nextItem &&
+            hasRovingFocusTransition(currentItem, nextItem)
+          );
+        }
+        if (!currentIsRow && key === "ArrowLeft") {
+          return (
+            cells[0] === currentItem &&
+            hasRovingFocusTransition(currentItem, nextItem)
+          );
+        }
+        return false;
+      }
+      var currentColumnIndex = ariaIndex(
+        currentItem,
+        "aria-colindex",
+        gridCells(currentRow).indexOf(currentItem),
+      );
+      var nextColumnIndex = ariaIndex(
+        nextItem,
+        "aria-colindex",
+        gridCells(nextRow).indexOf(nextItem),
+      );
+      if (key === "ArrowLeft" || key === "ArrowRight") {
+        var columnDelta = key === "ArrowRight" ? 1 : -1;
+        if (window.getComputedStyle(currentGroup).direction === "rtl") {
+          columnDelta *= -1;
+        }
+        return (
+          currentRow === nextRow &&
+          nextColumnIndex === currentColumnIndex + columnDelta &&
+          hasRovingFocusTransition(currentItem, nextItem)
+        );
+      }
+      return (
+        verticalDelta !== 0 &&
+        nextRowIndex === currentRowIndex + verticalDelta &&
+        nextColumnIndex === currentColumnIndex &&
+        hasRovingFocusTransition(currentItem, nextItem)
+      );
+    }
+
+    function itemFor(target: Element): Element | null {
+      if (role === "tree") return target.closest('[role="treeitem"]');
+      return target.closest(itemSelector!);
+    }
+
+    function isNavigableTreeItem(item: Element): boolean {
+      var currentItem: Element | null = item;
+      while (currentItem && currentItem !== currentGroup) {
+        if (
+          currentItem.getAttribute("hidden") !== null ||
+          currentItem.getAttribute("inert") !== null ||
+          currentItem.getAttribute("aria-hidden") === "true"
+        ) {
+          return false;
+        }
+        if (
+          currentItem !== item &&
+          currentItem.getAttribute("role") === "treeitem" &&
+          currentItem.getAttribute("aria-expanded") === "false"
+        ) {
+          return false;
+        }
+        currentItem = currentItem.parentElement;
+      }
+      return true;
+    }
+
+    var currentRovingItem = itemFor(current);
+    var nextRovingItem = itemFor(next);
+    if (
+      !currentRovingItem ||
+      !nextRovingItem ||
+      !belongsToGroup(currentRovingItem) ||
+      !belongsToGroup(nextRovingItem)
+    ) {
+      return false;
+    }
+
+    var isRtl = window.getComputedStyle(currentGroup).direction === "rtl";
+    var childKey = isRtl ? "ArrowLeft" : "ArrowRight";
+    var parentKey = isRtl ? "ArrowRight" : "ArrowLeft";
+    if (role === "tree" && key === childKey) {
+      return (
+        isNavigableTreeItem(currentRovingItem) &&
+        isNavigableTreeItem(nextRovingItem) &&
+        nextRovingItem.parentElement?.closest('[role="treeitem"]') ===
+          currentRovingItem &&
+        hasRovingFocusTransition(currentRovingItem, nextRovingItem)
+      );
+    }
+    if (role === "tree" && key === parentKey) {
+      return (
+        isNavigableTreeItem(currentRovingItem) &&
+        isNavigableTreeItem(nextRovingItem) &&
+        currentRovingItem.parentElement?.closest('[role="treeitem"]') ===
+          nextRovingItem &&
+        hasRovingFocusTransition(currentRovingItem, nextRovingItem)
+      );
+    }
+
+    var items = Array.from(currentGroup.querySelectorAll(itemSelector)).filter(
+      function (item) {
+        return (
+          belongsToGroup(item) &&
+          itemFor(item) === item &&
+          (role !== "tree" || isNavigableTreeItem(item))
+        );
+      },
+    );
+    var currentIndex = items.indexOf(currentRovingItem);
+    var nextIndex = items.indexOf(nextRovingItem);
+    if (currentIndex === -1 || nextIndex === -1) return false;
+
+    var orientation = currentGroup.getAttribute("aria-orientation");
+    if (!orientation) {
+      orientation =
+        role === "toolbar" ||
+        role === "menubar" ||
+        role === "tablist" ||
+        role === "radiogroup"
+          ? "horizontal"
+          : "vertical";
+    }
+    var delta =
+      key === "ArrowRight"
+        ? 1
+        : key === "ArrowLeft"
+          ? -1
+          : key === "ArrowDown"
+            ? 1
+            : key === "ArrowUp"
+              ? -1
+              : 0;
+    if (!delta) return false;
+    if (orientation === "horizontal") {
+      if (key !== "ArrowLeft" && key !== "ArrowRight") return false;
+      if (window.getComputedStyle(currentGroup).direction === "rtl")
+        delta *= -1;
+    } else if (key !== "ArrowUp" && key !== "ArrowDown") {
+      return false;
+    }
+    var expectedIndex = currentIndex + delta;
+    if (
+      role === "radiogroup" ||
+      role === "tablist" ||
+      role === "menu" ||
+      role === "menubar" ||
+      role === "toolbar"
+    ) {
+      expectedIndex = (expectedIndex + items.length) % items.length;
+    }
+    return (
+      nextIndex === expectedIndex &&
+      hasRovingFocusTransition(currentRovingItem, nextRovingItem)
+    );
   }
 
   function rememberUserFocusedElement(event: FocusEvent): void {
     var intent = trustedFocusIntent;
     var target = getCanvasFocusTarget(event);
+    var navigationTargetMatches =
+      intent?.kind !== "navigation" ||
+      target === intent.target ||
+      (target !== null &&
+        isRovingFocusSibling(intent.target, target, intent.key, intent));
     if (
       !intent ||
       Date.now() > intent.expiresAt ||
       !target ||
-      (intent.kind === "pointer" &&
+      !navigationTargetMatches ||
+      (intent.kind !== "tab" &&
+        intent.kind !== "navigation" &&
         (intent.target === null ||
           (intent.target !== target &&
             !event.composedPath().includes(intent.target) &&
@@ -213,11 +668,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var active = document.activeElement;
       if (active instanceof Element && isCanvasFocusTarget(active)) {
         userFocusedElement = active;
-        if (
+        if (keyEvent.key.startsWith("Arrow")) {
+          armTrustedFocusIntent(active, "navigation", keyEvent.key);
+          clearNavigationFocusIntentAfterAppTasks();
+        } else if (
           keyEvent.key === "Enter" ||
           keyEvent.key === " " ||
-          keyEvent.key === "Escape" ||
-          keyEvent.key.startsWith("Arrow")
+          keyEvent.key === "Escape"
         ) {
           armTrustedFocusIntent(active, "activation");
         }

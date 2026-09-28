@@ -40,7 +40,10 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { recordAgentView } from "./agent-views.js";
-import { verifySharePassword } from "./share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
 export type PublicAgentTranscript =
@@ -302,11 +305,16 @@ export async function loadPublicAgentAccess(
   const viewerIsOwner = Boolean(
     session?.email && sameOwnerEmail(session.email, recording.ownerEmail),
   );
+  const scopedRecordingId = getRecordingAccessTokenResourceId(
+    recording.id,
+    recording.password,
+    recording.sharePasswordVersion,
+  );
   const suppliedToken = options.token ?? "";
   const tokenAccess = suppliedToken
     ? verifyScopedAgentAccessToken(suppliedToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: scopedRecordingId,
       })
     : null;
   const tokenAllowsAgentAccess = Boolean(tokenAccess?.ok);
@@ -346,7 +354,7 @@ export async function loadPublicAgentAccess(
   ) {
     apiToken = signScopedAgentAccessToken({
       resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-      resourceId: recording.id,
+      resourceId: scopedRecordingId,
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
   }
@@ -363,7 +371,7 @@ export async function loadPublicAgentAccess(
       allowed = true;
       apiToken = signScopedAgentAccessToken({
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: recording.id,
+        resourceId: scopedRecordingId,
         ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
       });
     }

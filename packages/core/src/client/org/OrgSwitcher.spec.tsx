@@ -222,6 +222,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-label")).toBe("Loading account");
     expect(button.className).toContain("animate-pulse");
+    expect(button.className).toContain("flex-1");
     expect(button.querySelector(".rounded-full")).not.toBeNull();
   });
 
@@ -232,6 +233,7 @@ describe("OrgSwitcher (account menu)", () => {
 
     const button = trigger();
     expect(button.className).toContain("justify-center");
+    expect(button.className).not.toContain("flex-1");
     expect(button.querySelector("span")?.className).toContain("rounded-full");
   });
 
@@ -242,6 +244,7 @@ describe("OrgSwitcher (account menu)", () => {
 
     const button = trigger();
     expect(button.getAttribute("aria-label")).toBe("Olivia Owner, Acme");
+    expect(button.parentElement?.className).toContain("flex-1");
     expect(button.textContent).toContain("OO");
     expect(button.textContent).toContain("Olivia Owner");
     expect(button.textContent).toContain("Acme");
@@ -260,7 +263,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(trigger().textContent).toContain("Owner");
   });
 
-  it("shows Personal when the user has no active organization", () => {
+  it("labels the trigger Personal when the user has no active organization", () => {
     mocks.useOrg.mockReturnValue({
       data: {
         ...ownerOrg,
@@ -276,8 +279,55 @@ describe("OrgSwitcher (account menu)", () => {
 
     expect(trigger().getAttribute("aria-label")).toBe("Olivia Owner, Personal");
     openMenu();
-    const personal = findItem("Personal");
-    expect(personal.querySelector("svg.tabler-icon-check")).not.toBeNull();
+    expect(menuItemLabels()).not.toContain("Personal");
+    expect(mocks.switchOrg.mutate).not.toHaveBeenCalled();
+  });
+
+  it("moves a member with no active organization back to their first one", () => {
+    mocks.useOrg.mockReturnValue({
+      data: { ...ownerOrg, orgId: null, orgName: null, role: null },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    render(<OrgSwitcher />);
+
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith(
+      "org-1",
+      expect.any(Object),
+    );
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed move on the next organization fetch, not on re-render", () => {
+    const stuck = { ...ownerOrg, orgId: null, orgName: null, role: null };
+    mocks.switchOrg.mutate.mockImplementationOnce(
+      (_orgId: unknown, options?: { onError?: () => void }) => {
+        options?.onError?.();
+      },
+    );
+    mocks.useOrg.mockReturnValue({
+      data: stuck,
+      isLoading: false,
+      dataUpdatedAt: 1,
+    });
+
+    render(<OrgSwitcher />);
+    render(<OrgSwitcher />);
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
+
+    mocks.useOrg.mockReturnValue({
+      data: { ...stuck },
+      isLoading: false,
+      dataUpdatedAt: 2,
+    });
+    render(<OrgSwitcher />);
+
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(2);
+    expect(mocks.switchOrg.mutate).toHaveBeenLastCalledWith(
+      "org-1",
+      expect.any(Object),
+    );
   });
 
   it("keeps the compact trigger to the avatar, with name and org in the tooltip", () => {
@@ -303,6 +353,7 @@ describe("OrgSwitcher (account menu)", () => {
     expect(button.getAttribute("aria-label")).toBe(
       "Brent Locks, Brent's workspace",
     );
+    expect(button.parentElement?.className).not.toContain("flex-1");
     expect(button.textContent).toBe("BL");
     expect(button.getAttribute("title")).toBeNull();
     // The tooltip and the menu both target this one button. Anything
@@ -322,6 +373,25 @@ describe("OrgSwitcher (account menu)", () => {
     expect(menuItemLabels().some((label) => label.includes("Builder.io"))).toBe(
       true,
     );
+  });
+
+  it("lets expanded reserved space fill the sidebar row", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        ...ownerOrg,
+        email: null,
+        orgs: [],
+        domainMatches: [],
+        pendingInvitations: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher reserveSpace />);
+    expect(container.firstElementChild?.className).toContain("flex-1");
+
+    render(<OrgSwitcher reserveSpace compact />);
+    expect(container.firstElementChild?.className).not.toContain("flex-1");
   });
 
   it.each(["owner", "member"])(
@@ -344,7 +414,6 @@ describe("OrgSwitcher (account menu)", () => {
       expect(labels).toEqual([
         "Acme",
         "Globex",
-        "Personal",
         "Create organization",
         expect.stringMatching(/^Settings(⌘,|Ctrl\+,)$/),
         "Usage",
@@ -373,8 +442,8 @@ describe("OrgSwitcher (account menu)", () => {
   );
 
   it.each([
-    { period: "daily", label: "Free daily limit" },
-    { period: "monthly", label: "Monthly plan" },
+    { period: "daily", label: "Default daily limit" },
+    { period: "monthly", label: "Monthly limit" },
   ] as const)(
     "shows the $period Builder limit with its upgrade link",
     ({ period, label }) => {
@@ -449,35 +518,16 @@ describe("OrgSwitcher (account menu)", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("switches to Personal from an organization", async () => {
-    mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
-
-    render(<OrgSwitcher />);
-    openMenu();
-    expect(
-      findItem("Personal").querySelector("svg.tabler-icon-check"),
-    ).toBeNull();
-    await select("Personal");
-
-    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith(
-      null,
-      expect.any(Object),
-    );
-    expect(trigger().getAttribute("aria-expanded")).toBe("false");
-  });
-
   it("shows a spinner on the row being switched to", () => {
     mocks.useOrg.mockReturnValue({ data: ownerOrg, isLoading: false });
     mocks.switchOrg.isPending = true;
-    mocks.switchOrg.variables = null;
+    mocks.switchOrg.variables = "org-2";
 
     render(<OrgSwitcher />);
     openMenu();
 
-    const personal = findItem("Personal");
-    expect(personal.querySelector("svg.animate-spin")).not.toBeNull();
-    expect(findItem("Globex").querySelector("svg.animate-spin")).toBeNull();
-    expect(findItem("Globex").hasAttribute("data-disabled")).toBe(true);
+    expect(findItem("Globex").querySelector("svg.animate-spin")).not.toBeNull();
+    expect(findItem("Acme").querySelector("svg.animate-spin")).toBeNull();
   });
 
   it("keeps the current organization selection a no-op", async () => {

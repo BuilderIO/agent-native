@@ -873,6 +873,10 @@ function parseSubmitChatAttachments(
       const type = typeof item.type === "string" ? item.type : "file";
       const name = typeof item.name === "string" ? item.name : "attachment";
       const attachment: AgentChatAttachment = { type, name };
+      const metadata = normalizeMetadata(item.metadata);
+      if (item.displayOnly === true || metadata?.displayOnly === true) {
+        attachment.displayOnly = true;
+      }
       for (const key of [
         "data",
         "url",
@@ -884,7 +888,6 @@ function parseSubmitChatAttachments(
         if (typeof item[key] === "string") attachment[key] = item[key];
       }
       for (const key of [
-        "displayOnly",
         "referenceOnly",
         "storageRequired",
         "storageUploadFailed",

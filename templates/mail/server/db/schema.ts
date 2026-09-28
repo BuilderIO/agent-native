@@ -174,6 +174,13 @@ export const mailSyncAccounts = table(
       .default(0),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
+    lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),
+    lastWatchAttemptedAt: bigint("last_watch_attempted_at", { mode: "number" }),
+    lastAutomationAttemptedAt: bigint("last_automation_attempted_at", {
+      mode: "number",
+    }),
+    watchRenewClaimId: text("watch_renew_claim_id"),
+    watchRenewClaimedAt: bigint("watch_renew_claimed_at", { mode: "number" }),
     labelsJson: text("labels_json"),
     labelsUpdatedAt: integer("labels_updated_at"),
     createdAt: integer("created_at").notNull(),

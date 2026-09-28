@@ -1,6 +1,7 @@
 /** @jsxRuntime classic */
 
 import { AuthForm } from "@agent-native/toolkit/onboarding";
+import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
 import { normalizeLocaleCode } from "../../localization/shared.js";
@@ -2676,9 +2677,14 @@ export function AuthPage(props: AuthPageProps) {
               id="google-btn"
               type="button"
               disabled={googleBusy}
+              aria-busy={googleBusy}
               onClick={() => void startGoogle()}
             >
-              {googleSvg()}
+              {googleBusy ? (
+                <IconLoader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                googleSvg()
+              )}
               <span data-i18n="googleButton">{t("googleButton")}</span>
             </button>
             {notice("google")}

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -64,8 +66,10 @@ export default defineAction({
       patch.defaultSpeed = args.defaultSpeed;
     if (typeof args.animatedThumbnailEnabled === "boolean")
       patch.animatedThumbnailEnabled = args.animatedThumbnailEnabled;
-    if (args.password !== undefined)
+    if (args.password !== undefined) {
       patch.password = encryptSharePassword(args.password);
+      patch.sharePasswordVersion = randomUUID();
+    }
     if (args.expiresAt !== undefined) patch.expiresAt = args.expiresAt ?? null;
     if (typeof args.chaptersJson === "string")
       patch.chaptersJson = args.chaptersJson;

@@ -88,13 +88,13 @@ export function ImportDeckButton({
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <div className="inline-flex">
+        <div className="inline-flex shrink-0">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 ref={menuTrigger}
                 type="button"
-                size="icon-sm"
+                size="sm"
                 disabled={busy}
                 aria-busy={busy}
                 aria-label={t(
@@ -102,11 +102,7 @@ export function ImportDeckButton({
                 )}
               >
                 <IconUpload />
-                <span className="slides-home-import-label">
-                  {t(
-                    busy ? "editorToolbar.importing" : "home.importMenu.import",
-                  )}
-                </span>
+                {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>

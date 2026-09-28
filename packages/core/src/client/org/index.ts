@@ -60,6 +60,7 @@ export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
 export {
   AccountMenu,
+  BuilderCreditNotice,
   OrgSwitcher,
   type AccountMenuProps,
   type AccountMenuUtilityLink,

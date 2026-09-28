@@ -375,6 +375,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active
     },
     {
       version: 31,
+      name: "mail-gmail-watch-renewal-claims",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_renewed_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_watch_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS last_automation_attempted_at BIGINT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claim_id TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS watch_renew_claimed_at BIGINT;
+CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
+  ON scheduled_jobs(status, run_at, id);`,
+    },
+    {
+      version: 32,
       name: "mail-gmail-account-quota-budget",
       sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
     id TEXT PRIMARY KEY,
@@ -393,7 +409,7 @@ CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
   ON mail_gmail_quota_budgets(owner_email);`,
     },
     {
-      version: 32,
+      version: 33,
       name: "mail-inbox-id-reconciliation",
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;

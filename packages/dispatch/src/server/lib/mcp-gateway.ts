@@ -27,6 +27,7 @@ import {
   type DiscoveredAgent,
 } from "@agent-native/core/server/agent-discovery";
 
+import { DESKTOP_WORKSPACE_SSO_FLAG } from "../../shared/feature-flags.js";
 import {
   DISPATCH_WORKSPACE_SSO_FLAG,
   isWorkspaceSsoAppUrl,
@@ -1507,11 +1508,14 @@ export async function createWorkspaceSsoEmbedSession(input: {
     });
     throw new Error("no authenticated user");
   }
-  const enabled = await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, {
+  const scope = {
     userEmail: ownerEmail,
     userKey: ownerEmail,
     orgId: getRequestOrgId(),
-  });
+  };
+  const enabled =
+    (await isFeatureFlagEnabled(DISPATCH_WORKSPACE_SSO_FLAG, scope)) ||
+    (await isFeatureFlagEnabled(DESKTOP_WORKSPACE_SSO_FLAG, scope));
   if (!enabled) {
     console.warn("[dispatch] workspace embed mint rejected", {
       phase: "feature-flag",

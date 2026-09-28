@@ -2282,6 +2282,7 @@ async function dispatchMailAiFilterBackfillContinuation(
 export async function processMailAiFilterBackfills(
   ownerEmail?: string,
   runId?: string,
+  deadlineAt = Number.POSITIVE_INFINITY,
 ): Promise<void> {
   const now = Date.now();
   const conditions = [
@@ -2308,6 +2309,9 @@ export async function processMailAiFilterBackfills(
   let processed = 0;
   for (const row of rows) {
     if (processed >= MAX_RUNS_PER_TICK) break;
+    if (Date.now() >= deadlineAt) {
+      throw new Error("Mail AI-filter backfill sweep deadline reached.");
+    }
     const claim = await claimRun(row);
     if (!claim) continue;
     processed += 1;
