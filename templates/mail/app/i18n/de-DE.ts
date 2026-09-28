@@ -45,10 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Posteingang überspringen",
       aiSetupSave: "Einrichtung speichern",
       aiSetupSkip: "Vorerst überspringen",
-      aiSetupSkipSetup: "Postfacheinrichtung überspringen",
-      aiSetupImportantHeadline: "Was ist wichtig?",
-      aiSetupSkipInboxHeadline: "Was kann den Posteingang überspringen?",
-      aiSetupTagsHeadline: "Tabs auswählen",
+      aiSetupImportantHeadline: "Was ist dir wichtig?",
+      aiSetupSkipInboxHeadline: "Was darf deinen Posteingang überspringen?",
+      aiSetupTagsHeadline: "E-Mails in Tabs sortieren",
       aiSetupArchiveSpamHeadline: "Posteingang überspringen und Spam",
       aiSetupTagReceipts: "Belege",
       aiSetupTagUpdates: "Produktupdates",
@@ -63,6 +62,16 @@ const messages = {
         "Posteingang überspringen: GitHub-Benachrichtigungen mit Bot-Kommentaren oder automatischen Statusmeldungen.\nSpam: Eindeutig werbliche oder unerwünschte Nachrichten, die ich nicht angefordert habe.",
       aiSetupCustomTag: "Benutzerdefiniert",
       aiSetupDone: "Fertig",
+      aiSetupConnectGmailHeadline:
+        "Verbinde Gmail, um deinen Posteingang zu sortieren",
+      aiSetupConnectGmailDescription:
+        "Verbinde Google, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupConnectJevHeadline:
+        "Verbinde Jev, um deinen Posteingang zu sortieren",
+      aiSetupConnectJevDescription:
+        "Verbinde Jev, um deine Regeln auf aktuelle E-Mails anzuwenden.",
+      aiSetupCustomTabName: "Tab-Name",
+      aiSetupCustomTabExample: "z. B. Rechnungen von Lieferanten",
       aiSetupRunAgain: "Einrichtung erneut starten",
       aiSetupTagCalendar: "Kalender",
       aiSetupPromptCalendar:
@@ -77,14 +86,27 @@ const messages = {
       aiSetupFilteredExample:
         "Kalte Verkaufsakquise und Recruiter, denen ich noch nicht geantwortet habe",
       aiSetupSortingHeadline: "Dein Posteingang wird sortiert",
+      aiSetupSortingDescription:
+        "Das haben deine Regeln in aktuellen E-Mails gefunden.",
       aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
+      aiSetupRetry: "Erneut versuchen",
+      aiSetupGmailStatusFailed:
+        "Die Gmail-Verbindung konnte nicht geprüft werden",
+      aiSetupAutomationSettingsFailed:
+        "Die Einstellungen für das KI-Modell konnten nicht geprüft werden",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupUndoBeforeRetry:
+        "Mache die Teiländerungen rückgängig, bevor du es erneut versuchst.",
       aiSetupSortingFailed:
         "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
       aiSetupUndoComplete:
         "{{count}} Nachrichten wurden in den vorherigen Zustand versetzt.",
+      aiSetupUndoFailed:
+        "Diese Änderungen im Posteingang konnten nicht rückgängig gemacht werden. Versuche es erneut.",
+      aiSetupUndoStatusFailed:
+        "Der Rückgängig-Vorgang wurde gesendet, aber die neuesten Ergebnisse konnten nicht geladen werden.",
       aiSetupRuleCount: "{{count}} Treffer",
       aiSetupNoMatches:
         "In den letzten 14 Tagen passten keine Nachrichten zu diesen Regeln.",
@@ -95,7 +117,29 @@ const messages = {
       aiSetupPartialFailure:
         "{{count}} Nachrichten konnten nicht aktualisiert werden.",
       aiSetupSortInbox: "Posteingang sortieren",
-      aiSetupImportantExample: "Alles von meiner Führungskraft Priya…",
+      aiSetupImportantExample:
+        "Alles von meinem Chef, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "Die KI versieht passende E-Mails mit Tags und erstellt für jeden Tag einen eigenen Tab neben deinem Posteingang.",
+      aiSetupImportantDescription:
+        "Die KI versieht passende E-Mails mit dem Label Wichtig, damit sie im Tab Wichtig erscheinen.",
+      aiSetupSkipInboxDescription:
+        "Die KI archiviert passende E-Mails, sodass sie nicht im Posteingang landen. Sie bleiben unter Alle Nachrichten und in der Suche verfügbar.",
+      aiSetupAddTab: "Tab hinzufügen",
+      aiSetupAdjustRules: "Regeln anpassen",
+      aiSetupImportantBoss: "Nachrichten von meinem Chef, ",
+      aiSetupImportantBossChip: "Nachrichten von meinem Chef",
+      aiSetupImportantReply: "Antwort nötig",
+      aiSetupImportantDeadlines: "Fristen",
+      aiSetupImportantCustomers: "Kunden",
+      aiSetupImportantGitHub: "Menschen auf GitHub",
+      aiSetupImportantCalendar: "Kalendereinladungen",
+      aiSetupSkipNewsletters: "Newsletter",
+      aiSetupSkipPromotions: "Angebote",
+      aiSetupSkipBots: "Bot- und CI-Alarme",
+      aiSetupSkipColdSales: "Kalte Vertriebsanfragen",
+      aiSetupSkipRecruiters: "Recruiter",
+      aiSetupSkipSocial: "Social-Media-Alarme",
       priorityFeedbackLabel: "Feedback zur Wichtigkeit",
       priorityScoreHigh: "Hohe Wichtigkeit",
       priorityScoreMedium: "Mittlere Wichtigkeit",

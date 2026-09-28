@@ -45,10 +45,9 @@ const messages = {
       aiSetupArchiveLabel: "Pular caixa de entrada",
       aiSetupSave: "Salvar configuração",
       aiSetupSkip: "Pular por enquanto",
-      aiSetupSkipSetup: "Pular configuração da caixa de entrada",
-      aiSetupImportantHeadline: "O que é importante",
-      aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada",
-      aiSetupTagsHeadline: "Escolha suas abas",
+      aiSetupImportantHeadline: "O que é importante para você?",
+      aiSetupSkipInboxHeadline: "O que pode pular sua caixa de entrada?",
+      aiSetupTagsHeadline: "Organize e-mails em abas",
       aiSetupArchiveSpamHeadline: "Pular caixa de entrada e spam",
       aiSetupTagReceipts: "Recibos",
       aiSetupTagUpdates: "Atualizações de produto",
@@ -64,6 +63,16 @@ const messages = {
         "Pular caixa de entrada: notificações do GitHub com comentários de bots ou atualizações automáticas de status.\nSpam: mensagens claramente promocionais ou indesejadas que não solicitei.",
       aiSetupCustomTag: "Personalizado",
       aiSetupDone: "Concluir",
+      aiSetupConnectGmailHeadline:
+        "Conecte o Gmail para organizar sua caixa de entrada",
+      aiSetupConnectGmailDescription:
+        "Conecte o Google para aplicar suas regras aos e-mails recentes.",
+      aiSetupConnectJevHeadline:
+        "Conecte o Jev para organizar sua caixa de entrada",
+      aiSetupConnectJevDescription:
+        "Conecte o Jev para aplicar suas regras aos e-mails recentes.",
+      aiSetupCustomTabName: "Nome da aba",
+      aiSetupCustomTabExample: "ex.: faturas de fornecedores",
       aiSetupRunAgain: "Executar configuração novamente",
       aiSetupTagCalendar: "Calendário",
       aiSetupPromptCalendar:
@@ -77,13 +86,26 @@ const messages = {
       aiSetupFilteredExample:
         "Abordagens de vendas indesejadas e recrutadores a quem não respondi",
       aiSetupSortingHeadline: "Organizando sua caixa de entrada",
+      aiSetupSortingDescription:
+        "Veja o que suas regras encontraram nos e-mails recentes.",
       aiSetupFindingRecentMail: "Buscando e-mails recentes…",
+      aiSetupRetry: "Tentar novamente",
+      aiSetupGmailStatusFailed:
+        "Não foi possível verificar sua conexão com o Gmail",
+      aiSetupAutomationSettingsFailed:
+        "Não foi possível verificar as configurações do modelo de IA",
       aiSetupSortingProgress:
         "Organizando e-mails recentes: {{processed}} de {{total}}",
       aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
+      aiSetupUndoBeforeRetry:
+        "Desfaça as alterações parciais antes de tentar novamente.",
       aiSetupSortingFailed:
         "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
       aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",
+      aiSetupUndoFailed:
+        "Não foi possível desfazer essas alterações na caixa de entrada. Tente novamente.",
+      aiSetupUndoStatusFailed:
+        "O pedido para desfazer foi enviado, mas não foi possível carregar os resultados mais recentes.",
       aiSetupRuleCount: "{{count}} correspondências",
       aiSetupNoMatches:
         "Nenhuma mensagem dos últimos 14 dias corresponde a estas regras.",
@@ -93,7 +115,28 @@ const messages = {
       aiSetupNoRules: "Nenhuma regra foi selecionada.",
       aiSetupPartialFailure: "Não foi possível atualizar {{count}} mensagens.",
       aiSetupSortInbox: "Organizar minha caixa de entrada",
-      aiSetupImportantExample: "Tudo da minha gerente, Priya…",
+      aiSetupImportantExample: "Tudo do meu chefe, Priya (priya@company.com)…",
+      aiSetupTagsDescription:
+        "A IA marca os e-mails correspondentes e cria uma aba para cada marcador ao lado da caixa de entrada.",
+      aiSetupImportantDescription:
+        "A IA adiciona o marcador Importante aos e-mails correspondentes para que apareçam na aba Importantes.",
+      aiSetupSkipInboxDescription:
+        "A IA arquiva os e-mails correspondentes para que não cheguem à caixa de entrada. Eles continuam disponíveis em Todos os e-mails e na pesquisa.",
+      aiSetupAddTab: "Adicionar aba",
+      aiSetupAdjustRules: "Ajustar regras",
+      aiSetupImportantBoss: "Mensagens do meu chefe, ",
+      aiSetupImportantBossChip: "Mensagens do meu chefe",
+      aiSetupImportantReply: "Precisa de resposta",
+      aiSetupImportantDeadlines: "Prazos",
+      aiSetupImportantCustomers: "Clientes",
+      aiSetupImportantGitHub: "Pessoas no GitHub",
+      aiSetupImportantCalendar: "Convites de agenda",
+      aiSetupSkipNewsletters: "Newsletters",
+      aiSetupSkipPromotions: "Promoções",
+      aiSetupSkipBots: "Alertas de bot e CI",
+      aiSetupSkipColdSales: "Vendas não solicitadas",
+      aiSetupSkipRecruiters: "Recrutadores",
+      aiSetupSkipSocial: "Alertas sociais",
       priorityFeedbackLabel: "Feedback de importância",
       priorityScoreHigh: "Alta importância",
       priorityScoreMedium: "Média importância",
