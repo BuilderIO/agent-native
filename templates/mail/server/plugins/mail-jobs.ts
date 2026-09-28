@@ -1,6 +1,9 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
-import { startIntervalJob } from "@agent-native/core/server/interval-job";
+import {
+  registerRecurringSweepHandler,
+  startIntervalJob,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import {
@@ -81,6 +84,10 @@ async function processJobs(): Promise<void> {
 }
 
 export default () => {
+  registerRecurringSweepHandler("mail-ai-filter-backfills", () =>
+    processMailAiFilterBackfills(),
+  );
+
   registerEvent({
     name: "mail.message.received",
     description:

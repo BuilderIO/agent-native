@@ -257,6 +257,7 @@ vi.mock("./local-email-store.js", () => ({
 import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  aiFilterBackfillRetryDelay,
   checkpointAppliedBackfillMutation,
   processMailAiFilterBackfills,
   requestMailAiFilterBackfillUndo,
@@ -426,6 +427,13 @@ describe("startMailAiFilterBackfill", () => {
 
     expect(result).toMatchObject({ status: "queued" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("treats bounded model timeouts as retryable", () => {
+    const timeout = Object.assign(new Error("model timed out"), {
+      name: "TimeoutError",
+    });
+    expect(aiFilterBackfillRetryDelay(timeout)).toBe(30_000);
   });
 
   it("skips delayed retries before bounding worker queue candidates", async () => {
@@ -635,7 +643,7 @@ describe("startMailAiFilterBackfill", () => {
     expect(database.rows).toHaveLength(0);
   });
 
-  it("rejects a concurrent start for the same canonical rule set", async () => {
+  it("reuses a concurrent start for the same canonical rule set", async () => {
     mocks.rules = [rule("rule-a"), rule("rule-b")];
 
     const results = await Promise.allSettled([
@@ -643,12 +651,11 @@ describe("startMailAiFilterBackfill", () => {
       startMailAiFilterBackfill(ownerEmail, ["rule-a", "rule-b"]),
     ]);
 
-    expect(
-      results.filter((result) => result.status === "fulfilled"),
-    ).toHaveLength(1);
-    expect(
-      results.filter((result) => result.status === "rejected"),
-    ).toHaveLength(1);
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect(results.map((result: any) => result.value.runId)).toEqual([
+      database.rows[0].id,
+      database.rows[0].id,
+    ]);
     expect(database.rows).toHaveLength(1);
     expect(database.rows[0].ruleSetKey).toBe(
       JSON.stringify([

@@ -1,5 +1,14 @@
 import { fail } from "@agent-native/core/action";
 import {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  dispatchPathTargetsNetlifyBackgroundFunction,
+  fireInternalDispatch,
+  getConfiguredAppBasePath,
+  resolveDurableBackgroundDispatchPath,
+} from "@agent-native/core/server";
+import {
   and,
   asc,
   desc,
@@ -68,6 +77,8 @@ const MAX_RUNS_PER_TICK = 2;
 const MAX_BACKFILL_RETRIES = 6;
 const TRANSIENT_RETRY_DELAY_MS = 30_000;
 const MAX_GMAIL_RETRY_DELAY_MS = 5 * 60_000;
+const MAIL_AI_FILTER_BACKFILL_WORKER_PATH =
+  "/api/_agent-native-background/mail-ai-filter-backfill-worker";
 const METADATA_HEADERS = ["From", "To", "Subject", "Date"];
 const SYSTEM_LABEL_IDS: Record<string, string> = {
   INBOX: "inbox",
@@ -320,7 +331,10 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
       ),
     );
   }
-  if (error instanceof Error && error.name === "AbortError") {
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
     return TRANSIENT_RETRY_DELAY_MS;
   }
   if (error instanceof TypeError && error.message === "fetch failed") {
@@ -333,6 +347,27 @@ export function aiFilterBackfillRetryDelay(error: unknown): number | null {
     return TRANSIENT_RETRY_DELAY_MS;
   }
   return null;
+}
+
+export async function dispatchMailAiFilterBackfill(
+  runId: string,
+): Promise<boolean> {
+  const dispatchPath = resolveDurableBackgroundDispatchPath(
+    MAIL_AI_FILTER_BACKFILL_WORKER_PATH,
+  );
+  if (!dispatchPathTargetsNetlifyBackgroundFunction(dispatchPath)) return false;
+
+  await fireInternalDispatch({
+    path: dispatchPath,
+    taskId: runId,
+    awaitResponse: true,
+    body: {
+      runId,
+      [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_ROUTE,
+      [AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD]: `${getConfiguredAppBasePath()}${MAIL_AI_FILTER_BACKFILL_WORKER_PATH}`,
+    },
+  });
+  return true;
 }
 
 function googleClientErrorsError(
@@ -488,7 +523,7 @@ export async function startMailAiFilterBackfill(
       feedback: aiFilterState.feedback.slice(-20),
     },
   );
-  const [inserted] = await db.transaction(async (tx: any) => {
+  const inserted = await db.transaction(async (tx: any) => {
     await backfillOwnerLock(tx, ownerEmail);
     const activeRows = await tx
       .select()
@@ -504,6 +539,10 @@ export async function startMailAiFilterBackfill(
       validatedRules.map(({ rule }) => [rule.id, rule.updatedAt]),
     );
     const requested = new Set(Object.keys(requestedVersions));
+    const reusable = (activeRows as BackfillRow[]).find(
+      (row) => row.status !== "undoing" && row.ruleSetKey === ruleSetKey,
+    );
+    if (reusable) return { id: reusable.id, reused: true };
     const activeOverlaps = (activeRows as BackfillRow[]).filter((row) =>
       ruleIdsOverlap(row, requested),
     );
@@ -521,7 +560,7 @@ export async function startMailAiFilterBackfill(
     if (hasSameVersionOverlap) {
       rejectActiveBackfill();
     }
-    return tx
+    const [created] = await tx
       .insert(schema.aiFilterBackfills)
       .values({
         id,
@@ -539,6 +578,7 @@ export async function startMailAiFilterBackfill(
       })
       .onConflictDoNothing()
       .returning({ id: schema.aiFilterBackfills.id });
+    return created ? { id: created.id, reused: false } : null;
   });
   if (!inserted) {
     fail("Could not start the Mail AI backfill. Try again.", {
@@ -546,7 +586,47 @@ export async function startMailAiFilterBackfill(
       statusCode: 409,
     });
   }
-  return { runId: id, status: "queued" };
+  try {
+    await dispatchMailAiFilterBackfill(inserted.id);
+  } catch (error) {
+    if (!inserted.reused) {
+      const message = "Could not start the Mail AI backfill. Try again.";
+      state.error = message;
+      const [failed] = await db
+        .update(schema.aiFilterBackfills)
+        .set({
+          status: "failed",
+          stateJson: JSON.stringify(state),
+          updatedAt: Date.now(),
+        })
+        .where(
+          and(
+            eq(schema.aiFilterBackfills.id, inserted.id),
+            eq(schema.aiFilterBackfills.status, "queued"),
+          ),
+        )
+        .returning({ id: schema.aiFilterBackfills.id });
+      if (failed) {
+        fail(message, {
+          errorCode: "ai_filter_backfill_dispatch_failed",
+          statusCode: 503,
+          details: { runId: inserted.id },
+        });
+      }
+    }
+    const [current] = await db
+      .select({ status: schema.aiFilterBackfills.status })
+      .from(schema.aiFilterBackfills)
+      .where(
+        and(
+          eq(schema.aiFilterBackfills.id, inserted.id),
+          eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    if (!current || current.status === "queued") throw error;
+  }
+  return { runId: inserted.id, status: "queued" };
 }
 
 export async function readMailAiFilterBackfill(
@@ -637,6 +717,7 @@ export async function requestMailAiFilterBackfillUndo(
       })
       .where(eq(schema.aiFilterBackfills.id, runId));
   });
+  await dispatchMailAiFilterBackfill(runId);
   return { runId, status: "undoing" };
 }
 
@@ -2165,8 +2246,43 @@ async function releaseRunningClaimForUndo(
   });
 }
 
+async function dispatchMailAiFilterBackfillContinuation(
+  ownerEmail: string,
+  runId: string,
+): Promise<void> {
+  const now = Date.now();
+  const [row] = await db
+    .select({
+      status: schema.aiFilterBackfills.status,
+      stateJson: schema.aiFilterBackfills.stateJson,
+      claimId: schema.aiFilterBackfills.claimId,
+    })
+    .from(schema.aiFilterBackfills)
+    .where(
+      and(
+        eq(schema.aiFilterBackfills.id, runId),
+        eq(schema.aiFilterBackfills.ownerEmail, ownerEmail),
+        gt(schema.aiFilterBackfills.expiresAt, now),
+      ),
+    )
+    .limit(1);
+  if (
+    !row ||
+    (row.status !== "queued" &&
+      row.status !== "running" &&
+      row.status !== "undoing") ||
+    row.claimId
+  ) {
+    return;
+  }
+  const retryAfterAt = retryAfterAtFromState(row.stateJson);
+  if (retryAfterAt !== undefined && retryAfterAt > now) return;
+  await dispatchMailAiFilterBackfill(runId);
+}
+
 export async function processMailAiFilterBackfills(
   ownerEmail?: string,
+  runId?: string,
 ): Promise<void> {
   const now = Date.now();
   const conditions = [
@@ -2179,6 +2295,7 @@ export async function processMailAiFilterBackfills(
   ];
   if (ownerEmail)
     conditions.push(eq(schema.aiFilterBackfills.ownerEmail, ownerEmail));
+  if (runId) conditions.push(eq(schema.aiFilterBackfills.id, runId));
   // Exclude delayed retries before the bounded scan so they cannot starve newer runs.
   conditions.push(
     sql`COALESCE((${schema.aiFilterBackfills.stateJson}::jsonb ->> 'retryAfterAt')::bigint, 0) <= ${now}`,
@@ -2297,6 +2414,7 @@ export async function processMailAiFilterBackfills(
             eq(schema.aiFilterBackfills.claimId, claimId),
           ),
         );
+      await dispatchMailAiFilterBackfillContinuation(row.ownerEmail, row.id);
     }
   }
 }
