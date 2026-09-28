@@ -49,9 +49,6 @@ const SHADER_COMPONENTS: Record<ShaderPresetName, AnyShaderComponent> = {
   PaperTexture: PaperTexture as AnyShaderComponent,
 };
 
-// ─── Descriptor helpers ────────────────────────────────────────────────────────
-
-/** Build a fresh descriptor with the preset's default params + colors. */
 export function descriptorFromPreset(
   preset: ShaderPresetDef,
 ): ShaderDescriptor {
@@ -70,12 +67,6 @@ export function descriptorFromPreset(
   };
 }
 
-/**
- * A static CSS fallback fill for a shader descriptor. The live WebGL shader is
- * GPU-only; for the element fill we apply a representative gradient so the
- * picker stays functional everywhere. The full descriptor is validated and
- * surfaced via the apply-shader action so the agent can write real shader code.
- */
 export function shaderDescriptorToCss(descriptor: ShaderDescriptor): string {
   const preset = SHADER_PRESET_MAP[descriptor.preset];
   const colors =
@@ -85,9 +76,6 @@ export function shaderDescriptorToCss(descriptor: ShaderDescriptor): string {
   return buildFallbackGradient(colors, preset?.defaultColorBack);
 }
 
-// ─── Live thumbnail ────────────────────────────────────────────────────────────
-
-/** Catches WebGL/render errors from the live shader and shows a CSS fallback. */
 class ShaderBoundary extends Component<
   { fallback: ReactNode; children: ReactNode },
   { failed: boolean }
@@ -126,7 +114,6 @@ function ShaderThumbnail({
     if (preset.defaultColors) p.colors = preset.defaultColors;
     if (preset.defaultColorBack) p.colorBack = preset.defaultColorBack;
     if (preset.defaultColorFront) p.colorFront = preset.defaultColorFront;
-    // Static thumbnail — no animation churn in a grid of 8 live canvases.
     p.speed = 0;
     p.frame = 0;
     return p;
@@ -164,35 +151,11 @@ function ShaderThumbnail({
   );
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
-
 export interface ShaderFillsPanelProps {
-  /** Currently-applied shader descriptor, if the fill is already a shader. */
   descriptor?: ShaderDescriptor;
-  /**
-   * Cheap live preview — fires on every ShaderControls tuning tick (typing
-   * or dragging a uniform) as well as once for a discrete preset/create-new
-   * pick. Should only update the visual CSS fallback fill; never trigger
-   * expensive persistence work.
-   */
   onApply: (descriptor: ShaderDescriptor, css: string) => void;
-  /**
-   * Fires once per gesture/discrete action with the same final
-   * descriptor+css already reported via `onApply` — mirrors GradientEditor's
-   * `onCommit` convention (see GradientEditor.tsx): `onApply` alone fires on
-   * every tuning tick for live preview, `onCommit` fires exactly once when a
-   * drag/type gesture ends (detected via pointerup/blur bubbling out of the
-   * tuning area below — `ShaderControls` doesn't surface its own ScrubInput
-   * gesture phase upward) or immediately for a discrete preset/create-new
-   * pick, so a caller that persists through undo history and the
-   * `apply-shader` codegen mutation only does so once per edit instead of
-   * once per tick. Optional so an existing caller that only wires `onApply`
-   * keeps that prop as the single source of truth.
-   */
   onCommit?: (descriptor: ShaderDescriptor, css: string) => void;
-  /** Close the shader panel and return to the color picker. */
   onBack: () => void;
-  /** Optional design context forwarded to the apply-shader action. */
   applyContext?: {
     designId?: string;
     fileId?: string;
@@ -215,17 +178,7 @@ export function ShaderFillsPanel({
     descriptor ?? null,
   );
   const applyShader = useActionMutation("apply-shader");
-  // Last descriptor reported to `onApply`, so a bubbled pointerup/blur that
-  // ends a tuning gesture can re-commit that exact value once, without
-  // needing ShaderControls to surface its own gesture-end signal.
   const lastAppliedRef = useRef<ShaderDescriptor | null>(descriptor ?? null);
-  // Whether `preview()` has applied a new descriptor since the last
-  // `commitNow()`. Any pointerup/blur that bubbles out of the tuning
-  // container — opening a Select, clicking a checkbox, tabbing between
-  // fields — would otherwise re-fire the real apply-shader mutation on an
-  // unchanged descriptor just because `lastAppliedRef` is seeded on mount.
-  // Gate `commitLastPreview` on this flag instead: only a real preview tick
-  // sets it, and every `commitNow` clears it.
   const dirtyRef = useRef(false);
 
   const filtered = useMemo(() => {
@@ -238,11 +191,6 @@ export function ShaderFillsPanel({
     );
   }, [search]);
 
-  /**
-   * Cheap live preview: updates the thumbnail/detail state and the caller's
-   * CSS fallback fill. Called on every ShaderControls tick — must never do
-   * the expensive apply-shader codegen mutation (see commitNow below).
-   */
   const preview = (next: ShaderDescriptor) => {
     setActive(next);
     lastAppliedRef.current = next;
@@ -250,14 +198,10 @@ export function ShaderFillsPanel({
     onApply(next, shaderDescriptorToCss(next));
   };
 
-  /** Validate + surface the descriptor for the agent exactly once. */
   const commitNow = (next: ShaderDescriptor) => {
     dirtyRef.current = false;
     const css = shaderDescriptorToCss(next);
     onCommit?.(next, css);
-    // Fire-and-forget validation/codegen so the agent can write real shader
-    // code. The picker fill is already applied via `preview` above,
-    // regardless of this mutation's result.
     applyShader.mutate(
       {
         surface: SHADER_PRESET_MAP[next.preset]?.isEffect ? "effect" : "fill",
@@ -295,26 +239,17 @@ export function ShaderFillsPanel({
     );
   };
 
-  /** Discrete, one-shot pick (preset thumbnail / create-new tile): preview + commit in the same tick, same as before this change. */
   const pick = (next: ShaderDescriptor) => {
     preview(next);
     commitNow(next);
   };
 
-  /**
-   * Ends a ShaderControls tuning gesture: pointerup/blur bubbling out of the
-   * tuning area (see the wrapping div below). Gated on `dirtyRef` so any
-   * pointerup/blur that bubbles out without an intervening `preview()` tick —
-   * opening a Select, clicking a checkbox, tabbing between fields — is a
-   * no-op instead of re-committing the unchanged descriptor.
-   */
   const commitLastPreview = () => {
     if (dirtyRef.current && lastAppliedRef.current) {
       commitNow(lastAppliedRef.current);
     }
   };
 
-  // ── Detail view: a preset is selected → tune it with ShaderControls ───────
   if (active) {
     const preset = SHADER_PRESET_MAP[active.preset];
     return (
@@ -363,7 +298,6 @@ export function ShaderFillsPanel({
     );
   }
 
-  // ── Browse view: design-editor title + search + Created by you + Library presets ───
   return (
     <div className="flex flex-col">
       {/* Header: "Shader fills" title + + button + × button */}

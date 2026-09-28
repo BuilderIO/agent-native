@@ -861,6 +861,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionCreateFailed: "Impossible de créer la suggestion",
     suggestionsCount: "{{count}} suggestions",
     acceptSuggestion: "Accepter",
@@ -1003,6 +1010,11 @@ const comments = {
   suggestionWith: "par",
   suggestionReplace: "Remplacer",
   suggestionDetails: "Détails de la suggestion",
+  proposalEditCount_one: "{{count}} modification",
+  proposalEditCount_many: "{{count}} modifications",
+  proposalEditCount_other: "{{count}} modifications",
+  acceptRemaining: "Accepter le reste",
+  rejectRemaining: "Rejeter le reste",
   typeFilter: "Type",
   statusFilter: "Statut",
   authorFilter: "Personne",
@@ -1079,6 +1091,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
@@ -1105,6 +1124,27 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informations",
+      copyLink: "Copier le lien",
+      copyForPeople: "Copier pour les personnes",
+      copyForAgents: "Copier pour les agents",
+      whoHasAccess: "Qui a accès",
+      sharePeople: "Personnes",
+      shareAgents: "Agents",
+      copyAgentPrompt: "Copier les instructions pour l’agent",
+      openInClaude: "Ouvrir dans Claude",
+      openInClaudeCode: "Ouvrir dans Claude Code",
+      openInCodex: "Ouvrir dans Codex",
+      agentCopyAccessNote:
+        "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
+      temporaryAgentLink: "Lien temporaire pour agent",
+      privateLinkCanView:
+        "Seules les personnes autorisées peuvent consulter ce lien",
+      publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      copiedAgentPrompt: "Instructions pour l'agent copiées",
+      couldNotCopyAgentPrompt:
+        "Impossible de copier les instructions pour l’agent",
+      agentPrompt:
+        "Lis ce document Content : {{documentUrl}}\n\nUtilise une connexion Content MCP disponible pour {{mcpUrl}} afin d’appeler get-document avec l’identifiant « {{documentId}} ». Une page accessible au public peut aussi être lue directement.\n\nSi un accès authentifié est nécessaire et que Content MCP est indisponible ou déconnecté, demande-moi de le connecter et de m’authentifier. Configuration de la connexion : {{connectUrl}}. Guide officiel : {{docsUrl}}\n\nAprès ma confirmation que la connexion est prête, réessaie de lire le document avec les autorisations existantes de mon compte. Si la lecture authentifiée est refusée, indique-moi ce résultat.",
       closeUtilityPanel: "Fermer le panneau",
       exportCsv: "Exporter en CSV",
       exportDatabase: "Exporter la collection",
@@ -1128,6 +1168,7 @@ const exactEnglish = {
       exportedCsv: "CSV exporté",
       copiedPageLink: "Lien de la page copié",
       copyPageLink: "Copier le lien de la page",
+      createShareableCopy: "Créer une copie partageable",
       couldNotCopyLink: "Impossible de copier le lien",
       clipboardAccessUnavailable:
         "L'accès au presse-papiers n'est pas disponible dans ce navigateur.",
@@ -1186,6 +1227,14 @@ const history = {
 };
 
 const overrides = {
+  close: "Fermer",
+  setup: { checkingProvider: "Vérification de la connexion à l’IA…" },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1294,6 +1343,13 @@ const overrides = {
     emailNotificationsDescription:
       "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
     saveFailed: "Échec de l’enregistrement",
+    notificationsEmail: "E-mail",
+    commentsRepliesMentions: "Commentaires, réponses et mentions",
+    commentsRepliesMentionsDescription:
+      "Lorsque quelqu’un commente ou répond dans votre document, ou vous mentionne.",
+    retry: "Réessayer",
+    mcpAbout:
+      "Connectez Content à Claude, ChatGPT, Cursor ou toute app d’IA compatible MCP. Cette app peut alors travailler dans Content pour vous : rechercher, rédiger et modifier des documents. Elle ne voit que ce que vous pouvez voir.",
     languageTitle: "Langue",
     languageDescription:
       "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
@@ -1344,6 +1400,13 @@ const overrides = {
     genericError: "Une erreur est survenue",
   },
   editor: {
+    iconPickerIcons: "Icônes",
+    iconPickerEmoji: "Emoji",
+    iconPickerRecent: "Récents",
+    iconPickerColors: "Couleurs",
+    iconPickerDefault: "Par défaut",
+    iconPickerUpload: "Importer",
+    iconPickerUploading: "Importation…",
     ...editor,
     sourceComponent: {
       defaultTitle: "Composant source",
@@ -1380,6 +1443,24 @@ const overrides = {
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
+    agentBadge: "Agent",
+    addEmoji: "Ajouter un emoji",
+    mentionSomeone: "Mentionner quelqu’un",
+    mentionPeople: "Personnes",
+    mentionAgents: "Agents",
+    commentTitle: "Commentaire",
+    suggestionTitle: "Suggestion",
+    close: "Fermer",
+    showEarlierReplies: "Afficher les réponses précédentes",
+    replyAction: "Répondre",
+    panelTabs: "Panneaux de la page",
+    aiAuto: "Automatique",
+    aiModel: "Modèle d’IA",
+    aiRemoveRecipient: "Supprimer le destinataire IA",
+    aiSend: "Envoyer à l’IA",
+    aiSendShort: "Envoyer",
+    aiResponseMode: "Réponse",
+    aiChooseSendMode: "Choisir le mode d’envoi IA",
     aiSuggestChanges: "Suggérer des modifications",
     aiUnavailable: "Indisponible",
     aiReplyInThread: "Répondre dans le fil",
@@ -1392,9 +1473,34 @@ const overrides = {
     aiReplied: "L’IA a répondu",
     aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
+    aiAppliedAndResolved: "Appliqué et résolu",
+    aiChangeUndone: "Modification annulée",
+    aiUndo: "Annuler",
+    aiDone: "Terminé",
+    aiMoreChanges: "+{{count}} de plus",
+    aiUndoUnavailable:
+      "Le texte supprimé ne peut pas être rétabli automatiquement",
+    aiUndoFailed: "Impossible d’annuler la modification",
+    aiResolvedByAi: "Résolu par l’IA",
     aiNeedsReview: "À examiner",
     aiFailed: "La demande à l’IA a échoué",
     retry: "Réessayer",
+    aiQueued: "L’IA est en attente…",
+    aiRefreshing: "L’IA vérifie la dernière version de la page…",
+    aiCancelled: "La demande à l’IA a été arrêtée",
+    aiStop: "Arrêter",
+    aiStopping: "Arrêt en cours…",
+    aiReplyToAi: "Répondre à l’IA",
+    aiReplyingToAi: "Réponse à l’IA",
+    aiOpenConversation: "Ouvrir la conversation IA",
+    aiConversationPrefill: "Continuer cette conversation de commentaires…",
+    aiConversationUnavailable: "Cette conversation IA est indisponible.",
+    aiFollowUpYou: "Vous",
+    aiFollowUpIncomplete: "Cette réponse s’est arrêtée avant la fin.",
+    aiRequestCouldNotBeConfirmed: "La demande d’IA n’a pas pu être confirmée",
+    aiFollowUpCouldNotBeConfirmed: "Le suivi de l’IA n’a pas pu être confirmé",
+    aiRequestStopCouldNotBeConfirmed:
+      "La demande d’IA n’a pas pu être arrêtée, car l’envoi n’a pas été confirmé",
     sourceComment: "Commentaire source",
     resolve: "Résoudre",
     resolved: "Résolus ({{count}})",

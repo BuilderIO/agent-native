@@ -1,9 +1,9 @@
 /**
  * Custom onboarding plugin for Assets.
  *
- * Lead with Builder-managed image generation (one-click, org-shared
- * credential) and Gemini for video generation while keeping S3-compatible
- * storage explicit for originals, thumbnails, videos, and exports.
+ * Lead with Builder-managed image and video generation (one-click,
+ * org-shared credential) while keeping S3-compatible storage explicit for
+ * originals, thumbnails, videos, and exports.
  *
  * Why it lives here: must be in server/plugins/ so the framework skips its
  * default onboarding plugin, and all step registrations share the same module
@@ -16,7 +16,10 @@ import {
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
 import {
-  resolveHasCompleteBuilderConnection,
+  BuilderCredentialLookupError,
+  GEMINI_API_KEY,
+  resolveGeminiApiKey,
+  resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
 
@@ -31,10 +34,6 @@ const builderImageGenerationEnabled = isBuilderImageGenerationEnabled();
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
 
-  // Register the S3-compatible upload provider. It self-checks env vars
-  // (ASSETS_STORAGE_* / legacy IMAGES_STORAGE_* / S3_*) and only activates when configured. The
-  // framework falls through to Builder.io storage when BUILDER_PRIVATE_KEY
-  // is set, then to the SQL fallback in dev.
   registerFileUploadProvider(s3FileUploadProvider);
 
   registerOnboardingStep({
@@ -43,19 +42,17 @@ export default async (nitroApp: any): Promise<void> => {
     required: true,
     title: "Image and video generation",
     description:
-      "Connect Builder (free tier available) for managed image generation, or add OpenAI/Gemini keys manually. Gemini is required for video generation.",
+      "Connect Builder for managed image generation and video generation when enabled for your space, or add OpenAI/Gemini keys as manual fallbacks.",
     methods: [
       {
         id: "builder",
         kind: "builder-cli-auth",
         label: "Connect Builder.io",
         description: builderImageGenerationEnabled
-          ? "Recommended one-click setup for image generation. Uses Builder credits and keeps provider keys out of this app."
-          : "Disabled by BUILDER_IMAGE_GENERATION_ENABLED=false. Use a Gemini key for this deployment.",
+          ? "Recommended one-click setup for managed image generation and video generation when enabled for your space. Uses Builder credits and keeps provider keys out of this app."
+          : "Managed image generation is disabled here. Connect Builder for video when your space supports it, or add Gemini/OpenAI keys for manual generation.",
         primary: true,
         badge: builderImageGenerationEnabled ? "recommended" : undefined,
-        disabled: !builderImageGenerationEnabled,
-        disabledLabel: "Disabled",
         payload: { scope: "image-generation" },
       },
       {
@@ -63,13 +60,13 @@ export default async (nitroApp: any): Promise<void> => {
         kind: "form",
         label: "Gemini API key",
         description:
-          "Powers video generation and can also generate image fallbacks.",
+          "Manual video-generation option and optional image-generation fallback.",
         payload: {
           writeScope: "workspace",
           fields: [
             {
-              key: "GEMINI_API_KEY",
-              label: "GEMINI_API_KEY",
+              key: GEMINI_API_KEY,
+              label: GEMINI_API_KEY,
               placeholder: "AIza...",
               secret: true,
             },
@@ -96,18 +93,33 @@ export default async (nitroApp: any): Promise<void> => {
       },
     ],
     isComplete: async () => {
-      if (builderImageGenerationEnabled) {
-        try {
-          if (await resolveHasCompleteBuilderConnection()) return true;
-        } catch {
-          // Fall through to the manual key fallback.
-        }
+      let builderLookupError: BuilderCredentialLookupError | undefined;
+      try {
+        if (await resolveHasBuilderGatewayCredential()) return true;
+      } catch (error) {
+        if (!(error instanceof BuilderCredentialLookupError)) throw error;
+        builderLookupError = error;
       }
-      const [gemini, openai] = await Promise.all([
-        resolveSecret("GEMINI_API_KEY").catch(() => null),
-        resolveSecret("OPENAI_API_KEY").catch(() => null),
+
+      const manualLookups = await Promise.allSettled([
+        resolveGeminiApiKey(),
+        resolveSecret("OPENAI_API_KEY"),
       ]);
-      return !!(gemini || openai);
+      if (
+        manualLookups.some(
+          (result) => result.status === "fulfilled" && Boolean(result.value),
+        )
+      ) {
+        return true;
+      }
+      const manualLookupFailure = manualLookups.find(
+        (result) => result.status === "rejected",
+      );
+      if (manualLookupFailure?.status === "rejected") {
+        throw manualLookupFailure.reason;
+      }
+      if (builderLookupError) throw builderLookupError;
+      return false;
     },
   });
 

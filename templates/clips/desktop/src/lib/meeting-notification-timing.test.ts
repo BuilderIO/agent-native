@@ -71,8 +71,6 @@ describe("meeting notification timing", () => {
       "2026-07-08T16:30:00.000Z",
       "en-US",
     );
-    // en-US either "9:00 AM - 9:30 AM" or with narrow spaces depending on ICU;
-    // just assert both sides exist and a dash separates them.
     expect(label).toMatch(/\d/);
     expect(label).toMatch(/-/);
   });

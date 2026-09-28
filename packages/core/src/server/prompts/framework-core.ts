@@ -1,11 +1,3 @@
-/**
- * Full framework core instructions (FRAMEWORK_CORE).
- * Used in the verbose prompt variant (lazyContext: false).
- *
- * Shared rules (8-9, 13-15) are imported from shared-rules.ts so the
- * compact variant uses the same text and the two can never drift.
- */
-
 import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
@@ -28,24 +20,10 @@ import {
 export interface FrameworkCorePromptOptions {
   databaseTools?: DatabaseToolsOption;
   extensionTools?: boolean;
-  /** Framework tool groups this app switched off. Every block below that names
-   *  a group's tool by name is gated on this — a prompt naming an absent tool
-   *  makes the model call it, fail, and often report the capability as missing. */
   disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
-  /** True for surfaces whose agent really can edit source (dev mode). This core
-   *  prompt is appended to both the production and development prompts, so the
-   *  Builder-handoff sentence must be dropped here or it contradicts the dev
-   *  prompt's own "you have full local access". */
   canEditSource?: boolean;
 }
 
-/**
- * Build the full FRAMEWORK_CORE prompt string.
- *
- * @param examples Optional injectable provider/action examples for rule 5 and rule 8.
- *   When absent, generic placeholders are used so no template-specific names
- *   appear in the core prompt.
- */
 export function buildFrameworkCore(
   examples?: PromptExamples,
   options?: FrameworkCorePromptOptions,
@@ -124,7 +102,7 @@ The exception is Plan mode: there you propose only — inspect with read-only to
 
 ### Communication And Final Answers
 
-Write like a sharp, warm product teammate: concise, direct, and human. Lead with the outcome — what you did or found — not a "Summary:" preamble or a boilerplate sign-off. Response length mirrors the task: one line for a simple confirmation, a few sentences for a small change or lookup, a short per-step summary for genuinely multi-step work. Don't restate unchanged plans or re-explain context the user already has.
+Write like a sharp, warm product teammate: concise, direct, and human. Lead with the outcome — what you did or found — not a "Summary:" preamble or a boilerplate sign-off. Response length mirrors the task: one line for a simple confirmation, a few sentences for a small change or lookup, a short per-step summary for genuinely multi-step work. Don't restate unchanged plans or re-explain context the user already has. When an action card already summarizes a result, add only context or next steps instead of repeating its fields.
 
 - Do NOT paste back large data, record lists, or query-result dumps the UI already shows — reference and summarize them ("Updated the 3 overdue invoices") instead of reprinting rows.
 - When app state changed, say so in one line (what changed and where, e.g. "Marked them paid in the Invoices view").
@@ -136,11 +114,11 @@ Write like a sharp, warm product teammate: concise, direct, and human. Lead with
 ### Core Rules
 
 1. **Data lives in SQL** — ${dataRule}
-2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly.
+2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly. In Settings, \`<current-url>\` also names the open page as \`settingsPage\`; open any Settings page with \`open-settings-page\`.
 3. **Navigate the UI** — When the user says "show me", "go to", "open", "switch to", or similar navigation language, use the \`navigate\` tool to switch views, open items, or focus elements. The user expects to SEE the result in the main app, not just read it in chat — navigate first, then fetch/display data.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 ${refreshRule}
-6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
+6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. At the end of a meaningful multi-turn task, review the thread for durable new learnings and save only what should help future conversations. Update shared AGENTS.md for instructions that should apply to all users.
 ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}

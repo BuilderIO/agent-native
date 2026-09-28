@@ -66,6 +66,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 import type {
   CrmAttributeDefinition,
@@ -88,6 +89,11 @@ import {
   type CrmAttributeListResult,
   type UpdateAttributeInput,
 } from "./settings-admin";
+import {
+  CrmSettingsPanelHeader,
+  crmSettingsPanelClassName,
+  type CrmSettingsPanelProps,
+} from "./SettingsPanelHeader";
 
 interface CrmConnectionSummary {
   id: string;
@@ -114,7 +120,7 @@ interface FieldsTarget {
   group: string;
 }
 
-export function FieldsSettings() {
+export function FieldsSettings({ embedded }: CrmSettingsPanelProps = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const connectionsQuery = useActionQuery<{
@@ -170,11 +176,6 @@ export function FieldsSettings() {
     { enabled: Boolean(activeTarget) } as never,
   );
 
-  /**
-   * Writes the optimistic state and hands back the undo. An error path that
-   * cannot restore the previous rows would leave the table asserting a change
-   * the server refused.
-   */
   function patchAttribute(
     attributeId: string,
     patch: Partial<CrmAttributeDefinition>,
@@ -194,29 +195,27 @@ export function FieldsSettings() {
 
   return (
     <TooltipProvider>
-      <div className="mx-auto w-full max-w-4xl">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight">
-              {t("fields.title")}
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {t("fields.description")}
-            </p>
-          </div>
-          {activeTarget ? (
-            <CreateAttributeDialog
-              target={activeTarget}
-              onCreated={() =>
-                void queryClient.invalidateQueries({
-                  queryKey: ["action", "list-crm-attributes"],
-                })
-              }
-            />
-          ) : null}
-        </div>
+      <div className={crmSettingsPanelClassName(embedded, "max-w-4xl")}>
+        <CrmSettingsPanelHeader
+          embedded={embedded}
+          title={t("fields.title")}
+          description={t("fields.description")}
+          descriptionClassName="max-w-2xl"
+          action={
+            activeTarget ? (
+              <CreateAttributeDialog
+                target={activeTarget}
+                onCreated={() =>
+                  void queryClient.invalidateQueries({
+                    queryKey: ["action", "list-crm-attributes"],
+                  })
+                }
+              />
+            ) : null
+          }
+        />
 
-        <AuthorityLegend />
+        <AuthorityLegend first={embedded && !activeTarget} />
 
         {loadFailed ? (
           <div className="mt-6 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
@@ -357,10 +356,15 @@ function groupTargets(
   return [...groups.entries()];
 }
 
-function AuthorityLegend() {
+function AuthorityLegend({ first = false }: { first?: boolean }) {
   const t = useT();
   return (
-    <div className="mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4 sm:grid-cols-3">
+    <div
+      className={cn(
+        "mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4 sm:grid-cols-3",
+        first && "mt-0",
+      )}
+    >
       {(["local-authoritative", "derived-local", "provider"] as const).map(
         (authority) => {
           const info = ATTRIBUTE_AUTHORITY_INFO[authority];
@@ -473,11 +477,6 @@ function AttributeRow({
   );
 }
 
-/**
- * `api_slug` and the attribute type are shown, never offered: the actions
- * reject a change to either because stored value rows are keyed by the slug and
- * typed by the type.
- */
 function ImmutableField({
   label,
   value,

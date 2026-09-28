@@ -61,10 +61,6 @@ describe("createAuthPlugin", () => {
       nitroApp,
       "auth",
     );
-    // Regression guard for the cold-start fix: the default branch must mark
-    // its own routes ready — and must NOT serialize behind the shared
-    // default-plugin bootstrap promise the way it used to (there is no
-    // `awaitBootstrap` import left in auth-plugin.ts to call).
     expect(mocks.markFrameworkRoutesReadyBeforeBootstrap).toHaveBeenCalledWith(
       nitroApp,
       [
@@ -117,8 +113,6 @@ describe("createAuthPlugin", () => {
     createAuthPlugin()(nitroApp);
     const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
 
-    // Routes are marked ready immediately, but the mount itself must not
-    // reach autoMountAuth until migrations settle.
     await Promise.resolve();
     await Promise.resolve();
     expect(mocks.autoMountAuth).not.toHaveBeenCalled();

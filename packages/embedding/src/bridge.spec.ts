@@ -17,9 +17,6 @@ function fakeWindow(
 
 describe("Embedded app bridge", () => {
   it("fails closed instead of downgrading target origin after postMessage errors", () => {
-    // An opaque parent rejects a specific target origin. We do NOT silently
-    // retry with "*" — that would broadcast the payload to any origin. Callers
-    // opt into wildcard explicitly (see below) or via the MCP chat bridge param.
     const target = {
       postMessage: vi.fn().mockImplementation(() => {
         throw new DOMException(

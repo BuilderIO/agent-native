@@ -75,6 +75,10 @@ export {
   type SetFeatureFlagInput,
 } from "./feature-flags/index.js";
 export {
+  useLaunchDarklyFlag,
+  useLaunchDarklyFlags,
+} from "./launchdarkly/index.js";
+export {
   LabsSettings,
   useLab,
   useLabState,
@@ -95,6 +99,8 @@ export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,
+  removeManagedSecrets,
+  type ManagedSecretRemoval,
   BuilderConnectPopover,
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
@@ -106,7 +112,11 @@ export {
   withBuilderConnectTrackingParams,
   type BuilderConnectFlow,
   type BuilderConnectFlowOptions,
+  type BuilderConnectionScope,
   type BuilderConnectStartOptions,
+  type BuilderEffectiveConnection,
+  type BuilderGrantStatus,
+  type BuilderGrantsStatus,
   type BuilderStatus,
   type AgentSettingsSearchTab,
   type OpenBuilderConnectPopupOptions,
@@ -130,6 +140,7 @@ export {
 export { AgentTerminal, type AgentTerminalProps } from "./terminal/index.js";
 export {
   trackEvent,
+  trackAnonymousEvent,
   trackLifecycleEvent,
   trackAgentChatLifecycle,
   trackSessionStatus,
@@ -149,7 +160,6 @@ export {
   getSessionReplayUrl,
   captureError,
   captureClientException,
-  // First-party, Sentry-style error capture (auto + manual API).
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
   addErrorBreadcrumb,
   captureException,

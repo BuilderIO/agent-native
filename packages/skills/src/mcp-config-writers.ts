@@ -1,28 +1,3 @@
-/**
- * Shared MCP client-config writers.
- *
- * Extracted so both `agent-native mcp install` (see `mcp.ts`) and
- * `agent-native connect` (see `connect.ts`) write the EXACT same on-disk
- * config file targets and formats for every supported client.
- *
- * Supported clients and their config files:
- *   - claude-code / claude-code-cli → `.mcp.json` (project) or
- *     `~/.claude.json` (user). JSON `mcpServers[name] = entry`.
- *   - cowork                        → `~/.cowork/mcp.json`. Same JSON shape.
- *   - cursor                        → `.cursor/mcp.json` (project) or
- *     `~/.cursor/mcp.json` (user). JSON `mcpServers[name] = entry`.
- *   - opencode                      → `opencode.json` (project) or
- *     `~/.config/opencode/opencode.json` (user). JSON `mcp[name] = entry`.
- *   - github-copilot                → `.vscode/mcp.json` (project) or the
- *     VS Code user `mcp.json`. JSON `servers[name] = entry`.
- *   - codex                         → `$CODEX_HOME/config.toml` when set,
- *     otherwise `~/.codex/config.toml`.
- *     `[mcp_servers.<name>]` block.
- *
- * Node-only. No new npm deps — hand-rolled JSON merge + minimal TOML block
- * merge, mirroring `mcp.ts`.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -49,14 +24,12 @@ export const CLIENTS: ClientId[] = [
   "github-copilot",
 ];
 
-/** The HTTP MCP server entry written into a JSON client config. */
 export interface HttpMcpEntry {
   type: "http";
   url: string;
   headers?: Record<string, string>;
 }
 
-/** Build the HTTP MCP server entry for a deployed agent-native app. */
 export function buildHttpMcpEntry(
   mcpUrl: string,
   token?: string,
@@ -149,14 +122,6 @@ export function buildLocalMcpEntryForClient(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Config file locations — kept identical to `mcp.ts`.
-// ---------------------------------------------------------------------------
-
-/**
- * Cowork consumes MCP exactly like Claude Code (same JSON server-entry
- * shape). Resolved lazily so `os.homedir()` reflects the current `$HOME`.
- */
 export function coworkConfigPath(): string {
   return path.join(os.homedir(), ".cowork", "mcp.json");
 }
@@ -218,13 +183,6 @@ export function githubCopilotUserConfig(): string {
   return path.join(configRoot, "Code", "User", "mcp.json");
 }
 
-/**
- * Resolve the on-disk config path for a client.
- *
- * `scope` only affects Claude Code / Claude Code CLI: `"user"` → the global
- * `~/.claude.json`, anything else → the project-local `.mcp.json` rooted at
- * `baseDir`.
- */
 export function configPathFor(
   client: ClientId,
   baseDir: string,
@@ -255,15 +213,6 @@ export function configPathFor(
   }
 }
 
-// ---------------------------------------------------------------------------
-// JSON client configs (Claude Code, Claude Code CLI, Cowork)
-// ---------------------------------------------------------------------------
-
-/**
- * Read an existing MCP config without conflating missing and unreadable files.
- * Only ENOENT means the config is absent; any other read failure must abort
- * before a caller can overwrite existing user configuration.
- */
 function readExistingConfigFile(file: string): string | undefined {
   try {
     return fs.readFileSync(file, "utf-8");
@@ -277,15 +226,6 @@ function readExistingConfigFile(file: string): string | undefined {
   }
 }
 
-/**
- * Read and parse a JSON config file.
- *
- * - Missing file → returns `{}` (fresh config).
- * - Empty file   → returns `{}` (treat as not-yet-initialised).
- * - Non-empty file that fails to parse → throws a descriptive Error so the
- *   caller can surface it to the user instead of silently overwriting the
- *   file with only the new MCP entry (data-loss hazard).
- */
 function readJsonFile(file: string): Record<string, any> {
   const raw = readExistingConfigFile(file);
   if (raw === undefined) return {};
@@ -301,21 +241,9 @@ function readJsonFile(file: string): Record<string, any> {
   }
 }
 
-/**
- * Write `data` to `file` atomically: write a sibling temp file, then rename it
- * over the target. `rename(2)` is atomic on the same filesystem, so a crash or
- * `kill` mid-write can never leave a half-written/truncated file. This matters
- * most for `~/.claude.json`, which is Claude Code's entire user state (projects,
- * history, auth) — a torn write there would corrupt the user's whole config,
- * not just our MCP entry. The temp file lives in the target's directory so the
- * rename stays within one filesystem.
- */
 export function writeFileAtomic(file: string, data: string): void {
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
-  // Preserve the target's existing permission bits. A fresh temp file would
-  // otherwise be created with the umask default (typically 0644), silently
-  // loosening a secret-bearing file the user locked down to 0600 (e.g. .env).
   let mode: number | undefined;
   try {
     mode = fs.statSync(file).mode & 0o777;
@@ -335,11 +263,6 @@ export function writeFileAtomic(file: string, data: string): void {
   }
 }
 
-/**
- * Idempotently write `mcpServers[name] = entry` into a JSON config file.
- * Pass `entry === null` to delete the named entry. Re-running with the same
- * name replaces the existing entry in place — never duplicates.
- */
 export function jsonMcpConfigKeyForClient(client: ClientId): string {
   if (client === "opencode") return "mcp";
   if (client === "github-copilot") return "servers";
@@ -397,10 +320,6 @@ export function hasJsonMcpEntryForClient(
   return !!servers && typeof servers === "object" && name in servers;
 }
 
-// ---------------------------------------------------------------------------
-// Codex TOML (hand-rolled minimal block merge, no new dep)
-// ---------------------------------------------------------------------------
-
 function tomlQuote(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
@@ -409,23 +328,9 @@ function codexMcpHeader(name: string): string {
   return `[mcp_servers.${tomlQuote(name)}]`;
 }
 
-/**
- * Parse a TOML table-header line such as `[mcp_servers."plan".http_headers]`
- * or `[mcp_servers.plan] # local note` into its decoded dotted-key components
- * (`["mcp_servers", "plan", "http_headers"]`). Returns `null` when the line is
- * not a single `[table]` header — blank lines, key/value pairs, comments,
- * invalid trailing content, and `[[array-of-tables]]` headers all return `null`,
- * so the result doubles as a reliable "is this line a table boundary?" check.
- *
- * Handles bare keys (`A-Za-z0-9_-`) and quoted keys (basic `"..."` with `\`
- * escapes, and literal `'...'`), tolerating whitespace around the dot
- * separators per the TOML spec. Quoted-key escape handling mirrors the inverse
- * of `tomlQuote` (`\"` → `"`, `\\` → `\`).
- */
 function parseTomlTableHeader(line: string): string[] | null {
   const trimmed = line.trim();
   if (trimmed.length < 2 || trimmed[0] !== "[") return null;
-  // `[[array-of-tables]]` is a different construct — leave it untouched.
   if (trimmed[1] === "[") return null;
 
   let quote: '"' | "'" | null = null;
@@ -473,12 +378,12 @@ function parseTomlTableHeader(line: string): string[] | null {
     if (i >= inner.length) break;
     const ch = inner[i];
     if (ch === ".") {
-      if (expectKey) return null; // leading or doubled dot
+      if (expectKey) return null;
       expectKey = true;
       i++;
       continue;
     }
-    if (!expectKey) return null; // two keys with no dot between them
+    if (!expectKey) return null;
     if (ch === '"' || ch === "'") {
       const quote = ch;
       i++;
@@ -493,8 +398,8 @@ function parseTomlTableHeader(line: string): string[] | null {
         key += inner[i];
         i++;
       }
-      if (i >= inner.length) return null; // unterminated quote
-      i++; // consume the closing quote
+      if (i >= inner.length) return null;
+      i++;
       keys.push(key);
       expectKey = false;
     } else if (isBare(ch)) {
@@ -506,30 +411,19 @@ function parseTomlTableHeader(line: string): string[] | null {
       keys.push(key);
       expectKey = false;
     } else {
-      return null; // unexpected character — not a table header
+      return null;
     }
   }
-  if (expectKey) return null; // empty header or trailing dot
+  if (expectKey) return null;
   return keys.length ? keys : null;
 }
 
-/**
- * The MCP server name a TOML table header belongs to, or `undefined` when the
- * header is not under `[mcp_servers.*]`. The server's own table
- * (`[mcp_servers.<name>]`) AND every sub-table of it
- * (`[mcp_servers.<name>.http_headers]`, `[mcp_servers.<name>.env]`, …) resolve
- * to the same `<name>`, so callers can treat a server and all its sub-tables as
- * one removable unit. This is what prevents a re-install from orphaning a stale
- * `[mcp_servers.<name>.http_headers]` sub-table that would then collide with the
- * freshly written inline `http_headers` (a TOML duplicate-key error).
- */
 function codexServerNameOfHeader(line: string): string | undefined {
   const keys = parseTomlTableHeader(line);
   if (!keys || keys.length < 2 || keys[0] !== "mcp_servers") return undefined;
   return keys[1];
 }
 
-/** Build a `[mcp_servers.<name>]` block for an HTTP-type MCP server. */
 export function buildCodexHttpBlock(
   name: string,
   mcpUrl: string,
@@ -572,18 +466,6 @@ export function buildCodexLocalBlock(
   return lines.join("\n") + "\n";
 }
 
-/**
- * Replace (or append) the entire `[mcp_servers.<name>]` footprint in a TOML
- * file without disturbing other content. The footprint is the server's own
- * table AND every sub-table of it (`[mcp_servers.<name>.http_headers]`,
- * `[mcp_servers.<name>.env]`, …), each spanning its header line plus every
- * following line until the next table header or EOF. Removing the whole
- * footprint — wherever the pieces sit in the file — is what keeps a re-install
- * from leaving a stale sub-table that collides with the freshly written inline
- * block (a TOML duplicate-key error). Matches both the canonical quoted header
- * and the legacy bare header. Pass `block === null` to remove the footprint.
- * Identical algorithm to `mcp.ts`'s `writeCodexBlock` so the two never diverge.
- */
 export function writeCodexBlock(
   file: string,
   name: string,
@@ -598,8 +480,6 @@ export function writeCodexBlock(
   while (i < lines.length) {
     const line = lines[i];
     if (codexServerNameOfHeader(line) === name) {
-      // Skip this table and its body (until the next table header), covering
-      // the server table itself and any of its sub-tables.
       removed = true;
       i++;
       while (i < lines.length && parseTomlTableHeader(lines[i]) === null) i++;
@@ -618,7 +498,7 @@ export function writeCodexBlock(
     if (next.trim().length) next += "\n";
     next += block;
   }
-  if (block === null && !removed) return; // nothing to do
+  if (block === null && !removed) return;
 
   writeFileAtomic(file, next);
 }
@@ -632,15 +512,6 @@ export function codexHasBlock(file: string, name: string): boolean {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Unified write helper
-// ---------------------------------------------------------------------------
-
-/**
- * Idempotently write the HTTP MCP server entry for `serverName` into the
- * given client's config file and return the file path that was written.
- * Re-running replaces the same named entry — never duplicates.
- */
 export function writeHttpEntryForClient(
   client: ClientId,
   serverName: string,
@@ -668,14 +539,6 @@ export function writeHttpEntryForClient(
   return file;
 }
 
-// ---------------------------------------------------------------------------
-// Same-URL duplicate removal
-// ---------------------------------------------------------------------------
-
-/**
- * Canonicalise a URL for comparison: strip hash, search params, and trailing
- * slashes. Returns `undefined` for invalid URLs.
- */
 export function canonicalUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
@@ -695,14 +558,6 @@ export function canonicalUrl(value: string | undefined): string | undefined {
   }
 }
 
-/**
- * After writing the canonical `keepName` entry into a JSON config file,
- * remove any OTHER entries whose URL normalises to the same value as
- * `mcpUrl`. This cleans up stale alias names, legacy default names, and
- * leftover custom names that all pointed at the same server.
- *
- * Returns the list of entry names that were removed.
- */
 function removeJsonSameUrlDuplicatesAtKey(
   file: string,
   serversKey: string,
@@ -750,14 +605,6 @@ export function removeJsonSameUrlDuplicates(
   return removeJsonSameUrlDuplicatesAtKey(file, "mcpServers", mcpUrl, keepName);
 }
 
-/**
- * After writing the canonical `keepName` Codex block, remove any OTHER
- * `[mcp_servers.*]` servers in the same TOML file whose `url =` line normalises
- * to the same value as `mcpUrl`. A server's entire footprint is removed — its
- * own table AND any sub-tables (`.http_headers`, `.env`, …), even when they are
- * not contiguous — so cleanup never leaves an orphaned sub-table behind.
- * Returns removed entry names in first-seen order.
- */
 export function removeCodexSameUrlDuplicates(
   file: string,
   mcpUrl: string,
@@ -774,9 +621,6 @@ export function removeCodexSameUrlDuplicates(
 
   const lines = content.split(/\r?\n/);
 
-  // Pass 1: map each server name to the canonical URL declared on its own
-  // table, preserving first-seen order. Sub-tables don't carry the URL, so they
-  // only register the name.
   const serverUrls = new Map<string, string | undefined>();
   let i = 0;
   while (i < lines.length) {
@@ -817,8 +661,6 @@ export function removeCodexSameUrlDuplicates(
   }
   if (removeSet.size === 0) return [];
 
-  // Pass 2: rebuild, dropping every table/sub-table belonging to a removed
-  // server.
   const out: string[] = [];
   i = 0;
   while (i < lines.length) {
@@ -840,11 +682,6 @@ export function removeCodexSameUrlDuplicates(
   return [...removeSet];
 }
 
-/**
- * Unified helper: after writing the canonical `serverName` entry for the
- * given `client`, remove same-URL duplicates from its config file.
- * Returns the list of removed names (empty if nothing was cleaned up).
- */
 export function removeSameUrlDuplicatesForClient(
   client: ClientId,
   serverName: string,

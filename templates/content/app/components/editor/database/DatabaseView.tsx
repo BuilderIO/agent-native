@@ -218,6 +218,8 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  isDocumentUpdatePreservationRequired,
+  isDocumentUpdateSuperseded,
   type DocumentUpdateResult,
   useCreateDocument,
   useDeleteDocument,
@@ -230,6 +232,7 @@ import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
+import { ContentIcon, contentIconValue } from "../../icons/ContentIcon";
 import {
   builderBodyHydrationDisplayHydratedCount,
   databaseItemBodyHydrationIsPending,
@@ -266,6 +269,7 @@ import {
   renamePropertyOption,
   updatePropertyOptionColor,
 } from "../DocumentProperties";
+import { EmojiPicker } from "../EmojiPicker";
 import {
   deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
@@ -595,13 +599,17 @@ export function previewDocumentSaveResult(args: {
   baseline?: PreviewDocumentPayload;
   contentChanged: boolean;
 }): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
-  const serverDocument = isDocumentUpdateConflict(args.result)
-    ? args.result.document
-    : args.result;
+  const serverDocument =
+    "document" in args.result ? args.result.document : args.result;
   const titleSaveObservedExternalBody =
     !args.contentChanged && serverDocument.content !== args.payload.content;
 
-  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+  if (
+    isDocumentUpdateConflict(args.result) ||
+    isDocumentUpdateSuperseded(args.result) ||
+    isDocumentUpdatePreservationRequired(args.result) ||
+    titleSaveObservedExternalBody
+  ) {
     return deferredPreviewDocumentSave("conflict", {
       lastSaved: args.baseline ?? args.payload,
       pending: {
@@ -785,8 +793,8 @@ function DatabaseDropIndicator({ side }: { side: DatabaseDropSide | null }) {
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
-  const icon = document?.icon?.trim();
-  return icon ? icon : null;
+  const icon = contentIconValue(document?.icon);
+  return icon?.kind === "emoji" ? icon.emoji : null;
 }
 
 export function DatabaseItemPageIcon({
@@ -800,18 +808,14 @@ export function DatabaseItemPageIcon({
   fallbackClassName?: string;
   fallback?: "page" | "folder";
 }) {
-  const icon = databaseItemPageIconText(document);
+  const icon = contentIconValue(document.icon);
   if (icon) {
     return (
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex shrink-0 items-center justify-center leading-none",
-          className,
-        )}
-      >
-        {icon}
-      </span>
+      <ContentIcon
+        value={icon}
+        size={16}
+        className={cn("shrink-0", className)}
+      />
     );
   }
 
@@ -933,9 +937,6 @@ function DatabaseTable({
         : {}),
     },
   );
-  // A deleted/missing database resolves to the unavailable union (no
-  // `database` field) — treat it as no data; the inline-block wrapper owns
-  // the user-facing "Collection unavailable" state.
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
@@ -1287,7 +1288,6 @@ function DatabaseTable({
     ],
   );
   useEffect(() => {
-    // Inline blocks share this component but cannot replace the page snapshot.
     if (renderMode === "page") onExportContextChange?.(exportContext);
   }, [exportContext, onExportContextChange, renderMode]);
   useEffect(() => {
@@ -1943,8 +1943,6 @@ function DatabaseTable({
         ? await createWorkspacePage(createTarget.spaceId, title)
         : await createCollectionRow(title, propertyValueOverrides);
     if (!createdItem) return null;
-    // Both create paths settle the same way, so the workspace Files table
-    // opens and focuses a new page exactly like an ordinary collection row.
     const needsPreview = databaseCreatedItemNeedsPreview(
       items,
       createdItem,
@@ -2006,10 +2004,6 @@ function DatabaseTable({
       });
       return null;
     }
-    // `refetch` resolves with an error result rather than rejecting, so a
-    // failed refresh has to be read off the result. The page is already
-    // committed here; reporting the stale view is what keeps a successful
-    // create from looking like it did nothing.
     const refreshed = await database.refetch();
     if (refreshed.isError) {
       toast.error(dbText("pageCreatedCollectionRefreshFailed"));
@@ -2170,6 +2164,73 @@ function DatabaseTable({
     },
     [updateView.mutateAsync],
   );
+
+  const persistSharedDatabaseView = useCallback(
+    (
+      expectedDatabaseId: string,
+      sharedViewConfig: ContentDatabaseViewConfig,
+    ) => {
+      const nextKey = databaseViewStateKey(
+        expectedDatabaseId,
+        sharedViewConfig,
+      );
+      submittedViewRef.current = {
+        databaseId: expectedDatabaseId,
+        key: nextKey,
+      };
+      return viewSaveQueueRef.current(async () => {
+        try {
+          const response = await saveSharedDatabaseView(
+            expectedDatabaseId,
+            sharedViewConfig,
+          );
+          if (viewPersistenceRef.current.databaseId !== expectedDatabaseId)
+            return;
+          const nextViewConfig = normalizeClientDatabaseViewConfig(response);
+          viewPersistenceRef.current.savedViewConfig = nextViewConfig;
+          setSavedViewConfig(nextViewConfig);
+        } catch (error) {
+          if (viewPersistenceRef.current.databaseId === expectedDatabaseId) {
+            const latest = viewPersistenceRef.current;
+            setViewConfig((current) =>
+              rollbackFailedDatabaseViewSave({
+                databaseId: expectedDatabaseId,
+                current,
+                saved: latest.savedViewConfig,
+                failed: sharedViewConfig,
+                personalQueryDirty: latest.personalQueryDirty,
+              }),
+            );
+          }
+          throw error;
+        } finally {
+          if (
+            submittedViewRef.current?.databaseId === expectedDatabaseId &&
+            submittedViewRef.current.key === nextKey
+          ) {
+            submittedViewRef.current = null;
+          }
+        }
+      });
+    },
+    [saveSharedDatabaseView],
+  );
+
+  function handleViewIconChange(
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) {
+    if (!databaseId)
+      return Promise.reject(new Error("Database is unavailable"));
+    const next = updateDatabaseViewIcon(viewConfig, viewId, icon);
+    const shared = personalQueryDirty
+      ? databaseViewConfigWithSavedQueryState(next, savedViewConfig)
+      : next;
+    if (saveViewTimerRef.current) clearTimeout(saveViewTimerRef.current);
+    const saved = persistSharedDatabaseView(databaseId, shared);
+    handleViewConfigChange(next);
+    return saved;
+  }
 
   async function savePersonalQueryForEveryone() {
     if (!databaseId) return;
@@ -2848,44 +2909,15 @@ function DatabaseTable({
       clearTimeout(saveViewTimerRef.current);
     }
     saveViewTimerRef.current = setTimeout(() => {
-      submittedViewRef.current = { databaseId, key: nextKey };
-      void viewSaveQueueRef.current(async () => {
-        return saveSharedDatabaseView(databaseId, sharedViewConfig).then(
-          (response) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const nextViewConfig = normalizeClientDatabaseViewConfig(response);
-            viewPersistenceRef.current.savedViewConfig = nextViewConfig;
-            setSavedViewConfig(nextViewConfig);
-            if (
-              submittedViewRef.current?.databaseId === databaseId &&
-              submittedViewRef.current.key === nextKey
-            ) {
-              submittedViewRef.current = null;
-            }
-          },
-          (err: unknown) => {
-            if (viewPersistenceRef.current.databaseId !== databaseId) return;
-            const latest = viewPersistenceRef.current;
-            setViewConfig((current) =>
-              rollbackFailedDatabaseViewSave({
-                databaseId,
-                current,
-                saved: latest.savedViewConfig,
-                failed: sharedViewConfig,
-                personalQueryDirty: latest.personalQueryDirty,
-              }),
-            );
-            if (submittedViewRef.current?.key === nextKey)
-              submittedViewRef.current = null;
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        );
-      });
+      void persistSharedDatabaseView(databaseId, sharedViewConfig).catch(
+        (err: unknown) => {
+          if (viewPersistenceRef.current.databaseId !== databaseId) return;
+          toast.error(dbText("failedToSaveView"), {
+            description:
+              err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          });
+        },
+      );
     }, 350);
     return () => {
       if (saveViewTimerRef.current) {
@@ -2897,7 +2929,7 @@ function DatabaseTable({
     databaseId,
     personalQueryDirty,
     personalView.data?.overrides,
-    saveSharedDatabaseView,
+    persistSharedDatabaseView,
     savedViewConfig,
     viewConfig,
   ]);
@@ -3007,6 +3039,7 @@ function DatabaseTable({
           viewConfig={viewConfig}
           canEdit={effectiveCanEdit}
           onViewConfigChange={handleViewConfigChange}
+          onViewIconChange={handleViewIconChange}
           onViewSelect={selectPersonalView}
         />
         <ContentTableToolbar>
@@ -4963,7 +4996,6 @@ function DatabaseItemPreview({
             : databaseDocumentId,
       });
     }
-    // The deleted Page's pending queue was settled before deletion.
     sessionRef.current = null;
     onSessionChange(null);
     await queryClient.invalidateQueries({
@@ -4991,8 +5023,7 @@ function DatabaseItemPreview({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8"
+              size="icon-sm"
               disabled={!previousItem || transitionPending}
               aria-label={dbText("previousDatabasePage")}
               onClick={() => {
@@ -5004,8 +5035,7 @@ function DatabaseItemPreview({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8"
+              size="icon-sm"
               disabled={!nextItem || transitionPending}
               aria-label={dbText("nextDatabasePage")}
               onClick={() => {
@@ -5018,7 +5048,7 @@ function DatabaseItemPreview({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 px-2 text-xs"
+              className="gap-1.5 px-2 text-xs"
               disabled={transitionPending}
               onClick={onOpenPage}
             >
@@ -5036,7 +5066,7 @@ function DatabaseItemPreview({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-8 gap-1.5 px-2 text-xs"
+                    className="gap-1.5 px-2 text-xs"
                     aria-label={`Preview actions for ${previewTitle}`}
                   >
                     <IconTable className="size-3.5" />
@@ -7506,10 +7536,6 @@ type DatabaseSettingsPanel =
   | "property_visibility"
   | "group";
 
-// One step in the Sources drill-down: Sources (root, empty stack) → provider
-// (Builder) → space → model leaf. The model step carries the full summary so
-// the leaf can attach without re-fetching.
-// A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
   sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
   sourceName: string;
@@ -7544,8 +7570,6 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
-// The Builder "B" brand mark (first glyph of the wordmark), drawn with
-// currentColor so it themes against the panel background.
 function BuilderLogoMark({ className }: { className?: string }) {
   return (
     <svg
@@ -7560,8 +7584,6 @@ function BuilderLogoMark({ className }: { className?: string }) {
   );
 }
 
-// The Notion logo, reusing the shared `.notion-logo-icon` styling (same mark as
-// the sidebar's Notion button) so it themes consistently.
 function NotionLogoMark({ className }: { className?: string }) {
   return (
     <svg
@@ -7674,9 +7696,6 @@ function DatabaseSettingsPanelSheet({
   onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
 }) {
   const queryClient = useQueryClient();
-  // Local drill-down path *within* the Source(s) panel. Kept here (not in the
-  // flat panel enum) because the levels are dynamic — space/model names aren't
-  // known at compile time. The sheet's back button pops this stack first.
   const [sourceNavStack, setSourceNavStack] = useState<SourceNavStep[]>([]);
   const sourceNavTop = sourceNavStack[sourceNavStack.length - 1];
   const previewModel =
@@ -7712,8 +7731,6 @@ function DatabaseSettingsPanelSheet({
     );
   }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
-    // Ordinary close/reopen returns to the root. The optimistic attach handoff
-    // keeps the leaf only long enough to restore a failed mutation in place.
     if (panel !== "source" || (!open && !preserveSourceNavigationOnClose)) {
       setSourceNavStack([]);
     }
@@ -8275,8 +8292,6 @@ function DatabaseSettingsSourcePanel({
   const builderConfigured = builderStatus.status?.configured === true;
   const builderModelsQuery = useBuilderCmsModels(builderConfigured);
   const builderOrgName = builderStatus.status?.orgName ?? null;
-  // Real space name(s) from the Admin API, falling back to the generic org
-  // name (then a constant) so the drill-down never renders a blank label.
   const builderSpaces =
     builderStatus.status?.spaces && builderStatus.status.spaces.length > 0
       ? builderStatus.status.spaces
@@ -8293,7 +8308,6 @@ function DatabaseSettingsSourcePanel({
   });
   const top = nav[nav.length - 1];
 
-  // ── Sources list (root) ───────────────────────────────────────────────
   if (!top) {
     return (
       <SourcesListView
@@ -8338,14 +8352,10 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Add a source → local tables picker ────────────────────────────────
   if (top.kind === "addSource") {
     return (
       <AddSourceView
         excludeDatabaseIds={[
-          // Always exclude this database itself — before any source exists
-          // the panel only knows the database's document id; the action
-          // matches exclusion ids against both id forms.
           documentId,
           ...(source?.databaseId ? [source.databaseId] : []),
           ...sources
@@ -8379,7 +8389,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Secondary (federated) source leaf ─────────────────────────────────
   if (top.kind === "secondarySource") {
     const secondary = sources.find((item) => item.id === top.sourceId) ?? null;
     return (
@@ -8419,7 +8428,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Canonical-key confirm (adding a second source) ────────────────────
   if (top.kind === "keyConfirm") {
     return (
       <CanonicalKeyConfirmView
@@ -8472,11 +8480,8 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Builder provider → space list ─────────────────────────────────────
   if (top.kind === "provider") {
     if (!builderConfigured) {
-      // Don't flash "Connect Builder" at an already-connected user while the
-      // status is still loading — show a checking state until we actually know.
       if (!builderStatus.status && builderStatus.loading) {
         return (
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -8529,7 +8534,6 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Space → model list ────────────────────────────────────────────────
   if (top.kind === "space") {
     return (
       <BuilderSpaceModelsView
@@ -8545,15 +8549,12 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // ── Model leaf ────────────────────────────────────────────────────────
   const model = top.model;
   const selectedBuilderSource = databaseAttachedBuilderSource(sources, source, {
     sourceId: top.sourceId,
     modelName: model?.name,
   });
 
-  // Unattached model → the attach affordance (the model is already chosen by
-  // drilling in, so there's no model picker here).
   if (!selectedBuilderSource) {
     if (!model) return null;
     return (
@@ -8680,7 +8681,6 @@ function DatabaseSettingsSourcePanel({
       selectedSource.id,
     );
 
-  // Attached model → source details and guarded write policy.
   return (
     <div className="grid min-w-0 gap-4">
       <>
@@ -8961,7 +8961,7 @@ function DatabaseSettingsSourcePanel({
             type="button"
             size="sm"
             variant="outline"
-            className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+            className="mt-2 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || selectedSourceDisconnectControlPending}
             onClick={() => onDisconnectSource(selectedSource.id)}
           >
@@ -8978,8 +8978,6 @@ function DatabaseSettingsSourcePanel({
   );
 }
 
-// Root of the Sources drill-down: third-party integrations + Agent-Native apps,
-// each provider a row. Builder is live; the rest are disabled "coming soon".
 function SourcesListView({
   source,
   sources,
@@ -9104,9 +9102,6 @@ function SourcesListView({
   );
 }
 
-// Confirm the canonical-key join before federating a second source. The
-// heuristic proposes a key field + normalization formula per side; the user can
-// tweak the formulas and watch a live sample-match preview before committing.
 function CanonicalKeyConfirmView({
   documentId,
   candidate,
@@ -9293,8 +9288,6 @@ function CanonicalKeyConfirmView({
   );
 }
 
-// Pick a second source to federate. NEXT supports local tables (any other
-// workspace database); integrations beyond Builder are coming soon.
 function AddSourceView({
   excludeDatabaseIds,
   canEdit,
@@ -9312,8 +9305,6 @@ function AddSourceView({
 }) {
   const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
   const notion = useNotionDatabaseSources(true);
-  // Exclude this database (no self-reference) and any table already federated
-  // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
   const tables = (query.data?.databases ?? []).filter(
     (table) => !excluded.has(table.databaseId),
@@ -9385,7 +9376,6 @@ function AddSourceView({
   );
 }
 
-// A connected federated (secondary) source: read-only details + remove.
 function SecondarySourceLeaf({
   source,
   canEdit,
@@ -9460,7 +9450,7 @@ function SecondarySourceLeaf({
           type="button"
           size="sm"
           variant="outline"
-          className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
+          className="mt-2 text-xs text-destructive hover:text-destructive"
           disabled={!canEdit || pending}
           onClick={onDisconnect}
         >
@@ -9627,7 +9617,7 @@ function SourceRoleCard({
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 text-xs"
+              className="text-xs"
               disabled={!canEdit || pending}
               onClick={onChooseFields}
             >
@@ -9638,7 +9628,7 @@ function SourceRoleCard({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs"
+                className="text-xs"
                 disabled={!canEdit || pending}
                 onClick={onAddItems}
               >
@@ -9651,7 +9641,7 @@ function SourceRoleCard({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 text-xs"
+            className="text-xs"
             disabled={!canEdit || pending}
             onClick={onAddDetails}
           >
@@ -10231,8 +10221,6 @@ function SourceDetailsFieldPicker({
   );
 }
 
-// A Builder space's data models, as drill-in rows. The attached model (if any)
-// is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
   attachedModelNames,
   modelsQuery,
@@ -10379,12 +10367,13 @@ function BuilderSpaceModelsView({
       <div className="relative min-w-0">
         <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          size="sm"
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={dbText("searchModels")}
           aria-label={dbText("searchBuilderModels")}
-          className="h-8 min-w-0 pl-7 text-sm"
+          className="min-w-0 pl-7 text-sm"
         />
       </div>
 
@@ -11334,7 +11323,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, true)}
             >
@@ -11344,7 +11333,7 @@ function DatabaseSettingsGroupPanel({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 flex-1 text-xs"
+              className="flex-1 text-xs"
               disabled={groupIds.length === 0}
               onClick={() => onGroupsCollapsedChange(groupIds, false)}
             >
@@ -11936,7 +11925,7 @@ export function DatabaseNoMatchingPages({
         type="button"
         size="sm"
         variant="ghost"
-        className="h-8 px-2 text-xs"
+        className="px-2 text-xs"
         onClick={onClear}
       >
         {dbText("clearSearchAndFilters")}
@@ -12958,6 +12947,7 @@ function DatabaseBoardColumnHeader({
                 {dbText("groupName")}
               </DropdownMenuLabel>
               <Input
+                size="sm"
                 value={name}
                 disabled={disabled}
                 aria-label={`Rename board group ${group.label}`}
@@ -12975,7 +12965,6 @@ function DatabaseBoardColumnHeader({
                     event.currentTarget.blur();
                   }
                 }}
-                className="h-8"
               />
             </div>
             <DropdownMenuSeparator />
@@ -13447,6 +13436,7 @@ export function createDatabaseView(
     id,
     name: name.trim() || databaseViewDefaultName(type),
     type,
+    icon: values.icon,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -13663,6 +13653,19 @@ export function renameDatabaseView(
   });
 }
 
+export function updateDatabaseViewIcon(
+  config: ContentDatabaseViewConfig,
+  viewId: string,
+  icon: ContentDatabaseView["icon"],
+) {
+  return normalizeClientDatabaseViewConfig({
+    ...config,
+    views: config.views.map((view) =>
+      view.id === viewId ? { ...view, icon } : view,
+    ),
+  });
+}
+
 export function updateDatabaseViewType(
   config: ContentDatabaseViewConfig,
   viewId: string,
@@ -13687,6 +13690,7 @@ export function duplicateDatabaseView(
     uniqueDatabaseViewName(normalized.views, `${view.name} copy`),
     createDatabaseViewId(),
     {
+      icon: view.icon,
       sorts: view.sorts,
       filters: view.filters,
       filterMode: view.filterMode,
@@ -13811,6 +13815,7 @@ function normalizeClientDatabaseView(
       : databaseViewDefaultName(type),
     value.id,
     {
+      icon: value.icon,
       sorts: Array.isArray(value.sorts)
         ? value.sorts.filter(isDatabaseSort)
         : [],
@@ -14149,7 +14154,6 @@ function databaseTableCellDisplayValue(
   item?: Pick<ContentDatabaseItem, "bodyHydration" | "document">,
   wrapCells = false,
 ) {
-  // Blocks columns show a word count, never the dumped body content.
   if (property.definition.type === "blocks") {
     const content = typeof property.value === "string" ? property.value : "";
     const words = countWords(content);
@@ -15113,17 +15117,25 @@ function DatabaseViewTabs({
   viewConfig,
   canEdit,
   onViewConfigChange,
+  onViewIconChange,
   onViewSelect,
 }: {
   viewConfig: ContentDatabaseViewConfig;
   canEdit: boolean;
   onViewConfigChange: (viewConfig: ContentDatabaseViewConfig) => void;
+  onViewIconChange: (
+    viewId: string,
+    icon: ContentDatabaseView["icon"],
+  ) => Promise<void>;
   onViewSelect: (viewId: string) => void;
 }) {
+  const t = useT();
   const normalized = normalizeClientDatabaseViewConfig(viewConfig);
   const [newViewName, setNewViewName] = useState("");
   const [addViewOpen, setAddViewOpen] = useState(false);
   const [openViewMenuId, setOpenViewMenuId] = useState<string | null>(null);
+  const [iconPickerViewId, setIconPickerViewId] = useState<string | null>(null);
+  const activeViewTabRef = useRef<HTMLButtonElement>(null);
   const [renameViewId, setRenameViewId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draggedViewId, setDraggedViewId] = useState<string | null>(null);
@@ -15291,6 +15303,7 @@ function DatabaseViewTabs({
         const tabButton = (
           <button
             type="button"
+            ref={active && canEdit ? activeViewTabRef : undefined}
             data-database-view-id={view.id}
             aria-label={
               active && canEdit ? `${view.name} view menu` : view.name
@@ -15324,12 +15337,16 @@ function DatabaseViewTabs({
             onPointerDown={(event) => startViewPointerDrag(view, event)}
           >
             <DatabaseDropIndicator side={dropSide} />
-            <ViewIcon
-              className={cn(
-                "size-4 shrink-0",
-                active ? "text-foreground" : "text-muted-foreground",
-              )}
-            />
+            {view.icon ? (
+              <ContentIcon value={view.icon} size={16} className="shrink-0" />
+            ) : (
+              <ViewIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  active ? "text-foreground" : "text-muted-foreground",
+                )}
+              />
+            )}
             <span className="max-w-40 truncate">{view.name}</span>
           </button>
         );
@@ -15341,6 +15358,7 @@ function DatabaseViewTabs({
         return (
           <DropdownMenu
             key={view.id}
+            modal={false}
             open={openViewMenuId === view.id}
             onOpenChange={(open) => {
               setOpenViewMenuId(open ? view.id : null);
@@ -15352,8 +15370,23 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
-                {view.name}
+              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  aria-label={t("editor.emojiChangeIcon")}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50"
+                  onClick={() => {
+                    setOpenViewMenuId(null);
+                    setIconPickerViewId(view.id);
+                  }}
+                >
+                  {view.icon ? (
+                    <ContentIcon value={view.icon} size={16} />
+                  ) : (
+                    <ViewIcon className="size-4" />
+                  )}
+                </button>
+                <span className="truncate">{view.name}</span>
               </DropdownMenuLabel>
               {renameViewId === view.id ? (
                 <form
@@ -15365,14 +15398,14 @@ function DatabaseViewTabs({
                   onKeyDown={(event) => event.stopPropagation()}
                 >
                   <Input
+                    size="sm"
                     ref={renameInputRef}
                     autoFocus
                     value={renameValue}
                     aria-label={dbText("viewName")}
                     onChange={(event) => setRenameValue(event.target.value)}
-                    className="h-8"
                   />
-                  <Button type="submit" size="sm" className="h-8">
+                  <Button type="submit" size="sm">
                     {dbText("renameView")}
                   </Button>
                 </form>
@@ -15448,6 +15481,17 @@ function DatabaseViewTabs({
                 </>
               )}
             </DropdownMenuContent>
+            <EmojiPicker
+              icon={view.icon ?? null}
+              open={iconPickerViewId === view.id}
+              onOpenChange={(open) =>
+                setIconPickerViewId(open ? view.id : null)
+              }
+              anchored
+              anchorElement={activeViewTabRef.current}
+              contentClassName="z-[310]"
+              onSelect={(icon) => onViewIconChange(view.id, icon)}
+            />
           </DropdownMenu>
         );
       })}
@@ -15481,12 +15525,12 @@ function DatabaseViewTabs({
               onKeyDown={(event) => event.stopPropagation()}
             >
               <Input
+                size="sm"
                 autoFocus
                 value={newViewName}
                 placeholder="Table"
                 aria-label={dbText("newViewName")}
                 onChange={(event) => setNewViewName(event.target.value)}
-                className="h-8"
               />
               <div className="grid grid-cols-2 gap-1">
                 {DATABASE_VIEW_TYPES.map((type) => {
@@ -15498,7 +15542,7 @@ function DatabaseViewTabs({
                       type={type === "table" ? "submit" : "button"}
                       size="sm"
                       variant={type === "table" ? "default" : "secondary"}
-                      className="h-8 gap-1.5"
+                      className="gap-1.5"
                       onClick={
                         type === "table" ? undefined : () => createView(type)
                       }
@@ -15924,7 +15968,7 @@ function DatabaseBulkScalarValueEditor({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 justify-start gap-1.5"
+            className="justify-start gap-1.5"
             disabled={disabled}
             onClick={() =>
               void onApply({
@@ -15943,7 +15987,7 @@ function DatabaseBulkScalarValueEditor({
             type="button"
             variant="secondary"
             size="sm"
-            className="h-8 justify-start gap-1.5"
+            className="justify-start gap-1.5"
             disabled={disabled}
             onClick={() =>
               void onApply({
@@ -16338,9 +16382,17 @@ function DatabasePropertyHeader({
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
-      onPointerDown={canReorder ? onPointerDown : undefined}
     >
       <DatabaseDropIndicator side={dropSide} />
+      {canReorder && (
+        <span
+          aria-hidden="true"
+          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
+          onPointerDown={onPointerDown}
+        >
+          <IconGripVertical className="size-3.5" />
+        </span>
+      )}
       {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
@@ -16350,11 +16402,6 @@ function DatabasePropertyHeader({
           databaseId={property.definition.databaseId!}
           icon={Icon}
           triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
-          onTriggerPointerDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onPointerDown(event);
-          }}
           triggerTrailing={
             <DatabaseColumnStateIndicators state={columnState} />
           }
@@ -17200,7 +17247,7 @@ function SortMenu({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={addSort}
               >
                 <IconPlus className="mr-1 size-3.5" />
@@ -17210,7 +17257,7 @@ function SortMenu({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 disabled={sorts.length === 0}
                 onClick={() => onSortsChange([])}
               >
@@ -18163,9 +18210,6 @@ export function databaseItemPropertyForColumn(
   );
   if (!itemProperty) return columnProperty;
 
-  // Row payloads own values, not schema meaning. Always pair the row's value
-  // with the database's current canonical definition so a recently described
-  // option cannot remain invisible in an older row snapshot.
   return {
     ...itemProperty,
     definition: columnProperty.definition,
@@ -18328,8 +18372,6 @@ function DatabaseTableRow({
                 {value}
               </button>
             ) : itemProperty.definition.type === "blocks" ? (
-              // Blocks cells are a read-only word count in the table; the body
-              // is edited on the page, not inline.
               value
             ) : canEdit && itemProperty.editable ? (
               <PropertyValuePopover

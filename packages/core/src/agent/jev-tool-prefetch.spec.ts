@@ -17,10 +17,13 @@ vi.mock("../server/credential-provider.js", () => ({
 
 import type { EngineTool } from "./engine/types.js";
 import {
+  buildRecentUserRequestContext,
+  buildJevRequestContext,
   isBuilderJevEnabled,
   isJevEnabled,
   preloadJevTools,
   rankJevCandidates,
+  rankJevCandidatesWithStatus,
   requestJevThroughBuilder,
 } from "./jev-tool-prefetch.js";
 import type { ActionEntry } from "./production-agent.js";
@@ -52,11 +55,11 @@ describe("preloadJevTools", () => {
     typeSafeClient.mockImplementation(
       function TypeSafeClient(this: {
         handler: typeof systemOne;
-        systemOne: (request: unknown) => unknown;
+        systemOne: (request: unknown, options?: unknown) => unknown;
       }) {
         this.handler = systemOne;
-        this.systemOne = function (request: unknown) {
-          return this.handler(request);
+        this.systemOne = function (request: unknown, options?: unknown) {
+          return this.handler(request, options);
         };
       },
     );
@@ -65,6 +68,196 @@ describe("preloadJevTools", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("builds JEV context from recent visible thread text and omits tool results", () => {
+    const request = buildJevRequestContext({
+      request: "Compare those by month",
+      structuredHistory: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Earlier, define active users." }],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "The top customer is Acme with 42 users." },
+            {
+              type: "tool-call",
+              name: "query-data",
+              input: { secret: "omit" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "query-1",
+              content: "omit result",
+            },
+            {
+              type: "text",
+              text: "Now compare active users to the prior period.",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(request).toContain("Earlier, define active users.");
+    expect(request).not.toContain("The top customer is Acme");
+    expect(request).toContain("Now compare active users to the prior period.");
+    expect(request).toContain("Current request:\nCompare those by month");
+    expect(request).not.toContain("omit result");
+    expect(request).not.toContain("secret");
+  });
+
+  it("does not fall back to legacy history when structured history has no visible text", () => {
+    const input = {
+      request: "Current request",
+      history: [
+        {
+          role: "user" as const,
+          content: "Prior query result: Acme has 42 users.",
+        },
+      ],
+      structuredHistory: [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool-result" as const,
+              toolCallId: "query-1",
+              content: "Acme has 42 users.",
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(buildJevRequestContext(input)).toBe(
+      "Current request:\nCurrent request",
+    );
+    expect(buildRecentUserRequestContext(input)).toBe(
+      "Current request:\nCurrent request",
+    );
+  });
+
+  it("limits Jev context to the current request and recent user turns", () => {
+    const request = buildJevRequestContext({
+      request: "Compare the prior period",
+      history: [
+        { role: "user", content: "Earlier user question" },
+        { role: "assistant", content: "Customer email: user@example.test" },
+      ],
+    });
+
+    expect(request).toContain("Earlier user question");
+    expect(request).not.toContain("Customer email");
+    expect(request).toContain("Current request:\nCompare the prior period");
+  });
+
+  it("builds retrieval context from the current request and last two user turns only", () => {
+    const request = buildRecentUserRequestContext({
+      request: "Current request",
+      history: [
+        { role: "user", content: "Old request outside retrieval window" },
+        { role: "assistant", content: "Assistant text with live results" },
+        { role: "user", content: "Recent user turn one" },
+        { role: "assistant", content: "Another assistant result" },
+        { role: "user", content: "Recent user turn two" },
+      ],
+    });
+
+    expect(request).toContain("Recent user turn one");
+    expect(request).toContain("Recent user turn two");
+    expect(request).toContain("Current request:\nCurrent request");
+    expect(request).not.toContain("Old request");
+    expect(request).not.toContain("Assistant");
+    expect(request).not.toContain("live results");
+  });
+
+  it("sends short reference and memory summaries, not paths or bodies", async () => {
+    systemOne.mockImplementation(async (request: Record<string, unknown>) => {
+      const state = request.state as Record<string, unknown>;
+      const choices = state.candidate_context as Array<{ id: string }>;
+      return {
+        answers: {
+          best_context: {
+            choice: choices[0]?.id,
+            probabilities: { __no_match__: 0.1, [choices[0]?.id ?? ""]: 0.9 },
+          },
+        },
+      };
+    });
+    const candidate = {
+      id: "analytics-reference-1",
+      description: "Approved active users metric from BigQuery.",
+      metadata: { kind: "analytics-reference", similarity: "0.82" },
+      path: "private/dashboard-secret.md",
+      content: "SELECT private_customer_rows FROM secret_table",
+    };
+    const memory = {
+      id: "personal-memory-0",
+      description: "Preference: use BigQuery STRING instead of ILIKE.",
+      metadata: { kind: "personal-memory", scope: "personal" },
+      path: "memory/private-query-preference.md",
+      content: "Private account details stay in this memory body.",
+    };
+
+    await rankJevCandidatesWithStatus({
+      personalApiKey: "jev-test-key",
+      request: "How many active users?",
+      candidates: [candidate, memory],
+      candidateStateKey: "candidate_context",
+      answerKey: "best_context",
+      question: "Choose the relevant reference.",
+    });
+
+    const sentRequest = JSON.stringify(systemOne.mock.calls[0]?.[0]);
+    expect(sentRequest).toContain("Approved active users metric from BigQuery");
+    expect(sentRequest).toContain(
+      "Preference: use BigQuery STRING instead of ILIKE.",
+    );
+    expect(sentRequest).not.toContain("private/dashboard-secret.md");
+    expect(sentRequest).not.toContain("memory/private-query-preference.md");
+    expect(sentRequest).not.toContain("private_customer_rows");
+    expect(sentRequest).not.toContain("secret_table");
+    expect(sentRequest).not.toContain("Private account details");
+  });
+
+  it("distinguishes an explicit Jev no-match from an unavailable ranking", async () => {
+    const options = {
+      personalApiKey: "jev-test-key",
+      request: "A metric lookup",
+      candidates: [{ id: "analytics-1", description: "Analytics reference" }],
+      candidateStateKey: "candidate_context",
+      answerKey: "best_context",
+      question: "Which reference applies?",
+    };
+
+    systemOne.mockResolvedValueOnce({
+      answers: {
+        best_context: {
+          choice: "__no_match__",
+          probabilities: { __no_match__: 1, "analytics-1": 0 },
+        },
+      },
+    });
+    await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+      status: "no-match",
+      ids: [],
+    });
+
+    systemOne.mockResolvedValueOnce({
+      answers: { best_context: { probabilities: { "analytics-1": 0.9 } } },
+    });
+    await expect(rankJevCandidatesWithStatus(options)).resolves.toEqual({
+      status: "unavailable",
+      ids: [],
+    });
   });
 
   it("does not import or call Jev without a saved key", async () => {
@@ -81,6 +274,45 @@ describe("preloadJevTools", () => {
 
     expect(result).toBe(initialTools);
     expect(typeSafeClient).not.toHaveBeenCalled();
+    expect(systemOne).not.toHaveBeenCalled();
+  });
+
+  it("skips Jev tool ranking when the foreground will dispatch to a worker", async () => {
+    const initialTools = [tool("tool-search", "Find tools")];
+    const result = await preloadJevTools({
+      skip: true,
+      personalApiKey: "jev-test-key",
+      request: "Find customer records",
+      registry: { "search-customers": action("Search customer records") },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+      ],
+    });
+
+    expect(result).toBe(initialTools);
+    expect(typeSafeClient).not.toHaveBeenCalled();
+    expect(systemOne).not.toHaveBeenCalled();
+  });
+
+  it("keeps the curated tool set when the shared preload budget has expired", async () => {
+    const initialTools = [tool("tool-search", "Find tools")];
+
+    const result = await preloadJevTools({
+      apiKey: "jev-test-key",
+      personalApiKey: "jev-test-key",
+      request: "Find customer records",
+      deadlineAt: Date.now() - 1,
+      registry: { "search-customers": action("Search customer records") },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+      ],
+    });
+
+    expect(result).toBe(initialTools);
     expect(systemOne).not.toHaveBeenCalled();
   });
 
@@ -268,6 +500,69 @@ describe("preloadJevTools", () => {
     });
 
     expect(result).toBe(initialTools);
+  });
+
+  it("passes the shared deadline signal to direct Jev inference", async () => {
+    const controller = new AbortController();
+    systemOne.mockResolvedValue({
+      answers: {
+        best_reference: {
+          choice: "reference-1",
+          probabilities: { "reference-1": 0.9, __no_match__: 0.1 },
+        },
+      },
+    });
+
+    await expect(
+      rankJevCandidatesWithStatus({
+        personalApiKey: "personal-jev-key",
+        request: "Find the active user definition",
+        candidates: [
+          { id: "reference-1", description: "Active user definition" },
+        ],
+        candidateStateKey: "candidate_reference",
+        answerKey: "best_reference",
+        question: "Choose the matching reference.",
+        signal: controller.signal,
+      }),
+    ).resolves.toEqual({ status: "selected", ids: ["reference-1"] });
+
+    expect(systemOne.mock.calls[0]?.[1]).toEqual({
+      signal: controller.signal,
+    });
+  });
+
+  it("aborts tool ranking when its shared deadline expires", async () => {
+    const initialTools = [tool("tool-search", "Find tools")];
+    let requestSignal: AbortSignal | undefined;
+    systemOne.mockImplementation(
+      (_request: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          requestSignal = options?.signal;
+          requestSignal?.addEventListener(
+            "abort",
+            () => reject(requestSignal?.reason),
+            { once: true },
+          );
+        }),
+    );
+
+    const result = await preloadJevTools({
+      personalApiKey: "personal-jev-key",
+      request: "Search customer records",
+      deadlineAt: Date.now() + 75,
+      registry: {
+        "search-customers": action("Search customer records"),
+      },
+      initialTools,
+      availableTools: [
+        ...initialTools,
+        tool("search-customers", "Search customer records"),
+      ],
+    });
+
+    expect(result).toBe(initialTools);
+    expect(requestSignal?.aborted).toBe(true);
   });
 
   it("prefers the Builder proxy outside production when Builder auth is available", async () => {

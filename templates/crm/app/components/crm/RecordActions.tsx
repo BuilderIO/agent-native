@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import {
   IconBolt,
   IconChecklist,
@@ -152,7 +153,6 @@ function DuplicateReviewDialog({ recordId }: { recordId: string }) {
   );
 }
 
-/** The prepared upstream handoff returned by `apply-crm-proposals`. */
 interface PreparedHandoff {
   providerLabel: string;
   recordUrl: string | null;
@@ -213,9 +213,6 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
           ? { expectedRemoteRevision: record.remoteRevision }
           : {}),
       });
-      // A provider edit is a handoff, not a write: keep the dialog open and
-      // show the exact diff plus the upstream link instead of a success toast
-      // that would imply the connected CRM already changed.
       if (target === "provider") {
         setHandoff(
           await prepare.mutateAsync({ proposalId: result.mutationId }),
@@ -706,7 +703,7 @@ function CallEvidenceAutomationDialog({ record }: { record: CrmRecordDetail }) {
         <DialogFooter className="flex-row flex-wrap justify-end gap-2 sm:justify-end">
           <Button asChild variant="ghost" size="sm" className="gap-1.5">
             <Link
-              to="/settings/agent/automations"
+              to={buildSettingsRoute("automations")}
               onClick={() => setOpen(false)}
             >
               <IconExternalLink className="size-4" />{" "}

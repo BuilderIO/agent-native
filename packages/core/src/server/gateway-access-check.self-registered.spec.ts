@@ -1,14 +1,3 @@
-/**
- * `/_agent-native/can-see` for a self-registered app.
- *
- * This endpoint is how the gateway asks the app whether a sharee may see a
- * resource-scoped event, and it fails closed. It originally read the signing
- * secret from the env var only, so on a self-registered deployment — which has
- * no such env var — it 404'd every check and shared-resource events were
- * silently dropped for exactly the apps self-registration exists to serve.
- * These tests pin the resolution order that fixed it.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveAccess = vi.hoisted(() => vi.fn());
@@ -99,8 +88,6 @@ describe("can-see on a self-registered app", () => {
   });
 
   it("never self-registers for a pipeline app", async () => {
-    // Same discriminator as the token mint: either half injected means the
-    // pipeline owns this app and the env pair governs.
     process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET = "injected-secret";
     mockProjectId.mockReturnValue("proj_pipeline");
     const token = signGatewayAccessToken(

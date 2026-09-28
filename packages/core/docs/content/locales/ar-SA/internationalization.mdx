@@ -98,9 +98,11 @@ function Greeting({ name }: { name: string }) {
 استخدم `useFormatters()` للتواريخ والأرقام والوقت النسبي والقوائم. لا تضع
 تنسيق التاريخ/الأرقام الحساس للغة المحلية داخل سلاسل الترجمة.
 
-ضع `<LanguagePicker />` في أي مكان يتيح فيه التطبيق للمستخدم تغيير لغته.
-راجع [Toolkit: Settings](/docs/toolkit-settings) لمعرفة نمط صفحة الإعدادات
-القياسي، بما في ذلك المكان الذي يناسب فيه `openAgentSettings()`.
+تتضمن الإعدادات صف **Interface language** في Account › Preferences، ويسري التغيير هناك
+على كل التطبيقات، لذلك لا تضيف صفحات إعدادات التطبيق أداة اختيار ثانية. عندما تكون
+علامة `settings-redesign` معطّلة، ضع الأداة في تبويب General في الصفحة ذات التبويبات.
+ضع `<LanguagePicker />` في أي مكان آخر يتيح فيه التطبيق للمستخدم تغيير لغته، مثل اختصار
+في الترويسة. راجع [Toolkit: Settings](/docs/toolkit-settings) لمعرفة عقد صفحة الإعدادات.
 
 ## Actions والإصرار
 
@@ -147,5 +149,5 @@ env، وأسماء الموفرين.
 ## الخطوات التالية
 
 - [**نظرة عامة**](/docs/client-overview#app-shell) — غلاف `AppProviders` وخطافات المتصفح الأخرى التي يُبنى عليها i18n
-- [**Toolkit: Settings**](/docs/toolkit-settings) — ضع `<LanguagePicker>` في صفحة الإعدادات القياسية
+- [**Toolkit: Settings**](/docs/toolkit-settings) — عقد صفحة الإعدادات، حيث تتولى Account › Preferences لغة الواجهة
 - [**البدء**](/docs/getting-started) — ابنِ تطبيقك الأول على قالب يشحن بالفعل كتالوجات مترجمة

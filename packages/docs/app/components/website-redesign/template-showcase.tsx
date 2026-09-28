@@ -24,10 +24,6 @@ import { CardArrow } from "./ds/card-arrow";
 import { ImgPlaceholder } from "./ds/img-placeholder";
 import { GridInner, PageSection } from "./page-grid";
 
-// Card is 433px wide (roughly a third of the 1300px site max width, so
-// three cards fill the rail), 320px below the 768px breakpoint (see
-// CARD_CLASS). Without this the browser assumes 100vw and pulls a source
-// several times larger than the slot.
 const CARD_IMAGE_SIZES = "(max-width: 768px) 320px, 433px";
 
 const CARD_CLASS = [
@@ -37,9 +33,6 @@ const CARD_CLASS = [
 ].join(" ");
 
 interface ShowcaseApp {
-  // Also the catalog id: the card copy comes from templates.<slug>.description,
-  // which the app catalog pages already translate, and the art comes from
-  // APP_ART under the same key.
   slug: string;
   name: string;
   href: string;
@@ -56,8 +49,6 @@ const APPS: ShowcaseApp[] = [
   { slug: "content", name: "Content", href: "/apps/content" },
 ];
 
-// Matches the site header's icon-button treatment (40x40, secondary border,
-// secondary hover) so the carousel controls read as part of the same system.
 function CarouselIconButton({
   children,
   ...rest
@@ -244,9 +235,6 @@ export function TemplateShowcase() {
                 <BuildOnlinePopover
                   location="homepage_rail"
                   trigger={
-                    // Caps come from CSS, not the label: an all-caps string
-                    // becomes the accessible name and screen readers spell it
-                    // out letter by letter.
                     <Button
                       variant="white"
                       icon={null}

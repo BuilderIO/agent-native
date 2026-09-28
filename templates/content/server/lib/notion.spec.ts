@@ -36,6 +36,7 @@ import {
   listNotionComments,
   notionFetch,
   NotionApiError,
+  pushDocumentToNotionPage,
   resolveNotionMarkdownResponse,
   saveNotionTokensForOwner,
   type NotionPageMarkdown,
@@ -192,7 +193,6 @@ describe("buildNotionAuthUrl", () => {
       expect(state.redirectPath).toBe("/page/abc123");
       expect(typeof state.sig).toBe("string");
 
-      // Mirrors callback.get.ts's verifyStateSignature exactly.
       const expected = crypto
         .createHmac("sha256", "test-state-secret")
         .update(`redirectPath:${state.redirectPath}`)
@@ -352,8 +352,6 @@ describe("resolveNotionMarkdownResponse", () => {
       unknown_block_ids: ["child-block"],
     });
 
-    // The hydrated subtree is present and the result is already canonical
-    // (re-canonicalizing is a no-op — no drift).
     expect(result.markdown).toContain("- notion doc");
     expect(result.markdown).toContain(
       "- access: amplitude, fullstory, sigma, jira",
@@ -426,7 +424,6 @@ describe("notionFetch", () => {
 
     expect(result).toBeInstanceOf(NotionApiError);
     expect((result as InstanceType<typeof NotionApiError>).status).toBe(429);
-    // Only the single initial call — never slept/retried for the huge value.
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -560,7 +557,6 @@ describe("saveNotionTokensForOwner", () => {
       expect.objectContaining({ access_token: "new-token" }),
       "alice@example.com",
     );
-    // The just-saved account must NOT be deleted; the other one must be.
     expect(deleteOAuthTokens).toHaveBeenCalledWith("notion", "workspace-a");
     expect(deleteOAuthTokens).not.toHaveBeenCalledWith("notion", "workspace-b");
   });
@@ -614,13 +610,91 @@ describe("createNotionPageWithMarkdown", () => {
     const request = vi.mocked(global.fetch).mock.calls[0];
     expect(request[0]).toBe("https://api.notion.com/v1/pages");
     const body = JSON.parse(String(request[1]?.body));
-    // The pushed markdown is exactly the canonical form — and canonical content
-    // is already a fixpoint, so this push will round-trip without drift.
     expect(body.markdown).toBe(canonicalizeNfm(content));
     expect(canonicalizeNfm(body.markdown)).toBe(body.markdown);
     expect(body.markdown).toContain("- parent\n\t- child");
     expect(body.markdown).toContain(
       "<summary>→ → team mtg guidance on hackathon</summary>",
+    );
+  });
+
+  it("omits a Content-only Tabler icon when creating a Notion page", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "new-page",
+          url: "https://www.notion.so/new-page",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await createNotionPageWithMarkdown({
+      accessToken: "token",
+      parentPageId: "parent-page",
+      title: "Builder Todo",
+      content: "Body",
+      icon: { version: 1, kind: "library", library: "tabler", name: "book" },
+    });
+
+    expect(
+      JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body)),
+    ).not.toHaveProperty("icon");
+  });
+});
+
+describe("pushDocumentToNotionPage icons", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    const page = {
+      id: "page-1",
+      properties: {
+        title: { type: "title", title: [{ plain_text: "Local title" }] },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const body =
+          url.endsWith("/markdown") && !init?.method
+            ? { markdown: "Local body", unknown_block_ids: [] }
+            : page;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("pushes content without clearing the remote icon for a local Tabler icon", async () => {
+    await pushDocumentToNotionPage({
+      accessToken: "token",
+      pageId: "page-1",
+      title: "Local title",
+      content: "Local body",
+      icon: { version: 1, kind: "library", library: "tabler", name: "book" },
+    });
+
+    const pageUpdate = vi
+      .mocked(global.fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/pages/page-1") && init?.method === "PATCH",
+      );
+    expect(pageUpdate).toBeDefined();
+    expect(JSON.parse(String(pageUpdate?.[1]?.body))).not.toHaveProperty(
+      "icon",
     );
   });
 });

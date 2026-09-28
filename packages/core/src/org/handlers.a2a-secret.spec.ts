@@ -79,11 +79,46 @@ vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 
+vi.mock("../server/social-sign-in-providers.js", () => ({
+  resolveDeploymentSignInMethods: () => ({
+    emailPassword: true,
+    google: true,
+    github: false,
+  }),
+}));
+
 import {
   getMyOrgHandler,
   revealA2ASecretHandler,
+  setA2ASecretHandler,
   syncA2ASecretHandler,
 } from "./handlers.js";
+
+const ADMIN_CONTEXT = {
+  email: "admin@example.test",
+  orgId: "org_1",
+  orgName: "Example",
+  role: "admin",
+};
+
+describe("cross-app secret handlers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+    mockReadBody.mockResolvedValue({});
+  });
+
+  it.each([
+    ["reveal", revealA2ASecretHandler],
+    ["set", setA2ASecretHandler],
+    ["sync", syncA2ASecretHandler],
+  ])("rejects an admin trying to %s it", async (_name, handler) => {
+    await expect(handler({} as any)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
 
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
@@ -231,6 +266,23 @@ describe("getMyOrgHandler", () => {
     >;
 
     expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.signInMethods).toBeUndefined();
+  });
+
+  it("gives an admin the sign-in methods but not the secret indicator", async () => {
+    mockGetOrgContext.mockResolvedValue(ADMIN_CONTEXT);
+
+    const result = (await getMyOrgHandler({} as any)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.a2aSecretSet).toBeUndefined();
+    expect(result.signInMethods).toEqual({
+      emailPassword: true,
+      google: true,
+      github: false,
+    });
   });
 
   it("fails instead of reporting org visibility when the default cannot be read", async () => {

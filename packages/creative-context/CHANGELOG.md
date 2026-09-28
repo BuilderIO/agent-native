@@ -1,5 +1,67 @@
 # @agent-native/creative-context
 
+## 0.8.17
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- a20f0b4: `CreativeContextPanel` and `createCreativeContextAgentTab` accept `variant: "settings"`, which drops the panel's own title, description, and page padding when the redesigned Settings page already shows them.
+
+## 0.8.16
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.15
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+
+## 0.8.14
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.13
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.12
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.11
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.10
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.9
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.7
 
 ### Patch Changes

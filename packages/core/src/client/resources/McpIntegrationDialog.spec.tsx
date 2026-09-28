@@ -630,8 +630,6 @@ describe("McpIntegrationDialog", () => {
 
     expect(builder.organizationScopeOnly).toBe(true);
 
-    // A brand-new account with no workspace is the reported case: the old code
-    // sent scope=user here and the server answered with a personal-scope error.
     act(() => {
       root.render(
         <TooltipProvider>
@@ -746,7 +744,6 @@ describe("McpIntegrationDialog", () => {
         ?.click();
     });
 
-    // Navigating would hand the user a raw server rejection instead.
     expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(
       "cannot be connected to just your account",
@@ -762,7 +759,6 @@ describe("McpIntegrationDialog", () => {
       (button) => button.textContent?.includes("Set up for workspace") ?? false,
     );
     expect(workspace).toBeTruthy();
-    // The form would expose a URL field and a personal scope toggle instead.
     expect(
       document.body.querySelector(
         'input[placeholder="https://example.com/agent-integration"]',
@@ -813,8 +809,6 @@ describe("McpIntegrationDialog", () => {
     renderCustomForm();
     openCustomFormWithBuilderUrl();
 
-    // buildMcpOAuthStartUrl forces org for this URL, so presenting "Personal"
-    // would create a workspace credential the admin did not consent to.
     const personalToggle = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Personal",
     );
@@ -834,8 +828,6 @@ describe("McpIntegrationDialog", () => {
         ?.click();
     });
 
-    // The org-only rule covers the shared OAuth grant, not a token the user
-    // supplies themselves, and the server allows this too.
     const personalToggle = [...document.body.querySelectorAll("button")].find(
       (button) => button.textContent === "Personal",
     );
@@ -848,8 +840,6 @@ describe("McpIntegrationDialog", () => {
     )!;
     const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
 
-    // McpConnectionSuggestion opens the dialog this way from the agent chat,
-    // which used to land on the form and submit scope=user.
     act(() => {
       root.render(
         <TooltipProvider>

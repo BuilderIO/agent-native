@@ -353,9 +353,6 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
       betaSourceBefore,
     );
 
-    // Clicking the Screen row before Delete is a selection-only history entry.
-    // Undo #2 reverses that click and restores the descendant selection while
-    // leaving the preceding text edit intact.
     await page.keyboard.press(MOD + "+z");
     const restoredSource = fileById(
       await readDesign(page, designId),
@@ -394,8 +391,6 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
       })
       .toEqual({ exactTarget: true });
 
-    // Undo #3 now reverses the style edit. Its selection remains the exact A
-    // descendant under the recreated file, not the Screen or B's same-ID node.
     await page.keyboard.press(MOD + "+z");
     await expect
       .poll(async () =>
@@ -650,9 +645,6 @@ test("sequential Screen deletion Undo preserves surviving variant order", async 
     if (!restoredCId) throw new Error("Undo did not restore C");
     await expect.poll(memberIds).toEqual([ids.b, restoredCId]);
 
-    // Selecting C's Screen row before deleting it is its own history entry.
-    // Undo #2 reverses that selection only; it must not remove C again or
-    // change the variant membership restored by Undo #1.
     await page.keyboard.press(MOD + "+z");
     await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
     await expect.poll(memberIds).toEqual([ids.b, restoredCId]);
@@ -670,7 +662,6 @@ test("sequential Screen deletion Undo preserves surviving variant order", async 
       designData(afterSelectionUndo).screenMetadata?.[restoredCId],
     ).toEqual(metadata.c);
 
-    // Undo #3 now reaches Delete A, the next older document history entry.
     await page.keyboard.press(MOD + "+z");
     let restoredAId: string | undefined;
     await expect

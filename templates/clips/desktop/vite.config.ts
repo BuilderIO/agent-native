@@ -61,22 +61,6 @@ function resolveSentryEnvironment(): string {
   );
 }
 
-// Tauri expects the frontend to be served from a fixed port during dev.
-// 1420 is the convention the Tauri docs use; we keep it here so
-// `tauri dev` and `vite dev` stay in sync out of the box.
-//
-// HMR notes for this project:
-// - We render four views from one bundle (popover + countdown + toolbar +
-//   bubble, picked in `src/main.tsx` via the URL hash). Each spawned
-//   WebView opens its own HMR WebSocket client against the same Vite
-//   dev server on 1420 — so we pin `server.hmr` explicitly to avoid
-//   Vite falling back to a random WS port that the second/third window
-//   can't reach.
-// - We tell Vite's file watcher to ignore `src-tauri/**` so Rust rebuilds
-//   (which touch `target/` + may rewrite `gen/`) don't trigger a Vite
-//   reload loop on top of the Tauri watcher restart. Tauri's own watcher
-//   still picks up `.rs` / `tauri.conf.json` / `capabilities/*.json`
-//   changes and rebuilds the app.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {

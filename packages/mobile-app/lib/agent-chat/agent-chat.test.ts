@@ -7,7 +7,6 @@ import {
 } from "./mention-query";
 import { extractThreadId, navigateCommandDedupKey } from "./navigate-command";
 import { applyWireEvent, cancelTurnState, initialTurnState } from "./reducer";
-import { reattachDroppedRun } from "./run-reattach";
 import { JsonEventStreamParser } from "./stream";
 import { groupThreadsByApp } from "./thread-grouping";
 import type { ChatThreadSummary, ChatTurnState, WireEvent } from "./types";
@@ -192,8 +191,6 @@ describe("applyWireEvent", () => {
     expect(state.errorCode).toBe("missing_api_key");
   });
 
-  // A session that expires mid-run arrives as a plain error event, not a 401,
-  // so without this the UI offers a Retry that can never succeed.
   it("classifies an expired session inside a run as an auth error", () => {
     for (const error of [
       "Unauthorized",
@@ -278,95 +275,6 @@ describe("isTerminalWireEvent", () => {
   });
 });
 
-describe("reattachDroppedRun", () => {
-  async function* events(...items: WireEvent[]): AsyncGenerator<WireEvent> {
-    for (const item of items) yield item;
-  }
-
-  it("resumes from lastSeq+1 and stops at the terminal event", async () => {
-    const applied: WireEvent[] = [];
-    const resumeCalls: number[] = [];
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: 4,
-      signal: new AbortController().signal,
-      apply: (event) => applied.push(event),
-      resume: async (_runId, after) => {
-        resumeCalls.push(after);
-        return {
-          events: events(
-            { type: "text", text: "tail", seq: 5 },
-            { type: "done", seq: 6 },
-          ),
-        };
-      },
-      delayMs: 0,
-    });
-    expect(resumeCalls).toEqual([5]);
-    expect(applied.map((e) => e.type)).toEqual(["text", "done"]);
-    expect(result).toEqual({ sawTerminal: true, lastSeq: 6 });
-  });
-
-  it("retries dropped resume streams and advances the cursor", async () => {
-    const resumeCalls: number[] = [];
-    let attempt = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: new AbortController().signal,
-      apply: () => {},
-      resume: async (_runId, after) => {
-        resumeCalls.push(after);
-        attempt++;
-        if (attempt === 1) {
-          return { events: events({ type: "text", text: "a", seq: 0 }) };
-        }
-        return { events: events({ type: "done", seq: 1 }) };
-      },
-      delayMs: 0,
-    });
-    expect(resumeCalls).toEqual([0, 1]);
-    expect(result.sawTerminal).toBe(true);
-  });
-
-  it("gives up after the attempt budget without a terminal event", async () => {
-    let calls = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: new AbortController().signal,
-      apply: () => {},
-      resume: async () => {
-        calls++;
-        throw new Error("unreachable server");
-      },
-      attempts: 3,
-      delayMs: 0,
-    });
-    expect(calls).toBe(3);
-    expect(result.sawTerminal).toBe(false);
-  });
-
-  it("stops immediately when aborted", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    let calls = 0;
-    const result = await reattachDroppedRun({
-      runId: "r1",
-      lastSeq: -1,
-      signal: controller.signal,
-      apply: () => {},
-      resume: async () => {
-        calls++;
-        return { events: events({ type: "done", seq: 0 }) };
-      },
-      delayMs: 0,
-    });
-    expect(calls).toBe(0);
-    expect(result.sawTerminal).toBe(false);
-  });
-});
-
 describe("groupThreadsByApp", () => {
   const thread = (
     id: string,
@@ -383,7 +291,6 @@ describe("groupThreadsByApp", () => {
   });
 
   it("groups threads under one header per app, preserving order", () => {
-    // Newest-first across apps (as listAllThreads returns).
     const rows = groupThreadsByApp([
       thread("t1", "dispatch", 300),
       thread("t2", "content", 200),
@@ -443,7 +350,6 @@ describe("activeMentionQuery", () => {
 
   it("only considers the fragment before the cursor", () => {
     const text = "a @one @two";
-    // Cursor sits after "on" inside the first mention.
     expect(activeMentionQuery(text, 5)).toEqual({
       query: "on",
       start: 2,

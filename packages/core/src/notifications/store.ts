@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -34,9 +34,6 @@ export async function ensureTable(): Promise<void> {
         `;
 
       {
-        // PG-guard: probe information_schema / pg_indexes first (no lock) and
-        // only issue DDL when the table/index is actually missing, wrapped in
-        // a transaction-scoped lock_timeout so a contended lock fails fast.
         await ensureTableExists("notifications", createSql);
         await ensureIndexExists(
           "idx_notifications_owner_unread",
@@ -45,9 +42,6 @@ export async function ensureTable(): Promise<void> {
         return;
       }
     })().catch((err) => {
-      // Reset on failure so a transient DB outage doesn't poison the cached
-      // promise and reject every future insert/list call for the lifetime of
-      // the process.
       _initPromise = undefined;
       throw err;
     });
@@ -82,6 +76,7 @@ export interface InsertNotificationInput {
   body?: string;
   metadata?: Record<string, unknown>;
   deliveredChannels?: string[];
+  idempotencyKey?: string;
 }
 
 export async function insertNotification(
@@ -89,12 +84,17 @@ export async function insertNotification(
 ): Promise<Notification> {
   await ensureTable();
   const client = getDbExec();
-  const id = randomUUID();
+  const id = input.idempotencyKey
+    ? `idem_${createHash("sha256")
+        .update(`${input.owner}\0${input.idempotencyKey}`)
+        .digest("hex")}`
+    : randomUUID();
   const createdAt = Date.now();
-  await client.execute({
+  const inserted = await client.execute({
     sql: `INSERT INTO notifications
       (id, owner, severity, title, body, metadata, delivered_channels, created_at, read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ${input.idempotencyKey ? "ON CONFLICT (id) DO NOTHING" : ""}`,
     args: [
       id,
       input.owner,
@@ -106,6 +106,18 @@ export async function insertNotification(
       createdAt,
     ],
   });
+  if (input.idempotencyKey && inserted.rowsAffected === 0) {
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM notifications WHERE id = ? AND owner = ? LIMIT 1`,
+      args: [id, input.owner],
+    });
+    if (!rows[0]) {
+      throw new Error(
+        "Idempotent notification insert conflicted without a row.",
+      );
+    }
+    return parseRow(rows[0]);
+  }
   bumpPoll(input.owner);
   return {
     id,
@@ -133,11 +145,8 @@ export async function updateDeliveredChannels(
 }
 
 export interface ListNotificationsOptions {
-  /** When true, only return unread (read_at IS NULL). */
   unreadOnly?: boolean;
-  /** Max rows to return. Default 50. */
   limit?: number;
-  /** ISO timestamp cursor — returns rows with created_at < cursor. */
   before?: string;
 }
 

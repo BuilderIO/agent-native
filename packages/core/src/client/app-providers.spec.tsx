@@ -99,20 +99,30 @@ afterEach(() => {
 function renderProviders(props: {
   isPublicPath?: boolean;
   sessionBypass?: boolean;
+  skipFirstRunOnboarding?: boolean;
   disableWebMcp?: boolean;
+  children?: React.ReactNode;
 }) {
+  const { children, ...providerProps } = props;
   act(() => {
     root.render(
       <AppProviders
         queryClient={new QueryClient()}
         i18n={false}
         toaster={null}
-        {...props}
+        {...providerProps}
       >
-        <div data-testid="app-content">content</div>
+        {children ?? <div data-testid="app-content">content</div>}
       </AppProviders>,
     );
   });
+}
+
+let statefulAppMounts = 0;
+
+function StatefulApp() {
+  const [mount] = React.useState(() => ++statefulAppMounts);
+  return <div data-testid="stateful-app">{mount}</div>;
 }
 
 function setupWebMcpManifest() {
@@ -125,10 +135,6 @@ function setupWebMcpManifest() {
     configurable: true,
     value: modelContext,
   });
-  // A fresh Response per call: a Response body can only be read once, and
-  // more than one surface (RuntimeConfigNotice, the deferred WebMCP
-  // registration) consumes this mock after the WebMCP start is deferred
-  // past first paint.
   const fetchMock = vi.fn(
     async () =>
       new Response(
@@ -149,9 +155,6 @@ function setupWebMcpManifest() {
   return { fetchMock, modelContext };
 }
 
-// `RequireSession` branches on `useSession().status`, not just `isLoading` —
-// every mock here must supply a status or the gate can neither redirect nor
-// hold the fallback consistently with the real hook.
 const SIGNED_OUT_SESSION = {
   session: null,
   isLoading: false,
@@ -222,8 +225,6 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('script[data-agent-native-beta-redirect="1"]'),
     ).toBeNull();
-    // WebMCP registration reads the session to skip signed-out visitors, but
-    // no gate here redirects and no RequireSession fallback holds content.
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
@@ -266,8 +267,6 @@ describe("AppProviders session gate", () => {
     expect(
       container.querySelector('[data-testid="app-content"]'),
     ).not.toBeNull();
-    // The non-persisting runtime never mounts the session hook, and with
-    // WebMCP disabled nothing else resolves the session on a public path.
     expect(useSessionMock).not.toHaveBeenCalled();
   });
 
@@ -298,8 +297,6 @@ describe("AppProviders session gate", () => {
     renderProviders({ isPublicPath: true });
 
     await vi.waitFor(() => {
-      // The registration resolves the shared session first, so a signed-out
-      // visitor never logs the manifest 401.
       expect(useSessionMock).toHaveBeenCalled();
     });
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -340,9 +337,6 @@ describe("AppProviders session gate", () => {
 
     renderProviders({ isPublicPath: true });
 
-    // Wait past the paint-aligned window: the manifest route needs a
-    // session, so an unreadable session waits instead of firing a request
-    // that can only fail.
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -426,6 +420,41 @@ describe("AppProviders session gate", () => {
     ).toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session gate when a route skips first-run onboarding", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+    expect(useSessionMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
+    );
+  });
+
+  it("preserves app state when a route toggles onboarding suppression", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    statefulAppMounts = 0;
+
+    renderProviders({
+      skipFirstRunOnboarding: false,
+      children: <StatefulApp />,
+    });
+    const mount = container.querySelector(
+      '[data-testid="stateful-app"]',
+    )?.textContent;
+
+    renderProviders({
+      skipFirstRunOnboarding: true,
+      children: <StatefulApp />,
+    });
+
+    expect(
+      container.querySelector('[data-testid="stateful-app"]')?.textContent,
+    ).toBe(mount);
+    expect(statefulAppMounts).toBe(1);
   });
 
   it("registers WebMCP actions on token-authenticated private surfaces", async () => {

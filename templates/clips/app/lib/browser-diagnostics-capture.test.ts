@@ -38,9 +38,6 @@ describe("browser diagnostics capture", () => {
   });
 
   it("records an opaque fetch response's status as undefined, not 0", async () => {
-    // A no-cors/opaque response reports status 0 and statusText "" — not
-    // constructible via `new Response()`, so stub window.fetch directly with
-    // a Response-shaped value the way the browser would deliver one.
     const originalFetch = window.fetch;
     window.fetch = (() =>
       Promise.resolve({

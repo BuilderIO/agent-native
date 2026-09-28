@@ -1,6 +1,4 @@
-export function shouldEnableBrainProviderStatusChecks(
-  builderConfigured: boolean,
-  builderStatusStale: boolean,
-): boolean {
-  return !builderConfigured || builderStatusStale;
+export function shouldEnableBrainProviderStatusChecks(): boolean {
+  // Builder's broader configured flag does not establish chat eligibility.
+  return true;
 }

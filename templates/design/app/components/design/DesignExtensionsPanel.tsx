@@ -1,3 +1,8 @@
+import {
+  BuilderSetupCard,
+  useAgentEngineConfigured,
+  type AgentEngineConfiguredState,
+} from "@agent-native/core/client/agent-chat";
 // i18n-raw-literal-disable-file — new Design Studio panel; UI strings are localized when this feature is finalized in the follow-up PR.
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
@@ -63,8 +68,6 @@ import type { ElementInfo } from "./types";
 
 export const DESIGN_EDITOR_EXTENSION_SLOT_ID = "design.editor.inspector";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 interface SlotInstall {
   installId: string;
   extensionId: string;
@@ -128,8 +131,6 @@ interface DesignExtensionsPanelProps {
 
 type CreateExtensionSubmitHandler = (text: string) => void;
 
-// ─── First-party extension ids ───────────────────────────────────────────────
-
 type FirstPartyExtId =
   | "design.asset-library"
   | "design.shader-fills"
@@ -148,8 +149,6 @@ type FirstPartyRow = {
   badge?: React.ReactNode;
   panel: React.ReactNode;
 };
-
-// ─── Assets picker types (mirrors PromptDialog) ───────────────────────────
 
 const DEFAULT_ASSETS_PICKER_URL =
   "https://assets.agent-native.com/library?__an_picker=1&mediaType=image&layout=vertical";
@@ -208,8 +207,6 @@ function pickedAssetImageSource(payload: unknown): string | null {
   );
 }
 
-// ─── Build extension create context ──────────────────────────────────────────
-
 function buildExtensionCreateContext(
   prompt: string,
   context: DesignExtensionSlotContext,
@@ -260,8 +257,6 @@ function buildExtensionCreateContext(
   ].join("\n");
 }
 
-// ─── Hooks ───────────────────────────────────────────────────────────────────
-
 function useSlotInstalls(slotId: string) {
   const versions = useChangeVersions(["action"]);
   return useQuery<SlotInstall[]>({
@@ -272,9 +267,6 @@ function useSlotInstalls(slotId: string) {
           `/_agent-native/slots/${encodeURIComponent(slotId)}/installs`,
         ),
       );
-      // Surface fetch failures as a query error instead of swallowing them as
-      // an empty list — an empty list renders identically to "nothing
-      // installed", which hides real server/network errors from the user.
       if (!res.ok) {
         throw new Error(`Failed to load installed extensions: ${res.status}`);
       }
@@ -294,8 +286,6 @@ function useAvailableExtensions(slotId: string, enabled: boolean) {
           `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
         ),
       );
-      // See the matching note in useSlotInstalls above — don't mask a fetch
-      // failure as "no extensions available".
       if (!res.ok) {
         throw new Error(`Failed to load available extensions: ${res.status}`);
       }
@@ -306,20 +296,6 @@ function useAvailableExtensions(slotId: string, enabled: boolean) {
   });
 }
 
-/**
- * POSTs the install request for `extensionId` and waits for both the
- * "installed" and "available" slot queries to fully refetch before
- * resolving.
- *
- * Exported so a test can verify the ordering directly: the previous
- * implementation invalidated the queries without awaiting them, so the
- * component's `finally` block re-enabled the Install button (by clearing
- * `installingId`) while the "Available" list still listed the
- * just-installed extension — a race that let a fast double-click fire a
- * second install request before the list caught up. Awaiting here means the
- * caller doesn't regain control (and hasn't cleared its "installing" state)
- * until the lists are provably current.
- */
 export async function installExtensionRequest(
   slotId: string,
   extensionId: string,
@@ -347,8 +323,6 @@ export async function installExtensionRequest(
     }),
   ]);
 }
-
-// ─── First-party extension rows ───────────────────────────────────────────────
 
 interface FirstPartyRowProps {
   id: FirstPartyExtId;
@@ -445,21 +419,9 @@ function ToolFilterMenu<T extends string>({
   );
 }
 
-// ─── Asset Library panel ──────────────────────────────────────────────────────
-
-/**
- * Result of converting a viewport (`clientX`/`clientY`) drop point into a
- * specific screen's own content-px coordinate space — the space
- * insert-design-native-asset's `x`/`y`/`screenId` parameters expect (same
- * convention as committed canvas-primitive geometry; see that action's
- * schema doc for the exact contract).
- */
 export interface ResolvedScreenDropPoint {
-  /** Screen/design-file id the point resolved onto. */
   screenId: string;
-  /** x in that screen's own content px (not viewport/client px). */
   x: number;
-  /** y in that screen's own content px (not viewport/client px). */
   y: number;
 }
 
@@ -690,14 +652,6 @@ export function AssetLibraryPanel({
         toast.error("Open a design screen first to insert assets.");
         return;
       }
-      // insert-design-native-asset's schema now accepts x/y (screen-content
-      // px) and an optional screenId target directly — see that action's
-      // isUsableDropPosition for the exact "both x and y, non-negative"
-      // usability contract a caller-supplied position must meet, and this
-      // component's resolveScreenPoint prop doc above for how dropPosition
-      // gets its coordinate space (converted screen-content px when the host
-      // supplies resolveScreenPoint, otherwise the raw viewport point as an
-      // inert-but-harmless fallback).
       insertNativeAsset.mutate(
         {
           kind: asset.kind,
@@ -755,14 +709,6 @@ export function AssetLibraryPanel({
     event.preventDefault();
     event.stopPropagation();
     if (!draggedNativeAsset) return;
-    // Convert the viewport drop point into a specific screen's own
-    // content-px coordinates via the optional resolveScreenPoint prop (see
-    // its doc comment above for the exact contract). Without that prop, fall
-    // back to sending the raw viewport point with no screenId — the behavior
-    // this drop handler historically
-    // had, and still safe: insert-design-native-asset's isUsableDropPosition
-    // only requires non-negative finite numbers, so an unconverted point is
-    // never rejected, just imprecise (see that action's fallback doc).
     const resolved = resolveScreenPoint?.({
       clientX: event.clientX,
       clientY: event.clientY,
@@ -1113,8 +1059,6 @@ export function AssetLibraryPanel({
   );
 }
 
-// ─── Shader Fills panel ───────────────────────────────────────────────────────
-
 interface ShaderFillsExtPanelProps {
   context: DesignExtensionSlotContext;
 }
@@ -1142,14 +1086,9 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
     context.onShaderFillPreviewClear?.();
     setShowShaders(false);
   };
-  // The most recently previewed descriptor — Apply persists exactly this one,
-  // so the write is intentional (one atomic call) rather than firing on every
-  // slider tweak.
   const [previewed, setPreviewed] = useState<PreviewedShaderFill | null>(null);
   const applyShaderFill = useActionMutation("apply-shader-fill");
 
-  // The persisting apply path needs an HTML file plus a target element. Without
-  // a selected element we can still preview, but we cannot write a fill.
   const targetNodeId = context.selectedElement?.sourceId ?? undefined;
   const targetSelector = context.selectedElement?.selector ?? undefined;
   const canPersist = Boolean(
@@ -1269,10 +1208,6 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
     <div className="flex flex-col">
       <ShaderFillsPanel
         onApply={(descriptor, css) => {
-          // Preview only: ShaderFillsPanel fires apply-shader (planning/codegen)
-          // for agent context on every tune and the iframe shows the gradient.
-          // We just record the latest descriptor here; the explicit Apply
-          // button below performs the single intentional persist write.
           setPreviewed({
             descriptor,
             fileId: context.activeFileId || undefined,
@@ -1322,8 +1257,6 @@ function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
   );
 }
 
-// ─── Token Auditor panel ─────────────────────────────────────────────────────
-
 interface TokenAuditorPanelProps {
   context: DesignExtensionSlotContext;
 }
@@ -1371,8 +1304,6 @@ function TokenAuditorPanel({ context }: TokenAuditorPanelProps) {
     </div>
   );
 }
-
-// ─── Motion Presets panel ─────────────────────────────────────────────────────
 
 interface MotionPresetsPanelProps {
   context: DesignExtensionSlotContext;
@@ -1427,8 +1358,6 @@ function MotionPresetsPanel({ context }: MotionPresetsPanelProps) {
   );
 }
 
-// ─── Main panel ──────────────────────────────────────────────────────────────
-
 export function DesignExtensionsPanel({
   context,
   className,
@@ -1438,6 +1367,8 @@ export function DesignExtensionsPanel({
 }: DesignExtensionsPanelProps) {
   const t = useT();
   const queryClient = useQueryClient();
+  const providerStatus = useAgentEngineConfigured();
+  const providerReady = providerStatus.state === "configured";
   const [createOpen, setCreateOpen] = useState(false);
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1467,7 +1398,14 @@ export function DesignExtensionsPanel({
     setOpenFirstParty((prev) => (prev === id ? null : id));
   };
 
+  const refreshProviderStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
+
   const submitCreatePrompt: CreateExtensionSubmitHandler = (text: string) => {
+    if (!providerReady) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     sendToDesignAgentChat({
@@ -1496,7 +1434,6 @@ export function DesignExtensionsPanel({
     }
   };
 
-  // First-party extension row config
   const allFirstPartyRows: FirstPartyRow[] = [
     {
       id: "design.asset-library",
@@ -1589,6 +1526,9 @@ export function DesignExtensionsPanel({
             open={createOpen}
             onOpenChange={setCreateOpen}
             onSubmit={submitCreatePrompt}
+            providerStatus={providerStatus.state}
+            onProviderConnected={refreshProviderStatus}
+            onRetryProvider={refreshProviderStatus}
           />
         ) : null}
       </div>
@@ -1754,23 +1694,28 @@ export function DesignExtensionsPanel({
   );
 }
 
-// ─── Create extension popover ─────────────────────────────────────────────────
-
 function CreateExtensionPopover({
   open,
   onOpenChange,
   onSubmit,
+  providerStatus,
+  onProviderConnected,
+  onRetryProvider,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: CreateExtensionSubmitHandler;
+  providerStatus: AgentEngineConfiguredState;
+  onProviderConnected: () => void;
+  onRetryProvider: () => void;
 }) {
   const t = useT();
   const [draft, setDraft] = useState("");
-  const canSubmit = draft.trim().length > 0;
+  const providerReady = providerStatus === "configured";
+  const canSubmit = providerReady && draft.trim().length > 0;
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!providerReady || !canSubmit) return;
     onSubmit(draft);
     setDraft("");
   };
@@ -1789,37 +1734,61 @@ function CreateExtensionPopover({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-80 p-3">
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <p className="px-0.5 text-sm font-semibold text-foreground">
-            {t("designEditor.extensionsPromptTitle")}
-          </p>
-          <Textarea
-            autoFocus
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={t("designEditor.extensionsPlaceholder")}
-            className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 px-3"
-              onClick={() => onOpenChange(false)}
+        <div className="space-y-3">
+          {providerReady ? null : providerStatus === "missing" ? (
+            <BuilderSetupCard
+              fullWidth
+              layout="sidebar"
+              onConnected={onProviderConnected}
+            />
+          ) : (
+            <div
+              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
+              role="status"
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              className="h-8 px-3"
-              disabled={!canSubmit}
-            >
-              Create
-            </Button>
-          </div>
-        </form>
+              <span>
+                {providerStatus === "unknown"
+                  ? t("agentChat.setup.checkingProvider")
+                  : t("agentChat.setup.providerStatusUnavailable")}
+              </span>
+              {providerStatus === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={onRetryProvider}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <p className="px-0.5 text-sm font-semibold text-foreground">
+              {t("designEditor.extensionsPromptTitle")}
+            </p>
+            <Textarea
+              autoFocus
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={t("designEditor.extensionsPlaceholder")}
+              disabled={!providerReady}
+              className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" disabled={!canSubmit}>
+                Create
+              </Button>
+            </div>
+          </form>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -279,6 +279,8 @@ export default {
     untitledAnalysis: "未命名分析",
   },
   settings: {
+    agentObservability: "代理可觀測性",
+    reviewPreviewUnavailable: "無法預覽",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",
@@ -296,6 +298,9 @@ export default {
     bellSound: "提示音",
     bellSoundDescription: "代理完成工作時播放提示音。預設為關閉。",
     bellSoundSaveFailed: "無法儲存提示音偏好設定。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "電子郵件",
+    notificationsSoundGroup: "聲音",
     replayStorage: "工作階段回放儲存",
     replayStorageDescription:
       "工作階段回放錄製需要已設定的檔案上傳供應商。連線 Builder.io 以使用免費方案的物件儲存，或使用您自己的 S3 相容儲存桶。",
@@ -902,6 +907,10 @@ export default {
     recentSales: "最近銷售",
     recentSalesDescription: "你本月完成了 265 筆銷售。",
   },
+  analysisResult: {
+    title: "分析結果",
+    comparisonContext: "{{period}}：{{current}}，先前為 {{previous}}",
+  },
   routeTitles: {
     notFound: "未找到 - Analytics",
     analysis: "分析 - Analytics",
@@ -1329,6 +1338,7 @@ export default {
     app: "應用",
     unknownApp: "未知應用",
     lastSeen: "最後出現",
+    includeZeroMinuteSessions: "包含 0 分鐘的工作階段",
     duration: "持續時間",
     events: "事件",
     chunks: "分塊",

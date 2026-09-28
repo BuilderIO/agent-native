@@ -17,8 +17,23 @@ describe("Design template presets", () => {
         ["ad", 1200, 628],
         ["one-pager", 816, 1056],
         ["landing-page", 1440, 1024],
+        ["landing-page", 1440, 2464],
+        ["social", 1080, 1920],
+        ["presentation", 1920, 1080],
+        ["other", 1200, 1600],
       ]),
     );
+    expect(
+      new Set(DESIGN_TEMPLATE_PRESETS.map((preset) => preset.id)).size,
+    ).toBe(DESIGN_TEMPLATE_PRESETS.length);
+    expect(
+      DESIGN_TEMPLATE_PRESETS.slice(-4).map((preset) => preset.id),
+    ).toEqual([
+      "preset-social-square",
+      "preset-display-ad",
+      "preset-one-pager",
+      "preset-landing-page",
+    ]);
     for (const preset of DESIGN_TEMPLATE_PRESETS) {
       expect(countLockedLayers(preset.content)).toBe(2);
       expect(preset.content).toMatch(

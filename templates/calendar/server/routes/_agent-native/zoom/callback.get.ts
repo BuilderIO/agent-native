@@ -6,14 +6,6 @@ import {
   resolveOAuthOwner,
   oauthErrorPage,
 } from "@agent-native/core/server";
-/**
- * Zoom OAuth callback.
- *
- * Zoom redirects the browser here with `?code=...&state=...` after the
- * user grants consent. We exchange the code for tokens and persist them
- * in core's `oauth_tokens` (provider="zoom_video", account_id=zoom user
- * id, owner=session email).
- */
 import {
   defineEventHandler,
   getQuery,

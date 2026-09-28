@@ -21,6 +21,14 @@ const legacyAutomationAction = readFileSync(
   `${mailRoot}actions/manage-automations.ts`,
   "utf8",
 );
+const refineAiFilterAction = readFileSync(
+  `${mailRoot}actions/refine-ai-filter.ts`,
+  "utf8",
+);
+const priorityFeedbackAction = readFileSync(
+  `${mailRoot}actions/record-ai-priority-feedback.ts`,
+  "utf8",
+);
 const agentChat = readFileSync(
   `${mailRoot}server/plugins/agent-chat.ts`,
   "utf8",
@@ -32,6 +40,7 @@ describe("Mail agent guidance", () => {
       /const INITIAL_TOOL_NAMES = \[[\s\S]*"manage-automations",/,
     );
     expect(agentChat).toContain('"manage-email-rules",');
+    expect(agentChat).toContain('"apply-ai-filter",');
   });
 
   it("keeps recurring automations separate from inbox rules", () => {
@@ -54,6 +63,30 @@ describe("Mail agent guidance", () => {
       "`manage-email-rules` / `trigger-automations`",
     );
     expect(inboxAutomationSkill).toContain("`manage-email-rules`");
+  });
+
+  it("exposes Mail AI rule refinement and priority feedback in chat", () => {
+    expect(agentChat).toContain('"refine-ai-filter",');
+    expect(agentChat).toContain('"record-ai-priority-feedback",');
+    expect(refineAiFilterAction).toContain("agentTool: true");
+    expect(priorityFeedbackAction).toContain("agentTool: true");
+    expect(agentChat).toContain(
+      "automatically apply to up to 200 recent Inbox threads",
+    );
+    expect(agentChat).toMatch(/report a queued run as queued/i);
+    expect(agentChat).toContain('mode "important"');
+    expect(agentChat).toContain('mode "filter"');
+    expect(inboxAutomationSkill).toContain("`kind=ai-filter`");
+    expect(inboxAutomationSkill).toContain('`mode: "tag" | "important"');
+    expect(agentChat).toContain(
+      'mode "tag", "important", "filter", or "archive"',
+    );
+    expect(agentChat).toContain('"filter out messages like this"');
+    expect(inboxAutomationSkill).toContain("`agent-native-important`");
+    expect(inboxAutomationSkill).toContain("`agent-native-filtered`");
+    expect(inboxAutomationSkill).toContain("`appliedCounts: null`");
+    expect(inboxAutomationSkill).toContain("`refine-ai-filter`");
+    expect(agentGuide).toContain("`record-ai-priority-feedback`");
   });
 
   it("routes durable writing-style changes through settings, not drafts", () => {

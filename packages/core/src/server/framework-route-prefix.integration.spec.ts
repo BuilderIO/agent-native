@@ -1,12 +1,3 @@
-/**
- * The public framework route prefix, exercised through the real request
- * boundary: the actual core-routes plugin, the actual action mounting, the
- * CSRF middleware `getH3App()` registers, and the middleware chain Nitro
- * dispatches. A unit test of the path helpers proves the arithmetic; this
- * proves a deployment configured with `/_platform` serves actions and the
- * event stream there, classifies CSRF on that namespace, and no longer
- * answers on `/_agent-native`.
- */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,10 +17,6 @@ vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 
-// The event stream resolves its caller through Better Auth's cookie session.
-// Minting a real one needs the auth plugin and an email round-trip that add
-// nothing to what is under test here, so only the session lookup is stubbed:
-// the boundary, the route, and the CSRF middleware stay real.
 vi.mock("./auth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./auth.js")>();
   return {
@@ -173,7 +160,6 @@ describe("public framework route prefix through the real request boundary", () =
     createActionsPlugin()(nitroApp);
     const corePluginDone = createCoreRoutesPlugin()(nitroApp);
 
-    // A first-party JSON POST reaches the real action under the public name.
     await expect(
       dispatch(nitroApp, "/_platform/actions/host-echo", {
         method: "POST",
@@ -185,8 +171,6 @@ describe("public framework route prefix through the real request boundary", () =
       body: { ok: true, params: { value: "ok" } },
     });
 
-    // The CSRF classifier sees the internal name after the boundary, so a
-    // cookie-carrying simple request is still refused on the public prefix.
     await expect(
       dispatch(nitroApp, "/_platform/actions/host-echo", {
         method: "POST",
@@ -195,8 +179,6 @@ describe("public framework route prefix through the real request boundary", () =
       }),
     ).resolves.toMatchObject({ status: 403 });
 
-    // The internal name is retired: it neither serves nor falls through to
-    // whatever the app mounts after the framework.
     await expect(
       dispatch(nitroApp, "/_agent-native/actions/host-echo", {
         method: "POST",
@@ -205,21 +187,16 @@ describe("public framework route prefix through the real request boundary", () =
       }),
     ).resolves.toMatchObject({ status: 404, body: { error: "Not found" } });
 
-    // A framework document with a file extension reaches the handler rather
-    // than a static-file layer: the speculation rules the SSR shell requests.
     const rules = await dispatch(nitroApp, "/_platform/speculation-rules.json");
     expect(rules.body).not.toEqual({ fellThrough: true });
     expect(rules.status).toBe(200);
 
-    // Protected routes stay protected under the public prefix: the change
-    // event stream refuses an anonymous request...
     await expect(
       dispatch(nitroApp, "/_platform/events", {
         headers: { accept: "text/event-stream" },
       }),
     ).resolves.toMatchObject({ status: 401 });
 
-    // ...and streams for a member, through the same boundary.
     const events = await dispatch(nitroApp, "/_platform/events", {
       headers: { accept: "text/event-stream", cookie: "an_session=member" },
     });
@@ -232,8 +209,6 @@ describe("public framework route prefix through the real request boundary", () =
       status: 200,
       contentType: expect.stringContaining("text/event-stream"),
     });
-    // The stream has to be released either way: its heartbeat interval keeps
-    // the process alive until the reader goes away.
     const streamBody = stream instanceof Response ? stream.body : stream;
     if (streamBody instanceof ReadableStream) await streamBody.cancel();
 

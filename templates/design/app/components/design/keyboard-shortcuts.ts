@@ -40,19 +40,10 @@ const shortcut = (
   definition: DesignShortcutDefinition,
 ): DesignShortcutDefinition => definition;
 
-/**
- * The user-facing Design shortcut catalog. Every row is tied to a real
- * UseDesignHotkeys handler so the panel cannot quietly advertise a command the
- * canvas does not dispatch. Code-workbench bindings are appended from its own
- * command registry by KeyboardShortcutsPanel.
- */
 export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "show-shortcuts",
     category: "essential",
-    // Literal ctrl, not $mod: on macOS ⌘⇧? is the system Help-menu shortcut and
-    // the browser consumes it before the page sees it, so ⌃⇧? is the only
-    // pressable binding there. Do not "fix" this to $mod.
     bindings: ["ctrl+shift+?"],
     labelKey: "designEditor.keyboardShortcuts.commands.showShortcuts",
     handler: "onShowKeyboardShortcuts",
@@ -82,7 +73,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "frame-tool",
     category: "tools",
-    // Figma binds both to the frame tool; A is the one long-time users reach for.
     bindings: ["f", "a"],
     labelKey: "designEditor.keyboardShortcuts.commands.frameTool",
     handler: "onFrameTool",
@@ -173,8 +163,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "toggle-layout-grids",
     category: "view",
-    // Literal ctrl, not $mod: Figma uses Control G on Mac and Ctrl Shift 4 on
-    // Windows for this one, so Cmd must not trigger it.
     bindings: ["ctrl+g", "ctrl+shift+4"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleLayoutGrids",
     handler: "onToggleLayoutGrids",
@@ -448,8 +436,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "eyedropper",
     category: "edit",
-    // Apple platforms also accept literal ctrl+c; only the cross-platform
-    // binding is advertised so the row reads the same everywhere.
     bindings: ["i"],
     labelKey: "designEditor.keyboardShortcuts.commands.eyedropper",
     handler: "onEyedropper",
@@ -592,9 +578,6 @@ export function formatShortcutKeycaps(
     if (held("shift")) keycaps.push("⇧");
     if (held("$mod")) keycaps.push("⌘");
   } else {
-    // Windows/Linux read Ctrl, Alt, Shift — the reverse of the Mac ⌃⌥⇧⌘ run.
-    // `$mod` and a literal `ctrl` are the same key here, so collapse them or a
-    // ctrl-plus-$mod binding renders "Ctrl+Ctrl".
     if (held("$mod") || held("ctrl")) keycaps.push("Ctrl");
     if (held("alt")) keycaps.push("Alt");
     if (held("shift")) keycaps.push("Shift");
@@ -603,9 +586,6 @@ export function formatShortcutKeycaps(
   return keycaps;
 }
 
-/** One-line menu/tooltip hint, spelled in the viewer's own modifier glyphs.
- *  Menus must build hints through this — a Mac glyph written into source
- *  renders verbatim to Windows users. */
 export function formatShortcutLabel(
   binding: string,
   applePlatform: boolean,

@@ -123,7 +123,6 @@ export function Scrubber(props: ScrubberProps) {
   const commentsByMs = useMemo(() => {
     const map = new Map<number, CommentPreviewData[]>();
     (comments ?? []).forEach((c) => {
-      // Bucket by 500ms so overlapping comments cluster.
       const key = timelineMarkerMs(c.videoTimestampMs);
       const list = map.get(key) ?? [];
       list.push({

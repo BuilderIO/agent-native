@@ -12,15 +12,9 @@ export interface ChatFirstChatHistoryProps extends Omit<
 > {
   items: ChatHistoryItem[];
   label?: ReactNode;
-  /** Optional contextual actions for the Chats section header. */
   headerAction?: ReactNode;
 }
 
-/**
- * The single chat-list presentation used by the chat-first rail on every
- * host. Hosts still own thread fetching and actions, but row rhythm and the
- * Chats section treatment stay identical.
- */
 export function ChatFirstChatHistory({
   items,
   label = "Chats",

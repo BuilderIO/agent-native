@@ -1,22 +1,3 @@
-/**
- * Make recorded video seekable so browsers can start playback immediately and
- * scrub without re-buffering the whole file.
- *
- * Two problems this fixes, both produced by `MediaRecorder` output:
- *   - MP4: the `moov` metadata atom is written AFTER `mdat`, so a player must
- *     download the entire file before it can start / seek. We relocate it with
- *     the pure-TypeScript {@link applyFaststart} (no ffmpeg needed).
- *   - WebM: MediaRecorder emits a "live" stream with no Cues (seek index) and an
- *     unknown Segment duration, so Chrome refuses to honor `currentTime = X`
- *     seeks and has to scan/download to move around. A cheap `ffmpeg -c copy`
- *     remux rewrites the container with a SeekHead + Cues index and a real
- *     duration — no re-encode, so it's fast and lossless.
- *
- * Everything here is best-effort: on any failure (ffmpeg missing, bad input,
- * timeout) we return the ORIGINAL bytes with `changed: false`, so callers never
- * regress relative to uploading the raw recording.
- */
-
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -29,7 +10,6 @@ import { applyFaststart, hasPlayableMp4Metadata } from "./faststart.js";
 const REMUX_TIMEOUT_MS = 120_000;
 const STDERR_LIMIT = 16 * 1024;
 const MAX_CONCURRENT_REMUXES = 2;
-// EBML magic that every valid Matroska/WebM file starts with.
 const EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
 
 const requireFromThisFile = createRequire(import.meta.url);
@@ -40,19 +20,10 @@ const remuxWaiters: Array<() => void> = [];
 export type VideoFormat = "webm" | "mp4";
 
 export interface SeekableResult {
-  /** The seekable bytes, or the original bytes when nothing changed. */
   bytes: Uint8Array;
-  /** True when the returned bytes differ from the input. */
   changed: boolean;
 }
 
-/**
- * Build the ffmpeg command used by the explicit sparse-timeline repair path.
- * The `fps` filter emits a constant frame rate, duplicating the most recent
- * decoded frame across timestamp gaps while audio is mapped through and
- * transcoded independently. H.264/AAC plus faststart gives mobile browsers a
- * broadly playable result.
- */
 export function timelineNormalizationFfmpegArgs(
   inputPath: string,
   outputPath: string,
@@ -116,7 +87,6 @@ function resolveFfmpegStaticPath(): string | null {
   return cachedFfmpegStaticPath;
 }
 
-/** Whether a server-side ffmpeg binary is resolvable. */
 export function isFfmpegAvailable(): boolean {
   return (
     spawnSync(resolveFfmpegCommand(), ["-version"], {
@@ -167,20 +137,6 @@ export async function runFfmpeg(
   });
 }
 
-/**
- * Run ffmpeg and report how far through it is.
- *
- * ffmpeg will describe its own progress on a pipe if asked (`-progress`), in
- * `key=value` lines, of which `out_time_us` is the one worth reading: how much
- * of the output has been written. Against a known duration that is a
- * percentage — and a re-encode of a long clip is several minutes of a person
- * wondering whether anything is happening.
- *
- * The fraction is monotonic and capped just below 1: the last frames, the
- * container being finalised and the upload all happen after ffmpeg stops
- * counting, and a bar that sits at 100% for thirty seconds is worse than one
- * that sits at 99%.
- */
 export async function runFfmpegWithProgress(
   args: string[],
   options: {
@@ -246,17 +202,8 @@ export async function runFfmpegWithProgress(
 }
 
 const PROBE_TIMEOUT_MS = 20_000;
-// Demuxer stream listing happens at container-open time regardless of how
-// much we ask ffmpeg to process, so bounding the probe to a fraction of a
-// second of stream-copy keeps this cheap even for multi-gigabyte recordings.
 const PROBE_DURATION_SECONDS = "0.1";
 
-/**
- * Best-effort probe for whether a media file has at least one audio stream.
- * Returns `null` (unknown) when ffmpeg is unavailable or the probe itself
- * fails — callers should treat `null` as "couldn't verify" and skip any
- * check that depends on the answer, never as "no audio".
- */
 export async function probeHasAudioStream(
   mediaBytes: Uint8Array,
   extension: "webm" | "mp4",
@@ -295,11 +242,6 @@ export async function probeHasAudioStream(
         reject(new Error(`ffmpeg audio probe timed out\n${buf}`));
       }, PROBE_TIMEOUT_MS);
       child.stderr?.on("data", (chunk: Buffer) => {
-        // Keep the HEAD of stderr, not the tail: ffmpeg prints the input
-        // stream listing (what we grep for below) at container-open time,
-        // before any per-frame warnings. Unlike `runFfmpeg`'s error-diagnostic
-        // tail-window, truncating from the end here risks scrolling the
-        // `Stream #...: Audio:` line out of the buffer on a warning-heavy input.
         if (buf.length < STDERR_LIMIT) {
           buf += chunk.toString("utf8");
         }
@@ -309,20 +251,10 @@ export async function probeHasAudioStream(
         reject(new Error(`${err.message}\n${buf}`));
       });
       child.on("close", () => {
-        // A non-zero exit is expected here for some malformed/edge inputs
-        // even when the stream listing itself printed fine — this is a
-        // probe, not a correctness check, so we still inspect stderr for
-        // the stream listing rather than rejecting on exit code.
         clearTimeout(timeout);
         resolve(buf);
       });
     });
-    // Require positive proof the demuxer actually opened the container
-    // (found at least one stream of any kind) before trusting a "no audio"
-    // reading — an unreadable/corrupt file (bad data, unknown format) also
-    // prints no `Stream #...: Audio:` line, but that means "couldn't verify",
-    // not "confirmed no audio". Only a file ffmpeg could actually demux earns
-    // a definite `false`.
     if (!/Stream #\d+:\d+/i.test(stderr)) return null;
     return /Stream #\d+:\d+.*: ?Audio:/i.test(stderr);
   } catch (err) {
@@ -335,28 +267,12 @@ export async function probeHasAudioStream(
   }
 }
 
-/**
- * Read a file's duration in milliseconds, best-effort. `null` means "could not
- * tell", never "zero" — callers use this to check that a re-encode did not
- * silently truncate, and an unreadable probe must not be mistaken for a
- * truncated file.
- */
 export interface ProbedMediaInfo {
-  /** Real duration of the file, not what the client reported at finalize. */
   durationMs: number | null;
   width: number | null;
   height: number | null;
 }
 
-/**
- * Read a file's header with ffmpeg and return what it actually says.
- *
- * Both values are worth having from the file rather than the row: `durationMs`
- * is client-reported at finalize and is unreliable for MediaRecorder webm, and
- * `recordings.width` defaults to 0. Anything that sizes an overlay or clips a
- * time range off those columns can be wrong in a way that silently leaves
- * pixels on show.
- */
 export async function probeMediaInfo(
   mediaBytes: Uint8Array,
   extension: "webm" | "mp4",
@@ -382,15 +298,12 @@ export async function probeMediaInfo(
         reject(new Error("ffmpeg media probe timed out"));
       }, PROBE_TIMEOUT_MS);
       child.stderr?.on("data", (chunk: Buffer) => {
-        // The header, like the audio probe: `Duration:` and the stream table
-        // are printed when the container opens, before anything else.
         if (buf.length < STDERR_LIMIT) buf += chunk.toString("utf8");
       });
       child.on("error", (err) => {
         clearTimeout(timeout);
         reject(err);
       });
-      // Listing the input with no output is an error exit by design.
       child.on("close", () => {
         clearTimeout(timeout);
         resolve(buf);
@@ -409,7 +322,6 @@ export async function probeMediaInfo(
         )
       : null;
 
-    // e.g. `Stream #0:0(eng): Video: vp9 ..., yuv420p, 1920x1080, ...`
     const sizeMatch = /Video:[^\n]*?,\s*(\d{2,5})x(\d{2,5})/i.exec(stderr);
     const width = sizeMatch ? Number(sizeMatch[1]) : null;
     const height = sizeMatch ? Number(sizeMatch[2]) : null;
@@ -436,11 +348,6 @@ export async function probeDurationMs(
   return (await probeMediaInfo(mediaBytes, extension)).durationMs;
 }
 
-/**
- * Bound concurrent ffmpeg invocations process-wide. Every ffmpeg caller must go
- * through this, including non-remux jobs — the limit protects the box, not the
- * remux path specifically.
- */
 export async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
   if (activeRemuxes >= MAX_CONCURRENT_REMUXES) {
     await new Promise<void>((resolve) => remuxWaiters.push(resolve));
@@ -454,12 +361,6 @@ export async function withRemuxSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * Rewrite a WebM/Matroska file with a SeekHead + Cues index and a real
- * duration via a lossless `ffmpeg -c copy` remux. Returns the original bytes
- * unchanged when ffmpeg is unavailable, the input isn't WebM, or anything
- * goes wrong.
- */
 export async function remuxWebmToSeekable(
   mediaBytes: Uint8Array,
 ): Promise<SeekableResult> {
@@ -482,13 +383,10 @@ export async function remuxWebmToSeekable(
         "error",
         "-nostdin",
         "-y",
-        // Regenerate presentation timestamps so a live MediaRecorder stream
-        // gets a coherent, seekable timeline in the remuxed output.
         "-fflags",
         "+genpts",
         "-i",
         inputPath,
-        // Stream-copy every track: no re-encode, so this stays fast + lossless.
         "-map",
         "0",
         "-c",
@@ -503,7 +401,6 @@ export async function remuxWebmToSeekable(
     if (!info || info.size === 0) return unchanged;
 
     const out = new Uint8Array(await readFile(outputPath));
-    // Validate the muxer actually produced a WebM before trusting it.
     if (!startsWithMagic(out, EBML_MAGIC)) return unchanged;
 
     return { bytes: out, changed: true };
@@ -517,17 +414,6 @@ export async function remuxWebmToSeekable(
   }
 }
 
-/**
- * Normalize sparse or discontinuous video timestamps into a constant-frame-
- * rate, faststart MP4. This is intentionally a full transcode rather than the
- * normal lossless seekability repair: the fps filter must synthesize duplicate
- * frames through source gaps so browsers keep advancing while continuous audio
- * plays.
- *
- * Best-effort and non-destructive. Any missing ffmpeg support, decode/encode
- * failure, invalid output, or audio-track loss returns the original bytes with
- * `changed: false`; callers must not replace stored media in that case.
- */
 export async function normalizeTimelineToMp4(input: {
   mediaBytes: Uint8Array;
   videoFormat: VideoFormat;
@@ -584,11 +470,6 @@ export async function normalizeTimelineToMp4(input: {
   }
 }
 
-/**
- * Make an MP4 start-playable by moving its `moov` atom ahead of `mdat`. Pure
- * TypeScript — no ffmpeg. Returns the original bytes when already faststarted
- * or when the result would fail metadata validation.
- */
 export function faststartMp4(mediaBytes: Uint8Array): SeekableResult {
   if (mediaBytes.byteLength === 0) return { bytes: mediaBytes, changed: false };
   try {
@@ -606,11 +487,6 @@ export function faststartMp4(mediaBytes: Uint8Array): SeekableResult {
   }
 }
 
-/**
- * Make recorded media seekable based on its container format. Dispatches to
- * {@link faststartMp4} for MP4 and {@link remuxWebmToSeekable} for WebM.
- * Always resolves; unknown formats and failures return the input unchanged.
- */
 export async function makeSeekable(input: {
   mediaBytes: Uint8Array;
   videoFormat: VideoFormat;

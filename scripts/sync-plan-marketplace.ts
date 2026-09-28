@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/**
- * Generates the committed plugin-marketplace bundle that turns this repository
- * itself into installable Agent-Native app marketplaces for both Claude Code and
- * Codex.
- *
- * The canonical skill content lives in the repo's exported `skills/` directory
- * or in the framework's `.agents/skills/` directory for internal workflows.
- * This script copies each exported app skill into one shared plugin directory
- * per app and writes the Claude + Codex marketplace catalogs and per-host
- * plugin manifests. It mirrors `sync-workspace-core-skills.ts`: it generates by
- * default and validates with `--check`, failing with a clear "run pnpm
- * sync:plan-marketplace" message when the committed tree drifts from source.
- *
- * Version strategy (shared with the generic app-skill packer):
- *  - Claude Code uses commit-SHA versioning, so plugin.json OMITS `version` and
- *    `autoUpdate: true` in the marketplace entry delivers updates on every push.
- *  - Codex keys its plugin cache on the version string, so the Codex plugin.json
- *    embeds a deterministic content hash of the exported SKILL.md bodies + MCP
- *    URL via `resolvePluginVersion`, so a changed skill yields a new version.
- */
 import {
   existsSync,
   mkdirSync,
@@ -70,8 +50,6 @@ const APP_BUNDLES: MarketplaceApp[] = [
   },
   {
     appSkillId: "visual-plans",
-    // Source skill path -> exported skill name. The source path does not always
-    // equal the exported skill name (skills/visual-plans -> visual-plan).
     skillSources: [
       { sourcePath: "skills/visual-plans", exportAs: "visual-plan" },
       { sourcePath: "skills/visual-recap", exportAs: "visual-recap" },
@@ -104,7 +82,6 @@ const CLAUDE_MARKETPLACE_NAME = "agent-native-apps";
 
 const check = process.argv.includes("--check");
 
-/** A virtual file the generator wants committed: repo-relative path -> contents. */
 type GeneratedFile = { rel: string; content: string };
 
 function manifestFor(app: MarketplaceApp): AppSkillManifest {
@@ -141,11 +118,6 @@ function readSkillSource(sourcePath: string): string {
   return readFileSync(file, "utf-8");
 }
 
-/**
- * Sibling files inside a source skill dir (everything except SKILL.md), as
- * sorted posix-relative paths. These are the progressive-disclosure reference
- * files (e.g. references/wireframe.md) that ship next to SKILL.md.
- */
 function listSkillSiblingFiles(sourcePath: string): string[] {
   const root = join(rootDir, sourcePath);
   const out: string[] = [];
@@ -160,11 +132,6 @@ function listSkillSiblingFiles(sourcePath: string): string[] {
   return out.sort();
 }
 
-/**
- * Rewrite the SKILL.md frontmatter `name:` field to the exported skill name,
- * matching the generic app-skill packer's `rewriteSkillFrontmatterName`. The
- * committed copy uses the exportAs name even when the source dir differs.
- */
 function rewriteSkillFrontmatterName(source: string, name: string): string {
   const lines = source.split("\n");
   if (lines[0]?.trim() !== "---") return source;
@@ -183,11 +150,6 @@ function rewriteSkillFrontmatterName(source: string, name: string): string {
   return lines.join("\n");
 }
 
-/**
- * Format JSON through Prettier so the committed bundle stays deterministic;
- * `pnpm fmt` now verifies the result through oxfmt, and the marketplace guard
- * should not be the first place drift appears.
- */
 async function jsonFile(rel: string, value: unknown): Promise<GeneratedFile> {
   const content = await prettier.format(JSON.stringify(value), {
     parser: "json",
@@ -195,11 +157,6 @@ async function jsonFile(rel: string, value: unknown): Promise<GeneratedFile> {
   return { rel, content };
 }
 
-/**
- * Build a manifest-shaped object whose skill `path` values point at the real
- * on-disk source dirs (relative to repo root) so the content hash and the
- * resolved Codex version are computed over the exact canonical bytes we commit.
- */
 function hashManifestSkills(app: MarketplaceApp): AppSkillManifestSkill[] {
   return app.skillSources.map(({ sourcePath, exportAs }) => ({
     path: sourcePath,
@@ -223,10 +180,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     const manifest = manifestFor(app);
     const name = pluginName(app);
 
-    // Generated copies of the canonical skills under the shared plugin dir,
-    // including any sibling reference files (e.g. references/wireframe.md) so
-    // the packaged plugin ships the same progressive-disclosure files as
-    // `skills/`.
     for (const { sourcePath, exportAs } of app.skillSources) {
       const body = rewriteSkillFrontmatterName(
         readSkillSource(sourcePath),
@@ -250,9 +203,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       });
     }
 
-    // Only the canonical serverName goes into the plugin .mcp.json. Aliases are
-    // handled as a cleanup list by ensureAppSkill / connect — writing them here
-    // would create duplicate OAuth sessions in the host agent.
     const mcpServers = {
       mcpServers: {
         [manifest.mcp.serverName]: {
@@ -262,9 +212,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       },
     };
 
-    // Standard Agent Plugin files live at the package root. Keep the legacy
-    // host adapter files below because Codex and Claude still use their own
-    // discovery conventions, but make the committed bundle portable too.
     files.push(
       await jsonFile(join(".agents", "plugins", name, "plugin.json"), {
         $schema: AGENT_PLUGIN_SCHEMA,
@@ -293,7 +240,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       }),
     );
 
-    // Shared .mcp.json for both hosts.
     files.push(
       await jsonFile(join(".agents", "plugins", name, ".mcp.json"), mcpServers),
     );
@@ -320,7 +266,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       );
     }
 
-    // Claude manifest — OMIT version (commit-SHA versioning).
     files.push(
       await jsonFile(
         join(".agents", "plugins", name, ".claude-plugin", "plugin.json"),
@@ -342,7 +287,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
       ),
     );
 
-    // Codex manifest — version = content-hash version.
     files.push(
       await jsonFile(
         join(".agents", "plugins", name, ".codex-plugin", "plugin.json"),
@@ -383,7 +327,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     );
   }
 
-  // Claude catalog at repo root.
   files.push(
     await jsonFile(join(".claude-plugin", "marketplace.json"), {
       name: CLAUDE_MARKETPLACE_NAME,
@@ -408,9 +351,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
     }),
   );
 
-  // Codex catalog under .agents/plugins. `source.path` resolves from the repo
-  // root, not from this manifest's directory, so it repeats `.agents/plugins/`
-  // instead of naming the sibling bundle directly.
   files.push(
     await jsonFile(join(".agents", "plugins", "marketplace.json"), {
       name: CLAUDE_MARKETPLACE_NAME,
@@ -435,8 +375,6 @@ async function expectedFiles(): Promise<GeneratedFile[]> {
 }
 
 function generate(files: GeneratedFile[]): void {
-  // Replace each generated bundle dir wholesale so removed skills don't linger,
-  // but keep the catalog files (written individually below).
   for (const app of APP_BUNDLES) {
     rmSync(bundleRoot(app), { recursive: true, force: true });
   }
@@ -448,8 +386,6 @@ function generate(files: GeneratedFile[]): void {
 }
 
 function listGeneratedOnDisk(): string[] {
-  // Everything the generator owns lives under the bundle dirs plus the two
-  // catalog files.
   const owned: string[] = [];
   const catalogs = [
     join(".claude-plugin", "marketplace.json"),

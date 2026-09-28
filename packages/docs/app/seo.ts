@@ -47,15 +47,6 @@ function descriptionFrom(meta: MetaDescriptor[]): string | undefined {
   return entry && "content" in entry ? (entry.content as string) : undefined;
 }
 
-/**
- * Every route's `meta()` replaces its parents' instead of merging with them,
- * so a page that only sets `title`/`description` (the HTML tag and search
- * snippet) silently ships with no og:title/og:description/og:type — this is
- * what Ahrefs flagged as "Open Graph tags incomplete" and "X card
- * incomplete" across about/contact/download/pricing/privacy/terms and the
- * template & app detail pages. Backfill the Open Graph equivalents from the
- * plain title/description here, once, instead of at each call site.
- */
 export function withDefaultSocialImage(
   meta: MetaDescriptor[],
   image = DEFAULT_SOCIAL_IMAGE,

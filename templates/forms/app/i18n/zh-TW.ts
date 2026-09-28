@@ -41,6 +41,8 @@ const messages = {
     suggestionSurvey: "建立客戶意見回饋調查",
     suggestionSubmissions: "按天顯示提交",
     suggestionExport: "將回覆匯出為 CSV",
+    topSignal: "主要訊號",
+    draftFollowUp: "草擬後續問題",
   },
   sidebar: {
     collapseSidebar: "收合側邊欄",

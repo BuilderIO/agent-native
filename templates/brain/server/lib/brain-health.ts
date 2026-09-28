@@ -17,6 +17,7 @@ import {
   BRAIN_SEARCH_INDEX_VERSION,
   BRAIN_SENSITIVITY_POLICY_VERSION,
 } from "./search-index-contracts.js";
+import { readEmbeddingReadiness } from "./search-index.js";
 import { redactSensitiveText } from "./search.js";
 
 const APP_ID = "brain";
@@ -441,59 +442,114 @@ export async function readBrainHealth() {
           ),
         )
     : [];
-  const [sensitivityRows, artifactRows, embeddingRows] = await Promise.all([
-    adminSourceIds.length
-      ? db
-          .select({
-            disposition: schema.brainSensitivityEvents.disposition,
-            confidenceBand: schema.brainSensitivityEvents.confidenceBand,
-          })
-          .from(schema.brainSensitivityEvents)
-          .innerJoin(
-            schema.brainSources,
-            eq(schema.brainSensitivityEvents.sourceId, schema.brainSources.id),
-          )
-          .where(
-            and(
-              accessFilter(schema.brainSources, schema.brainSourceShares),
-              inArray(schema.brainSensitivityEvents.sourceId, adminSourceIds),
-            ),
-          )
-      : Promise.resolve([]),
-    audienceIds.length
-      ? db
-          .select({
-            captureId: schema.brainSearchArtifacts.captureId,
-            status: schema.brainSearchArtifacts.status,
-          })
-          .from(schema.brainSearchArtifacts)
-          .innerJoin(
-            schema.brainSources,
-            eq(schema.brainSearchArtifacts.sourceId, schema.brainSources.id),
-          )
-          .where(
-            and(
-              accessFilter(schema.brainSources, schema.brainSourceShares),
-              inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
-            ),
-          )
-      : Promise.resolve([]),
-    audienceIds.length
-      ? db
-          .select({ status: schema.brainSearchEmbeddings.status })
-          .from(schema.brainSearchEmbeddings)
-          .innerJoin(
-            schema.brainSources,
-            eq(schema.brainSearchEmbeddings.sourceId, schema.brainSources.id),
-          )
-          .where(
-            and(
-              accessFilter(schema.brainSources, schema.brainSourceShares),
-              inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
-            ),
-          )
-      : Promise.resolve([]),
-  ]);
+  const [sensitivityRows, artifactRows, embeddingRows, burstRows] =
+    await Promise.all([
+      adminSourceIds.length
+        ? db
+            .select({
+              disposition: schema.brainSensitivityEvents.disposition,
+              confidenceBand: schema.brainSensitivityEvents.confidenceBand,
+            })
+            .from(schema.brainSensitivityEvents)
+            .innerJoin(
+              schema.brainSources,
+              eq(
+                schema.brainSensitivityEvents.sourceId,
+                schema.brainSources.id,
+              ),
+            )
+            .where(
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                inArray(schema.brainSensitivityEvents.sourceId, adminSourceIds),
+              ),
+            )
+        : Promise.resolve([]),
+      audienceIds.length
+        ? db
+            .select({
+              id: schema.brainSearchArtifacts.id,
+              captureId: schema.brainSearchArtifacts.captureId,
+              contentHash: schema.brainSearchArtifacts.contentHash,
+              sensitivityPolicyVersion:
+                schema.brainSearchArtifacts.sensitivityPolicyVersion,
+              aclHash: schema.brainSearchArtifacts.aclHash,
+              indexVersion: schema.brainSearchArtifacts.indexVersion,
+              status: schema.brainSearchArtifacts.status,
+              captureContentHash: schema.brainRawCaptures.contentHash,
+              captureSensitivityDisposition:
+                schema.brainRawCaptures.sensitivityDisposition,
+              captureSensitivityPolicyVersion:
+                schema.brainRawCaptures.sensitivityPolicyVersion,
+              captureAclHash: schema.brainRawCaptures.audienceAclHash,
+            })
+            .from(schema.brainSearchArtifacts)
+            .innerJoin(
+              schema.brainSources,
+              eq(schema.brainSearchArtifacts.sourceId, schema.brainSources.id),
+            )
+            .innerJoin(
+              schema.brainRawCaptures,
+              eq(
+                schema.brainSearchArtifacts.captureId,
+                schema.brainRawCaptures.id,
+              ),
+            )
+            .where(
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                inArray(schema.brainSearchArtifacts.audienceId, audienceIds),
+              ),
+            )
+        : Promise.resolve([]),
+      audienceIds.length
+        ? db
+            .select({
+              targetType: schema.brainSearchEmbeddings.targetType,
+              targetId: schema.brainSearchEmbeddings.targetId,
+              embeddingSetId: schema.brainSearchEmbeddings.embeddingSetId,
+              contentHash: schema.brainSearchEmbeddings.contentHash,
+              sensitivityPolicyVersion:
+                schema.brainSearchEmbeddings.sensitivityPolicyVersion,
+              aclHash: schema.brainSearchEmbeddings.aclHash,
+              indexVersion: schema.brainSearchEmbeddings.indexVersion,
+              status: schema.brainSearchEmbeddings.status,
+            })
+            .from(schema.brainSearchEmbeddings)
+            .innerJoin(
+              schema.brainSources,
+              eq(schema.brainSearchEmbeddings.sourceId, schema.brainSources.id),
+            )
+            .where(
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                inArray(schema.brainSearchEmbeddings.audienceId, audienceIds),
+              ),
+            )
+        : Promise.resolve([]),
+      audienceIds.length
+        ? db
+            .select({
+              id: schema.brainSearchBursts.id,
+              artifactId: schema.brainSearchBursts.artifactId,
+              aclHash: schema.brainSearchBursts.aclHash,
+              indexed: schema.brainSearchBursts.indexed,
+              contentHash: schema.brainSearchBursts.contentHash,
+              indexVersion: schema.brainSearchBursts.indexVersion,
+            })
+            .from(schema.brainSearchBursts)
+            .innerJoin(
+              schema.brainSources,
+              eq(schema.brainSearchBursts.sourceId, schema.brainSources.id),
+            )
+            .where(
+              and(
+                accessFilter(schema.brainSources, schema.brainSourceShares),
+                inArray(schema.brainSearchBursts.audienceId, audienceIds),
+              ),
+            )
+        : Promise.resolve([]),
+    ]);
 
   const configuredCounts = new Map<string, number>();
   for (const source of sourceRows) {
@@ -576,12 +632,77 @@ export async function readBrainHealth() {
   const artifactCounts = countStatuses(artifactRows);
   const embeddingCounts = countStatuses(embeddingRows);
   const allowedCaptureCount = captureDispositionCounts.allowed ?? 0;
-  const activeArtifactCount = artifactCounts.active ?? 0;
+  const currentArtifacts = artifactRows.filter(
+    (artifact) =>
+      artifact.status === "active" &&
+      artifact.captureSensitivityDisposition === "allowed" &&
+      artifact.contentHash === artifact.captureContentHash &&
+      artifact.sensitivityPolicyVersion ===
+        artifact.captureSensitivityPolicyVersion &&
+      artifact.aclHash === artifact.captureAclHash &&
+      artifact.indexVersion === BRAIN_SEARCH_INDEX_VERSION,
+  );
+  const activeArtifactCount = currentArtifacts.length;
+  const currentArtifactById = new Map(
+    currentArtifacts.map((artifact) => [artifact.id, artifact]),
+  );
   const indexedCaptureCount = new Set(
-    artifactRows
-      .filter((artifact) => artifact.status === "active")
-      .map((artifact) => artifact.captureId),
+    currentArtifacts.map((artifact) => artifact.captureId),
   ).size;
+  const embeddingReadiness = await readEmbeddingReadiness();
+  const currentBursts = burstRows.filter((burst) => {
+    const artifact = currentArtifactById.get(burst.artifactId);
+    return Boolean(
+      artifact &&
+      burst.indexed === 1 &&
+      burst.contentHash === artifact.contentHash &&
+      burst.aclHash === artifact.aclHash &&
+      burst.indexVersion === BRAIN_SEARCH_INDEX_VERSION,
+    );
+  });
+  const artifactIdByBurstId = new Map(
+    currentBursts.map((burst) => [burst.id, burst.artifactId]),
+  );
+  const expectedBurstIdsByArtifactId = new Map<string, string[]>();
+  for (const burst of currentBursts) {
+    const ids = expectedBurstIdsByArtifactId.get(burst.artifactId) ?? [];
+    ids.push(burst.id);
+    expectedBurstIdsByArtifactId.set(burst.artifactId, ids);
+  }
+  const embeddedTargetKeys = new Set(
+    embeddingRows.flatMap((embedding) => {
+      const artifactId =
+        embedding.targetType === "artifact"
+          ? embedding.targetId
+          : embedding.targetType === "burst"
+            ? artifactIdByBurstId.get(embedding.targetId)
+            : undefined;
+      const artifact = artifactId
+        ? currentArtifactById.get(artifactId)
+        : undefined;
+      return artifact &&
+        embedding.status === "active" &&
+        embedding.embeddingSetId === embeddingReadiness.embeddingSetId &&
+        embedding.contentHash === artifact.contentHash &&
+        embedding.sensitivityPolicyVersion ===
+          artifact.sensitivityPolicyVersion &&
+        embedding.aclHash === artifact.aclHash &&
+        embedding.indexVersion === BRAIN_SEARCH_INDEX_VERSION
+        ? [`${embedding.targetType}:${embedding.targetId}`]
+        : [];
+    }),
+  );
+  const embeddedArtifactCount = currentArtifacts.filter((artifact) => {
+    const burstIds = expectedBurstIdsByArtifactId.get(artifact.id) ?? [];
+    return (
+      embeddedTargetKeys.has(`artifact:${artifact.id}`) &&
+      burstIds.every((id) => embeddedTargetKeys.has(`burst:${id}`))
+    );
+  }).length;
+  const missingArtifactEmbeddings = Math.max(
+    0,
+    activeArtifactCount - embeddedArtifactCount,
+  );
   const privacySettings = await readBrainSettings();
   const privacyClassifier = brainPrivacyReadiness(
     privacySettings,
@@ -672,6 +793,13 @@ export async function readBrainHealth() {
       : null,
     (proposalCounts.pending ?? 0) > 0
       ? "Review pending proposals before expanding source scope."
+      : null,
+    !embeddingReadiness.ready
+      ? (embeddingReadiness.warning ??
+        "Configure one embedding provider to enable semantic retrieval.")
+      : null,
+    embeddingReadiness.ready && missingArtifactEmbeddings > 0
+      ? `Backfill embeddings for ${missingArtifactEmbeddings} active search artifact${missingArtifactEmbeddings === 1 ? "" : "s"}.`
       : null,
   ]
     .filter((step): step is string => Boolean(step))
@@ -793,6 +921,18 @@ export async function readBrainHealth() {
         counts: artifactCounts,
       },
       embeddings: {
+        readiness: embeddingReadiness,
+        coverage: {
+          eligibleArtifacts: activeArtifactCount,
+          embeddedArtifacts: embeddedArtifactCount,
+          missingArtifacts: missingArtifactEmbeddings,
+          percent:
+            activeArtifactCount === 0
+              ? 100
+              : Math.round(
+                  (embeddedArtifactCount / activeArtifactCount) * 10_000,
+                ) / 100,
+        },
         total: embeddingRows.length,
         active: embeddingCounts.active ?? 0,
         stale: embeddingCounts.stale ?? 0,

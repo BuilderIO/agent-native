@@ -274,7 +274,7 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 > [!IMPORTANT]
 > **サーバーレス Webhook とゲートウェイのタイムアウト:**
-> ホスト環境のゲートウェイ (Netlify、Vercel、Cloudflare Pages など) は、公開されている HTTP ルートに厳しい実行制限 (通常は 10 ～ 30 秒) を課します。エージェント ループではクエリの実行、コンテキストの取得、ツールの実行にかなりの時間がかかる可能性があるため、A2A エンドポイントを呼び出すとき、または外部 webhooks を処理するときは **`async: true` を使用する必要があります**。これにより、`working` ステータスが直ちに API ゲートウェイに返され、接続は数ミリ秒間だけ開いたままになりますが、その間、自己起動された `/process-task` POST がバックグラウンドでエージェント ループを実行します。エージェント ループが終了するのを待っているプライマリ HTTP リクエストをブロックしないでください。
+> ホスト環境のゲートウェイ (Netlify、Vercel、Cloudflare Workers など) は、公開されている HTTP ルートに厳しい実行制限 (通常は 10 ～ 30 秒) を課します。エージェント ループではクエリの実行、コンテキストの取得、ツールの実行にかなりの時間がかかる可能性があるため、A2A エンドポイントを呼び出すとき、または外部 webhooks を処理するときは **`async: true` を使用する必要があります**。これにより、`working` ステータスが直ちに API ゲートウェイに返され、接続は数ミリ秒間だけ開いたままになりますが、その間、自己起動された `/process-task` POST がバックグラウンドでエージェント ループを実行します。エージェント ループが終了するのを待っているプライマリ HTTP リクエストをブロックしないでください。
 
 メッセージには入力された部分が含まれます。テキスト、構造化データ、ファイルはすべて 1 つのメッセージ内で送信できます。
 
@@ -609,7 +609,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 
 ベアラー検証は、エージェント ループがメッセージを確認する前に、リクエスト境界 (JSON-RPC ハンドラー内) で実行されます。 `packages/core/src/a2a/auth-policy.ts` の共有ヘルパーは、展開に必要なものを決定します。
 
-- `isA2AProductionRuntime()` は、`NODE_ENV` が `"production"` でない場合でも、Netlify、AWS Lambda、Cloudflare Pages/Workers、Vercel、Render、Fly、Cloud Run で `true` を返します。一部のサーバーレス プロバイダーは `NODE_ENV` を一貫して設定しないため、ポリシーはプロバイダー固有のフラグも読み取ります。
+- `isA2AProductionRuntime()` は、`NODE_ENV` が `"production"` でない場合でも、Netlify、AWS Lambda、Cloudflare Workers、Vercel、Render、Fly、Cloud Run で `true` を返します。一部のサーバーレス プロバイダーは `NODE_ENV` を一貫して設定しないため、ポリシーはプロバイダー固有のフラグも読み取ります。
 - `A2A_SECRET` が設定されている場合、`hasConfiguredA2ASecret()` は `true` を返します。
 - `shouldAdvertiseJwtA2AAuth()` は、エージェント カードが `jwtBearer` セキュリティ スキームを公開するかどうかを決定するために使用するものです。
 

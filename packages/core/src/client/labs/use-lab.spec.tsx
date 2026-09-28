@@ -65,8 +65,6 @@ describe("useLabState / useLab / useLabs session gating", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    // useLab defaults true (not yet known -> not gated off) while isSuccess
-    // stays false, matching today's pre-resolution behavior.
     expect(lab).toBe(true);
     expect(labs).toEqual({});
   });
@@ -107,6 +105,53 @@ describe("useLabState / useLab / useLabs session gating", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("reads a lab definition as its default until the server answers", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "loading" });
+    vi.stubGlobal("fetch", vi.fn());
+
+    const results: Record<string, boolean> = {};
+    function Probe() {
+      results.onLab = useLab({ key: "voice", defaultEnabled: true });
+      results.offLab = useLab({ key: "meetings" });
+      results.onState = useLabState({
+        key: "voice",
+        defaultEnabled: true,
+      }).enabled;
+      results.bareKey = useLab("meetings");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(results).toEqual({
+      onLab: true,
+      offLab: false,
+      onState: true,
+      // A bare key can't know its default, so it stays on as before.
+      bareKey: true,
+    });
+  });
+
+  it("reads the saved value over the default once the server answers", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ voice: false })),
+    );
+
+    let lab: boolean | undefined;
+    function Probe() {
+      lab = useLab({ key: "voice", defaultEnabled: true });
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(lab).toBe(false);
+  });
+
   it("reports isLoading while the session itself is still resolving", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });
     vi.stubGlobal("fetch", vi.fn());
@@ -120,9 +165,6 @@ describe("useLabState / useLab / useLabs session gating", () => {
     await mountProbe(Probe);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
 
-    // The get-labs query is disabled here, so its own isLoading is false;
-    // the gate must still report loading so callers don't read a signed-in
-    // user's lab as "known off".
     expect(isLoading).toBe(true);
   });
 });

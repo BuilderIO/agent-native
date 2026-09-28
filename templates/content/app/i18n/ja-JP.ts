@@ -841,6 +841,13 @@ const editor = {
 
 const rawLiterals = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionCreateFailed: "提案を作成できませんでした",
     suggestionsCount: "{{count}} 件の提案",
     acceptSuggestion: "承認",
@@ -975,6 +982,9 @@ const comments = {
   suggestionWith: "変更後",
   suggestionReplace: "変更前",
   suggestionDetails: "提案の詳細",
+  proposalEditCount_other: "{{count}} 件の編集",
+  acceptRemaining: "残りを承認",
+  rejectRemaining: "残りを却下",
   typeFilter: "種類",
   statusFilter: "ステータス",
   authorFilter: "ユーザー",
@@ -1051,6 +1061,13 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
@@ -1077,6 +1094,25 @@ const exactEnglish = {
     },
     toolbar: {
       info: "情報",
+      copyLink: "リンクをコピー",
+      copyForPeople: "人向けにコピー",
+      copyForAgents: "エージェント向けにコピー",
+      whoHasAccess: "アクセスできる人",
+      sharePeople: "人",
+      shareAgents: "エージェント",
+      copyAgentPrompt: "エージェント用指示をコピー",
+      openInClaude: "Claude で開く",
+      openInClaudeCode: "Claude Code で開く",
+      openInCodex: "Codex で開く",
+      agentCopyAccessNote:
+        "エージェントは既存の権限で Content MCP を利用できます",
+      temporaryAgentLink: "一時的なエージェントリンク",
+      privateLinkCanView: "アクセス権のある人だけが閲覧できます",
+      publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      copiedAgentPrompt: "エージェント用指示をコピーしました",
+      couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
+      agentPrompt:
+        'この Content ドキュメントを読んでください: {{documentUrl}}\n\n{{mcpUrl}} に利用可能な Content MCP 接続を使い、ID "{{documentId}}" で get-document を呼び出してください。公開されているページは直接読むこともできます。\n\n認証が必要で、Content MCP が利用できないかサインアウトしている場合は、接続して認証するよう私に依頼してください。接続の設定: {{connectUrl}}。公式ガイド: {{docsUrl}}\n\n接続の準備ができたと私が確認したら、私のアカウントの既存の権限を使って再度読み込んでください。認証後の読み込みが拒否された場合は、その結果を教えてください。',
       closeUtilityPanel: "パネルを閉じる",
       exportCsv: "CSV をエクスポート",
       exportDatabase: "コレクションをエクスポート",
@@ -1100,6 +1136,7 @@ const exactEnglish = {
       exportedCsv: "CSV をエクスポートしました",
       copiedPageLink: "ページリンクをコピーしました",
       copyPageLink: "ページリンクをコピー",
+      createShareableCopy: "共有できるコピーを作成",
       couldNotCopyLink: "リンクをコピーできませんでした",
       clipboardAccessUnavailable:
         "このブラウザではクリップボードにアクセスできません。",
@@ -1156,6 +1193,14 @@ const history = {
 };
 
 const overrides = {
+  close: "閉じる",
+  setup: { checkingProvider: "AI 接続を確認しています…" },
+  onboarding: {
+    fileStorage: {
+      title: "ファイルをアップロードするストレージを接続",
+      statusUnavailable: "ファイルストレージの状態を確認できません。",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1261,6 +1306,13 @@ const overrides = {
     emailNotificationsDescription:
       "誰かがあなたのドキュメントにコメント、返信、またはあなたにメンションしたときにメールを受け取ります。",
     saveFailed: "保存に失敗しました",
+    notificationsEmail: "メール",
+    commentsRepliesMentions: "コメント、返信、メンション",
+    commentsRepliesMentionsDescription:
+      "誰かがあなたのドキュメントにコメントや返信をしたとき、またはあなたをメンションしたとき。",
+    retry: "再試行",
+    mcpAbout:
+      "Content を Claude、ChatGPT、Cursor など MCP に対応した AI アプリに接続します。接続したアプリは、ドキュメントの検索、作成、編集など、Content での作業を代わりに行えます。アプリが見られるのは、あなたが見られるものだけです。",
     languageTitle: "言語",
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
@@ -1310,6 +1362,13 @@ const overrides = {
     genericError: "問題が発生しました",
   },
   editor: {
+    iconPickerIcons: "アイコン",
+    iconPickerEmoji: "絵文字",
+    iconPickerRecent: "最近",
+    iconPickerColors: "色",
+    iconPickerDefault: "デフォルト",
+    iconPickerUpload: "アップロード",
+    iconPickerUploading: "アップロード中…",
     ...editor,
     sourceComponent: {
       defaultTitle: "ソースコンポーネント",
@@ -1346,6 +1405,24 @@ const overrides = {
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",
+    agentBadge: "エージェント",
+    addEmoji: "絵文字を追加",
+    mentionSomeone: "メンションする",
+    mentionPeople: "メンバー",
+    mentionAgents: "エージェント",
+    commentTitle: "コメント",
+    suggestionTitle: "提案",
+    close: "閉じる",
+    showEarlierReplies: "以前の返信を表示",
+    replyAction: "返信",
+    panelTabs: "ページパネル",
+    aiAuto: "自動",
+    aiModel: "AI モデル",
+    aiRemoveRecipient: "AI 宛先を削除",
+    aiSend: "AI に送信",
+    aiSendShort: "送信",
+    aiResponseMode: "応答",
+    aiChooseSendMode: "AI 送信モードを選択",
     aiSuggestChanges: "変更を提案",
     aiUnavailable: "利用不可",
     aiReplyInThread: "スレッドで返信",
@@ -1357,9 +1434,33 @@ const overrides = {
     aiReplied: "AI が返信しました",
     aiSuggestionReady: "提案を確認",
     aiChangesApplied: "変更を適用しました",
+    aiAppliedAndResolved: "適用して解決しました",
+    aiChangeUndone: "変更を元に戻しました",
+    aiUndo: "元に戻す",
+    aiDone: "完了",
+    aiMoreChanges: "ほか {{count}} 件",
+    aiUndoUnavailable: "削除されたテキストは自動で元に戻せません",
+    aiUndoFailed: "変更を元に戻せませんでした",
+    aiResolvedByAi: "AI が解決",
     aiNeedsReview: "確認が必要です",
     aiFailed: "AI リクエストに失敗しました",
     retry: "再試行",
+    aiQueued: "AI は待機中です…",
+    aiRefreshing: "AI が最新のページを確認中…",
+    aiCancelled: "AI リクエストを停止しました",
+    aiStop: "停止",
+    aiStopping: "停止中…",
+    aiReplyToAi: "AI に返信",
+    aiReplyingToAi: "AI に返信中",
+    aiOpenConversation: "AI 会話を開く",
+    aiConversationPrefill: "このコメントの会話を続ける…",
+    aiConversationUnavailable: "この AI 会話は利用できません。",
+    aiFollowUpYou: "あなた",
+    aiFollowUpIncomplete: "この返信は完了前に終了しました。",
+    aiRequestCouldNotBeConfirmed: "AI リクエストを確認できませんでした",
+    aiFollowUpCouldNotBeConfirmed: "AI のフォローアップを確認できませんでした",
+    aiRequestStopCouldNotBeConfirmed:
+      "送信を確認できなかったため、AI リクエストを停止できませんでした",
     sourceComment: "元のコメント",
     resolve: "解決",
     resolved: "解決済み（{{count}}）",

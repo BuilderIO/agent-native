@@ -95,15 +95,10 @@ describe("slide context toolbar", () => {
 
   it("is the only styling surface, on every editable slide", () => {
     expect(mountIndex).toBeGreaterThan(-1);
-    // Excalidraw slides included: they have no selectable content, but
-    // SlideRenderer still paints slide.background behind the drawing, and this
-    // row is now the only place that background can be edited.
     expect(editorSource).not.toContain("!readOnly && !slide.excalidrawData");
   });
 
   it("keeps the toolbar alive while text is being edited", () => {
-    // Without the marker the click-outside handler exits the edit and drops
-    // the saved range, so partial-text formatting would hit the whole object.
     expect(editorSource).toContain('data-slide-inline-edit-surface="true"');
   });
 
@@ -121,9 +116,6 @@ describe("slide context toolbar", () => {
   });
 
   it("keeps the rich text selection alive while the toolbar is pressed", () => {
-    // Without this guard on the wrapper, applying a style to a partial text
-    // selection silently no-ops: focus leaves the contentEditable before the
-    // patch resolves the range.
     const wrapper = editorSource.slice(
       Math.max(0, mountIndex - 300),
       mountIndex,
@@ -133,10 +125,14 @@ describe("slide context toolbar", () => {
     );
   });
 
-  it("cancels native image dragging on the editable canvas", () => {
-    expect(editorSource).toContain(
-      "onDragStart={(event) => event.preventDefault()}",
+  it("cancels native image dragging on the editable canvas, but not text being edited", () => {
+    expect(editorSource).toContain("onDragStart={handleSlideDragStart}");
+    const start = editorSource.indexOf("const handleSlideDragStart");
+    const handler = editorSource.slice(start, start + 500);
+    expect(handler).toContain(
+      "textSessionRef.current?.text.element.contains(event.target)",
     );
+    expect(handler).toContain("event.preventDefault()");
   });
 
   it("keeps the comment target mounted for Excalidraw slides", () => {

@@ -17,9 +17,10 @@ import {
   DefaultSpinner,
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { isDefaultTitle } from "@shared/title-source";
 import {
   IconAlertTriangle,
-  IconArrowLeft,
   IconDeviceDesktop,
   IconDownload,
   IconLayoutSidebarRightCollapse,
@@ -56,6 +57,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
@@ -107,7 +109,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -137,6 +138,10 @@ import {
   isLoomRecordingSource,
 } from "../../shared/loom";
 import {
+  organizationLogoRoutePath,
+  usesOrganizationLogoRoute,
+} from "../../shared/organization-logo.js";
+import {
   CLIPS_ACCESS_REQUEST_TOKEN_PREFIX,
   CLIPS_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../../shared/recording-link";
@@ -161,6 +166,7 @@ type SharePageMetaRecording = {
   brandLogoUrl: string | null;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
+  updatedAt: string;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
   hasPassword: boolean;
@@ -200,9 +206,10 @@ function emptyLoaderData(
 function shareLoaderData(
   payload: SharePageLoaderData,
   privateAgentAccess = false,
+  varyByQuery = false,
 ) {
   if (!privateAgentAccess) return payload;
-  return privateShareLoaderData(payload);
+  return privateShareLoaderData(payload, 200, varyByQuery);
 }
 
 export function headers({ loaderHeaders }: HeadersArgs) {
@@ -244,9 +251,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       verifyScopedAgentAccessToken,
     },
     { resolveAccess },
+    { getRecordingAccessTokenResourceId },
   ] = await Promise.all([
     import("@agent-native/core/server"),
     import("@agent-native/core/sharing"),
+    import("../../server/lib/share-password.js"),
   ]);
 
   const db = getDb();
@@ -257,6 +266,8 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       description: schema.recordings.description,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
+      updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -274,14 +285,18 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
+  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: id,
+        resourceId: getRecordingAccessTokenResourceId(
+          id,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
       }).ok
     : false;
-
-  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
   if (isRecordingExpired(rec.expiresAt)) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
@@ -312,17 +327,23 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         )
         .limit(1)
     : [];
+  const storedBrandLogoUrl = organizationSettings?.brandLogoUrl?.trim();
 
   const recording: SharePageMetaRecording = {
     id: rec.id,
     title: rec.title,
     description: rec.description,
     ownerInitial: rec.ownerEmail.trim().charAt(0).toUpperCase() || "C",
-    brandLogoUrl: organizationSettings?.brandLogoUrl?.trim() || null,
+    brandLogoUrl: storedBrandLogoUrl
+      ? usesOrganizationLogoRoute(storedBrandLogoUrl) && rec.organizationId
+        ? `${appBasePath()}${organizationLogoRoutePath(rec.organizationId)}`
+        : storedBrandLogoUrl
+      : null,
     thumbnailUrl: rec.password
       ? null
       : resolvePlayerThumbnailUrl(rec, { appPath }),
     animatedThumbnailUrl: null,
+    updatedAt: rec.updatedAt,
     visibility: rec.visibility,
     status: rec.status,
     hasPassword: Boolean(rec.password),
@@ -349,6 +370,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
         : null,
     },
     hasAgentAccessToken,
+    tokenGrantsAgentAccess,
   );
 }
 
@@ -428,14 +450,9 @@ export default function ShareRoute() {
   const panelParam = searchParams.get("panel");
   const search = searchParams.toString();
 
-  // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
-  // share link) so we can fire funnel events and forward attribution into the
-  // signup URL even when cookies are blocked or `document.referrer` is empty.
   const attribution = useMemo(() => readShareAttribution(search), [search]);
   const recordingId = shareId ?? "";
 
-  // share_cta_click — fired alongside (never instead of) the real navigation.
-  // `track` is non-throwing, but guard anyway so tracking can never break a CTA.
   const fireShareCtaClick = useCallback(
     (cta: "signup" | "download" | "try_clips" | "signin") => {
       try {
@@ -453,13 +470,10 @@ export default function ShareRoute() {
     [recordingId, attribution.ref, attribution.via],
   );
 
-  // Forward attribution into the signup URL so it survives blocked cookies.
   const signupHref = appPath(
     `/signup?${buildSignupAttributionQuery(attribution.via)}`,
   );
 
-  // share_view — fire once when the public share page mounts. The ref guard
-  // prevents double-fire across re-renders / StrictMode double-invocation.
   const shareViewFiredRef = useRef(false);
   useEffect(() => {
     if (shareViewFiredRef.current) return;
@@ -486,12 +500,6 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  // Reading sessionStorage in the initializer makes the first client render
-  // disagree with the server's, which has no storage and always renders the
-  // locked state. React answers a mismatch by throwing away the hydrated tree
-  // and re-rendering from scratch, so a returning viewer watches a blank share
-  // page while everything refetches. Start where the server started and adopt
-  // the stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
 
@@ -518,6 +526,7 @@ export default function ShareRoute() {
     status: sessionStatus,
     retry: retrySession,
   } = useSession();
+  const homeHref = session ? appPath("/home") : appPath("/");
   const retriedUnavailableSessionRef = useRef(false);
   const requestAccess = useActionMutation<
     {
@@ -539,11 +548,11 @@ export default function ShareRoute() {
   const resumedAccountActionRef = useRef<"comment" | "react" | null>(null);
   const [refreshSessionAfterAuth, setRefreshSessionAfterAuth] = useState(false);
   const [processingTimeout, setProcessingTimeout] = useState(false);
-  // Keep the public viewer's rail in the same default state as the signed-in
-  // viewer. Its own tab strip is the only panel navigation; the page toolbar
-  // stays focused on recording actions.
   const [panel, setPanel] = useState<SharePanel>("comments");
-  const [sidePanelCollapsed, setSidePanelCollapsed] = useState(false);
+  const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
+    usePersistentSidebarCollapsed({
+      storageKey: "clips:share-sidebar-collapsed",
+    });
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const commentsSectionRef = useRef<HTMLElement | null>(null);
   const selectCommentsPanel = useCallback(() => {
@@ -555,7 +564,7 @@ export default function ShareRoute() {
         block: "start",
       });
     });
-  }, []);
+  }, [setSidePanelCollapsed]);
   const [downloading, setDownloading] = useState(false);
   const [accessRequestSent, setAccessRequestSent] = useState(false);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(
@@ -658,8 +667,6 @@ export default function ShareRoute() {
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
-    // Let public shares resolve without waiting for auth. A session-loading
-    // 401/404 remains behind the spinner until the authenticated retry.
     enabled: !!shareId,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
@@ -671,10 +678,6 @@ export default function ShareRoute() {
       }
       const rec = payload?.recording;
       if (!rec) return false;
-      // Poll while the recording is still being assembled / transcoded so the
-      // page auto-upgrades from "Processing" to the real player the moment
-      // the server flips status to 'ready' and writes videoUrl. Mirrors
-      // _app.r.$recordingId.tsx's playerDataQ.refetchInterval.
       if (rec.status !== "ready" || !rec.videoUrl) {
         readyMediaPollRef.current = null;
         return 2000;
@@ -700,14 +703,7 @@ export default function ShareRoute() {
       if (now < readyMediaPollRef.current.until) {
         return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
       }
-      // Also keep polling while a transcript is pending so "Transcribing…"
-      // auto-flips to the ready transcript (or to the failure card). The
-      // public payload has no transcript.cleanup field (that's authenticated
-      // -only), so there is no equivalent of the cleanup.status poll here.
       if (payload?.transcript?.status === "pending") return 3000;
-      // And keep polling while the title is still the server-seeded default
-      // — the agent will land a generated title via `update-recording` and
-      // we want the skeleton to swap in promptly.
       if (shouldShowGeneratedTitleSkeleton(rec, payload?.transcript?.status)) {
         return 3000;
       }
@@ -719,11 +715,6 @@ export default function ShareRoute() {
   const recording = dataQ.data?.data?.recording;
   useEffect(() => {
     if (recording && !recording.enableComments) {
-      // Functional update so this branch doesn't need `panel` as a
-      // dependency below - depending on `panel` made this effect re-fire on
-      // every manual tab click (including away from Comments), and
-      // `panelParam === "comments"` would then re-select Comments right
-      // back, trapping the viewer on the deep link for the whole session.
       setPanel((current) => (current === "comments" ? "transcript" : current));
       return;
     }
@@ -838,20 +829,12 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
-  // Any signed-in viewer with access to the recording may comment or react —
-  // anonymous viewers keep the same controls and enter the account funnel
-  // when they try to participate (see `requireSignIn` below).
   const viewerCanComment = Boolean(session) && viewerRole != null;
   const viewerCanUseFullscreenInteractions = !session || viewerCanComment;
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
-  // A plain viewer only gets a copy-link control: it must not trigger
-  // `list-resource-shares` (any read access is enough to call it, and its
-  // response includes every individually-shared principal's email) and must
-  // not surface the raw video download/open action independent of
-  // `enableDownloads`.
   const viewerReshareOnly = canReshareLink && !viewerCanEdit;
   const viewerCanOpenDashboard = Boolean(
     dataQ.data?.data?.viewer?.canOpenDashboard,
@@ -864,6 +847,10 @@ export default function ShareRoute() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : t("sharePage.untitledClip");
+  const shareBreadcrumbItems = [
+    { label: t("navigation.library"), to: "/library" },
+    { label: visibleTitle },
+  ];
   const ownerEmail =
     (typeof recording?.ownerEmail === "string"
       ? recording.ownerEmail.trim()
@@ -900,12 +887,6 @@ export default function ShareRoute() {
     document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
 
-  // /share/:id and /r/:id render the same clip, so anyone who can open the
-  // authenticated page goes straight there rather than through a redundant
-  // "open dashboard" button. `canOpenDashboard` is the server's own
-  // `canOpenDirectRecordingPage` verdict; deriving it from the display role
-  // instead would bounce viewers between the two routes forever, since /r
-  // sends anyone it rejects back here.
   useEffect(() => {
     const target = resolveDashboardRedirect({
       recordingId: recording?.id,
@@ -914,30 +895,6 @@ export default function ShareRoute() {
     });
     if (target) void navigate(target, { replace: true });
   }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
-
-  // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
-  // agent mounted in the side panel has no navigation context. Write it
-  // explicitly for signed-in viewers so view-screen grounds the chat to this
-  // clip instead of falling back to a generic library view.
-  useEffect(() => {
-    if (!session || !recording?.id) return;
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
-      {
-        method: "PUT",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          view: "share",
-          shareId: recording.id,
-          recordingId: recording.id,
-          path: `/share/${recording.id}`,
-        }),
-      },
-    ).catch(() => {});
-  }, [session, recording?.id]);
 
   useEffect(() => {
     if (!recording) {
@@ -1056,14 +1013,12 @@ export default function ShareRoute() {
     sessionStatus,
   ]);
 
-  // If the backend returned 401 with passwordRequired, prompt.
   const needsPassword =
     dataQ.data?.status === 401 && dataQ.data.data?.passwordRequired;
 
   useEffect(() => {
     if (!needsPassword) return;
     if (password) {
-      // Wrong password entered → clear and show error.
       setPwError(t("sharePage.incorrectPassword"));
       setPassword(null);
       try {
@@ -1080,21 +1035,11 @@ export default function ShareRoute() {
     } catch {}
   }
 
-  /**
-   * Redactions drawn but not burned in. Resharing is held back while there are
-   * any — the file still shows everything under them, so passing the link on
-   * passes on the unredacted clip.
-   */
-  // `recording` comes from a client-side query and is undefined while the
-  // server renders, so this has to tolerate its absence: reading through it
-  // unguarded here returned a 500 for every share page, redactions or not.
   const pendingRedactions = parseRedactions(
     parseEdits(recording?.editsJson).overlays,
   ).length;
 
   async function downloadRecording() {
-    // Every way out of here is the same file, and it still shows what the
-    // boxes are over until the burn has run.
     if (pendingRedactions > 0) {
       toast.warning(t("shareDialog.redactionsPendingTitle"), {
         description: t("shareDialog.redactionsPendingBody", {
@@ -1190,6 +1135,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
           action={
             <Button
               size="sm"
@@ -1220,9 +1166,6 @@ export default function ShareRoute() {
     );
   }
 
-  // Held while the owner has redactions drawn but not burned in. The clip
-  // comes back on its own the moment they are, so this says "for now" and
-  // nothing about what is being covered up.
   if (dataQ.data?.status === 409 && dataQ.data.data?.redactionPending) {
     return (
       <>
@@ -1231,6 +1174,7 @@ export default function ShareRoute() {
           icon={<IconLock className="h-5 w-5" aria-hidden="true" />}
           title={t("sharePage.beingEdited")}
           message={t("sharePage.beingEditedMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1243,6 +1187,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.linkExpired")}
           message={t("sharePage.linkExpiredMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1264,6 +1209,7 @@ export default function ShareRoute() {
               ? "sharePage.privateClipMessage"
               : "sharePage.privateClipSignedOutMessage",
           )}
+          homeHref={homeHref}
           error={canRequestAccess ? accessRequestError : null}
           action={
             canRequestAccess ? (
@@ -1318,6 +1264,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.clipUnavailable")}
           message={t("sharePage.clipUnavailableMessage")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1330,6 +1277,7 @@ export default function ShareRoute() {
         <EndState
           title={t("sharePage.somethingWentWrong")}
           message={dataQ.data?.data?.error ?? t("sharePage.pleaseTryAgain")}
+          homeHref={homeHref}
         />
       </>
     );
@@ -1455,10 +1403,30 @@ export default function ShareRoute() {
   const canDownloadRecording = Boolean(
     recording.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
-  // Loom-backed clips only ever get an "open player" link (not a raw
-  // download), so they're exempt from the enableDownloads gate here.
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked ? recording.videoUrl : null;
+  const shareControl =
+    viewerCanEdit || canReshareLink ? (
+      <ShareRecordingPopover
+        recordingId={recording.id}
+        pendingRedactions={pendingRedactions}
+        recordingTitle={recording.title}
+        initialVisibility={recording.visibility}
+        initialRole={viewerIsOwner ? "owner" : undefined}
+        videoUrl={shareVideoUrl}
+        thumbnailUrl={recording.thumbnailUrl}
+        animatedThumbnailUrl={recording.animatedThumbnailUrl}
+        isLoomRecording={isLoomEmbedBacked}
+        hasPassword={Boolean(recording.hasPassword)}
+        expiresAt={recording.expiresAt}
+        viewerReshareOnly={viewerReshareOnly}
+      >
+        <ClipsShareTrigger
+          label={t("sharePage.share")}
+          className={session ? undefined : "border-0 shadow-none"}
+        />
+      </ShareRecordingPopover>
+    ) : null;
 
   return (
     <div
@@ -1469,47 +1437,44 @@ export default function ShareRoute() {
       )}
     >
       {agentDiscovery}
-      <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
-        {session ? (
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            aria-label={t("sharePage.backToHome")}
-          >
-            <Link to={appPath("/")}>
-              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+      {session ? (
+        <PageHeader>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <PageBreadcrumb items={shareBreadcrumbItems} />
+            </div>
+            {shareControl}
+          </div>
+        </PageHeader>
+      ) : (
+        <header className="col-span-full row-start-1 flex min-h-14 min-w-0 shrink-0 flex-wrap items-center gap-3 bg-background px-5 py-3 lg:flex-nowrap">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Link
+              to={appPath("/")}
+              aria-label={t("navigation.brand")}
+              className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {brandLogoUrl ? (
+                <img
+                  src={brandLogoUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-5 w-5 shrink-0 object-contain"
+                />
+              ) : (
+                <AgentNativeIcon
+                  aria-hidden="true"
+                  className="h-3.5 w-6 shrink-0 text-foreground"
+                />
+              )}
+              <span className="truncate text-sm font-semibold text-foreground">
+                {t("navigation.brand")}
+              </span>
             </Link>
-          </Button>
-        ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <Link
-            to={appPath("/")}
-            aria-label={t("navigation.brand")}
-            className="flex min-w-0 items-center gap-2 rounded text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {brandLogoUrl ? (
-              <img
-                src={brandLogoUrl}
-                alt=""
-                aria-hidden="true"
-                className="h-5 w-5 shrink-0 object-contain"
-              />
-            ) : (
-              <AgentNativeIcon
-                aria-hidden="true"
-                className="h-3.5 w-6 shrink-0 text-foreground"
-              />
-            )}
-            <span className="truncate text-sm font-semibold text-foreground">
-              {t("navigation.brand")}
-            </span>
-          </Link>
-          <EnvironmentBadge placement="inline" />
-        </div>
+            <EnvironmentBadge placement="inline" />
+          </div>
 
-        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
-          {session ? null : (
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-3">
             <SignedOutShareActions
               recordingId={recording.id}
               startAt={startAt}
@@ -1517,30 +1482,10 @@ export default function ShareRoute() {
               onCtaClick={fireShareCtaClick}
               onSignup={() => openCreateAccount("continue")}
             />
-          )}
-          {viewerCanEdit || canReshareLink ? (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              pendingRedactions={pendingRedactions}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={viewerIsOwner ? "owner" : undefined}
-              videoUrl={shareVideoUrl}
-              thumbnailUrl={recording.thumbnailUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-              isLoomRecording={isLoomEmbedBacked}
-              hasPassword={Boolean(recording.hasPassword)}
-              expiresAt={recording.expiresAt}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger
-                label={t("sharePage.share")}
-                className="border-0 shadow-none"
-              />
-            </ShareRecordingPopover>
-          ) : null}
-        </div>
-      </header>
+            {shareControl}
+          </div>
+        </header>
+      )}
 
       <div className="flex w-full min-w-0 flex-none flex-col overflow-visible lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:flex-1 lg:overflow-y-hidden">
         <main className="overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden">
@@ -1636,9 +1581,6 @@ export default function ShareRoute() {
                           }}
                         />
                       );
-                      // The Fullscreen API only paints the player's own element,
-                      // so portal the composer there instead of exiting
-                      // fullscreen when it's open.
                       const fullscreenContainer =
                         isPlayerFullscreen && playerRef.current?.container;
                       return fullscreenContainer
@@ -1858,32 +1800,47 @@ export default function ShareRoute() {
                   ref={commentsSectionRef}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3 pt-2"
                 >
-                  <CommentsPanel
-                    recordingId={recording.id}
-                    comments={comments}
-                    currentMs={playbackMs}
-                    getCurrentMs={resolvePlaybackMs}
-                    currentUserEmail={session?.email}
-                    currentUserName={session?.name}
-                    enableComments={recording.enableComments}
-                    canComment={viewerCanComment}
-                    onSeek={(ms) => playerRef.current?.seek(ms)}
-                    onUnauthenticated={requireSignIn}
-                    queryKey={[
-                      "public-recording",
-                      shareId,
-                      password,
-                      agentAccessToken,
-                      session?.email ?? null,
-                    ]}
-                    selectComments={(d: any) => d?.data?.comments}
-                    applyComments={(d: any, next) =>
-                      d
-                        ? { ...d, data: { ...(d.data ?? {}), comments: next } }
-                        : d
-                    }
-                    presentation="inline"
-                  />
+                  {!session &&
+                  sessionStatus !== "loading" &&
+                  sessionStatus !== "signing-out" &&
+                  comments.length === 0 ? (
+                    <PublicCommentsEmptyState
+                      onSignUp={() => {
+                        fireShareCtaClick("signup");
+                        openCreateAccount("comment");
+                      }}
+                    />
+                  ) : (
+                    <CommentsPanel
+                      recordingId={recording.id}
+                      comments={comments}
+                      currentMs={playbackMs}
+                      getCurrentMs={resolvePlaybackMs}
+                      currentUserEmail={session?.email}
+                      currentUserName={session?.name}
+                      enableComments={recording.enableComments}
+                      canComment={viewerCanComment}
+                      onSeek={(ms) => playerRef.current?.seek(ms)}
+                      onUnauthenticated={requireSignIn}
+                      queryKey={[
+                        "public-recording",
+                        shareId,
+                        password,
+                        agentAccessToken,
+                        session?.email ?? null,
+                      ]}
+                      selectComments={(d: any) => d?.data?.comments}
+                      applyComments={(d: any, next) =>
+                        d
+                          ? {
+                              ...d,
+                              data: { ...(d.data ?? {}), comments: next },
+                            }
+                          : d
+                      }
+                      presentation="inline"
+                    />
+                  )}
                 </section>
               </TabsContent>
             ) : null}
@@ -1978,7 +1935,7 @@ function ShareReactionPicker({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          className="h-8 gap-1.5 px-2 text-xs"
+          className="gap-1.5 px-2 text-xs"
         >
           <IconMoodSmile className="size-4" />
           {t("recordingPage.react")}
@@ -1991,8 +1948,8 @@ function ShareReactionPicker({
               key={emoji}
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 rounded-full text-lg"
+              size="icon-sm"
+              className="rounded-full text-lg"
               aria-label={`${t("recordingPage.react")} ${REACTION_NAMES[emoji]}`}
               onClick={() => {
                 setOpen(false);
@@ -2029,6 +1986,25 @@ function formatRecordedOn(
     dateStyle: "medium",
     ...(stable ? { timeZone: "UTC" } : {}),
   }).format(date);
+}
+
+function PublicCommentsEmptyState({ onSignUp }: { onSignUp: () => void }) {
+  const t = useT();
+
+  return (
+    <div className="mx-auto flex min-h-0 w-full max-w-sm flex-1 flex-col items-center justify-center gap-4 overflow-y-auto px-5 py-5 text-center">
+      <AgentNativeIcon aria-hidden="true" className="h-5 w-8 text-primary" />
+      <h2 className="max-w-64 text-xl leading-6 font-semibold tracking-tight">
+        {t("sharePage.commentSignupTitle")}
+      </h2>
+      <p className="max-w-xs text-sm leading-5 text-muted-foreground">
+        {t("sharePage.commentSignupDescription")}
+      </p>
+      <Button type="button" onClick={onSignUp}>
+        {t("signInPrompt.createAccount")}
+      </Button>
+    </div>
+  );
 }
 
 function PublicAgentEmptyState({
@@ -2109,12 +2085,14 @@ function EndState({
   message,
   error,
   action,
+  homeHref,
 }: {
   icon?: ReactNode;
   title: string;
   message: string;
   error?: string | null;
   action?: ReactNode;
+  homeHref: string;
 }) {
   const t = useT();
 
@@ -2140,7 +2118,7 @@ function EndState({
       <div className="flex flex-wrap items-center justify-center gap-2">
         {action}
         <Button asChild variant="ghost" size="sm">
-          <a href={appPath("/")}>{t("clipsFinalRaw.goHome")}</a>
+          <a href={homeHref}>{t("clipsFinalRaw.goHome")}</a>
         </Button>
       </div>
     </div>

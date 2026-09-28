@@ -48,6 +48,15 @@ export default defineAction({
         ),
       );
 
+    await db
+      .delete(schema.documentCommentReactions)
+      .where(
+        and(
+          eq(schema.documentCommentReactions.commentId, args.id),
+          eq(schema.documentCommentReactions.documentId, comment.documentId),
+        ),
+      );
+
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { ok: true };
   },

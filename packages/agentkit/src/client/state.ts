@@ -120,6 +120,45 @@ export function createAgentThreadState(threadId: ThreadId): AgentThreadState {
   };
 }
 
+export function hasActiveAgentRuns(
+  thread: Pick<AgentThreadState, "activeRunIds"> &
+    Partial<Pick<AgentThreadState, "runs" | "events" | "approvalRunIds">>,
+): boolean {
+  const resolvedApprovalIds = new Set<string>();
+  const requestIdsByRun = new Map<RunId, Set<string>>();
+  for (const event of thread.events ?? []) {
+    if (event.type === "approval.requested") {
+      const requestIds = requestIdsByRun.get(event.runId) ?? new Set<string>();
+      requestIds.add(event.request.id);
+      requestIdsByRun.set(event.runId, requestIds);
+    } else if (event.type === "approval.resolved") {
+      resolvedApprovalIds.add(event.approvalId);
+    }
+  }
+
+  return thread.activeRunIds.some((runId) => {
+    const status = thread.runs?.[runId]?.status;
+    if (
+      status === "completed" ||
+      status === "failed" ||
+      status === "cancelled"
+    ) {
+      return false;
+    }
+    if (status !== "awaiting_approval") return true;
+    const requestIds = requestIdsByRun.get(runId) ?? new Set<string>();
+    for (const [approvalId, approvalRunId] of Object.entries(
+      thread.approvalRunIds ?? {},
+    )) {
+      if (approvalRunId === runId) requestIds.add(approvalId);
+    }
+    return (
+      requestIds.size === 0 ||
+      [...requestIds].some((approvalId) => !resolvedApprovalIds.has(approvalId))
+    );
+  });
+}
+
 export function selectActiveAgentRoster(
   agents: AgentThreadState["agents"],
 ): AgentParticipant[] {
@@ -250,11 +289,6 @@ function isExpectedTerminalFollowup(
   );
 }
 
-/**
- * A terminal run is authoritative even when an upstream adapter omitted the
- * individual completion events. Keeping its last projected work active would
- * strand the transcript in a working state forever.
- */
 export function settleRunProjection(
   thread: AgentThreadState,
   runId: RunId,
@@ -414,10 +448,6 @@ export type AgentEventAdmission =
   | { status: "duplicate"; lastSequence: number }
   | { status: "gap"; expectedSequence: number; receivedSequence: number };
 
-/**
- * The one place the ordering rule lives, so a caller that needs to count a
- * rejection cannot drift from the reducer that performs it.
- */
 export function classifyAgentEvent(
   thread: AgentThreadState,
   event: AgentEvent,
@@ -453,8 +483,6 @@ export function reduceAgentEvent(
     !isExpectedTerminalFollowup(currentRun.status, event) &&
     (currentRun.status !== "failed" || hasTerminalEvent)
   ) {
-    // Once a terminal lifecycle event has been accepted, late work events are
-    // stale replay and must not reopen a settled transcript item.
     return thread;
   }
   const admission = classifyAgentEvent(thread, event);
@@ -508,8 +536,6 @@ export function reduceAgentEvent(
     case "agent.unregistered":
       return {
         ...next,
-        // Keep the participant projection for durable attribution while
-        // making its live-roster state unambiguous for every consumer.
         agents: {
           ...next.agents,
           [event.agent.id]: {
@@ -577,8 +603,6 @@ export function reduceAgentEvent(
         (message) => message.id === event.message.id,
       );
       if (current?.status === "complete") return next;
-      // A reconnect can deliver a delta before the lifecycle marker. Do not
-      // let the late marker erase text or reasoning already accepted.
       if (current?.status === "streaming" && current.parts.length > 0) {
         return {
           ...next,

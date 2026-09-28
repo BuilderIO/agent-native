@@ -4,7 +4,6 @@ export {
   type DevDatabaseLinkProps,
 } from "./DevDatabaseLink.js";
 
-// Shared data layer + helpers (re-exported for convenience).
 export {
   dbAdminBasePath,
   dbAdminGet,

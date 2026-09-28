@@ -24,12 +24,6 @@ type ResolvedMediaRule = {
   target: number;
 };
 
-/**
- * Rewrites responsive class and managed stylesheet bounds without
- * serializing the document. PostCSS keeps declarations, comments, unknown
- * selectors, and nested at-rules intact. A null result is a safe refusal
- * when the source cannot be migrated or two scopes would collapse into one.
- */
 export function migrateBreakpointMediaBounds(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -144,9 +138,6 @@ function migrateMediaCssBounds(
     if (match) rule.params = rule.params.replace(match[1], String(target));
   }
 
-  // The desktop-down cascade relies on wider media scopes appearing first.
-  // Reorder only matching media nodes within their existing parent; all other
-  // nodes stay in place with their original raw children and context.
   for (const parent of targetOwners.keys()) {
     const nodes = parent.nodes ?? [];
     const positions: number[] = [];

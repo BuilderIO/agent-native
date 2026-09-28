@@ -152,6 +152,8 @@ export default {
     untitledAnalysis: "Análise sem título",
   },
   settings: {
+    agentObservability: "Observabilidade do agente",
+    reviewPreviewUnavailable: "Prévia indisponível",
     agentTitle: "Gerenciar agente",
     agentDescription:
       "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
@@ -173,6 +175,9 @@ export default {
     bellSoundDescription:
       "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
     bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
+    notificationsTitle: "Notificações",
+    notificationsEmailGroup: "E-mail",
+    notificationsSoundGroup: "Som",
     replayStorage: "Armazenamento de replay de sessão",
     replayStorageDescription:
       "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Conecte o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
@@ -966,6 +971,10 @@ export default {
     recentSales: "Vendas recentes",
     recentSalesDescription: "Você fez 265 vendas este mês.",
   },
+  analysisResult: {
+    title: "Resultado da análise",
+    comparisonContext: "{{period}}: {{current}} em comparação com {{previous}}",
+  },
   routeTitles: {
     notFound: "Não encontrado - Analytics",
     analysis: "Análise - Analytics",
@@ -1323,6 +1332,7 @@ export default {
     app: "App",
     unknownApp: "App desconhecido",
     lastSeen: "Visto por último",
+    includeZeroMinuteSessions: "Incluir sessões de 0 min",
     duration: "Duração",
     events: "Eventos",
     chunks: "Blocos",

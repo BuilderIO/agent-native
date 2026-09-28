@@ -1,29 +1,10 @@
 #!/usr/bin/env node
 import { execSync } from "node:child_process";
-/**
- * Fails CI on a PR if any publishable package's source code changed
- * without a corresponding changeset. The error message is structured so
- * `/babysit-pr` can parse the missing-package list and write the
- * `.changeset/*.md` file automatically.
- *
- * Algorithm:
- *   1. Diff against `origin/main` to get the list of files this PR
- *      changes.
- *   2. Map each changed file to a publishable package (anything under
- *      `packages/<name>/` where `packages/<name>/package.json` is NOT
- *      `private: true` and the package is NOT ignored by changesets). Ignore
- *      changes to `package.json` itself if it's just a version bump from a
- *      Version Packages PR.
- *   3. Read every `.changeset/*.md` (excluding `README.md` + `config.json`)
- *      and parse the YAML frontmatter for the `"@scope/pkg": bump` map.
- *   4. If any touched-but-uncovered package remains, print the structured
- *      error and exit 1.
- *
- * Run via: `node scripts/check-changeset.mjs`
- * Used by: `.github/workflows/changeset-check.yml`
- */
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { parseDocument } from "yaml";
 
 const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
 
@@ -32,8 +13,6 @@ function sh(cmd) {
 }
 
 function getBaseSha() {
-  // GitHub Actions sets GITHUB_BASE_REF on PRs (e.g. "main"). For local
-  // runs, fall back to origin/main.
   if (process.env.GITHUB_BASE_REF) {
     sh(`git fetch origin ${process.env.GITHUB_BASE_REF} --depth=50`);
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);
@@ -53,7 +32,7 @@ function listChangesetManagedPackages(ignoredPackages) {
     return { byDir: new Map(), names: new Set() };
   }
 
-  const map = new Map(); // packageDirName → packageName
+  const map = new Map();
   const names = new Set();
   for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -87,7 +66,6 @@ function listIgnoredPackages() {
 }
 
 function packageFromPath(file, publishables) {
-  // packages/<name>/...  → <name>
   const m = file.match(/^packages\/([^/]+)\//);
   if (!m) return null;
   const dirName = m[1];
@@ -95,9 +73,6 @@ function packageFromPath(file, publishables) {
 }
 
 function isVersionPackagesBumpOnly(file, baseSha) {
-  // The Version Packages PR bumps `version` + appends to CHANGELOG.md.
-  // If those are the ONLY files touched in a package, no changeset is
-  // needed (the bump itself is what consumes the changesets).
   if (/^packages\/[^/]+\/changelog\//.test(file)) return true;
   if (!file.endsWith("/package.json") && !file.endsWith("/CHANGELOG.md")) {
     return false;
@@ -105,7 +80,6 @@ function isVersionPackagesBumpOnly(file, baseSha) {
   try {
     const diff = sh(`git diff ${baseSha}...HEAD -- ${file}`);
     if (file.endsWith("CHANGELOG.md")) return true;
-    // For package.json — accept if the only changed line is `"version":`.
     const changedLines = diff
       .split("\n")
       .filter((l) => /^[+-][^+-]/.test(l))
@@ -125,21 +99,55 @@ function listPendingChangesets() {
     .map((f) => path.join(dir, f));
 }
 
-function packagesCoveredBy(changesetPath) {
+export function packagesCoveredBy(changesetPath) {
   const content = fs.readFileSync(changesetPath, "utf8");
-  // Frontmatter is between two `---` lines at the top.
-  const m = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!m) return [];
-  return m[1]
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      // Lines look like:  "@agent-native/core": patch
-      const mm = line.match(/^["']?([^"':]+)["']?\s*:\s*(\w+)\s*$/);
-      return mm ? mm[1].trim() : null;
-    })
-    .filter(Boolean);
+  const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!m) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": expected YAML frontmatter between --- lines",
+    );
+  }
+  const document = parseDocument(m[1], { uniqueKeys: true });
+  if (document.errors.length > 0) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": invalid YAML frontmatter",
+      { cause: document.errors[0] },
+    );
+  }
+  const entries = document.toJS();
+  if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": expected a YAML package-to-bump map",
+    );
+  }
+  const packages = Object.entries(entries).map(([packageName, bump]) => {
+    if (
+      packageName.length === 0 ||
+      typeof bump !== "string" ||
+      !["none", "patch", "minor", "major"].includes(bump)
+    ) {
+      throw new Error(
+        "Invalid changeset .changeset/" +
+          path.basename(changesetPath) +
+          ": expected package entries with none, patch, minor, or major bumps",
+      );
+    }
+    return packageName;
+  });
+  if (packages.length === 0) {
+    throw new Error(
+      "Invalid changeset .changeset/" +
+        path.basename(changesetPath) +
+        ": no package bumps found",
+    );
+  }
+  return packages;
 }
 
 function failOnSkippedChangesets(managedPackageNames) {
@@ -203,7 +211,6 @@ function main() {
     process.exit(0);
   }
 
-  // Structured failure — babysit-pr parses this to know what to add.
   console.error("✗ Missing changeset for publishable package source changes.");
   console.error("");
   console.error(
@@ -231,4 +238,9 @@ function main() {
   process.exit(1);
 }
 
-main();
+if (
+  process.argv[1] &&
+  pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+) {
+  main();
+}

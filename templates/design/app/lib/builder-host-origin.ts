@@ -1,12 +1,5 @@
 import { SHELL_CANVAS_PATH } from "@shared/shell-screens";
 
-/**
- * The parent origin the Builder handshake arrived from, recorded once a
- * `design:init` message passes the host check.
- *
- * Origin sniffing cannot confirm a Builder running on localhost — every local
- * dev session — so the handshake is the only signal that works in both.
- */
 let verifiedBuilderHostOrigin: string | null = null;
 
 export function rememberBuilderHostOrigin(origin: string): void {

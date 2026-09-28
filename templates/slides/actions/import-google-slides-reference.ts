@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -158,11 +158,6 @@ export function googleSlidesExportError(
   );
 }
 
-/**
- * Google Drive's PPTX export can omit image page elements that remain present
- * in the native Slides document. Read those native objects as a fidelity
- * fallback so a direct Google Slides import does not silently lose artwork.
- */
 async function fetchGoogleSlidesImageFallbacks(
   fileId: string,
   accessToken: string,
@@ -272,7 +267,7 @@ async function fetchGoogleSlidesImageFallbacks(
     const download = downloadLimit(async () => {
       const imageResponse = await ssrfSafeFetch(
         candidate.contentUrl,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
+        {},
         { httpsOnly: true, maxRedirects: 2 },
       );
       if (!imageResponse.ok) {
@@ -350,8 +345,12 @@ export default defineAction({
       presentationUrl ? { requireDriveExportScope: true } : undefined,
     );
     if (!connection) {
-      throw new Error(
+      fail(
         "Google Drive is not connected. Use the Connect Google button in Slides, then try again.",
+        {
+          errorCode: "google_drive_not_connected",
+          statusCode: 412,
+        },
       );
     }
 

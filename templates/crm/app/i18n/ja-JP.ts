@@ -24,6 +24,11 @@ const messages = {
     retry: "再試行",
     search: "検索",
   },
+  chatHome: {
+    description:
+      "Native SQL と接続済みレコード全体で、アクセス可能なアカウント情報、フォローアップ業務、根拠を確認できます。",
+    placeholder: "CRMについて質問する",
+  },
   commandMenu: {
     placeholder: "レコード、リスト、コマンドを検索…",
     groupRecords: "レコード",
@@ -66,6 +71,8 @@ const messages = {
     languageDescription:
       "インターフェース言語を選択します。この設定はアカウントに保存されます。",
     languageLabel: "インターフェース言語",
+    mcpAbout:
+      "CRM を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって CRM で作業できます。レコードの検索、フィールドの更新、タスクの管理などです。アプリが見られるのは、あなたが見られるものだけです。",
   },
   connection: {
     tab: "接続",

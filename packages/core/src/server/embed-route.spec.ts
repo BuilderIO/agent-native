@@ -8,6 +8,8 @@ vi.mock("h3", () => ({
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
   getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
+  getRequestHeader: (event: any, name: string) =>
+    event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
   setResponseHeader: (...a: any[]) => setResponseHeader(...a),
 }));
 
@@ -34,7 +36,11 @@ function fakeEvent(
   return {
     method,
     query,
-    headers,
+    headers: {
+      host: "app.test",
+      "x-forwarded-proto": "https",
+      ...headers,
+    },
     res: {
       headers: {
         getSetCookie: () => [],
@@ -99,12 +105,20 @@ describe("createEmbedStartRouteHandler", () => {
       targetPath: "/inbox",
       scope: "full",
       expiresAt: Date.now() + 60_000,
+      ticketCreatedAtMs: Date.now() - 1,
     });
 
     const handler = createEmbedStartRouteHandler();
 
     const res: Response = await handler(
-      fakeEvent("GET", { ticket: "ticket-123" }),
+      fakeEvent(
+        "GET",
+        { ticket: "ticket-123" },
+        {
+          host: "internal.gateway:3000",
+          "x-forwarded-host": "beta.calendar.agent-native.com",
+        },
+      ),
     );
 
     expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
@@ -116,7 +130,9 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: "steve@example.com",
       orgId: "builder",
       targetPath: "/inbox",
+      audienceHost: "beta.calendar.agent-native.com",
       scope: "full",
+      ticketCreatedAtMs: expect.any(Number),
     });
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe(
@@ -238,6 +254,7 @@ describe("createEmbedStartRouteHandler", () => {
         ownerEmail: "steve@example.com",
         orgId: undefined,
         targetPath: "/visual-edit/design_1",
+        audienceHost: "app.test",
         scope: "capability:visual-edit:design:design_1",
         ttlSeconds: 45,
       });
@@ -271,6 +288,7 @@ describe("createEmbedStartRouteHandler", () => {
       ownerEmail: localWorkspacePrincipal,
       orgId: undefined,
       targetPath: "/visual-edit/design_1",
+      audienceHost: "app.test",
       scope: "capability:visual-edit:design:design_1",
       ttlSeconds: expect.any(Number),
     });

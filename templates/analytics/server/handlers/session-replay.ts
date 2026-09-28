@@ -65,8 +65,6 @@ function setCors(event: any): void {
     `content-type, content-encoding, x-agent-native-analytics-key, ${SYNTHETIC_TRAFFIC_HEADER.toLowerCase()}`,
   );
   setResponseHeader(event, "Access-Control-Max-Age", "86400");
-  // The recorder reads Retry-After to tell a one-minute rate limit apart from
-  // a day-long byte quota. Cross-origin JS cannot see it unless it is exposed.
   setResponseHeader(event, "Access-Control-Expose-Headers", "retry-after");
 }
 
@@ -150,14 +148,9 @@ export function decodeSessionReplayRequestBody(
     if (gunzipped) {
       decoded = gunzipped;
     } else {
-      // Netlify may hand Nitro an already-decoded body while preserving the
-      // original browser Content-Encoding header.
       if (looksLikeDecodedJson(bytes)) {
         decoded = bytes;
       } else {
-        // Some Netlify paths wrap binary request bodies in a JS string before
-        // Nitro reads them back as UTF-8. Reinterpret that text as one-byte
-        // binary data so real browser CompressionStream uploads survive.
         const textWrappedGzip = decodeTextWrappedGzip(bytes);
         if (textWrappedGzip) {
           decoded = textWrappedGzip.decoded;
@@ -473,10 +466,6 @@ export const handleSessionReplayChunkBytes = defineEventHandler(
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
-        // Serve decompressed JSON and let the platform negotiate wire
-        // compression. Manually returning a pre-gzipped body with a
-        // `Content-Encoding: gzip` header corrupted replay downloads on
-        // serverless hosts and left playback blank in production.
         setResponseHeader(event, "Content-Type", "application/json");
         setResponseHeader(event, "Cache-Control", "no-store");
         setResponseHeader(event, "X-Session-Replay-Seq", String(result.seq));

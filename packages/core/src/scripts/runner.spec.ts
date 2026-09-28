@@ -14,12 +14,6 @@ const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
 const fileUploadIndex = path.resolve(__dirname, "../file-upload/index.ts");
 
-// `tsx` is a transitive (not declared) dependency, so the hoisted
-// `node_modules/.bin/tsx` shim exists under a local non-strict install but
-// NOT under CI's `pnpm install --frozen-lockfile` strict layout — spawning
-// the missing shim returns `status: null` (ENOENT). Resolve the real CLI
-// entry from the pnpm virtual store (always present when tsx is locked) and
-// run it through `process.execPath` so the spec is layout-independent.
 function resolveTsxCli(): string {
   const binCandidates = [
     path.join(repoRoot, "node_modules", ".bin", "tsx"),
@@ -51,8 +45,6 @@ function resolveTsxCli(): string {
 }
 
 const tsxCli = resolveTsxCli();
-// A `.bin` shim is directly executable; a resolved `cli.mjs` must be run via
-// node. Normalize both into a (command, leadingArgs) pair.
 const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
 const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
 const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
@@ -64,8 +56,6 @@ describe("runScript package actions", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-runner-"));
     fs.mkdirSync(path.join(tmpDir, "actions"), { recursive: true });
-    // A template puts its plugin-owned registrations here so both CLI entry
-    // points see them; discovery skips the leading underscore.
     fs.writeFileSync(
       path.join(tmpDir, "actions", "_cli-bootstrap.ts"),
       `
@@ -339,10 +329,6 @@ describe("runScript package actions", () => {
     });
   }, 40_000);
 
-  // A CLI run mounts no Nitro plugins, so nothing claims the upload slot that
-  // `createCoreRoutesPlugin` and the onboarding plugin claim on a server. Before
-  // `runScript` claimed it, this resolved no provider at all and every action
-  // that stores a file failed with storage fully configured.
   it("resolves the built-in S3 provider with no server plugins mounted", () => {
     const result = spawnSync(
       tsxCommand,
@@ -373,10 +359,6 @@ describe("runScript package actions", () => {
     ).toEqual({ name: "S3-compatible object storage", provider: "s3" });
   }, 40_000);
 
-  // Claiming the slot for CLI runs must not take it from an app that holds the
-  // same conventional id with its own configuration rules — a template whose
-  // provider accepts a setup the framework's rejects would otherwise resolve
-  // nothing from `pnpm action` even though its own storage is configured.
   it("loads the app's CLI bootstrap and keeps its provider", () => {
     const result = spawnSync(
       tsxCommand,

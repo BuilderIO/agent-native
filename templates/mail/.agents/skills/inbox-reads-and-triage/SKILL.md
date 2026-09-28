@@ -68,9 +68,14 @@ relying on ambient screen text.
 `navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
 `archive`, `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
-`threadId`, `settingsSection` (`drafting`, `automations`, `gmail-filters`,
-`aliases`, `ai-filter`, `tracking`, `slack`, `team`), `queuedDraftId`, or
-`composeDraftId`.
+`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
+
+`settingsSection` opens Settings in the user's tab. `general`, `drafting`,
+`snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and `tracking`
+are tabs on Mail › General (`/settings/app/<id>`). `rules` is Mail's inbox
+rules; the core Automations page is the agent's scheduled and event
+automations. `slack` opens Channels › Slack, where Slack draft requests and
+the agent's Slack connection live, and `members` opens Organization › Members.
 
 ## Related Skills
 

@@ -57,10 +57,6 @@ function useAgentSidebarVisible() {
     };
     update();
 
-    // The panel is a portal and is normally a direct child of body. Discover
-    // portal mount/unmounts with a shallow child-list observer, then watch only
-    // the panel and its immediate parent. Observing every body attribute and
-    // descendant mutation made this tiny indicator run on every editor render.
     let panelObserver: MutationObserver | null = null;
     let parentObserver: MutationObserver | null = null;
 

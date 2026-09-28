@@ -30,10 +30,6 @@ interface DeckShareResource {
   designSystemId?: string | null;
 }
 
-/**
- * POST /api/share
- * Persist a deck snapshot with a random token.
- */
 export const shareDeck = defineEventHandler(async (event) => {
   const body = await readBody<ShareDeckRequest>(event);
   const { deck } = body;
@@ -43,10 +39,6 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: "Deck id is required" };
   }
 
-  // Pre-resolve so we can 401 before opening the request-context scope,
-  // and pass the resolved context into `withSlidesRequestContext` so it
-  // doesn't re-resolve session + org on the same request (which would
-  // double the session/getOrgContext I/O per share).
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
     setResponseStatus(event, auth.statusCode);
@@ -128,7 +120,6 @@ async function createShareLink(event: any, deckId: string) {
     createdAt: now,
   });
 
-  // Prune expired rows opportunistically (no await — background)
   db.delete(schema.deckShareLinks)
     .where(
       lt(
@@ -142,10 +133,6 @@ async function createShareLink(event: any, deckId: string) {
   return response;
 }
 
-/**
- * GET /api/share/:token
- * Retrieve a shared deck by token.
- */
 export const getSharedDeck = defineEventHandler(async (event) => {
   const token = getRouterParam(event, "token");
   if (!token) {
@@ -166,7 +153,6 @@ export const getSharedDeck = defineEventHandler(async (event) => {
     return { error: "Shared presentation not found or has expired" };
   }
 
-  // Check expiry
   const age = Date.now() - new Date(shared.createdAt).getTime();
   if (age > THIRTY_DAYS_MS) {
     setResponseStatus(event, 404);

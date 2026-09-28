@@ -192,6 +192,7 @@ it("keeps copy-link available without mutation rights and reports clipboard fail
   await act(async () => button(container, "comments.copyLink").click());
   expect(mocks.error).toHaveBeenCalledWith("comments.copyLinkFailed");
 });
+// Shared reaction chips show a count only once more than one person reacted.
 it("renders reaction counts, toggles membership, and disables viewer mutations", async () => {
   const { container, root } = await render(
     <ReviewReactionList
@@ -201,8 +202,8 @@ it("renders reaction counts, toggles membership, and disables viewer mutations",
       canReact
     />,
   );
-  expect(button(container, "👍 2").getAttribute("aria-pressed")).toBe("true");
-  await act(async () => button(container, "👍 2").click());
+  expect(button(container, "👍2").getAttribute("aria-pressed")).toBe("true");
+  await act(async () => button(container, "👍2").click());
   expect(mocks.react).toHaveBeenCalledWith(
     expect.objectContaining({ commentId: "reply-real", active: false }),
     expect.any(Object),
@@ -217,8 +218,8 @@ it("renders reaction counts, toggles membership, and disables viewer mutations",
       />,
     ),
   );
-  expect(button(container, "👍 1").disabled).toBe(true);
-  expect(button(container, "👍 1").getAttribute("aria-pressed")).toBe("false");
+  expect(button(container, "👍").disabled).toBe(true);
+  expect(button(container, "👍").getAttribute("aria-pressed")).toBe("false");
 });
 it("encodes document and suggestion IDs for the same server and client link", () => {
   expect(contentSuggestionPath("doc/one", "suggestion?two")).toBe(
