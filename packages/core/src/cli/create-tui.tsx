@@ -1,13 +1,13 @@
 import path from "node:path";
 
 import { Box, Text as InkText, render, useApp, useInput, useStdout } from "ink";
-import { useState, type ComponentProps } from "react";
+import * as React from "react";
 
 import { coreTemplates, type TemplateMeta } from "./templates-meta.js";
 
 const colorEnabled = !("NO_COLOR" in process.env);
 
-function Text(props: ComponentProps<typeof InkText>) {
+function Text(props: React.ComponentProps<typeof InkText>) {
   if (colorEnabled) return <InkText {...props} />;
 
   const plainProps = { ...props };
@@ -47,6 +47,7 @@ export interface CreateWizardOptions {
   installedApps?: string[];
   validateName?: (name: string) => string | undefined;
   validateCommunityTemplate?: (value: string) => string | undefined;
+  addToWorkspace?: boolean;
 }
 
 type Step = "start" | "apps" | "community" | "name" | "review" | "cancelled";
@@ -60,6 +61,7 @@ interface WizardState {
   nameCursor: number;
   templates: Set<string>;
   communityTemplate: string;
+  addToWorkspace: boolean;
   error?: string;
 }
 
@@ -167,6 +169,7 @@ function initialWizardState(options: CreateWizardOptions): WizardState {
     nameCursor: name.length,
     templates,
     communityTemplate: options.initialCommunityTemplate ?? "",
+    addToWorkspace: options.addToWorkspace ?? kind === "workspace-add",
   };
 }
 
@@ -193,9 +196,13 @@ export function createProjectPreview(input: {
   name: string;
   templates: string[];
   cwd: string;
+  addToWorkspace?: boolean;
 }): string[] {
   const projectName = input.name || "my-platform";
   const projectPath = path.resolve(input.cwd, projectName);
+  if (input.kind === "community" && input.addToWorkspace) {
+    return ["Current workspace/", "└─ apps/", "   └─ community app/"];
+  }
   if (input.kind === "workspace-add") {
     return [
       "Current workspace/",
@@ -253,7 +260,12 @@ function moveStepBack(state: WizardState): WizardState {
   if (state.step === "review")
     return {
       ...state,
-      step: state.kind === "workspace-add" ? "apps" : "name",
+      step:
+        state.kind === "community" && state.addToWorkspace
+          ? "community"
+          : state.addToWorkspace
+            ? "apps"
+            : "name",
       error: undefined,
     };
   if (state.step === "name") {
@@ -269,6 +281,7 @@ function moveStepBack(state: WizardState): WizardState {
     return { ...state, step: "apps" };
   }
   if (state.step === "community" || state.step === "apps") {
+    if (state.kind === "community" && state.addToWorkspace) return state;
     return state.kind === "workspace-add"
       ? state
       : {
@@ -301,7 +314,7 @@ function getStepProgress(state: WizardState): {
           ? [
               ...(includeStart ? ["start" as const] : []),
               "community",
-              "name",
+              ...(state.addToWorkspace ? [] : ["name" as const]),
               "review",
             ]
           : [
@@ -344,7 +357,7 @@ export function CreateWizard({
 }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [state, setState] = useState(() => initialWizardState(options));
+  const [state, setState] = React.useState(() => initialWizardState(options));
   const terminalColumns = Math.max(16, stdout.columns ?? 80);
   const terminalRows = Math.max(14, stdout.rows ?? 24);
   const multiSelect =
@@ -386,7 +399,7 @@ export function CreateWizard({
       name: state.name,
       templates: selectedTemplates(state),
       communityTemplate: state.communityTemplate || undefined,
-      addToWorkspace: state.kind === "workspace-add",
+      addToWorkspace: state.addToWorkspace,
     };
     onFinish(answer);
     exit();
@@ -440,7 +453,7 @@ export function CreateWizard({
         }
         setState((current) => ({
           ...current,
-          step: isName ? "review" : "name",
+          step: isName || state.addToWorkspace ? "review" : "name",
           error: undefined,
         }));
         return;
@@ -599,6 +612,7 @@ export function CreateWizard({
     name: state.name,
     templates: previewTemplates,
     cwd: options.cwd ?? process.cwd(),
+    addToWorkspace: state.addToWorkspace,
   });
   const narrow = terminalColumns < 100;
   const listWidth = narrow
@@ -739,11 +753,25 @@ export function CreateWizard({
               {state.kind === "community" && (
                 <Text>Source: {state.communityTemplate}</Text>
               )}
-              <Text>Project: {state.name || "current workspace"}</Text>
-              <Text>Apps: {state.templates.size || "headless"}</Text>
-              {selectedTemplates(state).map((template) => (
-                <Text key={template}> · {template}</Text>
-              ))}
+              <Text>
+                Project:{" "}
+                {state.addToWorkspace
+                  ? "current workspace"
+                  : state.name || "current workspace"}
+              </Text>
+              <Text>
+                Apps:{" "}
+                {state.kind === "community" && state.addToWorkspace
+                  ? 1
+                  : state.templates.size || "headless"}
+              </Text>
+              {state.kind === "community" && state.addToWorkspace ? (
+                <Text> · community app</Text>
+              ) : (
+                selectedTemplates(state).map((template) => (
+                  <Text key={template}> · {template}</Text>
+                ))
+              )}
             </Box>
           )}
 
@@ -787,10 +815,12 @@ export function CreateWizard({
                 ? "↑/↓ or j/k move  · space select  · enter continue"
                 : "↑/↓ or j/k move  · enter choose"
               : state.step === "review"
-                ? "enter create"
+                ? state.addToWorkspace
+                  ? "enter add app"
+                  : "enter create"
                 : "enter continue"}
           {state.step !== "cancelled"
-            ? `${state.step !== "start" && !(state.kind === "workspace-add" && state.step === "apps") ? "  · Ctrl+B back" : ""}  · Esc cancel`
+            ? `${state.step !== "start" && !(state.addToWorkspace && (state.step === "apps" || (state.kind === "community" && state.step === "community"))) ? "  · Ctrl+B back" : ""}  · Esc cancel`
             : ""}
         </Text>
         {state.step === "name" && (
@@ -839,7 +869,7 @@ function InkChoicePrompt({
   onFinish: (value: string | null) => void;
 }) {
   const { exit } = useApp();
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = React.useState(0);
   useInput((input, key) => {
     if (key.escape || (key.ctrl && input.toLowerCase() === "c")) {
       onFinish(null);

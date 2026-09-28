@@ -78,6 +78,26 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(merged).toContain('  new-lib: "1.0.0"');
   });
 
+  it("recognizes quoted override keys at the workspace's existing indentation", () => {
+    const workspaceYaml = [
+      "overrides:",
+      "    '@agent-native/core': '1.2.3'",
+      "    other: 4.5.6",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        "@agent-native/core": "'1.2.3'",
+        "@agent-native/agentkit": "'2.3.4'",
+      },
+    });
+
+    expect(merged.match(/^    '@agent-native\/core':/gm)).toHaveLength(1);
+    expect(merged).toContain("    @agent-native/agentkit: '2.3.4'");
+  });
+
   it("does not treat commented release-age items as configured exceptions", () => {
     const workspaceYaml = [
       "minimumReleaseAgeExclude: # Exact internal packages",
@@ -97,6 +117,25 @@ describe("createApp", { timeout: 30000 }, () => {
     expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
     expect(merged.match(/^  - @agent-native\/agentkit$/gm)).toHaveLength(1);
     expect(merged).toContain("#  - @agent-native/agentkit");
+  });
+
+  it("recognizes quoted release-age entries and preserves list indentation", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude:",
+      '    - "@agent-native/core" # existing exception',
+      "    - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ["@agent-native/core", "@agent-native/recap"],
+    );
+
+    expect(merged.match(/^    - "@agent-native\/core"/gm)).toHaveLength(1);
+    expect(merged).toContain("    - @agent-native/recap");
   });
 
   it("adds the guard contract to a community-style build without overwriting its doctor", () => {

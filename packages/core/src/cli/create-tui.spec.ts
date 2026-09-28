@@ -222,6 +222,39 @@ describe("agent-native create TUI", () => {
     fs.rmSync(cwd, { recursive: true, force: true });
   }, 30_000);
 
+  it("previews community app additions to a workspace and preserves the source on Back", async () => {
+    const cwd = temporaryDirectory();
+    fs.mkdirSync(path.join(cwd, "apps"));
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({ "agent-native": { workspaceCore: "@test/shared" } }),
+    );
+    const source = "community:https://github.com/acme/portal";
+    const canonicalSource = "community:acme/portal";
+    const cli = startTty(["create", "--template", source], cwd);
+
+    await cli.waitFor("GitHub repository");
+    expect(cli.output).toContain("Current workspace/");
+    expect(cli.output).toContain("community app/");
+    expect(cli.output).toContain(canonicalSource);
+    await wait(50);
+    cli.child.write("\r");
+    await cli.waitFor("Project plan");
+    expect(cli.output).toContain(`Source: ${canonicalSource}`);
+    expect(cli.output).toContain("Project: current workspace");
+    expect(cli.output).toContain("community app");
+
+    cli.child.write("\x02");
+    await cli.waitFor("GitHub repository");
+    expect(cli.output).toContain(canonicalSource);
+    cli.child.write("\x1b");
+
+    const { exitCode } = await cli.exited;
+    expect(exitCode).toBe(0);
+    expect(fs.readdirSync(path.join(cwd, "apps"))).toEqual([]);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }, 30_000);
+
   it("creates the selected workspace and prints a usable next step", async () => {
     const cwd = temporaryDirectory();
     const projectPath = path.join(fs.realpathSync(cwd), "wizard-app");

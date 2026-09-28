@@ -201,8 +201,16 @@ export async function runCreateCommand(
 
   const workspace = detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  const requestedCommunityTemplate =
+    parsed.find((template) => isCommunityTemplateSelection(template)) ??
+    (parsed.includes(COMMUNITY_OPTION.name)
+      ? COMMUNITY_OPTION.name
+      : undefined);
   const hasInteractiveConfig =
-    !name || !opts?.template || Boolean(workspace && parsed.length > 1);
+    !name ||
+    !opts?.template ||
+    parsed.includes(COMMUNITY_OPTION.name) ||
+    Boolean(workspace && parsed.length > 1);
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     if (hasInteractiveConfig) {
       console.error(
@@ -228,10 +236,24 @@ export async function runCreateCommand(
     ? listInstalledApps(workspace.workspaceRoot)
     : [];
   const requestedApps = parsed.filter(
-    (template) => !installedApps.includes(template),
+    (template) =>
+      template !== COMMUNITY_OPTION.name &&
+      template !== requestedCommunityTemplate &&
+      !installedApps.includes(template),
   );
+  if (workspace && requestedCommunityTemplate && requestedApps.length > 0) {
+    console.error(
+      "Add community templates separately from first-party apps in an existing workspace.",
+    );
+    process.exitCode = 1;
+    return;
+  }
   const alreadyInstalled =
-    parsed.length > 0 && requestedApps.length === 0 ? parsed[0] : undefined;
+    parsed.length > 0 &&
+    requestedApps.length === 0 &&
+    !requestedCommunityTemplate
+      ? parsed[0]
+      : undefined;
   if (alreadyInstalled) {
     console.error(
       `App "${alreadyInstalled}" is already installed in this workspace.`,
@@ -241,11 +263,13 @@ export async function runCreateCommand(
   }
 
   const initialKind: CreateStartKind | undefined = workspace
-    ? "workspace-add"
+    ? requestedCommunityTemplate
+      ? "community"
+      : "workspace-add"
     : opts?.forceWorkspace
       ? "first-party"
       : opts?.standalone
-        ? parsed.some((template) => isCommunityTemplateSelection(template))
+        ? Boolean(requestedCommunityTemplate)
           ? "community"
           : parsed.includes("headless")
             ? "headless"
@@ -255,16 +279,19 @@ export async function runCreateCommand(
           : parsed.length > 1
             ? "first-party"
             : parsed.length === 1
-              ? isCommunityTemplateSelection(parsed[0])
+              ? Boolean(requestedCommunityTemplate)
                 ? "community"
                 : "standalone"
               : undefined;
   const initialCommunityTemplate =
-    initialKind === "community" && parsed[0] !== "community"
-      ? parsed[0]
+    initialKind === "community"
+      ? requestedCommunityTemplate === COMMUNITY_OPTION.name
+        ? undefined
+        : requestedCommunityTemplate
       : undefined;
   if (
     workspace &&
+    !requestedCommunityTemplate &&
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
@@ -276,9 +303,14 @@ export async function runCreateCommand(
     cwd: process.cwd(),
     initialName: workspace ? undefined : name,
     initialKind,
-    initialTemplates: workspace ? requestedApps : parsed,
+    initialTemplates: workspace
+      ? requestedCommunityTemplate
+        ? []
+        : requestedApps
+      : parsed.filter((template) => template !== COMMUNITY_OPTION.name),
     initialCommunityTemplate,
     installedApps,
+    addToWorkspace: Boolean(workspace && requestedCommunityTemplate),
     validateName(value) {
       if (!/^[a-z][a-z0-9-]*$/.test(value)) {
         return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
@@ -310,7 +342,11 @@ export async function runCreateCommand(
   }
 
   if (answers.addToWorkspace) {
-    await addSelectedAppsToWorkspace(answers.templates);
+    await addSelectedAppsToWorkspace(
+      answers.kind === "community"
+        ? [parseCommunityPromptValue(answers.communityTemplate ?? "").canonical]
+        : answers.templates,
+    );
     return;
   }
 
@@ -927,7 +963,7 @@ async function addSelectedAppsToWorkspace(templates: string[]): Promise<void> {
   for (const template of templates) {
     await scaffoldOneAppIntoWorkspace(
       workspace,
-      template,
+      workspaceAppNameForTemplateSelection(template),
       template,
       clack,
       false,
@@ -1117,9 +1153,8 @@ async function createStandaloneApp(
       ),
     );
     includedApp =
-      resolution.sourceIdentity?.appTitle ??
-      resolution.communityTemplate?.app ??
-      includedApp;
+      sanitizeTerminalLabel(resolution.sourceIdentity?.appTitle ?? "") ||
+      (resolution.communityTemplate?.app ?? includedApp);
     s.message(`Configuring ${name}...`);
     postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
@@ -3258,7 +3293,7 @@ function mergeWorkspaceYamlSections(
       if (existingSection) {
         result =
           result.slice(0, existingSection.insertAt) +
-          `\n  ${key}: ${value}` +
+          `\n${existingSection.indent}${key}: ${value}` +
           result.slice(existingSection.insertAt);
       } else {
         result =
@@ -3279,14 +3314,16 @@ function workspaceYamlSectionHasEntry(
   const existingSection = findWorkspaceYamlSection(yaml, section);
   if (!existingSection) return false;
 
-  const entry = new RegExp(`^  ${escapeRegExp(key)}[ \\t]*:`, "m");
-  return entry.test(existingSection.body);
+  return existingSection.body.split(/\r?\n/).some((line) => {
+    const entry = parseYamlMappingKey(line, existingSection.indent);
+    return entry !== undefined && normalizeYamlScalar(entry) === key;
+  });
 }
 
 function findWorkspaceYamlSection(
   yaml: string,
   section: string,
-): { body: string; insertAt: number } | undefined {
+): { body: string; indent: string; insertAt: number } | undefined {
   const sectionHeader = new RegExp(
     `^${escapeRegExp(section)}:[ \\t]*(?:#.*)?$`,
     "m",
@@ -3297,10 +3334,82 @@ function findWorkspaceYamlSection(
   const insertAt = match.index + match[0].length;
   const remaining = yaml.slice(insertAt);
   const nextSection = /^(?!#)\S[^:\n]*:[ \t]*(?:#.*)?$/m.exec(remaining);
+  const body = remaining.slice(0, nextSection?.index ?? remaining.length);
+  const indent = body
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+    .map((line) => line.match(/^[ \t]+/)?.[0])
+    .filter((value): value is string => value !== undefined)
+    .sort((a, b) => a.length - b.length)[0];
   return {
-    body: remaining.slice(0, nextSection?.index ?? remaining.length),
+    body,
+    indent: indent ?? "  ",
     insertAt,
   };
+}
+
+function parseYamlMappingKey(line: string, indent: string): string | undefined {
+  if (!line.startsWith(indent)) return undefined;
+  const content = line.slice(indent.length);
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  for (let index = 0; index < content.length; index++) {
+    const char = content[index];
+    if (quote === '"' && char === "\\" && !escaped) {
+      escaped = true;
+      continue;
+    }
+    if (quote && char === quote) {
+      if (quote === "'" && content[index + 1] === "'") {
+        index++;
+        continue;
+      }
+      if (!escaped) quote = undefined;
+    } else if (!quote && (char === "'" || char === '"')) {
+      quote = char;
+    } else if (
+      !quote &&
+      char === ":" &&
+      (index === content.length - 1 || /[ \t]/.test(content[index + 1]!))
+    ) {
+      return content.slice(0, index).trim();
+    }
+    escaped = false;
+  }
+  return undefined;
+}
+
+function normalizeYamlScalar(value: string): string {
+  let scalar = value.trim();
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < scalar.length; index++) {
+    const char = scalar[index];
+    if (quote === '"' && char === "\\") {
+      index++;
+      continue;
+    }
+    if (quote && char === quote) quote = undefined;
+    else if (!quote && (char === "'" || char === '"')) quote = char;
+    else if (
+      !quote &&
+      char === "#" &&
+      (index === 0 || /[ \t]/.test(scalar[index - 1]!))
+    ) {
+      scalar = scalar.slice(0, index).trimEnd();
+      break;
+    }
+  }
+  if (scalar.startsWith('"') && scalar.endsWith('"')) {
+    try {
+      return JSON.parse(scalar);
+    } catch {
+      return scalar.slice(1, -1);
+    }
+  }
+  if (scalar.startsWith("'") && scalar.endsWith("'")) {
+    return scalar.slice(1, -1).replace(/''/g, "'");
+  }
+  return scalar;
 }
 
 function mergeWorkspaceYamlListItems(
@@ -3310,23 +3419,25 @@ function mergeWorkspaceYamlListItems(
 ): string {
   let result = yaml;
   for (const item of items) {
-    const rendered = `  - ${item}`;
     const existingSection = findWorkspaceYamlSection(result, section);
-    const listItem = new RegExp(
-      `^  - (?:['"])?${escapeRegExp(item)}(?:['"])?[ \\t]*(?:#.*)?$`,
-      "m",
-    );
-    if (existingSection && listItem.test(existingSection.body)) continue;
+    const isPresent = existingSection?.body.split(/\r?\n/).some((line) => {
+      if (!line.startsWith(existingSection.indent)) return false;
+      const entry = line
+        .slice(existingSection.indent.length)
+        .match(/^-[ \t]+(.+)$/);
+      return entry !== null && normalizeYamlScalar(entry[1]!) === item;
+    });
+    if (isPresent) continue;
     if (existingSection) {
       result =
         result.slice(0, existingSection.insertAt) +
-        `\n${rendered}` +
+        `\n${existingSection.indent}- ${item}` +
         result.slice(existingSection.insertAt);
     } else {
       result =
         result.trimEnd() +
         (result ? "\n" : "") +
-        `\n${section}:\n${rendered}\n`;
+        `\n${section}:\n  - ${item}\n`;
     }
   }
   return result;
