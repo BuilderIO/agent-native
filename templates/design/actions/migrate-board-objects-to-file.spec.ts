@@ -25,6 +25,10 @@ import type { BoardObjectEntry } from "../shared/board-objects.js";
 import migrateBoardObjectsAction from "./migrate-board-objects-to-file.js";
 
 describe("migrate-board-objects-to-file schema", () => {
+  it("allows the scoped visual-edit capability used by the public editor handoff", () => {
+    expect(migrateBoardObjectsAction.capabilityScopes).toEqual(["visual-edit"]);
+  });
+
   it("accepts a valid designId", () => {
     const result = migrateBoardObjectsAction.schema.safeParse({
       designId: "design_abc123",

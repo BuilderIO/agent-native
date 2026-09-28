@@ -3,4 +3,4 @@
 "@agent-native/core": patch
 ---
 
-Persist completed chat activity history and refine shared action and approval cards.
+Refine AgentKit activity labels, approval details, and shared action cards.

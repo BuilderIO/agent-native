@@ -1779,8 +1779,6 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 2.75rem;
-    padding: 0.75rem;
     text-align: center;
     text-decoration: none;
   }
@@ -2260,7 +2258,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
   }
   .auth-marketing-home .auth-marketing-description-link {
-    color: inherit;
+    color: var(--auth-marketing-muted);
     text-decoration: underline;
     text-underline-offset: 0.15em;
     white-space: nowrap;
@@ -2366,6 +2364,23 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .marketing-panel,
     .auth-marketing-home .form-panel {
       background: Canvas;
+    }
+    .auth-marketing-home .card input {
+      color: var(--auth-marketing-foreground);
+      border-color: var(--auth-marketing-border);
+    }
+    .auth-marketing-home .card input:focus {
+      border-color: color-mix(in srgb, var(--auth-marketing-foreground) 45%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--auth-marketing-foreground) 15%, transparent);
+    }
+    .auth-marketing-home .card input::placeholder {
+      color: var(--auth-marketing-muted);
+      opacity: 1;
+    }
+    .auth-marketing-home .card .btn-google,
+    .auth-marketing-home .card .btn-primary,
+    .auth-marketing-home .card button[type="submit"] {
+      border: 1px solid var(--auth-marketing-border);
     }
     .auth-marketing-home .app-name img.brand-mark {
       filter: grayscale(1) brightness(0);

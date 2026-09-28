@@ -41,7 +41,7 @@ function AnalysisResultRenderer({ context }: ToolRendererProps) {
               {formatters.formatNumber(comparison.changeRatio, {
                 style: "percent",
                 signDisplay: "always",
-                maximumFractionDigits: 1,
+                maximumFractionDigits: 0,
               })}
             </span>
             <span className="truncate text-base font-medium">{label}</span>

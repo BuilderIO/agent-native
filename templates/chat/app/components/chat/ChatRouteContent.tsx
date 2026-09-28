@@ -492,7 +492,6 @@ function ChatEmptyState() {
   return (
     <div className="agentkit-chat-empty-copy">
       <h1>{t("chat.heroTitle")}</h1>
-      <p>{t("chat.heroDescription")}</p>
     </div>
   );
 }

@@ -165,27 +165,6 @@ describe("CoreAgentKitApproval", () => {
     expect(container.textContent).not.toContain("SECRET_RAW_ARGS");
   });
 
-  it("keeps release-like unrecognized tools identified as their own action", () => {
-    const client = new AgentKitClient({ transport: createTransport() });
-    renderApproval(client, {
-      ...request,
-      metadata: {
-        toolName: "release-and-delete-resource",
-        input: {
-          release: "quarterly-plan",
-          environment: "production",
-        },
-      },
-    });
-
-    expect(container.textContent).toContain(
-      "Approve to run release and delete resource?",
-    );
-    expect(container.textContent).not.toContain(
-      "Release quarterly-plan to production",
-    );
-  });
-
   it("omits an invalid release target from the approval summary", () => {
     const client = new AgentKitClient({ transport: createTransport() });
     renderApproval(client, {

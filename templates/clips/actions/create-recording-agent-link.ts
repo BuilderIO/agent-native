@@ -64,12 +64,23 @@ export default defineAction({
 
     const recording = access.resource as {
       id: string;
+      password?: string | null;
       archivedAt?: string | null;
       trashedAt?: string | null;
     };
     if (recording.archivedAt || recording.trashedAt) {
       throw new ForbiddenError(
         `Recording ${args.recordingId} is not shareable`,
+      );
+    }
+    if (
+      recording.password &&
+      access.role !== "owner" &&
+      access.role !== "admin" &&
+      access.role !== "editor"
+    ) {
+      throw new ForbiddenError(
+        "Only recording owners, admins, and editors can create agent links for password-protected recordings",
       );
     }
 

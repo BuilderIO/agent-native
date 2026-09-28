@@ -179,7 +179,7 @@ describe("getOnboardingHtml", () => {
       expect(again).toBe(baseline);
     });
 
-    it("renders the federation CTA on canonical hosted login pages", () => {
+    it("uses silent federation instead of showing a manual CTA on canonical hosted login pages", () => {
       vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
       delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
@@ -187,10 +187,7 @@ describe("getOnboardingHtml", () => {
         requestHost: "calendar.agent-native.com",
       });
 
-      expect(html).toContain('id="identity-sso-btn"');
-      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
-      expect(html).toContain("Continue with Agent-Native");
-      expect(html).not.toContain("Sign in with Agent-Native");
+      expect(html).not.toContain('id="identity-sso-btn"');
       expect(readAuthPageData(html).identitySsoEnabled).toBe(true);
       expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
@@ -199,42 +196,33 @@ describe("getOnboardingHtml", () => {
       ["return", encodeURIComponent("/protected?tab=1")],
       ["c", encodeContinuation("/protected?tab=1")],
     ])(
-      "preserves a validated %s destination in the federation CTA",
+      "preserves a validated %s destination for an explicitly configured hub",
       (key, value) => {
-        vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-        delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+        vi.stubEnv(
+          "AGENT_NATIVE_IDENTITY_HUB_URL",
+          "https://dispatch.agent-native.com",
+        );
 
         const html = getOnboardingHtml({
-          requestHost: "calendar.agent-native.com",
+          requestHost: "app.example.test",
           requestPath: `/sign-in?${key}=${value}`,
         });
 
         expect(html).toContain(
           'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
         );
+        expect(readAuthPageData(html).identitySsoAuto).toBe(false);
       },
     );
 
-    it("carries a direct protected request into the federation CTA", () => {
-      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
-
-      const html = getOnboardingHtml({
-        requestHost: "calendar.agent-native.com",
-        requestPath: "/protected?tab=1",
-      });
-
-      expect(html).toContain(
-        'href="/_agent-native/identity/login?return=%2Fprotected%3Ftab%3D1"',
+    it("rejects an external return target for an explicitly configured hub", () => {
+      vi.stubEnv(
+        "AGENT_NATIVE_IDENTITY_HUB_URL",
+        "https://dispatch.agent-native.com",
       );
-    });
-
-    it("rejects an external federation return target", () => {
-      vi.stubEnv("APP_URL", "https://calendar.agent-native.com");
-      delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
 
       const html = getOnboardingHtml({
-        requestHost: "calendar.agent-native.com",
+        requestHost: "app.example.test",
         requestPath: "/sign-in?return=https%3A%2F%2Fevil.example",
       });
 
@@ -252,7 +240,8 @@ describe("getOnboardingHtml", () => {
         requestPath: "/?return=%2Fprotected",
       });
 
-      expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
+      expect(html).not.toContain('id="identity-sso-btn"');
+      expect(readAuthPageData(html).identitySsoAuto).toBe(true);
     });
 
     it("keeps silent federation enabled in cached canonical login HTML", () => {
@@ -342,6 +331,25 @@ describe("getOnboardingHtml", () => {
 
     expect(html).toContain('data-i18n-data-upgrade-copy="upgradeCopy"');
     expect(readAuthPageData(html).initialPrompt).toBe(false);
+  });
+
+  it("uses readable text and visible control borders for branded auth in light mode", () => {
+    const html = getOnboardingHtml({
+      requestHost: "slides.agent-native.com",
+    });
+
+    expect(html).toContain(
+      ".auth-marketing-home .card input {\n      color: var(--auth-marketing-foreground);\n      border-color: var(--auth-marketing-border);",
+    );
+    expect(html).toContain(
+      ".auth-marketing-home .auth-marketing-description-link {\n    color: var(--auth-marketing-muted);",
+    );
+    expect(html).toContain("--auth-marketing-muted: GrayText;");
+    expect(html).toContain(".auth-marketing-home .card input:focus {");
+    expect(html).toContain(".auth-marketing-home .card input::placeholder {");
+    expect(html).toContain(
+      '.auth-marketing-home .card .btn-google,\n    .auth-marketing-home .card .btn-primary,\n    .auth-marketing-home .card button[type="submit"]',
+    );
   });
 
   it("injects APP_BASE_PATH so mounted login pages call app-scoped auth endpoints", () => {

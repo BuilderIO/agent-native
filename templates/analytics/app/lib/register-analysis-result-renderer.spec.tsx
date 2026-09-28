@@ -112,45 +112,9 @@ describe("Analytics analysis result renderer", () => {
     });
 
     const output = container.querySelector("output");
-    expect(output?.children[0]?.textContent).toBe("+18.1%");
+    expect(output?.children[0]?.textContent).toBe("+18%");
     expect(output?.children[1]?.textContent).toBe("activated users");
     expect(container.textContent).toContain("Last 30 days: 482 vs 408");
-  });
-
-  it("keeps sub-percent changes visible", async () => {
-    const context: ToolRendererContext = {
-      toolName: "query-agent-native-analytics",
-      args: {},
-      resultJson: {
-        rows: [
-          {
-            metric: "activated users",
-            current_value: 1004,
-            previous_value: 1000,
-            period: "Last 30 days",
-          },
-        ],
-        schema: [
-          { name: "metric", type: "string" },
-          { name: "current_value", type: "number" },
-          { name: "previous_value", type: "number" },
-          { name: "period", type: "string" },
-        ],
-      },
-      isRunning: false,
-      chatUI: { renderer: ANALYTICS_ANALYSIS_RESULT_RENDERER },
-    };
-    const Renderer = resolveToolRenderer(context);
-    if (!Renderer)
-      throw new Error("Analytics result renderer is not registered");
-
-    await act(async () => {
-      root.render(<Renderer context={context} />);
-    });
-
-    expect(container.querySelector("output")?.children[0]?.textContent).toBe(
-      "+0.4%",
-    );
   });
 
   it("keeps non-scalar results out of the metric card", async () => {

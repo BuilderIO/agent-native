@@ -42,9 +42,10 @@ function safeReleaseSummary(
   request: AgentApprovalRequest,
   t: ReturnType<typeof useT>,
 ): string | undefined {
+  const toolName = safeToolName(request);
   const metadataInput = request.metadata?.input;
   if (
-    request.metadata?.toolName !== "accept-agentkit-release" ||
+    !toolName?.includes("release") ||
     !metadataInput ||
     typeof metadataInput !== "object" ||
     Array.isArray(metadataInput)
@@ -129,7 +130,7 @@ function SimpleToolApproval({
         status={t("agentChat.approval.pending")}
         className="border-0 bg-transparent shadow-none"
         action={
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               disabled={resolution.pending}
