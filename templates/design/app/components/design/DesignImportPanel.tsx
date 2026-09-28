@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { docsUrl } from "@agent-native/core/shared";
 import { parseFigmaFileKey } from "@shared/figma-url";
@@ -130,6 +130,8 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   const [figUploadBusy, setFigUploadBusy] = useState(false);
   const [figUploadStorageRequired, setFigUploadStorageRequired] =
     useState(false);
+  const [figUploadStorageUnavailable, setFigUploadStorageUnavailable] =
+    useState(false);
   const [figImportPreview, setFigImportPreview] =
     useState<FigImportPreview | null>(null);
   const [figImportSelection, setFigImportSelection] = useState<Set<string>>(
@@ -143,17 +145,20 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       ? fileUploadStatus
       : await fileUploadStatus.refetch();
     const configured = status.isSuccess && status.data.configured === true;
-    setFigUploadStorageRequired(!configured);
+    setFigUploadStorageRequired(
+      status.isSuccess && status.data.configured === false,
+    );
+    setFigUploadStorageUnavailable(!status.isSuccess);
     return configured;
   }, [fileUploadStatus]);
 
   useEffect(() => {
     if (fileUploadStatus.isSuccess && fileUploadStatus.data.configured) {
       setFigUploadStorageRequired(false);
+      setFigUploadStorageUnavailable(false);
     }
   }, [fileUploadStatus.data?.configured, fileUploadStatus.isSuccess]);
 
-  // A prepared import holds a Worker with the decoded document in it.
   useEffect(() => {
     unmountedRef.current = false;
     return () => {
@@ -443,9 +448,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
       try {
         let prepared: PreparedFigImport;
         try {
-          // Loaded on demand: the decoder and the kiwi walker are ~5.5k lines
-          // plus three codec packages, and an editor that never opens a `.fig`
-          // should not pay for them on first paint.
           const { prepareFigImport, shouldWarnForFigImport } =
             await import("@/lib/fig-client-import");
           prepared = await prepareFigImport(file, ({ phase }) => {
@@ -677,13 +679,14 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                   {t("designEditor.import.figmaUrlLabel")}
                 </Label>
                 <Input
+                  size="sm"
                   id="figma-frame-url"
                   type="url"
                   value={figmaUrl}
                   onChange={(event) => setFigmaUrl(event.target.value)}
                   placeholder={t("designEditor.import.figmaUrlPlaceholder")}
                   autoComplete="url"
-                  className="h-8 text-xs"
+                  className="text-xs"
                 />
               </div>
 
@@ -723,6 +726,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                     ) : null}
                   </div>
                   <Input
+                    size="sm"
                     id="figma-access-token"
                     type="password"
                     value={figmaAccessToken}
@@ -732,7 +736,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                     placeholder={t("designEditor.import.figmaTokenPlaceholder")}
                     autoComplete="new-password"
                     aria-invalid={figmaConnectionError ? true : undefined}
-                    className="h-8 text-xs"
+                    className="text-xs"
                   />
                   <p className="text-[10px] leading-snug text-muted-foreground">
                     {figmaConnectionError ??
@@ -751,7 +755,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 w-full px-2"
+                className="w-full px-2"
                 disabled={
                   busy ||
                   !figmaUrl.trim() ||
@@ -799,25 +803,26 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <p className="text-[11px] leading-snug text-muted-foreground">
                 {t("designEditor.import.figUploadDescriptionShort")}
               </p>
-              {figUploadStorageRequired ? (
+              {figUploadStorageRequired || figUploadStorageUnavailable ? (
                 <div
                   className="space-y-2"
                   data-testid="fig-upload-storage-gate"
                 >
-                  {!fileUploadStatus.isSuccess ? (
-                    <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2 text-xs text-muted-foreground">
-                      <span>{t("common.genericError")}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void ensureStorageForFigFallback()}
-                      >
-                        {t("agentChat.common.retry")}
-                      </Button>
-                    </div>
-                  ) : null}
-                  <FileStorageSetupCard />
+                  <FileStorageSetupPopover
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) {
+                        setFigUploadStorageRequired(false);
+                        setFigUploadStorageUnavailable(false);
+                      }
+                    }}
+                    {...(figUploadStorageUnavailable
+                      ? {
+                          status: "unavailable" as const,
+                          onRetry: () => void ensureStorageForFigFallback(),
+                        }
+                      : { status: "missing" as const })}
+                  />
                 </div>
               ) : null}
               {figImportPreview ? (
@@ -927,7 +932,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 w-full px-2"
+                className="w-full px-2"
                 disabled={busy}
                 onClick={() => figFileInputRef.current?.click()}
               >
@@ -1002,7 +1007,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
               <div className="flex gap-1.5">
                 <Button
                   size="sm"
-                  className="h-8 flex-1 px-2"
+                  className="flex-1 px-2"
                   disabled={busy || !htmlText.trim()}
                   onClick={() => importHtmlString(htmlText, "html-import.html")}
                 >
@@ -1020,7 +1025,7 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 px-2"
+                  className="px-2"
                   disabled={busy}
                   onClick={() => htmlFileInputRef.current?.click()}
                 >
@@ -1107,7 +1112,6 @@ export function DesignImportPanel(p: DesignImportPanelProps) {
   );
 }
 
-/** Memoized: toggling one of a few hundred frames re-renders only its row. */
 const FigImportFrameRow = memo(function FigImportFrameRow({
   frame,
   checked,

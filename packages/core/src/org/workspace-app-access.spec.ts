@@ -370,11 +370,113 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
   });
 
+  it("registers a configured workspace app when its organization owner opens it", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          description: "Account workspace",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.execute).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+        args: [
+          "account-expert",
+          "Account Expert",
+          "Account workspace",
+          "/account-expert/",
+          expect.any(Number),
+          expect.any(Number),
+        ],
+      }),
+    );
+  });
+
+  it("does not register a configured workspace app for a regular member", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not register an app missing from the workspace manifest", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("unregistered", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+      }),
+    );
+  });
+
   it("uses the authoritative Dispatch registry when configured", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("VERCEL_URL", "dispatch.example.test");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
@@ -435,6 +537,204 @@ describe("isWorkspaceAppAccessAllowed", () => {
         body: JSON.stringify({ appId: "private-app" }),
       }),
     );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("preserves a same-origin Dispatch registry mounted below the app path", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test/dispatch",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/dispatch/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit root Dispatch registry for a mounted app", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses the local ACL when a workspace has no Dispatch registry", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("uses the local ACL when a mounted app has only a generated root gateway", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "account-expert");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "account-expert", isDispatch: false }]),
+    );
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.execute.mockResolvedValueOnce({
+      rows: [
+        {
+          owner_email: "owner@example.com",
+          org_id: "org-1",
+          visibility: "private",
+        },
+      ],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an invalid workspace manifest instead of guessing its directory", async () => {
+    vi.stubEnv("APP_URL", "https://community.example.test");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://community.example.test");
+    resetAppConfigForTests();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicit Dispatch directory when the workspace manifest is invalid", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("APP_URL", "https://community.example.test/account-expert");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "{ invalid json");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://community.example.test",
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "account-expert" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://community.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only workspace app ids", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "   " }]),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 

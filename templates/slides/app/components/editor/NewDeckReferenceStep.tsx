@@ -53,11 +53,6 @@ export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
   referenceDeckId?: string | null;
   referenceFilePaths?: string[];
-  /**
-   * The one uploaded document that became `referenceDeckId`. The import
-   * controls accept multiple files but only import one, so the rest of
-   * `referenceFilePaths` still needs hydrating.
-   */
   importedReferenceFilePath?: string;
   referenceSource?: {
     kind: "google-docs" | "website" | "figma";
@@ -74,7 +69,6 @@ export interface ImportedReference {
   title: string;
   source: "pptx" | "pdf" | "docx" | "google-slides";
   referenceFilePaths?: string[];
-  /** The uploaded document this reference deck was built from, when any. */
   importedFilePath?: string;
 }
 
@@ -99,8 +93,6 @@ interface NewDeckReferenceStepProps {
   ) => Promise<ImportedReference | null>;
   onSkip: () => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
-  /** Called after the inline "create a design system" dialog completes, so
-   * the caller can refetch the list and surface the new option. */
   onDesignSystemsChanged: () => void;
   importing?: boolean;
   title: string;
@@ -152,6 +144,7 @@ export function NewDeckReferenceStep({
   );
   const [importedReference, setImportedReference] =
     useState<ImportedReference | null>(null);
+  const [storagePromptOpen, setStoragePromptOpen] = useState(false);
   const [selectedSource, setSelectedSource] =
     useState<NewDeckReferenceSelection["referenceSource"]>(null);
   const [referenceDeckSearchOpen, setReferenceDeckSearchOpen] = useState(false);
@@ -161,9 +154,6 @@ export function NewDeckReferenceStep({
   const [showDesignSystemSetup, setShowDesignSystemSetup] = useState(false);
   const busy = importing || continuing;
 
-  // True while the picker still reflects an auto-applied default rather than
-  // an explicit user choice, so a default that resolves after this step is
-  // already open can still land - see the hydration effects below.
   const designSystemAutoRef = useRef(true);
   const referenceDeckAutoRef = useRef(true);
 
@@ -216,7 +206,10 @@ export function NewDeckReferenceStep({
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
     if (files.length === 0) return;
-    if (!fileStorageConfigured) return;
+    if (!fileStorageConfigured) {
+      setStoragePromptOpen(true);
+      return;
+    }
     setImportingSource(source);
     try {
       const imported = await onImport(files);
@@ -286,8 +279,6 @@ export function NewDeckReferenceStep({
     if (isAlreadySelected) {
       setSelectedSource(null);
       if (importedReference) {
-        // The import also set the reference deck. Leaving that id behind would
-        // submit a deck the UI no longer shows as selected.
         setSelectedReferenceDeckId((current) =>
           current === importedReference.id ? null : current,
         );
@@ -502,7 +493,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pptx"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pptx")}
                 />
                 <FileImportOption
@@ -513,7 +506,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "pdf"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "pdf")}
                 />
                 <FileImportOption
@@ -524,7 +519,9 @@ export function NewDeckReferenceStep({
                   importedLabel={t("home.imported")}
                   importing={importing && importingSource === "docx"}
                   importingLabel={importingLabel}
-                  disabled={busy || !fileStorageConfigured}
+                  storageConfigured={fileStorageConfigured}
+                  disabled={busy}
+                  onStorageRequired={() => setStoragePromptOpen(true)}
                   onChange={(event) => void handleImport(event, "docx")}
                 />
                 <ImportOption
@@ -556,15 +553,14 @@ export function NewDeckReferenceStep({
                   onClick={() => chooseSource("figma")}
                 />
               </div>
-              {!storageQuery.isLoading ? (
-                <div className="mt-3">
-                  <UploadStorageGate
-                    configured={fileStorageConfigured}
-                    unavailable={storageQuery.isError}
-                    onRetry={() => void storageQuery.refetch()}
-                  />
-                </div>
-              ) : null}
+              <UploadStorageGate
+                configured={fileStorageConfigured}
+                unavailable={!storageQuery.isSuccess}
+                open={storagePromptOpen}
+                onOpenChange={setStoragePromptOpen}
+                onRetry={() => void storageQuery.refetch()}
+                onConnected={() => void storageQuery.refetch()}
+              />
               {selectedSource && (
                 <Input
                   autoFocus
@@ -650,11 +646,6 @@ export function NewDeckReferenceStep({
         onClose={() => setShowDesignSystemSetup(false)}
         onComplete={() => {
           setShowDesignSystemSetup(false);
-          // Most sources hand off to the agent and complete before the row
-          // exists, so this can be a no-op; it only helps the synchronous
-          // edit/GitHub-only paths. The dropdown still catches up once the
-          // agent-created row lands, via the shared action-query sync in
-          // useDbSync (see root.tsx), not through this call.
           onDesignSystemsChanged();
         }}
       />
@@ -671,6 +662,8 @@ function FileImportOption({
   importing,
   importingLabel,
   disabled = false,
+  storageConfigured,
+  onStorageRequired,
   onChange,
 }: {
   accept: string;
@@ -681,33 +674,45 @@ function FileImportOption({
   importing: boolean;
   importingLabel: string;
   disabled?: boolean;
+  storageConfigured: boolean;
+  onStorageRequired: () => void;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label
-      className={cn(
-        "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
-        (importing || disabled) && "pointer-events-none opacity-60",
-      )}
-      aria-label={
-        importing
-          ? `${label} - ${importingLabel}`
-          : imported
-            ? `${label} - ${importedLabel}`
-            : label
-      }
-    >
-      {imported ? <IconCheck className="size-4 text-primary" /> : icon}
-      <span>{importing ? importingLabel : label}</span>
+    <>
+      <button
+        type="button"
+        className={cn(
+          "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
+          (importing || disabled) && "pointer-events-none opacity-60",
+        )}
+        disabled={importing || disabled}
+        aria-label={
+          importing
+            ? `${label} - ${importingLabel}`
+            : imported
+              ? `${label} - ${importedLabel}`
+              : label
+        }
+        onClick={() => {
+          if (storageConfigured) inputRef.current?.click();
+          else onStorageRequired();
+        }}
+      >
+        {imported ? <IconCheck className="size-4 text-primary" /> : icon}
+        <span>{importing ? importingLabel : label}</span>
+      </button>
       <input
+        ref={inputRef}
         type="file"
         className="sr-only"
         accept={accept}
         multiple
-        disabled={importing || disabled}
+        disabled={importing || disabled || !storageConfigured}
         onChange={onChange}
       />
-    </label>
+    </>
   );
 }
 

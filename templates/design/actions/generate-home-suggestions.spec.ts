@@ -51,8 +51,33 @@ describe("generate-home-suggestions", () => {
       expect.objectContaining({
         appId: "design",
         input: expect.stringContaining("works in design"),
+        systemPrompt: expect.stringContaining(
+          "Tailor all three suggestions to the supplied role context",
+        ),
       }),
     );
+  });
+
+  it("accepts the JSON array when the model adds bracketed prose", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
+    });
+
+    const result = await action.run({}, {
+      userEmail: "user@example.test",
+    } as never);
+
+    expect(result).toEqual({ suggestions });
+  });
+
+  it("rejects a JSON object containing a nested suggestions array", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify({ suggestions }),
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toThrow("invalid shape");
   });
 
   it("uses generic design context when the role was skipped", async () => {
@@ -66,6 +91,37 @@ describe("generate-home-suggestions", () => {
 
     expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
       "broadly useful design starters",
+    );
+  });
+
+  it("uses custom onboarding roles instead of generic design starters", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "Content Strategist",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "Content Strategist"',
+    );
+    expect(mocks.completeText.mock.calls[0]?.[0].input).not.toContain(
+      "broadly useful design starters",
+    );
+  });
+
+  it("treats inherited object properties as custom roles", async () => {
+    mocks.getUserProfile.mockResolvedValue({
+      email: "user@example.test",
+      name: "User",
+      onboardingRole: "constructor",
+    });
+
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(mocks.completeText.mock.calls[0]?.[0].input).toContain(
+      'selected onboarding role is "constructor"',
     );
   });
 

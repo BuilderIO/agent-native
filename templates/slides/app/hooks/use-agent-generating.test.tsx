@@ -408,6 +408,30 @@ describe("useAgentGenerating", () => {
     expect(result.current.generating).toBe(true);
   });
 
+  it("ends a timed out generation after the server confirms the run is idle", () => {
+    vi.useFakeTimers();
+    agentChatState.runHealth = {
+      isStuck: false,
+      runId: null,
+      status: "idle",
+      dispatchMode: null,
+      heartbeatSinceMs: null,
+      hasInFlightWork: null,
+    };
+    const { result, rerender } = renderHook(() =>
+      useAgentGenerating({ tabId: "generation-tab" }),
+    );
+
+    agentChatState.generating = true;
+    rerender();
+    act(() => vi.advanceTimersByTime(GENERATION_NO_PROGRESS_TIMEOUT_MS));
+
+    expect(result.current.generating).toBe(false);
+    expect(result.current.timedOut).toBe(true);
+    expect(result.current.runError).toBe(true);
+    expect(agentChatState.abortRun).not.toHaveBeenCalled();
+  });
+
   it("resets the scoped watchdog on matching stream and tool progress", () => {
     vi.useFakeTimers();
     const { result, rerender } = renderHook(() =>

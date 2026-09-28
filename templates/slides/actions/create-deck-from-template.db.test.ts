@@ -80,7 +80,11 @@ describe("template copies in isolated PGlite", () => {
       ),
     );
     const again = await runWithRequestContext(OWNER, () => create.run(args));
-    expect(again).toMatchObject({ id: first.id, reused: true, slideCount: 5 });
+    expect(again).toMatchObject({
+      id: first.id,
+      reused: true,
+      slideCount: getBuiltInDeckTemplate(args.templateId)!.slides.length,
+    });
     expect(await row(first.id)).toEqual(original);
     expect(notifyClients).toHaveBeenCalledExactlyOnceWith(first.id);
 

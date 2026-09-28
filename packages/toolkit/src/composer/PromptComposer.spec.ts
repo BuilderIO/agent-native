@@ -103,9 +103,6 @@ describe("buildPromptComposerSubmission", () => {
     expect(result).toEqual({ text: "Review\n\nPasted notes", files: [] });
   });
   it("passes images through files only — never inlines base64 into prompt text", async () => {
-    // Images are passed to `files` for the host to process through the
-    // attachment pipeline. They must NOT be inlined as base64 in `text`
-    // (≈700K tokens per MB of image data).
     const file = new File(["fake image"], "sketch.png", {
       type: "image/png",
     });
@@ -123,7 +120,6 @@ describe("buildPromptComposerSubmission", () => {
     });
 
     expect(result.files).toEqual([file]);
-    // text must not contain any base64 data or uploaded-image markup
     expect(result.text).not.toContain("data:image");
     expect(result.text).not.toContain("<uploaded-image");
   });
@@ -150,7 +146,6 @@ describe("buildPromptComposerSubmission", () => {
   });
 
   it("does not include image data in prompt text regardless of file size", async () => {
-    // Both small and large images stay in `files` only.
     const smallFile = new File(["small image"], "small.png", {
       type: "image/png",
     });

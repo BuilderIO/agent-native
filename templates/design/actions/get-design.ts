@@ -1,5 +1,8 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
+import {
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
+} from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -8,13 +11,10 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { designDataForAccessRole } from "../server/lib/design-data-access.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import getDesignSystem from "./get-design-system.js";
 import { getDesignSchema } from "./get-design.schema.js";
 
-// The editor re-reads get-design after saves, on sync events, and every second
-// while a generation runs. Count a signed-in viewer's view once per window,
-// not once per read. Per server instance; anonymous reads have no viewer key.
 const DESIGN_VIEW_TRACK_WINDOW_MS = 30 * 60 * 1000;
 const DESIGN_VIEW_TRACK_MAX_KEYS = 5000;
 const lastDesignViewTrackedAt = new Map<string, number>();
@@ -47,7 +47,10 @@ export default defineAction({
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id, fileId, includeFileContent, reviewPreview }, ctx) => {
+  run: async (
+    { id, fileId, includeFileContent, reviewPreview, reviewOrgId },
+    ctx,
+  ) => {
     const db = getDb();
     let access;
     if (reviewPreview) {
@@ -58,13 +61,38 @@ export default defineAction({
           { statusCode: 403 },
         );
       }
-      const [resource] = await db
-        .select()
+      const isSuperOrgAdmin = getAppConfig().observability.superOrgId === orgId;
+      const targetOrgId = isSuperOrgAdmin ? reviewOrgId : orgId;
+      if (!targetOrgId) {
+        fail("A customer organization is required for this design preview.", {
+          statusCode: 400,
+        });
+      }
+      const [scope] = await db
+        .select({
+          ownerEmail: schema.designs.ownerEmail,
+          orgId: schema.designs.orgId,
+        })
         .from(schema.designs)
-        .where(and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)))
+        .where(
+          and(eq(schema.designs.id, id), eq(schema.designs.orgId, targetOrgId)),
+        )
         .limit(1);
-      if (!resource) fail("Design not found.", { statusCode: 404 });
-      access = { role: "viewer" as const, resource };
+      if (!scope) fail("Design not found.", { statusCode: 404 });
+      const directAccess =
+        targetOrgId === orgId ? await resolveAccess("design", id) : null;
+      if (directAccess?.resource.orgId === targetOrgId) {
+        access = directAccess;
+      } else {
+        const scopedAccess = await resolveAccess("design", id, {
+          userEmail: scope.ownerEmail,
+          orgId: targetOrgId,
+        });
+        if (!scopedAccess || scopedAccess.resource.orgId !== targetOrgId) {
+          fail("Design not found.", { statusCode: 404 });
+        }
+        access = { role: "viewer" as const, resource: scopedAccess.resource };
+      }
     } else {
       access = await resolveAccess("design", id);
     }
@@ -77,14 +105,6 @@ export default defineAction({
     }
 
     const row = access.resource;
-    // Fetch associated files in a stable order. This array feeds the overview
-    // canvas's screen stack and each screen's index within its layout group, so
-    // unordered rows (Postgres returns heap order, which an UPDATE can change)
-    // meant the same design could lay itself out differently on two loads.
-    // Note this is deterministic, not creation-ordered: files written in one
-    // batch share a `createdAt` to the millisecond and fall back to the id
-    // tiebreak. Nothing may depend on the index matching the order a generator
-    // wrote in — see the order-independence case in variant-lineup.test.ts.
     const baseFileFields = {
       id: schema.designFiles.id,
       filename: schema.designFiles.filename,

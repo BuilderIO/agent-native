@@ -1,4 +1,7 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
+  },
   agentChat: {
     setup: {
       checkingProvider: "Verificando a conexão com a IA…",
@@ -580,6 +583,9 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
+    redactionsPendingBody:
+      "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
     publicDescription:
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",
@@ -635,9 +641,6 @@ const messages = {
     customizeEmbed: "Personalizar incorporação",
     more: "Mais",
     sharePlainTitle: "Compartilhar {{title}}",
-    redactionsPendingBody:
-      "{{count}} tarja(s) estão desenhadas nesta gravação, mas não foram aplicadas ao vídeo, então o arquivo ainda mostra tudo o que está embaixo delas. Abra o editor, aplique-as, e o compartilhamento volta.",
-    redactionsPendingTitle: "Conclua as tarjas primeiro",
   },
   shareUi: {
     owner: "Proprietário: {{email}}",
@@ -959,6 +962,52 @@ const messages = {
       "O Clips excluirá o token de bot armazenado para {{team}} e deixará de enviar prévias reproduzíveis do Slack.",
     thisWorkspace: "este espaço",
     slackConnected: "Slack conectado",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "O navegador bloqueou o pop-up. Permita pop-ups para este site e tente novamente.",
+    recordingsTab: "Gravações",
+    meetingsTab: "Reuniões",
+    yourDefaults: "Seus padrões",
+    orgDefault: "Padrão de {{org}}",
+    playbackSpeed: "Velocidade de reprodução",
+    playbackSpeedDescription: "Aplicada quando você abre uma gravação.",
+    visibility: "Visibilidade",
+    visibilityDescription:
+      "Aplicada às gravações que você cria. Você pode alterá-la em qualquer gravação.",
+    useOrgDefault: "Usar o padrão de {{org}} ({{visibility}})",
+    useDefault: "Usar o padrão ({{visibility}})",
+    transcriptExport: "Exportação de transcrições",
+    logoDescription:
+      "Exibido nos e-mails de compartilhamento e nas páginas públicas dos clipes.",
+    change: "Alterar",
+    adminsOnly: "Somente proprietários e administradores podem alterar isso.",
+    brandColorInvalid: "Digite um código de cor hexadecimal.",
+    loadFailed: "Não foi possível carregar estas configurações.",
+    emailGroup: "E-mail",
+    calendarGroup: "Agenda",
+    googleCalendar: "Google Calendar",
+    connect: "Conectar",
+    reconnect: "Reconectar",
+    connectedAs: "Conectado como {{account}}",
+    needsReconnect: "É preciso reconectar {{account}}.",
+    disconnectFailed: "Não foi possível desconectar a agenda.",
+    disconnectCalendarDescription:
+      "O Clips deixa de sincronizar as próximas reuniões de {{account}}.",
+    calendarApp: "App do Google Calendar",
+    desktopGroup: "Área de trabalho",
+    meetingCapture: "Captura de reuniões",
+    meetingCaptureDescription:
+      "Notas, início automático e notificações são definidos em cada dispositivo no Clips Desktop.",
+    openClipsDesktop: "Abrir o Clips Desktop",
+    keySaved: "Salva",
+    keyNotSaved: "Não salva",
+    manage: "Gerenciar",
+    add: "Adicionar",
+    linkPreviews: "Prévias de links",
+    addWorkspace: "Adicionar espaço de trabalho",
+    storageAskAdmin:
+      "Peça a um proprietário ou administrador para configurar o armazenamento.",
   },
   insightsHub: {
     title: "Insights",

@@ -2,15 +2,12 @@ import {
   bigint,
   index,
   integer,
+  sql,
   table,
   text,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
-/**
- * Short-lived, owner-scoped continuation state for the external Mail
- * inventory. It intentionally contains compact metadata only; credentials,
- * bodies, HTML and attachments never enter this table.
- */
 export const mailInventoryCursors = table("mail_inventory_cursors", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
@@ -82,6 +79,42 @@ export const aiFilterRuleUndo = table(
   ],
 );
 
+export const aiFilterBackfills = table(
+  "mail_ai_filter_backfills",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    ruleSetKey: text("rule_set_key"),
+    status: text("status", {
+      enum: ["queued", "running", "completed", "failed", "undoing", "undone"],
+    }).notNull(),
+    stateJson: text("state_json").notNull(),
+    undoToken: text("undo_token"),
+    undoExpiresAt: bigint("undo_expires_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+    claimId: text("claim_id"),
+    claimedAt: bigint("claimed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("mail_ai_filter_backfills_owner_created_idx").on(
+      t.ownerEmail,
+      t.createdAt,
+    ),
+    index("mail_ai_filter_backfills_status_updated_idx").on(
+      t.status,
+      t.updatedAt,
+    ),
+    index("mail_ai_filter_backfills_expires_idx").on(t.expiresAt),
+    uniqueIndex("mail_ai_filter_backfills_owner_rule_set_active_idx")
+      .on(t.ownerEmail, t.ruleSetKey)
+      .where(
+        sql`${t.ruleSetKey} IS NOT NULL AND ${t.status} IN ('queued', 'running', 'undoing')`,
+      ),
+  ],
+);
+
 export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),
   messageId: text("message_id").notNull(),
@@ -111,12 +144,6 @@ export const snippets = table("snippets", {
   updatedAt: integer("updated_at").notNull(),
 });
 
-/**
- * Per-account Gmail sync watermark for the inbox store. One row per
- * `${ownerEmail}:${accountEmail}`. `historyId` null means the account hasn't
- * completed its first full sync yet; the `full_sync_*` columns track a
- * resumable full-sync page walk.
- */
 export const mailSyncAccounts = table(
   "mail_sync_accounts",
   {
@@ -139,8 +166,6 @@ export const mailSyncAccounts = table(
       .default(0),
     syncClaimId: text("sync_claim_id"),
     syncClaimedAt: integer("sync_claimed_at"),
-    // Compact cached labels.list result: [{id,name,type,color?,messagesTotal?,
-    // messagesUnread?,threadsTotal?,threadsUnread?}]
     labelsJson: text("labels_json"),
     labelsUpdatedAt: integer("labels_updated_at"),
     createdAt: integer("created_at").notNull(),
@@ -165,10 +190,6 @@ export const mailInboxPushInvalidations = table(
   ],
 );
 
-/**
- * SQL mirror of each connected account's INBOX threads, kept fresh by
- * `server/lib/inbox-sync.ts`. Metadata only — no bodies, no HTML.
- */
 export const mailInboxThreads = table(
   "mail_inbox_threads",
   {

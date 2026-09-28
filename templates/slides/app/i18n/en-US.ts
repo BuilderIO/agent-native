@@ -40,7 +40,6 @@ const messages = {
     brand: "Slides",
     decks: "Decks",
     designSystems: "Design Systems",
-    team: "Team",
   },
   settings: {
     agentObservability: "Agent Observability",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "Get an email when someone comments on or replies in your deck.",
     saveFailed: "Failed to save",
+    notificationsEmail: "Email",
+    commentsAndReplies: "Comments and replies",
+    commentsAndRepliesDescription:
+      "When someone comments on or replies in your deck.",
+    retry: "Retry",
+    mcpAbout:
+      "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     languageTitle: "Language",
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
@@ -185,8 +191,6 @@ const messages = {
     slideUnavailable: "Slide unavailable",
     couldNotLoadSlide: "Could not load slide.",
     openInApp: "Open in app",
-    teamDescription:
-      "Set up a team to share presentations with your colleagues.",
   },
 
   designSystems: {
@@ -580,6 +584,7 @@ const messages = {
     generating: "Generating slides...",
     generate: "Generate Slides",
   },
+  deckResult: { saved: "Saved" },
   history: {
     unknownTime: "Unknown time",
     justNow: "Just now",
@@ -830,6 +835,11 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Create a product pitch deck",
+      roadmap: "Create a product roadmap",
+      explainer: "Explain a topic in a presentation",
+    },
     suggestedPrompts: "Suggested prompts",
     importMenu: {
       import: "Import",
@@ -837,7 +847,11 @@ const messages = {
       invalidPdf: "Choose a PDF file.",
       invalidPptx: "Choose a PPTX file.",
       invalidFile: "Choose a PDF or PPTX file.",
+      networkFailed:
+        "The import request timed out or lost its network connection. Check your connection and retry.",
       notStarted: "Complete any required sign-in, then retry the import.",
+      uploadLimitExceeded:
+        "The upload exceeds a supported limit. Reduce the file size or choose fewer files, then retry.",
     },
     importDeck: "Import Deck",
     context: {
@@ -876,6 +890,8 @@ const messages = {
       notReady:
         "Context is still loading or unavailable. Retry or remove it before sending.",
       emptySource: "This source returned no usable context.",
+      figmaReadFailed:
+        "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
       designCategory: "Design",

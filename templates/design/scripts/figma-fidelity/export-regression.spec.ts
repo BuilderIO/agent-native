@@ -9,20 +9,6 @@ import {
   runExportCase,
 } from "./lib/export-regression.js";
 
-/**
- * PR gate for the real offline export path. This deliberately runs the same
- * HTML -> live DOM -> Figma SVG -> rendered PNG pipeline as the manual CLI,
- * against every checked-in corpus case and built-in preset.
- *
- * Credentialed Figma/Google readbacks stay manual because PR CI cannot safely
- * share those accounts. The deterministic gate still catches the regressions
- * the historical loops found: page-evaluated exporter errors, wrong canvas
- * dimensions, silent omissions, broken assets, and pixel drift.
- * Typography has a wider reviewed pixel ceiling because HTML and SVG glyph
- * rasterization differs between the macOS developer environment and Linux CI;
- * its 6.218% ceiling is the observed 5.407% Linux result plus the CLI's
- * standard 15% calibration headroom. Other loss signals stay exact.
- */
 describe("Figma export fidelity corpus", () => {
   let browser: Browser;
 

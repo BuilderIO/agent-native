@@ -3,12 +3,6 @@ import {
   useCollaborativeDoc,
   type CollabUser,
 } from "@agent-native/core/client/collab";
-import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
-import {
-  uploadEditorImage,
-  useFileUploadStatus,
-} from "@agent-native/core/client/uploads";
 import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
@@ -17,26 +11,15 @@ import {
 } from "@agent-native/toolkit/editor";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
 import { PlanImageNode } from "./PlanImageNode";
 
-// Plans get the shared block-level image node: the `/image` slash command, plus
-// paste / drag-drop of image files. Each image uploads through the framework
-// `upload-image` action (`uploadEditorImage`) and is inserted as a standard
-// `![alt](url)` markdown image, so it autosaves through the existing
-// `update-rich-text` path and stays source-syncable.
-// `features.image` is off because `PlanImageNode` (injected below) IS the image
-// node — it extends the shared node with a React node view that adds the hover
-// zoom / lightbox / three-dots menu. Enabling the core image node too would
-// register a second `image` node and collide.
 const PLAN_EDITOR_FEATURES = { image: false } as const;
 const SAVE_DEBOUNCE_MS = 700;
 const SAVE_RETRY_MS = 120;
 
-// Stable per-tab request source so this client ignores its own collab updates
-// echoing back through the poll ring buffer.
 const TAB_ID = generateTabId();
 
 type PlanMarkdownEditorProps = {
@@ -46,14 +29,6 @@ type PlanMarkdownEditorProps = {
   className?: string;
   ariaLabel?: string;
   contentUpdatedAt?: string | null;
-  /**
-   * When both `planId` and `blockId` are present, prose for this block is edited
-   * collaboratively against a shared Y.Doc keyed `plan:${planId}:${blockId}`.
-   * Markdown still autosaves through `onSave` (the `update-rich-text` patch), so
-   * the canonical content in `plans.content` is unchanged. When absent (public
-   * read, SSR, or missing session) the editor falls back to today's controlled
-   * single-user editing.
-   */
   planId?: string | null;
   blockId?: string | null;
   user?: RichMarkdownCollabUser | null;
@@ -70,15 +45,7 @@ export function PlanMarkdownEditor({
   blockId,
   user,
 }: PlanMarkdownEditorProps) {
-  const fileUploadStatus = useFileUploadStatus();
-  const canUploadImages =
-    import.meta.env.DEV ||
-    (fileUploadStatus.isSuccess && fileUploadStatus.data?.configured === true);
-  const storageMissing =
-    !import.meta.env.DEV &&
-    fileUploadStatus.isSuccess &&
-    fileUploadStatus.data?.configured === false;
-  const t = useT();
+  const { requestUpload, uploadImage, storagePrompt } = usePlanImageUpload();
   const onSaveRef = useRef(onSave);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedMarkdownRef = useRef(markdown);
@@ -89,9 +56,6 @@ export function PlanMarkdownEditor({
 
   onSaveRef.current = onSave;
 
-  // Gate collab on an editable block with a real plan/block id and a known user
-  // with an email (cursors need a stable label + identity). Anything missing
-  // keeps the non-collab single-user path.
   const collabUser: CollabUser | null =
     user && user.email
       ? { name: user.name, email: user.email, color: user.color }
@@ -110,23 +74,29 @@ export function PlanMarkdownEditor({
   });
   const editorEditable =
     editable && (!collabEnabled || initialization.status === "ready");
-  const slashCommands = useMemo(
-    () =>
-      canUploadImages
+  const slashCommands = useMemo(() => {
+    const imageCommand = createImageSlashCommand(uploadImage);
+    return [
+      ...DEFAULT_SLASH_COMMANDS,
+      ...(editable
         ? [
-            ...DEFAULT_SLASH_COMMANDS,
-            createImageSlashCommand(uploadEditorImage),
+            {
+              ...imageCommand,
+              action: (editor) => {
+                if (requestUpload()) imageCommand.action(editor);
+              },
+            },
           ]
-        : DEFAULT_SLASH_COMMANDS,
-    [canUploadImages],
-  );
+        : []),
+    ];
+  }, [editable, requestUpload, uploadImage]);
   const extraExtensions = useMemo(
     () => [
       PlanImageNode.configure({
-        onImageUpload: canUploadImages ? uploadEditorImage : null,
+        onImageUpload: editable ? uploadImage : null,
       }),
     ],
-    [canUploadImages],
+    [editable, uploadImage],
   );
 
   const queueFlush = useCallback((delay = SAVE_DEBOUNCE_MS) => {
@@ -204,7 +174,7 @@ export function PlanMarkdownEditor({
         preset="plan"
         features={PLAN_EDITOR_FEATURES}
         extraExtensions={extraExtensions}
-        onImageUpload={canUploadImages ? uploadEditorImage : null}
+        onImageUpload={editable ? uploadImage : null}
         slashItems={slashCommands}
         className={cn("plan-rich-markdown-editor mt-4", className)}
         ariaLabel={ariaLabel}
@@ -214,29 +184,7 @@ export function PlanMarkdownEditor({
         awareness={collabEnabled ? awareness : null}
         user={collabEnabled ? collabUser : null}
       />
-      {storageMissing && editable ? (
-        <div className="mt-4">
-          <FileStorageSetupCard />
-        </div>
-      ) : null}
-      {!fileUploadStatus.isSuccess && editable && !import.meta.env.DEV ? (
-        <div
-          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4"
-          role="status"
-        >
-          <p className="text-sm text-muted-foreground">
-            {t("plansPage.loadError.storageStatusUnavailable")}
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void fileUploadStatus.refetch()}
-          >
-            {t("plansPage.loadError.retry")}
-          </Button>
-        </div>
-      ) : null}
+      {storagePrompt}
     </div>
   );
 }

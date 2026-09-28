@@ -1,6 +1,10 @@
+import {
+  AgentKitAssistantChat,
+  generateTabId,
+  type AssistantChatHandle,
+} from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -21,26 +25,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveWaveform } from "../components/live-waveform";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
-import { applyFrame, settleSteps, type AgentStep } from "../lib/agent-steps";
 import {
   ASK_SHEET_DEFAULT,
   ASK_SHEET_DISMISS_AT,
   clampAskSheetHeight,
-  isPinnedToBottom,
   isSheetGripTap,
 } from "../lib/ask-sheet-layout";
 import {
-  type AskTurn,
-  buildMeetingAskPrompt,
-  fenceTranscript,
-  MAX_ASK_HISTORY_TURNS,
-  streamMeetingAsk,
+  buildMeetingAskContext,
+  buildMeetingAskSuggestionsPrompt,
+  latestMeetingAskMessageRole,
+  parseMeetingAskSuggestions,
+  type MeetingAskChip,
 } from "../lib/meeting-ask";
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { writeClipboardText } from "../lib/recording-link";
 import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { loadStoredServerUrl } from "../lib/url";
-import { AskSteps } from "./ask-steps";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
@@ -60,6 +61,33 @@ const TRANSITION_STALL_MS = 400;
 
 /** Matches `pill-ask-sheet-out` in styles.css. */
 const ASK_SHEET_EXIT_MS = 200;
+
+const FALLBACK_ASK_CHIPS: MeetingAskChip[] = [
+  { label: "What did I miss?", ask: "What did I miss?" },
+  {
+    label: "Summarize decisions",
+    ask: "Summarize the decisions made so far",
+  },
+  {
+    label: "Suggest questions",
+    ask: "Suggest questions I should ask next",
+  },
+];
+
+const MEETING_CONTEXT_KEY = "clips-live-meeting";
+const MEETING_CONTEXT_NAMESPACE = "clips-meeting-pill";
+
+function meetingAgentChatApiUrl(): string {
+  return `${loadStoredServerUrl().replace(/\/+$/, "")}/_agent-native/agent-chat`;
+}
+
+function stopAgentKitChat(container: HTMLElement | null): void {
+  container
+    ?.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="stop-button"]',
+    )
+    ?.click();
+}
 
 type PillMode = "meeting" | "clip";
 
@@ -104,25 +132,10 @@ export function MeetingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
-  const [ask, setAsk] = useState("");
   const [providerStatus, setProviderStatus] = useState<
-    "unknown" | "configured" | "missing" | "unavailable"
-  >(pillDemoMode ? "configured" : "unknown");
+    "unknown" | "eligible" | "missing" | "unavailable"
+  >(pillDemoMode ? "eligible" : "unknown");
   const providerStatusAbortRef = useRef<AbortController | null>(null);
-  // Inline ask conversation (the Wispr interaction): a sheet rises from the
-  // composer with the running exchange — user questions as chat bubbles,
-  // streamed answers, and contextual suggestion chips. In Tauri the answers
-  // stream live from the agent chat (see `streamMeetingAsk`); the demo
-  // branch streams canned answers so the interaction stays designable in a
-  // plain browser tab.
-  const [askMessages, setAskMessages] = useState<
-    Array<{
-      role: "user" | "assistant";
-      text: string;
-      streaming?: boolean;
-      steps?: AgentStep[];
-    }>
-  >([]);
   // The flex column the transcript and the answer sheet divide between them.
   const pillInnerRef = useRef<HTMLDivElement | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
@@ -131,17 +144,29 @@ export function MeetingPill() {
   const [askSheetClosing, setAskSheetClosing] = useState(false);
   const askSheetExitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [askSheetHeight, setAskSheetHeight] = useState(ASK_SHEET_DEFAULT);
-  const askStreamRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const askAbortRef = useRef<AbortController | null>(null);
-  const chipsAbortRef = useRef<AbortController | null>(null);
+  const [askThreadId, setAskThreadId] = useState(generateTabId);
+  const [chipsThreadId, setChipsThreadId] = useState(generateTabId);
+  const askChatRef = useRef<AssistantChatHandle | null>(null);
+  const chipsChatRef = useRef<AssistantChatHandle | null>(null);
+  const askChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const chipsChatContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastAskChatStateRef = useRef({ count: 0, isRunning: false });
+  const lastChipsChatStateRef = useRef({ count: 0, isRunning: false });
+  const [transcriptRevision, setTranscriptRevision] = useState(0);
+  const [askChatRevision, setAskChatRevision] = useState(0);
+  const [chipsChatRevision, setChipsChatRevision] = useState(0);
   const chipsFetchedAtRef = useRef(0);
-  const [askChips, setAskChips] = useState<
-    Array<{ label: string; ask: string }>
-  >([]);
+  const chipsRequestRef = useRef(0);
+  const expectedChipsPromptRef = useRef<string | null>(null);
+  const [pendingChipsPrompt, setPendingChipsPrompt] = useState<{
+    id: number;
+    prompt: string;
+  } | null>(null);
+  const [askChips, setAskChips] = useState<MeetingAskChip[]>([]);
 
   const checkProviderStatus = useCallback(async () => {
     if (pillDemoMode) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     providerStatusAbortRef.current?.abort();
@@ -154,12 +179,12 @@ export function MeetingPill() {
         { credentials: "include", signal: controller.signal },
       );
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = (await response.json()) as { configured?: unknown };
-      if (typeof body.configured !== "boolean") {
+      const body = (await response.json()) as { chatEligible?: unknown };
+      if (typeof body.chatEligible !== "boolean") {
         throw new Error("Provider status response was incomplete");
       }
       if (!controller.signal.aborted) {
-        setProviderStatus(body.configured ? "configured" : "missing");
+        setProviderStatus(body.chatEligible ? "eligible" : "missing");
       }
     } catch {
       if (!controller.signal.aborted) setProviderStatus("unavailable");
@@ -168,7 +193,7 @@ export function MeetingPill() {
 
   useEffect(() => {
     if (ctx.mode !== "meeting" || !ctx.meetingId) {
-      setProviderStatus("configured");
+      setProviderStatus("eligible");
       return;
     }
     void checkProviderStatus();
@@ -189,10 +214,8 @@ export function MeetingPill() {
     return () => window.removeEventListener("focus", onFocus);
   }, [checkProviderStatus, ctx.meetingId, ctx.mode, providerStatus]);
 
-  /** The last ~2 minutes of transcript, capped, most recent last — inlined
-   * into the ask scaffold so simple questions need no tool round trip and
-   * chip generation sees what was just said. */
-  const recentTranscriptText = () => {
+  /** The last ~2 minutes of transcript, capped, most recent last. */
+  const recentTranscriptText = useCallback(() => {
     const lines = transcriptLinesRef.current;
     const latest = lines[lines.length - 1]?.startMs ?? null;
     const windowed =
@@ -206,19 +229,6 @@ export function MeetingPill() {
       .join("\n");
     if (out.length > 2_400) out = out.slice(-2_400);
     return out;
-  };
-  // Follow-up context for the live transport: prior scaffolded questions and
-  // final answers, sent as `history` with each ask (no threadId — see
-  // `streamMeetingAsk`). Reset with the session.
-  const askHistoryRef = useRef<AskTurn[]>([]);
-  const askSheetScrollRef = useRef<HTMLDivElement | null>(null);
-  /** Whether the reader is at the live edge of the answer, so growth should
-   *  follow it. Same rule the transcript uses: a token stream that hard-scrolls
-   *  on every delta makes scrolling up to re-read an earlier turn impossible. */
-  const askPinnedRef = useRef(true);
-  const scrollAskSheetIfPinned = useCallback(() => {
-    const el = askSheetScrollRef.current;
-    if (el && askPinnedRef.current) el.scrollTop = el.scrollHeight;
   }, []);
   const sheetDragRef = useRef<{
     startY: number;
@@ -316,16 +326,22 @@ export function MeetingPill() {
         setExpanded(false);
         // Reset transcript state for the new session.
         setPreloadedLines([]);
-        // A new session is a new meeting: drop the old ask conversation and
-        // abort any in-flight answer so it can't stream into the wrong sheet.
-        askAbortRef.current?.abort();
-        askAbortRef.current = null;
-        chipsAbortRef.current?.abort();
-        chipsAbortRef.current = null;
+        transcriptLinesRef.current = [];
+        setHasTranscriptLines(false);
+        // A new session is a new meeting: stop both AgentKit-owned threads so
+        // an old answer or suggestion cannot land in the new recording.
+        stopAgentKitChat(askChatContainerRef.current);
+        stopAgentKitChat(chipsChatContainerRef.current);
+        askChatRef.current?.clearComposerContextItems();
+        setAskThreadId(generateTabId());
+        setChipsThreadId(generateTabId());
+        lastAskChatStateRef.current = { count: 0, isRunning: false };
+        lastChipsChatStateRef.current = { count: 0, isRunning: false };
         chipsFetchedAtRef.current = 0;
+        chipsRequestRef.current += 1;
+        expectedChipsPromptRef.current = null;
+        setPendingChipsPrompt(null);
         setAskChips([]);
-        askHistoryRef.current = [];
-        setAskMessages([]);
         setAskSheetOpen(false);
         activeMeetingIdRef.current =
           ev.payload?.mode === "meeting" ? (next.meetingId ?? null) : null;
@@ -474,8 +490,8 @@ export function MeetingPill() {
         clearTimeout(stopFallbackRef.current);
         stopFallbackRef.current = null;
       }
-      askAbortRef.current?.abort();
-      askAbortRef.current = null;
+      stopAgentKitChat(askChatContainerRef.current);
+      stopAgentKitChat(chipsChatContainerRef.current);
       if (askSheetExitRef.current) {
         clearTimeout(askSheetExitRef.current);
         askSheetExitRef.current = null;
@@ -774,6 +790,7 @@ export function MeetingPill() {
     (lines: TranscriptLine[]) => {
       transcriptLinesRef.current = lines;
       setHasTranscriptLines(lines.length > 0);
+      setTranscriptRevision((revision) => revision + 1);
       if (lines.length) clearStarting();
     },
     [clearStarting],
@@ -794,37 +811,6 @@ export function MeetingPill() {
     }
   };
 
-  /** Canned step rows so the demo harness shows the real streaming shape. */
-  const demoAskSteps = (progress: number, done: boolean): AgentStep[] => {
-    const steps: AgentStep[] = [
-      {
-        key: "demo-think",
-        label: "Thought",
-        kind: "think",
-        status: "done",
-        detail:
-          "The ask is about what was decided, so the meeting itself comes first, then anything similar from past meetings.",
-      },
-      {
-        key: "demo-read",
-        label: "Reading this meeting",
-        kind: "read",
-        status: progress >= 6 ? "done" : "running",
-        detail: progress >= 6 ? "1 result" : undefined,
-      },
-    ];
-    if (progress >= 6) {
-      steps.push({
-        key: "demo-search",
-        label: "Searching past meetings",
-        kind: "search",
-        status: progress >= 14 ? "done" : "running",
-        detail: progress >= 14 ? "3 results" : undefined,
-      });
-    }
-    return done ? settleSteps(steps) : steps;
-  };
-
   const openAskSheet = () => {
     if (askSheetExitRef.current) {
       clearTimeout(askSheetExitRef.current);
@@ -836,265 +822,132 @@ export function MeetingPill() {
 
   const submitAsk = (question: string) => {
     const mid = activeMeetingIdRef.current;
+    const chat = askChatRef.current;
     if (
-      !question ||
+      !question.trim() ||
       !mid ||
-      (!pillDemoMode && providerStatus !== "configured")
+      !chat ||
+      (!pillDemoMode && providerStatus !== "eligible")
     ) {
       return;
     }
     refreshAskChips();
-    if (pillDemoMode) {
-      if (askStreamRef.current) clearInterval(askStreamRef.current);
-      const canned = question.toLowerCase().includes("miss")
-        ? "Your key points since you tuned out:\n1. The question set is final: three questions, with the design system one swapped out yesterday.\n2. Indexing risk: it can take up to an hour, raised as the main open concern.\n3. Fallback agreed: pin the previous index and swap when the fresh one lands."
-        : "You landed on three questions after swapping out the design system one. The open risk is indexing time (up to an hour); the fallback is pinning the previous index and swapping when the fresh one lands.";
-      const words = canned.split(" ");
-      let i = 0;
-      openAskSheet();
-      setAskMessages((m) => [
-        ...m,
-        { role: "user", text: question },
-        { role: "assistant", text: "", streaming: true },
-      ]);
-      askStreamRef.current = setInterval(() => {
-        i += 2;
-        const done = i >= words.length;
-        setAskMessages((m) => {
-          const next = [...m];
-          next[next.length - 1] = {
-            role: "assistant",
-            text: words.slice(0, i).join(" "),
-            streaming: !done,
-            steps: demoAskSteps(i, done),
-          };
-          return next;
-        });
-        if (done && askStreamRef.current) {
-          clearInterval(askStreamRef.current);
-          askStreamRef.current = null;
-        }
-      }, 55);
-      return;
-    }
-    // Live transport: stream the answer from the agent chat into the same
-    // askMessages the demo branch fills, instead of ejecting to the web app.
-    askAbortRef.current?.abort();
-    const controller = new AbortController();
-    askAbortRef.current = controller;
     openAskSheet();
-    // Asking is a request to watch the answer, so follow the live edge again
-    // even if the reader had scrolled up through an earlier turn.
-    askPinnedRef.current = true;
-    setAskMessages((m) => [
-      // A superseded in-flight answer keeps its partial text; drop its caret.
-      ...m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
-      { role: "user", text: question },
-      { role: "assistant", text: "", streaming: true },
-    ]);
-    const appendToAnswer = (delta: string) => {
-      // A late chunk racing the abort must not touch the next ask's bubble.
-      if (controller.signal.aborted) return;
-      setAskMessages((m) => {
-        const last = m[m.length - 1];
-        if (!last || last.role !== "assistant") return m;
-        return [...m.slice(0, -1), { ...last, text: last.text + delta }];
-      });
-    };
-    // Tool calls, their outcomes, and progress labels land on the answer
-    // bubble as they stream, so the wait reads as work rather than a hang.
-    const updateSteps = (next: (steps: AgentStep[]) => AgentStep[]) => {
-      if (controller.signal.aborted) return;
-      setAskMessages((m) => {
-        const last = m[m.length - 1];
-        if (!last || last.role !== "assistant") return m;
-        const steps = next(last.steps ?? []);
-        if (steps === last.steps) return m;
-        return [...m.slice(0, -1), { ...last, steps }];
-      });
-    };
-    const title = ctxRef.current.title ?? null;
-    const recentTranscript = recentTranscriptText();
-    void (async () => {
-      try {
-        const { answer, incomplete } = await streamMeetingAsk({
-          serverUrl: loadStoredServerUrl(),
-          meetingId: mid,
-          meetingTitle: title,
-          question,
-          history: askHistoryRef.current,
-          signal: controller.signal,
-          recentTranscript,
-          onFrame: (frame) => updateSteps((steps) => applyFrame(steps, frame)),
-          onTextDelta: appendToAnswer,
-        });
-        if (controller.signal.aborted) return;
-        const exchange: AskTurn[] = [
-          {
-            role: "user",
-            content: buildMeetingAskPrompt(
-              mid,
-              title,
-              question,
-              recentTranscript,
-            ),
-          },
-          // The note rides along so a follow-up turn sees that this reply was
-          // cut off rather than treating the fragment as what it decided to say.
-          {
-            role: "assistant",
-            content: incomplete
-              ? `${answer}\n\n(${incomplete.message})`
-              : answer,
-          },
-        ];
-        askHistoryRef.current = [...askHistoryRef.current, ...exchange].slice(
-          -MAX_ASK_HISTORY_TURNS,
-        );
-        setAskMessages((m) => {
-          const last = m[m.length - 1];
-          if (!last || last.role !== "assistant") return m;
-          return [
-            ...m.slice(0, -1),
-            {
-              ...last,
-              // A run cut at a timeout, a loop cap, or an approval gate leaves
-              // a fragment on screen. Say so on the bubble, or the fragment
-              // reads as the whole answer.
-              text: incomplete
-                ? last.text
-                  ? `${last.text}\n\n${incomplete.message}`
-                  : incomplete.message
-                : last.text,
-              streaming: false,
-              steps: last.steps
-                ? settleSteps(last.steps, incomplete)
-                : last.steps,
-            },
-          ];
-        });
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        const line =
-          err instanceof Error && err.message.trim()
-            ? err.message.trim()
-            : "Couldn't reach the agent. Try again.";
-        setAskMessages((m) => {
-          const last = m[m.length - 1];
-          if (!last || last.role !== "assistant") return m;
-          return [
-            ...m.slice(0, -1),
-            {
-              ...last,
-              text: last.text ? `${last.text}\n${line}` : line,
-              streaming: false,
-              // The run died mid-step, so whatever was in flight did not
-              // finish. Settling it as done would caption a failed ask with
-              // "Read" and "Searched".
-              steps: last.steps
-                ? settleSteps(last.steps, { kind: "error", message: line })
-                : last.steps,
-            },
-          ];
-        });
-      }
-    })();
+    chat.sendMessage(question, undefined, {
+      requestMode: "act",
+      usageLabel: "meeting-pill",
+    });
   };
 
-  const handleAskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const question = ask.trim();
-    if (!question || (!pillDemoMode && providerStatus !== "configured")) {
-      return;
-    }
-    setAsk("");
-    submitAsk(question);
-  };
-
-  /** Chips are proposed by the agent from the recent transcript (tools off,
-   * JSON only), so they track what was actually just said — a spoken "we
-   * should meet Wednesday at 7" should surface a booking chip. Static
-   * fallbacks cover failures and the first seconds of a meeting. */
+  /** Chips are proposed by an AgentKit-owned read-only thread from the recent
+   * transcript. A chip only stages a request; its action runs after the user
+   * selects it in the visible meeting chat. */
   const refreshAskChips = () => {
-    if (pillDemoMode || providerStatus !== "configured") return;
+    if (pillDemoMode || providerStatus !== "eligible") return;
     const mid = activeMeetingIdRef.current;
     if (!mid) return;
     const now = Date.now();
     if (now - chipsFetchedAtRef.current < 60_000) return;
-    chipsFetchedAtRef.current = now;
     const transcript = recentTranscriptText();
     if (!transcript.trim()) return;
-    chipsAbortRef.current?.abort();
-    const controller = new AbortController();
-    chipsAbortRef.current = controller;
-    void streamMeetingAsk({
-      serverUrl: loadStoredServerUrl(),
-      meetingId: mid,
-      meetingTitle: ctxRef.current.title ?? null,
-      question: "chips",
-      history: [],
-      signal: controller.signal,
-      onTextDelta: () => {},
-      // Nothing the user typed drives this turn — it fires on a timer and its
-      // only input is what people in the room said. "Do not use any tools" in
-      // the prompt is a request; plan mode is the server refusing at dispatch,
-      // so a transcript that talks the model into calling a connected action
-      // cannot get one executed. Chips are only ever suggestions; the write
-      // happens later, from a chip the user actually taps, which runs in "act".
-      mode: "plan",
-      promptOverride: [
-        "Do not use any tools. Reply with ONLY a JSON array, no prose and no code fences.",
-        // Plan mode appends a system prompt telling the model to ask
-        // clarifying questions and present a written plan of what it would
-        // touch. That is right for a planning turn and wrong for this one,
-        // which has to come back as parseable JSON, so the conflict is settled
-        // here rather than left to chance.
-        "You are in read-only mode. That is expected and correct for this request: it only writes suggestion labels, so there is nothing to plan or approve. Do not describe a plan, do not list tools or risks, and do not ask a clarifying question — if the transcript is too thin to suggest anything, reply with an empty array [].",
-        "Based on the live-meeting transcript below, propose up to 3 quick assistant actions or questions the user is most likely to want right now. Prefer concrete actions grounded in what was said (booking something mentioned, drafting a follow-up, checking whether a topic was discussed in past meetings).",
-        'Each array item: {"label": "chip text, 24 chars max", "ask": "the full request to run"}.',
-        "",
-        ...fenceTranscript(transcript),
-      ].join("\n"),
-    })
-      .then(({ answer, incomplete }) => {
-        if (controller.signal.aborted) return;
-        // A cut-off run's JSON array is very likely missing its tail. Chips are
-        // a garnish, so drop them rather than showing whichever ones survived.
-        if (incomplete) return;
-        const match = answer.match(/\[[\s\S]*\]/);
-        if (!match) return;
-        const parsed = JSON.parse(match[0]) as Array<{
-          label?: unknown;
-          ask?: unknown;
-        }>;
-        const chips = parsed
-          .filter(
-            (c) => typeof c.label === "string" && typeof c.ask === "string",
-          )
-          .slice(0, 3)
-          .map((c) => ({
-            label: (c.label as string).slice(0, 28),
-            ask: c.ask as string,
-          }));
-        if (chips.length) setAskChips(chips);
-      })
-      .catch(() => {
-        // Chip generation is a garnish: failures keep the static fallbacks.
-      });
+    chipsFetchedAtRef.current = now;
+    expectedChipsPromptRef.current = null;
+    stopAgentKitChat(chipsChatContainerRef.current);
+    const id = ++chipsRequestRef.current;
+    setPendingChipsPrompt({
+      id,
+      prompt: buildMeetingAskSuggestionsPrompt(transcript),
+    });
   };
 
-  const closeAskSheet = () => {
-    if (askStreamRef.current) {
-      clearInterval(askStreamRef.current);
-      askStreamRef.current = null;
+  const handleAskMessageCountChange = (count: number) => {
+    const isRunning = askChatRef.current?.isRunning() ?? false;
+    const previous = lastAskChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastAskChatStateRef.current = { count, isRunning };
+    setAskChatRevision((revision) => revision + 1);
+    if (count > 0) openAskSheet();
+    if (count > previous.count) {
+      const snapshot = askChatRef.current?.exportThreadSnapshot();
+      if (
+        snapshot &&
+        latestMeetingAskMessageRole(snapshot.threadData) === "user"
+      ) {
+        refreshAskChips();
+      }
     }
-    // Dismissing the sheet abandons the in-flight answer; keep the partial
-    // text (minus its caret) for when the sheet reopens.
-    askAbortRef.current?.abort();
-    askAbortRef.current = null;
-    setAskMessages((m) =>
-      m.map((msg) => (msg.streaming ? { ...msg, streaming: false } : msg)),
+  };
+
+  const handleChipsMessageCountChange = (count: number) => {
+    const isRunning = chipsChatRef.current?.isRunning() ?? false;
+    const previous = lastChipsChatStateRef.current;
+    if (count === previous.count && isRunning === previous.isRunning) return;
+    lastChipsChatStateRef.current = { count, isRunning };
+    setChipsChatRevision((revision) => revision + 1);
+  };
+
+  useEffect(() => {
+    const mid = ctx.mode === "meeting" ? ctx.meetingId : null;
+    const chat = askChatRef.current;
+    if (!mid || !chat) return;
+    chat.setComposerContextItem(
+      {
+        key: MEETING_CONTEXT_KEY,
+        title: ctx.title?.trim() || "Meeting context",
+        context: buildMeetingAskContext(mid, ctx.title, recentTranscriptText()),
+        contextNamespace: `${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`,
+      },
+      { focus: false },
     );
+  }, [
+    askChatRevision,
+    askThreadId,
+    ctx.meetingId,
+    ctx.mode,
+    ctx.title,
+    recentTranscriptText,
+    transcriptRevision,
+  ]);
+
+  useEffect(() => {
+    if (!pillDemoMode && providerStatus !== "eligible") {
+      setPendingChipsPrompt(null);
+      expectedChipsPromptRef.current = null;
+      stopAgentKitChat(chipsChatContainerRef.current);
+      return;
+    }
+    const request = pendingChipsPrompt;
+    const chat = chipsChatRef.current;
+    if (!request || !chat || chat.isRunning()) return;
+    expectedChipsPromptRef.current = request.prompt;
+    chat.sendMessage(request.prompt, undefined, {
+      requestMode: "plan",
+      usageLabel: "meeting-pill-suggestions",
+      hideUserMessage: true,
+    });
+    setPendingChipsPrompt((current) =>
+      current?.id === request.id ? null : current,
+    );
+  }, [chipsChatRevision, chipsThreadId, pendingChipsPrompt, providerStatus]);
+
+  useEffect(() => {
+    const expectedPrompt = expectedChipsPromptRef.current;
+    const chat = chipsChatRef.current;
+    if (!expectedPrompt || !chat || chat.isRunning()) return;
+    const snapshot = chat.exportThreadSnapshot();
+    if (!snapshot) return;
+    const chips = parseMeetingAskSuggestions(
+      snapshot.threadData,
+      expectedPrompt,
+    );
+    if (chips?.length) setAskChips(chips);
+    if (chips) expectedChipsPromptRef.current = null;
+  }, [chipsChatRevision]);
+
+  const closeAskSheet = () => {
+    // Dismissing the sheet stops the active AgentKit run while preserving its
+    // partial response in the thread for the next time it opens.
+    stopAgentKitChat(askChatContainerRef.current);
     setAskSheetClosing(true);
     if (askSheetExitRef.current) clearTimeout(askSheetExitRef.current);
     askSheetExitRef.current = setTimeout(() => {
@@ -1103,25 +956,6 @@ export function MeetingPill() {
       setAskSheetOpen(false);
     }, ASK_SHEET_EXIT_MS);
   };
-
-  // Text deltas, step rows, and each new question all grow the sheet. Follow
-  // them from one place after the DOM has the new content, rather than
-  // scrolling imperatively inside the handlers, where the height being read is
-  // still the previous render's.
-  useEffect(() => {
-    scrollAskSheetIfPinned();
-  }, [askMessages, askSheetOpen, scrollAskSheetIfPinned]);
-
-  // Losing height — the grip resize, the panel resize clamp — scrolls the
-  // newest text out of view with nothing to bring it back. Same treatment the
-  // transcript already gets, and only while the reader is at the live edge.
-  useEffect(() => {
-    const el = askSheetScrollRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => scrollAskSheetIfPinned());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [askSheetOpen, scrollAskSheetIfPinned]);
 
   // A split that leaves the transcript room on a tall window can starve it on a
   // short one, so the ratio is re-clamped against the panel's real height
@@ -1456,177 +1290,197 @@ export function MeetingPill() {
               initialLines={preloadedLines}
             />
           </div>
-          {askSheetOpen ? (
-            <div
-              className="pill-ask-sheet"
-              data-state={askSheetClosing ? "closing" : "open"}
-              style={{ height: `${Math.round(askSheetHeight * 100)}%` }}
-              data-no-drag
-            >
-              <div
-                className="pill-ask-sheet-grip"
-                role="button"
-                tabIndex={0}
-                aria-label="Resize or dismiss answers"
-                data-no-drag
-                onPointerDown={handleSheetHandlePointerDown}
-                onPointerMove={handleSheetHandlePointerMove}
-                onPointerUp={handleSheetHandlePointerUp}
-                onPointerCancel={handleSheetHandlePointerCancel}
-                onLostPointerCapture={handleSheetHandlePointerCancel}
-                onClick={(e) => {
-                  if (e.detail > 0 && !sheetDragMovedRef.current) {
-                    closeAskSheet();
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") closeAskSheet();
-                }}
-              >
-                <span className="pill-ask-sheet-handle" aria-hidden />
-              </div>
-              <div
-                className="pill-ask-sheet-scroll"
-                ref={askSheetScrollRef}
-                onScroll={(e) => {
-                  askPinnedRef.current = isPinnedToBottom(e.currentTarget);
-                }}
-              >
-                {askMessages.map((m, i) =>
-                  m.role === "user" ? (
-                    <div key={i} className="pill-ask-msg-user">
-                      {m.text}
-                    </div>
-                  ) : (
-                    <div key={i} className="pill-ask-msg-assistant">
-                      <AskSteps steps={m.steps} streaming={m.streaming} />
-                      {m.text}
-                      {m.streaming ? (
-                        <span className="pill-ask-thread-caret" aria-hidden />
-                      ) : null}
-                    </div>
-                  ),
-                )}
-              </div>
-              <div className="pill-ask-suggestions" data-no-drag>
-                {(askChips.length
-                  ? askChips
-                  : [
-                      { label: "What did I miss?", ask: "What did I miss?" },
-                      {
-                        label: "Summarize decisions",
-                        ask: "Summarize the decisions made so far",
-                      },
-                      {
-                        label: "Suggest questions",
-                        ask: "Suggest questions I should ask next",
-                      },
-                    ]
-                ).map((chip) => (
-                  <Button
-                    key={chip.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    data-no-drag
-                    className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
-                    disabled={!pillDemoMode && providerStatus !== "configured"}
-                    onClick={() => submitAsk(chip.ask)}
-                  >
-                    {chip.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
           {ctx.mode === "meeting" ? (
             <>
-              {!pillDemoMode && providerStatus !== "configured" ? (
-                <div
-                  className="pill-ask-provider-status"
-                  data-no-drag
-                  role="status"
-                >
-                  <span>
-                    {providerStatus === "unknown"
-                      ? t("agentChat.setup.checkingProvider")
-                      : providerStatus === "unavailable"
-                        ? t("agentChat.setup.providerStatusUnavailable")
-                        : t("agentChat.setup.connectToStart")}
-                  </span>
-                  {providerStatus === "missing" ? (
-                    <div className="pill-ask-provider-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void openExternal(
-                            new URL(
-                              "/settings/agent",
-                              loadStoredServerUrl(),
-                            ).toString(),
-                          )
-                        }
-                      >
-                        {t("agentChat.setup.connectBuilder")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void openExternal(
-                            new URL(
-                              "/settings/keys",
-                              loadStoredServerUrl(),
-                            ).toString(),
-                          )
-                        }
-                      >
-                        {t("agentChat.setup.addOwnKeys")}
-                      </button>
-                    </div>
-                  ) : providerStatus === "unavailable" ? (
-                    <button
-                      type="button"
-                      onClick={() => void checkProviderStatus()}
-                    >
-                      {t("agentChat.common.retry")}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
-                <div className="pill-ask-field" data-no-drag>
-                  <input
+              <div
+                ref={askChatContainerRef}
+                className="pill-ask-sheet"
+                data-state={
+                  askSheetClosing ? "closing" : askSheetOpen ? "open" : "closed"
+                }
+                style={{
+                  height: askSheetOpen
+                    ? `${Math.round(askSheetHeight * 100)}%`
+                    : "72px",
+                  animation:
+                    !askSheetOpen && !askSheetClosing ? "none" : undefined,
+                }}
+                data-no-drag
+              >
+                {askSheetOpen ? (
+                  <div
+                    className="pill-ask-sheet-grip"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t("meetingAsk.resizeOrDismissAnswers")}
                     data-no-drag
-                    className="pill-ask-input"
-                    value={ask}
-                    onChange={(e) => setAsk(e.target.value)}
-                    placeholder={
-                      providerStatus === "configured"
-                        ? t("agentNativeClips.meetingAsk.placeholder")
-                        : t("agentChat.setup.connectToChat")
-                    }
-                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
-                    disabled={
-                      !ctx.meetingId ||
-                      (!pillDemoMode && providerStatus !== "configured")
-                    }
-                  />
-                  <button
-                    type="submit"
-                    data-no-drag
-                    className="pill-ask-send"
-                    disabled={
-                      !ask.trim() ||
-                      !ctx.meetingId ||
-                      (!pillDemoMode && providerStatus !== "configured")
-                    }
-                    aria-label={t("agentNativeClips.meetingAsk.ariaLabel")}
-                    title={t("agentNativeClips.meetingAsk.ariaLabel")}
+                    onPointerDown={handleSheetHandlePointerDown}
+                    onPointerMove={handleSheetHandlePointerMove}
+                    onPointerUp={handleSheetHandlePointerUp}
+                    onPointerCancel={handleSheetHandlePointerCancel}
+                    onLostPointerCapture={handleSheetHandlePointerCancel}
+                    onClick={(e) => {
+                      if (e.detail > 0 && !sheetDragMovedRef.current) {
+                        closeAskSheet();
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") closeAskSheet();
+                    }}
                   >
-                    <IconArrowUp size={13} />
-                  </button>
-                </div>
-              </form>
+                    <span className="pill-ask-sheet-handle" aria-hidden />
+                  </div>
+                ) : null}
+                <AgentKitAssistantChat
+                  ref={askChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={askThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:${askThreadId}`}
+                  contextScope={
+                    ctx.meetingId
+                      ? {
+                          type: "meeting",
+                          id: ctx.meetingId,
+                          ...(ctx.title ? { label: ctx.title } : {}),
+                        }
+                      : null
+                  }
+                  className="pill-agentkit-chat h-full min-h-0"
+                  composerAreaClassName="pill-agentkit-composer"
+                  composerLayoutVariant="compact"
+                  composerPlaceholder={
+                    !pillDemoMode && providerStatus !== "eligible"
+                      ? t("agentChat.setup.connectToChat")
+                      : t("agentNativeClips.meetingAsk.placeholder")
+                  }
+                  composerSlot={
+                    <>
+                      {!pillDemoMode && providerStatus !== "eligible" ? (
+                        <div
+                          className="pill-ask-provider-status"
+                          data-no-drag
+                          role="status"
+                        >
+                          <span>
+                            {providerStatus === "unknown"
+                              ? t("agentChat.setup.checkingProvider")
+                              : providerStatus === "unavailable"
+                                ? t("agentChat.setup.providerStatusUnavailable")
+                                : t("agentChat.setup.connectToStart")}
+                          </span>
+                          {providerStatus === "missing" ? (
+                            <div className="pill-ask-provider-actions">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/agent",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.connectBuilder")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openExternal(
+                                    new URL(
+                                      "/settings/keys",
+                                      loadStoredServerUrl(),
+                                    ).toString(),
+                                  )
+                                }
+                              >
+                                {t("agentChat.setup.addOwnKeys")}
+                              </button>
+                            </div>
+                          ) : providerStatus === "unavailable" ? (
+                            <button
+                              type="button"
+                              onClick={() => void checkProviderStatus()}
+                            >
+                              {t("agentChat.common.retry")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {askSheetOpen ? (
+                        <div className="pill-ask-suggestions" data-no-drag>
+                          {(askChips.length
+                            ? askChips
+                            : FALLBACK_ASK_CHIPS
+                          ).map((chip) => (
+                            <Button
+                              key={chip.label}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              data-no-drag
+                              className="h-7 shrink-0 rounded-full px-3 text-xs font-normal"
+                              disabled={
+                                !pillDemoMode && providerStatus !== "eligible"
+                              }
+                              onClick={() => submitAsk(chip.ask)}
+                            >
+                              {chip.label}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  }
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  isActiveComposer
+                  composerDisabled={
+                    !ctx.meetingId ||
+                    (!pillDemoMode && providerStatus !== "eligible")
+                  }
+                  onMessageCountChange={handleAskMessageCountChange}
+                  plusMenuMode="hidden"
+                  providerStatusChecksEnabled={false}
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                />
+              </div>
+              <div
+                ref={chipsChatContainerRef}
+                aria-hidden="true"
+                style={{
+                  position: "fixed",
+                  insetInlineStart: "-10000px",
+                  top: 0,
+                  width: 360,
+                  height: 240,
+                  overflow: "hidden",
+                  pointerEvents: "none",
+                  visibility: "hidden",
+                }}
+              >
+                <AgentKitAssistantChat
+                  ref={chipsChatRef}
+                  apiUrl={meetingAgentChatApiUrl()}
+                  threadId={chipsThreadId}
+                  contextNamespace={`${MEETING_CONTEXT_NAMESPACE}:suggestions`}
+                  className="h-full min-h-0"
+                  composerPlaceholder="Generating suggestions"
+                  dynamicSuggestions={false}
+                  emptyStateDisplay="hidden"
+                  execMode="plan"
+                  isActiveComposer={false}
+                  onMessageCountChange={handleChipsMessageCountChange}
+                  plusMenuMode="hidden"
+                  providerStatusChecksEnabled={false}
+                  showHeader={false}
+                  showModelSelector={false}
+                  suggestionPlacement="hidden"
+                  composerDisabled
+                />
+              </div>
             </>
           ) : null}
         </div>

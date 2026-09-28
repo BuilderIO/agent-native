@@ -38,30 +38,23 @@ export {
   type UseAgentChatHomeHandoffOptions,
 } from "../use-agent-chat-home-handoff.js";
 export {
-  AssistantChat,
-  clearChatStorage,
-  type AssistantChatProps,
-  type AssistantChatHandle,
-  type AssistantChatAdapterContext,
-} from "../AssistantChat.js";
+  AgentKitAssistantChat,
+  AgentKitAssistantChat as AssistantChat,
+  type AgentKitAssistantChatProps,
+} from "../AgentKitAssistantChat.js";
+export { clearChatStorage } from "./storage.js";
+export type {
+  AssistantChatProps,
+  AssistantChatHandle,
+  AssistantChatAdapterContext,
+  AssistantChatSendOptions,
+  AssistantChatSubmitResult,
+  AgentChatSurfaceKind,
+} from "./surface-types.js";
 export type {
   MultiTabAssistantChatProps,
   MultiTabAssistantChatHeaderProps,
 } from "../MultiTabAssistantChat.js";
-export {
-  createAgentChatAdapter,
-  type AgentChatSurfaceKind,
-  type CreateAgentChatAdapterOptions,
-} from "../agent-chat-adapter.js";
-export {
-  codeAgentTranscriptEventsToContent,
-  createCodeAgentChatAdapter,
-  type CodeAgentChatController,
-  type CodeAgentChatControlResult,
-  type CodeAgentChatFollowUpMode,
-  type CodeAgentChatTranscriptEvent,
-  type CreateCodeAgentChatAdapterOptions,
-} from "../code-agent-chat-adapter.js";
 export * from "./connectors.js";
 export {
   AgentApprovalCard,
@@ -97,11 +90,6 @@ export {
   type ToolChipTone,
   type ToolChipsProps,
 } from "./tool-chips.js";
-export {
-  AssistantMessageActionBar,
-  type AssistantMessageActionBarProps,
-  type FormattedMessageTimestamp,
-} from "./message-components.js";
 export * from "./runtime.js";
 export {
   createAgentKitProtocolAdapter,
@@ -170,14 +158,24 @@ export {
   type ToolRendererRegistration,
 } from "./tool-render-registry.js";
 export {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
+  normalizeAgentTeamProgressResult,
+  type ActionChange,
+  type ActionChangeResult,
+  type ActionChangeUndo,
+  type ActionChangeVerb,
   type ActionChatUIConfig,
+  type AgentTeamProgressResult,
+  type AgentTeamProgressTask,
 } from "../../action-ui.js";
+export { ActionCard } from "./widgets/ActionCard.js";
 export {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -97,14 +98,7 @@ afterAll(() => {
 });
 
 describe("comment AI request run progress", () => {
-  it("keeps a request active while a same-turn successor is running", async () => {
-    progress.getActiveRunForThreadAsync.mockResolvedValue({
-      runId: "successor-run",
-      threadId: AGENT_THREAD_ID,
-      turnId: "turn-a",
-      status: "running",
-    });
-
+  it("returns the durable request state without guessing from the latest thread run", async () => {
     const result = await asOwner(() => listCommentAiRequests(DOCUMENT_ID));
 
     expect(result.requests[0]).toMatchObject({
@@ -112,38 +106,40 @@ describe("comment AI request run progress", () => {
       status: "running",
       error: null,
     });
-    expect(progress.getRunTurnRef).toHaveBeenCalledWith(ORIGIN_RUN_ID);
-    expect(progress.getActiveRunForThreadAsync).toHaveBeenCalledWith(
-      AGENT_THREAD_ID,
-    );
+    expect(progress.getRunTurnRef).not.toHaveBeenCalled();
+    expect(progress.getActiveRunForThreadAsync).not.toHaveBeenCalled();
   });
 
-  it("does not adopt a running successor from another turn", async () => {
+  it("returns an explicitly persisted review state", async () => {
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review", error: "Review the retained operation" })
+      .where(eq(schema.commentAiRequests.id, REQUEST_ID));
+
+    const result = await asOwner(() => listCommentAiRequests(DOCUMENT_ID));
+
+    expect(result.requests[0]).toMatchObject({
+      requestId: REQUEST_ID,
+      status: "needs-review",
+      error: "Review the retained operation",
+    });
+  });
+
+  it("does not misattribute an unrelated successor run", async () => {
     progress.getActiveRunForThreadAsync.mockResolvedValue({
       runId: "unrelated-run",
       threadId: AGENT_THREAD_ID,
-      turnId: "turn-b",
+      turnId: "another-turn",
+      status: "completed",
+    });
+
+    const result = await asOwner(() => listCommentAiRequests(DOCUMENT_ID));
+
+    expect(result.requests[0]).toMatchObject({
+      requestId: REQUEST_ID,
       status: "running",
+      runId: ORIGIN_RUN_ID,
     });
-
-    const result = await asOwner(() => listCommentAiRequests(DOCUMENT_ID));
-
-    expect(result.requests[0]).toMatchObject({
-      requestId: REQUEST_ID,
-      status: "needs-review",
-      error: "The agent run ended (completed) before this request completed",
-    });
-  });
-
-  it("reports review needed when a terminal origin has no successor", async () => {
-    progress.getActiveRunForThreadAsync.mockResolvedValue(null);
-
-    const result = await asOwner(() => listCommentAiRequests(DOCUMENT_ID));
-
-    expect(result.requests[0]).toMatchObject({
-      requestId: REQUEST_ID,
-      status: "needs-review",
-      error: "The agent run ended (completed) before this request completed",
-    });
+    expect(progress.getActiveRunForThreadAsync).not.toHaveBeenCalled();
   });
 });

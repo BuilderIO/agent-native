@@ -51,7 +51,6 @@ export interface OpenVisualEditWebMcpResult {
 }
 
 type OpenVisualEditActionResult = OpenVisualEditWebMcpResult & {
-  /** Same-origin only; never return this from the page-local tool. */
   embedStartUrl?: string;
 };
 
@@ -509,13 +508,6 @@ export function createOpenVisualEditWebMcpActions(options?: {
   ];
 }
 
-/**
- * Mounted app-wide (not just the editor) so a browser-driven coding agent can
- * bootstrap a visual-edit design from the hosted Design page — signed in or
- * signed out — without a separate hosted MCP connector or OAuth step.
- * Anonymous calls are limited server-side to loopback, public visual-edit
- * resources.
- */
 export function OpenVisualEditWebMcp() {
   const { session, isLoading: sessionLoading } = useSession();
   const location = useLocation();
@@ -537,8 +529,6 @@ export function OpenVisualEditWebMcp() {
     (request: AgentNativeWebMcpApprovalRequest, signal?: AbortSignal) => {
       if (signal?.aborted) return Promise.resolve(false);
       if (pendingApprovalRef.current) {
-        // Reject overlapping calls instead of replacing the request shown in
-        // the dialog with a different request's resolver.
         return Promise.resolve(false);
       }
       return new Promise<boolean>((resolve) => {
@@ -556,9 +546,6 @@ export function OpenVisualEditWebMcp() {
     [resolveApproval],
   );
 
-  // Install the relay during the layout phase so editor children can issue
-  // their first source queries through the browser transport after a full
-  // signed-out embed reload.
   useLayoutEffect(() => {
     if (sessionLoading || isAuthenticated) {
       if (isAuthenticated) clearLocalhostBridgeFetchProxy();
@@ -615,8 +602,6 @@ export function OpenVisualEditWebMcp() {
         },
         () => {
           if (!isCurrentRegistration()) return;
-          // WebMCP is progressive enhancement; retry while the model context
-          // or the action manifest becomes available.
           scheduleRetry();
         },
       );

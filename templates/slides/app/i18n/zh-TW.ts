@@ -40,7 +40,6 @@ const messages = {
     brand: "幻燈片",
     decks: "幻燈片",
     designSystems: "設計系統",
-    team: "團隊",
   },
   settings: {
     agentObservability: "代理可觀測性",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
+    notificationsEmail: "電子郵件",
+    commentsAndReplies: "留言和回覆",
+    commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
+    retry: "重試",
+    mcpAbout:
+      "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
@@ -178,7 +183,6 @@ const messages = {
     slideUnavailable: "無法使用幻燈片",
     couldNotLoadSlide: "無法載入幻燈片。",
     openInApp: "在應用中開啟",
-    teamDescription: "設定團隊，與同事共用簡報。",
   },
   designSystems: {
     new: "新建設計系統",
@@ -565,6 +569,7 @@ const messages = {
     generating: "正在生成幻燈片...",
     generate: "生成幻燈片",
   },
+  deckResult: { saved: "已儲存" },
   history: {
     unknownTime: "未知時間",
     justNow: "剛剛",
@@ -803,6 +808,11 @@ const messages = {
     chooseAnotherFile: "選取其他檔案",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "製作產品提案簡報",
+      roadmap: "製作產品路線圖",
+      explainer: "在簡報中說明一個主題",
+    },
     suggestedPrompts: "建議提示",
     importMenu: {
       import: "匯入",
@@ -810,7 +820,10 @@ const messages = {
       invalidPdf: "請選擇 PDF 檔案。",
       invalidPptx: "請選擇 PPTX 檔案。",
       invalidFile: "請選擇 PDF 或 PPTX 檔案。",
+      networkFailed: "匯入要求逾時或網路連線中斷。請檢查網路連線後再試一次。",
       notStarted: "完成必要的登入後，請重試匯入。",
+      uploadLimitExceeded:
+        "上傳內容超出允許的限制。請縮小檔案或減少檔案數量後重試。",
     },
     importDeck: "匯入簡報",
     context: {
@@ -847,6 +860,8 @@ const messages = {
       figma: "Figma 畫框",
       notReady: "參考內容仍在載入或無法使用。請重試或移除後再傳送。",
       emptySource: "此來源未傳回可用的參考內容。",
+      figmaReadFailed:
+        "Design 無法讀取此 Figma 參考內容。請檢查 Design 中儲存的 Figma 存取權杖，以及連結帳戶是否能開啟該檔案，然後再試一次。",
       tooMany: "最多選取 20 項參考資料。",
       search: "搜尋參考資料",
       designCategory: "設計",

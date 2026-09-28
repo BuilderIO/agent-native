@@ -44,10 +44,6 @@ export const AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL = {
 
 export const AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_agent_tool_approval_policies_scope
   ON agent_tool_approval_policies(owner_email, org_id, tool_name, enabled)`;
-/**
- * Durable approval grants are created and consumed on request paths, but their
- * schema belongs to the release migration boundary in production.
- */
 export const AGENT_TOOL_APPROVAL_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

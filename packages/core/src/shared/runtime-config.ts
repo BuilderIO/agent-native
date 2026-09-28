@@ -1,11 +1,3 @@
-/**
- * Production configuration diagnostics.
- *
- * This module deliberately accepts an env-like record instead of reading
- * process.env so the same rules can run during a Vite build, on the server,
- * and in focused tests without ever exposing secret values to the browser.
- */
-
 export type RuntimeConfigEnvironment = "development" | "production";
 export type RuntimeConfigPhase = "build" | "runtime";
 export type RuntimeConfigIssueSeverity = "warning" | "error";
@@ -22,11 +14,8 @@ export type RuntimeConfigIssueCode =
   | "missing-required-env";
 
 export interface RuntimeConfigRequirements {
-  /** Whether the app's default or custom auth layer is expected to run. */
   authEnabled?: boolean;
-  /** Whether the app needs a persistent database outside local development. */
   databaseRequired?: boolean;
-  /** Additional non-secret keys the app declares as required. */
   requiredEnv?: readonly string[];
 }
 
@@ -53,7 +42,6 @@ export interface RuntimeConfigReportOptions {
   appName?: string;
 }
 
-/** Parse the truthy spellings accepted by typed runtime configuration flags. */
 export function isTruthyRuntimeValue(
   value: string | boolean | undefined,
 ): boolean {

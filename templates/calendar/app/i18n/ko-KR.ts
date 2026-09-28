@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "연결",
@@ -247,6 +249,16 @@ export default {
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",
     eventRules: "초대 규칙",
+    eventRulesAutomationLink: "다른 작업을 하려면 자동화를 만드세요.",
+    eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
+    eventRulesFreeBuilderOrApiKey:
+      "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
+    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesAddJevApiKey: "API 키 추가",
+    eventRulesTabRules: "규칙",
+    eventRulesHelpLabel: "초대 규칙 프롬프트 안내",
+    eventRulesHelp:
+      "Jev가 자동으로 수락, 거절 또는 숨길 초대를 지정하는 프롬프트를 작성하세요.",
     eventRuleAccept: "자동 수락",
     eventRuleDecline: "자동 거절",
     eventRuleHide: "자동 숨기기",
@@ -254,6 +266,7 @@ export default {
     eventRulePlaceholderDecline: "예: 영업 데모와 업무 시간 외 일정 거절",
     eventRulePlaceholderHide: "예: 집중 시간과 알림 숨기기",
     eventRulesSave: "규칙 저장",
+    eventRulesClearSaved: "저장된 규칙 지우기",
     eventRulesRecentActivity: "최근 활동",
     eventRulesNoActivity: "아직 활동이 없습니다",
     eventRuleActivityAccepted: "수락함",
@@ -271,6 +284,38 @@ export default {
     eventRulesConflict:
       "수락 및 거절 규칙이 모두 일치하여 초대를 건너뛰었습니다.",
     eventRulesUnregistered: "이 서버에 Calendar 자동화가 등록되지 않았습니다.",
+  },
+  calendarSettings: {
+    calendarsTab: "캘린더",
+    bookingTab: "예약",
+    eventsGroup: "일정",
+    appearanceGroup: "모양",
+    colorTheme: "색상 테마",
+    timezone: "캘린더 시간대",
+    timezoneDescription: "일정을 표시하고 새 일정을 만들 때 사용됩니다.",
+    defaultDuration: "기본 일정 길이",
+    defaultDurationDescription:
+      "분 단위입니다. 예약 링크마다 따로 설정할 수 있습니다.",
+    durationInvalid: "5분에서 480분 사이의 길이를 입력하세요.",
+    zoom: "Zoom",
+    connectedAs: "{{accounts}}(으)로 연결됨",
+    setUp: "설정",
+    disconnectGoogleTitle: "Google Calendar 연결을 해제할까요?",
+    disconnectGoogleDescription:
+      "Calendar에서 Google 계정의 일정 표시와 동기화가 중지됩니다.",
+    disconnectZoomTitle: "Zoom 연결을 해제할까요?",
+    disconnectZoomDescription:
+      "다시 연결할 때까지 새 일정과 예약에 Zoom 회의 링크를 추가할 수 없습니다.",
+    manage: "관리",
+    edit: "편집",
+    cancel: "취소",
+    save: "저장",
+    fallbackBookingPage: "대체 예약 페이지",
+    fallbackBookingPageDescription:
+      "예약 링크에 자체 제목이나 설명이 없을 때 사용됩니다.",
+    fallbackTitle: "제목",
+    fallbackDescription: "설명",
+    bookingLinksDescription: "예약 링크를 만들고 공개 URL을 복사합니다.",
   },
   eventDialog: {
     eventUpdated: "이벤트가 업데이트되었습니다",
@@ -993,7 +1038,7 @@ export default {
     year: "년",
     zoom: "Zoom",
     zoomAdded: "Zoom 추가됨",
-    zoomAddFailed: "Zoom를 추가하지 못했습니다.",
+    zoomAddFailed: zoomAddFailedMessages["ko-KR"],
     zoomConnectFailed: "Zoom를 연결할 수 없습니다",
     zoomConnectionOpened: "Zoom 연결이 열렸습니다.",
     zoomNotConfigured: "Zoom OAuth가 구성되지 않았습니다.",

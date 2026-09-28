@@ -4,27 +4,14 @@ import { describePlanBlocksForAgent } from "../shared/plan-block-registry.js";
 import { planBlockSchema, type PlanContent } from "../shared/plan-content.js";
 import { normalizePlanContent } from "./plan-content.js";
 
-/* -------------------------------------------------------------------------- */
-/* Shared helpers                                                             */
-/* -------------------------------------------------------------------------- */
-
-/**
- * The salvage placeholder marker. When a block fails schema validation under
- * `salvageInvalidBlocks: true`, the bad block is replaced with a `callout`
- * whose `data.body` begins with a zero-width space + `__unknown_block__:`
- * (see `parsePlanContentWithSalvage` in plan-content.ts). Tests assert on the
- * stable `__unknown_block__:` substring rather than the invisible prefix.
- */
 const UNKNOWN_MARKER = "__unknown_block__:";
 
-/** A valid leading rich-text block used to prove valid siblings survive. */
 const LEADING_RICH_TEXT = {
   id: "intro",
   type: "rich-text" as const,
   data: { markdown: "# Recap\n\nThis recap survives." },
 };
 
-/** True when a parsed block is the unsupported-block salvage placeholder. */
 function isUnknownPlaceholder(block: PlanContent["blocks"][number]): boolean {
   return (
     block.type === "callout" &&
@@ -33,33 +20,18 @@ function isUnknownPlaceholder(block: PlanContent["blocks"][number]): boolean {
   );
 }
 
-/** Count salvage placeholders in a parsed document. */
 function countPlaceholders(content: PlanContent): number {
   return content.blocks.filter(isUnknownPlaceholder).length;
 }
 
-/* -------------------------------------------------------------------------- */
-/* 1. Golden degradation corpus — reproduces real prod 422 failures.          */
-/*                                                                            */
-/* Each input reproduces a real recap-import schema failure observed in       */
-/* production. Recaps must SALVAGE: keep the valid sibling block, replace the */
-/* malformed block with an "Unsupported block" callout placeholder, and never */
-/* throw. Plans (strict default) must still REJECT the same input, proving    */
-/* recaps degrade gracefully while plans stay strict.                         */
-/* -------------------------------------------------------------------------- */
-
 describe("recap golden degradation corpus", () => {
   it("ai-services#5448: tabs block missing tabs[0].id and tabs[0].blocks[0].data salvages, plans still reject", () => {
-    // A `tabs` block whose first tab has no `id` and whose first child block is
-    // missing its `data` payload. Both are required by planBlockSchema, so the
-    // whole tabs block fails to validate.
     const malformedTabs = {
       id: "tabs-5448",
       type: "tabs",
       data: {
         tabs: [
           {
-            // id intentionally omitted (required by the tab schema)
             label: "Before",
             blocks: [
               {
@@ -78,8 +50,6 @@ describe("recap golden degradation corpus", () => {
       blocks: [LEADING_RICH_TEXT, malformedTabs],
     } as unknown as PlanContent;
 
-    // Salvage: does not throw, returns content, keeps the valid sibling, and
-    // replaces the malformed tabs block with the unsupported-block placeholder.
     const salvaged = normalizePlanContent(input, {
       salvageInvalidBlocks: true,
     });
@@ -90,18 +60,14 @@ describe("recap golden degradation corpus", () => {
     const placeholder = salvaged?.blocks[1];
     expect(placeholder?.type).toBe("callout");
     expect(isUnknownPlaceholder(placeholder!)).toBe(true);
-    // The placeholder records the original block type for the reader card.
     if (placeholder?.type === "callout") {
       expect(placeholder.data.body).toContain("tabs");
     }
 
-    // Strict (plan) default still rejects the same malformed input.
     expect(() => normalizePlanContent(input)).toThrow();
   });
 
   it("ai-services#5449: api-endpoint block missing responses[*].status salvages, plans still reject", () => {
-    // An `api-endpoint` block whose responses entries are missing the required
-    // `status` field. The whole block fails validation.
     const malformedEndpoint = {
       id: "endpoint-5449",
       type: "api-endpoint",
@@ -138,12 +104,9 @@ describe("recap golden degradation corpus", () => {
   });
 
   it("ai-services#5450: empty callout body + tabs missing id/child-data salvages per-block, plans still reject", () => {
-    // Two separate malformed blocks plus a valid sibling. The recap must keep
-    // the valid block and replace EACH bad block with its own placeholder.
     const emptyBodyCallout = {
       id: "callout-5450",
       type: "callout",
-      // body is "" — fails the min(1) too_small check.
       data: { body: "" },
     };
     const malformedTabs = {
@@ -152,7 +115,6 @@ describe("recap golden degradation corpus", () => {
       data: {
         tabs: [
           {
-            // id missing
             label: "Detail",
             blocks: [
               {
@@ -176,10 +138,8 @@ describe("recap golden degradation corpus", () => {
     });
     expect(salvaged).not.toBeNull();
     expect(salvaged?.blocks).toHaveLength(3);
-    // Valid leading block survives untouched.
     expect(salvaged?.blocks[0]?.type).toBe("rich-text");
     expect(salvaged?.blocks[0]?.id).toBe("intro");
-    // Both malformed blocks become placeholders (two, not one for the document).
     expect(countPlaceholders(salvaged!)).toBe(2);
     expect(isUnknownPlaceholder(salvaged!.blocks[1]!)).toBe(true);
     expect(isUnknownPlaceholder(salvaged!.blocks[2]!)).toBe(true);
@@ -242,12 +202,6 @@ describe("recap golden degradation corpus", () => {
     expect(() => normalizePlanContent(input)).toThrow();
   });
 });
-
-/* -------------------------------------------------------------------------- */
-/* 2. Good corpus — representative VALID recap contents.                      */
-/*                                                                            */
-/* A clean parse must salvage NOTHING: no `__unknown_block__` placeholders.   */
-/* -------------------------------------------------------------------------- */
 
 describe("recap good corpus (no salvage on valid content)", () => {
   it("columns before/after with proper nested blocks parses with no placeholders", () => {
@@ -369,24 +323,6 @@ describe("recap good corpus (no salvage on valid content)", () => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/* 3. Reference-consistency — the vocabulary the agent reads must validate.   */
-/*                                                                            */
-/* For every block the registry documents to the agent via                   */
-/* describePlanBlocksForAgent(), build a MINIMAL valid block of that type and */
-/* assert planBlockSchema accepts it. This catches the class of bug where the */
-/* taught/example form of a block does NOT validate (e.g. the columns         */
-/* attribute-array form). A documented type whose minimal form is rejected is */
-/* a real reference bug and fails loudly here.                               */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Minimal valid `data` payload for each documented block type. Built from the
- * schema's required fields (see plan-content.ts planBlockSchema). When the
- * registry exposes a concrete `example` (`spec.empty?.()`), the test prefers
- * that; this map is the fallback for types whose server spec has no `empty`
- * factory (currently all of them, since the React-free server specs omit it).
- */
 const MINIMAL_BLOCK_DATA: Record<string, unknown> = {
   "annotated-code": { code: "const x = 1;\n" },
   "api-endpoint": { method: "GET", path: "/v1/ping" },
@@ -440,22 +376,15 @@ describe("plan block reference-consistency", () => {
   const docs = describePlanBlocksForAgent();
 
   it("documents at least the full standard library", () => {
-    // Guard against a registry regression silently dropping the catalog.
     expect(docs.length).toBeGreaterThanOrEqual(20);
   });
 
   it("every documented type has a minimal-block recipe (no untested types)", () => {
-    // If this fails, a new block type was added to the registry; add a minimal
-    // valid `data` shape to MINIMAL_BLOCK_DATA so its taught form is verified.
     const documented = docs.map((doc) => doc.type).sort();
     const recipes = Object.keys(MINIMAL_BLOCK_DATA).sort();
     expect(recipes).toEqual(documented);
   });
 
-  // One assertion per documented block type: the form the agent is taught
-  // (registry example when present, else the minimal recipe) must validate
-  // under planBlockSchema. A failure here is a real reference bug — the agent
-  // would be taught a block shape the schema rejects.
   for (const doc of docs) {
     it(`taught form of \`${doc.type}\` validates under planBlockSchema`, () => {
       const data =

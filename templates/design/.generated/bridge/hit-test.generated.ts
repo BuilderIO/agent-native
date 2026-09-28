@@ -752,8 +752,6 @@ export const hitTestBridgeScript: string = `"use strict";
         infos.push({
           tagName: node.tagName.toLowerCase(),
           sourceId: nodeId || void 0,
-          // Not minted here: a whole-document sweep must stay read-only, and the
-          // host resolves an id-less node through this structural selector.
           selector: nodeId ? void 0 : buildSourceEquivalentSelector(node) || void 0,
           layerName: layerNameForElement(node) || void 0,
           boundingRect: {

@@ -1,3 +1,21 @@
+## 0.4.7
+
+### Patch Changes
+
+- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
+
+## 0.4.6
+
+### Patch Changes
+
+- f43d34c: Release the updated skill guidance and portable drawer component types.
+
+## 0.4.5
+
+### Patch Changes
+
+- a91535c: Keep alert dialogs centered above full-app overlays.
+
 ## 0.4.4
 
 ### Patch Changes

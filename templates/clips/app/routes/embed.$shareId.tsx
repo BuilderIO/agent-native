@@ -116,12 +116,6 @@ export default function EmbedRoute() {
     [searchParams],
   );
 
-  // Same hydration trap the share route had: reading sessionStorage in the
-  // initializer makes the first client render disagree with the server's,
-  // which has no storage and always renders the locked state. React discards
-  // the hydrated tree and re-renders from scratch, so an embedded player goes
-  // blank for a returning viewer. Start where the server started and adopt the
-  // stored password after mount.
   const [password, setPassword] = useState<string | null>(null);
 
   useEffect(() => {

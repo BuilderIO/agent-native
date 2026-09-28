@@ -281,8 +281,8 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
+          size="icon-sm"
+          className="absolute right-3 top-3 z-20 cursor-pointer border border-border bg-popover/95 shadow-lg"
           onClick={props.onExit}
           aria-label={props.label}
         >
@@ -2351,9 +2351,13 @@ export default function SlideEditor({
   );
 
   const flushInlineEditDraft = useCallback(() => {
+    const activeSlideId = textSessionRef.current?.slideId;
+    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
     const draft = inlineEditDraftRef.current;
     if (!draft) return false;
-    if (draft.slideId === slide.id) captureInlineEditDraft(draft.slideId);
+    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+      captureInlineEditDraft(draft.slideId);
+    }
     flushPendingSaves();
     return true;
   }, [captureInlineEditDraft, slide.id]);
@@ -2790,7 +2794,11 @@ export default function SlideEditor({
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
-    (block: HTMLElement, caretPoint?: { x: number; y: number }) => {
+    (
+      block: HTMLElement,
+      point?: { x: number; y: number },
+      selectWord = false,
+    ) => {
       const slideContent = getSlideContent();
       if (!slideContent || !slideContent.contains(block)) return;
       // A bullet is edited as part of its list: the list is the edit root, so
@@ -2836,11 +2844,12 @@ export default function SlideEditor({
           : { slideId: slide.id, content: entryContent };
       const slideId = slide.id;
       // The element itself becomes editable: no copy, overlay, or restyle, so
-      // entering edit changes nothing on the slide. Double-click prevents the
-      // browser's selection default, so select the clicked word here.
+      // entering edit changes nothing on the slide. The caret lands at the
+      // click or double-click: a press in an object's move band is prevented,
+      // so the browser places no native selection or word there.
       const text = startInPlaceTextSession(el, {
-        caretPoint,
-        selectWord: !!caretPoint,
+        caretPoint: point,
+        selectWord,
         onInput: () => {
           if (textSessionRef.current?.text !== text) return;
           // A list toggle or its undo can retag the edited element.
@@ -7817,7 +7826,7 @@ export default function SlideEditor({
       // getData() payloads (only types) in most browsers, so this is a
       // best-effort signal; the drop handler does the real <img> check.
       (types.includes("text/html") && types.includes("text/uri-list"));
-    if (!hasImage) return;
+    if (!hasImage && !types.includes("text/uri-list")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
@@ -7843,7 +7852,14 @@ export default function SlideEditor({
       // No native file — check for a dragged <img> instead (e.g. one dragged
       // out of the agent chat panel's generated-image preview).
       const url = extractDraggedImageUrl(e.dataTransfer);
-      if (!url) return;
+      if (!url) {
+        const types = Array.from(e.dataTransfer.types ?? []);
+        if (types.includes("text/uri-list")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       if (textSessionRef.current) exitInlineEditRef.current();
@@ -8008,7 +8024,7 @@ export default function SlideEditor({
               selector: blockSelector,
             });
           }
-          enterInlineEdit(block);
+          enterInlineEdit(block, { x: e.clientX, y: e.clientY });
           return;
         }
       }
@@ -8626,7 +8642,7 @@ export default function SlideEditor({
 
       e.preventDefault();
       e.stopPropagation();
-      enterInlineEdit(block, { x: e.clientX, y: e.clientY });
+      enterInlineEdit(block, { x: e.clientX, y: e.clientY }, true);
     },
     [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
   );

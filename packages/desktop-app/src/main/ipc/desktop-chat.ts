@@ -385,10 +385,6 @@ export default function (pi) {
 }
 `;
 
-/**
- * Main-process capability relay. Provider CLIs see only a loopback bearer;
- * app auth stays here and is never serialized into their config or argv.
- */
 export class DesktopTerminalMcpRelay {
   private readonly bearerToken = randomBytes(32).toString("base64url");
   private readonly bearerHash = hashTerminalToken(this.bearerToken);
@@ -907,8 +903,6 @@ async function createDesktopTerminalSession(
             },
           };
         } catch (error) {
-          // App MCP is an optional capability. A signed-out or unavailable
-          // guest must not prevent the local desktop terminal from starting.
           console.warn("[desktop-terminal] app tools unavailable", {
             appId: appConfig.id,
             reason: error instanceof Error ? error.message : "unknown error",
@@ -1095,9 +1089,6 @@ export function resolveTargetUrl(
 ): URL | null {
   try {
     const target = new URL(targetPath, "http://desktop-chat.invalid");
-    // Check the normalized URL, not the raw path. Otherwise
-    // /_agent-native/../ can pass the prefix check before escaping the
-    // relay's route boundary.
     if (!target.pathname.startsWith(RELAY_ALLOWED_PREFIX)) return null;
     const base = new URL(baseUrl);
     const basePath = base.pathname.replace(/\/+$/, "");

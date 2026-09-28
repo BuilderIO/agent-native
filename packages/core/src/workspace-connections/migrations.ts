@@ -3,21 +3,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 export const WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE =
   "_workspace_connections_migrations";
 
-/**
- * Deploy-time schema for workspace connections, grants, and user groups.
- *
- * These three tables were shipped with only their runtime `ensureTable`
- * helpers in `store.ts` / `groups.ts`. That is enough locally and on a
- * long-lived server, but `schemaEnsureDisabled()` makes every probe report
- * "present" on a production serverless runtime, so the ensure path issues no
- * DDL there at all. A table with no entry here therefore never gets created in
- * production, and the first read fails with `relation ... does not exist` —
- * which is exactly what `workspace_user_groups` did from the day after it
- * shipped. Runtime ensure covers dev; this list is the production contract.
- *
- * `created_at` / `updated_at` must be BIGINT on Postgres: they store epoch
- * milliseconds, which overflow int4.
- */
 export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,
@@ -117,9 +102,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 11,
-    // Install the guard before the backfill. The migration runner executes
-    // each statement separately, so an older writer could otherwise create a
-    // NULL normalized key between this migration and the unique index.
     sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
       RETURNS trigger
       LANGUAGE plpgsql
@@ -153,8 +135,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 12,
-    // Repair databases that recorded the backfill-only v11 before the guard
-    // was added, then keep the operation idempotent for newer databases.
     sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
       RETURNS trigger
       LANGUAGE plpgsql
@@ -188,8 +168,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 13,
-    // Reapply the compatibility trigger for databases that already recorded
-    // v12 before the trigger was added.
     sql: `CREATE OR REPLACE FUNCTION public.workspace_user_groups_set_normalized_name()
       RETURNS trigger
       LANGUAGE plpgsql
@@ -210,8 +188,6 @@ export const WORKSPACE_CONNECTIONS_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 14,
-    // Repair NULL keys left by databases that recorded the pre-trigger v11/v12
-    // migrations before the compatibility trigger was installed.
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_user_groups_org_normalized_name
       ON workspace_user_groups (org_id, normalized_name)
       WHERE normalized_name IS NOT NULL;

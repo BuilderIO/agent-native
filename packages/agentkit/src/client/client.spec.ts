@@ -78,6 +78,30 @@ describe("AgentKitClient", () => {
     });
   });
 
+  it("distinguishes a missing thread from a stored thread with no messages", async () => {
+    const missingTransport = createTransport([]);
+    missingTransport.getThreadSnapshot = async () => null;
+    const emptyTransport = createTransport([]);
+    emptyTransport.getThreadSnapshot = async () => ({
+      id: "empty-thread",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      messages: [],
+    });
+    const missing = new AgentKitClient({ transport: missingTransport });
+    const empty = new AgentKitClient({ transport: emptyTransport });
+
+    const missingLease = await missing.openThread("missing-thread");
+    const emptyLease = await empty.openThread("empty-thread");
+
+    expect(missingLease.threadFound).toBe(false);
+    expect(emptyLease.threadFound).toBe(true);
+    expect(missingLease.getSnapshot().messages).toEqual([]);
+    expect(emptyLease.getSnapshot().messages).toEqual([]);
+    missingLease.release();
+    emptyLease.release();
+  });
+
   it("settles stale snapshot work when its run is already terminal", async () => {
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
@@ -1102,6 +1126,91 @@ describe("AgentKitClient", () => {
       client.removeQueuedMessage("thread-1", "queued-1"),
     ).rejects.toThrow("write failed");
     expect(client.getThread("thread-1").queuedMessages).toEqual([queued]);
+  });
+
+  it("moves one queued message to the front while preserving the remaining order", async () => {
+    const queued = ["one", "two", "three"].map((id, index) => ({
+      id,
+      threadId: "thread-1",
+      text: id,
+      createdAt: `2026-08-29T00:00:0${index}.000Z`,
+    }));
+    const moveQueuedMessageToTop = vi.fn(async () => undefined);
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: queued[0]!.createdAt,
+      updatedAt: queued[0]!.createdAt,
+      messages: [],
+      queuedMessages: queued,
+    });
+    transport.moveQueuedMessageToTop = moveQueuedMessageToTop;
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    expect(client.supportsQueuedMessageReordering()).toBe(true);
+    await client.moveQueuedMessageToTop("thread-1", "three");
+
+    expect(moveQueuedMessageToTop).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: "three" },
+      expect.anything(),
+    );
+    expect(
+      client.getThread("thread-1").queuedMessages.map(({ id }) => id),
+    ).toEqual(["three", "one", "two"]);
+  });
+
+  it("rolls queue order back when a durable move-to-top request fails", async () => {
+    const queued = ["one", "two"].map((id, index) => ({
+      id,
+      threadId: "thread-1",
+      text: id,
+      createdAt: `2026-08-29T00:00:0${index}.000Z`,
+    }));
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: queued[0]!.createdAt,
+      updatedAt: queued[0]!.createdAt,
+      messages: [],
+      queuedMessages: queued,
+    });
+    transport.moveQueuedMessageToTop = async () => {
+      throw new Error("write failed");
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    await expect(
+      client.moveQueuedMessageToTop("thread-1", "two"),
+    ).rejects.toThrow("write failed");
+    expect(client.getThread("thread-1").queuedMessages).toEqual(queued);
+  });
+
+  it("preserves feedback trace identifiers and reason in the transport input", async () => {
+    const submitFeedback = vi.fn(async () => undefined);
+    const transport = createTransport([]);
+    transport.capabilities = { ...transport.capabilities, feedback: true };
+    transport.submitFeedback = submitFeedback;
+    const client = new AgentKitClient({ transport });
+
+    await client.submitFeedback("thread-1", "message-1", "negative", {
+      runId: "run-1",
+      messageSeq: 4,
+      reason: "The response was incomplete.",
+    });
+
+    expect(submitFeedback).toHaveBeenCalledWith(
+      {
+        threadId: "thread-1",
+        messageId: "message-1",
+        value: "negative",
+        runId: "run-1",
+        messageSeq: 4,
+        reason: "The response was incomplete.",
+      },
+      expect.anything(),
+    );
   });
 
   it("serializes queue mutations so an earlier rollback preserves later intent", async () => {
@@ -2501,7 +2610,6 @@ describe("stream integrity reports", () => {
       }),
       protocolEvent(3, { type: "run.completed" }),
     ]);
-    // No steerQueuedMessage: the queued message is stranded, not waiting.
     delete transport.steerQueuedMessage;
     const client = new AgentKitClient({
       transport,

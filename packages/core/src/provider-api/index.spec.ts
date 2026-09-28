@@ -489,11 +489,6 @@ describe("provider API runtime", () => {
   });
 
   it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
-    // Slack's Web API always answers HTTP 200, success or failure — the real
-    // outcome lives in the JSON body's `ok` field (api.slack.com/web#evaluating).
-    // A caller checking only the transport-level `response.ok`, the same
-    // signal every other provider uses for success, must not see this as a
-    // delivered message.
     resolveCredential.mockImplementation(async (key: string) =>
       key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
     );
@@ -2270,11 +2265,134 @@ describe("provider API runtime", () => {
         },
       },
     ]);
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ error: "invalid_grant" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      }),
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "slides",
+      providerIds: ["google_drive"],
+      getCredentialContext: () => credentialContext,
+      oauthProviderOverrides: {
+        google_drive: "google-docs",
+      },
+    });
+
+    const error = await runtime
+      .executeRequest({
+        provider: "google_drive",
+        path: "/files",
+      })
+      .catch((error: unknown) => error);
+
+    expect(error).toMatchObject({
+      message: expect.stringMatching(
+        /Google OAuth refresh failed: invalid_grant/,
+      ),
+    });
+    expect(error).not.toHaveProperty("retryable");
+
+    expect(deleteOAuthTokens).toHaveBeenCalledWith(
+      "google-docs",
+      "docs@example.com",
+    );
+    expect(
+      String(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body),
+    ).toContain("client_id=vault-google-client-id");
+    expect(saveOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 429, 503])(
+    "marks Google OAuth refresh HTTP %i failures as retryable",
+    async (status) => {
+      resolveSecret.mockImplementation(async (key: string) =>
+        key === "GOOGLE_CLIENT_ID"
+          ? "vault-google-client-id"
+          : key === "GOOGLE_CLIENT_SECRET"
+            ? "vault-google-client-secret"
+            : null,
+      );
+      listOAuthAccountsByOwner.mockResolvedValue([
+        {
+          accountId: "docs@example.com",
+          displayName: "Docs Account",
+          tokens: {
+            access_token: "expired-docs-access-token",
+            refresh_token: "refresh-token",
+            expiry_date: Date.now() - 60_000,
+          },
+        },
+      ]);
+      resolveWorkspaceConnectionForApp.mockResolvedValue({
+        available: true,
+        connection: {
+          id: "drive-connection-1",
+          label: "Work Google",
+          accountId: "docs@example.com",
+          ownerEmail: "ada@example.com",
+        },
+        appAccess: { available: true },
+        reason: "Available.",
+      });
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("upstream unavailable", {
+          status,
+          statusText: "Upstream unavailable",
+        }),
+      );
+      const runtime = createProviderApiRuntime({
+        appId: "slides",
+        providerIds: ["google_drive"],
+        getCredentialContext: () => credentialContext,
+        oauthProviderOverrides: {
+          google_drive: "google-docs",
+        },
+      });
+
+      await expect(
+        runtime.resolveOAuthAccessToken({
+          provider: "google_drive",
+          connectionId: "drive-connection-1",
+        }),
+      ).rejects.toMatchObject({ status, retryable: true });
+    },
+  );
+
+  it("marks Google OAuth refresh network failures as retryable", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "vault-google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "vault-google-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "docs@example.com",
+        displayName: "Docs Account",
+        tokens: {
+          access_token: "expired-docs-access-token",
+          refresh_token: "refresh-token",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "drive-connection-1",
+        label: "Work Google",
+        accountId: "docs@example.com",
+        ownerEmail: "ada@example.com",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new TypeError("fetch failed"),
     );
     const runtime = createProviderApiRuntime({
       appId: "slides",
@@ -2286,20 +2404,11 @@ describe("provider API runtime", () => {
     });
 
     await expect(
-      runtime.executeRequest({
+      runtime.resolveOAuthAccessToken({
         provider: "google_drive",
-        path: "/files",
+        connectionId: "drive-connection-1",
       }),
-    ).rejects.toThrow(/Google OAuth refresh failed: invalid_grant/);
-
-    expect(deleteOAuthTokens).toHaveBeenCalledWith(
-      "google-docs",
-      "docs@example.com",
-    );
-    expect(
-      String(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body),
-    ).toContain("client_id=vault-google-client-id");
-    expect(saveOAuthTokens).not.toHaveBeenCalled();
+    ).rejects.toMatchObject({ retryable: true });
   });
 
   it("tries legacy Google OAuth credentials before deleting grants after a client rotation", async () => {

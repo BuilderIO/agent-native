@@ -1,9 +1,3 @@
-//! Clips menu-bar tray app.
-//!
-//! The app is a single always-on-top popover window. Clicking the tray icon
-//! toggles it. Pressing the platform recording shortcut starts or stops a take;
-//! the popover itself
-//! is served by the Vite-built React UI (see `../dist`).
 
 mod accessibility;
 mod adhoc_meetings_watcher;
@@ -60,14 +54,9 @@ use util::{
     restart_after_update, set_capture_excluded,
 };
 
-// Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
-// has *something* to display even if `icons/tray.png` is missing on disk. The
-// `tauri.conf.json` tray config points at `icons/tray.png`, which the user
-// should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
 const POPOVER_BLUR_GUARD: Duration = Duration::from_millis(1500);
-// Focused(false) can arrive before the bubble's pointer-down reaches Rust.
 const POPOVER_BLUR_SETTLE: Duration = Duration::from_millis(100);
 
 fn popover_blur_delay(elapsed: Duration, bubble_dragging: bool) -> Option<Duration> {
@@ -140,21 +129,12 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            // Second launch just focuses the popover of the already-running
-            // instance. Prevents the "two tray icons" UX where clicks fight
-            // over focus and neither popover shows.
             present_popover(app);
         }))
         .on_window_event(|window, event| {
-            // Backstop for the tray's recording mode: the pill window is its
-            // single writer, so the one report it can never deliver is its
-            // own death. Any toolbar teardown restores the plain status item.
             if window.label() == "toolbar" {
                 match event {
                     tauri::WindowEvent::Moved(position) => {
-                        // Forward the platform move event directly to the
-                        // toolbar webview. The renderer's Window.onMoved
-                        // subscription can lag native macOS drag events.
                         let _ = window.emit("clips:toolbar-native-moved", position);
                     }
                     tauri::WindowEvent::Destroyed => {
@@ -163,10 +143,6 @@ pub fn run() {
                     _ => {}
                 }
             }
-            // The popover and camera bubble are separate native windows. A
-            // native close hides the panel back to the tray instead of
-            // destroying the webview, so tray clicks and the app's second
-            // launch can show the same window again.
             if window.label() == "popover" {
                 match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -182,7 +158,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            // clips commands
             clips::show_countdown,
             clips::finish_countdown_shortcuts,
             clips::show_preparing,
@@ -239,10 +214,8 @@ pub fn run() {
             clips::bubble_drag_end,
             clips::set_bubble_size,
             clips::load_bubble_size,
-            // config commands
             config::get_feature_config,
             config::set_feature_config,
-            // local-only Screen Memory backend
             screen_memory::screen_memory_status,
             screen_memory::screen_memory_configure,
             screen_memory::screen_memory_start,
@@ -250,13 +223,11 @@ pub fn run() {
             screen_memory::screen_memory_stop,
             screen_memory::screen_memory_delete,
             screen_memory::screen_memory_recent_segments,
-            // native macOS speech recognition (no-op stubs on other OSes)
             native_speech::native_speech_start,
             native_speech::native_speech_stop,
             native_speech::native_speech_cancel,
             native_speech::native_speech_set_vocabulary,
             native_speech::native_speech_request_permission,
-            // native full-screen recording (macOS screencapture, no picker)
             native_screen::native_fullscreen_recording_available,
             native_screen::show_window_picker,
             native_screen::cancel_native_window_picker,
@@ -279,7 +250,6 @@ pub fn run() {
             native_screen::native_fullscreen_recording_clear_upload,
             native_screen::native_fullscreen_recording_dismiss_upload,
             native_screen::native_fullscreen_open_drafts_folder,
-            // local-only always-on screen memory compatibility helpers
             screen_memory::screen_memory_query,
             screen_memory::screen_memory_delete_all,
             screen_memory::screen_memory_export_recent,
@@ -290,7 +260,6 @@ pub fn run() {
             screen_memory::screen_memory_due_agent_handoffs,
             screen_memory::screen_memory_mark_agent_handoff_deleted,
             screen_memory::screen_memory_cancel_agent_handoff_cleanup,
-            // local-only Rewind evidence policy gate and egress audit trail
             rewind_egress::rewind_prepare_evidence_egress,
             rewind_egress::rewind_complete_evidence_egress,
             rewind_egress::rewind_fail_evidence_egress,
@@ -314,7 +283,6 @@ pub fn run() {
             rewind_clip::rewind_agent_handoff_preview,
             rewind_capture_suspension::rewind_capture_suspension_acquire,
             rewind_capture_suspension::rewind_capture_suspension_release,
-            // recording indicator pill
             recording_indicator::recording_pill_prewarm,
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
@@ -322,46 +290,36 @@ pub fn run() {
             recording_indicator::recording_pill_save_position,
             recording_indicator::recording_pill_save_expanded_size,
             recording_indicator::recording_pill_set_detached,
-            // notifications
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
             notifications::dismiss_meeting_notification,
-            // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
             meetings_watcher::meetings_watcher_set_lab_enabled,
             meetings_watcher::meetings_snooze,
-            // EventKit (iCloud calendar)
             eventkit::eventkit_request_access,
             eventkit::eventkit_list_events,
-            // Accessibility (read focused field text for personal-vocabulary auto-learn)
             accessibility::active_window_context,
             accessibility::read_focused_field_text,
             accessibility::accessibility_check_permission,
             accessibility::accessibility_request_permission,
-            // system audio (ScreenCaptureKit — see system_audio.rs)
             system_audio::system_audio_request_permission,
             system_audio::system_audio_version_status,
             system_audio::system_audio_open_privacy_settings,
             system_audio::audio_transcription_start,
             system_audio::audio_transcription_stop,
             system_audio::audio_transcription_reset_timeline,
-            // silence detector — Granola-style auto-stop heuristics
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,
-            // custom global shortcuts configured from Settings
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
-            // whisper model management
             whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
             whisper_model::whisper_downloaded_models,
             whisper_model::whisper_model_delete,
-            // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
-            // persistent log file (production debugging)
             logfile::frontend_log,
             logfile::open_logs,
             restart_after_update,
@@ -373,8 +331,6 @@ pub fn run() {
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .app_name("Clips")
-                // Tag login-launched processes so startup can stay quiet in the
-                // tray, while a manual launch auto-opens the popover.
                 .args(["--autostart"])
                 .build(),
         )
@@ -408,14 +364,8 @@ pub fn run() {
         .manage(notifications::MeetingNotificationState::default())
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
-            // Capture stdout/stderr to a persistent log file before anything
-            // else runs so startup errors and panics land on disk too.
             logfile::init(app.handle());
 
-            // Keeps the app from yanking the user out of fullscreen when the
-            // popover appears. Bundles set LSUIElement=1 so macOS never creates
-            // a Dock tile in the first place; this call still matters for
-            // `tauri dev`, which runs the bare executable with no bundle plist.
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -426,8 +376,6 @@ pub fn run() {
                 err
             })?;
 
-            // Warm the native capture snapshot while the hidden popover
-            // webview is starting so the first recording skips that lookup.
             tauri::async_runtime::spawn(async {
                 if let Err(err) = native_screen::native_fullscreen_prefetch_capture_content().await
                 {
@@ -435,10 +383,6 @@ pub fn run() {
                 }
             });
 
-            // clips:// deep-link handler — a web "Open desktop app" click
-            // launches or focuses the running tray popover (same as a second
-            // launch). macOS registers the scheme via Info.plist at build time;
-            // Windows/Linux register it at runtime below.
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
                 let dl_handle = app.handle().clone();
@@ -452,9 +396,6 @@ pub fn run() {
                 if let Err(err) = app.deep_link().register_all() {
                     eprintln!("[clips-tray] deep link register_all failed: {err}");
                 }
-                // On Linux/Windows a cold launch from clips:// arrives as startup
-                // arguments rather than an on_open_url event. Consume it here so
-                // the popover appears and the browser does not hit its fallback.
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
                     let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
@@ -471,33 +412,16 @@ pub fn run() {
             config::sync_launch_at_login(app.handle());
             let feature_config = config::feature_config(app.handle());
             screen_memory::sync_from_config(app.handle(), &feature_config);
-            // Re-show always-on region guides after relaunch/reboot when the
-            // setting is on (no-op if a recording owns the window or the
-            // toggle is off).
             clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
             shortcuts::install_countdown_local_key_monitor(app);
             shortcuts::install_popover_dismiss_handler(app);
 
-            // Spawn the upcoming-meetings poller. Idempotent — gated by a
-            // OnceLock inside `spawn_watcher`. The frontend wires the
-            // server URL via `meetings_watcher_set_server_url` once the
-            // popover boots.
             meetings_watcher::spawn_watcher(app.handle().clone());
-            // Granola-style adhoc Zoom/Teams detection — shares session
-            // credentials with the calendar watcher above.
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
-            // Retire a stored notification payload once the frontend reports the
-            // meeting on screen, so a late-mounting overlay cannot hydrate a
-            // question that has already been answered.
             notifications::watch_meeting_notification_acks(app.handle());
-            // Server-controlled desktop capture feature flags — own poll
-            // loop, reuses the calendar watcher's session credentials.
             remote_flags::spawn_watcher(app.handle().clone());
 
-            // Pre-download the Whisper model in the background so the first
-            // meeting doesn't pay the ~142 MB download cost mid-call. Skipped
-            // when the user has disabled the model in Settings.
             #[cfg(target_os = "macos")]
             {
                 let cfg = config::feature_config(app.handle());
@@ -507,11 +431,6 @@ pub fn run() {
                         match whisper_model::ensure_model(&app_handle).await {
                             Ok(_) => {
                                 let _ = app_handle.emit("whisper:model-ready", ());
-                                // Warm the in-memory whisper context now, off
-                                // the recording-start path, so the first
-                                // recording doesn't block ~hundreds of ms
-                                // loading the model into memory. Blocking work
-                                // → spawn_blocking
                                 let warm_handle = app_handle.clone();
                                 let _ = tauri::async_runtime::spawn_blocking(move || {
                                     match whisper_speech::prewarm_context(&warm_handle) {
@@ -544,18 +463,8 @@ pub fn run() {
                 }
             }
 
-            // Hide the popover on blur so it feels like a real menu-bar popover.
-            // The 1.5s guard is the important bit — during the tray-click
-            // itself macOS briefly steals focus from the popover, which would
-            // fire Focused(false) and hide the window we literally just showed.
             if let Some(window) = app.get_webview_window("popover") {
                 let app_handle = app.handle().clone();
-                // NOTE: Intentionally NOT calling window.open_devtools()
-                // here. An auto-opened devtools window steals focus from
-                // the popover on every render, which flaps onFocusChanged
-                // constantly and creates an infinite show_bubble/hide loop
-                // in the React effect. Users can right-click -> Inspect
-                // Element if they need devtools.
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::Focused(false) = event {
                         schedule_popover_dismissal(&app_handle);
@@ -563,9 +472,6 @@ pub fn run() {
                 });
             }
 
-            // Auto-open the popover on a manual launch so the app doesn't sit
-            // silently in the tray waiting for a click. Skipped when launched at
-            // login (tagged with `--autostart`) so it doesn't pop up every boot.
             let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
             if !launched_at_login {
                 let app_handle = app.handle().clone();
@@ -585,8 +491,6 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app_handle, _event| {
-            // macOS: clicking the Dock icon ("reopen") toggles the popover.
-            // Reopen is macOS-only — gated behind cfg so Windows compiles.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
                 if is_recording_active(_app_handle) && clips::popover_is_parked(_app_handle) {
@@ -595,15 +499,6 @@ pub fn run() {
                     toggle_popover(_app_handle);
                 }
             }
-            // `app.exit()` (tray Quit, Cmd+Q, OS shutdown) delivers
-            // `ExitRequested` first, then `Exit` unless prevented. A live
-            // meeting session lives entirely in JS/React state
-            // (`useMeetingTranscription`) that Rust has no direct access to,
-            // so if a meeting is active we briefly hold the process open and
-            // let the popover webview run its normal stop/flush/finalize
-            // path before actually exiting — otherwise the last ~1.5s of
-            // transcript is lost and the recording is stuck "uploading"
-            // forever (nothing else ever stamps `meetings.actualEnd`).
             if let tauri::RunEvent::ExitRequested { api, .. } = &_event {
                 let meeting_active = _app_handle
                     .try_state::<MeetingActive>()
@@ -611,12 +506,6 @@ pub fn run() {
                     .unwrap_or(false);
                 let teardown_state =
                     clips::QUIT_TEARDOWN_STATE.load(std::sync::atomic::Ordering::SeqCst);
-                // Gate on MeetingActive so quitting with no active meeting
-                // stays instant — zero added latency, no event emitted, no
-                // watchdog spawned. teardown_state != 0 means either the
-                // teardown handshake is already underway (first pass already
-                // ran) or already done (the watchdog's own forced exit —
-                // must NOT prevent_exit again, or quit would hang forever).
                 if meeting_active && teardown_state == 0 {
                     clips::QUIT_TEARDOWN_STATE.store(1, std::sync::atomic::Ordering::SeqCst);
                     api.prevent_exit();
@@ -624,14 +513,6 @@ pub fn run() {
                     let watchdog_handle = _app_handle.clone();
                     std::thread::spawn(move || {
                         std::thread::sleep(std::time::Duration::from_secs(3));
-                        // If the JS side never called `quit_teardown_done`
-                        // (dead webview, hung network call, etc.) force the
-                        // exit anyway — quit must never hang indefinitely.
-                        // compare_exchange (not load-then-store) so this
-                        // watchdog and a concurrent `quit_teardown_done` call
-                        // can't both observe state==1, both transition to 2,
-                        // and both call app.exit(); only whichever wins the
-                        // CAS proceeds.
                         if clips::QUIT_TEARDOWN_STATE
                             .compare_exchange(
                                 1,
@@ -649,10 +530,6 @@ pub fn run() {
                     });
                 }
             }
-            // The app is quitting (tray Quit, Cmd+Q, or OS shutdown). `Exit`
-            // fires just before the process actually terminates, which
-            // otherwise skips Rust destructors — make sure a live
-            // `screencapture` fallback child doesn't survive us.
             if let tauri::RunEvent::Exit = _event {
                 whisper_speech::shutdown(_app_handle);
                 native_speech::shutdown();

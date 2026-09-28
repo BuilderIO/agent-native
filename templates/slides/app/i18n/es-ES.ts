@@ -40,7 +40,6 @@ const messages = {
     brand: "Diapositivas",
     decks: "Decks",
     designSystems: "Sistemas de diseño",
-    team: "Equipo",
   },
   settings: {
     agentObservability: "Observabilidad del agente",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "Recibe un correo cuando alguien comente o responda en tu presentación.",
     saveFailed: "No se pudo guardar",
+    notificationsEmail: "Correo electrónico",
+    commentsAndReplies: "Comentarios y respuestas",
+    commentsAndRepliesDescription:
+      "Cuando alguien comenta o responde en tu presentación.",
+    retry: "Reintentar",
+    mcpAbout:
+      "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     languageTitle: "Idioma",
     languageDescription:
       "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
@@ -187,8 +193,6 @@ const messages = {
     slideUnavailable: "Diapositiva no disponible",
     couldNotLoadSlide: "No se pudo cargar la diapositiva.",
     openInApp: "Abrir en la app",
-    teamDescription:
-      "Configura un equipo para compartir presentaciones con tus compañeros.",
   },
 
   designSystems: {
@@ -593,6 +597,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Guardado" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -854,6 +859,11 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Crea una presentación de producto",
+      roadmap: "Crea una hoja de ruta de producto",
+      explainer: "Explica un tema en una presentación",
+    },
     suggestedPrompts: "Indicaciones sugeridas",
     importMenu: {
       import: "Importar",
@@ -861,8 +871,12 @@ const messages = {
       invalidPdf: "Elige un archivo PDF.",
       invalidPptx: "Elige un archivo PPTX.",
       invalidFile: "Elige un archivo PDF o PPTX.",
+      networkFailed:
+        "La solicitud de importación agotó el tiempo de espera o perdió la conexión. Comprueba la conexión e inténtalo de nuevo.",
       notStarted:
         "Completa el inicio de sesión requerido y vuelve a intentar la importación.",
+      uploadLimitExceeded:
+        "La carga supera un límite permitido. Reduce el tamaño del archivo o elige menos archivos y vuelve a intentarlo.",
     },
     importDeck: "Importar presentación",
     context: {
@@ -902,6 +916,8 @@ const messages = {
       notReady:
         "El contexto sigue cargando o no está disponible. Reintenta o elimínalo antes de enviar.",
       emptySource: "La fuente no devolvió contexto utilizable.",
+      figmaReadFailed:
+        "Design no pudo leer esta referencia de Figma. Comprueba el token de acceso a Figma guardado en Design y que esa cuenta pueda abrir el archivo; luego inténtalo de nuevo.",
       tooMany: "Elige hasta 20 referencias.",
       search: "Buscar referencias",
       designCategory: "Diseño",

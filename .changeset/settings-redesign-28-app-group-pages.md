@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+Build the app's group in the redesigned Settings (behind `settings-redesign`): a General page with Agent › Default model (owners and admins change it, members see it read-only), the app's own groups, and This browser › Demo mode, with app areas as tabs; Notifications when the app passes it; Automations with the viewer's real role, a member footnote, and New automation in the header; MCP server with an about line and an Integrations footnote; Creative context and What's new with header chips; and Labs as one group named after the app. `SettingsTabsPage` gains `generalGroups`, `appAreas`, `notifications`, `notificationsSearchEntries`, and `mcpAbout`, which also render as today's tabs with the flag off. Labs now show each lab's `defaultEnabled` while loading and when `get-labs` fails (with an error line), and hide labs the server didn't register; `useLab` and `useLabState` accept a lab definition to use its default until the server answers. Flag-off Settings' Automations tab now shows members "You can manage automations you created." The `agent-model-defaults` route reports the organization's default as `orgDefault`.

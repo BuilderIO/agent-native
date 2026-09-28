@@ -393,8 +393,6 @@ test("an editor can read and edit one shared Personal page without gaining its p
       await expect(
         recipient.locator('[data-block-fields-state="error"]'),
       ).toBeVisible();
-      // Property initialization fails before the primary editor mounts, so
-      // crossing its full debounce interval is the relevant durability boundary.
       await recipient.waitForTimeout(1_000);
       const propertyFailureUnchanged = await getAction(owner, "get-document", {
         id: documentId,

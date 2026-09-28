@@ -34,6 +34,7 @@ import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
+import "./lib/register-chat-renderers";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -314,7 +315,11 @@ export default function Root() {
 
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        skeletonLayout="assistant"
+        i18n={{ catalog: i18nCatalog }}
+      >
         <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>

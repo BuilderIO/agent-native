@@ -30,6 +30,9 @@ const messages = {
     pinChat: "置顶聊天",
     pinned: "已置顶",
     recents: "最近",
+    retryPreviousRequest: "模型提供商已连接，请重试我之前的请求。",
+    retryAttachmentUnavailable:
+      "Chat 无法重新打开此附件以重试。请添加可访问的文件 URL，然后重试。",
     renameChat: "重命名聊天",
     renameFailed: "重命名失败",
     renameThread: "重命名对话",

@@ -7,8 +7,13 @@ export interface ToolRendererContext {
   args: Record<string, unknown>;
   resultText?: string;
   resultJson: unknown;
+  relatedResults?: Array<{
+    widgetId: string;
+    result: unknown;
+    toolName?: string;
+  }>;
+  widgetId?: string;
   isRunning: boolean;
-  /** True while this is the newest tool representing an active chat turn. */
   isActiveTail?: boolean;
   chatUI?: ActionChatUIConfig;
 }

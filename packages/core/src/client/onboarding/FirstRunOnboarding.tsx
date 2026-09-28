@@ -17,8 +17,10 @@ import React, {
 } from "react";
 import { useLocation } from "react-router";
 
+import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import {
   buildSettingsRoute,
+  SETTINGS_PAGE_IDS,
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import type {
@@ -31,6 +33,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -117,19 +120,20 @@ const FIRST_RUN_ROLE_OPTIONS = [
   { value: "other", labelKey: "agentChat.onboarding.roleOther" },
 ] as const;
 
-const BUILDER_MORE_SERVICES = [
-  "Voice input",
-  "Background agents",
-  "Image generation",
-  "Video generation",
-  "Connected agents",
-  "Hosting and deployment",
-  "Browser automation",
-  "Embeddings",
-] as const;
+/**
+ * Where "Skip and configure manually" lands: Agent › Model, whose empty state
+ * adds a provider key in one click, since the agent can't answer until a model
+ * provider is set up. API keys with the redesign off.
+ */
+export function manualSetupSettingsRoute({
+  redesign,
+}: {
+  redesign: boolean;
+}): string {
+  return buildSettingsRoute(redesign ? SETTINGS_PAGE_IDS.model : "keys");
+}
 
 export interface FirstRunOnboardingProps {
-  /** The shared startup gate has already resolved this account as eligible. */
   initialFirstRun?: boolean;
 }
 
@@ -160,14 +164,11 @@ export function FirstRunOnboarding({
     "existing" | "provision"
   >("existing");
   const extensions = useMemo(() => listFirstRunOnboardingExtensions(), []);
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   useEffect(() => {
     if (!previewMode || !previewStep) return;
     setScreen(previewStep === "references" ? "extension" : previewStep);
   }, [previewMode, previewStep]);
-  // completeFirstRun() rejects on failure — swallow it here so a Skip/
-  // Continue click never becomes an unhandled rejection; completeFirstRunError
-  // (rendered below) is the real signal, and the user stays on this screen
-  // to retry instead of being bounced to an unrelated error screen.
   const trackFirstRunStepCompleted = useCallback(
     (stepScreen: FirstRunScreen, stepExtensionIndex = extensionIndex) => {
       if (previewMode) return;
@@ -378,9 +379,12 @@ export function FirstRunOnboarding({
     return <OnboardingSkeleton />;
   }
 
+  // Every shared service Builder.io powers, the same list Infrastructure
+  // shows, plus the app's own headline capabilities it covers.
   const builderCapabilities = profile.capabilities.filter(
     (capability) =>
-      capability.builderIncluded && isHeadlineCapability(capability),
+      capability.builderIncluded &&
+      (!!capability.service || isHeadlineCapability(capability)),
   );
 
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
@@ -428,9 +432,6 @@ export function FirstRunOnboarding({
     }
     trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (typeof window === "undefined") return;
-    // Drop the onboarding preview params — useOnboardingPreviewMode() reads
-    // them live from the URL, so carrying them over would re-trigger the
-    // preview overlay on the Settings page we're navigating to.
     const search = new URLSearchParams(window.location.search);
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
@@ -439,7 +440,7 @@ export function FirstRunOnboarding({
       null,
       "",
       `${appMountedPath(
-        buildSettingsRoute("keys"),
+        manualSetupSettingsRoute({ redesign: redesign.enabled }),
         pathname || STANDARD_APP_ROUTES.home,
       )}${query ? `?${query}` : ""}`,
     );
@@ -569,7 +570,7 @@ export function FirstRunOnboarding({
                         <span className="flex-1 text-xs text-foreground">
                           {copy.label}
                         </span>
-                        {capability.id === "design-system-intelligence" && (
+                        {capability.builderOnly && (
                           <CapabilityInfoButton
                             why={copy.why}
                             ariaLabel={t(
@@ -584,27 +585,6 @@ export function FirstRunOnboarding({
                       </div>
                     );
                   })}
-                  {BUILDER_MORE_SERVICES.filter(
-                    (service) =>
-                      !builderCapabilities.some(
-                        (capability) =>
-                          getCapabilityCopy(
-                            t,
-                            capability,
-                          ).label.toLowerCase() === service.toLowerCase(),
-                      ),
-                  ).map((service) => (
-                    <div
-                      key={service}
-                      className="flex items-center gap-2 rounded-md px-2 py-1"
-                    >
-                      <IconCheck
-                        className="shrink-0 text-muted-foreground"
-                        size={15}
-                      />
-                      <span className="text-xs text-foreground">{service}</span>
-                    </div>
-                  ))}
                 </div>
                 <div className="flex flex-col gap-2">
                   <button
@@ -981,7 +961,7 @@ type CapabilityTranslator = (
 
 type CapabilityCopy = Pick<
   OnboardingCapability,
-  "id" | "required" | "suggested"
+  "id" | "required" | "suggested" | "builderOnly"
 > & {
   label: string;
   keySummary: string;
@@ -996,6 +976,7 @@ function getCapabilityCopy(
     id: capability.id,
     required: capability.required,
     suggested: capability.suggested,
+    builderOnly: capability.builderOnly,
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
@@ -1045,26 +1026,17 @@ function CapabilityList({
   );
 }
 
-// Design system intelligence has no BYOK path — it's Builder-managed only, so
-// the manual list shows it crossed out with no Required/Recommended tag
-// instead of mislabeling it "Optional".
-const NO_MANUAL_PATH_CAPABILITY_IDS = new Set(["design-system-intelligence"]);
-
-/** The setup cards are a scannable comparison, not a capability inventory:
- *  they carry what the app needs (required), what we recommend (suggested),
- *  and the Builder-only rows that make the manual column honest. Per-app
- *  extras like an optional Figma token belong in Settings, where the user is
- *  actually choosing them. */
 function isHeadlineCapability(capability: OnboardingCapability): boolean {
   return (
-    capability.required ||
-    !!capability.suggested ||
-    NO_MANUAL_PATH_CAPABILITY_IDS.has(capability.id)
+    capability.required || !!capability.suggested || !!capability.builderOnly
   );
 }
 
 function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
-  if (NO_MANUAL_PATH_CAPABILITY_IDS.has(copy.id)) {
+  // Builder-only services have no bring-your-own path, so the manual list
+  // shows them crossed out with no Required/Recommended tag instead of
+  // mislabeling them "Optional".
+  if (copy.builderOnly) {
     return (
       <div className="flex items-center gap-2 rounded-md px-2 py-1">
         <IconX className="shrink-0 text-muted-foreground" size={14} />
@@ -1115,17 +1087,9 @@ function CapabilityInfoButton({
   );
 }
 
-// `aria-disabled` (not `disabled`) is what BuilderConnectPopover sets while the
-// Builder status is still in flight, so the `disabled:` styles never engage and
-// a pending CTA is pixel-identical to a live one — which is why this class of
-// dead button survives screenshot review.
 const primaryButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60";
 
-/** Inline failure signal for a failed completeFirstRun() call — keeps the
- *  user on their current screen with a way forward, instead of swapping to
- *  an unrelated full-screen error or leaving Skip/Continue looking like it
- *  did nothing. */
 function FirstRunCompletionError({
   message,
   onRetry,

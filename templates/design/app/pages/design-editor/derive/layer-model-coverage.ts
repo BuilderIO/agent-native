@@ -1,14 +1,5 @@
-// Screens this small project within a frame, so a few-screen design keeps
-// every Layers model from its first render instead of waiting for idle time.
 export const LAYER_MODEL_SYNC_CHARS = 256_000;
 
-/**
- * The Layers models one render builds. A many-screen design must not project
- * every screen before its first frame, so only screens something already
- * needs get a model; the rest wait for the idle fill. Every screen is built
- * anyway when the rest is small enough to project now, or when a selection
- * names a layer none of the built models own.
- */
 export function buildNeededLayerModels<
   File extends { id: string },
   Model,

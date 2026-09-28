@@ -11,11 +11,6 @@ function keydown(init: KeyboardEventInit) {
   return new KeyboardEvent("keydown", init);
 }
 
-/**
- * Mirrors isShowShortcutsChord in editor-chrome.bridge.ts. The bridge compiles
- * to an injected string, so it cannot be imported directly; the generated-output
- * assertion at the bottom is what keeps this copy honest.
- */
 function shouldForwardShowShortcutsChord(e: KeyboardEvent) {
   if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
   return e.key === "?" || e.key === "/";
@@ -23,8 +18,6 @@ function shouldForwardShowShortcutsChord(e: KeyboardEvent) {
 
 describe("show-keyboard-shortcuts hotkey", () => {
   it("matches the macOS chord, which arrives as '/' not '?'", () => {
-    // Control suppresses the shifted character on macOS, so Control+Shift+/
-    // never produces "?" there. Matching only "?" left Macs with no binding.
     expect(
       isShowKeyboardShortcutsHotkey(
         keydown({ key: "/", code: "Slash", ctrlKey: true, shiftKey: true }),
@@ -77,9 +70,6 @@ describe("show-keyboard-shortcuts hotkey", () => {
   });
 
   it("still matches auto-repeat, leaving repeat filtering to the caller", () => {
-    // The panel toggles, so DesignEditor drops repeats to keep one physical
-    // press to one toggle — but it swallows them first, otherwise a held chord
-    // leaks "/" into the agent composer. Filtering repeat here would undo that.
     expect(
       isShowKeyboardShortcutsHotkey(
         keydown({
@@ -136,15 +126,12 @@ describe("canvas iframe forwarding", () => {
   });
 
   it("is present in the generated bridge, not only the source", () => {
-    // The bridge edit is inert until `pnpm codegen:bridge` runs.
     expect(editorChromeBridgeScript).toContain("isShowShortcutsChord");
   });
 });
 
 describe("shortcut table", () => {
   it("advertises the literal Control binding, not $mod", () => {
-    // ⌘⇧? is the macOS Help-menu shortcut and the browser eats it, so ⌃⇧? is
-    // the only pressable binding on a Mac. Do not "fix" this to $mod.
     const showShortcuts = DESIGN_SHORTCUTS.find(
       (entry) => entry.id === "show-shortcuts",
     );

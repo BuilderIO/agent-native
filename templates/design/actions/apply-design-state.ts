@@ -4,26 +4,16 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeMarkup,
 } from "../shared/capture-sanitize.js";
 
-/**
- * A string "looks like markup" — and is therefore worth sanitising — when it
- * contains an angle-bracket tag opener or a close tag. Plain data strings
- * (route names, ids) are left untouched.
- */
 function looksLikeMarkup(value: string): boolean {
   return /<[a-zA-Z!/]/.test(value) || value.includes("</");
 }
 
-/**
- * Recursively sanitise every string value inside a replayed state payload
- * (e.g. `domHtml`, `domSnapshot`, `x-data` markup) so no untrusted DOM is
- * persisted raw. Non-string leaves pass through unchanged.
- */
 function sanitizeStatePayload(value: unknown): unknown {
   if (typeof value === "string") {
     return looksLikeMarkup(value) ? sanitizeMarkup(value) : value;
@@ -101,7 +91,6 @@ export default defineAction({
     const db = getDb();
     const now = new Date().toISOString();
 
-    // Verify the row belongs to this design before updating.
     const [existing] = await db
       .select({ id: schema.designState.id })
       .from(schema.designState)
@@ -124,7 +113,6 @@ export default defineAction({
     if (breakpoint !== undefined) patch.breakpoint = breakpoint;
     if (route !== undefined) patch.route = route;
     if (fixtureData !== undefined) {
-      // Sanitise replayed markup (stored-XSS guard) before persisting.
       if (fixtureData !== null) {
         const fixtureDataJson = JSON.stringify(
           sanitizeStatePayload(fixtureData),
@@ -145,8 +133,6 @@ export default defineAction({
     }
     if (captureData !== undefined) {
       if (captureData !== null) {
-        // Sanitise replayed DOM/markup and enforce a size cap so a single state
-        // can't bloat the row / the shareable content it feeds.
         const captureDataJson = JSON.stringify(
           sanitizeStatePayload(captureData),
         );

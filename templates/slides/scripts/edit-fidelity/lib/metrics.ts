@@ -3,8 +3,10 @@
  * deltas, saved-HTML checks and the baseline ratchet. Pure functions except
  * the lazily-loaded pixelmatch/pngjs, so the spec can cover the logic.
  */
+import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
+
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
-import type { Rect, SnapRecord, Snapshot } from "./in-page.ts";
+import type { KeepaliveWrite, Rect, SnapRecord, Snapshot } from "./in-page.ts";
 
 // ---------------------------------------------------------------- pixels ---
 
@@ -102,6 +104,15 @@ export function padRect(r: Rect, pad = 4): Rect {
 
 // ---------------------------------------------------------------- styles ---
 
+const GEOMETRY_TOLERANCE = 1;
+
+/** Unknown rects and subpixel noise cannot waive the outside-pixel check. */
+export const resized = (a: Rect | null, b: Rect | null) =>
+  !!a &&
+  !!b &&
+  (Math.abs(a.width - b.width) >= GEOMETRY_TOLERANCE ||
+    Math.abs(a.height - b.height) >= GEOMETRY_TOLERANCE);
+
 export interface StyleDelta {
   key: string;
   prop: string;
@@ -119,22 +130,43 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
-const GEOMETRY_TOLERANCE = 1;
-
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;
 }
 
+const baseOf = (key: string) => key.replace(/#\d+$/, "");
+
 /**
- * Pairs records by key, then pairs leftover text records whose text only grew
- * or shrank at the end (append / enter3 change the edited run's own key).
+ * Pairs the unchanged head and tail of the record sequence by position, the
+ * middle by key, then leftover text records whose text only grew or shrank at
+ * the end (append / enter3 change the edited run's own key).
  */
 export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
-  const bByKey = new Map(b.records.map((r) => [r.key, r]));
+  const A = a.records;
+  const B = b.records;
+  // An edit changes one contiguous stretch of the document, so the head and
+  // tail pair by position. Per-text ordinals cannot: when the edited copy of a
+  // repeated text changes, later copies renumber onto their neighbours. Never
+  // pair on `inside`; each snapshot locates the edited element differently.
+  const same = (i: number, j: number) => baseOf(A[i].key) === baseOf(B[j].key);
+  let head = 0;
+  while (head < A.length && head < B.length && same(head, head)) head++;
+  let tail = 0;
+  while (
+    head + tail < A.length &&
+    head + tail < B.length &&
+    same(A.length - 1 - tail, B.length - 1 - tail)
+  ) {
+    tail++;
+  }
   const pairs: Array<[SnapRecord, SnapRecord]> = [];
+  for (let i = 0; i < head; i++) pairs.push([A[i], B[i]]);
+  for (let i = 1; i <= tail; i++)
+    pairs.push([A[A.length - i], B[B.length - i]]);
+  const bByKey = new Map(B.slice(head, B.length - tail).map((r) => [r.key, r]));
   const leftA: SnapRecord[] = [];
-  for (const r of a.records) {
+  for (const r of A.slice(head, A.length - tail)) {
     const other = bByKey.get(r.key);
     if (other) {
       pairs.push([r, other]);
@@ -194,6 +226,184 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
     missing,
     added: leftB.map((r) => ({ key: r.key, inside: r.inside })),
   };
+}
+
+// ---------------------------------------------------------------- writes ---
+
+export const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
+
+const UNRENDERED = new Set(["style", "script", "svg", "template", "math"]);
+
+/** A parse5 node's text, skipping elements the renderer drops. */
+export const visibleTextOf = (node: P5.Node): string =>
+  node.nodeName === "#text"
+    ? (node as P5.TextNode).value
+    : "childNodes" in node &&
+        !UNRENDERED.has((node as P5.Element).tagName ?? "")
+      ? (node as P5.ParentNode).childNodes.map(visibleTextOf).join("")
+      : "";
+
+/**
+ * The slide's content in a write's JSON body, once per operation naming the
+ * slide; null where an operation deletes the slide or a full save leaves it
+ * out.
+ */
+export function slideContentsOf(
+  action: string,
+  body: any,
+  slideId: string,
+): Array<string | null> {
+  const entries: Array<[unknown, unknown]> =
+    action === "patch-deck"
+      ? (body.operations ?? []).flatMap((op: any) => {
+          if (String(op.slideId) !== slideId) return [];
+          if (op.op === "delete-slide") return [[op.slideId, null]];
+          if (op.op !== "patch-slide" && op.op !== "add-slide") return [];
+          return Object.hasOwn(op.fields ?? {}, "content")
+            ? [[op.slideId, op.fields.content]]
+            : [];
+        })
+      : action === "update-slide"
+        ? Object.hasOwn(body, "content")
+          ? [[body.slideId, body.content]]
+          : []
+        : (body.deck?.slides ?? []).map((s: any) => [s.id, s.content]);
+  const named = entries.filter(([id]) => String(id) === slideId);
+  if (action === "save-deck" && !named.length) return [null];
+  return named.map(([, content]) =>
+    typeof content === "string" ? content : null,
+  );
+}
+
+/** The slide content a write sets when that is all it changes; else null. */
+function contentOnlyPatch(
+  action: string,
+  body: any,
+  slideId: string,
+): string | null {
+  const ops = action === "patch-deck" ? (body.operations ?? []) : [];
+  const [op] = ops;
+  return ops.length === 1 &&
+    op.op === "patch-slide" &&
+    String(op.slideId) === slideId &&
+    Object.keys(op.fields ?? {}).join() === "content" &&
+    typeof op.fields.content === "string"
+    ? op.fields.content
+    : null;
+}
+
+/**
+ * Whether one phase's writes are the editor's draft then revert: keys far
+ * enough apart that the typed state saved before the delete saved the stored
+ * bytes back. Both writes may set only the edited slide's content, and the
+ * draft is held to append's rule: bytes outside the edited element (`element`,
+ * its range in `stored`) are unchanged, and inside it only `typed` was added
+ * to its text.
+ */
+export function isDraftRevert(
+  stored: string,
+  element: { start: number; end: number },
+  typed: string,
+  writes: Array<{ action: string; body: any }>,
+  slideId: string,
+): boolean {
+  if (writes.length !== 2) return false;
+  const [draft, revert] = writes.map((w) =>
+    contentOnlyPatch(w.action, w.body, slideId),
+  );
+  if (draft === null || revert !== stored) return false;
+  const before = stored.slice(0, element.start);
+  const after = stored.slice(element.end);
+  if (
+    draft.length < before.length + after.length ||
+    !draft.startsWith(before) ||
+    !draft.endsWith(after)
+  ) {
+    return false;
+  }
+  if (!typed) return false;
+  const beforeTree = parse(stored.slice(element.start, element.end));
+  const afterTree = parse(
+    draft.slice(element.start, draft.length - after.length),
+  );
+  let changedTextNodes = 0;
+  const attrsOf = (node: P5.Node) =>
+    "attrs" in node
+      ? node.attrs
+          .map((attr) =>
+            JSON.stringify([
+              attr.namespace,
+              attr.prefix,
+              attr.name,
+              attr.value,
+            ]),
+          )
+          .sort()
+      : [];
+  const childrenOf = (node: P5.Node): P5.Node[] => [
+    ...("childNodes" in node ? node.childNodes : []),
+    ...("content" in node ? node.content.childNodes : []),
+  ];
+  const sameTree = (a: P5.Node, b: P5.Node): boolean => {
+    if (a.nodeName !== b.nodeName) return false;
+    for (const prop of [
+      "tagName",
+      "namespaceURI",
+      "prefix",
+      "data",
+      "name",
+      "publicId",
+      "systemId",
+    ]) {
+      if ((a as any)[prop] !== (b as any)[prop]) return false;
+    }
+    if (JSON.stringify(attrsOf(a)) !== JSON.stringify(attrsOf(b))) return false;
+    if (a.nodeName === "#text") {
+      if (
+        collapse((a as P5.TextNode).value) !==
+        collapse((b as P5.TextNode).value)
+      ) {
+        changedTextNodes++;
+      }
+    }
+    const aChildren = childrenOf(a);
+    const bChildren = childrenOf(b);
+    return (
+      aChildren.length === bChildren.length &&
+      aChildren.every((child, i) => sameTree(child, bChildren[i]))
+    );
+  };
+  if (!sameTree(beforeTree, afterTree) || changedTextNodes !== 1) return false;
+  const textOf = (node: P5.Node) => collapse(visibleTextOf(node));
+  const want = textOf(beforeTree);
+  const have = textOf(afterTree);
+  for (let i = 0; i < have.length; i++) {
+    if (
+      have.startsWith(typed, i) &&
+      have.slice(0, i) + have.slice(i + typed.length) === want
+    )
+      return true;
+  }
+  return false;
+}
+
+/**
+ * The slide contents unload keepalive writes carried that differ from what
+ * the edit saved; null for a body that could not be read, and for a write
+ * that deletes or replaces the slide without content to compare.
+ */
+export function keepaliveMismatches(
+  writes: KeepaliveWrite[],
+  slideId: string,
+  saved: string,
+): Array<string | null> {
+  return writes.flatMap((w) =>
+    w.body === null
+      ? [null]
+      : slideContentsOf(w.action, JSON.parse(w.body), slideId).filter(
+          (c) => c !== saved,
+        ),
+  );
 }
 
 // ------------------------------------------------------------------ html ---

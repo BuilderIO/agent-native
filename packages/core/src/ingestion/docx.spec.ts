@@ -1,8 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { extractDocxSections, sanitizeInertDocumentHtml } from "./docx.js";
+const mocks = vi.hoisted(() => ({
+  mammothImportError: new Error("Mammoth runtime failed to initialize."),
+}));
+
+vi.mock("mammoth", () => {
+  throw mocks.mammothImportError;
+});
+
+import {
+  extractDocxSections,
+  parseDocxDocument,
+  sanitizeInertDocumentHtml,
+} from "./docx.js";
 
 describe("DOCX HTML ingestion", () => {
+  it("preserves non-missing dynamic import failures", async () => {
+    const importFailure = await import("mammoth").catch(
+      (error: unknown) => error,
+    );
+
+    await expect(parseDocxDocument(new Uint8Array())).rejects.toEqual(
+      importFailure,
+    );
+  });
+
   it("keeps structural markup while removing active content and all attributes", () => {
     const html = sanitizeInertDocumentHtml(`
       <!doctype html>

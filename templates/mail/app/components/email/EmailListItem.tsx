@@ -1,4 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { AI_IMPORTANT_LABEL } from "@shared/ai-priority";
+import { mailLabelMatches } from "@shared/gmail-labels";
+import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -12,10 +15,10 @@ import {
   IconSquareCheck,
   IconSend,
   IconX,
-  IconThumbUp,
   IconThumbDown,
+  IconThumbUp,
 } from "@tabler/icons-react";
-import { memo, useRef, useState, useCallback } from "react";
+import { memo, useRef, useState, useCallback, type CSSProperties } from "react";
 import { Link } from "react-router";
 
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
@@ -37,19 +40,15 @@ import { cn, formatEmailDate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
-  labelNames?: ReadonlyMap<string, string>;
   importanceScore?: number;
+  labelNames?: ReadonlyMap<string, string>;
   thread?: ThreadSummary;
   isSelected: boolean;
   isFocused: boolean;
   isMultiSelected?: boolean;
-  /** Whether archive/snooze/trash row actions apply in the current view.
-   *  Passed as booleans instead of `undefined`-vs-closure so handlers stay
-   *  referentially stable across rows and renders. */
   canArchive?: boolean;
   canSnooze?: boolean;
   canTrash?: boolean;
-  /** Present only for scheduled-send rows; drives the send-now/cancel actions. */
   scheduledJobId?: string | null;
   onSelect: (thread: ThreadSummary) => void;
   onToggleMultiSelect: (e: React.SyntheticEvent, thread: ThreadSummary) => void;
@@ -62,11 +61,8 @@ interface EmailListItemProps {
   onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
   onHover: (thread: ThreadSummary) => void;
-  /** Called after a left-swipe past the threshold (archive). */
   onSwipeArchive?: (thread: ThreadSummary) => void;
-  /** Called after a right-swipe past the threshold (snooze). */
   onSwipeSnooze?: (thread: ThreadSummary) => void;
-  /** Optional search term to highlight in subject and snippet. */
   highlight?: string;
 }
 
@@ -90,26 +86,18 @@ function renderWithHighlight(text: string, term?: string) {
   );
 }
 
-// Minimum horizontal distance before we lock into a swipe gesture.
 const SWIPE_SLOP = 10;
-// Distance past which a swipe commits the action.
 const SWIPE_COMMIT_THRESHOLD = 80;
-// Distance past which the action icon "snaps" to filled state.
 const SWIPE_ICON_SNAP = 56;
-// Release velocity (px/ms) past which a swipe commits regardless of distance.
 const SWIPE_COMMIT_VELOCITY = 0.11;
 
-/** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
 function formatParticipants(participants: string[], maxWidth = 3): string {
   if (participants.length <= 1) return participants[0] || "";
-  // Extract first names only
   const firstNames = participants.map((p) => p.split(" ")[0]);
   if (firstNames.length <= maxWidth) return firstNames.join(", ");
-  // Show first, "..", then last few
   return `${firstNames[0]} .. ${firstNames.slice(-(maxWidth - 1)).join(", ")}`;
 }
 
-/** Stable dot colors for distinguishing accounts */
 const accountDotColors = [
   "bg-blue-400",
   "bg-emerald-400",
@@ -131,8 +119,8 @@ function getAccountColor(
 
 export const EmailListItem = memo(function EmailListItem({
   email,
-  labelNames,
   importanceScore,
+  labelNames,
   thread,
   isSelected,
   isFocused,
@@ -166,21 +154,15 @@ export const EmailListItem = memo(function EmailListItem({
   const showSendNow = Boolean(onSendNow && scheduledJobId);
   const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
 
-  // ── Swipe state ─────────────────────────────────────────────────────────
-  // `dragX` drives the row's translateX. `isDragging` disables the snap
-  // transition while the finger is on the screen. Refs hold the active gesture
-  // so event handlers don't thrash state on every touchmove.
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [priorityScorePopoverOpen, setPriorityScorePopoverOpen] =
+    useState(false);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
-    // "none" until we know which axis the user is swiping; then "h" or "v".
     locked: "none" | "h" | "v";
-    // Set to true once we commit an action — blocks the trailing click.
     committed: boolean;
-    // Two-sample window for release-velocity calculation (px/ms). Updated on
-    // each touchmove; not an accumulating history.
     lastX: number;
     lastT: number;
     prevX: number;
@@ -224,8 +206,6 @@ export const EmailListItem = memo(function EmailListItem({
       const dx = t.clientX - g.startX;
       const dy = t.clientY - g.startY;
 
-      // Decide the axis on first meaningful movement. Bias toward vertical
-      // so hesitant scrolls don't accidentally start a swipe.
       if (g.locked === "none") {
         if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return;
         if (Math.abs(dx) > Math.abs(dy) * 1.2) {
@@ -233,7 +213,6 @@ export const EmailListItem = memo(function EmailListItem({
           setIsDragging(true);
           didSwipeRef.current = true;
         } else {
-          // Vertical scroll — disengage swipe for the rest of this gesture.
           g.locked = "v";
           gestureRef.current = null;
           return;
@@ -241,13 +220,11 @@ export const EmailListItem = memo(function EmailListItem({
       }
 
       if (g.locked === "h") {
-        // Slide the two-sample window forward for release-velocity math.
         g.prevX = g.lastX;
         g.prevT = g.lastT;
         g.lastX = t.clientX;
         g.lastT = performance.now();
 
-        // Only one side may be active at a time.
         if (dx < 0 && !onSwipeArchive) {
           setDragX(0);
           return;
@@ -275,27 +252,21 @@ export const EmailListItem = memo(function EmailListItem({
     const flungRight =
       velocity >= SWIPE_COMMIT_VELOCITY && dragX >= SWIPE_ICON_SNAP;
 
-    // Left swipe → archive.
     if (
       (dragX <= -SWIPE_COMMIT_THRESHOLD || flungLeft) &&
       onSwipeArchive &&
       thread
     ) {
       g.committed = true;
-      // Fly the row off-screen, then hand off to the parent to actually
-      // remove it from the list. The snap transition makes this feel fluid
-      // instead of an abrupt disappearance.
       setIsDragging(false);
       setDragX(-window.innerWidth);
       setTimeout(() => {
         onSwipeArchive(thread);
-        // Parent will unmount us; reset defensively if it doesn't.
         resetSwipe();
       }, 180);
       return;
     }
 
-    // Right swipe → snooze. We don't remove the row — the modal takes over.
     if (
       (dragX >= SWIPE_COMMIT_THRESHOLD || flungRight) &&
       onSwipeSnooze &&
@@ -303,12 +274,10 @@ export const EmailListItem = memo(function EmailListItem({
     ) {
       g.committed = true;
       onSwipeSnooze(thread);
-      // Snap back so the row is in place when the modal closes.
       resetSwipe();
       return;
     }
 
-    // Not enough — snap back.
     resetSwipe();
   }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe, thread]);
 
@@ -317,7 +286,6 @@ export const EmailListItem = memo(function EmailListItem({
     didSwipeRef.current = false;
   }, [resetSwipe]);
 
-  // Suppress click fired at the end of a swipe.
   const handleRowClick = useCallback(() => {
     if (didSwipeRef.current) {
       didSwipeRef.current = false;
@@ -332,8 +300,6 @@ export const EmailListItem = memo(function EmailListItem({
 
   const handleRowKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Action buttons live inside the row. Their Enter/Space events must not
-      // also open the conversation or toggle selection.
       if (!thread || e.target !== e.currentTarget) return;
       if (e.key === "Enter") {
         e.preventDefault();
@@ -412,7 +378,6 @@ export const EmailListItem = memo(function EmailListItem({
   const isUnread = thread ? thread.hasUnread : !email.isRead;
   const isStarred = thread ? thread.hasStarred : email.isStarred;
 
-  // Filter to user labels only (skip system labels and Gmail auto-categories)
   const systemLabels = new Set([
     "inbox",
     "sent",
@@ -434,7 +399,6 @@ export const EmailListItem = memo(function EmailListItem({
     "CATEGORY_UPDATES",
     "CATEGORY_FORUMS",
     "UNREAD",
-    // Gmail auto-categories (lowercase IDs used in the app)
     "updates",
     "promotions",
     "social",
@@ -447,7 +411,6 @@ export const EmailListItem = memo(function EmailListItem({
     (l) => !systemLabels.has(l),
   );
 
-  // Progress (0–1+) in each direction — used to scale icon feedback.
   const archiveProgress = dragX < 0 ? Math.min(1, -dragX / SWIPE_ICON_SNAP) : 0;
   const snoozeProgress = dragX > 0 ? Math.min(1, dragX / SWIPE_ICON_SNAP) : 0;
   const showSwipeBackgrounds = canSwipe && dragX !== 0;
@@ -505,9 +468,6 @@ export const EmailListItem = memo(function EmailListItem({
         aria-selected={isMultiSelected}
         aria-current={isFocused ? "true" : undefined}
         onClick={handleRowClick}
-        // `mouseenter` can fire when layout moves under a stationary cursor.
-        // `mousemove` only follows the pointer after the user actually moves it,
-        // so keyboard navigation keeps ownership during list/header changes.
         onMouseMove={handleRowHover}
         onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
@@ -520,10 +480,6 @@ export const EmailListItem = memo(function EmailListItem({
                 transform: `translateX(${dragX}px)`,
                 transition: isDragging ? "none" : "transform 180ms ease-out",
                 touchAction: "pan-y",
-                // While the row is displaced we need a solid background so the
-                // colored reveal backgrounds don't bleed through. When idle we
-                // leave this unset so the .focused / .selected CSS classes can
-                // apply their own backgrounds naturally.
                 ...(dragX !== 0
                   ? {
                       backgroundColor: isSelected
@@ -543,7 +499,6 @@ export const EmailListItem = memo(function EmailListItem({
           isSelected && "selected",
           isFocused && !isSelected && "focused",
           isMultiSelected && "multi-selected",
-          importanceScore !== undefined && "has-importance",
         )}
       >
         {/* Multi-select left border indicator */}
@@ -616,15 +571,32 @@ export const EmailListItem = memo(function EmailListItem({
         {displayLabels.length > 0 && (
           <div className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
-              const style = getLabelStyle(labelId);
               const labelName =
                 labelNames?.get(labelId) ??
                 labelId.replace(/^label:/, "").replace(/^CATEGORY_/, "");
-              const displayName = mailLabelDisplayName(labelName);
+              const isAiImportant = mailLabelMatches(
+                labelName,
+                AI_IMPORTANT_LABEL,
+              );
+              const style = isAiImportant
+                ? { bg: "bg-muted", text: "text-muted-foreground" }
+                : getLabelStyle(labelId);
+              const displayName = isAiImportant
+                ? t("mail.aiFilter.importantMode")
+                : mailLabelDisplayName(labelName);
+              const sizeToContent = displayName === "automated notifications";
               return (
                 <span
                   key={labelId}
-                  className={cn("label-badge", style.bg, style.text)}
+                  className={cn(
+                    "label-badge",
+                    sizeToContent && "shrink-0",
+                    style.bg,
+                    style.text,
+                  )}
+                  style={
+                    sizeToContent ? { maxWidth: "max-content" } : undefined
+                  }
                 >
                   {displayName}
                 </span>
@@ -656,78 +628,71 @@ export const EmailListItem = memo(function EmailListItem({
             {formatEmailDate(email.date)}
           </span>
           {importanceScore !== undefined && (
-            <Popover>
+            <Popover
+              open={priorityScorePopoverOpen}
+              onOpenChange={setPriorityScorePopoverOpen}
+            >
               <PopoverTrigger asChild>
                 <button
                   type="button"
                   onClick={(event) => event.stopPropagation()}
-                  className="email-importance-score ms-2 text-[11px] tabular-nums"
+                  onKeyDown={(event) => event.stopPropagation()}
+                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
+                  className="email-importance-score mx-1 inline-flex h-6 w-10 shrink-0 items-center justify-end rounded px-1 text-[11px] font-medium tabular-nums hover:bg-accent"
                   style={
                     {
-                      "--mail-importance-hue": `${25 + 125 * importanceScore}deg`,
-                    } as React.CSSProperties
+                      "--mail-importance-weight": `${Math.round(importanceScore * 100)}%`,
+                    } as CSSProperties
                   }
-                  aria-label={`${t("mail.sort.priority")} ${importanceScore.toFixed(2)}`}
                 >
                   {importanceScore.toFixed(2)}
                 </button>
               </PopoverTrigger>
               <PopoverContent
                 align="end"
-                className="w-72 p-3"
+                className="w-56 p-2"
                 onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+                onPointerDown={(event) => event.stopPropagation()}
               >
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className="email-importance-score text-xl font-semibold tabular-nums"
-                    style={
-                      {
-                        "--mail-importance-hue": `${25 + 125 * importanceScore}deg`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    {importanceScore.toFixed(2)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {t(
-                      importanceScore >= 0.7
-                        ? "mail.sort.priorityScoreHigh"
-                        : importanceScore >= 0.35
-                          ? "mail.sort.priorityScoreMedium"
-                          : "mail.sort.priorityScoreLow",
-                    )}
-                  </span>
+                <div className="mb-1 text-xs font-medium">
+                  {t("mail.sort.priority")} · {importanceScore.toFixed(2)}
                 </div>
-                <div className="mail-importance-ramp mt-2" aria-hidden />
-                <div className="mt-3 grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onImportanceFeedback?.("important")}
-                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <IconThumbUp className="size-3.5" />
-                    {t("mail.aiFilter.importantMode")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onImportanceFeedback?.("not-important")}
-                    className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  >
-                    <IconThumbDown className="size-3.5" />
-                    {t("mail.aiFilter.notImportantMode")}
-                  </button>
-                </div>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {t("mail.sort.priorityScoreHelp")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbUp aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.importantMode")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPriorityScorePopoverOpen(false);
+                    onImportanceFeedback?.("not-important");
+                  }}
+                  className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-xs hover:bg-accent"
+                >
+                  <IconThumbDown aria-hidden="true" className="size-3.5" />
+                  {t("mail.aiFilter.notImportantMode")}
+                </button>
                 <Link
-                  to="/settings?section=ai-filter#importance-rules"
-                  className="mt-2 flex items-center justify-between px-0.5 pt-1 text-xs text-muted-foreground hover:text-foreground"
+                  to={`${mailSettingsRoute("ai-filter")}#importance-rules`}
+                  className="mt-1 block border-t border-border/40 px-2 pt-2 text-xs text-muted-foreground hover:text-foreground"
                 >
                   {t("mail.sort.priorityEditRules")}
                 </Link>
               </PopoverContent>
             </Popover>
           )}
-
-          {/* Hover actions overlay the preview while the time and score stay fixed. */}
+          {/* Hover actions overlay the preview while the time stays fixed. */}
           <div className="hover-actions gap-0.5">
             {onToggleRead && (
               <Tooltip>

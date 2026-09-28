@@ -175,6 +175,9 @@ export default {
     bellSoundDescription:
       "Reproduzir um som quando o agente concluir uma execução. Desativado por padrão.",
     bellSoundSaveFailed: "Não foi possível salvar a preferência de som.",
+    notificationsTitle: "Notificações",
+    notificationsEmailGroup: "E-mail",
+    notificationsSoundGroup: "Som",
     replayStorage: "Armazenamento de replay de sessão",
     replayStorageDescription:
       "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Conecte o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
@@ -968,6 +971,7 @@ export default {
     recentSales: "Vendas recentes",
     recentSalesDescription: "Você fez 265 vendas este mês.",
   },
+  analysisResult: { title: "Resultado da análise" },
   routeTitles: {
     notFound: "Não encontrado - Analytics",
     analysis: "Análise - Analytics",

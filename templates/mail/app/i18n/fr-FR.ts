@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "Ignorer la boîte de réception",
       aiSetupSave: "Enregistrer la configuration",
       aiSetupSkip: "Ignorer pour le moment",
+      aiSetupSkipSetup: "Ignorer la configuration de la boîte de réception",
       aiSetupImportantHeadline: "Ce qui est important",
       aiSetupSkipInboxHeadline: "Ce qui peut ignorer la boîte de réception",
       aiSetupTagsHeadline: "Choisissez vos onglets",
@@ -60,7 +61,7 @@ const messages = {
       aiSetupImportantPrompt:
         "Messages nécessitant une réponse ou ayant une échéance, y compris les commentaires humains sur GitHub. Ignorer les commentaires des robots.",
       aiSetupArchiveSpamPrompt:
-        "Archiver automatiquement : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
+        "Ignorer la boîte de réception : notifications GitHub avec des commentaires de robots ou des statuts automatisés.\nSpam : messages clairement promotionnels ou indésirables que je n’ai pas demandés.",
       aiSetupCustomTag: "Personnalisé",
       aiSetupDone: "Terminé",
       aiSetupRunAgain: "Relancer la configuration",
@@ -72,6 +73,29 @@ const messages = {
         "Confirmations et réservations de voyage dont j’ai besoin",
       aiSetupTagFinance: "Finances",
       aiSetupPromptFinance: "Factures et relevés de compte dont j’ai besoin",
+      aiSetupArchiveExample:
+        "Notifications de bots et de CI de GitHub, Vercel et Dependabot",
+      aiSetupFilteredExample:
+        "Prospection commerciale non sollicitée et recruteurs auxquels je n’ai pas répondu",
+      aiSetupSortingHeadline: "Tri de votre boîte de réception",
+      aiSetupFindingRecentMail: "Recherche des e-mails récents…",
+      aiSetupSortingProgress:
+        "Tri des messages récents : {{processed}} sur {{total}}",
+      aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupSortingFailed:
+        "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
+      aiSetupUndoComplete:
+        "{{count}} messages ont retrouvé leur état précédent.",
+      aiSetupRuleCount: "{{count}} correspondances",
+      aiSetupNoMatches:
+        "Aucun message des 14 derniers jours ne correspond à ces règles.",
+      aiSetupChatTip:
+        "Vous pouvez modifier ou ajouter des règles dans le chat à tout moment.",
+      aiSetupChatPrompt: "Prioriser les e-mails de ma responsable…",
+      aiSetupNoRules: "Aucune règle n’a été sélectionnée.",
+      aiSetupPartialFailure: "{{count}} messages n’ont pas pu être mis à jour.",
+      aiSetupSortInbox: "Trier ma boîte de réception",
+      aiSetupImportantExample: "Tout ce qui vient de ma responsable, Priya…",
       priorityFeedbackLabel: "Retour sur l’importance",
       priorityScoreHigh: "Importance élevée",
       priorityScoreMedium: "Importance moyenne",
@@ -150,6 +174,7 @@ const messages = {
       deleteDraft: "Supprimer le brouillon",
       deleteDrafts: "Supprimer les brouillons",
       reopenDraft: "Rouvrir",
+      openInMail: "Ouvrir dans Mail",
       discardDraft: "Abandonner le brouillon",
       enterLinkUrl: "Saisissez l’URL du lien.",
       forward: "Forward",
@@ -430,6 +455,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "Connecter votre compte Google",
+      connectionNotConfigured:
+        "La connexion Gmail n’est pas configurée pour cette application. Demandez à votre administrateur de l’activer ou ignorez cette étape pour le moment.",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -547,6 +574,8 @@ const messages = {
         "Ajoute le libellé agent-native-filtered et archive la conversation. Vous pouvez annuler à tout moment.",
       learningNote:
         "Garde le message dans la boîte de réception et apprend au filtre à ne pas répéter l’erreur.",
+      learningProgress:
+        "{{count}} exemple(s) sur {{required}} confirmé(s). Le courrier récent sera vérifié une fois les {{required}} confirmés.",
       rememberLabel: "Mémoriser pour les futurs messages (facultatif)",
       correctLabel: "Que doit-il apprendre ? (facultatif)",
       rememberPlaceholder:
@@ -564,11 +593,48 @@ const messages = {
       settingsFailed: "Impossible d’enregistrer les réglages du filtre IA.",
       automationRulesLoadFailed: "Impossible de charger les règles de tri.",
       instructionFailed: "Impossible d’enregistrer l’instruction du filtre IA.",
+      autoArchiveMode: "Archivage automatique",
       skipInboxMode: "Ignorer la boîte de réception",
       spamMode: "Indésirable",
       tagMode: "Tag",
       aiTagsTitle: "Tags IA",
+      ruleHelpLabel: "Expliquer les règles {{mode}}",
+      aiTagRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute ce tag aux messages correspondants.",
+      importantRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev marque les messages correspondants comme importants.",
+      skipInboxRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev archive les messages correspondants pour ignorer la boîte de réception.",
+      spamRuleHelp:
+        "Rédigez une consigne en langage naturel. Jev ajoute le libellé agent-native-filtered et archive les messages correspondants. Ce n’est pas le Spam de Gmail.",
+      filteredMode: "Filtrés",
+      manageSettings: "Gérer",
+      askJev: "Demander à Jev",
+      askJevPrompt:
+        "Aidez-moi à améliorer cette règle Mail : {{condition}}. Demandez-moi ce que je souhaite modifier, puis mettez-la à jour.",
+      composerPlaceholder: "Demandez à Jev d’organiser votre boîte…",
+      chatSuggestionFilter: "Filtrer les messages comme celui-ci",
+      chatSuggestionPriority: "Prioriser les e-mails de…",
+      chatSuggestionArchive:
+        "Archiver automatiquement les notifications de bots",
+      ruleBackfillStarting: "Application de cette règle aux messages récents…",
+      ruleBackfillProgress:
+        "Application aux messages récents : {{processed}} sur {{total}}",
+      ruleBackfillMatches: "{{count}} messages récents correspondent",
+      ruleBackfillNoMatches:
+        "Aucun message récent ne correspond à cette règle.",
+      ruleBackfillFailed:
+        "Impossible d’appliquer cette règle aux messages récents.",
+      ruleBackfillPartialFailure:
+        "{{count}} messages n’ont pas pu être mis à jour.",
+      ruleBackfillUndoing: "Restauration des messages récents…",
+      ruleBackfillUndoComplete: "{{count}} messages restaurés",
+      ruleBackfillReview: "Examiner les correspondances",
       importantMode: "Important",
+      notifyMode: "Notifier",
+      notifyModeHelp:
+        "Marque les messages correspondants comme importants et affiche une fenêtre du navigateur lorsque Mail est ouvert et que les notifications sont activées depuis la cloche. Application mobile bientôt disponible.",
+      manageAutomationsLink: "Autres actions d’automatisation",
       notImportantMode: "Pas important",
       importantLabel: "Important par IA",
       reviewImportant: "Voir les importants",
@@ -610,7 +676,7 @@ const messages = {
       promptRulesCleared: "Règles de tri supprimées.",
       tagTabsHelp: "Chaque tag devient un onglet de la boîte de réception",
       addTag: "Ajouter un tag",
-      triageTitle: "Tri",
+      triageTitle: "Tri par IA",
       connectJev: "Connecter Jev",
       connectJevToRunTriage: "Connectez Jev pour lancer le tri",
       freeBuilderOrApiKey: "Gratuit avec Builder.io, ou ajoutez une clé API.",
@@ -675,6 +741,9 @@ const messages = {
     suggestionSummarize: "Resumer mes e-mails non lus",
     suggestionReplies: "A quoi dois-je repondre aujourd'hui?",
     suggestionWidget: "Creer un widget personnalise pour ma boite de reception",
+    ruleSuggestionFilter: "Filtrer les messages comme celui-ci",
+    ruleSuggestionImportant: "Prioriser les e-mails de mon responsable",
+    ruleSuggestionArchive: "Archiver automatiquement les notifications de bots",
   },
   settings: {
     openAgentSettings: "Gérer l’agent",
@@ -700,6 +769,7 @@ const messages = {
     markRead: "Marquer comme lu",
     star: "Ajouter une étoile",
     trash: "Corbeille",
+    notify: "Notifier",
     labelName: "Nom du libellé",
     addAction: "+ Ajouter une action",
     ruleName: "Nom de la règle",
@@ -779,8 +849,6 @@ const messages = {
     slackPostEndpoint: "Point de terminaison POST Slack",
     slackPostEndpointHelp:
       "À utiliser dans Slack Event Subscriptions. Un GET navigateur peut afficher Not Found.",
-    teamDescription:
-      "Configurez une équipe pour partager les automatisations et paramètres mail avec vos collègues.",
     title: "Parametres",
     general: "Général",
     generalDescription: "Langue et preferences de compte pour Mail.",
@@ -807,12 +875,19 @@ const messages = {
     deleteSnippetDescription:
       'Supprimer l\'extrait "{{name}}" ? Cette action est irreversible.',
     automations: "Automatisations",
-    aiFilter: "Triage",
+    rules: "Règles",
+    rulesModel: "Modèle des règles",
+    rulesModelDescription: "Compare les e-mails entrants à vos règles.",
+    slackDraftRequests: "Demandes de brouillons",
+    slackDraftQueue: "Mettre en file des brouillons depuis Slack",
+    slackDraftQueueDescription:
+      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
+    openDraftQueue: "Ouvrir la file de brouillons",
+    aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",
     tracking: "Suivi",
     slack: "Slack",
-    team: "Equipe",
     deleteAlias: "Supprimer l’alias",
     editAlias: "Modifier l’alias",
   },

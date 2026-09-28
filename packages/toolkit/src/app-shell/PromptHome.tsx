@@ -6,6 +6,7 @@ export interface PromptHomeProps {
   composer: ReactNode;
   mobileToolbar?: ReactNode;
   connection?: ReactNode;
+  connectionAttached?: boolean;
   quickActions?: ReactNode;
   children?: ReactNode;
 }
@@ -15,6 +16,7 @@ export function PromptHome({
   composer,
   mobileToolbar,
   connection,
+  connectionAttached,
   quickActions,
   children,
 }: PromptHomeProps) {
@@ -27,18 +29,24 @@ export function PromptHome({
         </div>
       ) : null}
       <section className="agent-prompt-home-hero" aria-labelledby={titleId}>
-        {connection ? (
-          <div className="absolute top-7 flex flex-col items-center gap-2">
-            {connection}
-          </div>
-        ) : null}
         <h2
           id={titleId}
           className="text-2xl font-semibold tracking-tight text-foreground"
         >
           {title}
         </h2>
-        <div className="agent-prompt-home-composer mt-4 text-start">
+        <div
+          className={`agent-prompt-home-composer mt-4 text-start${
+            connectionAttached ? " agent-composer-area--attached-above" : ""
+          }`}
+        >
+          <div
+            className="agent-prompt-home-connection"
+            data-visible={connection ? "true" : undefined}
+            aria-hidden={!connection || undefined}
+          >
+            {connection}
+          </div>
           {composer}
         </div>
         {quickActions ? (
@@ -58,7 +66,6 @@ export interface PromptHomeLibraryProps {
   value: PromptHomeLibraryTab;
   onValueChange: (value: PromptHomeLibraryTab) => void;
   labels: { templates: string; recent: string };
-  showRecent: boolean;
   browseAll?: ReactNode;
   recentActions?: ReactNode;
   templates: ReactNode;
@@ -69,43 +76,30 @@ export function PromptHomeLibrary({
   value,
   onValueChange,
   labels,
-  showRecent,
   browseAll,
   recentActions,
   templates,
   recent,
 }: PromptHomeLibraryProps) {
-  const titleId = useId();
   return (
     <section
       className="agent-prompt-home-library"
       aria-label={labels.templates}
     >
-      {showRecent ? (
-        <Tabs<PromptHomeLibraryTab>
-          value={value}
-          onChange={onValueChange}
-          headerActions={value === "templates" ? browseAll : recentActions}
-          items={[
-            { value: "templates", label: labels.templates, content: templates },
-            {
-              value: "recent",
-              label: labels.recent,
-              content: recent,
-            },
-          ]}
-        />
-      ) : (
-        <div className="grid gap-4" aria-labelledby={titleId}>
-          <div className="flex items-center justify-between gap-4">
-            <h2 id={titleId} className="text-sm font-semibold">
-              {labels.templates}
-            </h2>
-            {browseAll}
-          </div>
-          {templates}
-        </div>
-      )}
+      <Tabs<PromptHomeLibraryTab>
+        className="agent-prompt-home-tabs"
+        value={value}
+        onChange={onValueChange}
+        headerActions={value === "templates" ? browseAll : recentActions}
+        items={[
+          { value: "templates", label: labels.templates, content: templates },
+          {
+            value: "recent",
+            label: labels.recent,
+            content: recent,
+          },
+        ]}
+      />
     </section>
   );
 }

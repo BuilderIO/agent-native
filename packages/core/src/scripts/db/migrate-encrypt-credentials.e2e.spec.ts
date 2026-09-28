@@ -21,13 +21,6 @@ async function createClient({ url }: { url: string }) {
     close: () => client.end(),
   };
 }
-/**
- * End-to-end test for the `db-migrate-encrypt-credentials` script against a
- * REAL (temp-file) PostgreSQL database. Validates the command we tell operators to
- * run in production: it encrypts plaintext credential rows in place, leaves
- * already-encrypted and non-credential rows alone, is idempotent, and refuses
- * to run without an encryption key.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -87,7 +80,6 @@ describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
       const rows: [string, unknown][] = [
         ["u:a@x.com:credential:OPENAI_API_KEY", { value: "sk-plain-AAA" }],
         ["o:org1:credential:STRIPE_KEY", { value: "sk_live_plain" }],
-        // Already encrypted — must be left untouched (idempotent).
         ["u:b@x.com:credential:K", { value: encryptSecretValue("already") }],
         // Non-credential setting — must never be touched.
         ["u:a@x.com:pref:theme", { value: "dark" }],
@@ -128,8 +120,8 @@ describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
   it("leaves already-encrypted and non-credential rows untouched", async () => {
     const beforeEnc = await rawValue("u:b@x.com:credential:K");
     await runMigrate();
-    expect(await rawValue("u:b@x.com:credential:K")).toBe(beforeEnc); // byte-identical
-    expect(await rawValue("u:a@x.com:pref:theme")).toBe("dark"); // plaintext pref
+    expect(await rawValue("u:b@x.com:credential:K")).toBe(beforeEnc);
+    expect(await rawValue("u:a@x.com:pref:theme")).toBe("dark");
   });
 
   it("is idempotent — a second run encrypts nothing new", async () => {
@@ -137,7 +129,7 @@ describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
     const after1 = await rawValue("u:a@x.com:credential:OPENAI_API_KEY");
     await runMigrate();
     const after2 = await rawValue("u:a@x.com:credential:OPENAI_API_KEY");
-    expect(after2).toBe(after1); // not double-encrypted
+    expect(after2).toBe(after1);
     expect(decryptSecretValue(after2)).toBe("sk-plain-AAA");
   });
 
@@ -147,7 +139,6 @@ describe("db-migrate-encrypt-credentials (e2e, real postgres)", () => {
     await expect(runMigrate()).rejects.toThrow(
       /SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET/,
     );
-    // Nothing was modified.
     expect(await rawValue("u:a@x.com:credential:OPENAI_API_KEY")).toBe(
       "sk-plain-AAA",
     );

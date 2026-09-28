@@ -20,11 +20,6 @@ minimumReleaseAgeExclude:
   - "@typescript/typescript6"
   - "@typescript/typescript-*"
 
-# Playwright is pinned exactly in the catalog below, kept in step across
-# `@playwright/test` and `playwright`: a caret resolves forward to a release
-# tied to a different chromium revision, downloading a 2nd ~650 MB browser next
-# to the one already on disk. Published packages must NOT inherit that exact
-# range — see packages/{recap-cli,creative-context}/package.json.
 catalog:
   "@assistant-ui/react": ^0.12.19
   "@assistant-ui/store": 0.2.13
@@ -107,7 +102,6 @@ onlyBuiltDependencies:
   - workerd
 
 packageExtensions:
-  # node-pty has no Linux prebuild and its install script invokes node-gyp.
   "node-pty@*":
     dependencies:
       node-gyp: "^12.4.0"

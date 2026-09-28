@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import type {
   CustomAgentProfile,
@@ -7,17 +12,13 @@ import type {
   SkillMetadata,
 } from "../../resources/metadata.js";
 import { agentNativePath } from "../api-path.js";
+import { useChangeVersion } from "../use-change-version.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
 } from "./use-builtin-capabilities.js";
 import type { McpServer } from "./use-mcp-servers.js";
 
-/**
- * Extended resource kind that includes virtual entries injected into the
- * Workspace tree — MCP servers live in the settings store, not the
- * resources table, but they render as a folder inside each scope.
- */
 export type ResourceKind = StoredResourceKind | "mcp-server" | "mcp-builtin";
 
 export interface Resource {
@@ -69,14 +70,11 @@ export interface TreeNode {
   kind?: ResourceKind;
   children?: TreeNode[];
   resource?: ResourceMeta;
-  /** Parsed metadata for job files (under jobs/) */
   jobMeta?: JobMetadata;
   skillMeta?: SkillMetadata;
   agentMeta?: CustomAgentProfile;
   remoteAgentMeta?: RemoteAgentManifest;
-  /** Attached when `kind === "mcp-server"` — virtual tree entry. */
   mcpServerMeta?: McpServer;
-  /** Attached when `kind === "mcp-builtin"` — virtual built-in MCP entry. */
   mcpBuiltinMeta?: BuiltinCapability & {
     scope: "user" | "org";
     scopeEnabled: boolean;
@@ -104,20 +102,6 @@ export interface EffectiveResourceContext {
   layers: EffectiveResourceLayer[];
 }
 
-/**
- * Inject a virtual `mcp-servers/` folder into a scope's resource tree.
- *
- * MCP servers aren't stored as resource rows — they live in the settings
- * store — but we surface them in the Workspace tree alongside `memory/`,
- * `skills/`, etc. Each server becomes a synthetic `TreeNode` whose
- * `resource.id` is an `mcp:<scope>:<id>` virtual id the panel recognizes
- * on click/delete and routes to the MCP endpoints instead of the
- * resource endpoints.
- *
- * Returns a new tree; the input is not mutated. If `servers` is empty
- * and `alwaysShow` is false, the folder is not added — same behavior as
- * any other optional folder.
- */
 export function withMcpServersFolder(
   tree: TreeNode[],
   servers: McpServer[],
@@ -135,9 +119,6 @@ export function withMcpServersFolder(
     return tree;
   }
 
-  // Filter out any real `mcp-servers/` entries so the virtual folder is
-  // authoritative. (Shouldn't happen today, but guards against collisions
-  // if a user pastes a file there.)
   const filtered = tree.filter(
     (n) => !(n.type === "folder" && n.name === "mcp-servers"),
   );
@@ -207,8 +188,6 @@ export function withMcpServersFolder(
     children,
   };
 
-  // Insert the folder so it sorts naturally with other folders (alphabetical).
-  // The backend already sorts folders-first, alpha — match that.
   const foldersFirst: TreeNode[] = [];
   const files: TreeNode[] = [];
   for (const n of filtered) {
@@ -219,17 +198,6 @@ export function withMcpServersFolder(
   return [...foldersFirst, ...files];
 }
 
-/**
- * Group top-level `scratch/`, `scripts/`, and `tasks/` folders into a virtual
- * `agent-scratch/` folder.
- *
- * The agent occasionally writes scratch scripts and task notes to the
- * resources store while working through a request. These aren't user
- * content — they're agent machinery — and they clutter the top of the
- * personal tree. Grouping them under a single clearly-labeled folder
- * keeps them visible (so the user can inspect or delete) without making
- * them look like first-class personal files.
- */
 function isTopLevelAgentScratchNode(node: TreeNode): boolean {
   return (
     node.resource?.visibility === "agent_scratch" ||
@@ -284,10 +252,15 @@ export function resourceDownloadUrl(id: string): string {
   );
 }
 
+// Agent resource tools (save-memory, resources write) reach the client only as
+// `action` change events; folding that counter into the key is what makes an
+// agent's write show up without a reload.
 export function useResources(scope: ResourceScope = "personal") {
   const query = new URLSearchParams({ scope });
+  const agentWrites = useChangeVersion("action");
   return useQuery<ResourceMeta[]>({
-    queryKey: ["resources", "list", scope],
+    queryKey: ["resources", "list", scope, agentWrites],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const data = await fetchJson<{ resources: ResourceMeta[] }>(
         agentNativePath(`/_agent-native/resources?${query.toString()}`),
@@ -301,8 +274,16 @@ export function useResourceTree(
   scope: ResourceScope = "personal",
   opts?: { includeAgentScratch?: boolean },
 ) {
+  const agentWrites = useChangeVersion("action");
   return useQuery<TreeNode[]>({
-    queryKey: ["resources", "tree", scope, opts?.includeAgentScratch ?? false],
+    queryKey: [
+      "resources",
+      "tree",
+      scope,
+      opts?.includeAgentScratch ?? false,
+      agentWrites,
+    ],
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const query = new URLSearchParams({ scope });
       if (opts?.includeAgentScratch) query.set("includeAgentScratch", "true");

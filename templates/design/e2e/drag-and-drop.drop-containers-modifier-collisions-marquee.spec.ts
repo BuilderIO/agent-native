@@ -30,11 +30,6 @@ test.describe("drop containers", () => {
   const dragMoverOntoTarget = async (page: Page, primitive: string) => {
     const id = await newDesign(page, dropFixture(primitive));
     await openEditor(page, id);
-    // Scope to the authored screen iframe, not `.first()`: a cross-screen
-    // drag (every Move-tool drag posts cross-screen claim messages, even
-    // within one screen) mounts a board-surface iframe ahead of it that
-    // also matches `[data-design-preview-iframe]` but carries no
-    // `data-screen-iframe-id` — see e2e/drag-and-drop.shared.ts `node()`.
     const preview = page
       .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
       .first()
@@ -80,11 +75,6 @@ test.describe("drop containers", () => {
     ).toBe("target");
   });
 
-  // A canvas rectangle IS a drop target, but a free-placement one: the bridge
-  // calls it an "absolute-primitive-container" and returns dropMode
-  // "absolute-container" so onUp skips the auto-layout conversion. The Figma
-  // parity worth asserting is therefore "adopts without becoming a layout
-  // parent", not "never adopts".
   test("a rectangle adopts as a free-placement container, not a layout parent", async ({
     page,
   }) => {
@@ -125,8 +115,6 @@ test.describe("drop containers", () => {
 });
 
 test.describe("modifier collisions", () => {
-  /** Synthetic input under-travels (the first move starts the drag and rAF
-   *  coalesces the rest), so compare the two drags rather than absolutes. */
   const dragUp = async (page: Page, withModifier: boolean) => {
     const id = await newDesign(page);
     await openEditor(page, id);
@@ -181,8 +169,6 @@ test.describe("marquee", () => {
   }) => {
     const id = await newDesign(page);
     await openEditor(page, id);
-    // Starting outside the screen marquees the BOARD (screens), not the
-    // elements — the drag has to begin on empty space inside the screen.
     const a = (await node(page, "box-a").boundingBox())!;
     const scale = a.width / 120;
     const originX = a.x - 30 * scale;

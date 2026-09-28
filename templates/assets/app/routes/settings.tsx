@@ -1,13 +1,7 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import {
-  useOnboarding,
-  type OnboardingMethod,
-  type OnboardingStepStatus,
-} from "@agent-native/core/client/onboarding";
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   BuilderConnectPopover,
@@ -15,10 +9,9 @@ import {
   SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useBuilderConnectFlow,
-  useBuilderStatus,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   CreativeContextSettingsLink,
@@ -36,17 +29,18 @@ import {
   IconLoader2,
   IconPhoto,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { PageShell } from "@/components/layout/PageShell";
+import { AssetsGeneralGroups } from "@/components/settings/AssetsGeneralGroups";
+import { AssetsNotificationSettings } from "@/components/settings/AssetsNotificationSettings";
+import {
+  builderDescription,
+  generationSummary,
+  ManualMethodPanel,
+  useGenerationSetup,
+} from "@/components/settings/generation-setup";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,16 +49,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useAssetsPrefs } from "@/hooks/use-assets-prefs";
 import { messagesByLocale } from "@/i18n-data";
@@ -76,24 +60,19 @@ export function meta() {
   return [{ title: messagesByLocale["en-US"].settings.title }];
 }
 
-type ImageGenerationConfig = {
-  builderEnabled?: boolean;
-  builderConnected?: boolean;
-  builderLookupFailed?: boolean;
-  builderStorageConnected?: boolean;
-  geminiConfigured?: boolean;
-  openaiConfigured?: boolean;
-  objectStorageConfigured?: boolean;
-  configured?: boolean;
-  lastIssue?: {
-    message?: unknown;
-    at?: unknown;
-  } | null;
-};
-
-type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
-
 export default function SettingsPage() {
+  const redesign = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
+  // Loading counts as redesign-pending: SettingsTabsPage holds the shell
+  // skeleton until the answer arrives, while PageShell around the legacy page
+  // would paint the old header first and then swap.
+  return redesign.enabled || redesign.status === "loading" ? (
+    <RedesignedSettingsPage />
+  ) : (
+    <LegacySettingsPage />
+  );
+}
+
+function useAssetsSettingsTabs() {
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
   const agentAdditionalTabFactories = useMemo(
@@ -113,6 +92,72 @@ export default function SettingsPage() {
     ],
     [t],
   );
+  return { creativeContextEnabled, agentSettingsTabs, labs };
+}
+
+/**
+ * The `settings-redesign` shell: generation and storage on Assets › General,
+ * the email switch on Assets › Notifications. Language lives on core's
+ * Account › Preferences, so this page has no language row.
+ */
+function RedesignedSettingsPage() {
+  const t = useT();
+  const { agentSettingsTabs, labs } = useAssetsSettingsTabs();
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "assets-generation-setup",
+        label: t("settings.generation"),
+        keywords:
+          "builder generation image video setup connect gemini openai api key",
+        hash: "asset-generation-setup",
+      },
+      {
+        id: "assets-generation-keys",
+        label: t("settings.manualKeys"),
+        keywords: "manual api key gemini openai provider generation fallback",
+        hash: "generation-keys",
+      },
+      {
+        id: "assets-storage",
+        label: t("settings.objectStorage"),
+        keywords: "storage object storage s3 r2 bucket spaces minio tigris",
+        hash: "object-storage",
+      },
+    ],
+    [t],
+  );
+  const notificationsSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "assets-notifications",
+        label: t("settings.emailNotifications"),
+        keywords: "email notification generation finished failed alert",
+        hash: "notifications",
+      },
+    ],
+    [t],
+  );
+
+  return (
+    <SettingsTabsPage
+      className="h-full"
+      extraTabs={agentSettingsTabs}
+      labs={labs}
+      generalGroups={<AssetsGeneralGroups />}
+      generalSearchEntries={generalSearchEntries}
+      notifications={<AssetsNotificationSettings />}
+      notificationsSearchEntries={notificationsSearchEntries}
+      whatsNew={<ChangelogSettingsCard markdown={changelog} />}
+      whatsNewMarkdown={changelog}
+    />
+  );
+}
+
+function LegacySettingsPage() {
+  const t = useT();
+  const { creativeContextEnabled, agentSettingsTabs, labs } =
+    useAssetsSettingsTabs();
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
@@ -151,7 +196,6 @@ export default function SettingsPage() {
     >
       <SettingsTabsPage
         account={<AccountSettingsCard />}
-        teamLabel={t("team.title")}
         extraTabs={agentSettingsTabs}
         labs={labs}
         generalSearchEntries={generalSearchEntries}
@@ -209,14 +253,6 @@ export default function SettingsPage() {
             </section>
           </div>
         }
-        team={
-          <div className="mx-auto w-full max-w-3xl">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("team.createOrgDescription")}
-            />
-          </div>
-        }
         whatsNew={
           <div className="mx-auto w-full max-w-2xl">
             <ChangelogSettingsCard markdown={changelog} />
@@ -229,67 +265,20 @@ export default function SettingsPage() {
 
 function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
   const t = useT();
-  const queryClient = useQueryClient();
-  const onboarding = useOnboarding();
-  const { status } = useBuilderStatus();
+  const setup = useGenerationSetup();
   const [manualGenerationOpen, setManualGenerationOpen] = useState(false);
   const [manualStorageOpen, setManualStorageOpen] = useState(false);
-  const { data: configData } = useActionQuery(
-    "get-image-generation-config",
-    {},
-  ) as { data?: ImageGenerationConfig };
-
-  const refreshSetup = async () => {
-    await Promise.all([
-      onboarding.refresh(),
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-image-generation-config"],
-      }),
-    ]);
-  };
-
-  const flow = useBuilderConnectFlow({
-    provisionAccount: true,
-    trackingSource: "assets_settings_connections",
-    trackingFlow: "image_generation",
-    onConnected: refreshSetup,
-  });
-
-  const generationStep = onboarding.steps.find(
-    (step) => step.id === "image-generation",
-  );
-  const storageStep = onboarding.steps.find(
-    (step) => step.id === "image-storage",
-  );
-
-  const builderEnabled = configData?.builderEnabled ?? true;
-  const builderConfigured = flow.hasFetchedStatus
-    ? flow.configured
-    : !!status?.configured;
-  const builderConnected =
-    !configData?.builderLookupFailed &&
-    (!!configData?.builderConnected || builderConfigured || !!flow.configured);
-  const builderStorageConnected =
-    !!configData?.builderStorageConnected ||
-    builderConfigured ||
-    !!flow.configured;
-  const generationReady =
-    (builderEnabled && builderConnected) ||
-    configData?.configured === true ||
-    !!configData?.openaiConfigured ||
-    !!configData?.geminiConfigured;
-  const storageReady =
-    builderStorageConnected ||
-    !!configData?.objectStorageConfigured ||
-    !!storageStep?.complete;
-  const setupIssue =
-    flow.error ??
-    (typeof configData?.lastIssue?.message === "string"
-      ? configData.lastIssue.message
-      : configData?.builderLookupFailed
-        ? t("settings.builderLookupFailed")
-        : null);
-  const orgName = flow.orgName ?? status?.orgName ?? null;
+  const {
+    configData,
+    flow,
+    generationStep,
+    storageStep,
+    builderConnected,
+    generationReady,
+    storageReady,
+    setupIssue,
+    refreshSetup,
+  } = setup;
   const readyCount = [generationReady, storageReady].filter(Boolean).length;
 
   return (
@@ -316,15 +305,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
           className="border-b border-border/70 last:border-b-0"
           icon={<IconKey className="size-4" />}
           label="Builder"
-          description={
-            builderConnected
-              ? orgName
-                ? `Connected to ${orgName}.`
-                : t("settings.builderDescriptionReady")
-              : builderEnabled
-                ? t("settings.builderDescriptionManaged")
-                : t("settings.builderDescriptionDisabled")
-          }
+          description={builderDescription(setup, t)}
           status={
             <StatusPill tone={builderConnected ? "ready" : "neutral"}>
               {configData?.builderLookupFailed
@@ -500,187 +481,6 @@ function DisclosureButton({
   );
 }
 
-function ManualMethodPanel({
-  step,
-  title,
-  description,
-  onSaved,
-}: {
-  step: OnboardingStepStatus;
-  title: string;
-  description: string;
-  onSaved: () => Promise<void>;
-}) {
-  const t = useT();
-  const methods = useMemo(() => step.methods.filter(isFormMethod), [step]);
-  const [selectedId, setSelectedId] = useState(methods[0]?.id ?? "");
-
-  useEffect(() => {
-    if (!methods.some((method) => method.id === selectedId)) {
-      setSelectedId(methods[0]?.id ?? "");
-    }
-  }, [methods, selectedId]);
-
-  const selected = methods.find((method) => method.id === selectedId);
-
-  return (
-    <div className="border-b border-border/70 bg-muted/20 px-5 py-4">
-      <div className="mx-auto max-w-2xl space-y-4">
-        <div>
-          <h3 className="text-sm font-medium">{title}</h3>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            {description}
-          </p>
-        </div>
-
-        {methods.length > 1 ? (
-          <div className="max-w-xs">
-            <Label className="text-xs text-muted-foreground">
-              {t("settings.provider")}
-            </Label>
-            <Select value={selectedId} onValueChange={setSelectedId}>
-              <SelectTrigger className="mt-2">
-                <SelectValue placeholder={t("settings.chooseProvider")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {methods.map((method) => (
-                    <SelectItem key={method.id} value={method.id}>
-                      {method.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-
-        {selected ? (
-          <CredentialForm method={selected} onSaved={onSaved} />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {t("settings.noManualOptions")}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CredentialForm({
-  method,
-  onSaved,
-}: {
-  method: FormOnboardingMethod;
-  onSaved: () => Promise<void>;
-}) {
-  const t = useT();
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fields = method.payload.fields;
-  const submitLabel =
-    fields.length > 1 ? t("settings.saveSettings") : t("settings.saveKey");
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      const vars = fields
-        .map((field) => ({
-          key: field.key,
-          value: (values[field.key] ?? "").trim(),
-        }))
-        .filter((item) => item.value !== "");
-
-      if (!vars.length) {
-        setError(t("settings.enterValueFirst"));
-        return;
-      }
-
-      const response = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vars,
-          scope: method.payload.writeScope ?? "workspace",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`${t("settings.saveFailed")}: ${response.status}`);
-      }
-
-      setValues({});
-      await onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("settings.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {method.description ? (
-        <p className="text-sm leading-6 text-muted-foreground">
-          {method.description}
-        </p>
-      ) : null}
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        {fields.map((field) => {
-          const id = `${method.id}-${field.key}`;
-          return (
-            <div
-              key={field.key}
-              className={cn(fields.length === 1 && "sm:col-span-2")}
-            >
-              <Label htmlFor={id} className="text-xs text-muted-foreground">
-                {field.label}
-              </Label>
-              <Input
-                id={id}
-                type={field.secret ? "password" : "text"}
-                value={values[field.key] ?? ""}
-                placeholder={field.placeholder}
-                onChange={(event) =>
-                  setValues((current) => ({
-                    ...current,
-                    [field.key]: event.target.value,
-                  }))
-                }
-                className="mt-2"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-
-      <Button type="submit" size="sm" disabled={saving}>
-        {saving ? (
-          <>
-            <IconLoader2 className="size-3.5 animate-spin" />
-            {t("settings.saving")}
-          </>
-        ) : (
-          submitLabel
-        )}
-      </Button>
-    </form>
-  );
-}
-
 function SetupIssueCallout({ message }: { message: string }) {
   return (
     <div
@@ -693,33 +493,4 @@ function SetupIssueCallout({ message }: { message: string }) {
       </div>
     </div>
   );
-}
-
-function isFormMethod(
-  method: OnboardingMethod,
-): method is FormOnboardingMethod {
-  return method.kind === "form";
-}
-
-function generationSummary(
-  config: ImageGenerationConfig | undefined,
-  builderConnected: boolean,
-  t: (key: string, options?: Record<string, unknown>) => string,
-) {
-  if (builderConnected && config?.builderEnabled !== false) {
-    return t("settings.builderManaged");
-  }
-  const providers = [
-    config?.geminiConfigured ? "Gemini" : null,
-    config?.openaiConfigured ? "OpenAI" : null,
-  ].filter(Boolean);
-  if (providers.length) {
-    return t("settings.providerConfigured", {
-      providers: providers.join(" and "),
-    });
-  }
-  if (config?.builderEnabled === false) {
-    return t("settings.addGeminiOrOpenAI");
-  }
-  return t("settings.addBuilderGeminiOrOpenAI");
 }

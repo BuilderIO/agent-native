@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Conectar",
@@ -261,6 +263,16 @@ export default {
     weekStartSunday: "Domingo - sábado",
     weekStartMonday: "Segunda-feira - domingo",
     eventRules: "Regras de convite",
+    eventRulesAutomationLink: "Para outras ações, crie uma automação.",
+    eventRulesConnectJev: "Conecte o Jev para executar as regras de convite",
+    eventRulesFreeBuilderOrApiKey:
+      "Grátis com Builder.io ou adicione uma chave de API.",
+    eventRulesConnectBuilder: "Conectar Builder.io",
+    eventRulesAddJevApiKey: "Adicionar chave de API",
+    eventRulesTabRules: "Regras",
+    eventRulesHelpLabel: "Sobre as instruções de convite",
+    eventRulesHelp:
+      "Escreva instruções para o Jev aceitar, recusar ou ocultar convites.",
     eventRuleAccept: "Aceitar automaticamente",
     eventRuleDecline: "Recusar automaticamente",
     eventRuleHide: "Ocultar automaticamente",
@@ -270,6 +282,7 @@ export default {
       "Exemplo: recusar demonstrações de fornecedores e eventos após o expediente",
     eventRulePlaceholderHide: "Exemplo: ocultar blocos de foco e lembretes",
     eventRulesSave: "Salvar regras",
+    eventRulesClearSaved: "Limpar regras salvas",
     eventRulesRecentActivity: "Atividade recente",
     eventRulesNoActivity: "Nenhuma atividade ainda",
     eventRuleActivityAccepted: "Aceito",
@@ -288,6 +301,39 @@ export default {
       "Um convite foi ignorado porque as regras de aceitar e recusar coincidiram.",
     eventRulesUnregistered:
       "A automação do Calendar não está registrada neste servidor.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendários",
+    bookingTab: "Agendamento",
+    eventsGroup: "Eventos",
+    appearanceGroup: "Aparência",
+    colorTheme: "Tema de cores",
+    timezone: "Fuso horário do calendário",
+    timezoneDescription: "Usado para mostrar eventos e criar novos.",
+    defaultDuration: "Duração padrão dos eventos",
+    defaultDurationDescription:
+      "Em minutos. Links de agendamento podem definir a própria.",
+    durationInvalid: "Insira uma duração de 5 a 480 minutos.",
+    zoom: "Zoom",
+    connectedAs: "Conectado como {{accounts}}",
+    setUp: "Configurar",
+    disconnectGoogleTitle: "Desconectar o Google Calendar?",
+    disconnectGoogleDescription:
+      "O Calendar para de mostrar e sincronizar os eventos das suas contas do Google.",
+    disconnectZoomTitle: "Desconectar o Zoom?",
+    disconnectZoomDescription:
+      "Novos eventos e agendamentos não recebem links de reunião do Zoom até você conectar de novo.",
+    manage: "Gerenciar",
+    edit: "Editar",
+    cancel: "Cancelar",
+    save: "Salvar",
+    fallbackBookingPage: "Página de agendamento padrão",
+    fallbackBookingPageDescription:
+      "Usada quando um link de agendamento não tem título nem descrição próprios.",
+    fallbackTitle: "Título",
+    fallbackDescription: "Descrição",
+    bookingLinksDescription:
+      "Crie links de agendamento e copie os URLs públicos.",
   },
   eventDialog: {
     eventUpdated: "Evento atualizado",
@@ -1028,7 +1074,7 @@ export default {
     year: "ano",
     zoom: "Zoom",
     zoomAdded: "Zoom adicionado",
-    zoomAddFailed: "Falha ao adicionar Zoom",
+    zoomAddFailed: zoomAddFailedMessages["pt-BR"],
     zoomConnectFailed: "Não foi possível conectar Zoom",
     zoomConnectionOpened: "Conexão Zoom aberta",
     zoomNotConfigured: "Zoom OAuth não está configurado.",

@@ -1,13 +1,3 @@
-/**
- * Mail template onboarding — registers the "Connect Gmail" step with the
- * framework-level onboarding registry. The step is picked up by the onboarding
- * panel in the agent sidebar on every request.
- *
- * The connection uses the framework's managed Google OAuth client. The
- * workspace chooses whether the resulting connection is personal or shared;
- * no user-facing Google Cloud Console setup is required.
- */
-
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 import { hasWorkspaceProviderOAuthCredentials } from "@agent-native/core/server";

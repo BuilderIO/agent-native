@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   agentChat: {
     setup: {
       checkingProvider: "正在檢查 AI 連線…",
@@ -542,6 +543,9 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    redactionsPendingTitle: "分享前完成遮蔽處理",
+    redactionsPendingBody:
+      "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",
@@ -595,9 +599,6 @@ const messages = {
     customizeEmbed: "自訂嵌入",
     more: "更多",
     sharePlainTitle: "分享 {{title}}",
-    redactionsPendingBody:
-      "這段錄影上畫了 {{count}} 處遮蔽，但尚未合成進影片，因此檔案裡遮蔽下方的內容依然看得到。開啟編輯器完成合成後，即可重新分享。",
-    redactionsPendingTitle: "請先完成遮蔽",
   },
   shareUi: {
     owner: "擁有者： {{email}}",
@@ -894,6 +895,49 @@ const messages = {
       "Clips 將刪除 {{team}} 的已儲存機器人權杖，並停止傳送可播放的 Slack 預覽。",
     thisWorkspace: "此工作區",
     slackConnected: "Slack 已連線",
+  },
+  clipsSettings: {
+    popupBlocked: "瀏覽器封鎖了快顯視窗。請允許此網站顯示快顯視窗後再試一次。",
+    recordingsTab: "錄製",
+    meetingsTab: "會議",
+    yourDefaults: "你的預設設定",
+    orgDefault: "{{org}} 預設設定",
+    playbackSpeed: "播放速度",
+    playbackSpeedDescription: "開啟錄製內容時套用。",
+    visibility: "可見性",
+    visibilityDescription:
+      "套用於你建立的錄製內容。你可以在任何錄製內容上變更。",
+    useOrgDefault: "使用 {{org}} 的預設值（{{visibility}}）",
+    useDefault: "使用預設值（{{visibility}}）",
+    transcriptExport: "逐字稿匯出",
+    logoDescription: "顯示在分享郵件和公開 Clip 頁面中。",
+    change: "變更",
+    adminsOnly: "只有擁有者和管理員可以變更此項目。",
+    brandColorInvalid: "請輸入十六進位色碼。",
+    loadFailed: "無法載入這些設定。",
+    emailGroup: "電子郵件",
+    calendarGroup: "日曆",
+    googleCalendar: "Google Calendar",
+    connect: "連線",
+    reconnect: "重新連線",
+    connectedAs: "已連線為 {{account}}",
+    needsReconnect: "{{account}} 需要重新連線。",
+    disconnectFailed: "無法中斷日曆連線。",
+    disconnectCalendarDescription:
+      "Clips 將停止同步 {{account}} 中即將到來的會議。",
+    calendarApp: "Google Calendar 應用程式",
+    desktopGroup: "桌面",
+    meetingCapture: "會議擷取",
+    meetingCaptureDescription:
+      "筆記、自動開始和通知在每台裝置的 Clips Desktop 中設定。",
+    openClipsDesktop: "開啟 Clips Desktop",
+    keySaved: "已儲存",
+    keyNotSaved: "未儲存",
+    manage: "管理",
+    add: "新增",
+    linkPreviews: "連結預覽",
+    addWorkspace: "新增工作區",
+    storageAskAdmin: "請擁有者或管理員設定儲存空間。",
   },
   insightsHub: {
     title: "洞察",

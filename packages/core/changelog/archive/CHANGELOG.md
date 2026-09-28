@@ -1,3 +1,23 @@
+## 0.164.12
+
+### Patch Changes
+
+- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
+
+## 0.164.11
+
+### Patch Changes
+
+- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
+
+## 0.164.10
+
+### Patch Changes
+
+- 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
+- e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
+- 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
+
 ## 0.164.9
 
 ### Patch Changes

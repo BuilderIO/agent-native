@@ -40,7 +40,6 @@ const messages = {
     brand: "الشرائح",
     decks: "العروض",
     designSystems: "أنظمة التصميم",
-    team: "الفريق",
   },
   settings: {
     agentObservability: "مراقبة الوكيل",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "احصل على بريد إلكتروني عندما يعلّق شخص على عرضك أو يرد في مناقشة.",
     saveFailed: "فشل الحفظ",
+    notificationsEmail: "البريد الإلكتروني",
+    commentsAndReplies: "التعليقات والردود",
+    commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
+    retry: "إعادة المحاولة",
+    mcpAbout:
+      "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     languageTitle: "اللغة",
     languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
     languageLabel: "لغة الواجهة",
@@ -183,8 +188,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "فتح في التطبيق",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
@@ -588,6 +591,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "تم الحفظ" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -846,6 +850,11 @@ const messages = {
     chooseAnotherFile: "اختيار ملف آخر",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "أنشئ عرضًا تقديميًا لمنتج",
+      roadmap: "أنشئ خارطة طريق لمنتج",
+      explainer: "اشرح موضوعًا في عرض تقديمي",
+    },
     suggestedPrompts: "الاقتراحات المقترحة",
     importMenu: {
       import: "استيراد",
@@ -853,7 +862,11 @@ const messages = {
       invalidPdf: "اختر ملف PDF.",
       invalidPptx: "اختر ملف PPTX.",
       invalidFile: "اختر ملف PDF أو PPTX.",
+      networkFailed:
+        "انتهت مهلة طلب الاستيراد أو انقطع اتصال الشبكة. تحقّق من اتصالك وحاول مرة أخرى.",
       notStarted: "أكمل تسجيل الدخول المطلوب، ثم أعد محاولة الاستيراد.",
+      uploadLimitExceeded:
+        "يتجاوز التحميل أحد الحدود المسموح بها. قلّل حجم الملف أو اختر ملفات أقل، ثم حاول مرة أخرى.",
     },
     importDeck: "استيراد عرض",
     context: {
@@ -892,6 +905,8 @@ const messages = {
       notReady:
         "السياق قيد التحميل أو غير متاح. أعد المحاولة أو أزله قبل الإرسال.",
       emptySource: "لم يُرجع هذا المصدر سياقًا قابلًا للاستخدام.",
+      figmaReadFailed:
+        "تعذّر على Design قراءة مرجع Figma هذا. تحقّق من رمز الوصول المحفوظ إلى Figma في Design ومن أن حسابه يمكنه فتح الملف، ثم حاول مرة أخرى.",
       tooMany: "اختر حتى 20 مرجعًا.",
       search: "البحث عن مراجع",
       designCategory: "التصميم",

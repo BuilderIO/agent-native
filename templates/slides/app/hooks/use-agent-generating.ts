@@ -9,12 +9,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-// A long deck may run for hours while its chat stream, tools, or slides keep
-// making progress. Only a quiet run is considered stuck.
 export const GENERATION_NO_PROGRESS_TIMEOUT_MS = 5 * 60 * 1000;
 
-// Gateway continuations can briefly report a stopped chat between model/tool
-// chunks. Keep generation UI and presence steady across that transport gap.
 export const CHAT_STOP_DEBOUNCE_MS = 4_000;
 const CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
 export const SLIDES_GENERATION_STARTED_EVENT = "slides:generation-started";
@@ -84,10 +80,6 @@ type AgentGeneratingSubmitOptions = Pick<
   generationOutputId?: string;
 };
 
-/**
- * Tracks chat generation locally and uses durable run health before offering
- * recovery for a quiet run.
- */
 export function useAgentGenerating(options?: {
   tabId: string | null;
   progressToken?: number;
@@ -151,6 +143,11 @@ export function useAgentGenerating(options?: {
     serverRunState.heartbeatSinceMs != null &&
     serverRunState.heartbeatSinceMs >= 0 &&
     serverRunState.heartbeatSinceMs < 30_000;
+  const serverConfirmedIdleAfterTimeout =
+    hasTabScope &&
+    timedOut &&
+    serverRunState.status === "idle" &&
+    serverRunState.runId === null;
   const canContinueAfterStall = Boolean(
     timedOut &&
     serverRunState.isStuck &&
@@ -164,6 +161,16 @@ export function useAgentGenerating(options?: {
     if (!canContinueAfterStall || !runId) return false;
     return (await abortRun(runId, "user_stuck_retry")) === runId;
   }, [abortRun, canContinueAfterStall, serverRunState.runId]);
+
+  useEffect(() => {
+    if (!serverConfirmedIdleAfterTimeout) return;
+    activeSubmitRef.current = null;
+    activeTabRef.current = null;
+    clearStopDebounce();
+    clearWatchdog();
+    setRecentlyGenerating(false);
+    setRunError(true);
+  }, [clearStopDebounce, clearWatchdog, serverConfirmedIdleAfterTimeout]);
 
   useEffect(() => {
     if (!hasTabScope) return;
@@ -463,6 +470,7 @@ export function useAgentGenerating(options?: {
   return {
     generating:
       !providerMissing &&
+      !serverConfirmedIdleAfterTimeout &&
       stopReason !== "stopped" &&
       (generating || recentlyGenerating) &&
       !runError,

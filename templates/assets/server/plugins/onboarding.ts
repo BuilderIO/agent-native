@@ -17,6 +17,8 @@ import {
 } from "@agent-native/core/onboarding";
 import {
   BuilderCredentialLookupError,
+  GEMINI_API_KEY,
+  resolveGeminiApiKey,
   resolveHasBuilderGatewayCredential,
   resolveSecret,
 } from "@agent-native/core/server";
@@ -32,10 +34,6 @@ const builderImageGenerationEnabled = isBuilderImageGenerationEnabled();
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
 
-  // Register the S3-compatible upload provider. It self-checks env vars
-  // (ASSETS_STORAGE_* / legacy IMAGES_STORAGE_* / S3_*) and only activates when configured. The
-  // framework falls through to Builder.io storage when BUILDER_PRIVATE_KEY
-  // is set, then to the SQL fallback in dev.
   registerFileUploadProvider(s3FileUploadProvider);
 
   registerOnboardingStep({
@@ -67,8 +65,8 @@ export default async (nitroApp: any): Promise<void> => {
           writeScope: "workspace",
           fields: [
             {
-              key: "GEMINI_API_KEY",
-              label: "GEMINI_API_KEY",
+              key: GEMINI_API_KEY,
+              label: GEMINI_API_KEY,
               placeholder: "AIza...",
               secret: true,
             },
@@ -104,7 +102,7 @@ export default async (nitroApp: any): Promise<void> => {
       }
 
       const manualLookups = await Promise.allSettled([
-        resolveSecret("GEMINI_API_KEY"),
+        resolveGeminiApiKey(),
         resolveSecret("OPENAI_API_KEY"),
       ]);
       if (

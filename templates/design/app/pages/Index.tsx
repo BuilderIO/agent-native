@@ -31,6 +31,7 @@ import {
   PromptHomeLibrary,
   TemplateLibraryGrid,
   type PromptHomeLibraryTab,
+  useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -122,8 +123,6 @@ interface Design {
   ownerName?: string | null;
   createdAt?: string;
   updatedAt?: string;
-  /** Preview HTML for the thumbnail. Only present when the list query asks
-   *  for `includePreview: 'true'`. Truncated server-side. */
   previewHtml?: string | null;
 }
 
@@ -137,7 +136,7 @@ interface DesignListResult {
   designs: Design[];
 }
 
-const DESIGN_PAGE_SIZE = 12;
+const DESIGN_PAGE_SIZE = 50;
 
 interface HomeSuggestion {
   id?: string;
@@ -151,6 +150,7 @@ interface HomeSuggestionsResult {
 
 export default function Index() {
   const t = useT();
+  useHomeSearchShortcut(true);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -179,10 +179,6 @@ export default function Index() {
   >(undefined);
   const newDesignSystemId = systemsEnabled ? chosenDesignSystemId : null;
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
-  // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
-  // cloud container). Only reachable behind the full-app-building flag — the
-  // popover renders no mode control at all when the flag is off, so this
-  // state is always "design" in that case.
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
     "design",
   );
@@ -233,14 +229,10 @@ export default function Index() {
     compact: "true",
     includePreview: "false",
   });
-  const hasRecentDesigns =
-    accessibleDesignsSummary.isSuccess &&
-    accessibleDesignsSummary.data.totalCount > 0;
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
   }, [hasSearchResultsSection]);
-  const activeHomeSection = hasRecentDesigns ? homeSection : "templates";
   const {
     data: templatesData,
     isLoading: templatesLoading,
@@ -255,15 +247,11 @@ export default function Index() {
   const createFromTemplateMutation = useActionMutation(
     "create-design-from-template",
   );
-  // Fires the fusion-backed cloud container build; only ever called when
-  // runtime flag is true and the user picked "Full app".
   const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
   const generateTitleMutation = useActionMutation("generate-design-title");
-  // Designs the user has manually renamed since creation — an AI-generated
-  // title that resolves later must never clobber an explicit rename.
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
@@ -274,6 +262,10 @@ export default function Index() {
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
   const agentEngineConfigured = agentEngine.state === "configured";
+  const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
+  const bounceSetupCard = () => {
+    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+  };
   const retryAgentEngineStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
@@ -287,11 +279,17 @@ export default function Index() {
       staleTime: 5 * 60 * 1000,
     },
   );
-  /**
-   * The picker showed a column of near-identical names ("Builder indexed
-   * design system" three times over). Each system already carries its palette
-   * in `data`, so the row can show it and be chosen by colour.
-   */
+  const homeSuggestions = homeSuggestionsQuery.data?.suggestions.length
+    ? homeSuggestionsQuery.data.suggestions
+    : [
+        t("chat.suggestionLandingPage"),
+        t("chat.suggestionBrandMatch"),
+        t("chat.suggestionMobile"),
+      ].map((prompt, index) => ({
+        id: `design-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      }));
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -331,9 +329,6 @@ export default function Index() {
         .map((context) => ({ id: context.id, name: context.name })),
     [creativeContextsQuery.data],
   );
-  // The editor rereads persisted creative-context state after navigation to
-  // pick the generation precedent. Track the in-flight save so a submit that
-  // follows a pick right away can wait for it instead of racing it.
   const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
   const handleCreativeContextChange = useCallback(
     (contextId: string | null) => {
@@ -542,7 +537,6 @@ export default function Index() {
       const finalTitle = title.trim() || "Untitled Design";
       const linkedDesignSystemId = designSystemId ?? null;
 
-      // Optimistic update
       queryClient.setQueryData(
         ["action", "list-designs", listDesignsParams],
         (old: any) => {
@@ -597,16 +591,12 @@ export default function Index() {
           });
           throw error;
         });
-      // Fire mutation in background; keep the optimistic navigation instant.
       void ready.catch(() => {});
       return { id, title: finalTitle, ready };
     },
     [listDesignsParams, normalizedSearch, page, queryClient, createMutation],
   );
 
-  // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
-  // immediately, then a short AI-generated name replaces it in the
-  // background once it resolves. Never blocks navigation or generation.
   const handleGenerateDesignTitle = useCallback(
     (designId: string, prompt: string, previousTitle: string) => {
       generateTitleMutation
@@ -644,9 +634,6 @@ export default function Index() {
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
       if (agentEngine.state !== "configured") return;
-      // The rejection already surfaced its own toast in handleCreativeContextChange;
-      // swallow it here so a flaky context save can't block generation, but
-      // only after letting it settle instead of racing it.
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
@@ -742,21 +729,12 @@ export default function Index() {
         }
       }
 
-      // Derive a short title from the prompt — first line, ~40 chars max,
-      // word-boundary truncated. The full prompt still drives generation;
-      // the title is just a label, so longer is worse.
       const derivedTitle = derivePromptTitle(prompt);
 
       const { id, title, ready } = createDesign(derivedTitle, designSystemId);
       handleGenerateDesignTitle(id, prompt, title);
 
       if (fullAppBuildingEnabled && newDesignMode === "app") {
-        // Full-app designs are backed by a real running container, not a
-        // queued inline generation — skip writePendingGeneration and let the
-        // fusion app mutation (and its own status/progress banner in the
-        // editor) drive the build instead. Still wait for the design row
-        // before navigating so the first get-design cannot 404 and bounce
-        // home while create is settling.
         try {
           await ready;
         } catch (error) {
@@ -776,10 +754,6 @@ export default function Index() {
           } as any)
           .then((result: any) => {
             if (result?.status !== "not-configured") return;
-            // Builder isn't connected/configured, so no fusionApp linkage was
-            // written and no banner will render. Hand off to the agent chat,
-            // which owns the connect-Builder card flow, keeping the user's
-            // prompt so nothing is lost.
             sendToDesignAgentChat({
               message: prompt,
               context:
@@ -815,8 +789,6 @@ export default function Index() {
           skipQuestions: pendingOptions?.skipQuestions ?? quickStartRef.current,
           ...options,
         });
-        // Rejecting here is what lets PromptPopover restore the typed prompt.
-        // Navigating first strands the user in an empty editor with no error.
         try {
           await ready;
         } catch (error) {
@@ -872,9 +844,6 @@ export default function Index() {
     );
 
     try {
-      // Unlike prompt-backed creation, an empty shell has no pending-generation
-      // marker to keep the editor polling across its route remount. Wait for the
-      // row to persist so the first get-design read cannot briefly return 404.
       await ready;
       void navigate(`/design/${id}`);
     } catch (error) {
@@ -915,7 +884,6 @@ export default function Index() {
     if (!deleteId) return;
     const id = deleteId;
 
-    // Optimistic update
     queryClient.setQueryData(
       ["action", "list-designs", listDesignsParams],
       (old: any) => {
@@ -1071,14 +1039,16 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="relative w-full max-w-175">
+    <div className="relative w-full">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
+        size="sm"
         value={search}
         onChange={(event) => handleSearchChange(event.target.value)}
         placeholder={t("home.searchPlaceholder")}
         aria-label={t("home.searchPlaceholder")}
-        className="h-8 w-full ps-8"
+        data-home-search="true"
+        className="w-full pe-3 ps-8"
       />
     </div>,
   );
@@ -1088,41 +1058,48 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
-        composer={
-          <div data-design-home-composer>
-            {agentEngine.state !== "configured" ? (
-              <div className="mb-2">
-                {agentEngine.missing ? (
-                  <BuilderSetupCard
-                    onConnected={retryAgentEngineStatus}
-                    fullWidth
-                    layout="sidebar"
-                  />
-                ) : (
-                  <div
-                    className="flex items-center justify-center gap-3 text-sm text-muted-foreground"
-                    role="status"
-                  >
-                    <span>
-                      {t(
-                        agentEngine.state === "unknown"
-                          ? "agentChat.setup.checkingProvider"
-                          : "agentChat.setup.providerStatusUnavailable",
-                      )}
-                    </span>
-                    {agentEngine.state === "unavailable" ? (
-                      <button
-                        type="button"
-                        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={retryAgentEngineStatus}
-                      >
-                        {t("agentChat.common.retry")}
-                      </button>
-                    ) : null}
-                  </div>
+        connectionAttached={!agentEngineConfigured && agentEngine.missing}
+        connection={
+          agentEngineConfigured ? null : agentEngine.missing ? (
+            <BuilderSetupCard
+              attached
+              fullWidth
+              layout="sidebar"
+              bouncePulse={setupCardBouncePulse}
+              onConnected={retryAgentEngineStatus}
+            />
+          ) : (
+            <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
+              <span role="status">
+                {t(
+                  agentEngine.state === "unknown"
+                    ? "agentChat.setup.checkingProvider"
+                    : "agentChat.setup.providerStatusUnavailable",
                 )}
-              </div>
-            ) : null}
+              </span>
+              {agentEngine.state === "unavailable" ? (
+                <button
+                  type="button"
+                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={retryAgentEngineStatus}
+                >
+                  {t("agentChat.common.retry")}
+                </button>
+              ) : null}
+            </div>
+          )
+        }
+        composer={
+          <div
+            data-design-home-composer
+            className={
+              agentEngine.missing
+                ? "agent-composer-area--attached-above"
+                : undefined
+            }
+            onFocusCapture={bounceSetupCard}
+            onPointerDownCapture={bounceSetupCard}
+          >
             <PromptPopover
               inline
               open
@@ -1188,37 +1165,40 @@ export default function Index() {
           </div>
         }
         quickActions={
-          quickActionsEnabled &&
-          homeSuggestionsQuery.data?.suggestions.length ? (
-            <AgentSuggestionBar
-              suggestions={homeSuggestionsQuery.data.suggestions.map(
-                (suggestion, index) => ({
-                  ...suggestion,
-                  id: suggestion.id ?? `design-home-${index}`,
-                  disabled: newDesignHandoffPending || quickStartPending,
-                }),
-              )}
-              ariaLabel={t("home.suggestedPrompts")}
-              className="px-0 py-0"
-              onSelect={async (suggestion) => {
-                if (quickStartRef.current || !composerRef.current) return;
-                quickStartRef.current = true;
-                submissionErrorRef.current = false;
-                setQuickStartPending(true);
-                try {
-                  const accepted = await composerRef.current.submitWithText(
-                    agentSuggestionPrompt(suggestion),
-                  );
-                  if (!accepted && !submissionErrorRef.current) {
-                    toast.error(t("homeContext.notReady"));
-                  }
-                } finally {
-                  quickStartRef.current = false;
-                  setQuickStartPending(false);
+          <AgentSuggestionBar
+            suggestions={homeSuggestions.map((suggestion, index) => ({
+              ...suggestion,
+              id: suggestion.id ?? `design-home-${index}`,
+              disabled:
+                !quickActionsEnabled ||
+                newDesignHandoffPending ||
+                quickStartPending,
+            }))}
+            ariaLabel={t("home.suggestedPrompts")}
+            className="px-0 py-0"
+            onSelect={async (suggestion) => {
+              if (
+                !quickActionsEnabled ||
+                quickStartRef.current ||
+                !composerRef.current
+              )
+                return;
+              quickStartRef.current = true;
+              submissionErrorRef.current = false;
+              setQuickStartPending(true);
+              try {
+                const accepted = await composerRef.current.submitWithText(
+                  agentSuggestionPrompt(suggestion),
+                );
+                if (!accepted && !submissionErrorRef.current) {
+                  toast.error(t("homeContext.notReady"));
                 }
-              }}
-            />
-          ) : null
+              } finally {
+                quickStartRef.current = false;
+                setQuickStartPending(false);
+              }
+            }}
+          />
         }
       >
         {accessibleDesignsSummary.isError ? (
@@ -1228,9 +1208,8 @@ export default function Index() {
           />
         ) : null}
         <PromptHomeLibrary
-          value={activeHomeSection}
+          value={homeSection}
           onValueChange={setHomeSection}
-          showRecent={hasRecentDesigns || hasSearchResultsSection}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),
@@ -1278,9 +1257,9 @@ export default function Index() {
               />
             ) : (
               <DesignTemplateLibrary
-                templates={templateOptions
-                  .filter((template) => template.isBuiltIn)
-                  .slice(0, 4)}
+                templates={templateOptions.filter(
+                  (template) => template.isBuiltIn,
+                )}
                 loading={templatesLoading}
               />
             )
@@ -1310,14 +1289,14 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={toggleVisibleSelection}
                               aria-label={
                                 allVisibleSelected
                                   ? t("home.clearVisibleSelection")
                                   : t("home.selectVisibleDesigns")
                               }
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconChecks className="w-4 h-4" />
                             </Button>
@@ -1332,10 +1311,10 @@ export default function Index() {
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
+                              size="icon-sm"
                               onClick={clearSelection}
                               aria-label={t("home.clearSelection")}
-                              className="h-8 w-8 cursor-pointer"
+                              className="cursor-pointer"
                             >
                               <IconX className="w-4 h-4" />
                             </Button>
@@ -1388,7 +1367,12 @@ export default function Index() {
                       <Link to={`/design/${design.id}`}>{children}</Link>
                     )}
                     renderPreview={(design) => (
-                      <DesignThumbnail html={design.previewHtml ?? null} />
+                      <div className="design-library-card-preview">
+                        <DesignThumbnail
+                          html={design.previewHtml ?? null}
+                          className="h-full w-full"
+                        />
+                      </div>
                     )}
                     renderMetadata={(design) => (
                       <div className="flex min-w-0 items-center gap-1.5">
@@ -1617,7 +1601,7 @@ export default function Index() {
             }}
             placeholder={t("home.designName")}
             aria-label={t("home.designName")}
-            className="h-9 text-sm"
+            className="text-sm"
           />
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
@@ -1637,7 +1621,6 @@ export default function Index() {
   );
 }
 
-/** Who created a design, shown on its library card in shared workspaces. */
 function DesignAuthorByline({
   email,
   name: profileName,
@@ -1665,16 +1648,6 @@ function DesignAuthorByline({
   );
 }
 
-/**
- * Render the design's index.html as a non-interactive thumbnail. The iframe
- * renders at a fixed natural size (so designs that assume a desktop viewport
- * still look right) and is then scaled to fill the card via a transform.
- *
- * The size is recomputed via ResizeObserver so the same component works in
- * 1, 2, 3 and 4-column grid layouts. We use a sandboxed iframe with only
- * allow-scripts (no allow-same-origin) so Tailwind/Alpine CDN render without
- * granting arbitrary design HTML access to the host origin.
- */
 function NewDesignHandoffOverlay() {
   const t = useT();
   return (

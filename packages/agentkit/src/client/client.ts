@@ -227,6 +227,8 @@ function mergeRuntimeRecordMap<T>(
 
 export interface AgentThreadLease {
   readonly threadId: ThreadId;
+  /** False when the durable read completed but the requested thread was absent. */
+  readonly threadFound?: boolean;
   getSnapshot(): AgentThreadState;
   release(): void;
   /** Alias for hosts whose lifecycle primitive uses disposable resources. */
@@ -322,11 +324,20 @@ export interface AgentKitController {
     messageId: string,
     context?: AgentRequestContext,
   ): Promise<void>;
+  moveQueuedMessageToTop?(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void>;
+  supportsQueuedMessageReordering?(): boolean;
   submitFeedback(
     threadId: ThreadId,
     messageId: string,
     value: "positive" | "negative" | "dismissed",
-    options?: Pick<SubmitFeedbackInput, "reason" | "metadata">,
+    options?: Pick<
+      SubmitFeedbackInput,
+      "metadata" | "messageSeq" | "reason" | "runId"
+    >,
     context?: AgentRequestContext,
   ): Promise<void>;
   forkThread(
@@ -524,6 +535,7 @@ export class AgentKitClient implements AgentKitController {
     AbortController
   >();
   private readonly threadLoads = new Map<ThreadId, Promise<AgentThreadState>>();
+  private readonly missingThreadStates = new WeakSet<AgentThreadState>();
   private readonly threadLeaseCounts = new Map<ThreadId, number>();
   private readonly queuedMessageOverrides = new Map<
     ThreadId,
@@ -652,10 +664,11 @@ export class AgentKitClient implements AgentKitController {
       this.releaseThreadLease(threadId);
     };
     try {
-      await this.loadThread(threadId, context);
+      const state = await this.loadThread(threadId, context);
       this.assertActive();
       return {
         threadId,
+        threadFound: !this.missingThreadStates.has(state),
         getSnapshot: () => this.getThread(threadId),
         release,
         dispose: release,
@@ -788,12 +801,11 @@ export class AgentKitClient implements AgentKitController {
           !this.isTerminalStatus(hydratedRuns[runId]?.status ?? "running"),
       );
       let thread: AgentThreadState;
+      let threadMissing = false;
       if (snapshot) {
         thread = this.hydrateThread(snapshot, hydratedRuns, activeRunIds);
       } else if (getThreadSnapshot) {
-        // A null durable snapshot is an authoritative missing thread, which is
-        // also the expected initial state for a client-generated new-chat id.
-        // Only transports without snapshot support need the legacy split reads.
+        threadMissing = true;
         thread = createAgentThreadState(threadId);
       } else {
         const listQueuedMessages = this.transport.listQueuedMessages;
@@ -811,6 +823,7 @@ export class AgentKitClient implements AgentKitController {
             : Promise.resolve(undefined),
         ]);
         this.assertActive();
+        threadMissing = loadedThread === null;
         thread = {
           ...createAgentThreadState(threadId),
           thread: loadedThread === null ? undefined : loadedThread,
@@ -832,6 +845,7 @@ export class AgentKitClient implements AgentKitController {
         thread = this.mergeLoadedThread(baseline, current, thread);
       }
       thread = this.settleTerminalThread(thread, snapshot);
+      if (threadMissing) this.missingThreadStates.add(thread);
       this.setThread(threadId, thread);
       this.setConnection("connected");
       for (const runId of thread.activeRunIds) {
@@ -1356,6 +1370,88 @@ export class AgentKitClient implements AgentKitController {
     });
   }
 
+  public supportsQueuedMessageReordering(): boolean {
+    return typeof this.transport.moveQueuedMessageToTop === "function";
+  }
+
+  public async moveQueuedMessageToTop(
+    threadId: ThreadId,
+    messageId: string,
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    this.assertActive();
+    const requestContext = this.createRequestContext(context);
+    await this.requireCapability("messageQueue", requestContext);
+    const moveQueuedMessageToTop = this.transport.moveQueuedMessageToTop;
+    if (!moveQueuedMessageToTop) {
+      throw new AgentKitOperationError("queue reordering");
+    }
+    return this.enqueueQueueMutation(threadId, async () => {
+      this.assertActive();
+      const previous = this.getThread(threadId);
+      const index = previous.queuedMessages.findIndex(
+        (message) => message.id === messageId,
+      );
+      if (index < 0) throw new Error(`Unknown queued message: ${messageId}`);
+      if (index === 0) return;
+
+      const queued = previous.queuedMessages[index]!;
+      const queuedMessages = [
+        queued,
+        ...previous.queuedMessages.filter(
+          (message) => message.id !== messageId,
+        ),
+      ];
+      const previousOverride = this.queuedMessageOverrides.get(threadId);
+      const removedIds = new Set(previousOverride?.removedIds);
+      this.setThread(threadId, { ...previous, queuedMessages });
+      this.queuedMessageOverrides.set(threadId, {
+        messages: queuedMessages,
+        removedIds,
+      });
+
+      try {
+        await this.invokeRequest(requestContext, (request) =>
+          moveQueuedMessageToTop({ threadId, messageId }, request),
+        );
+        this.assertActive();
+      } catch (error) {
+        if (this.disposed) throw error;
+        const current = this.getThread(threadId);
+        const previousOrder = new Map(
+          previous.queuedMessages.map((message, itemIndex) => [
+            message.id,
+            itemIndex,
+          ]),
+        );
+        const restoredQueue = current.queuedMessages
+          .map((message, itemIndex) => ({ message, itemIndex }))
+          .sort((left, right) => {
+            const leftIndex = previousOrder.get(left.message.id);
+            const rightIndex = previousOrder.get(right.message.id);
+            if (leftIndex === undefined) {
+              return rightIndex === undefined
+                ? left.itemIndex - right.itemIndex
+                : 1;
+            }
+            if (rightIndex === undefined) return -1;
+            return leftIndex - rightIndex;
+          })
+          .map(({ message }) => message);
+        this.setThread(threadId, {
+          ...current,
+          queuedMessages: restoredQueue,
+        });
+        if (previousOverride) {
+          this.queuedMessageOverrides.set(threadId, previousOverride);
+        } else {
+          this.queuedMessageOverrides.delete(threadId);
+        }
+        throw error;
+      }
+    });
+  }
+
   public async steerQueuedMessage(
     threadId: ThreadId,
     messageId: string,
@@ -1499,7 +1595,10 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messageId: string,
     value: "positive" | "negative" | "dismissed",
-    options?: Pick<SubmitFeedbackInput, "reason" | "metadata">,
+    options?: Pick<
+      SubmitFeedbackInput,
+      "metadata" | "messageSeq" | "reason" | "runId"
+    >,
     context?: AgentRequestContext,
   ): Promise<void> {
     this.assertActive();

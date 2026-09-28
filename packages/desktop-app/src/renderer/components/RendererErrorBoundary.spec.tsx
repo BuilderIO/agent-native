@@ -23,8 +23,6 @@ describe("RendererErrorBoundary", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     captureException.mockClear();
-    // React logs the caught error to console.error itself; silence that noise
-    // without hiding an assertion failure from this test's own expectations.
     consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     container = document.createElement("div");
     document.body.appendChild(container);

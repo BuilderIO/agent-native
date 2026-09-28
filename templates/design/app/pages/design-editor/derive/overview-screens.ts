@@ -38,11 +38,6 @@ export interface DeriveOverviewScreensArgs {
   files: DesignFile[];
   activeBreakpointWidthState: number | undefined;
   breakpointFramesHidden: boolean;
-  /**
-   * Heights pinned in this session but not yet round-tripped through
-   * `designs.data`. Without them the content-fit pass regrows a screen the
-   * user just sized.
-   */
   locallyPinnedHeightIds: ReadonlySet<string>;
 }
 
@@ -57,9 +52,6 @@ export function deriveOverviewScreens({
     designDataJson,
     "screenMetadata",
   );
-  // §6.4 — breakpoint set stored in designs.data.breakpointSet as a
-  // BreakpointSet { id, breakpoints: BreakpointDefinition[] }.
-  // Each BreakpointDefinition has { id, label, widthPx, prefix }.
   const breakpointSet = (() => {
     try {
       const raw = (designDataJson as Record<string, unknown>)?.breakpointSet;
@@ -92,9 +84,6 @@ export function deriveOverviewScreens({
       ? breakpointSet.breakpoints.map((bp) => bp.widthPx)
       : undefined;
 
-  // Exclude the board file — it is rendered by its own DesignCanvas instance
-  // in MultiScreenCanvas and must not appear as a screen frame.  Support files
-  // such as CSS are editable files, not visual screens.
   const overviewFiles = files.filter(isOverviewScreenFile);
   return overviewFiles.map((file) => {
     const metadata = getDesignDataRecord(metadataByFileId, file.id);
@@ -144,8 +133,6 @@ export function deriveOverviewScreens({
       width: numberValue("width"),
       height: numberValue("height"),
       breakpointHeights,
-      // Without this the pin never reaches the canvas and the content-fit
-      // pass grows a deliberately-sized screen straight back.
       heightPinned:
         heightMode === "fixed" || locallyPinnedHeightIds.has(file.id),
       heightMode,
@@ -153,11 +140,7 @@ export function deriveOverviewScreens({
       previewUrl: stringValue("previewUrl"),
       bridgeUrl: stringValue("bridgeUrl"),
       previewToken: stringValue("previewToken"),
-      // Breakpoint preview widths (§6.4). When non-empty, MultiScreenCanvas
-      // renders one iframe per width to the right of the primary frame.
       breakpointWidths: bpWidths,
-      // Active breakpoint width tracked in component state; shared across all
-      // screens (a design has one active breakpoint set at a time in v1).
       activeBreakpointWidth: bpWidths?.includes(
         activeBreakpointWidthState ?? -1,
       )
@@ -179,13 +162,6 @@ function sameFieldValue(a: unknown, b: unknown): boolean {
   );
 }
 
-/**
- * Hands back the previous screen object wherever the rebuilt one is
- * field-for-field equal (one level deep for breakpoint arrays and records),
- * and the previous array when nothing changed. The canvas memoizes frames and
- * live editors on screen identity, so a fresh object per screen on every data
- * change re-renders the whole board.
- */
 export function reuseUnchangedOverviewScreens<T extends { id: string }>(
   previous: readonly T[],
   next: T[],

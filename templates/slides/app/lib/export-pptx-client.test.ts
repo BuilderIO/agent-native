@@ -77,7 +77,6 @@ function setRenderedSlide(html = "Editable title") {
   return slideCanvas;
 }
 
-/** `setRenderedSlide` wraps its argument in an <h1>; imported-slide markup needs to sit directly on the canvas. */
 function setSlideMarkup(markup: string) {
   document.body.innerHTML = `<div data-slide-canvas="slide-1" data-test-rect="0,0,960,540" style="width: 960px; height: 540px;">${markup}</div>`;
   const slideCanvas = document.querySelector<HTMLElement>(
@@ -104,12 +103,6 @@ function setPendingImage() {
   return image;
 }
 
-/**
- * happy-dom has no layout, so every getBoundingClientRect is 0x0 and the
- * geometry passes under test never see an element. Give the fixture a fake
- * layout: `data-test-rect="x,y,w,h"`, read identically on the source DOM and
- * on the export clone (which is a deep copy, i.e. already in place).
- */
 function stubRectsFromDataAttr() {
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
@@ -262,12 +255,6 @@ describe("exportDeckAsPptx", () => {
   });
 
   it("keeps a single-line imported paragraph whitespace-preserving instead of collapsing it to nowrap", async () => {
-    // dom-to-pptx extracts one text run per inline node and trims each one
-    // under a collapsing white-space mode, so the space that only exists at
-    // the boundary between two <span> runs ("IMAGE " + "COMPOSITION") is the
-    // thing that disappears. `pre` stops wrapping without collapsing.
-    // Measured on creative-circus slide 8: exported runs were
-    // ["IMAGE","COMPOSITION"], now ["IMAGE ","COMPOSITION"].
     stubRectsFromDataAttr();
     setSlideMarkup(
       '<p data-pptx-paragraph="0" data-test-rect="0,0,300,24" style="white-space:pre-wrap;line-height:24px;">' +
@@ -283,17 +270,12 @@ describe("exportDeckAsPptx", () => {
       target.querySelector<HTMLElement>("p[data-pptx-paragraph]")?.style
         .whiteSpace,
     ).toBe("pre");
-    // Markup that never preserved whitespace keeps the plain no-wrap flag.
     expect(target.querySelector<HTMLElement>("h1")?.style.whiteSpace).toBe(
       "nowrap",
     );
   });
 
   it("does not re-anchor a cropped image to slide coordinates inside its own positioned wrapper", async () => {
-    // A cropped imported image is position:absolute inside the equally
-    // absolute .fmd-pptx-image wrapper. Writing the slide-space left/top onto
-    // it added the wrapper's offset a second time: superteam slide 32 tiles
-    // measured at x=313.8/406.1 exported at 627.6/812.1, off the canvas.
     stubRectsFromDataAttr();
     setSlideMarkup(
       '<div class="fmd-pptx-image" data-slide-object-id="373" data-test-rect="313.801,142.444,150,150" ' +
@@ -315,11 +297,6 @@ describe("exportDeckAsPptx", () => {
   });
 
   it("sizes a rotated freeform from its own box, not its rotated bounding box", async () => {
-    // infog1 slide 5: each ring-segment arrow is a 405.164px square at
-    // rotate(-137.6deg), whose axis-aligned bounding box measures 572.4px.
-    // getBoundingClientRect reports that box, and the rotation is carried onto
-    // the <img>, so measuring it here applied the angle twice and shipped the
-    // arrows 1.41x oversized — one of them over the slide title.
     stubRectsFromDataAttr();
     setSlideMarkup(
       '<svg data-test-rect="195.9,19.5,572.4,572.4" viewBox="0 0 405.164 405.164" ' +
@@ -336,17 +313,10 @@ describe("exportDeckAsPptx", () => {
     expect(exported?.style.width).toBe("405.164px");
     expect(exported?.style.height).toBe("405.164px");
     expect(exported?.style.transform).toBe("rotate(-137.59755deg)");
-    // ...and the angle stays out of the bitmap it is applied to. Serializing
-    // it into the standalone SVG rotated the drawing inside its own viewport
-    // instead: measured on that arrow, 0 painted pixels of 16,313.
     expect(decodeURIComponent(exported?.src ?? "")).not.toContain("rotate(");
   });
 
   it("bakes an overflow-hidden crop into the exported bitmap", async () => {
-    // soze slide 2: a PPTX srcRect crop is a 521.6x347.6px <img> hanging out
-    // of a 192.9x192.1px overflow-hidden wrapper. dom-to-pptx exports the
-    // image's own box and never sees the clip, so the portrait shipped at
-    // 2.7x, covering the body text.
     stubRectsFromDataAttr();
     const drawImage = vi.fn();
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
@@ -361,8 +331,6 @@ describe("exportDeckAsPptx", () => {
         '<img alt="" src="/portrait.png" data-test-rect="445,192,521.6,347.6" ' +
         'style="position:absolute;left:-167.7px;top:0px;width:521.6px;height:347.6px;" /></div>',
     );
-    // The export clone carries its own <img>, so the decoded state has to be
-    // on the prototype rather than on the source element.
     vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
       true,
     );
@@ -384,24 +352,18 @@ describe("exportDeckAsPptx", () => {
     expect(exported?.style.width).toBe("192.9px");
     expect(exported?.style.height).toBe("192.1px");
     expect(exported?.src).toContain("Q1JPUA==");
-    // Source window in natural pixels: the wrapper starts 167.7px into the
-    // image, at 10 natural px per CSS px.
     const [source, sx, sy, sw, sh] = drawImage.mock.calls[0];
     expect(source).toBe(exported);
     expect(sx).toBeCloseTo(1677, 3);
     expect(sy).toBeCloseTo(0, 3);
     expect(sw).toBe(1929);
     expect(sh).toBe(1921);
-    // ...and the shrunk image lands on the wrapper it used to overflow.
     expect(Number.parseFloat(exported?.style.left ?? "")).toBeCloseTo(0, 3);
   });
 });
 
 describe("pptxExportScale", () => {
   it("matches dom-to-pptx's own fit-to-slide scale for a 16:9 deck", () => {
-    // 960x540 px canvas into a 13.33x7.5in slide: dom-to-pptx's own
-    // `processSlide` computes this same ~1.333 factor and applies it to
-    // every measurement it takes, including bullet indents.
     const scale = pptxExportScale({
       width: 960,
       height: 540,
@@ -443,10 +405,6 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.runAllTimersAsync();
-    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
-    // bullet indents, notes), and JSZip schedules its own work on real timers.
-    // The image wait is what these tests drive with fake ones, so hand the
-    // clock back before awaiting the file itself.
     vi.useRealTimers();
 
     expect(await settled).toBe(true);
@@ -483,10 +441,6 @@ describe("waitForImagesToSettle", () => {
     ]);
 
     await vi.advanceTimersByTimeAsync(0);
-    // The export finishes with a JSZip round-trip (wrap/autofit pinning,
-    // bullet indents, notes), and JSZip schedules its own work on real timers.
-    // The image wait is what these tests drive with fake ones, so hand the
-    // clock back before awaiting the file itself.
     vi.useRealTimers();
 
     expect(await settled).toBe(true);
@@ -512,7 +466,6 @@ describe("waitForImagesToSettle", () => {
       (type, listener, options) => {
         nativeAddEventListener(type, listener, options);
         if (type === "error") {
-          // The browser marks `complete = true` even after a failed load.
           Object.defineProperties(image, {
             complete: { configurable: true, value: true },
             naturalWidth: { configurable: true, value: 0 },
@@ -556,7 +509,6 @@ describe("addSpeakerNotesToPptxBlob", () => {
     expect(slideRels).toContain("relationships/notesSlide");
     expect(slideRels).toContain("../notesSlides/notesSlide1.xml");
     expect(presentationXml).toContain("<p:notesMasterIdLst>");
-    // 16:9 (13.33x7.5in) slide -> portrait notes page, cx/cy swapped.
     expect(presentationXml).toContain(
       '<p:notesSz cx="6858000" cy="12188952"/>',
     );
@@ -623,8 +575,6 @@ describe("materializeClipPathShapes", () => {
 
     materializeClipPathShapes(root);
 
-    // The clipped div is replaced, not wrapped: leaving it behind ships the
-    // rectangle underneath the silhouette.
     expect(root.querySelector("div")).toBeNull();
     const svg = root.querySelector("svg");
     expect(svg?.getAttribute("viewBox")).toBe("0 0 192 108");
@@ -698,8 +648,6 @@ describe("gradientPaint", () => {
 
     materializeClipPathShapes(root);
 
-    // canyon's master draws 20 gradFill freeforms behind every slide; filling
-    // them from `background-color` made each one a fully transparent PNG.
     const fill = root.querySelector("svg > path")?.getAttribute("fill");
     expect(fill).toMatch(/^url\(#/);
     const stops = root.querySelectorAll("svg > defs > linearGradient > stop");
@@ -721,7 +669,6 @@ describe("gradientPaint", () => {
     expect(toRight?.getAttribute("y1")).toBe("50");
     expect(toRight?.getAttribute("y2")).toBe("50");
 
-    // No direction: CSS defaults to `to bottom`, and the stops spread evenly.
     const implicit = gradientPaint(
       "linear-gradient(rgb(1, 2, 3), rgb(4, 5, 6), rgb(7, 8, 9))",
       200,
@@ -739,9 +686,6 @@ describe("gradientPaint", () => {
 
   it("paints canyon slide 13's freeform, which shipped as a blank PNG", () => {
     const element = document.createElement("div");
-    // Copied from the imported deck: this shape's only paint is the gradient,
-    // so filling the traced outline from `background-color` produced a fully
-    // transparent 384x332 bitmap that the export reported as rendered.
     element.setAttribute(
       "style",
       "position: absolute; left: 3.631px; top: 133.58px; width: 191.887px; height: 166.037px; transform: rotate(145.47675deg);background: radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%);clip-path: path('m143.6 14c-31.1-18.5-79.3-16.9-103-5.4-23.8 11.5-45.5 37.2-39.6 74.4 5.8 37.2 39.5 76.8 57.5 82 18 5.2 36.2-8.6 50.4-50.9 14.1-42.3 76.3 6.2 82.1-10.5 5.8-16.7-16.4-71-47.4-89.6z');",
@@ -760,8 +704,6 @@ describe("gradientPaint", () => {
   });
 
   it("sizes a radial to its farthest corner and keeps its stop alpha", () => {
-    // canyon slide 13, shape 1: a 191.887x166.037 freeform whose only paint is
-    // this gradient, which is why it rasterized to a fully transparent PNG.
     const gradient = gradientPaint(
       "radial-gradient(circle at 0% 0%, #038DAF2d 0%, #038DAF2d 17%, #57308B38 62%, #57308B38 100%)",
       192,
@@ -877,13 +819,6 @@ describe("blank shape rasters", () => {
   });
 });
 
-/**
- * Google Slides has no text-wrap property in its shape model, so it drops
- * `wrap="none"` on import and rewraps the text at whatever width the box
- * states — a width Chrome measured for one unbroken line. It *does* honour
- * `spAutoFit`, so the shape then grows downward over its neighbours. That pair
- * is what turned Oliver's deck into overlapping text one import later.
- */
 describe("pinTextBoxesForImport", () => {
   it("replaces every wrap=none with wrap=square", () => {
     const xml = pinTextBoxesInXml(
@@ -911,13 +846,6 @@ describe("pinTextBoxesForImport", () => {
   });
 });
 
-/**
- * dom-to-pptx resolves fonts by walking document.styleSheets, and a
- * cross-origin sheet throws SecurityError, which it swallows. Every deck font
- * that arrives through the design system's Google Fonts <link> is invisible to
- * it, so it shipped 700KB of the app's self-hosted Poppins for a deck set in
- * Geist. We resolve the families ourselves instead.
- */
 describe("usedFontFamilies", () => {
   it("orders families by how much text each one sets, so the theme font is the deck's own", () => {
     const root = document.createElement("div");
@@ -944,9 +872,6 @@ describe("usedFontFamilies", () => {
   });
 
   it("does not let a <style> block's CSS outweigh the deck's visible text", () => {
-    // Slide HTML is allowed to carry a stylesheet, and its source is a direct
-    // text node that inherits the slide's family. Counting it could pick the
-    // theme font off CSS nobody reads.
     const root = document.createElement("div");
     root.innerHTML =
       `<style style="font-family: Poppins">${"/*x*/".repeat(400)}</style>` +
@@ -985,7 +910,6 @@ describe("retypeThemeFonts", () => {
     );
     expect(xml).not.toContain("Calibri");
     expect(xml.match(/typeface="Geist"/g)).toHaveLength(2);
-    // The rest of the element survives — this is a retype, not a rewrite.
     expect(xml).toContain('panose="020F0302"');
   });
 
@@ -1006,9 +930,6 @@ describe("retypeThemeFonts", () => {
 describe("pinRenderedFontFamilies", () => {
   it("is a no-op in happy-dom, where the canvas probe cannot distinguish fonts", () => {
     const root = document.createElement("div");
-    // A generic family the function would otherwise retype to a concrete face
-    // (see GENERIC_EXPORT_FACES) — a meaningful no-op check, not just an
-    // absence of a crash.
     root.innerHTML = '<p style="font-family: sans-serif;">Some text</p>';
     document.body.appendChild(root);
     const paragraph = root.querySelector("p")!;
@@ -1020,11 +941,6 @@ describe("pinRenderedFontFamilies", () => {
   });
 });
 
-/**
- * happy-dom lays out nothing, so `Range.getClientRects()` always answers
- * empty — every stubbed test below fakes layout by keying the rect's `top` off
- * which text node (and offset) the walk is currently ranging over.
- */
 describe("markWrappedLines", () => {
   it("inserts a wrap mark immediately before the text that starts a new line", () => {
     document.body.innerHTML = "<div><p>alpha beta gamma</p></div>";

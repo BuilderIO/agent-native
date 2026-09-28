@@ -294,7 +294,6 @@ function receiptBelongsToRequest(receipt: UploadReceipt): boolean {
   );
 }
 
-/** Commit every image receipt for a completed browser import batch. */
 export async function commitUploadReceiptsForImport(
   importId: string,
 ): Promise<void> {
@@ -502,10 +501,6 @@ async function fetchRemote(url: string): Promise<{
     throw new Error("url must use http(s)");
   }
 
-  // SSRF guard: this URL is agent/user-controlled and the fetched bytes are
-  // re-hosted and returned, so an unguarded fetch is a full-read SSRF (cloud
-  // metadata, localhost, internal services). ssrfSafeFetch blocks private
-  // targets, re-checks at connect time, and re-validates every redirect hop.
   const response = await ssrfSafeFetch(url, {}, { maxRedirects: 3 });
   if (!response.ok) {
     throw new Error(
@@ -517,8 +512,6 @@ async function fetchRemote(url: string): Promise<{
     contentType.split(";")[0].trim().toLowerCase() ||
     "application/octet-stream";
 
-  // Reject up front when the server advertises a size over the cap so we never
-  // allocate the body at all.
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > MAX_REMOTE_FETCH_BYTES) {
     throw new Error(
@@ -528,8 +521,6 @@ async function fetchRemote(url: string): Promise<{
 
   const reader = response.body?.getReader?.();
   if (!reader) {
-    // Runtimes (or test mocks) without a readable body stream: fall back to a
-    // full read, still enforcing the cap before returning.
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > MAX_REMOTE_FETCH_BYTES) {
       throw new Error(
@@ -539,8 +530,6 @@ async function fetchRemote(url: string): Promise<{
     return { bytes: new Uint8Array(buffer), mimeType };
   }
 
-  // Stream the body and abort the moment the accumulated size exceeds the cap,
-  // so an unbounded or mislabeled response can never be fully buffered.
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
@@ -568,8 +557,8 @@ async function fetchRemote(url: string): Promise<{
 
 function uploadNotConfiguredError(): string {
   return [
-    "Image uploads are not configured for this app.",
-    "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
+    "No object storage is connected.",
+    "Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
   ].join(" ");
 }
 
@@ -577,8 +566,7 @@ export default defineAction({
   description:
     "Upload an image to the configured file-upload provider (Builder.io by default) and return a hosted CDN URL. " +
     "Use this to turn a base64 data URL, a chat-attached image, or a transient remote URL into a stable URL that " +
-    'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Falls back to a clear ' +
-    "'connect Builder.io' message when no provider is configured.",
+    'can be embedded in <img src="...">, slide HTML, documents, or shared with other apps. Returns storage setup guidance when no provider is configured.',
   schema: z
     .object({
       data: z
@@ -672,7 +660,6 @@ export default defineAction({
         return {
           error: uploadNotConfiguredError(),
           configured: false,
-          connectPath: "/_agent-native/builder/connect",
         };
       }
 

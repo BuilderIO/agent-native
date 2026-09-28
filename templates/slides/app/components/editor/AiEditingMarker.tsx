@@ -3,7 +3,6 @@ import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 
 import { cn } from "@/lib/utils";
 
-/** The single compact marker used for every AI-editing state in Slides. */
 export function AiEditingMarker({ className }: { className?: string }) {
   const t = useT();
   const label = t("raw.aiEditing");

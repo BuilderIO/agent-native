@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { UploadStorageGate } from "@/components/editor/UploadStorageGate";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +18,6 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
@@ -86,30 +84,29 @@ export function ImportDeckButton({
   }, [fileStorageConfigured, popover]);
   return (
     <Popover
-      open={popover !== null}
+      open={popover !== null && popover !== "storage"}
       onOpenChange={(open) => !open && !busy && setPopover(null)}
     >
       <PopoverAnchor asChild>
-        <ButtonGroup aria-label={t("home.importMenu.import")}>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            aria-busy={busy}
-            onClick={() => openPicker()}
-          >
-            <IconUpload />
-            {t(busy ? "editorToolbar.importing" : "home.importMenu.import")}
-          </Button>
+        <div className="inline-flex">
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 ref={menuTrigger}
                 type="button"
-                size="sm"
+                size="icon-sm"
                 disabled={busy}
-                aria-label={t("home.importMenu.options")}
+                aria-busy={busy}
+                aria-label={t(
+                  busy ? "editorToolbar.importing" : "home.importMenu.import",
+                )}
               >
+                <IconUpload />
+                <span className="slides-home-import-label">
+                  {t(
+                    busy ? "editorToolbar.importing" : "home.importMenu.import",
+                  )}
+                </span>
                 <IconChevronDown />
               </Button>
             </DropdownMenuTrigger>
@@ -140,7 +137,7 @@ export function ImportDeckButton({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-        </ButtonGroup>
+        </div>
       </PopoverAnchor>
       <input
         ref={input}
@@ -153,6 +150,7 @@ export function ImportDeckButton({
       />
       <PopoverContent
         align="end"
+        className="w-[min(28rem,calc(100vw-2rem))]"
         onOpenAutoFocus={(event) => {
           if (popover === "google") {
             event.preventDefault();
@@ -169,24 +167,7 @@ export function ImportDeckButton({
             : "home.importMenu.import",
         )}
       >
-        {popover === "storage" ? (
-          storageQuery.isLoading ? (
-            <div
-              className="grid gap-3"
-              aria-label={t("home.importMenu.import")}
-            >
-              <Skeleton className="h-5 w-2/3" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : (
-            <UploadStorageGate
-              configured={fileStorageConfigured}
-              unavailable={!storageQuery.isSuccess}
-              onRetry={() => void storageQuery.refetch()}
-            />
-          )
-        ) : popover === "google" ? (
+        {popover === "google" ? (
           <form
             className="grid gap-3"
             onSubmit={(event) => {
@@ -242,6 +223,13 @@ export function ImportDeckButton({
           </div>
         )}
       </PopoverContent>
+      <UploadStorageGate
+        configured={fileStorageConfigured}
+        unavailable={!storageQuery.isSuccess}
+        open={popover === "storage"}
+        onOpenChange={(open) => !open && setPopover(null)}
+        onRetry={() => void storageQuery.refetch()}
+      />
     </Popover>
   );
 }

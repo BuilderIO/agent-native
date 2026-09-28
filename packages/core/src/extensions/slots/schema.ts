@@ -1,22 +1,3 @@
-/**
- * Drizzle schema for the extension-points slot system.
- *
- * Two tables:
- *
- * - `extension_slots`     — declarations: "extension X can render in slot Y".
- *                           Authored once per extension, regardless of installer.
- *                           Physical SQL name stays `tool_slots` (additive-only).
- * - `extension_slot_installs` — per-user installs: "user U wants extension X in
- *                               slot Y at position N". Always scoped by
- *                               owner_email. Physical SQL name stays
- *                               `tool_slot_installs`.
- *
- * Neither table spreads `ownableColumns()` — they're not first-class shareable
- * resources. Access to the underlying extension flows through the existing
- * `extensions` table sharing model; install rows are personal preferences
- * scoped to the installing user.
- */
-
 import { table, text, integer, now } from "../../db/schema.js";
 
 export const extensionSlots = table("tool_slots", {

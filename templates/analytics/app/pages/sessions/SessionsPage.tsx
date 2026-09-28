@@ -184,15 +184,6 @@ export function shouldShowZeroMinuteRecoveryAction(
   );
 }
 
-/**
- * Local input state for a URL-backed filter, debounced into the URL.
- *
- * `urlValue` only resyncs local state when it changes for a reason other
- * than this hook's own debounced write (back/forward navigation, an agent
- * driven URL change, etc). React Router commits `setSearchParams` inside a
- * transition, so without this guard the echo of our own write can land
- * after a newer keystroke and clobber it.
- */
 export function useDebouncedUrlFilter(
   urlValue: string,
   onCommit: (value: string) => void,
@@ -322,7 +313,7 @@ export default function SessionsPage() {
                 value={queryInput}
                 onChange={(event) => setQueryInput(event.target.value)}
                 placeholder={t("sessions.searchPlaceholder")}
-                className="h-9 ps-9"
+                className="ps-9"
               />
             </div>
             <Popover>
@@ -334,7 +325,7 @@ export default function SessionsPage() {
                       variant="outline"
                       size="icon"
                       className={cn(
-                        "h-9 w-9 shrink-0",
+                        "shrink-0",
                         popoverFiltered &&
                           "border border-primary/40 text-primary",
                       )}
@@ -361,10 +352,7 @@ export default function SessionsPage() {
                       value={range}
                       onValueChange={(value) => updateFilter("range", value)}
                     >
-                      <SelectTrigger
-                        className="h-9"
-                        aria-label={t("sessions.range")}
-                      >
+                      <SelectTrigger aria-label={t("sessions.range")}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -396,7 +384,6 @@ export default function SessionsPage() {
                       value={appInput}
                       onChange={(event) => setAppInput(event.target.value)}
                       placeholder={t("sessions.appPlaceholder")}
-                      className="h-9"
                     />
                   </div>
                   <div className="grid gap-1.5">
@@ -414,7 +401,6 @@ export default function SessionsPage() {
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9"
               onClick={() => {
                 void refetch();
                 if (shouldCheckForHiddenSessions) {

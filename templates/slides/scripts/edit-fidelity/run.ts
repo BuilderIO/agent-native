@@ -30,6 +30,7 @@ import {
   installInPageHelpers,
   MASK_CSS,
   type EditorState,
+  type KeepaliveWrite,
   type Rect,
   type Snapshot,
   type TextTarget,
@@ -39,12 +40,18 @@ import {
   diffSnapshots,
   findBaselineProblems,
   hardFailures,
+  isDraftRevert,
   isSplicedOnce,
+  keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
   padRect,
   ratchetBaselineEntry,
+  resized,
   restyledAddedText,
+  slideContentsOf,
+  stripSpace,
+  visibleTextOf,
   type BaselineEntry,
   type PixelDiff,
   type ScenarioMetrics,
@@ -378,6 +385,8 @@ async function settle(page: Page) {
     // paints the fallback). Bounded: an offline stylesheet never loads.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // Imported-font stylesheets are appended by a passive effect after render.
+    await frame();
     for (let i = 0; i < 20; i++) {
       await document.fonts.ready;
       await frame();
@@ -472,7 +481,7 @@ async function enterEdit(
   page: Page,
   slideId: string,
   point: { x: number; y: number },
-  violations?: string[],
+  violations: string[],
 ) {
   const editing = async () => (await editorState(page, slideId)).editing;
   const gestures: Array<[string, () => Promise<void>]> = [
@@ -491,7 +500,7 @@ async function enterEdit(
       [point, name] as const,
     );
     if (entry)
-      violations?.push(
+      violations.push(
         `entering edit put the caret away from the click (${entry})`,
       );
     // A double-click enters edit with its word selected, and typing would
@@ -536,7 +545,7 @@ async function settleSaved(
   deckId: string,
   slideId: string,
   writesInFlight: () => number,
-  minimumObservationMs = 2500,
+  minimumObservationMs = 2_500,
 ) {
   const start = Date.now();
   let last = await getSlideContent(page, deckId, slideId);
@@ -596,7 +605,7 @@ async function takeWriteStacks(page: Page): Promise<string[]> {
   return page.evaluate(() => window.__editFidelity.takeWriteStacks());
 }
 
-async function takeKeepaliveWrites(page: Page): Promise<number> {
+async function takeKeepaliveWrites(page: Page): Promise<KeepaliveWrite[]> {
   return page.evaluate(() => window.__editFidelity.takeKeepaliveWrites());
 }
 
@@ -650,11 +659,10 @@ interface WriteDetail {
 
 function describeWrite(
   action: string,
-  request: any,
+  body: any,
   stored: string,
   phase: WriteDetail["phase"],
 ): WriteDetail {
-  const body = JSON.parse(request.postData() ?? "{}");
   const slide = (slideId: string, fields: Record<string, unknown>) => ({
     slideId,
     fields: Object.keys(fields).sort(),
@@ -672,8 +680,6 @@ function describeWrite(
   return { action, phase, slides };
 }
 
-const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
-
 /**
  * The edited element's byte range in the stored source, found the way the
  * in-page helpers find it: by tag, text and occurrence. Text inside elements
@@ -683,19 +689,12 @@ function sourceRangeOf(
   stored: string,
   target: { tag: string; text: string; occurrence: number },
 ): { start: number; end: number } | null {
-  const hidden = new Set(["style", "script", "svg", "template", "math"]);
-  const textOf = (node: P5.Node): string =>
-    node.nodeName === "#text"
-      ? (node as P5.TextNode).value
-      : "childNodes" in node && !hidden.has((node as P5.Element).tagName ?? "")
-        ? (node as P5.ParentNode).childNodes.map(textOf).join("")
-        : "";
   const want = stripSpace(target.text);
   const matches: P5.Element[] = [];
   const visit = (parent: P5.ParentNode) => {
     for (const child of parent.childNodes) {
       if (!("tagName" in child)) continue;
-      const have = stripSpace(textOf(child));
+      const have = stripSpace(visibleTextOf(child));
       if (
         child.tagName === target.tag.toLowerCase() &&
         child.sourceCodeLocation?.startTag &&
@@ -780,6 +779,8 @@ interface ScenarioResult {
   /** Content-writing requests the editor sent, from entering edit to the end. */
   writes?: string[];
   writeDetails?: WriteDetail[];
+  /** Net no-op phases whose two writes were the editor's draft then revert. */
+  draftReverts?: Array<WriteDetail["phase"]>;
   /** Client call stacks of those writes, from the in-page fetch hook. */
   writeStacks?: string[];
   enterSteps?: EnterStep[];
@@ -821,12 +822,6 @@ function summarizeStyle(d: StyleDiff): StyleSummary {
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
-
-/** Unknown rects count as unchanged, so the strict check still runs. */
-const resized = (a: Rect | null, b: Rect | null) =>
-  !!a &&
-  !!b &&
-  (Math.abs(a.width - b.width) > 1 || Math.abs(a.height - b.height) > 1);
 
 interface SlideCtx {
   page: Page;
@@ -872,6 +867,8 @@ async function runScenario(
     writeFileSync(path.join(dir, file), data);
   const writes: string[] = [];
   const writeDetails: WriteDetail[] = [];
+  /** Per write, its action and parsed body. */
+  const writeBodies: Array<{ action: string; body: any }> = [];
   let countingWrites = false;
   let phase: WriteDetail["phase"] = "edit";
   const onRequest = (request: any) => {
@@ -879,8 +876,18 @@ async function runScenario(
     if (!countingWrites || (method !== "POST" && method !== "PUT")) return;
     const match = WRITE_ACTION.exec(request.url());
     if (!match) return;
+    const body = JSON.parse(request.postData() ?? "{}");
+    const contents = slideContentsOf(match[1], body, slideId);
     writes.push(match[1]);
-    writeDetails.push(describeWrite(match[1], request, ctx.stored, phase));
+    writeDetails.push(describeWrite(match[1], body, ctx.stored, phase));
+    writeBodies.push({ action: match[1], body });
+    contents.forEach((c, k) => {
+      if (c !== null && c !== ctx.stored)
+        write(
+          `write-${writes.length}${contents.length > 1 ? `-${k + 1}` : ""}.html`,
+          c,
+        );
+    });
     inFlight.add(request);
   };
   const inFlight = new Set<unknown>();
@@ -892,7 +899,19 @@ async function runScenario(
   try {
     await restoreSlide(page, deckId, slideId, ctx.stored);
     await openSlide(page, ctx.base, deckId, ctx.slideIndex, slideId);
-    await takeKeepaliveWrites(page);
+    // Leaving the previous page fires pagehide after restoreSlide, so a
+    // keepalive flush it sent can land after the restore and change the
+    // slide this scenario starts from.
+    const leftBehind = keepaliveMismatches(
+      await takeKeepaliveWrites(page),
+      slideId,
+      ctx.stored,
+    );
+    if (leftBehind.length) {
+      throw new Error(
+        `leaving the previous page sent ${leftBehind.length} keepalive write(s) that can overwrite the restored slide`,
+      );
+    }
     const current = (await listTargets(page, slideId))[target.index];
     if (!current || current.text !== target.text) {
       throw new Error(
@@ -985,7 +1004,9 @@ async function runScenario(
         // ancestor's, moves the text instead of the caret, and the element's
         // box can stay put. Relative to the top of the element's content, the
         // caret moves a full line per Enter (up when Enter removes an empty
-        // last bullet), and a caret left behind reads as unmoved.
+        // last bullet), and a caret left behind reads as unmoved. A list laid
+        // out as a grid puts the new row beside the old one, so a caret that
+        // moved into another block box has moved too.
         const lineOf = (s: EditorState) =>
           s.caretRect && s.contentTop !== null
             ? s.caretRect.y - s.contentTop
@@ -1000,7 +1021,8 @@ async function runScenario(
           caretMoved:
             from !== null &&
             to !== null &&
-            Math.abs(to - from) >= prev.caretRect!.height / 2,
+            (Math.abs(to - from) >= prev.caretRect!.height / 2 ||
+              prev.caretBlock !== state.caretBlock),
         };
         enterSteps.push(step);
         if (from === null || to === null) {
@@ -1053,26 +1075,33 @@ async function runScenario(
       ...(await checkExpectedStyles(page, slideId, ctx.expectStyles, "reload")),
     );
     // The reload fires pagehide, where Slides flushes pending saves with
-    // keepalive fetches that inFlight never sees; the in-page hook counts
-    // them. It, or a tracked write still in flight, may land well after the
-    // page reopens. Observe for a bounded window when one was sent because
-    // Playwright cannot report when the keepalive request finishes.
+    // keepalive fetches that inFlight never sees and that may land well after
+    // the page reopens, so their bodies are checked instead of waited for.
     const unloadWrites = await takeKeepaliveWrites(page);
+    const unloadMismatches = keepaliveMismatches(unloadWrites, slideId, saved);
+    if (unloadMismatches.length) {
+      unloadMismatches.forEach(
+        (c, i) => c !== null && write(`keepalive-${i + 1}.html`, c),
+      );
+      result.violations.push(
+        `a pagehide write carried different content than the edit saved (${unloadMismatches.length} slide content(s) across ${unloadWrites.length} keepalive write(s)${unloadMismatches.includes(null) ? ", some with no content to compare" : ""})`,
+      );
+    }
     const reloaded =
-      unloadWrites || inFlight.size
+      unloadWrites.length || inFlight.size
         ? await settleSaved(
             page,
             deckId,
             slideId,
             () => inFlight.size,
-            unloadWrites ? 15_000 : 2_500,
+            unloadWrites.length ? 15_000 : 2_500,
           )
         : await getSlideContent(page, deckId, slideId);
     if (reloaded !== saved && !ctx.openMutatesContent) {
       write("reloaded.html", reloaded);
       const hardAfter = hardFailures(saved, reloaded);
       result.violations.push(
-        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
+        `a write landed after the edit settled (stored content changed across the reload; ${unloadWrites.length} keepalive write(s) on unload${hardAfter.length ? `; ${hardAfter.join(", ")}` : ""})`,
       );
     }
 
@@ -1108,7 +1137,12 @@ async function runScenario(
         "after",
         view,
         after,
-        rects(target.rect, state0.sourceRect, snapAfter.editedRect),
+        rects(
+          target.rect,
+          state0.sourceRect,
+          snapView.editedRect,
+          snapAfter.editedRect,
+        ),
       ),
       reload: await pair(
         "reload",
@@ -1118,7 +1152,6 @@ async function runScenario(
       ),
       typed: await pair("typed", typedShot, after, []),
     };
-
     // ---- styles and inventory
     const styleEditing = diffSnapshots(snapView, snapEditing);
     const styleAfter = diffSnapshots(snapView, snapAfter);
@@ -1261,12 +1294,41 @@ async function runScenario(
     result.writeStacks = writeStacks;
     const v = result.violations;
     v.push(...styleProblems);
-    if (NET_NOOP.has(scenario) && writes.length)
-      v.push(
-        `${writes.length} content write(s) for a net no-op edit (${writes.join(", ")})`,
-      );
     const px = result.pixels;
     const netNoop = NET_NOOP.has(scenario);
+    if (netNoop) {
+      // Keys far enough apart let the product save the typed "x" as a draft
+      // and then revert it, per phase; any other write is churn.
+      const element = sourceRangeOf(ctx.stored, {
+        tag: state0.sourceTag ?? target.tag,
+        text: editedText,
+        occurrence: state0.sourceText
+          ? state0.sourceOccurrence
+          : target.occurrence,
+      });
+      const unexplained = (["edit", "rerun"] as const).flatMap((p) => {
+        const sent = writeDetails.flatMap((d, i) => (d.phase === p ? [i] : []));
+        if (
+          scenario !== "noop" &&
+          element &&
+          isDraftRevert(
+            ctx.stored,
+            element,
+            "x",
+            sent.map((i) => writeBodies[i]),
+            slideId,
+          )
+        ) {
+          (result.draftReverts ??= []).push(p);
+          return [];
+        }
+        return sent.map((i) => writes[i]);
+      });
+      if (unexplained.length)
+        v.push(
+          `${unexplained.length} content write(s) for a net no-op edit (${unexplained.join(", ")})`,
+        );
+    }
     if (px.editing.outside.pct > tol)
       v.push(
         `view->editing outside the edited element ${px.editing.outside.pct}% > ${tol}%`,
@@ -1277,7 +1339,10 @@ async function runScenario(
       );
     // Same page load, so no noise floor: a few px of overflowing text can be
     // an extra saved line.
-    if (px.typed.whole.diffPixels > 0)
+    if (
+      px.typed.whole.diffPixels > 0 &&
+      !resized(snapView.editedRect, snapAfter.editedRect)
+    )
       v.push(
         `typed->after ${px.typed.whole.diffPixels}px differ (leaving edit mode changed what the editor showed)`,
       );
@@ -1957,7 +2022,7 @@ async function warmUp(page: Page, base: string) {
   const deckId = String(created.id ?? created.deckId);
   await openSlide(page, base, deckId, 0, "warm-1");
   const [target] = await listTargets(page, "warm-1");
-  if (target && (await enterEdit(page, "warm-1", target.point))) {
+  if (target && (await enterEdit(page, "warm-1", target.point, []))) {
     await exitEdit(page, "warm-1", "escape");
   }
   await openSlide(page, base, deckId, 0, "warm-1");

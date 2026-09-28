@@ -84,6 +84,7 @@ export {
   registerAuthPublicPaths,
   getSession,
   getMcpOAuthBearerSession,
+  logout,
   COOKIE_NAME,
   addSession,
   removeSession,
@@ -247,9 +248,6 @@ export {
   type CaptureErrorProvider,
 } from "./capture-error.js";
 export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
-// Re-export the org plugin so the auto-discovery's DEFAULT_PLUGIN_REGISTRY
-// (which references "defaultOrgPlugin" from @agent-native/core/server) can
-// resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
 export {
   createFeatureFlagA2AActionRouteAuth,
@@ -448,11 +446,6 @@ export {
   mergeCoreSharingActions,
   registerPackageActions,
 } from "./action-discovery.js";
-// A standalone `mountMCP` plugin has to compose the same action surface the
-// agent-chat plugin does. Without these, the only way to build one was to
-// hand-roll a copy — which is how a template ends up with a `tool-search` that
-// drifts from the framework's, and an MCP mount that silently ignores
-// `frameworkTools`.
 export {
   attachToolSearch,
   createToolSearchEntry,
@@ -621,13 +614,8 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
-  // Gateway lane, for the metered surfaces a deployed site can call without an
-  // identity — image and video generation, realtime transcription. Falls
-  // through to the identity credential first, so a consumer moves lane by
-  // swapping the resolver and changing nothing else.
   resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderGatewayAuth,
-  // Deprecated: kept only for external callers built against the old export.
   resolveBuilderGatewayCredentials,
   resolveHasBuilderGatewayCredential,
   resolveBuilderCredentialSource,
@@ -642,6 +630,49 @@ export {
   type BuilderCredentialsDetailed,
   type ResolvedSecretDetail,
 } from "./credential-provider.js";
+export {
+  GEMINI_API_KEY,
+  LEGACY_GEMINI_API_KEY,
+  canonicalSecretKey,
+  readGeminiDeployCredentialEnv,
+  resolveGeminiApiKey,
+  resolveGeminiApiKeyDetailed,
+  resolveSecretWithAliases,
+  resolveSecretWithAliasesDetailed,
+  secretKeyNames,
+  type ResolvedAliasedSecret,
+} from "./secret-key-aliases.js";
+export {
+  SERVICE_IDS,
+  SERVICE_PROVIDERS_SETTING_KEY,
+  SERVICE_PROVIDER_KEYS,
+  SERVICE_PROVIDER_OPTIONS,
+  isServiceProviderOption,
+  readServiceProviderChoice,
+  readServiceProviderSettings,
+  serviceProviderOrder,
+  writeServiceProviderChoice,
+  type ServiceId,
+  type ServiceProviderChoices,
+  type ServiceProviderId,
+  type ServiceProviderSettings,
+} from "./service-providers.js";
+export {
+  getInfrastructureStatus,
+  type InfrastructureApp,
+  type InfrastructureDatabase,
+  type InfrastructureDatabaseProvider,
+  type InfrastructureHosting,
+  type InfrastructureSetupTag,
+  type InfrastructureSetupTags,
+  type InfrastructureStatus,
+  type InfrastructureVariable,
+  type InfrastructureVariableKey,
+} from "./infrastructure-status.js";
+export {
+  resolveDeployPlatform,
+  type DeployPlatform,
+} from "./deploy-environment.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
@@ -827,14 +858,6 @@ export {
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
 
-// SSR handler is NOT re-exported here — it uses a virtual module
-// (virtual:react-router/server-build) that only exists at Vite dev/build time.
-// Including it in this barrel would break the esbuild CF Pages bundler.
-// Templates import directly: import { ssrHandler } from "@agent-native/core/server/ssr-handler"
-
-// Nitro plugin helper — re-exported so templates don't need nitro as a direct dependency.
-// defineNitroPlugin is an identity function; this typed wrapper lets templates use it
-// without resolving `nitro/runtime` (which requires Nitro's virtual modules at runtime).
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
   return def;

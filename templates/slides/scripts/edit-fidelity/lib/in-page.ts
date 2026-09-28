@@ -84,6 +84,11 @@ export interface EditorState {
   contentTop: number | null;
   /** The caret's box, or null unless the selection is a caret in the edited element. */
   caretRect: Rect | null;
+  /**
+   * Position among the edited element's descendants of the block box holding
+   * the caret, -1 for the element itself; null with no caret in it.
+   */
+  caretBlock: number | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -120,7 +125,13 @@ export interface InPageHelpers {
   /** Call stacks of content writes sent since the last call, oldest first. */
   takeWriteStacks(): string[];
   /** Keepalive content writes sent since the last call, in this tab. */
-  takeKeepaliveWrites(): number;
+  takeKeepaliveWrites(): KeepaliveWrite[];
+}
+
+export interface KeepaliveWrite {
+  action: string;
+  /** The JSON body; null when it was not a string and could not be read. */
+  body: string | null;
 }
 
 declare global {
@@ -460,6 +471,27 @@ export function installInPageHelpers(chromeSelector: string) {
     return box?.height ? rectOf(box, origin) : null;
   }
 
+  function caretBlock(source: HTMLElement | null): number | null {
+    const selection = getSelection();
+    const at = selection?.rangeCount
+      ? selection.getRangeAt(0).endContainer
+      : null;
+    if (!source || !at || !source.contains(at)) return null;
+    let el = at instanceof Element ? at : at.parentElement;
+    // A flex item computes to display: block, yet the items along a flex row
+    // share its line, so a flex item never counts as a block of its own.
+    while (
+      el &&
+      el !== source &&
+      (/^inline|^contents/.test(getComputedStyle(el).display) ||
+        /flex$/.test(getComputedStyle(el.parentElement!).display))
+    )
+      el = el.parentElement;
+    return !el || el === source
+      ? -1
+      : Array.from(source.querySelectorAll("*")).indexOf(el);
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -503,6 +535,7 @@ export function installInPageHelpers(chromeSelector: string) {
         : null,
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
+      caretBlock: caretBlock(source),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
@@ -516,9 +549,12 @@ export function installInPageHelpers(chromeSelector: string) {
    * DOM positions agree. That count makes a row's end equal the next row's
    * start, so the selection must also lie in the point's row. A click on a
    * glyph's middle may put the caret on either side of it, so the point spans
-   * one grapheme each way; a double-click spans the word and a space after
-   * it; a point on a short leading element of a row (a bullet marker) spans
-   * that element up to the row's text.
+   * one grapheme each way, but never a space, which would reach the next
+   * word; a double-click spans the word and a space after it; a point on a
+   * short leading element of a row (a bullet marker) spans that element up
+   * to the row's text. Every offset indexes one collapsed text of the whole
+   * editor, since collapsing a row alone can merge a space with its
+   * neighbor's differently.
    */
   async function entryCaretProblem(
     point: { x: number; y: number },
@@ -546,10 +582,6 @@ export function installInPageHelpers(chromeSelector: string) {
     };
     const start = offsetOf(sel.startContainer, sel.startOffset);
     const end = offsetOf(sel.endContainer, sel.endOffset);
-    if (gesture !== "dblclick" && !sel.collapsed)
-      return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
-    if (gesture === "dblclick" && sel.collapsed)
-      return "double-click did not select a word";
     // caretRangeFromPoint rounds the point to whole pixels, which can move it
     // across a narrow glyph; the click itself used the fractional point.
     const pos = document.caretPositionFromPoint?.(point.x, point.y);
@@ -558,6 +590,35 @@ export function installInPageHelpers(chromeSelector: string) {
     const offset = pos?.offset ?? range?.startOffset ?? 0;
     if (!node || !editor.contains(node))
       return "the click point is outside the editor";
+    const pointHitsPunctuation = () => {
+      if (!(node instanceof Text)) return false;
+      let at = 0;
+      for (const character of node.data) {
+        const from = at;
+        at += character.length;
+        if (
+          (from !== offset && at !== offset) ||
+          !/[\p{P}\p{S}]/u.test(character)
+        ) {
+          continue;
+        }
+        const glyph = document.createRange();
+        glyph.setStart(node, from);
+        glyph.setEnd(node, at);
+        if (
+          Array.from(glyph.getClientRects()).some(
+            (r) =>
+              point.x >= r.left &&
+              point.x <= r.right &&
+              point.y >= r.top &&
+              point.y <= r.bottom,
+          )
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
     let row: Element = editor;
     let marker: Element | null = null;
     for (
@@ -572,6 +633,9 @@ export function installInPageHelpers(chromeSelector: string) {
         parent.firstElementChild === el &&
         own >= 1 &&
         own <= 3 &&
+        // A number label like "01" is text a double-click selects; only a
+        // glyph like "●" is a marker, as the editor itself treats it.
+        !/[\p{L}\p{N}]/u.test(el.textContent ?? "") &&
         renderedText(parent.textContent).length > own &&
         offsetOf(parent, 0) === offsetOf(el, 0)
       ) {
@@ -584,20 +648,26 @@ export function installInPageHelpers(chromeSelector: string) {
         break;
       }
     }
+    // A bullet marker is not text, so even a double-click on one only
+    // places the caret at the row's text.
+    if ((marker || gesture !== "dblclick") && !sel.collapsed)
+      return `a ${gesture} selected characters ${start}-${end} instead of placing a caret`;
     const rowStart = offsetOf(row, 0);
+    const editorTextRange = document.createRange();
+    editorTextRange.selectNodeContents(editor);
+    const editorText = renderedText(editorTextRange.toString());
     let from: number;
     let to: number;
     if (marker) {
       from = offsetOf(marker, 0);
       to = offsetOf(marker, marker.childNodes.length);
+      if (editorText[to] === " ") to++;
     } else {
-      const rowTextRange = document.createRange();
-      rowTextRange.selectNodeContents(row);
-      const rowText = renderedText(rowTextRange.toString());
-      const pointRange = document.createRange();
-      pointRange.setStart(row, 0);
-      pointRange.setEnd(node, offset);
-      const pointOffset = renderedText(pointRange.toString()).length;
+      const rowText = editorText.slice(
+        rowStart,
+        offsetOf(row, row.childNodes.length),
+      );
+      const pointOffset = offsetOf(node, offset) - rowStart;
       const segments = Array.from(
         new Intl.Segmenter(undefined, {
           granularity: gesture === "dblclick" ? "word" : "grapheme",
@@ -610,8 +680,10 @@ export function installInPageHelpers(chromeSelector: string) {
         const wordIndex = segments.findIndex(
           ({ index, segment, isWordLike }) =>
             isWordLike &&
-            index <= pointOffset &&
-            pointOffset <= index + segment.length,
+            ((index <= pointOffset && pointOffset < index + segment.length) ||
+              (!sel.collapsed &&
+                start - rowStart < index + segment.length &&
+                end - rowStart > index)),
         );
         if (wordIndex >= 0) {
           const word = segments[wordIndex]!;
@@ -620,12 +692,24 @@ export function installInPageHelpers(chromeSelector: string) {
           localTo = wordEnd;
           const next = segments[wordIndex + 1]?.segment;
           if (next && !next.trim()) localTo += next.length;
-          if (start - rowStart > localFrom || end - rowStart < wordEnd)
-            return "double-click did not select the complete word";
+          const collapsedOnPunctuation =
+            sel.collapsed &&
+            Math.abs(start - rowStart - word.index) <= 1 &&
+            pointHitsPunctuation();
+          if (
+            !collapsedOnPunctuation &&
+            (start - rowStart > localFrom || end - rowStart < wordEnd)
+          )
+            return `double-click did not select the complete word (selection ${start - rowStart}-${end - rowStart}, click ${pointOffset}, word ${localFrom}-${wordEnd})`;
+          if (collapsedOnPunctuation) {
+            localFrom = start - rowStart;
+            localTo = end - rowStart;
+          }
         }
       }
       if (wordEnd === undefined) {
         segments.forEach(({ index, segment }, i) => {
+          if (gesture !== "dblclick" && !segment.trim()) return;
           if (index < pointOffset && index + segment.length >= pointOffset)
             localFrom = index;
           if (index <= pointOffset && index + segment.length > pointOffset) {
@@ -645,10 +729,7 @@ export function installInPageHelpers(chromeSelector: string) {
       rowRange.comparePoint(sel.startContainer, sel.startOffset) === 0 &&
       rowRange.comparePoint(sel.endContainer, sel.endOffset) === 0;
     if (inRow && start >= from && end <= to) return null;
-    const editorTextRange = document.createRange();
-    editorTextRange.selectNodeContents(editor);
-    const total = renderedText(editorTextRange.toString()).length;
-    return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${total}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
+    return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${editorText.length}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 
   function snapshot(
@@ -933,29 +1014,34 @@ export function installInPageHelpers(chromeSelector: string) {
     const method = (
       init?.method ?? (input instanceof Request ? input.method : "GET")
     ).toUpperCase();
-    if (
-      (method === "POST" || method === "PUT") &&
-      /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.test(
-        url,
-      )
-    ) {
+    const action =
+      method === "POST" || method === "PUT"
+        ? /\/_agent-native\/actions\/(patch-deck|save-deck|update-slide)\b/.exec(
+            url,
+          )?.[1]
+        : undefined;
+    if (action) {
       writeStacks.push(new Error().stack ?? "");
       // Slides sends these on pagehide, and Playwright's request events never
-      // report them; the count survives the reload in sessionStorage.
+      // report them; the bodies survive the reload in sessionStorage.
       if (init?.keepalive || (input instanceof Request && input.keepalive)) {
-        sessionStorage.setItem(
-          KEEPALIVE_WRITES,
-          String(Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0) + 1),
+        const sent: KeepaliveWrite[] = JSON.parse(
+          sessionStorage.getItem(KEEPALIVE_WRITES) ?? "[]",
         );
+        sent.push({
+          action,
+          body: typeof init?.body === "string" ? init.body : null,
+        });
+        sessionStorage.setItem(KEEPALIVE_WRITES, JSON.stringify(sent));
       }
     }
     return nativeFetch.call(this, input, init);
   };
   const takeWriteStacks = () => writeStacks.splice(0);
-  const takeKeepaliveWrites = () => {
-    const n = Number(sessionStorage.getItem(KEEPALIVE_WRITES) ?? 0);
+  const takeKeepaliveWrites = (): KeepaliveWrite[] => {
+    const sent = JSON.parse(sessionStorage.getItem(KEEPALIVE_WRITES) ?? "[]");
     sessionStorage.removeItem(KEEPALIVE_WRITES);
-    return n;
+    return sent;
   };
 
   window.__editFidelity = {

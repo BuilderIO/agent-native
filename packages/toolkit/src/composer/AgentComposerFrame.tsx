@@ -7,7 +7,7 @@ import type { AgentComposerLayoutVariant } from "./types.js";
 
 export interface AgentComposerFrameProps {
   children: React.ReactNode;
-  /** Content that grows from behind the composer as part of the prompt workflow. */
+  anchorRef?: { current: HTMLElement | null };
   attachedAccessory?: React.ReactNode;
   className?: string;
   workflowClassName?: string;
@@ -18,14 +18,9 @@ export interface AgentComposerFrameProps {
   onClick?: React.MouseEventHandler<HTMLDivElement>;
 }
 
-/**
- * The single visual shell for agent chat composition.
- *
- * AssistantChat, PromptComposer, and host surfaces such as Agent-Native Code
- * all render this same frame so the composer does not drift across products.
- */
 export function AgentComposerFrame({
   children,
+  anchorRef,
   attachedAccessory,
   className,
   workflowClassName,
@@ -131,14 +126,15 @@ export function AgentComposerFrame({
 
   const frame = (
     <div
-      ref={frameRef}
+      ref={(element) => {
+        frameRef.current = element;
+        if (anchorRef) anchorRef.current = element;
+      }}
       data-agent-composer-variant={layoutVariant}
       data-agent-composer-slot="area"
       className={cn(
         "agent-composer-area min-w-0 shrink-0 py-2",
         attachedAccessory != null && "relative z-10",
-        // Compact composers are nested in padded popovers; the default sidebar
-        // frame is the only layout that needs its own horizontal inset.
         layoutVariant === "compact" ? "px-0" : "px-3",
         layoutVariant !== "default" && `agent-composer-area--${layoutVariant}`,
         className,

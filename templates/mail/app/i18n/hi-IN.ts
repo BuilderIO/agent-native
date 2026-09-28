@@ -45,6 +45,7 @@ const messages = {
       aiSetupArchiveLabel: "इनबॉक्स छोड़ें",
       aiSetupSave: "सेटअप सहेजें",
       aiSetupSkip: "अभी छोड़ें",
+      aiSetupSkipSetup: "इनबॉक्स सेटअप छोड़ें",
       aiSetupImportantHeadline: "क्या ज़रूरी है",
       aiSetupSkipInboxHeadline: "क्या इनबॉक्स को छोड़ सकता है",
       aiSetupTagsHeadline: "अपने टैब चुनें",
@@ -58,7 +59,7 @@ const messages = {
       aiSetupImportantPrompt:
         "जिन संदेशों का जवाब देना है या समय-सीमा है, उनमें GitHub पर लोगों की टिप्पणियाँ भी शामिल हैं। बॉट टिप्पणियाँ छोड़ें।",
       aiSetupArchiveSpamPrompt:
-        "अपने-आप संग्रह करें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
+        "इनबॉक्स छोड़ें: GitHub सूचनाएँ जिनमें बॉट ने टिप्पणी या स्वचालित स्थिति अपडेट किया हो।\nस्पैम: स्पष्ट प्रचार वाले या अनचाहे संदेश जिन्हें मैंने नहीं माँगा।",
       aiSetupCustomTag: "कस्टम",
       aiSetupDone: "हो गया",
       aiSetupRunAgain: "सेटअप फिर चलाएँ",
@@ -68,6 +69,25 @@ const messages = {
       aiSetupPromptTravel: "यात्रा की ज़रूरी पुष्टि और बुकिंग",
       aiSetupTagFinance: "वित्त",
       aiSetupPromptFinance: "ज़रूरी बिल और खाता विवरण",
+      aiSetupArchiveExample: "GitHub, Vercel और Dependabot से बॉट और CI सूचनाएँ",
+      aiSetupFilteredExample:
+        "अनचाहे बिक्री संदेश और वे रिक्रूटर जिन्हें मैंने जवाब नहीं दिया",
+      aiSetupSortingHeadline: "आपका इनबॉक्स व्यवस्थित हो रहा है",
+      aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
+      aiSetupSortingProgress:
+        "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
+      aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
+      aiSetupSortingFailed:
+        "इनबॉक्स व्यवस्थित नहीं हो सका। आपके नियम सहेजे गए हैं; फिर कोशिश करें।",
+      aiSetupUndoComplete: "{{count}} संदेश अपनी पिछली स्थिति में लौटे।",
+      aiSetupRuleCount: "{{count}} मेल मिले",
+      aiSetupNoMatches: "पिछले 14 दिनों में कोई संदेश इन नियमों से मेल नहीं खाता।",
+      aiSetupChatTip: "आप चैट में कभी भी नियम बदल या जोड़ सकते हैं।",
+      aiSetupChatPrompt: "मेरे बॉस के ईमेल को प्राथमिकता दें…",
+      aiSetupNoRules: "कोई नियम नहीं चुना गया।",
+      aiSetupPartialFailure: "{{count}} संदेश अपडेट नहीं हो सके।",
+      aiSetupSortInbox: "मेरा इनबॉक्स व्यवस्थित करें",
+      aiSetupImportantExample: "मेरी मैनेजर Priya के सभी संदेश…",
       priorityFeedbackLabel: "महत्व पर प्रतिक्रिया",
       priorityScoreHigh: "अधिक महत्व",
       priorityScoreMedium: "मध्यम महत्व",
@@ -146,6 +166,7 @@ const messages = {
       deleteDraft: "ड्राफ़्ट हटाएँ",
       deleteDrafts: "ड्राफ़्ट हटाएँ",
       reopenDraft: "फिर से खोलें",
+      openInMail: "Mail में खोलें",
       discardDraft: "ड्राफ़्ट छोड़ें",
       enterLinkUrl: "लिंक का URL दर्ज करें।",
       forward: "Forward",
@@ -425,6 +446,8 @@ const messages = {
     },
     googleConnect: {
       connectTitle: "अपना Google खाता कनेक्ट करें",
+      connectionNotConfigured:
+        "इस ऐप के लिए Gmail कनेक्शन कॉन्फ़िगर नहीं है। इसे चालू करने के लिए अपने व्यवस्थापक से कहें या अभी यह चरण छोड़ दें।",
       heroDescription:
         "Envía y recibe email real. Conecta tu cuenta de Gmail para empezar.",
       setupIntro:
@@ -538,6 +561,8 @@ const messages = {
         "agent-native-filtered लेबल जोड़कर बातचीत को संग्रहित करता है। आप इसे कभी भी वापस ले सकते हैं।",
       learningNote:
         "संदेश को इनबॉक्स में रखकर फ़िल्टर को यह गलती दोहराने से रोकना सिखाता है।",
+      learningProgress:
+        "{{required}} में से {{count}} उदाहरणों की पुष्टि हुई। सभी {{required}} की पुष्टि होने पर हाल के ईमेल जाँचे जाएँगे।",
       rememberLabel: "आने वाले मेल के लिए याद रखें (वैकल्पिक)",
       correctLabel: "इसे क्या सीखना चाहिए? (वैकल्पिक)",
       rememberPlaceholder: "उदा. राजनीतिक अभियानों के ऐसे मेल अनचाहे हैं",
@@ -551,11 +576,44 @@ const messages = {
       settingsFailed: "AI फ़िल्टर सेटिंग सहेजी नहीं जा सकीं।",
       automationRulesLoadFailed: "ट्रायेज नियम लोड नहीं हो सके।",
       instructionFailed: "AI फ़िल्टर निर्देश सहेजा नहीं जा सका।",
+      autoArchiveMode: "अपने आप संग्रहित करें",
       skipInboxMode: "इनबॉक्स छोड़ें",
       spamMode: "स्पैम",
       tagMode: "टैग",
       aiTagsTitle: "AI टैग",
+      ruleHelpLabel: "{{mode}} नियम समझाएँ",
+      aiTagRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर यह टैग जोड़ता है।",
+      importantRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को महत्वपूर्ण चिह्नित करता है।",
+      skipInboxRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल को संग्रहित करके इनबॉक्स से बाहर रखता है।",
+      spamRuleHelp:
+        "सामान्य भाषा में निर्देश लिखें। Jev मेल खाने वाले ईमेल पर agent-native-filtered लेबल लगाकर उन्हें संग्रहित करता है। यह Gmail Spam नहीं है।",
+      filteredMode: "फ़िल्टर किए गए",
+      manageSettings: "प्रबंधित करें",
+      askJev: "Jev से पूछें",
+      askJevPrompt:
+        "इस Mail नियम को बेहतर बनाने में मेरी मदद करें: {{condition}}। पूछें कि मैं क्या बदलना चाहता हूँ, फिर इसे अपडेट करें।",
+      composerPlaceholder: "Jev से अपना इनबॉक्स व्यवस्थित करने को कहें…",
+      chatSuggestionFilter: "ऐसे संदेश फ़िल्टर करें",
+      chatSuggestionPriority: "इनसे आने वाले ईमेल को प्राथमिकता दें…",
+      chatSuggestionArchive: "बॉट सूचनाओं को अपने-आप संग्रहित करें",
+      ruleBackfillStarting: "यह नियम हाल के मेल पर लागू हो रहा है…",
+      ruleBackfillProgress:
+        "हाल के मेल पर लागू हो रहा है: {{total}} में से {{processed}}",
+      ruleBackfillMatches: "{{count}} हाल के संदेश मेल खाते हैं",
+      ruleBackfillNoMatches: "हाल का कोई संदेश इस नियम से मेल नहीं खाता।",
+      ruleBackfillFailed: "यह नियम हाल के मेल पर लागू नहीं हो सका।",
+      ruleBackfillPartialFailure: "{{count}} संदेश अपडेट नहीं हो सके।",
+      ruleBackfillUndoing: "हाल के मेल बहाल हो रहे हैं…",
+      ruleBackfillUndoComplete: "{{count}} संदेश बहाल हुए",
+      ruleBackfillReview: "मेल देखें",
       importantMode: "महत्वपूर्ण",
+      notifyMode: "सूचित करें",
+      notifyModeHelp:
+        "मेल मिलते ही महत्वपूर्ण चिह्नित करें। Mail खुला हो और घंटी से सूचना चालू हो, तभी ब्राउज़र पॉपअप दिखेगा। मोबाइल ऐप जल्द आ रहा है।",
+      manageAutomationsLink: "अन्य ऑटोमेशन कार्रवाइयाँ",
       notImportantMode: "महत्वपूर्ण नहीं",
       importantLabel: "AI महत्वपूर्ण",
       reviewImportant: "महत्वपूर्ण देखें",
@@ -591,7 +649,7 @@ const messages = {
       promptRulesCleared: "ट्रायेज नियम हटाए गए।",
       tagTabsHelp: "हर टैग इनबॉक्स टैब बन जाता है",
       addTag: "टैग जोड़ें",
-      triageTitle: "ट्रायेज",
+      triageTitle: "AI ट्रायेज",
       connectJev: "Jev कनेक्ट करें",
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
@@ -656,6 +714,9 @@ const messages = {
     suggestionSummarize: "मेरे unread emails का सारांश दें",
     suggestionReplies: "आज किन चीजों पर मेरा reply चाहिए?",
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
+    ruleSuggestionFilter: "इस तरह के संदेश फ़िल्टर करें",
+    ruleSuggestionImportant: "मेरे बॉस के ईमेल को प्राथमिकता दें",
+    ruleSuggestionArchive: "बॉट सूचनाएँ अपने-आप संग्रहित करें",
   },
   settings: {
     openAgentSettings: "एजेंट प्रबंधित करें",
@@ -680,6 +741,7 @@ const messages = {
     markRead: "पढ़ा हुआ चिह्नित करें",
     star: "स्टार करें",
     trash: "ट्रैश",
+    notify: "सूचित करें",
     labelName: "लेबल नाम",
     addAction: "+ कार्रवाई जोड़ें",
     ruleName: "नियम का नाम",
@@ -754,8 +816,6 @@ const messages = {
     slackPostEndpoint: "Slack POST एंडपॉइंट",
     slackPostEndpointHelp:
       "Slack Event Subscriptions में उपयोग करें। Browser GET Not Found दिखा सकता है।",
-    teamDescription:
-      "सहकर्मियों के साथ email automations और settings share करने के लिए team setup करें।",
     title: "सेटिंग्स",
     general: "सामान्य",
     generalDescription: "Mail की भाषा और account-level preferences.",
@@ -780,12 +840,19 @@ const messages = {
     deleteSnippetDescription:
       'स्निपेट "{{name}}" हटाएं? इसे वापस नहीं लाया जा सकता।',
     automations: "स्वचालन",
-    aiFilter: "ट्रायेज",
+    rules: "नियम",
+    rulesModel: "नियमों का मॉडल",
+    rulesModelDescription: "आने वाले मेल को आपके नियमों से मिलाता है।",
+    slackDraftRequests: "ड्राफ़्ट अनुरोध",
+    slackDraftQueue: "Slack से ड्राफ़्ट कतार में जोड़ें",
+    slackDraftQueueDescription:
+      "साथी ईमेल ड्राफ़्ट का अनुरोध करने के लिए Slack में एजेंट का उल्लेख करते हैं। ड्राफ़्ट समीक्षा के लिए आपकी ड्राफ़्ट कतार में रहते हैं।",
+    openDraftQueue: "ड्राफ़्ट कतार खोलें",
+    aiFilter: "AI ट्रायेज",
     gmailFilters: "Gmail फ़िल्टर",
     aliases: "Aliases",
     tracking: "Tracking",
     slack: "Slack",
-    team: "टीम",
     deleteAlias: "उपनाम हटाएँ",
     editAlias: "उपनाम संपादित करें",
   },

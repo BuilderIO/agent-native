@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { navItems } from "../../lib/brain";
+
 const source = readFileSync(new URL("./Sidebar.tsx", import.meta.url), "utf8");
 
 describe("Brain sidebar footer", () => {
@@ -11,8 +13,8 @@ describe("Brain sidebar footer", () => {
     expect(source).toContain('from "@agent-native/core/client/org"');
   });
 
-  it("keeps agent controls in the fixed bottom navigation region", () => {
-    expect(source).toContain("const bottomNavItems");
-    expect(source).toContain("bottomNavItems.map");
+  it("leaves Settings to the account menu instead of a rail item", () => {
+    expect(source).not.toContain("secondaryItems");
+    expect(navItems.map((item) => item.view)).not.toContain("settings");
   });
 });

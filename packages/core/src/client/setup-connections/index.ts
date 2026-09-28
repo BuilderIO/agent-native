@@ -21,7 +21,10 @@ export {
   SetupConnectionsPage,
   type SetupConnectionsPageProps,
 } from "./SetupConnectionsPage.js";
-export { FileStorageSetupCard } from "../FileStorageSetupCard.js";
+export {
+  FileStorageSetupPopover,
+  type FileStorageSetupPopoverProps,
+} from "../FileStorageSetupPopover.js";
 export {
   OnboardingBanner,
   OnboardingPanel,

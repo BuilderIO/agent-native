@@ -1,4 +1,7 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
+  },
   agentChat: {
     setup: {
       checkingProvider: "AI 接続を確認しています…",
@@ -578,6 +581,9 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    redactionsPendingTitle: "共有前にマスキングを適用",
+    redactionsPendingBody:
+      "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
     publicDescription:
       "リンクを知っている人は誰でも閲覧できます。コメントしたり反応するにはサインインしてください",
     shareRecording: "録画を共有する",
@@ -633,9 +639,6 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
-    redactionsPendingBody:
-      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
-    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",
@@ -953,6 +956,51 @@ const messages = {
       "Clips は {{team}} の保存済みボットトークンを削除し、再生可能な Slack プレビューの送信を停止します。",
     thisWorkspace: "このワークスペース",
     slackConnected: "Slack 接続済み",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して再試行してください。",
+    recordingsTab: "録画",
+    meetingsTab: "ミーティング",
+    yourDefaults: "あなたのデフォルト",
+    orgDefault: "{{org}} のデフォルト",
+    playbackSpeed: "再生速度",
+    playbackSpeedDescription: "録画を開いたときに適用されます。",
+    visibility: "公開範囲",
+    visibilityDescription:
+      "あなたが作成する録画に適用されます。録画ごとに変更できます。",
+    useOrgDefault: "{{org}} のデフォルトを使用 ({{visibility}})",
+    useDefault: "デフォルトを使用 ({{visibility}})",
+    transcriptExport: "文字起こしのエクスポート",
+    logoDescription: "共有メールと公開クリップページに表示されます。",
+    change: "変更",
+    adminsOnly: "オーナーと管理者のみが変更できます。",
+    brandColorInvalid: "16進カラーコードを入力してください。",
+    loadFailed: "これらの設定を読み込めませんでした。",
+    emailGroup: "メール",
+    calendarGroup: "カレンダー",
+    googleCalendar: "Google Calendar",
+    connect: "接続",
+    reconnect: "再接続",
+    connectedAs: "{{account}} として接続中",
+    needsReconnect: "{{account}} の再接続が必要です。",
+    disconnectFailed: "カレンダーの接続を解除できませんでした。",
+    disconnectCalendarDescription:
+      "Clips は {{account}} の今後のミーティングの同期を停止します。",
+    calendarApp: "Google Calendar アプリ",
+    desktopGroup: "デスクトップ",
+    meetingCapture: "ミーティングのキャプチャ",
+    meetingCaptureDescription:
+      "メモ、自動開始、通知は各デバイスの Clips Desktop で設定します。",
+    openClipsDesktop: "Clips Desktop を開く",
+    keySaved: "保存済み",
+    keyNotSaved: "未保存",
+    manage: "管理",
+    add: "追加",
+    linkPreviews: "リンクプレビュー",
+    addWorkspace: "ワークスペースを追加",
+    storageAskAdmin:
+      "ストレージの設定をオーナーまたは管理者に依頼してください。",
   },
   insightsHub: {
     title: "インサイト",

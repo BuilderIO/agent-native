@@ -29,7 +29,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
   ActivityIndicator,
-  DeviceEventEmitter,
   Image,
   Platform,
   Pressable,
@@ -40,12 +39,8 @@ import {
 } from "react-native";
 
 import { MOBILE_SHEET_CLOSE_DURATION_MS } from "@/components/MobileSheet";
-import {
-  AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
-  fetchMentions,
-  getAgentEngineStatus,
-  getFileUploadStatus,
-} from "@/lib/agent-chat/api";
+import { fetchMentions, getFileUploadStatus } from "@/lib/agent-chat/api";
+import type { MobileChatEligibility } from "@/lib/agent-chat/api";
 import {
   canSendChatMessage,
   canUseChatAttachments,
@@ -56,7 +51,6 @@ import {
   mentionToReference,
   replaceMention,
 } from "@/lib/agent-chat/mention-query";
-import { MOBILE_LOCAL_AGENT_ENGINES } from "@/lib/agent-chat/model-picker";
 import type {
   ChatAttachment,
   ChatReference,
@@ -331,6 +325,10 @@ async function pickPhotoFromLibrary(): Promise<ChatAttachment | null> {
 export function Composer({
   isStreaming,
   target,
+  isRestoring,
+  canChat,
+  chatEligibility,
+  refreshChatEligibility,
   settings,
   baseUrl,
   onSend,
@@ -341,6 +339,10 @@ export function Composer({
 }: {
   isStreaming: boolean;
   target: ChatTarget;
+  isRestoring: boolean;
+  canChat: boolean;
+  chatEligibility: MobileChatEligibility;
+  refreshChatEligibility: () => void;
   settings: AgentChatSettings;
   baseUrl?: string;
   onSend: (
@@ -353,9 +355,29 @@ export function Composer({
   onToggleMode: () => void;
   onSelectMode?: (mode: "plan" | undefined) => void;
 }) {
+  const t = useT();
+  const chatPlaceholder =
+    chatEligibility === "checking"
+      ? t("setup.checkingProvider")
+      : chatEligibility === "unavailable"
+        ? t("setup.providerStatusUnavailable")
+        : t("setup.connectToStart");
+  const chatAccessibilityHint =
+    chatEligibility === "checking"
+      ? t("setup.checkingProvider")
+      : chatEligibility === "unavailable"
+        ? t("setup.providerStatusUnavailable")
+        : t("setup.connectToStart");
+  const providerStatus =
+    chatEligibility === "checking"
+      ? "unknown"
+      : chatEligibility === "eligible"
+        ? "configured"
+        : chatEligibility;
+  const chatReady = canChat;
+  const retryProviderStatus = refreshChatEligibility;
   const { foreground, mutedForeground, primaryForeground, accentBlue, theme } =
     useMobileThemeColors();
-  const t = useT();
   const mobileNavigation = useMobileNavigation();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -367,72 +389,8 @@ export function Composer({
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [menuScreen, setMenuScreen] = useState<"main" | "skill">("main");
   const [actionTag, setActionTag] = useState<ActionTag | null>(null);
-  const localRuntimeSelected = MOBILE_LOCAL_AGENT_ENGINES.has(
-    settings.engine ?? "",
-  );
-  const [providerStatus, setProviderStatus] = useState<
-    "unknown" | "configured" | "missing" | "unavailable"
-  >(localRuntimeSelected ? "configured" : "unknown");
-  const providerStatusRef = useRef(providerStatus);
-  const providerStatusRequestRef = useRef(0);
-  providerStatusRef.current = providerStatus;
-
-  const retryProviderStatus = useCallback(() => {
-    if (localRuntimeSelected) {
-      setProviderStatus("configured");
-      return;
-    }
-    const requestId = ++providerStatusRequestRef.current;
-    setProviderStatus("unknown");
-    void getAgentEngineStatus(baseUrl)
-      .then((status) => {
-        if (requestId === providerStatusRequestRef.current) {
-          setProviderStatus(status);
-        }
-      })
-      .catch(() => {
-        if (requestId === providerStatusRequestRef.current) {
-          setProviderStatus("unavailable");
-        }
-      });
-  }, [baseUrl, localRuntimeSelected]);
-
-  useEffect(() => {
-    if (localRuntimeSelected) {
-      setProviderStatus("configured");
-      return;
-    }
-    retryProviderStatus();
-    return () => {
-      providerStatusRequestRef.current += 1;
-    };
-  }, [localRuntimeSelected, retryProviderStatus]);
-
-  useEffect(() => {
-    if (localRuntimeSelected) return;
-    const configuredSubscription = DeviceEventEmitter.addListener(
-      AGENT_ENGINE_CONFIGURED_CHANGED_EVENT,
-      retryProviderStatus,
-    );
-    const appStateSubscription = AppState.addEventListener(
-      "change",
-      (nextState) => {
-        if (
-          nextState === "active" &&
-          (providerStatusRef.current === "missing" ||
-            providerStatusRef.current === "unavailable")
-        ) {
-          retryProviderStatus();
-        }
-      },
-    );
-    return () => {
-      configuredSubscription.remove();
-      appStateSubscription.remove();
-    };
-  }, [localRuntimeSelected, retryProviderStatus]);
-
-  const chatReady = localRuntimeSelected || providerStatus === "configured";
+  const chatEligibilityRef = useRef(chatEligibility);
+  chatEligibilityRef.current = chatEligibility;
   const chatReadyRef = useRef(chatReady);
   chatReadyRef.current = chatReady;
   const targetRef = useRef(target);
@@ -496,10 +454,10 @@ export function Composer({
   const canSend =
     (text.trim().length > 0 || attachments.length > 0 || actionTag !== null) &&
     !isStreaming &&
+    !isRestoring &&
     !(target === "computer" && attachments.length > 0) &&
     canSendChatMessage(chatReady, fileUploadStatus, attachments.length > 0);
 
-  // A mention is being typed only when the caret is a collapsed cursor.
   const activeMention = useMemo(
     () =>
       selection.start === selection.end
@@ -522,7 +480,6 @@ export function Composer({
         void fetchMentions(mentionQuery, {
           signal: controller.signal,
           baseUrl,
-          // Surface each batch as it arrives so fast sources show immediately.
           onItems: (items) => {
             if (!controller.signal.aborted) setMentionItems(items);
           },
@@ -560,8 +517,8 @@ export function Composer({
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       if (
-        providerStatusRef.current === "missing" ||
-        providerStatusRef.current === "unavailable"
+        chatEligibilityRef.current === "missing" ||
+        chatEligibilityRef.current === "unavailable"
       ) {
         retryProviderStatus();
       }
@@ -867,7 +824,7 @@ export function Composer({
               providerStatus === "unknown" ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={retryProviderStatus}
+                onPress={refreshChatEligibility}
               >
                 <Text className="text-foreground text-[12px] font-medium">
                   {t("agentChat.common.retry")}
@@ -901,20 +858,25 @@ export function Composer({
           onSelectionChange={(event) =>
             setSelection(event.nativeEvent.selection)
           }
-          placeholder="Message the agent…  (@ to mention)"
+          placeholder={
+            canChat ? "Message the agent…  (@ to mention)" : chatPlaceholder
+          }
           placeholderTextColor={mutedForeground}
           multiline
+          editable={chatReady && !isRestoring}
+          accessibilityHint={canChat ? undefined : chatAccessibilityHint}
           keyboardAppearance={theme}
           accessibilityLabel="Message input"
           nativeID="chat-composer-input"
-          editable={chatReady}
         />
 
         <View className="flex-row items-center justify-between pt-1">
           <Pressable
             className="w-8 h-8 rounded-full items-center justify-center -ml-1 active:opacity-75"
             onPress={handleOpenPlusMenu}
-            disabled={!chatReady || target === "computer" || isStreaming}
+            disabled={
+              !chatReady || target === "computer" || isStreaming || isRestoring
+            }
             accessibilityRole="button"
             accessibilityLabel="Actions menu"
           >
@@ -955,7 +917,7 @@ export function Composer({
             <Pressable
               className="w-8 h-8 rounded-full items-center justify-center active:opacity-75"
               onPress={startDictation}
-              disabled={isStreaming}
+              disabled={isStreaming || isRestoring || !canChat}
               accessibilityRole="button"
               accessibilityLabel="Voice dictation"
             >

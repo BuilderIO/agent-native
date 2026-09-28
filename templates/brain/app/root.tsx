@@ -179,9 +179,6 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
           </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            {t("navigation.settings")}
-          </CommandMenu.Item>
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -213,11 +210,7 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Brain has a faster sync cadence for source distillation status;
-          // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Flat retry: Brain data fetches are rarely auth failures so a
-          // flat count is sufficient.
           retry: 1,
         },
       },
@@ -227,6 +220,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="assistant"
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >

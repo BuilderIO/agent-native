@@ -1,11 +1,10 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { FileStorageSetupCard } from "@agent-native/core/client/setup-connections";
+import { FileStorageSetupPopover } from "@agent-native/core/client/setup-connections";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -20,8 +19,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ImageFitMode = "fill" | "fit" | "crop" | "tile";
 
@@ -86,15 +83,6 @@ function imageFitMarker(fit: ImageFitMode): string {
   return `/* agent-native-image-fit:${fit} */`;
 }
 
-/**
- * Build the CSS `background` shorthand for an image fill.
- * Maps the design editor's fit semantics onto background-size / background-repeat:
- *  - Fill → cover, no-repeat
- *  - Fit  → contain, no-repeat
- *  - Crop → cover, no-repeat (cropped to the box; identical CSS to Fill but
- *           kept distinct so the selection round-trips)
- *  - Tile → auto, repeat
- */
 export function imageFillToCss(value: ImageFillValue): string {
   const url = value.url.trim();
   if (!url) return "transparent";
@@ -166,10 +154,6 @@ export function imageFillToBackgroundStyles(
   }
 }
 
-// Matches url() in three forms:
-//   group 1 — double-quoted:  url("...anything...")
-//   group 2 — single-quoted:  url('...anything...')
-//   group 3 — unquoted:       url(...no-parens-or-quotes...)
 const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/i;
 
 function normalizeCssLayer(value: string | undefined): string {
@@ -229,7 +213,6 @@ function inferFitFromBackgroundStyles(
   return null;
 }
 
-/** Extract the URL + fit mode from CSS background input, if present. */
 export function parseImageFillCss(value: string): ImageFillValue | null;
 export function parseImageFillCss(
   value: ImageFillBackgroundStyles,
@@ -247,11 +230,6 @@ export function parseImageFillCss(
   if (marker) return { url, fit: marker };
   const inferredFit = inferFitFromBackgroundStyles(styles);
   if (inferredFit) return { url, fit: inferredFit };
-  // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
-  // DevTools or Figma inspect). Note: "crop" and "fill" produce identical CSS
-  // (center / cover no-repeat), so external CSS without the marker comment will
-  // always parse as "fill". Crop mode is only recoverable via the proprietary
-  // agent-native-image-fit marker written by imageFillToCss.
   let fit: ImageFitMode = "fill";
   const backgroundImage = styles.backgroundImage;
   if (/contain/i.test(backgroundImage)) fit = "fit";
@@ -272,8 +250,6 @@ export function mergeImageFitDraft(
   return { ...value, url: urlDraft.trim(), fit };
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────────
-
 export interface ImageFillControlsProps {
   value: ImageFillValue;
   onChange: (value: ImageFillValue) => void;
@@ -293,16 +269,16 @@ export function ImageFillControls({
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === true;
   const fileStorageMissing =
     fileUploadStatus.isSuccess && fileUploadStatus.data.configured === false;
+
+  useEffect(() => {
+    if (canUploadImages) setStorageSetupOpen(false);
+  }, [canUploadImages]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // Guard re-syncing the draft from an external value change while the field
-  // is focused (mirrors ScrubInput's `focused` pattern): without this, an
-  // incoming prop update while the user is mid-typing a URL — e.g. a
-  // selection-driven re-render, or another control committing a sibling
-  // style in the same patch — clobbers their in-progress keystrokes.
   const [focused, setFocused] = useState(false);
 
   useEffect(() => {
@@ -313,6 +289,12 @@ export function ImageFillControls({
 
   const commitUrl = () => {
     onChange({ ...value, url: urlDraftRef.current.trim() });
+  };
+
+  const requestImageUpload = () => {
+    if (disabled || uploadingImage) return;
+    if (canUploadImages) fileInputRef.current?.click();
+    else setStorageSetupOpen(true);
   };
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -342,7 +324,6 @@ export function ImageFillControls({
       );
     } finally {
       setUploadingImage(false);
-      // Allow re-selecting the same file later.
       event.target.value = "";
     }
   };
@@ -427,13 +408,13 @@ export function ImageFillControls({
           <TooltipTrigger asChild>
             <button
               type="button"
-              disabled={disabled || uploadingImage || !canUploadImages}
+              disabled={disabled || uploadingImage}
               aria-label={"Upload image" /* i18n-ignore */}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={requestImageUpload}
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || uploadingImage || !canUploadImages) &&
+                (disabled || uploadingImage) &&
                   "pointer-events-none opacity-40",
               )}
             >
@@ -451,28 +432,26 @@ export function ImageFillControls({
           onChange={handleFilePick}
         />
       </div>
-      {fileStorageMissing ? <FileStorageSetupCard /> : null}
-      {!fileUploadStatus.isSuccess && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-2 text-[10px] leading-snug text-destructive"
-        >
-          <span>{t("common.genericError")}</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 px-1.5 text-[10px]"
-            onClick={() => void fileUploadStatus.refetch()}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
-        </div>
-      )}
       {uploadError && (
         <p className="text-[10px] leading-snug text-destructive">
           {uploadError}
         </p>
       )}
+
+      <FileStorageSetupPopover
+        open={
+          storageSetupOpen &&
+          (fileStorageMissing || !fileUploadStatus.isSuccess)
+        }
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void fileUploadStatus.refetch()}
+        {...(!fileUploadStatus.isSuccess || fileUploadStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void fileUploadStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
 
       {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
       <Select

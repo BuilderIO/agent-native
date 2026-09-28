@@ -134,10 +134,6 @@ function DbSyncSetup() {
   return null;
 }
 
-/**
- * Reads ?thread=<id> from the URL on mount and opens that thread in the
- * full-page chat route.
- */
 function useThreadDeepLink() {
   const navigate = useNavigate();
   const handled = useRef(false);
@@ -267,6 +263,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="launchpad"
         toaster={
           <Toaster
             richColors

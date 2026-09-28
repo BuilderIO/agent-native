@@ -9,9 +9,6 @@ import {
 
 const dispatchIntegrationActions = {
   ...dispatchActions,
-  // Messaging integrations should use the core call-agent tool for cross-app
-  // delegation because it queues A2A continuations when serverless budgets are
-  // tight. The MCP-facing ask_app action is still available outside this path.
   ask_app: {
     ...dispatchActions.ask_app,
     agentTool: false,
@@ -49,11 +46,6 @@ When a user asks for something:
 - Use markdown sparingly (bold and lists are fine, avoid complex formatting).
 - If a task requires many steps, summarize what you did rather than streaming every detail.`;
 
-/**
- * Defer plugin construction until the Nitro plugin actually fires so the
- * config-aware system prompt resolves AFTER `setupDispatch(config)` has
- * stamped the active config (plugin module load order is not guaranteed).
- */
 const dispatchIntegrationsPlugin = async (nitroApp: any) => {
   const { integrations = {} } = getDispatchConfig();
   const promptOverride = integrations.systemPrompt;

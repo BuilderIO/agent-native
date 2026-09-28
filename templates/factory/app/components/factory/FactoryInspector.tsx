@@ -369,7 +369,7 @@ export function FactoryInspector({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2 text-xs"
+              className="px-2 text-xs"
             >
               <a href={auditHref} aria-label={t("factoryRoute.auditTitle")}>
                 {t("factoryRoute.auditTab")}
@@ -381,7 +381,7 @@ export function FactoryInspector({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2 text-xs"
+              className="px-2 text-xs"
             >
               <a href={reviewHref} aria-label={t("factoryRoute.inboxTitle")}>
                 {t("factoryRoute.inboxTab")}

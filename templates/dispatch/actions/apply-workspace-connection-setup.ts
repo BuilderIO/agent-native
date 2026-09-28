@@ -1,4 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
+import {
+  ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+  normalizeActionChangeResult,
+} from "@agent-native/core/action-ui";
 import { getWorkspaceConnectionProvider } from "@agent-native/core/connections";
 import {
   credentialKeyMatches,
@@ -65,6 +69,11 @@ function assertSafeCredentialRefKey(key: string) {
 export default defineAction({
   description:
     "Apply a planned workspace integration setup or repair using credential reference names only.",
+  chatUI: {
+    renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
+    when: (_args, result) => normalizeActionChangeResult(result) !== null,
+    projectResult: (_args, result) => normalizeActionChangeResult(result),
+  },
   schema: z.object({
     connectionId: z
       .string()

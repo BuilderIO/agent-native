@@ -24,7 +24,6 @@ export interface EditorTab {
   uri: string;
   providerKey: string;
   path: string;
-  /** Preview tabs (italic label) are replaced by the next preview open. */
   preview: boolean;
 }
 
@@ -33,7 +32,6 @@ export interface BufferMeta {
   loading: boolean;
   error?: string;
   dirty: boolean;
-  /** File changed externally while the buffer had unsaved edits. */
   conflict: boolean;
   saving: boolean;
   readonly: boolean;
@@ -46,7 +44,6 @@ export interface BufferMeta {
 export interface WorkbenchState {
   tabs: EditorTab[];
   activeUri: string | null;
-  /** Most-recently-used uris, most recent first. Drives quick open + close. */
   mru: string[];
   buffers: Record<string, BufferMeta>;
   sideView: SideView;
@@ -92,14 +89,12 @@ function reducer(
       const existing = state.tabs.find((tab) => tab.uri === action.tab.uri);
       let tabs = state.tabs;
       if (existing) {
-        // Re-opening an existing preview tab as pinned pins it in place.
         if (existing.preview && !action.tab.preview) {
           tabs = tabs.map((tab) =>
             tab.uri === existing.uri ? { ...tab, preview: false } : tab,
           );
         }
       } else if (action.tab.preview) {
-        // A new preview tab replaces the current preview tab in place.
         const previewIndex = tabs.findIndex((tab) => tab.preview);
         if (previewIndex >= 0) {
           tabs = tabs.map((tab, index) =>
@@ -224,7 +219,6 @@ export interface BufferLoadedEvent {
   providerKey: string;
   path: string;
   read: WorkspaceReadResult;
-  /** True the first time this buffer is loaded in the session. */
   firstLoad: boolean;
 }
 
@@ -261,9 +255,7 @@ export interface WorkbenchApi {
   toggleSidebar(): void;
   setSidebarWidth(width: number): void;
   refreshFileLists(): void;
-  /** Register a listener fired after a buffer's content is (re)loaded. */
   onBufferLoaded(listener: (event: BufferLoadedEvent) => void): () => void;
-  /** Register a listener fired when the file list should be refetched. */
   onFilesChanged(listener: () => void): () => void;
 }
 
@@ -296,14 +288,6 @@ export function WorkbenchProvider({
   const providersRef = useRef(providers);
   providersRef.current = providers;
   const loadedOnceRef = useRef(new Set<string>());
-  /**
-   * Version hashes this client has itself loaded or produced, per buffer.
-   * External reads (BufferSync polling) can resolve out of order — a read
-   * fired before a save can land after it. Any hash we've already seen is a
-   * stale echo and must not be applied over newer local content; only
-   * genuinely new hashes (another user or the agent editing) are real
-   * external changes.
-   */
   const knownVersionHashesRef = useRef(new Map<string, Set<string>>());
   const bufferLoadedListenersRef = useRef(
     new Set<(event: BufferLoadedEvent) => void>(),
@@ -329,11 +313,6 @@ export function WorkbenchProvider({
     [],
   );
 
-  /**
-   * Dirty tracking lives with model creation: models are created async after
-   * their tab appears, so component-level subscriptions keyed on the tab list
-   * would miss them. Listeners die with the model, so no manual disposal.
-   */
   const dirtySubscribedModelsRef = useRef(new WeakSet<object>());
   const subscribeDirtyTracking = useCallback((uri: string) => {
     const entry = modelRegistry.get(uri);
@@ -341,11 +320,6 @@ export function WorkbenchProvider({
     if (dirtySubscribedModelsRef.current.has(entry.model)) return;
     dirtySubscribedModelsRef.current.add(entry.model);
     entry.model.onDidChangeContent(() => {
-      // Programmatic content replacement (agent edit, external reload) fires
-      // this synchronously before the model registry updates its saved
-      // version marker; treating that as a real edit would incorrectly mark
-      // the buffer dirty (and pin a preview tab) for a change the user never
-      // made. See modelRegistry.isApplyingExternalContent.
       if (modelRegistry.isApplyingExternalContent(uri)) return;
       apiRef.current?.markDirty(uri, modelRegistry.isDirty(uri));
     });
@@ -376,13 +350,6 @@ export function WorkbenchProvider({
       try {
         const read = await provider.readFile(path);
         const language = read.language ?? languageForPath(path);
-        // loadBuffer is also used by reloadBuffer to force an already-open
-        // buffer back to the latest server content (e.g. the "File changed
-        // elsewhere — reload latest" conflict action). `ensureModel` is
-        // intentionally a no-op on content when a model already exists (so
-        // the initial-open path here never clobbers a buffer someone is
-        // mid-edit on) — reloadContent is the explicit, caller-opted-in
-        // discard-local-edits path for that case.
         if (modelRegistry.has(uri)) {
           modelRegistry.reloadContent(uri, read.content, language);
         } else {
@@ -457,10 +424,6 @@ export function WorkbenchProvider({
         const uri = workbenchUri(providerKey, path);
         const activate = options?.activate !== false;
         const preview = options?.preview ?? false;
-        // A new preview tab replaces the current preview tab in place (see the
-        // OPEN_TAB reducer); the replaced tab's buffer and model must be
-        // released like any other close. Preview tabs pin on first edit, so a
-        // replaced preview tab is never dirty.
         const alreadyOpen = stateRef.current.tabs.some(
           (tab) => tab.uri === uri,
         );
@@ -480,8 +443,6 @@ export function WorkbenchProvider({
           dispatch({ type: "REMOVE_BUFFERS", uris: [replacedUri] });
           loadedOnceRef.current.delete(replacedUri);
           knownVersionHashesRef.current.delete(replacedUri);
-          // Defer disposal past this commit so MonacoHost detaches the model
-          // from the editor before it is destroyed.
           window.setTimeout(() => {
             if (!stateRef.current.tabs.some((tab) => tab.uri === replacedUri)) {
               modelRegistry.dispose(replacedUri);
@@ -685,8 +646,6 @@ export function WorkbenchProvider({
             return;
           }
         }
-        // Stale echo: a poll that resolved out of order carries a hash this
-        // client already loaded or saved. Never apply it over newer content.
         if (
           read.versionHash &&
           knownVersionHashesRef.current.get(uri)?.has(read.versionHash)
@@ -785,7 +744,6 @@ export function WorkbenchProvider({
   );
 }
 
-/** Shared language inference for workbench buffers. */
 export function languageForPath(path: string): string {
   if (/\.html?$/i.test(path)) return "html";
   if (/\.(css|scss|less)$/i.test(path)) return "css";

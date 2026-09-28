@@ -76,10 +76,6 @@ export default defineAction({
       ...(description?.trim() ? { description: description.trim() } : {}),
       url: parsed.toString(),
     };
-    // resourcePutIfAbsent makes the existence check and the write one atomic
-    // operation, so two concurrent connects for the same derived path cannot
-    // both pass a separate pre-check and have the second silently overwrite
-    // the first through resourcePut's upsert semantics.
     const resource = await resourcePutIfAbsent(
       owner,
       path,

@@ -41,7 +41,6 @@ const messages = {
     brand: "Folien",
     decks: "Decks",
     designSystems: "Designsysteme",
-    team: "Team",
   },
   settings: {
     agentObservability: "Agentenbeobachtbarkeit",
@@ -55,6 +54,13 @@ const messages = {
     emailNotificationsDescription:
       "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
+    notificationsEmail: "E-Mail",
+    commentsAndReplies: "Kommentare und Antworten",
+    commentsAndRepliesDescription:
+      "Wenn jemand dein Deck kommentiert oder darin antwortet.",
+    retry: "Erneut versuchen",
+    mcpAbout:
+      "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     languageTitle: "Sprache",
     languageDescription:
       "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
@@ -189,8 +195,6 @@ const messages = {
     slideUnavailable: "Folie nicht verfügbar",
     couldNotLoadSlide: "Folie konnte nicht geladen werden.",
     openInApp: "In App öffnen",
-    teamDescription:
-      "Richte ein Team ein, um Präsentationen mit Kolleginnen und Kollegen zu teilen.",
   },
 
   designSystems: {
@@ -590,6 +594,7 @@ const messages = {
     generating: "Generando diapositivas...",
     generate: "Generar diapositivas",
   },
+  deckResult: { saved: "Gespeichert" },
   history: {
     unknownTime: "Hora desconocida",
     justNow: "Ahora mismo",
@@ -853,6 +858,11 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "Einen Produktpitch erstellen",
+      roadmap: "Eine Produkt-Roadmap erstellen",
+      explainer: "Ein Thema in einer Präsentation erklären",
+    },
     suggestedPrompts: "Vorgeschlagene Prompts",
     importMenu: {
       import: "Importieren",
@@ -860,7 +870,11 @@ const messages = {
       invalidPdf: "Wähle eine PDF-Datei.",
       invalidPptx: "Wähle eine PPTX-Datei.",
       invalidFile: "Wähle eine PDF- oder PPTX-Datei.",
+      networkFailed:
+        "Der Import ist abgelaufen oder die Netzwerkverbindung wurde unterbrochen. Überprüfe deine Verbindung und versuche es erneut.",
       notStarted: "Melde dich bei Bedarf an und versuche den Import erneut.",
+      uploadLimitExceeded:
+        "Der Upload überschreitet ein zulässiges Limit. Verringere die Dateigröße oder wähle weniger Dateien aus und versuche es erneut.",
     },
     importDeck: "Präsentation importieren",
     context: {
@@ -900,6 +914,8 @@ const messages = {
       notReady:
         "Kontext wird geladen oder ist nicht verfügbar. Erneut versuchen oder vor dem Senden entfernen.",
       emptySource: "Diese Quelle lieferte keinen nutzbaren Kontext.",
+      figmaReadFailed:
+        "Design konnte diese Figma-Referenz nicht lesen. Prüfe das gespeicherte Figma-Zugriffstoken in Design und ob das zugehörige Konto die Datei öffnen kann, und versuche es erneut.",
       tooMany: "Wähle bis zu 20 Referenzen.",
       search: "Referenzen suchen",
       designCategory: "Gestaltung",

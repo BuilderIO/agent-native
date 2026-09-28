@@ -55,10 +55,6 @@ export type RealtimeVoiceModeState =
   | "error"
   | "ending";
 
-/**
- * User-visible copy stays outside the shared component so host catalogs remain
- * the source of truth. Callers should provide these values through `useT()`.
- */
 export interface RealtimeVoiceModeCopy {
   entryButtonLabel: string;
   promptTitle: string;
@@ -134,11 +130,6 @@ export interface RealtimeVoiceModeEntryProps {
 
 export type RealtimeVoiceInputMode = "realtime" | "dictation";
 
-/**
- * Composer mic entry point for apps that support a full-duplex voice session.
- * The first click offers voice mode without silently changing the existing
- * editable-dictation behavior.
- */
 export function RealtimeVoiceModeEntry({
   copy,
   disabled,
@@ -542,9 +533,6 @@ function useChatPanelTranslation(chatVisible: boolean): number {
         return;
       }
 
-      // A fullscreen chat has no unobscured side to move into. Keep the dock
-      // at its normal edge so it stays reachable instead of pinning it to the
-      // opposite side of the same overlay.
       if (panel.dataset.agentSidebarLayout === "fullscreen") {
         setTranslation(0);
         return;
@@ -740,10 +728,6 @@ function VoiceInlineSettings({
   );
 }
 
-/**
- * Persistent voice-session control. Toggling the main orb only changes chat
- * visibility; ending the realtime session is intentionally a separate action.
- */
 export function RealtimeVoiceModeDock({
   state,
   copy,
@@ -770,10 +754,6 @@ export function RealtimeVoiceModeDock({
     audioLevels.getSnapshot,
   );
   const reducedMotion = usePrefersReducedMotion();
-  // Microphone metering begins while the SDP request is still in flight. Keep
-  // the connecting affordance authoritative until WebRTC is established;
-  // otherwise speaking into the mic replaces the loader with a waveform and
-  // makes a stalled connection look like a live call.
   const connected =
     state === "listening" || state === "speaking" || state === "working";
   const activity = connected
@@ -850,8 +830,6 @@ export function RealtimeVoiceModeDock({
     }
     selectInteractionRef.current = true;
     if (!open) {
-      // Radix closes the portalled Select before its focus/outside events have
-      // fully settled. Keep the parent protected through the current frame.
       selectInteractionFrameRef.current = window.requestAnimationFrame(() => {
         selectInteractionRef.current = false;
         selectInteractionFrameRef.current = null;

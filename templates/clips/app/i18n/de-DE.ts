@@ -1,4 +1,5 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   agentChat: {
     setup: {
       checkingProvider: "KI-Verbindung wird geprüft…",
@@ -591,6 +592,9 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
+    redactionsPendingBody:
+      "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
     publicDescription:
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
@@ -646,9 +650,6 @@ const messages = {
     customizeEmbed: "Einbettung anpassen",
     more: "Mehr",
     sharePlainTitle: "Teilen {{title}}",
-    redactionsPendingBody:
-      "{{count}} Schwärzung(en) sind auf dieser Aufnahme eingezeichnet, aber nicht in das Video eingebrannt. Die Datei zeigt also weiterhin alles darunter. Öffnen Sie den Editor, brennen Sie sie ein, und das Teilen steht wieder zur Verfügung.",
-    redactionsPendingTitle: "Schließen Sie die Schwärzungen zuerst ab",
   },
   shareUi: {
     owner: "Besitzer: {{email}}",
@@ -973,6 +974,52 @@ const messages = {
       "Clips löscht das gespeicherte Bot-Token für {{team}} und sendet keine abspielbaren Slack-Vorschauen mehr.",
     thisWorkspace: "dieser Arbeitsbereich",
     slackConnected: "Slack verbunden",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "Der Browser hat das Pop-up blockiert. Erlaube Pop-ups für diese Website und versuche es erneut.",
+    recordingsTab: "Aufnahmen",
+    meetingsTab: "Besprechungen",
+    yourDefaults: "Deine Standards",
+    orgDefault: "Standard für {{org}}",
+    playbackSpeed: "Wiedergabegeschwindigkeit",
+    playbackSpeedDescription: "Gilt, wenn du eine Aufnahme öffnest.",
+    visibility: "Sichtbarkeit",
+    visibilityDescription:
+      "Gilt für Aufnahmen, die du erstellst. Du kannst sie bei jeder Aufnahme ändern.",
+    useOrgDefault: "Standard von {{org}} verwenden ({{visibility}})",
+    useDefault: "Standard verwenden ({{visibility}})",
+    transcriptExport: "Transkript-Export",
+    logoDescription:
+      "Wird in Freigabe-E-Mails und auf öffentlichen Clip-Seiten angezeigt.",
+    change: "Ändern",
+    adminsOnly: "Nur Inhaber und Admins können das ändern.",
+    brandColorInvalid: "Gib einen Hex-Farbcode ein.",
+    loadFailed: "Diese Einstellungen konnten nicht geladen werden.",
+    emailGroup: "E-Mail",
+    calendarGroup: "Kalender",
+    googleCalendar: "Google Calendar",
+    connect: "Verbinden",
+    reconnect: "Neu verbinden",
+    connectedAs: "Verbunden als {{account}}",
+    needsReconnect: "{{account}} muss neu verbunden werden.",
+    disconnectFailed: "Der Kalender konnte nicht getrennt werden.",
+    disconnectCalendarDescription:
+      "Clips synchronisiert keine anstehenden Meetings mehr aus {{account}}.",
+    calendarApp: "Google Calendar-App",
+    desktopGroup: "Desktop-App",
+    meetingCapture: "Besprechungsaufzeichnung",
+    meetingCaptureDescription:
+      "Notizen, Autostart und Benachrichtigungen legst du auf jedem Gerät in Clips Desktop fest.",
+    openClipsDesktop: "Clips Desktop öffnen",
+    keySaved: "Gespeichert",
+    keyNotSaved: "Nicht gespeichert",
+    manage: "Verwalten",
+    add: "Hinzufügen",
+    linkPreviews: "Link-Vorschauen",
+    addWorkspace: "Arbeitsbereich hinzufügen",
+    storageAskAdmin:
+      "Bitte einen Inhaber oder Admin, den Speicher einzurichten.",
   },
   insightsHub: {
     title: "Einblicke",

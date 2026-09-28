@@ -31,6 +31,7 @@ import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -186,6 +187,7 @@ export default function Root() {
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
+        skeletonLayout="prompt-library"
         toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >

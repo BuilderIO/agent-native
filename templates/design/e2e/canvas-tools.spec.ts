@@ -269,15 +269,6 @@ interface IframePaintProbeSnapshot {
   sourceEmptyMutations: number;
 }
 
-/**
- * Watch the actual host paint boundary around one preview iframe.
- *
- * A MutationObserver alone over-reports `body.innerHTML` swaps: removals and
- * insertions happen in one JS task and Chromium cannot paint between them.
- * This probe therefore samples at requestAnimationFrame as well. Any missing,
- * hidden, zero-sized, or source-empty document observed there represents a
- * real frame Chromium could have presented to the user.
- */
 async function installIframePaintProbe(
   iframe: Locator,
   identity: string,
@@ -445,8 +436,6 @@ async function createDraftPrimitive(
     "true",
   );
   await expect(selectedLayerRow(page)).toContainText(selectionLabel);
-  // The draft commits in the browser before autosave reaches SQL, so any
-  // server read taken straight after this returns the file without the node.
   await expect
     .poll(
       async () => {
@@ -896,7 +885,6 @@ async function replaceActiveText(page: Page, text: string): Promise<void> {
     process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAllShortcut);
   await page.keyboard.type(text);
-  // Figma text editing: Enter inserts a line break; Escape exits and commits.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(150);
 }
@@ -1130,8 +1118,6 @@ function expectCloseToFrameSize(
   viewport: { width: number; height: number },
   frame: { width: number; height: number },
 ) {
-  // The frame card is measured as border-box while the preview iframe reports
-  // content-box. The overview card has a 1px border on each side.
   expect(Math.abs(viewport.width - frame.width)).toBeLessThanOrEqual(2);
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
@@ -1373,11 +1359,6 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
   });
   await expectIframePaintStable(page, "stable-overview-paint");
   await page.keyboard.press("Escape");
-  // The overview annotation surface is intentionally retained while hidden:
-  // keeping the same canvas node mounted preserves its bitmap/model across
-  // overview↔focused transitions and avoids the white/repaint flash this test
-  // exists to guard. Escape must make it inert and inaccessible, not destroy
-  // the retained surface.
   await expect(page.locator("[data-draw-overlay]")).toHaveAttribute(
     "aria-hidden",
     "true",
@@ -1456,8 +1437,6 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
   await expect(iframe).toBeVisible();
   await installIframePaintProbe(iframe, "focused-edit-stable");
 
-  // Inspector style commits must live-patch the same document; their async
-  // save/refetch echo used to be a common delayed white-flash source.
   await selectByText(page, "E2E Hero Heading");
   const sizeInput = page.locator('input[aria-label="Size" i]').first();
   await expect(sizeInput).toBeVisible();
@@ -1470,12 +1449,9 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
         .evaluate((element) => (element as HTMLElement).style.fontSize),
     )
     .toBe("48px");
-  // Let the durable save/refetch round trip land before checking paint data.
   await page.waitForTimeout(900);
   await expectIframePaintStable(page, "focused-edit-stable");
 
-  // Inline text editing commits through its own bridge path and should retain
-  // the same iframe through the subsequent history replay.
   await dblClickText(page, "E2E Hero Heading");
   await waitForTextEditing(page);
   await page.keyboard.press(
@@ -1499,10 +1475,6 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
     designFrame(page).getByText("Flash-free heading", { exact: true }),
   ).toBeVisible();
 
-  // An in-flow structural move exercises overlay churn and the optimistic
-  // source-persistence round trip. Keep it after the text/inspector checks:
-  // its async selection acknowledgement intentionally reselects the moved
-  // element, just like Figma, so it should not race an unrelated next edit.
   await selectByText(page, "Alpha Button");
   await expect(selectedLayerRow(page)).toContainText("Alpha Button");
   const beta = designFrame(page).getByText("Beta Button", { exact: true });
@@ -1519,8 +1491,6 @@ test("selection, same-screen move, text and style edits, undo redo, and zoom nev
   await page.waitForTimeout(900);
   await expectIframePaintStable(page, "focused-edit-stable");
 
-  // Zoom updates editor chrome through postMessage; neither direction may
-  // rebuild srcdoc or make the preview transparent for a compositor frame.
   await page.keyboard.press(
     process.platform === "darwin" ? "Meta+Equal" : "Control+Equal",
   );
@@ -1543,7 +1513,6 @@ test("Hand and Scale shortcuts project the active move-group tool", async ({
   );
   await expect(toolButton(page, "Move")).toHaveCount(0);
 
-  // The primary button shows Hand, so clicking it must keep Hand selected.
   await toolButton(page, "Hand").click();
   await expect(toolButton(page, "Hand")).toHaveAttribute(
     "aria-pressed",
@@ -1566,7 +1535,6 @@ test("Hand and Scale shortcuts project the active move-group tool", async ({
   );
   await expect(toolButton(page, "Hand")).toHaveCount(0);
 
-  // The primary button shows Scale, so clicking it must keep Scale selected.
   await toolButton(page, "Scale").click();
   await expect(toolButton(page, "Scale")).toHaveAttribute(
     "aria-pressed",
@@ -1591,11 +1559,6 @@ async function textEditingCount(page: Page): Promise<number> {
 }
 
 async function dblClickText(page: Page, text: string): Promise<void> {
-  // Overview -> focused mode replaces the board iframe with the focused
-  // DesignCanvas iframe. The outgoing and incoming frames briefly share the
-  // same bounds, so geometry/visibility alone can report ready while a click
-  // would still land in the outgoing document. Require the same iframe DOM
-  // instance to remain mounted across the transition before interacting.
   let stableIframeToken: string | null = null;
   let stableSince = 0;
   await expect
@@ -1623,10 +1586,6 @@ async function dblClickText(page: Page, text: string): Promise<void> {
 
   const target = designFrame(page).getByText(text).first();
   await target.waitFor({ state: "visible", timeout: 10_000 });
-  // The full-view transition is still settling when its iframe first crosses
-  // the helper's width threshold. Let Playwright resolve the live hit point at
-  // dispatch time; a cached box can move between measurement and dblclick.
-  // `force` is intentional because the editor shield owns the real hit target.
   await target.dblclick({ force: true });
 }
 
@@ -1637,20 +1596,14 @@ test("double-click existing text starts inline editing and stays open (overview)
 
   await dblClickText(page, "E2E Hero Heading");
 
-  // Inline editing must begin — the iframe stamps the contenteditable target.
   await waitForTextEditing(page);
 
-  // ...and must stay open. The reported bug tears it down within ~1 frame
-  // (the caret "blinks" then focus jumps to the chat composer), so wait a beat
-  // and confirm we are still editing with focus.
   await page.waitForTimeout(800);
   const summary = await textEditingChromeSummary(page);
   expect(summary?.editing, "still in inline text-editing mode").toBe(true);
   expect(summary?.active, "editable still holds focus").toBe(true);
   expect(await textEditingCount(page), "exactly one editor open").toBe(1);
 
-  // Typing replaces the text inline (no AI round-trip). Verify by observing
-  // the committed text in the iframe DOM rather than a bridge payload shape.
   const selectAll = process.platform === "darwin" ? "Meta+A" : "Control+A";
   await page.keyboard.press(selectAll);
   await page.keyboard.type("Edited Inline");
@@ -1768,11 +1721,8 @@ test("typing into a new text layer and clicking out renders it once, in order", 
     "true",
   );
   await page.mouse.click(box.x + box.width * 0.3, box.y + 120);
-  // No wait and no select-all: typing straight into the new layer races
-  // text-edit activation, which is when the host flushes its buffered keys.
   await page.keyboard.type("my page", { delay: 40 });
   await page.waitForTimeout(400);
-  // Clicking out commits through blur, which Escape does not exercise.
   await page.mouse.click(box.x + box.width * 0.75, box.y + box.height - 60);
 
   await expect
@@ -1821,9 +1771,6 @@ test("new empty text is one atomic undo step and cancel leaves the frame intact"
   };
 
   await placeEmptyText();
-  // Let the optimistic write and its server acknowledgement land. The caret
-  // must survive this window; historically the save echo forced a second
-  // whole-document replacement and silently ended the edit session.
   await page.waitForTimeout(1_500);
   let liveEditingFrame = await activeTextEditingFrame(page);
   await liveEditingFrame
@@ -1912,9 +1859,6 @@ test("board text focuses immediately and uses editing chrome states", async ({
     page,
     (summary) => summary.editing && summary.active && summary.text === "",
   );
-  // The board iframe intentionally has no screen-frame identity: board
-  // primitives persist through __board__.html, but the board itself must not
-  // enter the screen selection/zoom model.
   expect(emptyChrome.screenId).toBeNull();
   expect(emptyChrome.overlayVisible).toBe(false);
   expect(emptyChrome.visibleCornerHandles).toBe(0);
@@ -2202,10 +2146,6 @@ test("dragging within an auto-layout row reorders at the visual insertion point 
   const betaBox = await beta.boundingBox();
   if (!alphaBox || !betaBox) throw new Error("missing auto-layout buttons");
 
-  // Land inside Beta's trailing half. A drop past Beta's right edge is only
-  // still inside the row when the buttons leave slack there, and their width
-  // is font-metric dependent — on CI it escaped to the row's parent and the
-  // button reordered out of the row instead of within it.
   const fired = await dragCanvasByText(
     page,
     "Alpha Button",
@@ -2216,8 +2156,6 @@ test("dragging within an auto-layout row reorders at the visual insertion point 
 
   const betaMarker = 'data-agent-native-layer-name="Beta Button"';
   const alphaMarker = 'data-agent-native-layer-name="Alpha Button"';
-  // indexOf's -1 is a sentinel, not a position: comparing the raw values means
-  // a reorder that DELETED one button reads as a successful reorder.
   const betaBeforeAlpha = async () => {
     const content = await fileContent(page, "index.html");
     const beta = content.indexOf(betaMarker);
@@ -2508,9 +2446,6 @@ test("dragging a screen primitive into a board rectangle nests and persists", as
     .boundingBox();
   if (!homeCardBox) throw new Error("missing Home screen card box");
 
-  // Sidebar/inspector width parity changes alter the fitted screen positions.
-  // Pick a board rectangle dynamically instead of assuming `Home.x - 20` is
-  // empty (that point can now be inside an adjacent screen such as About).
   const canvasSurfaceBox = await page
     .locator("[data-multi-screen-canvas-world]")
     .locator("..")
@@ -2668,8 +2603,6 @@ test("same-board rectangle nesting into a finite-origin frame persists without p
     movedBox.y + movedBox.height / 2,
   );
   await expect(selectedLayerRow(page)).toContainText("Rectangle");
-  // Selection makes the board the active edit surface. Re-read both boxes
-  // after that state transition before beginning the structural drag.
   const targetBox = await boardPrimitiveViewportBox(page, targetId);
   movedBox = await boardPrimitiveViewportBox(page, movedId);
 
@@ -2820,12 +2753,9 @@ test("frame drawn left of the first screen creates a new screen", async ({
     .toBeLessThan(0);
 });
 
-// The rectangle does not survive the draw on the board surface.
 test("rectangle drawn left of the first screen persists on the board", async ({
   page,
 }) => {
-  // Pin the theme: the board surface colour below is a theme token, so an
-  // unpinned default silently decides whether this assertion can pass.
   await page.emulateMedia({ colorScheme: "light" });
   await page.addInitScript(() => localStorage.setItem("theme", "light"));
   await postAction(page.request, "create-file", {
@@ -2913,9 +2843,6 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     )
     .toBe(true);
 
-  // The finite render origin is derived again after a cold load. The board
-  // node must remain inside the iframe viewport instead of reverting to the
-  // old fixed +/-65536 projection and becoming visually clipped.
   await gotoEditor(page, designId);
   await expect
     .poll(
@@ -2980,7 +2907,6 @@ test("pen Escape finishes an open path and Enter selects a new vector on Move", 
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
   await page.mouse.up();
   await expect(page.locator("[data-pen-path-overlay]")).toHaveCount(0);
-  // A new vector becomes selected and Move becomes active after Enter.
   await expect(toolButton(page, "Move")).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -3489,12 +3415,6 @@ test.fixme("overview undo skips deleted screen content history", async ({
   ).toBe(false);
 });
 
-// Negative-only: both assertions are "undo did NOT resurrect this", so with no
-// undo delivered at all they hold trivially (verified — it passes with
-// pressPrimaryShortcut's synthetic dispatch removed). Sound only because
-// `overview undo and redo stay global across screen content and canvas
-// geometry` covers the positive side and DOES fail under that mutation. Do not
-// delete that test without replacing this one's positive anchor.
 test("overview undo does not restore ghost geometry for deleted screens", async ({
   page,
 }) => {
@@ -3515,9 +3435,6 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
   const aboutShell = screenShell(page, "About");
   const aboutBoxBeforeMove = await aboutShell.boundingBox();
   if (!aboutBoxBeforeMove) throw new Error("no about shell before move");
-  // A frame is dragged by the drag surface inside its selection box, and that
-  // box only exists once the frame is selected — so an unselected frame's
-  // first press only selects it, and a single press-and-move goes nowhere.
   await page.mouse.click(
     aboutBoxBeforeMove.x + aboutBoxBeforeMove.width * 0.34,
     aboutBoxBeforeMove.y + 12,

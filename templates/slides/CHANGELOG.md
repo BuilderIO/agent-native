@@ -3,15 +3,67 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-09-26
+## 2026-09-27
+
+### Improved
+
+- The Connect AI setup card now has even spacing above and below the composer.
 
 ### Fixed
 
+- Fixed deck edits that could be overwritten during unload
+- Pagehide saves include queued edits and stay within the keepalive budget
+- Text edits are preserved when leaving or reloading a deck, and link drops no longer navigate away.
+- Text selection and bullet edits stay in their intended line and row
+- The deck list stays available when a deck preview cannot be generated.
+
+## 2026-09-26
+
+### Added
+
+- Twelve new hand-designed deck templates — from a Swiss-grid pitch and data-dense quarterly review to a launch keynote, research report, lesson, roadmap, and portfolio — with the original starters still available below them.
+
+### Improved
+
+- Builder.io super-organization admins can preview customer slide decks in Human Review.
+- Connect storage only when you choose to upload a file
+- Slides accepts HTML references, identifies files in upload errors, and clarifies Figma access issues.
+- Keep Slides deck setup drafts across template navigation and retry failed storage checks before importing references.
+- Loading screens now reflect the app's home layout.
+- Saved slide decks can be previewed directly in Human Review.
+- Slides chat labels the selected slide by number so the agent knows which slide to edit.
+- Home headers keep search and controls aligned at intermediate widths
+- Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
+- The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
+- Create decks from the prompt without a separate New Deck button.
+
+### Fixed
+
+- Clicking or double-clicking slide text near a box's edge now puts the caret or selection where you clicked, and pressing Enter in a styled bullet keeps its color and weight on the new bullet
+- Reverted text edits no longer change slide spacing
+- Slides keep their fit while text is edited and avoid saving changes that are erased.
+- Exports and Present are disabled when a deck has no slides
+- File uploads ask for storage only when requested, and chat stays disabled until an AI provider is connected.
+- Home suggestions and file imports handle provider failures more clearly.
+- Mobile chat now waits for slide edits to save before restoring an earlier deck version.
+- Search remains available before you create a presentation
+- Slides stops retrying imports when a file path is outside your uploads.
+- The presentation prompt appears immediately without a loading placeholder
+- Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
+- The home search shortcut leaves commands for open menus and dialogs.
+- Double-clicking slide text selects the word under the pointer.
+- Empty decks no longer start exports or presentations or expose presentation links.
+- Invalid or expired upload references stop instead of retrying
+- Slides ask for a file when a prompt refers to an unattached document
 - Reference file imports now check storage availability before opening the file picker.
 
 ### Changed
 
 - The app entry now opens the shared sign-in and sign-up screen instead of a separate marketing page.
+
+### Removed
+
+- Create decks directly from the prompt without a separate New Deck button.
 
 ## 2026-09-25
 
@@ -38,6 +90,10 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Pressing Enter in a flex-anchored text box no longer adds extra blank lines when you leave editing, and Arabic text stays joined while you type
+- Slides generation recovers from long pauses and lets you continue from the saved deck
+- Slides guides users to connect AI before continuing deck questions.
+- Slides checks object storage before uploads and offers Builder.io or your own S3-compatible keys when storage is missing.
 - Human Review previews show same-organization slides for organization admins without changing deck data.
 - Searching presentations keeps the results panel visible even when your workspace has no owned decks.
 - Shared-only presentations now open in Recent by default, copied templates wait for deck hydration, and retries remain idempotent.

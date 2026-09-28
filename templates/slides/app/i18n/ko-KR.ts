@@ -40,7 +40,6 @@ const messages = {
     brand: "슬라이드",
     decks: "덱",
     designSystems: "디자인 시스템",
-    team: "팀",
   },
   settings: {
     agentObservability: "에이전트 관찰성",
@@ -54,6 +53,13 @@ const messages = {
     emailNotificationsDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
+    notificationsEmail: "이메일",
+    commentsAndReplies: "댓글 및 답글",
+    commentsAndRepliesDescription:
+      "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
+    retry: "다시 시도",
+    mcpAbout:
+      "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     languageTitle: "언어",
     languageDescription:
       "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
@@ -185,8 +191,6 @@ const messages = {
     slideUnavailable: "スライドを利用できません",
     couldNotLoadSlide: "スライドを読み込めませんでした。",
     openInApp: "앱에서 열기",
-    teamDescription:
-      "同僚とプレゼンテーションを共有するためにチームを設定します。",
   },
 
   designSystems: {
@@ -576,6 +580,7 @@ const messages = {
     generating: "正在生成幻灯片...",
     generate: "生成幻灯片",
   },
+  deckResult: { saved: "저장됨" },
   history: {
     unknownTime: "未知时间",
     justNow: "刚刚",
@@ -825,6 +830,11 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    fallbackSuggestions: {
+      pitch: "제품 피치 덱 만들기",
+      roadmap: "제품 로드맵 만들기",
+      explainer: "프레젠테이션으로 주제 설명하기",
+    },
     suggestedPrompts: "추천 프롬프트",
     importMenu: {
       import: "가져오기",
@@ -832,7 +842,11 @@ const messages = {
       invalidPdf: "PDF 파일을 선택하세요.",
       invalidPptx: "PPTX 파일을 선택하세요.",
       invalidFile: "PDF 또는 PPTX 파일을 선택하세요.",
+      networkFailed:
+        "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
       notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+      uploadLimitExceeded:
+        "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
     },
     importDeck: "덱 가져오기",
     context: {
@@ -871,6 +885,8 @@ const messages = {
       notReady:
         "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
       emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      figmaReadFailed:
+        "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",
       search: "참조 검색",
       designCategory: "디자인",
