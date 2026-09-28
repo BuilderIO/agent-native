@@ -784,6 +784,11 @@ function getClientDedupe(cwd: string): string[] {
     "@tailwindcss/vite",
   ]);
 
+  // Stateless, so one copy is not required. Forcing the app's copy breaks
+  // toolkit's generated icon catalog, which imports every export of the exact
+  // Tabler version toolkit pins; newer Tabler releases rename icons.
+  const versionPinnedByDependents = new Set(["@tabler/icons-react"]);
+
   try {
     const corePkgPath = path.resolve(__dirname, "../../package.json");
     const corePkg = JSON.parse(fs.readFileSync(corePkgPath, "utf-8"));
@@ -802,7 +807,7 @@ function getClientDedupe(cwd: string): string[] {
     ]);
 
     for (const dep of coreDeps) {
-      if (serverOnly.has(dep)) continue;
+      if (serverOnly.has(dep) || versionPinnedByDependents.has(dep)) continue;
       if (
         appDeps.has(dep) ||
         dep.startsWith("@radix-ui/") ||
