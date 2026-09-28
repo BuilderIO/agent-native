@@ -2,17 +2,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
+let staleA2aTasks = 0;
+let a2aTableExists = true;
 let turnQueryThrows = false;
+let a2aQueryThrows = false;
 let memberQueryThrows = false;
 let deleteClaimThrows = false;
 
-const execute = vi.fn(async ({ sql }: { sql: string }) => {
+const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
   if (sql.includes("org_members")) {
     if (memberQueryThrows) throw new Error("member lookup failed");
     const rows = sql.includes("role IN ('owner', 'admin')")
       ? memberRows.filter((row) => row.role === "owner" || row.role === "admin")
       : memberRows;
     return { rows, rowsAffected: 0 };
+  }
+  if (sql.includes("to_regclass('a2a_tasks')")) {
+    return {
+      rows: [{ relation: a2aTableExists ? "a2a_tasks" : null }],
+      rowsAffected: 0,
+    };
+  }
+  if (sql.includes("FROM a2a_tasks")) {
+    if (a2aQueryThrows) throw new Error("A2A task ledger unreadable");
+    return { rows: [{ stale_tasks: staleA2aTasks }], rowsAffected: 0 };
   }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
@@ -73,7 +86,10 @@ function turns(total: number, bad: number) {
 beforeEach(() => {
   turnRows = [];
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
+  staleA2aTasks = 0;
+  a2aTableExists = true;
   turnQueryThrows = false;
+  a2aQueryThrows = false;
   memberQueryThrows = false;
   deleteClaimThrows = false;
   settings.clear();
@@ -97,6 +113,74 @@ describe("checkChatHealthAndAlert", () => {
     turns(20, 2);
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("healthy");
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("pages on stale delegated A2A work even without a large turn sample", async () => {
+    staleA2aTasks = 2;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({
+      status: "alerted",
+      turns: 0,
+      staleA2ATasks: 2,
+      recipients: 1,
+    });
+
+    const notification = notifyWithDelivery.mock.calls[0][0];
+    expect(notification).toMatchObject({
+      severity: "critical",
+      title: "2 stale delegated A2A tasks",
+      metadata: {
+        staleA2ATasks: 2,
+        windowMs: 60 * 60_000,
+      },
+    });
+    expect(notification.body).toContain(
+      "2 delegated A2A tasks are past the recovery window.",
+    );
+
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain(
+      "status_state IN ('submitted', 'working') AND created_at <= ?",
+    );
+    expect(a2aQuery?.sql).toContain("updated_at <= ? OR created_at <= ?");
+    expect(a2aQuery?.sql).toContain(
+      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+    );
+    expect(a2aQuery?.args).toEqual([
+      NOW - 3 * 60_000,
+      NOW - 5 * 60_000,
+      NOW - 30 * 60_000,
+    ]);
+  });
+
+  it("uses the same configured recovery windows as A2A task recovery", async () => {
+    vi.stubEnv("A2A_QUEUED_LIFETIME_MAX_MS", "120000");
+    vi.stubEnv("A2A_PROCESSING_LIFETIME_MAX_MS", "2400000");
+    try {
+      staleA2aTasks = 1;
+      await checkChatHealthAndAlert(NOW);
+
+      const a2aQuery = execute.mock.calls
+        .map(([input]) => input)
+        .find((input) => input.sql.includes("FROM a2a_tasks"));
+      expect(a2aQuery?.args).toEqual([
+        NOW - 120_000,
+        NOW - 5 * 60_000,
+        NOW - 40 * 60_000,
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("treats an app with no A2A task table as having no stale tasks", async () => {
+    a2aTableExists = false;
+    turns(20, 2);
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({ status: "healthy", turns: 20 });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
@@ -220,6 +304,16 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("check-failed");
     expect(out.status).not.toBe("healthy");
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("reports an unreadable A2A task ledger as a failed check", async () => {
+    a2aQueryThrows = true;
+    const out = await checkChatHealthAndAlert(NOW);
+    expect(out).toMatchObject({
+      status: "check-failed",
+      reason: "Error: A2A task ledger unreadable",
+    });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 

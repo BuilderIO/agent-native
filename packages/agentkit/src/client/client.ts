@@ -765,13 +765,19 @@ export class AgentKitClient implements AgentKitController {
       ) {
         this.queuedMessageOverrides.delete(threadId);
       }
-      const missingRunIds = (snapshot?.activeRunIds ?? []).filter(
-        (runId) => !runSnapshots.has(runId),
-      );
+      const snapshotActiveRunIds = snapshot?.activeRunIds ?? [];
       const getRun = this.transport.getRun;
-      const activeRuns = missingRunIds.length
+      const runIdsToRefresh = getRun
+        ? snapshotActiveRunIds.filter(
+            (runId) =>
+              !this.isTerminalStatus(
+                runSnapshots.get(runId)?.status ?? "running",
+              ),
+          )
+        : snapshotActiveRunIds.filter((runId) => !runSnapshots.has(runId));
+      const activeRuns = runIdsToRefresh.length
         ? await Promise.all(
-            missingRunIds.map(async (runId) =>
+            runIdsToRefresh.map(async (runId) =>
               getRun
                 ? await this.invokeRequest(requestContext, (context) =>
                     getRun({ threadId, runId }, context),
@@ -781,9 +787,21 @@ export class AgentKitClient implements AgentKitController {
           )
         : [];
       this.assertActive();
-      missingRunIds.forEach((runId, index) => {
+      runIdsToRefresh.forEach((runId, index) => {
         const run = activeRuns[index];
-        runSnapshots.set(runId, run ?? this.runSnapshot(threadId, runId));
+        const appliedSequence =
+          this.getThread(threadId).runs[runId]?.lastSequence ??
+          runSnapshots.get(runId)?.lastSequence ??
+          0;
+        if (
+          run &&
+          this.isTerminalStatus(run.status) &&
+          run.lastSequence <= appliedSequence
+        ) {
+          runSnapshots.set(runId, { ...run, lastSequence: appliedSequence });
+        } else if (!runSnapshots.has(runId)) {
+          runSnapshots.set(runId, this.runSnapshot(threadId, runId));
+        }
       });
       const hydratedRuns = Object.fromEntries(
         [...runSnapshots.entries()].map(([runId, run]) => [
@@ -834,7 +852,12 @@ export class AgentKitClient implements AgentKitController {
       }
       if (preserveRuntimeProjection && snapshot) {
         const current = this.getThread(threadId);
-        thread = this.mergeLoadedThread(baseline, current, thread);
+        thread = this.mergeLoadedThread(
+          baseline,
+          current,
+          thread,
+          this.hasLiveMessageProjection(current, thread),
+        );
         if (queuedOverrideMessages) {
           // Queue mutations are already optimistic and independently durable.
           // A completed-run snapshot can lag the accepted steer/remove write,
@@ -843,8 +866,13 @@ export class AgentKitClient implements AgentKitController {
         }
       }
       const current = this.getThread(threadId);
-      if (current !== baseline) {
-        thread = this.mergeLoadedThread(baseline, current, thread);
+      if (current !== baseline || current.activeRunIds.length > 0) {
+        thread = this.mergeLoadedThread(
+          baseline,
+          current,
+          thread,
+          this.hasLiveMessageProjection(current, thread),
+        );
       }
       thread = this.settleTerminalThread(thread, snapshot);
       if (threadMissing) this.missingThreadStates.add(thread);
@@ -2236,6 +2264,7 @@ export class AgentKitClient implements AgentKitController {
     baseline: AgentThreadState,
     current: AgentThreadState,
     loaded: AgentThreadState,
+    preserveLiveMessages = false,
   ): AgentThreadState {
     const messagesChanged = current.messages !== baseline.messages;
     const reconciliation =
@@ -2312,9 +2341,12 @@ export class AgentKitClient implements AgentKitController {
       ...loaded,
       thread:
         current.thread === baseline.thread ? loaded.thread : current.thread,
+      // A snapshot can trail accepted events even when no event arrives
+      // during this load.
       messages:
-        messagesChanged || hasMessageIdRemap
-          ? reconciliation!.messages
+        reconciliation &&
+        (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
+          ? reconciliation.messages
           : loaded.messages.length > 0 || current.messages.length === 0
             ? loaded.messages
             : current.messages,
@@ -2444,6 +2476,30 @@ export class AgentKitClient implements AgentKitController {
         "events",
       ),
     };
+  }
+
+  private hasLiveMessageProjection(
+    thread: AgentThreadState,
+    loaded: AgentThreadState,
+  ): boolean {
+    if (thread.activeRunIds.length > 0) return true;
+    const loadedMessages = new Map(
+      loaded.messages.map((message) => [message.id, message]),
+    );
+    return thread.events.some((event) => {
+      if (event.type !== "message.completed") return false;
+      const currentMessage = thread.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      const loadedMessage = loadedMessages.get(event.message.id);
+      return (
+        currentMessage !== undefined &&
+        loadedMessage !== undefined &&
+        (currentMessage.status !== loadedMessage.status ||
+          this.messageContentKey(currentMessage) !==
+            this.messageContentKey(loadedMessage))
+      );
+    });
   }
 
   private mergeRuns(

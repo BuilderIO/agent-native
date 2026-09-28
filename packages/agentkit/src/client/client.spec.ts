@@ -537,6 +537,213 @@ describe("AgentKitClient", () => {
     expect(thread.tools["tool-1"]?.status).toBe("completed");
   });
 
+  it("refreshes terminal status without advancing its cursor", async () => {
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:02.000Z",
+      messages: [],
+      runs: [
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "running",
+          lastSequence: 2,
+        },
+      ],
+      activeRunIds: ["run-1"],
+    });
+    const getRun = vi.fn(async () => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "completed" as const,
+      lastSequence: 2,
+      completedAt: "2026-08-29T00:00:02.000Z",
+    }));
+    transport.getRun = getRun;
+    const client = new AgentKitClient({ transport });
+
+    const thread = await client.loadThread("thread-1");
+
+    expect(getRun).toHaveBeenCalledOnce();
+    expect(thread.runs["run-1"]?.status).toBe("completed");
+    expect(thread.runs["run-1"]?.lastSequence).toBe(2);
+    expect(thread.activeRunIds).toEqual([]);
+  });
+
+  it("resumes from the local cursor when server status is terminal", async () => {
+    const subscribed = Promise.withResolvers<number>();
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      return {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages: [],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: snapshotReads === 1 ? "running" : "completed",
+            lastSequence: snapshotReads === 1 ? 2 : 3,
+          },
+        ],
+        activeRunIds: snapshotReads === 1 ? ["run-1"] : [],
+      };
+    };
+    transport.getRun = async () => ({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "completed",
+      lastSequence: 3,
+      completedAt: "2026-08-29T00:00:02.000Z",
+    });
+    transport.subscribeToRun = async function* ({ afterSequence }) {
+      subscribed.resolve(afterSequence ?? 0);
+      yield protocolEvent(3, { type: "run.completed" });
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    await expect(subscribed.promise).resolves.toBe(2);
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+        "completed",
+      ),
+    );
+
+    expect(client.getThread("thread-1").runs["run-1"]?.lastSequence).toBe(3);
+    await client.dispose();
+  });
+
+  it("keeps live messages across a stale snapshot during a tool wait", async () => {
+    const atToolWait = Promise.withResolvers<void>();
+    const resumeStream = Promise.withResolvers<void>();
+    let snapshotReads = 0;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => {
+      snapshotReads += 1;
+      return {
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages:
+          snapshotReads === 1
+            ? []
+            : [
+                {
+                  id: "assistant-1",
+                  role: "assistant",
+                  status: "streaming",
+                  parts: [
+                    {
+                      type: "reasoning",
+                      text: "Thinking",
+                      visibility: "summary",
+                    },
+                  ],
+                },
+              ],
+        ...(snapshotReads > 1 ? { activeRunIds: [] } : {}),
+      };
+    };
+    transport.subscribeToRun = async function* () {
+      yield protocolEvent(1, { type: "run.started" });
+      yield protocolEvent(2, {
+        type: "message.created",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "streaming",
+          parts: [],
+        },
+      });
+      yield protocolEvent(3, {
+        type: "reasoning.delta",
+        messageId: "assistant-1",
+        text: "Thinking",
+      });
+      yield protocolEvent(4, {
+        type: "tool.started",
+        toolCall: { id: "tool-1", name: "Search", status: "running" },
+      });
+      yield protocolEvent(5, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it",
+        },
+      });
+      atToolWait.resolve();
+      await resumeStream.promise;
+      yield protocolEvent(6, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "Answer ",
+      });
+      yield protocolEvent(7, {
+        type: "message.delta",
+        messageId: "assistant-1",
+        text: "survives",
+      });
+      yield protocolEvent(8, {
+        type: "message.completed",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          status: "complete",
+          parts: [
+            {
+              type: "reasoning",
+              text: "Thinking",
+              visibility: "summary",
+            },
+            { type: "text", text: "Answer survives" },
+          ],
+        },
+      });
+      yield protocolEvent(9, { type: "run.completed" });
+    };
+    const client = new AgentKitClient({ transport });
+
+    await client.loadThread("thread-1");
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    try {
+      await atToolWait.promise;
+      await client.loadThread("thread-1");
+
+      const inFlightMessage = client
+        .getThread("thread-1")
+        .messages.find((item) => item.id === "assistant-1");
+      expect(inFlightMessage).toMatchObject({
+        status: "streaming",
+        parts: [{ type: "reasoning", text: "Thinking", visibility: "summary" }],
+      });
+
+      resumeStream.resolve();
+      await run.completed;
+
+      const completedMessage = client
+        .getThread("thread-1")
+        .messages.find((item) => item.id === "assistant-1");
+      expect(completedMessage).toMatchObject({
+        status: "complete",
+        parts: [
+          { type: "reasoning", text: "Thinking", visibility: "summary" },
+          { type: "text", text: "Answer survives" },
+        ],
+      });
+    } finally {
+      resumeStream.resolve();
+      await client.dispose();
+    }
+  });
+
   it("settles the snapshot message associated with a terminal run", async () => {
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => ({
