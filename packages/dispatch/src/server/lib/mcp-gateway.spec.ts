@@ -1336,7 +1336,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   });
 
   it("keeps workspace sign-in behind the rollout flag", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValueOnce(false);
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(
       runWithRequestContext(
@@ -1352,6 +1352,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       ),
     ).rejects.toThrow(/not enabled/);
     expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("allows Desktop workspace sign-in when Dispatch pane SSO is off", async () => {
+    mocks.isFeatureFlagEnabled.mockImplementation(
+      async (flag) => flag.key === "desktop.workspace-sso",
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).resolves.toMatchObject({ app: "analytics" });
+
+    expect(
+      mocks.isFeatureFlagEnabled.mock.calls.map(([flag]) => flag.key),
+    ).toEqual(["dispatch.workspace-sso", "desktop.workspace-sso"]);
+    expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
   it("allows an exact canonical app without requiring an MCP app grant", async () => {
