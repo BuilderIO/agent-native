@@ -1,5 +1,5 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
   markAgentChatHomeHandoff,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
@@ -78,56 +78,54 @@ export default function CreatePage() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="assets-create-chat-panel"
-        defaultMode="chat"
-        storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync={threadUrlSync}
-        browserTabId={getBrowserTabId()}
-        threadFooterSlot={({ threadId }) => (
-          <GenerationResults threadId={threadId} />
-        )}
-        imageModelMenu={imageModelMenu}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("create.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("create.composerPlaceholder")}
-        composerSlot={
-          <div className="assets-create-chat-intro">
-            <h1>{t("create.heroTitle")}</h1>
-            <p>{t("create.heroDescription")}</p>
-            <div className="assets-create-chat-pill-row">
-              {CHAT_STARTERS.map(({ key, Icon, prompt }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() =>
-                    sendToAgentChat({
-                      message: prompt,
-                      submit: false,
-                      openSidebar: false,
-                    })
-                  }
-                >
-                  <Icon className="size-3.5" />
-                  {t(`create.starters.${key}`)}
-                </button>
-              ))}
-            </div>
-            <div className="mt-8 w-[min(100vw-2rem,64rem)] px-4 text-left sm:px-6">
-              <RecentDraftsSection />
-            </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      surfaceClassName="assets-create-chat-panel"
+      defaultMode="chat"
+      storageKey={ASSETS_CHAT_STORAGE_KEY}
+      threadUrlSync={threadUrlSync}
+      browserTabId={getBrowserTabId()}
+      threadFooterSlot={({ threadId }) => (
+        <GenerationResults threadId={threadId} />
+      )}
+      imageModelMenu={imageModelMenu}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("create.emptyState")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("create.composerPlaceholder")}
+      homeIntroSlot={
+        <div className="assets-create-chat-intro">
+          <h1>{t("create.heroTitle")}</h1>
+          <p>{t("create.heroDescription")}</p>
+          <div className="assets-create-chat-pill-row">
+            {CHAT_STARTERS.map(({ key, Icon, prompt }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() =>
+                  sendToAgentChat({
+                    message: prompt,
+                    submit: false,
+                    openSidebar: false,
+                  })
+                }
+              >
+                <Icon className="size-3.5" />
+                {t(`create.starters.${key}`)}
+              </button>
+            ))}
           </div>
-        }
-      />
-    </div>
+          <div className="mt-8 w-[min(100vw-2rem,64rem)] px-4 text-left sm:px-6">
+            <RecentDraftsSection />
+          </div>
+        </div>
+      }
+    />
   );
 }

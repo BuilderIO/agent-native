@@ -1193,6 +1193,44 @@
   pointer-events: auto;
 }
 
+.agentkit-home-intro {
+  display: grid;
+  width: min(100%, 47rem);
+  justify-items: center;
+  gap: 0.5rem;
+  margin: 0 auto 0.75rem;
+  text-align: center;
+}
+
+.agentkit-home-intro h1 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.12;
+}
+
+.agentkit-home-intro p {
+  max-width: 48rem;
+  margin: 0 auto;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.agentkit-home-suggestions {
+  width: min(100%, 47rem);
+  margin: 0 auto 0.75rem;
+}
+
+.agentkit-after-composer-slot {
+  width: 100%;
+  min-width: 0;
+  padding-top: 1.25rem;
+  pointer-events: auto;
+}
+
 .agent-composer-area--attached-above .agent-composer-root {
   position: relative;
   z-index: 3;

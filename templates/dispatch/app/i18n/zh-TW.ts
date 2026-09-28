@@ -363,6 +363,7 @@ const messages = {
       monitoring: "監控",
       database: "資料庫",
       chatAcrossApps: "跨應用程式聊天",
+      chatHomeTitle: "我們該做什麼？",
       chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
       overviewPromptPlaceholder: "想讓 Dispatch 幫你做什麼？",
       chatPromptPlaceholder: "告訴 Dispatch 你想完成什麼…",

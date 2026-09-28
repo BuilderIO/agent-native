@@ -211,6 +211,10 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /** Optional home content rendered above the composer on an empty chat. */
+  homeIntroSlot?: React.ReactNode;
+  /** Optional content rendered below the composer on an empty chat. */
+  afterComposerSlot?: React.ReactNode;
   /**
    * Called with the active composer's current plain text when it initializes
    * and as it changes.

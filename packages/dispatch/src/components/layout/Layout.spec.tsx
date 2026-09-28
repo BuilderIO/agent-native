@@ -15,6 +15,7 @@ import {
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
+  shouldQueryChatFirstApps,
 } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
@@ -168,6 +169,19 @@ describe("Dispatch workspace app sidebar", () => {
     expect(shouldAutoCollapseDispatchSidebar("/apps")).toBe(false);
     expect(shouldAutoCollapseDispatchSidebar("/chat")).toBe(false);
   });
+
+  it.each([
+    [false, false, false],
+    [false, true, true],
+    [true, false, true],
+  ])(
+    "queries app data for a chat route or visible chat-first rail",
+    (isChatRoute, chatFirstMode, expected) => {
+      expect(shouldQueryChatFirstApps(isChatRoute, chatFirstMode)).toBe(
+        expected,
+      );
+    },
+  );
 });
 
 describe("Dispatch redesigned Settings frame", () => {
