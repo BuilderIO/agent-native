@@ -1372,8 +1372,8 @@ const messages: AgentChatTranslation = {
   "usage.copyInviteLink": "Copiar enlace de invitación",
   "usage.inviteLinkCopied": "Enlace de invitación copiado",
   "usage.creditBalance": "Saldo del espacio de trabajo",
-  "usage.monthlyPlan": "Plan mensual",
-  "usage.dailyFreeLimit": "Límite diario gratuito",
+  "usage.monthlyLimit": "Límite mensual",
+  "usage.dailyDefaultLimit": "Límite diario predeterminado",
   "usage.creditUsedOfLimit": "{{used}} de {{limit}} usados",
   "usage.creditRemaining": "Quedan {{amount}}",
   "usage.creditUsageUnavailable":
