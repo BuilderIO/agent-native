@@ -22,6 +22,28 @@ afterEach(() => {
 });
 
 describe("scanDeprecatedImports", () => {
+  it("documents every removed export in the migration guide", () => {
+    const manifest = JSON.parse(
+      fs.readFileSync(
+        new URL("../../migration-manifest.json", import.meta.url),
+        "utf-8",
+      ),
+    ) as MigrationManifest;
+    const guide = fs.readFileSync(
+      new URL("../../docs/migrations/agentkit-chat.md", import.meta.url),
+      "utf-8",
+    );
+    const symbols = new Set(
+      Object.values(manifest.removedExports ?? {}).flatMap(
+        (removedExport) => removedExport.symbols,
+      ),
+    );
+
+    expect(
+      [...symbols].filter((symbol) => !guide.includes(`\`${symbol}\``)),
+    ).toEqual([]);
+  });
+
   it("activates predictive moves only when their release is running", () => {
     const manifest: MigrationManifest = {
       sinceVersion: "0.111.0",
