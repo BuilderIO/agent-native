@@ -44,6 +44,8 @@ const messages: AgentChatTranslation = {
   "approval.action": "الإجراء المطلوب",
   "approval.moreOptions": "المزيد من خيارات الموافقة",
   "approval.question": "هل توافق على تشغيل {{tool}}؟",
+  "approval.releaseSummary": "إطلاق {{release}} إلى {{environment}}",
+  "approval.releaseSummaryWithoutEnvironment": "إطلاق {{release}}",
   "approval.edit": "تعديل",
   "approval.editPrompt":
     "اسألني كيف أريد تعديل هذا الإجراء قبل المحاولة مرة أخرى.",

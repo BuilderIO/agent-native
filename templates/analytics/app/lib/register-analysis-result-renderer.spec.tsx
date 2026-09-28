@@ -7,14 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   DEFAULT_LOCALE: "en-US",
-  useT: () => (key: string) => {
+  useT: () => (key: string, options?: Record<string, unknown>) => {
     if (key === "analysisResult.title") return "Analysis result";
+    if (key === "analysisResult.comparisonContext") {
+      return `${String(options?.period)}: ${String(options?.current)} vs ${String(options?.previous)}`;
+    }
     if (key === "agentChat.widget.downloadCsv") return "Download CSV";
     return key;
   },
   useOptionalLocale: () => ({ locale: "en-US" }),
   useFormatters: () => ({
-    formatNumber: (value: number) => value.toLocaleString("en-US"),
+    formatNumber: (value: number, options?: Intl.NumberFormatOptions) =>
+      new Intl.NumberFormat("en-US", options).format(value),
   }),
 }));
 
@@ -69,6 +73,48 @@ describe("Analytics analysis result renderer", () => {
     expect(container.textContent).toContain("Analysis result");
     expect(container.textContent).toContain("48,200");
     expect(container.textContent).toContain("weekly active users");
+    expect(
+      container
+        .querySelector("[data-analysis-result-card]")
+        ?.classList.contains("border"),
+    ).toBe(false);
+  });
+
+  it("renders a localized comparison delta with its period context", async () => {
+    const context: ToolRendererContext = {
+      toolName: "query-agent-native-analytics",
+      args: {},
+      resultJson: {
+        rows: [
+          {
+            metric: "activated users",
+            current_value: 482,
+            previous_value: 408,
+            period: "Last 30 days",
+          },
+        ],
+        schema: [
+          { name: "metric", type: "string" },
+          { name: "current_value", type: "number" },
+          { name: "previous_value", type: "number" },
+          { name: "period", type: "string" },
+        ],
+      },
+      isRunning: false,
+      chatUI: { renderer: ANALYTICS_ANALYSIS_RESULT_RENDERER },
+    };
+    const Renderer = resolveToolRenderer(context);
+    if (!Renderer)
+      throw new Error("Analytics result renderer is not registered");
+
+    await act(async () => {
+      root.render(<Renderer context={context} />);
+    });
+
+    const output = container.querySelector("output");
+    expect(output?.children[0]?.textContent).toBe("+18%");
+    expect(output?.children[1]?.textContent).toBe("activated users");
+    expect(container.textContent).toContain("Last 30 days: 482 vs 408");
   });
 
   it("keeps non-scalar results out of the metric card", async () => {

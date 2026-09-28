@@ -98,6 +98,32 @@ describe("query-agent-native-analytics", () => {
         { rows: [{ events: 3 }], schema: [{ name: "events", type: "number" }] },
       ),
     ).toBe(true);
+    const comparison = {
+      rows: [
+        {
+          metric: "activated users",
+          current_value: 482,
+          previous_value: 408,
+          period: "Last 30 days",
+        },
+      ],
+      schema: [
+        { name: "metric", type: "string" },
+        { name: "current_value", type: "number" },
+        { name: "previous_value", type: "number" },
+        { name: "period", type: "string" },
+      ],
+    };
+    expect(action.chatUI.when({}, comparison)).toBe(true);
+    expect(
+      action.chatUI.when(
+        {},
+        {
+          ...comparison,
+          rows: [{ ...comparison.rows[0], period: "" }],
+        },
+      ),
+    ).toBe(false);
     expect(
       action.chatUI.when(
         {},

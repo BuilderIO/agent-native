@@ -545,7 +545,10 @@ export default {
     untitledAnalysis: "Untitled analysis",
     untitledDashboard: "Untitled dashboard",
   },
-  analysisResult: { title: "Analysis result" },
+  analysisResult: {
+    title: "Analysis result",
+    comparisonContext: "{{period}}: {{current}} vs {{previous}}",
+  },
   routeTitles: {
     notFound: "Not Found - Analytics",
     analysis: "Analysis - Analytics",
