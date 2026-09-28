@@ -341,6 +341,7 @@ import {
   indexBrainCapture,
   indexSnapshotMatches,
   indexStalenessKey,
+  runSearchExternalLane,
 } from "./search-index.js";
 
 describe("Brain search index primitives", () => {
@@ -500,6 +501,43 @@ describe("Brain search index primitives", () => {
         ],
       }).complete,
     ).toBe(true);
+  });
+
+  it("keeps optional indexing available while reporting safe backfill failures", async () => {
+    const providerFailure = new Error(
+      "Embedding provider builder/builder-multimodal-embedding failed with status 429.",
+    );
+    const run = vi.fn().mockRejectedValue(providerFailure);
+    await expect(runSearchExternalLane(run)).resolves.toBeUndefined();
+    await expect(
+      runSearchExternalLane(run, "builder:builder-multimodal-embedding:1024"),
+    ).rejects.toThrow(
+      "Embedding backfill external lane failed: Builder embedding provider HTTP 429.",
+    );
+    expect(run).toHaveBeenCalledTimes(2);
+
+    await expect(
+      runSearchExternalLane(async () => {
+        throw new Error("Bearer secret-token in response");
+      }, "builder:builder-multimodal-embedding:1024"),
+    ).rejects.toThrow(
+      "Embedding backfill external lane failed: unexpected external search error.",
+    );
+  });
+
+  it("reports safe embedding timeouts and database error codes", async () => {
+    await expect(
+      runSearchExternalLane(async () => {
+        throw new Error(
+          "Embedding provider builder/builder-multimodal-embedding timed out.",
+        );
+      }, "builder:builder-multimodal-embedding:1024"),
+    ).rejects.toThrow("Builder embedding provider timed out");
+    await expect(
+      runSearchExternalLane(async () => {
+        throw Object.assign(new Error("secret DB detail"), { code: "53300" });
+      }, "builder:builder-multimodal-embedding:1024"),
+    ).rejects.toThrow("database error 53300");
   });
 
   it("favors rare lexical terms and fuses lanes with RRF", () => {
