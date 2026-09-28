@@ -709,6 +709,25 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("keeps the setup card visible when a preflight fails after missing status is known", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    renderHome();
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
+    fetchAgentEngineConfiguredState.mockRejectedValueOnce(
+      new Error("temporary failure"),
+    );
+
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+    });
+
+    expect(canSubmit).toBe(false);
+    expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
+    expect(screen.queryByText("providerStatusUnavailable")).toBeNull();
+  });
+
   it("keeps the composer as the focal point and shows both library tabs without accessible work", async () => {
     renderHome({ decks: [] });
     expect(

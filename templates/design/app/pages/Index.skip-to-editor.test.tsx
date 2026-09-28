@@ -487,6 +487,18 @@ describe("Index skip to editor", () => {
       modelStatusChecksEnabled: false,
       onBeforeSubmit: expect.any(Function),
     });
+    mocks.fetchAgentEngineConfiguredState.mockRejectedValueOnce(
+      new Error("temporary failure"),
+    );
+    let canSubmit = true;
+    await act(async () => {
+      canSubmit = (await mocks.promptProps?.onBeforeSubmit?.()) ?? true;
+    });
+    expect(canSubmit).toBe(false);
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain(
+      "agentChat.setup.providerStatusUnavailable",
+    );
     await act(async () =>
       mocks.promptProps?.onSubmit?.("Build a dashboard", [], {}),
     );

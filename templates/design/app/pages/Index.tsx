@@ -295,12 +295,12 @@ export default function Index() {
     try {
       nextState = await fetchAgentEngineConfiguredState();
     } catch {
-      nextState = "unavailable";
+      nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
     }
     setPreflightAgentEngineState(nextState);
     canChatRef.current = nextState === "configured";
     return canChatRef.current;
-  }, [agentEngineConfigured]);
+  }, [agentEngine.state, agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
