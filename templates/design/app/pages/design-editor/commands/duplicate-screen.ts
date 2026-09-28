@@ -568,9 +568,9 @@ export function runDuplicateScreen(
     .map(([, geometry]) => geometry)
     .filter(isCompleteFrameGeometry);
   const placementGap =
-    request?.mode === "alt-click" || request?.mode === "alt-drag"
-      ? DUPLICATE_SCREEN_GAP
-      : CMD_D_DUPLICATE_SCREEN_GAP;
+    request?.mode === "cmd-d"
+      ? CMD_D_DUPLICATE_SCREEN_GAP
+      : DUPLICATE_SCREEN_GAP;
   const adjacentGeometry = getDuplicateScreenGeometry(
     sourceGeometry,
     occupiedGeometries,
