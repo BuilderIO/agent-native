@@ -594,7 +594,7 @@ async function expectBoardCopyAfterReload(
 }
 
 test.describe("alt-drag duplicate (single-screen editor)", () => {
-  test("alt-drag inside a screen: original stays, copy keeps the identical name, copy is selected", async ({
+  test("alt-drag inside a screen preserves a non-center grab offset; original stays, copy keeps the identical name, and copy is selected", async ({
     page,
     request,
   }) => {
@@ -613,14 +613,21 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
       );
       await page.waitForTimeout(200);
 
-      const startX = before.x + before.width / 2;
-      const startY = before.y + before.height / 2;
+      const grabOffset = {
+        x: before.width * 0.75,
+        y: before.height * 0.25,
+      };
+      const start = {
+        x: before.x + grabOffset.x,
+        y: before.y + grabOffset.y,
+      };
       const dx = 220 * zoom;
       const dy = 140 * zoom;
-      await page.mouse.move(startX, startY);
+      const release = { x: start.x + dx, y: start.y + dy };
+      await page.mouse.move(start.x, start.y);
       await page.keyboard.down("Alt");
       await page.mouse.down();
-      await page.mouse.move(startX + dx, startY + dy, { steps: 16 });
+      await page.mouse.move(release.x, release.y, { steps: 16 });
       await page.mouse.up();
       await page.keyboard.up("Alt");
 
@@ -645,8 +652,8 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
         .locator(`[data-agent-native-node-id="${copyId}"]`)
         .boundingBox();
       expect(copyBox).not.toBeNull();
-      expect(Math.abs(copyBox!.x - before.x)).toBeGreaterThan(10);
-      expect(Math.abs(copyBox!.y - before.y)).toBeGreaterThan(10);
+      expect(copyBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
+      expect(copyBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
 
       const names = await layerNames(page);
       const widgetCount = names.filter((n) => n === "Widget").length;

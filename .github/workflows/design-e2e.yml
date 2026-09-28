@@ -72,6 +72,15 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Migrate the isolated test database
+        working-directory: templates/design
+        env:
+          APP_NAME: design
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          DESIGN_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+        run: pnpm migrate:production
+
       - name: Run shard
         working-directory: templates/design
         env:
