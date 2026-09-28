@@ -1053,6 +1053,11 @@ const messages = {
     createFirstDeck: "最初のデッキを作成",
     emptyDescription: "AI 生成で美しいプレゼンテーションを作成できます。",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI 接続を確認できませんでした。",
+    },
+  },
 };
 
 export default messages;

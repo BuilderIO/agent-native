@@ -1,5 +1,7 @@
 import {
   BuilderSetupCard,
+  fetchAgentEngineConfiguredState,
+  type AgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -166,6 +168,7 @@ export default function Index() {
   );
   const [homeSection, setHomeSection] =
     useState<PromptHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
   const [quickStartPending, setQuickStartPending] = useState(false);
@@ -231,6 +234,18 @@ export default function Index() {
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
   useEffect(() => {
+    if (
+      accessibleDesignsSummary.isSuccess &&
+      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0 &&
+      !homeLibraryTabWasSelectedRef.current
+    ) {
+      setHomeSection("recent");
+    }
+  }, [
+    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignsSummary.isSuccess,
+  ]);
+  useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
   }, [hasSearchResultsSection]);
   const {
@@ -261,15 +276,40 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const agentEngineConfigured = agentEngine.state === "configured";
+  const [preflightAgentEngineState, setPreflightAgentEngineState] =
+    useState<AgentEngineConfiguredState | null>(null);
+  const effectiveAgentEngineState =
+    preflightAgentEngineState ?? agentEngine.state;
+  const agentEngineConfigured = effectiveAgentEngineState === "configured";
+  const agentEngineMissing = effectiveAgentEngineState === "missing";
+  const canChatRef = useRef(agentEngineConfigured);
+  canChatRef.current = agentEngineConfigured;
+  useEffect(() => {
+    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
+      setPreflightAgentEngineState(null);
+    }
+  }, [agentEngine.state]);
+  const ensureAgentEngineConfigured = useCallback(async () => {
+    if (agentEngineConfigured) return true;
+    let nextState: AgentEngineConfiguredState;
+    try {
+      nextState = await fetchAgentEngineConfiguredState();
+    } catch {
+      nextState = "unavailable";
+    }
+    setPreflightAgentEngineState(nextState);
+    canChatRef.current = nextState === "configured";
+    return canChatRef.current;
+  }, [agentEngineConfigured]);
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
-    if (agentEngine.missing) setSetupCardBouncePulse((pulse) => pulse + 1);
+    if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
+    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
-  const quickActionsEnabled = agentEngineConfigured && !agentEngine.missing;
+  const quickActionsEnabled = agentEngineConfigured;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -633,7 +673,7 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      if (agentEngine.state !== "configured") return;
+      if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
@@ -809,7 +849,6 @@ export default function Index() {
       void navigate(`/design/${id}`);
     },
     [
-      agentEngine.state,
       createDesign,
       createFromTemplateMutation,
       createFusionAppMutation,
@@ -1058,9 +1097,9 @@ export default function Index() {
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <PromptHome
         title={t("home.designPromptTitle")}
-        connectionAttached={!agentEngineConfigured && agentEngine.missing}
+        connectionAttached={agentEngineMissing}
         connection={
-          agentEngineConfigured ? null : agentEngine.missing ? (
+          agentEngineConfigured ? null : agentEngineMissing ? (
             <BuilderSetupCard
               attached
               fullWidth
@@ -1068,32 +1107,26 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : (
+          ) : effectiveAgentEngineState === "unavailable" ? (
             <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
               <span role="status">
-                {t(
-                  agentEngine.state === "unknown"
-                    ? "agentChat.setup.checkingProvider"
-                    : "agentChat.setup.providerStatusUnavailable",
-                )}
+                {t("agentChat.setup.providerStatusUnavailable")}
               </span>
-              {agentEngine.state === "unavailable" ? (
-                <button
-                  type="button"
-                  className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={retryAgentEngineStatus}
-                >
-                  {t("agentChat.common.retry")}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={retryAgentEngineStatus}
+              >
+                {t("agentChat.common.retry")}
+              </button>
             </div>
-          )
+          ) : null
         }
         composer={
           <div
             data-design-home-composer
             className={
-              agentEngine.missing
+              agentEngineMissing
                 ? "agent-composer-area--attached-above"
                 : undefined
             }
@@ -1105,8 +1138,7 @@ export default function Index() {
               open
               onOpenChange={() => {}}
               composerRef={composerRef}
-              disabled={!agentEngineConfigured}
-              submissionDisabled={!agentEngineConfigured}
+              onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
               title={t("home.newDesignLower")}
@@ -1209,7 +1241,10 @@ export default function Index() {
         ) : null}
         <PromptHomeLibrary
           value={homeSection}
-          onValueChange={setHomeSection}
+          onValueChange={(value) => {
+            homeLibraryTabWasSelectedRef.current = true;
+            setHomeSection(value);
+          }}
           labels={{
             templates: t("navigation.templates"),
             recent: t("home.recent"),

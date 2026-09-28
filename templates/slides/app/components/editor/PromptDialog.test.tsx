@@ -114,6 +114,8 @@ vi.mock("@agent-native/core/client/composer", () => ({
     submissionDisabled?: boolean;
     showModelSelector?: boolean;
     modelStatusChecksEnabled?: boolean;
+    submitting?: boolean;
+    onBeforeSubmit?: () => boolean | Promise<boolean>;
     initialText?: string;
     initialTextKey?: string | number;
     composerRef?: Ref<{
@@ -175,6 +177,7 @@ vi.mock("@agent-native/core/client/composer", () => ({
         <textarea
           ref={inputRef}
           aria-label="Prompt"
+          disabled={props.disabled}
           value={props.initialText ?? ""}
           readOnly
           onChange={(event) => props.onTextChange?.(event.target.value)}
@@ -1289,6 +1292,42 @@ describe("inline prompt starters", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("renders immediately and shows submitting while provider readiness is checked", async () => {
+    let resolveCheck!: (result: boolean) => void;
+    const readiness = new Promise<boolean>((resolve) => {
+      resolveCheck = resolve;
+    });
+    const onSubmit = vi.fn();
+    render(
+      <PromptPopover
+        open
+        presentation="inline"
+        title="New presentation"
+        onOpenChange={vi.fn()}
+        onSubmit={onSubmit}
+        onBeforeSubmit={() => readiness}
+      />,
+    );
+
+    expect(
+      (screen.getByRole("textbox", { name: "Prompt" }) as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(false);
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    let check!: Promise<boolean>;
+    await act(async () => {
+      check = promptComposerProps.mock.lastCall![0].onBeforeSubmit!();
+      await Promise.resolve();
+    });
+    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(true);
+    await act(async () => {
+      resolveCheck(false);
+      expect(await check).toBe(false);
+    });
+    expect(promptComposerProps.mock.lastCall![0].submitting).toBe(false);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(

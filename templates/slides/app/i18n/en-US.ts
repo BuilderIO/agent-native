@@ -1047,6 +1047,11 @@ const messages = {
     emptyDescription:
       "Build beautiful presentations with AI-powered generation.",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "Couldn't check AI connection.",
+    },
+  },
 };
 
 export default messages;
