@@ -1,6 +1,7 @@
 import type {
   AgentActionInvocation,
   AgentActionResult,
+  AgentAnnotationSnapshot,
   AgentApprovalResponse,
   AgentConnectionResponse,
   AgentCapabilityDescriptor,
@@ -1716,11 +1717,22 @@ export class AgentKitClient implements AgentKitController {
     void completed.catch(() => undefined);
   }
 
-  private async persistThreadSnapshot(threadId: ThreadId): Promise<void> {
+  private persistThreadSnapshot(
+    threadId: ThreadId,
+  ): Promise<{ error: unknown } | undefined> {
     const persist = this.transport.persistThreadSnapshot;
-    if (!persist) return;
+    if (!persist) return Promise.resolve(undefined);
     const thread = this.getThread(threadId);
     const updatedAt = this.now();
+    const messageIds = new Set(thread.messages.map((message) => message.id));
+    const annotations: AgentAnnotationSnapshot[] = Object.entries(
+      thread.annotations,
+    ).flatMap(([id, annotation]) => {
+      const messageId = thread.annotationMessageIds[id];
+      return messageId && messageIds.has(messageId)
+        ? [{ messageId, annotation }]
+        : [];
+    });
     const snapshot: AgentThreadSnapshot = {
       ...(thread.thread ?? {
         id: threadId,
@@ -1739,20 +1751,18 @@ export class AgentKitClient implements AgentKitController {
       activeRunIds: thread.activeRunIds,
       suggestions: thread.suggestions,
       activities: Object.values(thread.activities),
+      annotations,
       toolCalls: Object.values(thread.tools),
       widgets: Object.entries(thread.widgets).flatMap(([id, widget]) => {
         const messageId = thread.widgetMessageIds[id];
         return messageId ? [{ messageId, widget }] : [];
       }),
     };
-    try {
-      const context = this.createRequestContext();
-      await this.invokeRequest(context, (requestContext) =>
-        persist({ threadId, snapshot }, requestContext),
-      );
-    } catch (error) {
-      this.report(error, "thread_snapshot_persist_failed");
-    }
+    return this.invokeRequest(this.createRequestContext(), (requestContext) =>
+      persist({ threadId, snapshot }, requestContext),
+    )
+      .then(() => undefined)
+      .catch((error) => ({ error }));
   }
 
   private async consume(threadId: ThreadId, runId: RunId): Promise<void> {
@@ -1831,7 +1841,7 @@ export class AgentKitClient implements AgentKitController {
             );
           }
           this.setConnection("connected");
-          await this.persistThreadSnapshot(threadId);
+          const snapshotPersistence = this.persistThreadSnapshot(threadId);
           if (
             terminalEvent.type === "run.completed" ||
             (terminalEvent.type === "run.status" &&
@@ -1848,6 +1858,10 @@ export class AgentKitClient implements AgentKitController {
               );
             }
             this.scheduleQueuePromotion(threadId);
+          }
+          const persistenceError = await snapshotPersistence;
+          if (persistenceError) {
+            this.fail(persistenceError.error, "thread_snapshot_persist_failed");
           }
           return;
         } catch (error) {
@@ -2083,6 +2097,18 @@ export class AgentKitClient implements AgentKitController {
         entry.messageId,
       ]),
     );
+    const snapshotAnnotations = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.annotation,
+      ]),
+    );
+    const snapshotAnnotationMessageIds = Object.fromEntries(
+      (snapshot.annotations ?? []).map((entry) => [
+        entry.annotation.id,
+        entry.messageId,
+      ]),
+    );
     const mergedRuns = this.mergeRuns(hydrated.runs, runs);
     const currentActiveRunIds = activeRunIds.filter(
       (runId) => !this.isTerminalStatus(mergedRuns[runId]?.status ?? "running"),
@@ -2134,6 +2160,11 @@ export class AgentKitClient implements AgentKitController {
       widgetMessageIds: {
         ...hydrated.widgetMessageIds,
         ...snapshotWidgetMessageIds,
+      },
+      annotations: { ...hydrated.annotations, ...snapshotAnnotations },
+      annotationMessageIds: {
+        ...hydrated.annotationMessageIds,
+        ...snapshotAnnotationMessageIds,
       },
       agents: {
         ...hydrated.agents,
@@ -2796,8 +2827,20 @@ export class AgentKitClient implements AgentKitController {
 
   private retireInterruptedRun(threadId: ThreadId, runId: RunId): void {
     const thread = this.getThread(threadId);
+    const run = thread.runs[runId];
     this.setThread(threadId, {
       ...thread,
+      runs:
+        run && !this.isTerminalStatus(run.status)
+          ? {
+              ...thread.runs,
+              [runId]: {
+                ...run,
+                status: "completed",
+                completedAt: run.completedAt ?? this.now(),
+              },
+            }
+          : thread.runs,
       activeRunIds: thread.activeRunIds.filter((id) => id !== runId),
     });
   }

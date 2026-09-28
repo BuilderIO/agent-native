@@ -1347,6 +1347,99 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
+  if (!entry || typeof entry !== "object") return undefined;
+  if (kind === "widget") {
+    const messageId = entry.messageId;
+    const widgetId = entry.widget?.id;
+    return typeof messageId === "string" && typeof widgetId === "string"
+      ? JSON.stringify([messageId, widgetId])
+      : undefined;
+  }
+  return typeof entry.id === "string" ? entry.id : undefined;
+}
+
+function preferIncomingSnapshotEntry(
+  kind: "message" | "toolCall" | "widget",
+  existing: any,
+  incoming: any,
+): boolean {
+  if (kind === "message") {
+    const rank = (message: any) =>
+      message.status === "complete" ? 2 : message.status === "error" ? 1 : 0;
+    if (rank(existing) !== rank(incoming))
+      return rank(incoming) > rank(existing);
+    const partCount = (message: any) =>
+      Array.isArray(message.parts) ? message.parts.length : 0;
+    if (partCount(existing) !== partCount(incoming)) {
+      return partCount(incoming) > partCount(existing);
+    }
+    const textLength = (message: any) =>
+      (Array.isArray(message.parts) ? message.parts : []).reduce(
+        (total: number, part: any) =>
+          total + (typeof part?.text === "string" ? part.text.length : 0),
+        0,
+      );
+    return textLength(incoming) > textLength(existing);
+  }
+  if (kind === "toolCall") {
+    return existing.status === "running" && incoming.status !== "running";
+  }
+  return (
+    existing.widget?.state === "active" && incoming.widget?.state !== "active"
+  );
+}
+
+function mergeAgentKitHistoryArray(
+  existing: unknown,
+  incoming: unknown,
+  kind: "message" | "toolCall" | "widget",
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const merged = Array.isArray(existing) ? [...existing] : [];
+  const positions = new Map<string, number>();
+  merged.forEach((entry, index) => {
+    const id = snapshotEntryId(entry, kind);
+    if (id && !positions.has(id)) positions.set(id, index);
+  });
+  for (const entry of Array.isArray(incoming) ? incoming : []) {
+    const id = snapshotEntryId(entry, kind);
+    const index = id ? positions.get(id) : undefined;
+    if (index === undefined) {
+      if (id) positions.set(id, merged.length);
+      merged.push(entry);
+    } else if (preferIncomingSnapshotEntry(kind, merged[index], entry)) {
+      merged[index] = entry;
+    }
+  }
+  return merged;
+}
+
+function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+  if (
+    !existing ||
+    typeof existing !== "object" ||
+    Array.isArray(existing) ||
+    !incoming ||
+    typeof incoming !== "object" ||
+    Array.isArray(incoming)
+  ) {
+    return incoming ?? existing;
+  }
+  const previous = existing as Record<string, unknown>;
+  const next = incoming as Record<string, unknown>;
+  const merged: Record<string, unknown> = { ...previous, ...next };
+  for (const [key, kind] of [
+    ["messages", "message"],
+    ["toolCalls", "toolCall"],
+    ["widgets", "widget"],
+  ] as const) {
+    const entries = mergeAgentKitHistoryArray(previous[key], next[key], kind);
+    if (entries) merged[key] = entries;
+  }
+  return merged;
+}
+
 function pruneClaimedQueuedMessages(repo: any): any {
   if (!Array.isArray(repo?.queuedMessages)) return repo;
   const claimed = new Set(claimedQueuedMessageIds(repo));
@@ -1397,6 +1490,13 @@ export function mergeThreadDataForClientSave(
     merged.queuedMessages === undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
+  }
+
+  if (merged.agentKit !== undefined) {
+    merged.agentKit = mergeAgentKitHistory(
+      existingNormalized?.agentKit,
+      merged.agentKit,
+    );
   }
 
   const existingMessages = Array.isArray(existingNormalized?.messages)

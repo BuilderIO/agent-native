@@ -1,4 +1,7 @@
 import type {
+  AgentAnnotation,
+  AgentAnnotationSnapshot,
+  AgentError,
   AgentEvent,
   AgentMessage,
   AgentMessagePart,
@@ -10,7 +13,10 @@ import type {
   AgentWidgetSnapshot,
   TextPart,
 } from "@agent-native/agentkit/protocol";
-import { parseAgentThreadSnapshot } from "@agent-native/agentkit/protocol";
+import {
+  isAgentKitProtocolVersion,
+  parseAgentThreadSnapshot,
+} from "@agent-native/agentkit/protocol";
 
 import { agentNativePath } from "../api-path.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -316,6 +322,86 @@ function storedRepository(stored: StoredThread): Record<string, unknown> {
   return repository;
 }
 
+function persistedError(value: unknown): AgentError {
+  const error = asRecord(value);
+  if (typeof error?.code !== "string" || typeof error.message !== "string") {
+    throw new TypeError(
+      "Agent chat run errors must include a code and message.",
+    );
+  }
+  const persisted: Record<string, unknown> = {
+    code: error.code.slice(0, 128),
+    message: error.message.slice(0, 2_048),
+  };
+  if (typeof error.retryable === "boolean") {
+    persisted.retryable = error.retryable;
+  }
+  if (typeof error.correlationId === "string") {
+    persisted.correlationId = error.correlationId.slice(0, 128);
+  }
+  if (
+    error.code === "capability_unsupported" ||
+    error.code === "capability_unavailable"
+  ) {
+    persisted.capability =
+      typeof error.capability === "string"
+        ? error.capability.slice(0, 128)
+        : "x-unknown";
+    persisted.retryable =
+      error.code === "capability_unsupported"
+        ? false
+        : typeof error.retryable === "boolean"
+          ? error.retryable
+          : false;
+  } else if (error.code === "operation_unsupported") {
+    persisted.operation =
+      typeof error.operation === "string"
+        ? error.operation.slice(0, 128)
+        : "unknown";
+    persisted.retryable = false;
+  } else if (error.code === "protocol_version_unsupported") {
+    persisted.supportedVersions = Array.isArray(error.supportedVersions)
+      ? error.supportedVersions.filter(isAgentKitProtocolVersion).slice(0, 32)
+      : [];
+    persisted.receivedVersions = Array.isArray(error.receivedVersions)
+      ? error.receivedVersions
+          .filter(
+            (version): version is number =>
+              Number.isSafeInteger(version) && Number(version) > 0,
+          )
+          .slice(0, 32)
+      : [];
+    persisted.retryable = false;
+  }
+  return persisted as unknown as AgentError;
+}
+
+function persistedAnnotation(annotation: AgentAnnotation): AgentAnnotation {
+  return {
+    id: annotation.id,
+    kind: annotation.kind,
+    label: annotation.label,
+    ...(annotation.url ? { url: annotation.url } : {}),
+    ...(annotation.start !== undefined ? { start: annotation.start } : {}),
+    ...(annotation.end !== undefined ? { end: annotation.end } : {}),
+  };
+}
+
+function persistedAnnotations(
+  annotations: AgentAnnotationSnapshot[] = [],
+  messageIds: ReadonlySet<string>,
+): AgentAnnotationSnapshot[] {
+  return annotations.flatMap(({ messageId, annotation }) =>
+    messageIds.has(messageId)
+      ? [{ messageId, annotation: persistedAnnotation(annotation) }]
+      : [],
+  );
+}
+
+function persistedFileUrl(url?: string): string | undefined {
+  return url && !/^\s*data:/i.test(url) ? url : undefined;
+}
+
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   const sequenceByRun = new Map<string, number>();
   return events.flatMap((event): AgentEvent[] => {
@@ -337,7 +423,9 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       return [{ ...base(), type: event.type }];
     }
     if (event.type === "run.failed") {
-      return [{ ...base(), type: event.type, error: event.error }];
+      return [
+        { ...base(), type: event.type, error: persistedError(event.error) },
+      ];
     }
     if (event.type === "run.status") {
       return [{ ...base(), type: event.type, status: event.status }];
@@ -419,28 +507,19 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         return [
           {
             type: "annotation",
-            annotation: {
-              id: part.annotation.id,
-              kind: part.annotation.kind,
-              label: part.annotation.label,
-              ...(part.annotation.url ? { url: part.annotation.url } : {}),
-              ...(part.annotation.start !== undefined
-                ? { start: part.annotation.start }
-                : {}),
-              ...(part.annotation.end !== undefined
-                ? { end: part.annotation.end }
-                : {}),
-            },
+            annotation: persistedAnnotation(part.annotation),
           },
         ];
       }
       if (part.type === "file") {
+        const url = persistedFileUrl(part.url);
+        if (!url && !part.fileId) return [];
         return [
           {
             type: "file",
             name: part.name,
             ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(part.url ? { url: part.url } : {}),
+            ...(url ? { url } : {}),
             ...(part.fileId ? { fileId: part.fileId } : {}),
           },
         ];
@@ -449,6 +528,9 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
     }),
     ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     ...(message.status ? { status: message.status } : {}),
+    ...(asRecord(message.metadata)?.hideUserMessage === true
+      ? { metadata: { hideUserMessage: true } }
+      : {}),
   }));
 }
 
@@ -739,6 +821,7 @@ export function createAgentNativeAgentKitTransport(
           toolCalls: agentKit.toolCalls,
           activities: agentKit.activities,
           widgets: agentKit.widgets,
+          annotations: agentKit.annotations,
         })
       : undefined;
     const messages = [
@@ -839,6 +922,9 @@ export function createAgentNativeAgentKitTransport(
         : {}),
       ...(protocolSnapshot?.activities
         ? { activities: protocolSnapshot.activities }
+        : {}),
+      ...(protocolSnapshot?.annotations
+        ? { annotations: protocolSnapshot.annotations }
         : {}),
       toolCalls: [...toolCalls.values()],
       widgets: [...widgets.values()],
@@ -950,6 +1036,14 @@ export function createAgentNativeAgentKitTransport(
       const record = asRecord(run);
       if (typeof record?.id === "string") runsById.set(record.id, run);
     }
+    const snapshotMessageIds = new Set(
+      input.snapshot.messages.map((message) => message.id),
+    );
+    const annotations =
+      input.snapshot.annotations ??
+      (Array.isArray(previousAgentKit.annotations)
+        ? (previousAgentKit.annotations as AgentAnnotationSnapshot[])
+        : []);
     const agentKit = {
       ...previousAgentKit,
       messages: persistedMessages(input.snapshot.messages),
@@ -959,9 +1053,15 @@ export function createAgentNativeAgentKitTransport(
       ),
       toolCalls: persistedToolCalls(input.snapshot.toolCalls),
       events: [...eventsById.values()],
-      runs: [...runsById.values()],
+      runs: [...runsById.values()].map((run) => {
+        const record = asRecord(run);
+        return record && record.error !== undefined
+          ? { ...record, error: persistedError(record.error) }
+          : run;
+      }),
       activeRunIds: input.snapshot.activeRunIds ?? [],
       suggestions: input.snapshot.suggestions ?? previousAgentKit.suggestions,
+      annotations: persistedAnnotations(annotations, snapshotMessageIds),
     };
     const requestHeaders = await headers({ sessionId: input.threadId });
     requestHeaders.set("content-type", "application/json");

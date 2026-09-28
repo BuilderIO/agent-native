@@ -306,6 +306,32 @@ describe("createAgentNativeAgentKitTransport", () => {
         updatedAt: "2026-09-26T00:01:00.000Z",
         messages: [
           {
+            id: "user-approval",
+            role: "user",
+            parts: [
+              {
+                type: "file",
+                name: "durable-upload.txt",
+                fileId: "upload-1",
+                url: "data:text/plain;base64,c2VjcmV0",
+              },
+              {
+                type: "file",
+                name: "inline-secret.txt",
+                url: "data:text/plain;base64,c2VjcmV0",
+              },
+              {
+                type: "file",
+                name: "remote.txt",
+                url: "https://files.example.test/remote.txt",
+              },
+            ],
+            metadata: {
+              hideUserMessage: true,
+              privatePrompt: "do not persist this metadata",
+            },
+          },
+          {
             id: "assistant-history",
             role: "assistant",
             parts: [
@@ -437,6 +463,22 @@ describe("createAgentNativeAgentKitTransport", () => {
             occurredAt: "2026-09-26T00:00:06.000Z",
             type: "run.completed",
           },
+          {
+            id: "history-error",
+            threadId: "thread-history",
+            runId: "run-error",
+            sequence: 1,
+            occurredAt: "2026-09-26T00:00:07.000Z",
+            type: "run.failed",
+            error: {
+              code: "provider_error",
+              message: "Provider failed. ".repeat(200),
+              retryable: false,
+              correlationId: "provider-trace-1",
+              details: { secret: "do not persist error details" },
+              metadata: { private: "do not persist error metadata" },
+            },
+          },
         ],
         runs: [
           {
@@ -447,10 +489,46 @@ describe("createAgentNativeAgentKitTransport", () => {
             startedAt: "2026-09-26T00:00:01.000Z",
             completedAt: "2026-09-26T00:00:06.000Z",
           },
+          {
+            id: "run-error",
+            threadId: "thread-history",
+            status: "failed",
+            lastSequence: 1,
+            error: {
+              code: "provider_error",
+              message: "Provider failed. ".repeat(200),
+              retryable: false,
+              correlationId: "provider-trace-1",
+              details: { secret: "do not persist error details" },
+              metadata: { private: "do not persist error metadata" },
+            },
+          },
         ],
         activeRunIds: [],
         suggestions: [
           { id: "release-summary", label: "Summarize this release" },
+        ],
+        annotations: [
+          {
+            messageId: "assistant-history",
+            annotation: {
+              id: "annotation-history",
+              kind: "source",
+              label: "Release notes",
+              url: "https://docs.example.test/release",
+              start: 0,
+              end: 15,
+              metadata: { private: "do not persist annotation metadata" },
+            },
+          },
+          {
+            messageId: "missing-message",
+            annotation: {
+              id: "annotation-orphan",
+              kind: "reference",
+              label: "Orphan",
+            },
+          },
         ],
       },
     });
@@ -465,6 +543,23 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(saved.queuedMessages).toBeUndefined();
     expect(saved.agentKit.messages).toEqual([
       {
+        id: "user-approval",
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            name: "durable-upload.txt",
+            fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "remote.txt",
+            url: "https://files.example.test/remote.txt",
+          },
+        ],
+        metadata: { hideUserMessage: true },
+      },
+      {
         id: "assistant-history",
         role: "assistant",
         parts: [{ type: "text", text: "Release created." }],
@@ -473,6 +568,23 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
       "do not persist raw data",
     );
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain("c2VjcmV0");
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
+      "do not persist this metadata",
+    );
+    expect(saved.agentKit.annotations).toEqual([
+      {
+        messageId: "assistant-history",
+        annotation: {
+          id: "annotation-history",
+          kind: "source",
+          label: "Release notes",
+          url: "https://docs.example.test/release",
+          start: 0,
+          end: 15,
+        },
+      },
+    ]);
     expect(saved.agentKit.widgets).toEqual([
       {
         messageId: "assistant-history",
@@ -525,25 +637,74 @@ describe("createAgentNativeAgentKitTransport", () => {
       "activity.completed",
       "message.completed",
       "run.completed",
+      "run.failed",
     ]);
     expect(saved.agentKit.events[2].activity.detail).toBeUndefined();
+    expect(saved.agentKit.events.at(-1).error).toMatchObject({
+      code: "provider_error",
+      retryable: false,
+      correlationId: "provider-trace-1",
+    });
+    expect(saved.agentKit.events.at(-1).error.message).toHaveLength(2_048);
+    expect(Object.keys(saved.agentKit.events.at(-1).error).sort()).toEqual([
+      "code",
+      "correlationId",
+      "message",
+      "retryable",
+    ]);
+    expect(
+      saved.agentKit.runs.find((run: { id: string }) => run.id === "run-error")
+        ?.error,
+    ).toEqual(saved.agentKit.events.at(-1).error);
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist error details",
+    );
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist error metadata",
+    );
     expect(restored?.events?.map((event) => event.type)).toEqual([
       "run.started",
       "activity.started",
       "activity.completed",
       "message.completed",
       "run.completed",
+      "run.failed",
     ]);
-    expect(restored?.runs).toEqual([
-      expect.objectContaining({ id: "run-history", status: "completed" }),
-    ]);
+    expect(restored?.runs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "run-history", status: "completed" }),
+        expect.objectContaining({
+          id: "run-error",
+          status: "failed",
+          error: saved.agentKit.events.at(-1).error,
+        }),
+      ]),
+    );
     expect(restored?.messages).toEqual([
+      {
+        id: "user-approval",
+        role: "user",
+        parts: [
+          {
+            type: "file",
+            name: "durable-upload.txt",
+            fileId: "upload-1",
+          },
+          {
+            type: "file",
+            name: "remote.txt",
+            url: "https://files.example.test/remote.txt",
+          },
+        ],
+        metadata: { hideUserMessage: true },
+      },
       {
         id: "assistant-history",
         role: "assistant",
         parts: [{ type: "text", text: "Release created." }],
       },
     ]);
+    expect(restored?.annotations).toEqual(saved.agentKit.annotations);
     expect(restored?.widgets).toEqual([
       {
         messageId: "assistant-history",

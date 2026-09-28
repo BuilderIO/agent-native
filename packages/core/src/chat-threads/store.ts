@@ -385,13 +385,7 @@ function normalizeForkSourceSnapshot(
     return null;
   }
 
-  const repoMessageCount = Array.isArray(parsed.messages)
-    ? parsed.messages.length
-    : 0;
-  const agentKitMessageCount = Array.isArray(parsed.agentKit?.messages)
-    ? parsed.agentKit.messages.length
-    : 0;
-  const messageCount = Math.max(repoMessageCount, agentKitMessageCount);
+  const messageCount = countThreadMessages(parsed, 0);
   if (messageCount <= 0) return null;
 
   return {
@@ -406,6 +400,21 @@ function normalizeForkSourceSnapshot(
       ? { scope: source.scope ?? null }
       : {}),
   };
+}
+
+function countThreadMessages(value: unknown, fallback: number): number {
+  const repo = normalizeThreadRepository(value);
+  if (!repo || typeof repo !== "object") return fallback;
+  const repoMessageCount = Array.isArray(repo.messages)
+    ? repo.messages.length
+    : undefined;
+  const agentKitMessageCount = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages.length
+    : undefined;
+  if (repoMessageCount === undefined && agentKitMessageCount === undefined) {
+    return fallback;
+  }
+  return Math.max(repoMessageCount ?? 0, agentKitMessageCount ?? 0);
 }
 
 function forkThreadData(
@@ -610,6 +619,20 @@ function forkThreadData(
             }),
           }
         : {}),
+      ...(fromMessageId && Array.isArray(agentKitRecord.toolCalls)
+        ? {
+            toolCalls: agentKitRecord.toolCalls.filter((rawToolCall) => {
+              const toolCall = asRecord(rawToolCall);
+              if (typeof toolCall?.messageId === "string") {
+                return messageIds.has(toolCall.messageId);
+              }
+              return (
+                typeof toolCall?.runId === "string" &&
+                retainedRunIds.has(toolCall.runId)
+              );
+            }),
+          }
+        : {}),
       ...(Array.isArray(agentKitRecord.widgets)
         ? {
             widgets: agentKitRecord.widgets.filter((widget) => {
@@ -632,6 +655,7 @@ function forkThreadData(
             }),
           }
         : {}),
+      ...(fromMessageId ? { suggestions: [] } : {}),
       activeRunIds: [],
     },
   });
@@ -640,8 +664,7 @@ function forkThreadData(
 function deriveMessageCount(threadData: unknown, fallback: number): number {
   if (typeof threadData !== "string" || !threadData.trim()) return fallback;
   try {
-    const repo = normalizeThreadRepository(JSON.parse(threadData));
-    if (Array.isArray(repo.messages)) return repo.messages.length;
+    return countThreadMessages(JSON.parse(threadData), fallback);
   } catch {
     // Keep the stored count if the JSON blob is malformed.
   }
@@ -907,7 +930,9 @@ export async function forkThread(
       ...source,
       threadData: snapshot.threadData,
       title: snapshot.title || source.title,
-      preview: snapshot.preview || source.preview,
+      preview: snapshot.fromMessageId
+        ? snapshot.preview
+        : snapshot.preview || source.preview,
       messageCount: snapshot.messageCount,
     };
   }
@@ -1329,9 +1354,7 @@ export async function updateThreadData(
           },
         );
         nextThreadData = JSON.stringify(merged);
-        if (Array.isArray(merged.messages)) {
-          nextMessageCount = merged.messages.length;
-        }
+        nextMessageCount = countThreadMessages(merged, messageCount);
       } catch {
         // Keep the caller's serialized value if either JSON blob is malformed.
       }

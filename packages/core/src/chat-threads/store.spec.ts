@@ -300,6 +300,31 @@ describe("chat thread store", () => {
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
+  it("counts AgentKit-only messages when saving thread history", async () => {
+    const agentKitMessages = [
+      { id: "user-1", role: "user", parts: [] },
+      { id: "assistant-1", role: "assistant", parts: [] },
+    ];
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { messages: agentKitMessages },
+    });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { messages: agentKitMessages },
+      }),
+      "Thread",
+      "Done.",
+      0,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("preserves a title committed while message persistence was stale", async () => {
     row!.title = "Generated chat title";
 
@@ -968,6 +993,47 @@ describe("chat thread store", () => {
           },
         ],
         activeRunIds: ["run-source", "run-later"],
+        toolCalls: [
+          {
+            id: "tool-retained-message",
+            name: "publish",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-1",
+          },
+          {
+            id: "tool-retained-run",
+            name: "read",
+            status: "completed",
+            runId: "run-source",
+          },
+          {
+            id: "tool-later-message",
+            name: "publish-later",
+            status: "completed",
+            runId: "run-source",
+            messageId: "assistant-2",
+          },
+          {
+            id: "tool-later-run",
+            name: "read-later",
+            status: "completed",
+            runId: "run-later",
+          },
+          {
+            id: "tool-unscoped",
+            name: "unscoped",
+            status: "completed",
+          },
+        ],
+        suggestions: [
+          {
+            id: "suggestion-later",
+            label: "Later suggestion",
+            runId: "run-later",
+          },
+          { id: "suggestion-unscoped", label: "Unscoped suggestion" },
+        ],
         widgets: [
           {
             messageId: "assistant-1",
@@ -1067,7 +1133,29 @@ describe("chat thread store", () => {
     expect(forkedAgentKit.widgets).toEqual([
       expect.objectContaining({ messageId: "assistant-1" }),
     ]);
+    expect(
+      forkedAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual(["tool-retained-message", "tool-retained-run"]);
+    expect(forkedAgentKit.suggestions).toEqual([]);
     expect(forkedAgentKit.activeRunIds).toEqual([]);
+
+    const fullFork = await forkThread("thread-unflushed", "user@example.com", {
+      id: "thread-forked-full",
+    });
+    expect(fullFork?.id).toBe("thread-forked-full");
+    const fullForkAgentKit = JSON.parse(
+      rows.get("thread-forked-full")!.thread_data,
+    ).agentKit;
+    expect(
+      fullForkAgentKit.toolCalls.map((toolCall: { id: string }) => toolCall.id),
+    ).toEqual([
+      "tool-retained-message",
+      "tool-retained-run",
+      "tool-later-message",
+      "tool-later-run",
+      "tool-unscoped",
+    ]);
+    expect(fullForkAgentKit.suggestions).toHaveLength(2);
   });
 
   it("prefers the fresher in-memory snapshot when the source row already exists with older data", async () => {
@@ -1155,6 +1243,20 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked")!.thread_data).messages,
     ).toHaveLength(2);
+
+    const scopedFork = await forkThread("thread-stale", "user@example.com", {
+      id: "thread-forked-scoped",
+      source: {
+        threadData: JSON.stringify(freshRepo),
+        title: "Old title",
+        preview: "",
+        messageCount: 2,
+        fromMessageId: "assistant-1",
+      },
+    });
+
+    expect(scopedFork?.preview).toBe("");
+    expect(rows.get("thread-forked-scoped")?.preview).toBe("");
   });
 
   it("ignores stale snapshots when the persisted row is fresher", async () => {
