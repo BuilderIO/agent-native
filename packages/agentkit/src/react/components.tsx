@@ -2470,7 +2470,7 @@ export function AgentMessageActions({
               }}
               placement="bottom"
               align="end"
-              className="agentkit-message-menu"
+              className="agentkit-message-menu w-48 p-1"
               trigger={
                 <IconButton
                   label={labels.messageActions}

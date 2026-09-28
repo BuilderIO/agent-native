@@ -2,4 +2,4 @@
 "@agent-native/agentkit": patch
 ---
 
-Keep message action icons and labels aligned in the portalled menu.
+Match the compact chat dropdown styling and keep message action icons and labels aligned in the portalled menu.
