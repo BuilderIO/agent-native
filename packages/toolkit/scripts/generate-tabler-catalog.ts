@@ -26,7 +26,6 @@ const entries = Object.values(metadata).map((entry) => [
   Object.keys(entry.styles).join(" "),
 ]);
 
-// Tabler ships icons.json but does not expose it through its package exports.
 writeFileSync(
   new URL("../src/icons/tabler-catalog-data.ts", import.meta.url),
   `// Generated from @tabler/icons ${version} (MIT). Run node packages/toolkit/scripts/generate-tabler-catalog.ts.\n` +

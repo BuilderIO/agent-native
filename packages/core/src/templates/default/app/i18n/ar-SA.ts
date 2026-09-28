@@ -228,6 +228,9 @@ const messages = {
       noErrorMessage: "(لا توجد رسالة خطأ)",
     },
   },
+  settingsShortcut: {
+    command: "الإعدادات",
+  },
   agentPanel: {
     useBuilder: "استخدم منشئ",
     openDesktopToEditCode: "افتح سطح المكتب لتحرير التعليمات البرمجية",
@@ -243,6 +246,7 @@ const messages = {
     newChat: "محادثة جديدة",
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
+    integrations: "التكاملات",
     collapseSidebar: "طي الشريط الجانبي",
     widenChat: "توسيع الدردشة",
     returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
@@ -268,6 +272,8 @@ const messages = {
     sharedKeyInEffect: "مفتاح مشترك قيد الاستخدام.",
     useOrganizationKey: "استخدم مفتاح المؤسسة",
     keyStatusUnavailable: "حالة المفتاح غير متاحة.",
+    saveScopeRoleUnavailable:
+      "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -275,6 +281,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "إغلاق",
     shareOptions: "خيارات المشاركة",
+    people: "الأشخاص",
+    agents: "الوكلاء",
     link: "رابط",
     invite: "Invite",
     embed: "Embed",
@@ -702,6 +710,7 @@ const messages = {
     reviewFeedback: "الملاحظات",
     reviewOutput: "مراجعة الإجابة",
     reviewPreview: "معاينة الإجابة",
+    reviewPreviewUnavailable: "المعاينة غير متاحة",
     closePreview: "إخفاء المعاينة",
     addFeedback: "إضافة ملاحظات",
     draftInstruction: "صياغة تعليمات",

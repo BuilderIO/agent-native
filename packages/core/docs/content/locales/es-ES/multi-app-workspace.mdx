@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<name>` y se emite a través del preajuste Nitro seleccionado. Cloudflare Pages es el valor predeterminado predeterminado y utiliza un trabajador despachador en `dist/_worker.js` más `_routes.json`. Netlify es compatible con `npx @agent-native/core@latest deploy --preset netlify`; emite funciones de aplicación bajo `.netlify/functions-internal/<app>-server` y genera redirecciones que dejan los activos estáticos sin forzar para que CDN entregue los archivos primero. Vercel es compatible con `npx @agent-native/core@latest deploy --preset vercel`; escribe un paquete raíz `.vercel/output` utilizando Build Output API de Vercel.
+Cada aplicación se crea con `APP_BASE_PATH=/<name>` y `VITE_APP_BASE_PATH=/<name>` y se emite a través del ajuste preestablecido de Nitro seleccionado. **Netlify** es el ajuste preestablecido predeterminado para el comando unificado `deploy`; emite funciones de aplicación bajo `.netlify/functions-internal/<app>-server` y genera redirecciones que dejan los activos estáticos sin forzar para que CDN entregue los archivos primero. **Vercel** es compatible con `npx @agent-native/core@latest deploy --preset vercel`; escribe un paquete raíz `.vercel/output` utilizando la Build Output API de Vercel.
 
 <Diagram id="doc-block-tqhu94" title={"Implementación unificada: un origen, una ruta por aplicación"} summary={"Cada aplicación se envía detrás de un único origen, por lo que las sesiones de inicio de sesión y la aplicación cruzada A2A son gratuitas."}>
 
@@ -352,10 +352,11 @@ Estar en el **mismo origen** es donde reside la verdadera recompensa:
 - **Zero-config cross-app A2A.** El etiquetado `@mail` de `@calendar` se convierte en una recuperación del mismo origen: sin firmas de CORS ni de JWT entre hermanos. El A2A externo todavía usa JWT como hoy.
 - **Un registro DNS, un certificado, un caché CDN.**
 
-Publicar el resultado de `dist/`:
+Publica la compilación para tu plataforma:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 Para Netlify:
@@ -405,7 +406,7 @@ Estas configuraciones solo afectan la navegación de páginas de solo lectura. L
 
 ### Base de datos compartida, credenciales compartidas
 
-Independientemente de lo que elija, apunte cada aplicación al mismo `DATABASE_URL` para el estado entre aplicaciones listo para usar: un conjunto de cuentas de usuario, un conjunto de organizaciones, un conjunto de configuraciones compartidas. Si cada aplicación tiene su propia base de datos, el patrón del espacio de trabajo aún funciona; simplemente se pierde esa historia de estado compartido.
+Para compartir cuentas de usuario, organizaciones, configuraciones y otros datos entre aplicaciones, apunta todas las aplicaciones al mismo `DATABASE_URL`. Durante el desarrollo local, configúralo en el `.env` raíz del espacio de trabajo para que todas las aplicaciones usen la misma base de datos PostgreSQL. Si no está definido, cada aplicación usa su propia base de datos PGlite local al proceso, por lo que los usuarios y las organizaciones no se comparten.
 
 La demanda de conexiones se suma entre los procesos que comparten una base de datos. Si cinco procesos de aplicaciones Node.js de larga duración usan cada uno un pool compartido para el mismo `DATABASE_URL`, pueden mantener hasta 100 conexiones con el límite predeterminado de 20 por pool (`5 × 1 pool × 20`). En espacios de trabajo sin servidor, calcule las instancias de función activas por aplicación usando los límites predeterminados específicos del entorno. Consulte [Base de datos del servidor](/docs/server-database) para ver `AGENT_NATIVE_DB_POOL_MAX` y las pautas completas de cálculo.
 

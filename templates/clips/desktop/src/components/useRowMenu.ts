@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react";
 
-/**
- * Coordinates the Radix menus used by recorder rows. Radix owns outside-click,
- * Escape, focus return, and keyboard navigation; this small shared channel
- * ensures opening one row closes any other row menu in the popover.
- */
 export function useRowMenu() {
   const id = useId();
   const [open, setOpen] = useState(false);

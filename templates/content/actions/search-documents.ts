@@ -43,12 +43,6 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
-// `content` here may be a bounded preview (see the `contentPreview`
-// projection below) rather than the full document body. If the query match
-// falls outside the preview window (a deeper match in the full doc, which the
-// SQL LIKE filter already confirmed exists), `indexOf` simply misses and we
-// fall back to a beginning-of-document snippet — the same behavior as the
-// no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
   const compactQuery = query.replace(/\s+/g, " ").trim();
@@ -170,8 +164,6 @@ export default defineAction({
       const parsed = parseSearchQuery(args.query);
       parsedQuery = parsed;
       if (parsed.empty) {
-        // Punctuation-only input (lone `-`, empty quotes) matches nothing by
-        // design; report that as a loud empty page rather than every document.
         matchPredicates.push(sql`false`);
       } else {
         for (const group of parsed.groups) {
@@ -223,9 +215,6 @@ export default defineAction({
         excludedIds.length > 0
           ? notInArray(schema.documents.id, excludedIds)
           : undefined,
-        // updatedAt is a text column holding both ISO "T"-separated values and
-        // PostgreSQL "space"-separated defaults, so it must be compared as a
-        // timestamp; a lexical compare drops valid rows at page boundaries.
         args.modifiedAfter
           ? gte(
               sql`${schema.documents.updatedAt}::timestamptz`,
@@ -240,18 +229,6 @@ export default defineAction({
           : undefined,
       ),
     });
-    // Project a bounded preview of `content` instead of the full column:
-    // document bodies can be multi-MB, and this action only returns a short
-    // snippet (use get-document for full content). In free-text mode the
-    // preview window is anchored at an in-body occurrence that keeps the most
-    // eligible positive terms in view. The selected term is projected with the
-    // window so `makeSnippet` preserves the complete match. Position and query
-    // order break ties;
-    // title-only matches and exactTitle mode keep the head projection. The
-    // true length still comes from SQL `length()` rather than reading `.length`
-    // off a truncated string. Mirrors the
-    // `substr`/`length` projection style in list-documents.ts; `position`,
-    // `substr`, and `length` all work in PostgreSQL and PGlite.
     const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
     const bodyNeedleArray = bodyNeedles.length
       ? sql`array[${sql.join(
@@ -270,9 +247,6 @@ export default defineAction({
     const proximityPosition = proximityPattern
       ? sql<number>`regexp_instr(${normalizedContent}, ${proximityPattern}, 1, 1, 0, 'i')`
       : undefined;
-    // Inspect repeated occurrences so the snippet can prefer a later,
-    // denser passage. Cap each needle to keep pathological repeated-token
-    // documents from turning one result preview into an unbounded scan.
     const fallbackBodyPosition =
       bodyNeedles.length === 1
         ? sql<number>`nullif(position(lower(${bodyNeedles[0]!}) in lower(${normalizedContent})), 0)`
@@ -376,9 +350,6 @@ export default defineAction({
               desc(ranking.matchTier),
               desc(ranking.titleCoverage),
               desc(ranking.descriptionCoverage),
-              // Phrase coherence is a minor body-only tie-breaker. Bound its
-              // full-body scan so broad searches keep predictable latency;
-              // protected field tiers still rank the complete result set.
               desc(
                 sql<number>`case when count(*) over() <= 1000 then ${ranking.bodyProximity} else 0 end`,
               ),

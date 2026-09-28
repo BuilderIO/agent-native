@@ -29,7 +29,6 @@ export function writeOptionalKeyCache(
   });
 }
 
-/** Secret writes invalidate all optional-provider lookups in this process. */
 export function invalidateOptionalKeyCache(): void {
   cache.clear();
 }

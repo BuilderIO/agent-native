@@ -173,8 +173,6 @@ describe("DiffBlock", () => {
   it("defaults to split (two columns) when no mode is authored", () => {
     renderDiff({ after: "const a = 1\nconst b = 2" });
 
-    // Split renders side-by-side columns by default and exposes the
-    // Unified/Split toggle so the user can still switch to one-column review.
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
     const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Unified",
@@ -198,8 +196,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // Split renders the side-by-side columns (the left column carries the
-    // `border-r` divider) — the authored mode wins.
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
@@ -231,7 +227,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // Starts split (with the side-by-side divider).
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
 
     const unifiedToggle = Array.from(container.querySelectorAll("button")).find(
@@ -244,7 +239,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // Toggling to Unified removes the side-by-side columns.
     expect(container.querySelector(".border-r.border-border")).toBeNull();
 
     const splitToggle = Array.from(container.querySelectorAll("button")).find(
@@ -256,7 +250,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // ...and back to split.
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
@@ -319,8 +312,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // No authored mode + constrained container -> unified up front, and the toggle is
-    // hidden (split's doubled gutters would crush the code in the tight box).
     expect(container.querySelector(".border-r.border-border")).toBeNull();
     const splitToggle = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Split",
@@ -346,7 +337,6 @@ describe("DiffBlock", () => {
       );
     });
 
-    // An explicitly authored `mode="split"` still wins over the narrow default.
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
   });
 
@@ -456,11 +446,9 @@ describe("DiffBlock annotations", () => {
       annotations: [{ lines: "2", label: "Changed", note: "b is now three." }],
     });
 
-    // The note text and its marker number both appear.
     expect(container.textContent).toContain("b is now three.");
     expect(container.textContent).toContain("Changed");
     expect(container.textContent).toContain("Line 2");
-    // The marker pip "1" shows on the row AND on the rail card.
     const ones = container.textContent?.match(/\b1\b/g) ?? [];
     expect(ones.length).toBeGreaterThan(0);
   });
@@ -485,11 +473,8 @@ describe("DiffBlock annotations", () => {
       annotations: [{ lines: "2-4", label: "Block", note: "Three lines." }],
     });
 
-    // The range resolved across multiple lines…
     expect(container.textContent).toContain("Lines 2–4");
 
-    // …yet the numbered pip renders exactly twice: once in the code gutter (the
-    // first line of the span) and once on the rail card — NOT once per line.
     const pips = Array.from(
       container.querySelectorAll("span[aria-hidden]"),
     ).filter((el) => el.textContent?.trim() === "1");
@@ -725,8 +710,6 @@ describe("DiffBlock annotations", () => {
       "[data-annotation-hover-card]",
     );
     expect(card).toBeTruthy();
-    // Line 2 starts at y=120 with a 20px height, so the first-row anchor center
-    // is 130px. Hovering line 4 would have produced 170px before this fix.
     expect(card!.style.top).toBe("130px");
   });
 
@@ -796,13 +779,10 @@ describe("DiffBlock annotations", () => {
       before: "x",
       after: "y",
     });
-    // No rail wrapper grid and no annotation note.
     expect(container.querySelector(".grid")).toBeNull();
   });
 
   it("keeps an annotated unchanged line visible even inside a collapsed run", () => {
-    // 20 identical context lines, then a change at the end. Line 5 (context,
-    // deep inside the collapsed run) is annotated and must stay reachable.
     const context = Array.from(
       { length: 20 },
       (_, index) => `line-${String(index + 1).padStart(2, "0")}`,
@@ -818,7 +798,6 @@ describe("DiffBlock annotations", () => {
       ],
     });
 
-    // The annotated context line is rendered despite the collapse.
     expect(container.textContent).toContain("line-05");
     expect(container.textContent).toContain("An anchored unchanged line.");
   });
@@ -831,7 +810,6 @@ describe("DiffBlock annotations", () => {
         annotations: [{ lines: "999", note: "Out of range, skipped." }],
       }),
     ).not.toThrow();
-    // An unresolved annotation drops out of the rail entirely.
     expect(container.textContent).not.toContain("Out of range, skipped.");
   });
 });

@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. O Cloudflare Pages roteia através de um **worker de despacho** gerado, um pequeno script em `dist/_worker.js` que lê o caminho recebido e encaminha a requisição para o app correspondente. O Netlify usa uma função por app mais redirecionamentos gerados. O Vercel grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API.
+Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. **Netlify** é o padrão: uma função por app mais redirecionamentos gerados. **Vercel** grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ Publique o build para sua plataforma:
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (padrão)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (padrão)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ Publique o build para sua plataforma:
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },

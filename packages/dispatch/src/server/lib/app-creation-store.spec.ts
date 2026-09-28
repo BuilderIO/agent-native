@@ -45,7 +45,9 @@ const mocks = vi.hoisted(() => {
       settings.set(key, value);
     }),
     getOrgSetting: vi.fn(async () => null),
-    isWorkspaceAppAccessAllowed: vi.fn(async () => true),
+    isWorkspaceAppAccessAllowed: vi.fn(
+      async (): Promise<boolean | "unavailable"> => true,
+    ),
     resolveAccess: vi.fn(async () => ({
       role: "viewer",
       resource: {},
@@ -796,6 +798,18 @@ describe("listWorkspaceApps", () => {
       email: "member@example.test",
       orgId: "org-123",
     });
+  });
+
+  it("does not expose Dispatch when its access check is unavailable", async () => {
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
+
+    const apps = await runWithRequestContext(
+      { userEmail: "member@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {
@@ -1764,10 +1778,6 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.message).not.toContain(leakedProjectId);
   });
 
-  // The reported dead end: chat said "Builder isn't connected" with nothing to
-  // click. Every Builder authorization failure used to collapse into
-  // `builder-error` ("try again in a moment"), so neither the agent nor the
-  // create-app UI could offer the Connect control they already implement.
   it("classifies a disconnected Builder as builder-not-connected with a connect action", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
@@ -1810,8 +1820,6 @@ describe("startWorkspaceAppCreation", () => {
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
   });
 
-  // Revocation upstream is not an outage: the stored credential is present but
-  // rejected, so retry prose sends the user back into the same wall.
   it("treats a Builder-rejected credential as reconnectable, not transient", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();

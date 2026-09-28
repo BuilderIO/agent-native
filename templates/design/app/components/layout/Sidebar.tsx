@@ -6,12 +6,7 @@ import {
   FeedbackButton,
   type AppSidebarItemDefinition,
 } from "@agent-native/core/client/ui";
-import {
-  IconComponents,
-  IconPencil,
-  IconSettings,
-  IconTemplate,
-} from "@tabler/icons-react";
+import { IconComponents, IconPencil, IconTemplate } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
@@ -62,15 +57,6 @@ export function Sidebar() {
     },
   ];
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -85,7 +71,6 @@ export function Sidebar() {
       appId="design"
       brandHref="/home"
       items={items}
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={<DevDatabaseLink />}

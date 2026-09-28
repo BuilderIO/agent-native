@@ -44,20 +44,6 @@ export function getChartTooltipPortalPosition({
   return { left, top };
 }
 
-/**
- * Ancestors of a dashboard chart (the scrollable app shell, the dashboard
- * grid's inline-size container) clip any content that overflows their box,
- * so the tooltip content is rendered through a portal to `document.body`.
- * Recharts positions its own tooltip wrapper by measuring that wrapper's
- * child content size — with the real content portaled away the wrapper has
- * no size to measure and never gets a transform, so we can't read a live
- * position off it. Instead, position the portaled box ourselves from the
- * `coordinate` Recharts already passes to custom tooltip content (the exact
- * pixel the cursor is over, relative to the chart) plus the chart's own
- * `.recharts-wrapper` rect. The chart rect is only the coordinate origin:
- * the tooltip is constrained to the viewport so it can escape the chart and
- * stay beside the cursor instead of covering it.
- */
 export function useChartTooltipPortalPosition(
   isVisible: boolean,
   coordinate: TooltipCoordinate,

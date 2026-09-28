@@ -48,9 +48,6 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
-      // Reply creation and thread resolution lock the same complete thread.
-      // Classify and cascade while holding that lock so a concurrent reply is
-      // either included in this delete or rejected before it can insert.
       const threadRows = await tx
         .select({
           id: schema.slideComments.id,

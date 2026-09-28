@@ -1,19 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 
 export interface TurnstileProps {
-  /** Turnstile site key. Falls back to VITE_TURNSTILE_SITE_KEY env var. */
   siteKey?: string;
-  /** Called with the verification token when Turnstile completes. */
   onVerify: (token: string) => void;
-  /** Called when the token expires. */
   onExpire?: () => void;
-  /**
-   * Turnstile appearance mode:
-   * - "managed" (default): invisible unless a challenge is needed
-   * - "invisible": fully invisible, never shows UI
-   */
   mode?: "managed" | "invisible";
-  /** Additional className for the container div. */
   className?: string;
 }
 
@@ -57,13 +48,6 @@ function loadTurnstileScript(): Promise<void> {
   return scriptLoadPromise;
 }
 
-/**
- * Cloudflare Turnstile captcha widget.
- *
- * Renders nothing if no site key is available (graceful opt-in).
- * In "managed" mode (default), the widget is invisible unless
- * Turnstile determines a challenge is needed.
- */
 export function Turnstile({
   siteKey,
   onVerify,
@@ -118,7 +102,6 @@ export function Turnstile({
     };
   }, [renderWidget]);
 
-  // Render nothing if no site key — captcha is opt-in
   if (!resolvedKey) return null;
 
   return <div ref={containerRef} className={className} />;

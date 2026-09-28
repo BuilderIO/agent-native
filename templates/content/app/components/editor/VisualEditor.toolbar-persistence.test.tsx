@@ -78,8 +78,12 @@ describe("collaborative toolbar persistence", () => {
     });
   }
 
-  async function mount(initialContent = baseline) {
+  async function mount(
+    initialContent = baseline,
+    onRemoteSnapshotChange?: (markdown: string) => void,
+  ) {
     let authoritativeContent = initialContent;
+    let contentUpdatedAt = "2026-09-09T00:00:00.000Z";
     let revision = 0;
     const onChange = vi.fn((value: string) => {
       authoritativeContent = value;
@@ -100,9 +104,10 @@ describe("collaborative toolbar persistence", () => {
               { client: queryClient },
               createElement(VisualEditor, {
                 content: authoritativeContent,
-                contentUpdatedAt: "2026-09-09T00:00:00.000Z",
+                contentUpdatedAt,
                 contentRevision: `toolbar-${revision}`,
                 onChange,
+                onRemoteSnapshotChange,
                 onSaveContent,
                 ydoc,
                 collabSynced: true,
@@ -155,6 +160,12 @@ describe("collaborative toolbar persistence", () => {
       updates,
       headingFrom,
       savedContent: () => authoritativeContent,
+      setAuthoritativeSnapshot: (value: string, updatedAt: string) => {
+        authoritativeContent = value;
+        contentUpdatedAt = updatedAt;
+        revision += 1;
+        render();
+      },
     };
   }
 
@@ -419,6 +430,71 @@ describe("collaborative toolbar persistence", () => {
       await settle();
       expect(editor.state.doc.textContent).toContain("Remote Indent");
       expect(onChange).not.toHaveBeenCalled();
+    } finally {
+      peer.destroy();
+      peerDoc.destroy();
+      peerMount.remove();
+    }
+  });
+
+  it("observes remote Yjs and lead reconcile snapshots without local edit or undo echoes", async () => {
+    const observed = vi.fn<(markdown: string) => void>();
+    const { editor, onChange, setAuthoritativeSnapshot } = await mount(
+      baseline,
+      observed,
+    );
+    expect(observed).not.toHaveBeenCalled();
+
+    const peerDoc = new Y.Doc();
+    Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(ydoc));
+    const peerMount = document.createElement("div");
+    document.body.append(peerMount);
+    const peer = new Editor({
+      element: peerMount,
+      extensions: createVisualEditorExtensions({ ydoc: peerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    peerDoc.on("update", (update) => Y.applyUpdate(ydoc, update, "peer"));
+    try {
+      act(() => peer.view.dispatch(peer.state.tr.insertText("Remote ", 1)));
+      await settle();
+      const peerSnapshot = docToNfm(editor.getJSON());
+      expect(peerSnapshot).toContain("Remote Indent sample.");
+      expect(observed).toHaveBeenLastCalledWith(peerSnapshot);
+      expect(onChange).not.toHaveBeenCalled();
+
+      const observedAfterPeer = observed.mock.calls.length;
+      act(() => editor.view.dispatch(editor.state.tr.insertText("Local ", 1)));
+      await settle();
+      expect(observed).toHaveBeenCalledTimes(observedAfterPeer);
+      act(() => editor.commands.undo());
+      await settle();
+      expect(observed).toHaveBeenCalledTimes(observedAfterPeer);
+      act(() => editor.commands.blur());
+
+      act(() =>
+        setAuthoritativeSnapshot(
+          "Agent replacement.\n*Heading* sample.",
+          "2026-09-09T00:00:01.000Z",
+        ),
+      );
+      await vi.waitFor(
+        () => {
+          expect(docToNfm(editor.getJSON())).toContain("Agent replacement.");
+        },
+        { timeout: 5000 },
+      );
+      expect(observed).toHaveBeenLastCalledWith(docToNfm(editor.getJSON()));
+      expect(observed).toHaveBeenCalledTimes(observedAfterPeer + 1);
+      const observedAfterReconcile = observed.mock.calls.length;
+      act(() =>
+        setAuthoritativeSnapshot(
+          docToNfm(editor.getJSON()),
+          "2026-09-09T00:00:02.000Z",
+        ),
+      );
+      await settle();
+      expect(observed).toHaveBeenCalledTimes(observedAfterReconcile);
     } finally {
       peer.destroy();
       peerDoc.destroy();

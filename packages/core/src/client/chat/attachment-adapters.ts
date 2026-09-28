@@ -1,5 +1,3 @@
-// Owns: image/document/text attachment adapters and attachment serialization helpers.
-
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   formatOversizedTextAttachmentError,
@@ -13,31 +11,18 @@ import type {
   Attachment,
 } from "@assistant-ui/react";
 
-// A 2.5 MiB PDF becomes about 3.33 MiB after base64 encoding, within the
-// 3.5 MiB attachment budget.
 export const MAX_PDF_BYTES = 2.5 * 1024 * 1024;
 
-// Anthropic / OpenAI vision inputs choke on multi-megabyte images, and
-// base64-encoding a raw screenshot eats enough heap to crash the composer
-// (PayloadTooLarge / "Maximum call stack" in serializers). Downscale large
-// images on the client before we ever serialize them.
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_IMAGE_DIMENSION = 2048;
-// Vercel/Netlify cap requests at ~4.5 MB. Reserve 1 MB for history and JSON;
-// the remaining 3.5 MB covers attachments and both prompt fields.
 export const MAX_NON_ATTACHMENT_BODY_BYTES = 1 * 1024 * 1024;
 export const MAX_REQUEST_BODY_BYTES = 4.5 * 1024 * 1024;
 export const MAX_ESTIMATED_BODY_BYTES =
   MAX_REQUEST_BODY_BYTES - MAX_NON_ATTACHMENT_BODY_BYTES;
-// Text files are read into memory before they can be sent as inline content.
-// Keep one file below the aggregate budget so an oversized EML is rejected
-// before file.text() allocates the whole payload.
 export const MAX_TEXT_ATTACHMENT_BYTES = MAX_TEXT_FILE_BYTES;
-// At 3.5 MB of serializable attachments, aggressively re-downscale images.
 export const AGGRESSIVE_MAX_IMAGE_DIMENSION = 1024;
 export const AGGRESSIVE_JPEG_QUALITY = 0.7;
 
-/** MIME types that vision models accept natively (no canvas transcoding needed). */
 const WEB_SAFE_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -83,18 +68,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/**
- * Returns true when the MIME type is natively accepted by vision APIs
- * (jpeg / png / gif / webp). HEIC, TIFF, AVIF, BMP, etc. return false.
- */
 function isWebSafeImageType(mimeType: string): boolean {
   return WEB_SAFE_IMAGE_TYPES.has(mimeType.toLowerCase());
 }
 
-/**
- * Transcode an image to a web-safe JPEG or PNG via canvas and return its
- * data-URL. Throws if canvas is unavailable.
- */
 export async function transcodeImageToDataURL(
   file: File,
   opts: {
@@ -129,53 +106,33 @@ export async function transcodeImageToDataURL(
   }
 }
 
-/**
- * Return a web-safe, size-bounded data-URL for an image file.
- *
- * - Always transcodes formats that vision APIs reject (HEIC, TIFF, AVIF, BMP, …)
- *   to JPEG/PNG via canvas, regardless of file size.
- * - Also downscales files over MAX_IMAGE_BYTES so large screenshots/photos
- *   don't blow up the request body.
- * - Throws (does NOT silently fall back) when the format is non-web-safe and
- *   canvas transcoding fails — the adapter should surface a visible error.
- */
 export async function getImageFileDataURL(file: File): Promise<string> {
   const needsTranscode = !isWebSafeImageType(file.type);
   const tooBig = file.size > MAX_IMAGE_BYTES;
 
   if (!needsTranscode && !tooBig) {
-    // Already a supported type and within size budget — serve raw.
     return getFileDataURL(file);
   }
 
   if (typeof document === "undefined" || typeof Image === "undefined") {
     if (needsTranscode) {
-      // Can't transcode server-side — surface an error rather than silently
-      // attaching garbage bytes that the model cannot decode.
       throw new Error(
         `"${file.name}" is a ${file.type || "unknown"} image. Only JPEG, PNG, GIF, and WebP are supported in this environment.`,
       );
     }
-    // Can't downscale but the type is fine — send raw and hope for the best.
     return getFileDataURL(file);
   }
 
-  // Transcode via canvas. Throws on decode failure for non-web-safe types
-  // so the adapter can surface a visible error; falls back to raw for
-  // oversized-but-supported types (the older behaviour).
   try {
     return await transcodeImageToDataURL(file);
   } catch (err) {
     if (needsTranscode) {
-      // Re-throw so the DownscalingImageAttachmentAdapter.send() can surface it.
       throw err;
     }
-    // Safe type, just couldn't downscale — fall back to the raw file.
     return getFileDataURL(file);
   }
 }
 
-/** Measure the exact JSON-encoded byte cost of payload strings. */
 export function measureJsonStringBytes(values: string[]): number {
   const encodedBytes = new TextEncoder();
   return values.reduce(
@@ -191,7 +148,6 @@ export function getSubmittedPromptBodyStrings(
   return isContinuation ? [prompt, prompt, prompt] : [prompt, prompt];
 }
 
-/** Conservatively estimate attachment bytes when other request fields are unknown. */
 export function estimateAttachmentBodyBytes(values: string[]): number {
   return measureJsonStringBytes(values) * 1.15;
 }

@@ -34,7 +34,6 @@ import {
 type Share = Awaited<
   ReturnType<TransactionalEmailRepository["listDirectShares"]>
 >[number];
-/** Fixtures are notified shares unless a case sets `notifiedAt` itself. */
 type ShareFixture = Omit<Share, "notifiedAt"> &
   Partial<Pick<Share, "notifiedAt">>;
 type Recording = NonNullable<
@@ -103,8 +102,6 @@ function createRepository(unresolved: {
 }): TransactionalEmailRepository {
   const state = {
     ...unresolved,
-    // Cases push onto their fixture array after building the repository, so
-    // resolve on read rather than snapshotting.
     get shares(): Share[] {
       return unresolved.shares.map((share) => ({
         notifiedAt: share.createdAt,

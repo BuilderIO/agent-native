@@ -250,12 +250,13 @@ Refer to the [Workspace Connections](/docs/workspace-connections) documentation 
 
 ### Method kinds
 
-| Kind               | Payload                                               | Use for                                   |
-| ------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| `link`             | `{ url, external? }`                                  | Send user to an OAuth flow or docs page   |
-| `form`             | `{ fields, writeScope? }`                             | Collect env vars (keys, secrets, URLs)    |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)    |
-| `agent-task`       | `{ prompt }`                                          | Send a prompt to the agent chat to handle |
+| Kind               | Payload                                               | Use for                                    |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------ |
+| `link`             | `{ url, external? }`                                  | Send user to an OAuth flow or docs page    |
+| `form`             | `{ fields, writeScope? }`                             | Collect env vars (keys, secrets, URLs)     |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra)     |
+| `agent-task`       | `{ prompt }`                                          | Send a prompt to the agent chat to handle  |
+| `file-storage`     | -                                                     | Show the shared S3-compatible storage form |
 
 The `primary: true` flag marks a method as the big CTA for its step.
 Use `badge: "soon"` plus `disabled: true` when a setup path should be visible

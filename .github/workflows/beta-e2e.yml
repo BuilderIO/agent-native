@@ -23,9 +23,6 @@ name: Beta E2E (browser)
 # credential and reports failures to one deduplicated issue.
 
 on:
-  # Callable from another workflow - used by the production deploy's opt-in
-  # pre-flight gate and the six-hour scheduled wrapper. Still never fires on
-  # its own: there is no push, schedule, or pull_request trigger here.
   workflow_call:
     inputs:
       apps:
@@ -113,11 +110,7 @@ on:
         default: dedicated
         type: choice
         options:
-          # A key created for this suite with its own spend limit, stored as
-          # BETA_E2E_OPENAI_API_KEY. Keeps this suite's cost attributable.
           - dedicated
-          # The repository's shared OPENAI_API_KEY. Works, but pools this
-          # suite's spend with every other consumer of that key.
           - shared
       grep:
         description: "Only run tests whose title matches this (optional)"
@@ -125,8 +118,6 @@ on:
         default: ""
 
 concurrency:
-  # One promotion check at a time. Two concurrent runs would sign in as the
-  # same identity and interleave agent turns in the same threads.
   group: beta-e2e
   cancel-in-progress: false
 
@@ -195,8 +186,6 @@ jobs:
           NODE
 
   public:
-    # Lane jobs below are ordered because several beta apps share production
-    # databases; always() keeps later evidence running after ordinary failure.
     name: ${{ matrix.app }} public sweep
     needs: discover
     if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' && inputs.lane != 'signup' }}
@@ -204,8 +193,6 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      # Keep public shards bounded: independent hosts can still share backend
-      # capacity, and the fleet-wide lanes run after this matrix completes.
       max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
@@ -216,8 +203,6 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
-        # A composite action rather than repeated steps: the same seven-step
-        # preamble now runs in four places.
       - name: Public sweep
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
@@ -272,12 +257,7 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # These clusters share the e2e identity and production-backed databases.
-      # Keep them serialized while giving each failure its own gating signal.
       max-parallel: 1
-      # Keep the authenticated projects declarative so guard:beta-e2e-suite
-      # can verify that each cluster remains independently visible. The steps
-      # below skip unrelated clusters for a Design-only selection.
       matrix:
         include:
           - cluster: registry
@@ -299,8 +279,6 @@ jobs:
       BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
       BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
-      # The repository-wide key is available only for an explicit shared-key
-      # dispatch. Dedicated runs must not expose it to setup or test code.
       BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
@@ -343,10 +321,6 @@ jobs:
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ always() && (matrix.cluster == 'design' && contains(needs.discover.outputs.apps, 'design') || matrix.cluster != 'design' && needs.discover.outputs.apps != 'design') }}
-        # The authenticated lanes record no trace and no video (see the
-        # playwright config): a trace captures real request headers and would
-        # publish the e2e account's live session cookie to anyone with repo
-        # read access. e2e/beta/.auth is deliberately not in this list.
         with:
           name: beta-e2e-authed-${{ matrix.cluster }}-${{ github.run_id }}
           path: |
@@ -371,10 +345,6 @@ jobs:
       - uses: ./.github/actions/beta-e2e-setup
       - name: Advisory findings
         continue-on-error: true
-        # Always runs: it costs no credentials and no tokens, and findings that
-        # stop being reported stop being fixed. Step-level continue-on-error
-        # keeps the reusable workflow green while preserving the failed step
-        # and uploaded report for inspection.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP" --pass-with-no-tests

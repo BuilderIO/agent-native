@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、選択した Nitro プリセットを通じて出力されます。 Cloudflare Pages がデフォルトのプリセットで、`dist/_worker.js` と `_routes.json` でディスパッチャー ワーカーを使用します。 Netlify は `npx @agent-native/core@latest deploy --preset netlify` でサポートされています。 `.netlify/functions-internal/<app>-server` の下でアプリ関数を発行し、静的アセットを強制されないままにするリダイレクトを生成するため、CDN が最初にファイルを提供します。 Vercel は `npx @agent-native/core@latest deploy --preset vercel` でサポートされています。 Vercel のビルド出力 API を使用して、ルート `.vercel/output` バンドルを書き込みます。
+各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、選択した Nitro プリセットを通じて出力されます。統合 `deploy` コマンドのデフォルトプリセットは **Netlify** です。`.netlify/functions-internal/<app>-server` の下でアプリ関数を発行し、静的アセットを強制されないままにするリダイレクトを生成するため、CDN が最初にファイルを提供します。**Vercel** は `npx @agent-native/core@latest deploy --preset vercel` でサポートされています。Vercel の Build Output API を使用して、ルート `.vercel/output` バンドルを書き込みます。
 
 <Diagram id="doc-block-yfp58s" title={"統合デプロイ: アプリごとに 1 つのオリジン、1 つのパス"} summary={"すべてのアプリは単一のオリジンで出荷されるため、ログイン セッションとアプリ間の A2A は無料です。"}>
 
@@ -352,13 +352,14 @@ npx @agent-native/core@latest deploy
 - **ゼロ構成クロスアプリ A2A.** `@mail` タグ付け `@calendar` は同一オリジンフェッチになります — 兄弟間での CORS や JWT 署名はありません。外部 A2A は、現在と同様に JWT を使用します。
 - **1 つの DNS レコード、1 つの証明書、1 つの CDN キャッシュ。**
 
-`dist/` 出力を公開します:
+プラットフォーム向けにビルドを公開します:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-Netlifyの場合:
+Netlify の場合:
 
 ```bash
 npx @agent-native/core@latest deploy --preset netlify --build-only
@@ -405,7 +406,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ### 共有データベース、共有資格情報
 
-何を選択しても、すべてのアプリはすぐに使用できるクロスアプリ状態 (ユーザー アカウントの 1 セット、組織の 1 セット、共有設定の 1 セット) に対して同じ `DATABASE_URL` を指します。各アプリに独自のデータベースがある場合でも、ワークスペース パターンは引き続き機能します。共有状態のストーリーが失われるだけです。
+ユーザーアカウント、組織、設定などのアプリ間データを共有するには、すべてのアプリに同じ `DATABASE_URL` を設定してください。ローカル開発では、ワークスペースのルート `.env` に設定すると、すべてのアプリが同じ PostgreSQL データベースを使用します。未設定の場合、アプリごとにプロセス内の PGlite データベースが使われるため、ユーザーと組織は共有されません。
 
 同じデータベースを共有するプロセスの接続数を合算して見積もります。たとえば、長時間稼働する Node.js アプリプロセス 5 つが同じ `DATABASE_URL` に対してプロセスごとに共有プールを 1 つ使う場合、プールあたりの既定値 20 で最大 100 接続を使用できます (`5 × 1 プール × 20`)。サーバーレスのワークスペースでは、実行環境ごとのプール既定値を使い、アプリごとのウォームな関数インスタンス数を見積もってください。`AGENT_NATIVE_DB_POOL_MAX` と詳細な接続予算の考え方は[Server database](/docs/server-database)を参照してください。
 

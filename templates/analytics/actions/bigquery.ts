@@ -31,11 +31,6 @@ function extractBigQueryMessage(message: string): string {
     .trim();
 }
 
-// Only credentials/not-configured failures stop the turn: retrying a missing
-// service account is pointless, so a clean stop pointing at Settings is the
-// right behavior. Query/SQL errors are NOT stopped here — they are returned as
-// a normal recoverable result so the model can introspect the schema and retry
-// (see the run() catch block below).
 function stopForBigQueryNotConfigured(message: string): never {
   const detail = extractBigQueryMessage(message);
   throw new AgentActionStopError(detail, {
@@ -154,10 +149,6 @@ export default defineAction({
       );
       return result;
     } catch (err) {
-      // A run cancellation is terminal for this invocation. Returning it as a
-      // recoverable SQL error would invite the agent to retry work after the
-      // parent run has already ended. Normalize the provider's AbortError so
-      // the generic tool-error path cannot record it as a warehouse failure.
       if (context?.signal?.aborted) stopForBigQueryCancellation();
 
       const msg = err instanceof Error ? err.message : String(err);
@@ -171,9 +162,6 @@ export default defineAction({
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
-      // A timeout means the SQL was valid but slow. Routing it through the schema-error
-      // branch below told the model to go re-inspect the schema and rerun, which turns
-      // one slow query into a loop of 60-second attempts.
       if (/BigQuery query timed out/i.test(msg)) {
         return {
           error: "bigquery_query_timeout",
@@ -183,8 +171,6 @@ export default defineAction({
         };
       }
       if (/BigQuery (API|poll) error/i.test(msg)) {
-        // Recoverable: hand the real error back to the model so it can inspect
-        // the schema and self-correct, instead of force-ending the turn.
         return {
           error: "bigquery_query_failed",
           message: extractBigQueryMessage(msg),

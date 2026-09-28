@@ -24,6 +24,10 @@ import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
 } from "../server/workspace-defaults.js";
+import {
+  projectSlidesDeckResult,
+  SLIDES_DECK_RESULT_RENDERER,
+} from "../shared/action-ui.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import {
@@ -40,6 +44,7 @@ import {
   deckRevisionWhere,
   nextDeckRevision,
 } from "./_deck-write.js";
+import { assertNoDeckRenderArtifacts } from "./_render-artifacts.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 import getDesignSystem from "./get-design-system.js";
 
@@ -94,7 +99,6 @@ const SlideSchema = z.object({
     .describe("Exact context item versions that influenced this slide"),
 });
 
-// Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
 const SlidesSchema = z.preprocess(
   (v) => (v === undefined ? [] : typeof v === "string" ? JSON.parse(v) : v),
   z.array(SlideSchema),
@@ -236,6 +240,11 @@ export default defineAction({
       .default([])
       .describe("Deck-wide exact context item versions used"),
   }),
+  chatUI: {
+    renderer: SLIDES_DECK_RESULT_RENDERER,
+    when: (_args, result) => projectSlidesDeckResult(result) !== null,
+    projectResult: (_args, result) => projectSlidesDeckResult(result),
+  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -390,8 +399,6 @@ export default defineAction({
       const resolvedTitle =
         repairGeneratedDeckTitle(title, firstSlideContent) ?? title;
 
-      // Resolve the title form before the branches split so replacing a deck
-      // honors it the same way creating one does.
       const designSystemId =
         explicitDesignSystemId ??
         (designSystem
@@ -402,7 +409,6 @@ export default defineAction({
         if (designSystemId) {
           await assertAccess("design-system", designSystemId, "viewer");
         }
-        // Update existing deck — requires editor access.
         let existingDeck = browserOwnedDeck;
         if (!existingDeck) {
           await assertAccess("deck", deckId, "editor");
@@ -423,6 +429,7 @@ export default defineAction({
             existingDeck.title,
           ) ?? resolvedTitle;
         assertHumanReadableDeckTitle(existingDeckTitle);
+        assertNoDeckRenderArtifacts(existingDeck.data, { slides: rawSlides });
         const writeNow = nextDeckRevision(existingDeck.updatedAt);
         const prevData = JSON.parse(existingDeck.data);
         const previousDesignSystemId = resolveDeckDesignSystemId(
@@ -437,6 +444,16 @@ export default defineAction({
           aspectRatio: aspectRatio ?? prevData.aspectRatio,
           designSystemId: designSystemId ?? prevData.designSystemId,
           creativeContext: creativeContextProvenance,
+          ...(actionOwnsGenerationLifecycle
+            ? {
+                generationContext: incrementalGeneration
+                  ? {
+                      generationAttemptId,
+                      generationMode: "action",
+                    }
+                  : undefined,
+              }
+            : {}),
         };
         await db.transaction(async (tx: any) => {
           await createDeckVersionSnapshot(
@@ -473,8 +490,6 @@ export default defineAction({
             ...creativeContextProvenance,
             ...(elementProvenance.length ? { elementProvenance } : {}),
           });
-          // Broadcast to open editors (in-process SSE) + application-state
-          // refresh signal (cross-process polling fallback for serverless).
           await notifyClients(deckId);
           await writeAppStateForCurrentTab(
             "navigate",
@@ -564,6 +579,7 @@ export default defineAction({
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) throw new Error("no authenticated user");
       assertHumanReadableDeckTitle(resolvedTitle);
+      assertNoDeckRenderArtifacts(null, { slides: rawSlides });
 
       let resolvedDesignSystemId = designSystemId;
       if (resolvedDesignSystemId) {
@@ -580,7 +596,7 @@ export default defineAction({
         slides,
         createdAt: now,
         updatedAt: now,
-        ...(incrementalGeneration
+        ...(actionOwnsGenerationLifecycle && incrementalGeneration
           ? {
               generationContext: {
                 generationAttemptId,

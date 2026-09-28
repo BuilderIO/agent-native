@@ -57,8 +57,6 @@ describe("styled bullet editing", () => {
   });
 
   it("resolves a native list item to its UL or OL", () => {
-    // Editing the LI in isolation traps Enter inside that one item, so the
-    // list itself has to become the edit host.
     const root = document.createElement("div");
     root.innerHTML = "<ul><li>One</li><li>Two</li></ul><ol><li>First</li></ol>";
     document.body.append(root);
@@ -360,13 +358,6 @@ describe("styled bullet editing", () => {
   });
 
   it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
-    // Regression test: Range.extractContents() on a collapsed range (caret at
-    // the very end of the text, the common case) still clones the boundary
-    // text node with empty data instead of returning a childless fragment.
-    // If that empty node is mistaken for a real "tail" to move over, the new
-    // row's text span ends up with a contentless text node instead of the
-    // zero-width-space placeholder, and the caret has nothing to anchor its
-    // font to.
     const { list } = setup();
     const thirdText = list.children[2].children[1] as HTMLElement;
     const textNode = thirdText.firstChild as Text;
@@ -377,6 +368,172 @@ describe("styled bullet editing", () => {
     expect(newTextSpan.childNodes.length).toBe(1);
     expect(newTextSpan.firstChild?.nodeType).toBe(Node.TEXT_NODE);
     expect((newTextSpan.firstChild as Text).data).toBe("\u200B");
+  });
+
+  it("keeps the caret's inline style when Enter is pressed at the end of a styled run", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;"><strong>Lead</strong><span style="color: red;">muted</span></span></div>' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Second</span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const colored = list.children[0].querySelector(
+      'span[style*="color"]',
+    ) as HTMLElement;
+    const coloredText = colored.firstChild as Text;
+    placeCaret(coloredText, coloredText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    const typedInto = selection.anchorNode as Text;
+    typedInto.insertData(selection.anchorOffset, "x");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.textContent?.replaceAll(ZERO_WIDTH_SPACE, "")).toBe("x");
+    expect((typedInto.parentElement as HTMLElement).style.color).toBe("red");
+    expect(newText.contains(typedInto)).toBe(true);
+    expect(newText.querySelector("strong")).toBeNull();
+    expect(colored.textContent).toBe("muted");
+  });
+
+  it("keeps the caret in the new row before a nested list at the start of the tail", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span>Lead<ul><li>Nested</li></ul></div>' +
+      '<div><span style="font-size:8px;">●</span>Second</div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const lead = list.children[0].childNodes[1] as Text;
+    placeCaret(lead, lead.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+
+    const newRow = list.children[1] as HTMLElement;
+    const nestedList = newRow.querySelector("ul") as HTMLElement;
+    const selection = window.getSelection()!;
+    const caretText = selection.anchorNode as Text;
+    expect(caretText.parentElement).toBe(newRow);
+    expect(nestedList.contains(caretText)).toBe(false);
+
+    caretText.insertData(selection.anchorOffset, "x");
+    expect(caretText.data).toBe(`${ZERO_WIDTH_SPACE}x`);
+    expect(nestedList.querySelector("li")?.textContent).toBe("Nested");
+  });
+
+  it("keeps text typed after Enter at the end of a link out of the link", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Read the <a href="https://example.com">guide</a></span></div>' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;">Second</span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const linkText = list.querySelector("a")!.firstChild as Text;
+    placeCaret(linkText, linkText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "Next");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.innerHTML).toBe(`${ZERO_WIDTH_SPACE}Next`);
+    expect(list.children[0].querySelector("a")!.textContent).toBe("guide");
+  });
+
+  it("puts the caret inside the moved run when Enter splits a styled run", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span style="font-size:15px;"><strong>Lead</strong><span style="color: red;">muted tail</span></span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const coloredText = list.querySelector('span[style*="color"]')!
+      .firstChild as Text;
+    placeCaret(coloredText, "muted".length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "x");
+
+    const newText = list.children[1].children[1] as HTMLElement;
+    expect(newText.innerHTML).toBe('<span style="color: red;">x tail</span>');
+  });
+
+  it("moves every run after the caret when a row holds its runs as sibling spans", () => {
+    const para = (runs: string) =>
+      `<p style="padding-left:22px;"><span aria-hidden="true" style="display:inline-block;margin-left:-22px;">•</span>${runs}</p>`;
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="frame">' +
+      para(
+        '<span style="color: gray;">Lead </span><span style="font-weight: 700;">96%</span><span style="color: gray;">, rest</span>',
+      ) +
+      para('<span style="color: gray;">Next</span>') +
+      "</div></div>";
+    const list = document.querySelector(".frame") as HTMLElement;
+    const lead = list.querySelector("span[style*=gray]")!.firstChild as Text;
+    placeCaret(lead, lead.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const selection = window.getSelection()!;
+    (selection.anchorNode as Text).insertData(selection.anchorOffset, "x");
+
+    const [first, added] = Array.from(list.children);
+    expect(first.textContent).toBe("•Lead ");
+    expect(added.textContent?.replaceAll(ZERO_WIDTH_SPACE, "")).toBe(
+      "•x96%, rest",
+    );
+    expect(
+      (selection.anchorNode!.parentElement as HTMLElement).style.color,
+    ).toBe("gray");
+  });
+
+  it("keeps the final run's style when Enter starts at the row boundary", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="frame">' +
+      '<p><span aria-hidden="true" style="display:inline-block;">•</span>' +
+      '<span style="color: gray;">Lead </span><span style="font-weight: 700;">96%</span></p>' +
+      '<p><span aria-hidden="true" style="display:inline-block;">•</span>Next</p>' +
+      "</div></div>";
+    const list = document.querySelector(".frame") as HTMLElement;
+    const row = list.firstElementChild as HTMLElement;
+    const range = document.createRange();
+    range.setStart(row, row.childNodes.length);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const typedInto = selection.anchorNode as Text;
+    typedInto.insertData(selection.anchorOffset, "x");
+
+    expect(typedInto.parentElement?.style.fontWeight).toBe("700");
+    expect((list.children[1] as HTMLElement).textContent).toContain("x");
+  });
+
+  it("removes the empty bullet on a second Enter when the first carried a bold run over", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div><span style="font-size:8px;">●</span><span>First</span></div>' +
+      '<div><span style="font-size:8px;">●</span><span>Lead <strong>bold</strong></span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const boldText = list.children[1].querySelector("strong")!
+      .firstChild as Text;
+    placeCaret(boldText, boldText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    expect(list.children.length).toBe(3);
+    const seeded = list.children[2].children[1].querySelector("strong");
+    expect(seeded?.textContent).toBe(ZERO_WIDTH_SPACE);
+    expect(seeded?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+
+    expect(removeEmptyBulletAtCaret(list)).toEqual({
+      handled: true,
+      editingElement: null,
+    });
+    expect(list.children.length).toBe(2);
+    expect(window.getSelection()?.anchorNode).toBe(boldText);
   });
 
   it("splits text after the caret into the new bullet", () => {
@@ -484,17 +641,6 @@ describe("styled bullet editing", () => {
     expect(isBulletList(list)).toBe(true);
   });
 
-  // ENG-13998: reproduces the exact agent-generated markup from the bug
-  // report \u2014 a label row plus glyph-marker rows in one shot \u2014 to prove
-  // findEnclosingList correctly resolves the whole column as one list. This
-  // is necessary but not sufficient for Shift+Arrow/Shift+click to extend a
-  // text selection across rows: slide-text-targets.ts's
-  // findSlideRichTextOwner (called before findSmartBlock's own loop that
-  // would reach findEnclosingList) stops earlier, at the single clicked row,
-  // because a bullet row satisfies isTextLeaf and isTextLeaf short-circuits
-  // canEnterRichTextEdit's hasUnsafeRichTextDescendant check \u2014 so each row
-  // becomes its own isolated contentEditable root and only within-row
-  // selection is structurally possible today.
   it("resolves the enclosing list for realistic agent-generated bullet HTML", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="fmd-slide"><div style="border-top:2px solid var(--deck-accent);padding-top:12px;display:flex;flex-direction:column;gap:10px;">' +

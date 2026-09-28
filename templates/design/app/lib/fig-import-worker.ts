@@ -1,5 +1,3 @@
-/** Module Worker entry for the browser `.fig` import; see `fig-import-worker-session.ts`. */
-
 import { createFigImportSession } from "./fig-import-worker-session";
 
 export type FigImportWorkerRequest =
@@ -28,8 +26,6 @@ self.onmessage = async (event: MessageEvent<FigImportWorkerRequest>) => {
       return;
     }
     const rendered = session.render(request.selection);
-    // Copied before transfer: an image's bytes can be a view into a buffer the
-    // decoded document still shares with other images.
     const images = rendered.images.map((image) => ({
       ...image,
       bytes: image.bytes.slice(),

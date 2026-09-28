@@ -72,7 +72,6 @@ export interface StyleChangeMeta {
   relativeDeltaProperties?: string[];
   interactionState?: InteractionState;
   breakpointReset?: { property: string; maxWidthPx: number };
-  /** Source targets captured by an async inspector operation such as image upload. */
   capturedStyleTargets?: CapturedStyleTarget[];
 }
 
@@ -88,16 +87,9 @@ export type SelectionColorChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void | boolean;
 
-/**
- * Result of converting a container to a flex/grid flow. Only `"unsupported"`
- * (no inline source for this node) may fall back to writing the container
- * styles alone: after a `"failed"` rewrite the children are still pinned, so
- * that fallback would render a layout nobody asked for and report success.
- */
 export type ApplyLayoutFlowOutcome = "applied" | "unsupported" | "failed";
 
 export type ApplyLayoutFlowHandler = (
-  /** Null for a merged multi-selection, which has no single source id. */
   nodeId: string | null,
   containerStyles: Record<string, string>,
 ) => ApplyLayoutFlowOutcome;
@@ -107,26 +99,12 @@ export type StylesChangeHandler = (
   meta?: StyleChangeMeta,
 ) => void;
 
-/**
- * Per-render bundle the style-section components below use to render the
- * motion keyframe diamond next to a field — precomputed once in `EditPanel`
- * from `motionKeyframeState`/`onToggleMotionKeyframe` so each section only
- * needs to know its own field's CSS property name. `undefined` (the whole
- * bundle, or `hasTimeline: false`) means "render no diamonds" — sections
- * check this before rendering `MotionKeyframeDiamond` at all.
- */
 export interface MotionKeyframeFieldContext {
   hasTimeline: boolean;
   keyframedProperties: readonly string[];
   onToggle?: (cssProperty: MotionKeyframeCssProperty) => void;
 }
 
-/**
- * Per-render bundle the style-section components below use to render the
- * breakpoint override indicator next to a field — precomputed once in
- * `EditPanel` from `breakpointContext`. `undefined` means "render no
- * indicators" (feature off or editing the base frame).
- */
 export interface BreakpointOverrideFieldContext {
   nodeId: string | undefined;
   breakpointWidths: readonly number[];
@@ -136,13 +114,6 @@ export interface BreakpointOverrideFieldContext {
   onReset: (property: string, maxWidthPx: number) => void;
 }
 
-/**
- * Resolve a single property's override state against
- * `BreakpointOverrideFieldContext`, or `undefined` when the feature is off /
- * there's no stable node id for the current selection. Thin wrapper around
- * `getBreakpointOverrideState` so call sites don't repeat the
- * className/nodeId/html plumbing at every field.
- */
 export function resolveBreakpointOverride(
   ctx: BreakpointOverrideFieldContext | undefined,
   className: string,

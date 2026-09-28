@@ -84,7 +84,6 @@ describe("parseRouteFile", () => {
   });
 
   it("case-insensitive method matching", () => {
-    // The method in the filename is lowercased
     expect(parseRouteFile("api/data.GET.ts")).toEqual({
       method: "get",
       route: "/api/data",
@@ -172,8 +171,6 @@ describe("parseActionHttpConfig", () => {
   });
 
   it("does NOT flip method on a method: key outside the http config", () => {
-    // Regression: a GET fetch in the action body must not turn a POST action
-    // into a GET route. The old content.includes('method: "GET"') scan did.
     const src = defineActionSource(
       "",
       `    await fetch("https://example.com", { method: "GET" });`,
@@ -246,7 +243,6 @@ describe("discoverActionFiles", () => {
         path.join(actionsDir, "agent-only.ts"),
         defineActionSource("false"),
       );
-      // POST action whose body does a GET fetch — must stay POST.
       fs.writeFileSync(
         path.join(actionsDir, "posts-then-gets.ts"),
         defineActionSource(

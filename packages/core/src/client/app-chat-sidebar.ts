@@ -2,11 +2,8 @@ import { useEffect, useState } from "react";
 
 import { getFramePostMessageTargetOrigin } from "./frame.js";
 
-/** Custom event used by top-level hosts such as Electron webviews. */
 export const APP_CHAT_SIDEBAR_STATE_EVENT = "agent-native:per-app-chat-state";
-/** postMessage sent from a per-app chat host to its embedded app. */
 export const APP_CHAT_SIDEBAR_STATE_MESSAGE = "agentNative.perAppChatState";
-/** Request sent by an iframe that mounted after the host announced its state. */
 export const APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE =
   "agentNative.perAppChatStateRequest";
 
@@ -26,7 +23,6 @@ interface AppChatDesktopBridge {
 
 export interface AppChatSidebarState {
   open: boolean;
-  /** True when a parent shell owns chat for this app surface. */
   hosted: boolean;
 }
 
@@ -46,11 +42,6 @@ export function buildAppChatSidebarStateRequest(): {
   return { type: APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE };
 }
 
-/**
- * The two host shells are the only AgentSidebar instances that control a
- * separate app surface. Keeping this check here prevents ordinary in-app
- * agent panels from changing the app's navigation chrome.
- */
 export function isPerAppChatStorageKey(
   storageKey: string | undefined,
 ): boolean {
@@ -121,8 +112,6 @@ export function usePerAppChatState(enabled = true): AppChatSidebarState {
       if (typeof next.open !== "boolean") return;
       setState({
         open: next.open,
-        // Older hosts sent only `open`; a typed host-state message is still
-        // enough to establish that the parent owns this app's chat.
         hosted: next.hosted !== false,
       });
     };

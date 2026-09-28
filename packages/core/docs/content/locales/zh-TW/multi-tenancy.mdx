@@ -62,9 +62,9 @@ description: "每個 Agent-Native 應用程式都是開箱即用的多租戶 - �
 
 </Diagram>
 
-## 組織切換者 UI {#org-switcher}
+## 帳戶選單 {#org-switcher}
 
-組織切換者和成員 UI 在每個範本中呈現，無需額外程式碼。他們在 `/_agent-native/org/*` 下驅動核心組織 REST 路由（建立組織、切換組織、列出/邀請/刪除成員、更改角色、設定允許的電子郵件域）。使用者從切換器中選取活動組織；成員面板處理邀請和角色變更。
+帳戶選單（`OrgSwitcher`，位於側邊欄底部）和設定中的組織頁面會在每個範本中呈現，無需額外程式碼。它們使用 `/_agent-native/org/*` 下的核心組織 REST 路由（建立組織、切換組織、列出/邀請/刪除成員、更改角色、設定允許的電子郵件網域）。使用者在帳戶選單中選取作用中的組織；**Settings › Organization › Members** 處理邀請和角色變更。
 
 這是框架自己的`org/`模組，而不是Better Auth的組織外掛（故意不註冊）。完整的組織管理介面——`createOrganization`、REST 路由和範本編寫的 `defineAction` 包裝器（如 `invite-member`）——紀錄在 [Authentication → Organizations](/docs/authentication#organizations) 中。
 

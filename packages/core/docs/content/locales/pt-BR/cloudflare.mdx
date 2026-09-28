@@ -1,17 +1,9 @@
 ---
 title: "Cloudflare"
-description: "Implante um app nativo do agente no Cloudflare Pages ou Cloudflare Workers com o preset correspondente do Nitro."
+description: "Implante um app agent-native no Cloudflare Workers com o preset cloudflare_module do Nitro."
 ---
 
 # Cloudflare
-
-## Cloudflare Pages {#cloudflare-pages}
-
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
 
 ## Cloudflare Workers {#cloudflare-workers}
 
@@ -40,5 +32,5 @@ armazenamento persistente para o app.
 ## O que vem a seguir
 
 - [**Implantação**](/docs/deployment) — escolha um banco de dados persistente e um preset antes da sua primeira implantação em produção
-- [**Implantação de Espaço de Trabalho**](/docs/workspace-deployment) — o Cloudflare Pages é o preset padrão para o comando unificado `deploy`
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) e [**Outras Plataformas**](/docs/other-platforms) — os outros presets do Nitro
+- [**Implantação de Espaço de Trabalho**](/docs/workspace-deployment) — implante cada app do workspace em uma origem com Netlify ou Vercel
+- [**Node.js**](/docs/node-js), [**Docker**](/docs/docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**AWS Lambda**](/docs/aws-lambda) e [**Deno Deploy**](/docs/deno-deploy) — os outros presets do Nitro

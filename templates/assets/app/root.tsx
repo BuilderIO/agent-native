@@ -30,6 +30,8 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -140,6 +142,7 @@ function AssetsCommandMenu({
       onOpenChange={onOpenChange}
       changelog={changelog}
       changelogKey="assets"
+      chatStorageKey={ASSETS_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
         {location.pathname === "/home" ? (
@@ -180,19 +183,15 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
-        toaster={
-          isMarketingPath ? null : <Toaster richColors position="bottom-left" />
-        }
+        skeletonLayout="prompt-library"
+        toaster={<Toaster richColors position="bottom-left" />}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? <Outlet /> : <AppContent />}
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

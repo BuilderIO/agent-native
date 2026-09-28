@@ -25,11 +25,6 @@ export const classifierDecisionSchema = z
   })
   .strict();
 
-/**
- * Redacts contact details, credentials, and links that survive the line-level
- * screen. Anything leaving the process -- persisted content or a payload sent
- * to an external classifier -- must pass through here.
- */
 export function sanitizeSensitiveText(value: string): string {
   return (
     value
@@ -62,23 +57,14 @@ export function sanitizeSensitiveText(value: string): string {
  * classifier's `secret-credential` question covers formats nobody enumerated.
  */
 const UNLABELLED_CREDENTIAL_SOURCES = [
-  // GitHub, OpenAI, Stripe, and similar `<prefix>_<body>` / `<prefix>-<body>`.
   String.raw`\b(?:sk|pk|rk|ghp|gho|ghu|github_pat)[_-][A-Za-z0-9_=-]{12,}\b`,
-  // Slack bot/user/app/refresh tokens.
   String.raw`\bxox[abposr]-[A-Za-z0-9-]{10,}`,
-  // AWS access key ids.
   String.raw`\b(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b`,
-  // Google API keys and OAuth client secrets.
   String.raw`\bAIza[A-Za-z0-9_-]{35}\b`,
   String.raw`\bGOCSPX-[A-Za-z0-9_-]{20,}\b`,
-  // SendGrid.
   String.raw`\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b`,
-  // JWTs.
   String.raw`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`,
-  // PEM blocks. The label pattern wants `private key:`, which a PEM header
-  // never has.
   String.raw`-----BEGIN [A-Z ]*PRIVATE KEY-----`,
-  // Authorization headers pasted from logs or curl commands.
   String.raw`\b(?:Authorization\s*:\s*)?(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{16,}`,
 ] as const;
 

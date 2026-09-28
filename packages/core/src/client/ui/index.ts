@@ -78,6 +78,7 @@ export {
 export { AgentNativeIcon } from "../components/icons/AgentNativeIcon.js";
 export {
   AppSidebar,
+  RouterSidebarLink,
   AppSidebarHeader,
   AppSidebarNavItem,
   AppSidebarNavGroup,

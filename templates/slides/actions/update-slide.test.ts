@@ -5,8 +5,6 @@ const mockNotifyClients = vi.fn();
 const mockGetCurrentRequestBrowserTabId = vi.fn(() => null);
 const mockReadAppStateForCurrentTab = vi.fn(async () => null);
 
-// Captured by the Drizzle `update().set()` mock so tests can assert on the
-// persisted deck JSON + bumped updatedAt.
 let lastUpdateSet: { data?: string; updatedAt?: string } | undefined;
 let updateRowsAffected = 1;
 
@@ -29,9 +27,6 @@ const mockValidateGenerationCreativeContext = vi.fn(
   }),
 );
 
-// Minimal Drizzle query-builder stub. The action only uses:
-//   db.select({...}).from(decks).where(...).limit(1)  -> [row]
-//   db.update(decks).set({...}).where(...)            -> persists
 const mockDb = {
   select: () => ({
     from: () => ({
@@ -119,8 +114,6 @@ vi.mock("./_tab-state.js", () => ({
     mockReadAppStateForCurrentTab(...args),
 }));
 
-// Real per-deck lock just runs the fn; passthrough keeps the unit test focused
-// on update-slide's own read-modify-write logic.
 vi.mock("./patch-deck.js", () => ({
   isAgentPatchCaller: (caller?: string) =>
     caller === "tool" || caller === "mcp" || caller === "a2a",
@@ -215,9 +208,6 @@ describe("update-slide", () => {
     });
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
 
-    // The persisted deck JSON contains the new content and a bumped updatedAt,
-    // and the row updatedAt matches the JSON updatedAt (the freshness signal
-    // the open editor uses to detect a genuinely-newer external edit).
     expect(lastUpdateSet).toBeDefined();
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");
@@ -225,8 +215,6 @@ describe("update-slide", () => {
     expect(deck.slides[0].animations).toBeUndefined();
     expect(deck.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(lastUpdateSet!.updatedAt).toBe(deck.updatedAt);
-    // The broadcast now carries the changed slideId + agent actor (backwards-
-    // compatible — { type, deckId } are still present in the wire payload).
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-1",
       actor: "agent",
@@ -235,7 +223,6 @@ describe("update-slide", () => {
     // Context scope must not enter the generation-context gate.
     expect(mockValidateGenerationCreativeContext).not.toHaveBeenCalled();
     expect(mockRecordGenerationCreativeContext).not.toHaveBeenCalled();
-    // The agent's presence is recorded on the DECK presence doc for this slide.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
       expect.objectContaining({
@@ -335,7 +322,42 @@ describe("update-slide", () => {
 
     expect(result).toMatchObject({ ok: true, applied: true });
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
-      '<div class="fmd-slide" style="padding: 64px 80px;"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+      '<div class="fmd-slide"><h1 data-slide-object-id="title" style="color:red">New</h1></div>',
+    );
+  });
+
+  it("refuses content that adds editor-rendered markup, but saves content that already had it", async () => {
+    const stored =
+      '<div class="fmd-slide" style="padding: 40px"><style>[data-slide-content-scope="slide-a"] .x { color: red; }</style><p class="x">Old</p></div>';
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: stored }],
+    });
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        fullContent: stored.replace(
+          '<p class="x">',
+          '<p class="x" data-builder-id="b-1" data-src-i="slide-r1.s:3">',
+        ),
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "render_artifact_in_slide_content",
+      details: { markers: ["data-src-i", "data-builder-id"] },
+    });
+    expect(lastUpdateSet).toBeUndefined();
+
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      fullContent: stored.replace("Old", "New"),
+    });
+    expect(result).toMatchObject({ ok: true, applied: true });
+    expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
+      stored.replace("Old", "New"),
     );
   });
 
@@ -457,10 +479,6 @@ describe("update-slide", () => {
     expect(mockNotifyClients).not.toHaveBeenCalled();
   });
 
-  // A style request fans out one call per slide, so every call is in flight
-  // before the first rejection lands and the run's across-arguments breaker
-  // ends the turn. The rejection has to carry the accepted call, not just the
-  // rule, or the model never gets a chance to correct itself.
   it("answers a styleOnly legacy find/replace with the edits call that would work", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -492,9 +510,6 @@ describe("update-slide", () => {
     );
     expect(lastUpdateSet).toBeUndefined();
 
-    // The suggestion is only worth anything if it is a call the action
-    // accepts, so replay the payload the rejection handed back instead of a
-    // hand-written equivalent.
     const suggested = JSON.parse(
       rejection!.message.slice(
         rejection!.message.indexOf('[{"find"'),
@@ -514,9 +529,6 @@ describe("update-slide", () => {
     );
   });
 
-  // The legacy find path replaces the first match; the edits path refuses an
-  // ambiguous literal outright. A declaration repeated on the slide is the case
-  // where a careless conversion swaps one rejection for another.
   it("suggests an edits call that still works when the declaration repeats", async () => {
     mockDeckRow!.data = JSON.stringify({
       title: "Deck",
@@ -556,7 +568,6 @@ describe("update-slide", () => {
     });
 
     expect(result).toMatchObject({ ok: true, applied: true });
-    // First match only, exactly as the rejected legacy call would have done.
     expect(JSON.parse(lastUpdateSet!.data as string).slides[0].content).toBe(
       '<div class="fmd-slide" style="background:#f4f0e8"><div style="background:#111111"><h1>Headline</h1></div></div>',
     );
@@ -576,8 +587,6 @@ describe("update-slide", () => {
         (error: Error) => error,
       );
 
-    // objectId only swaps inner content, so echoing it back would hand over a
-    // call that cannot reach the element's own style attribute.
     expect(rejection?.message).toContain('cannot go through "objectId"');
     expect(rejection?.message).not.toContain('"objectId":"slide-object-7"');
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
@@ -636,9 +645,6 @@ describe("update-slide", () => {
         (error: Error) => error,
       );
 
-    // An empty find cannot become a valid edits entry — applySlideContentEdits
-    // rejects it outright — so the generic read-first hint is the only honest
-    // answer here.
     expect(rejection?.message).not.toContain('"find":""');
     expect(rejection?.message).toContain("get-deck (slideId, compact=false)");
     expect(lastUpdateSet).toBeUndefined();
@@ -655,9 +661,6 @@ describe("update-slide", () => {
     expect(styleOnly.description).toContain('"occurrence":1');
     expect(styleOnly.description).not.toContain('"expectedMatches":1');
 
-    // The advertised tool description is the only styleOnly guidance a model
-    // gets before its first call, and a style request gets exactly one batch
-    // before the across-arguments breaker ends the turn.
     const advertised = action.tool.description ?? "";
     expect(advertised).toContain("styleOnly=true");
     expect(advertised).toContain('"occurrence":1');
@@ -964,9 +967,6 @@ describe("update-slide", () => {
       ],
     });
 
-    // Nothing matched, so nothing was written — and that must reach the
-    // runner as a throw. A returned value is stamped `completedSideEffect`
-    // and replayed to a resumed run as work already done.
     await expect(
       action.run({
         deckId: "deck-1",
@@ -1052,10 +1052,6 @@ describe("update-slide", () => {
       ],
     })) as Record<string, unknown>;
 
-    // The required find/replace matched, but the optional image insert never
-    // found its marker. The aggregate `applied` boolean cannot express that,
-    // so the result flags it explicitly — otherwise the agent reports the
-    // image as inserted.
     expect(result).toMatchObject({ ok: true, applied: true, partial: true });
     const deck = JSON.parse(lastUpdateSet!.data as string);
     expect(deck.slides[0].content).toBe("<div>New</div>");

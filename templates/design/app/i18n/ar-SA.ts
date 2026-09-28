@@ -170,6 +170,8 @@ export default {
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labTweaks: "تعديلات التصميم",
     labTweaksDescription: "جرّب تعديلات التصميم المدعومة بالذكاء الاصطناعي.",
+    mcpAbout:
+      "اربط Design بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Design نيابةً عنك: إنشاء التصاميم وتعديلها. ولا يرى إلا ما يمكنك رؤيته.",
   },
   pages: {
     presentEmpty: "لا يوجد محتوى للعرض",
@@ -178,7 +180,18 @@ export default {
     notFoundDescription: "الصفحة التي تبحث عنها غير موجودة.",
     notFoundSignIn: "تسجيل الدخول",
     notFoundBackToDesigns: "العودة إلى التصاميم",
-    teamCreateOrgDescription: "أعد فريقا لمشاركة التصاميم مع زملائك.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "اختر تخزين الملفات",
+    },
+  },
+  agentChat: {
+    setup: {
+      checkingProvider: "جارٍ التحقق من اتصال الذكاء الاصطناعي…",
+      providerStatusUnavailable: "تعذّر التحقق من اتصال الذكاء الاصطناعي.",
+    },
+    common: { retry: "إعادة المحاولة" },
   },
   chat: {
     emptyState: "صف تصميمًا لإنشائه",
@@ -575,6 +588,15 @@ export default {
     },
   },
   designEditor: {
+    liveCollaboration: {
+      title: "التعاون المباشر",
+      description:
+        "اسمح للأشخاص الذين لا يستطيعون الوصول إلى localhost الخاص بالمالك بمشاهدة نسخة مباشرة من هذا التصميم وتحريرها.",
+      enabled: "مفعّل",
+      disabled: "متوقف",
+      saving: "جارٍ الحفظ…",
+      enableError: "تعذّر تحديث إعداد التعاون المباشر.",
+    },
     vectorEndpoints: {
       startPoint: "نقطة البداية",
       endPoint: "نقطة النهاية",
@@ -1432,6 +1454,18 @@ export default {
         "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
       connectionNotConfirmed:
         "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
+      permissionPromptTitle: "وصّل شاشاتك المحلية",
+      permissionPromptDescription:
+        "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
+      permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
+      permissionPromptSettingsInstructions:
+        "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اسمح بالوصول إلى التطبيقات على جهازك.",
+      permissionCloseTitle: "إغلاق الإعداد؟",
+      permissionCloseDescription:
+        "لن يعمل التحرير المباشر حتى تسمح بالوصول في Chrome.",
+      permissionCloseStay: "إبقاء الإعداد مفتوحًا",
+      permissionCloseAnyway: "إغلاق على أي حال",
+      permissionPromptRetry: "إعادة محاولة الاتصال",
     },
   },
   multiScreenCanvas: {
@@ -1615,7 +1649,65 @@ export default {
       "تم تجاهل {{count}} مسودة تعليق غير مرسلة عند مغادرة هذا العرض.",
     staleAnchorDetail: "لم يعد العنصر الأصلي موجودًا على لوحة الرسم.",
   },
+  homeContext: {
+    websiteReference: "إرفاق موقع ويب",
+    websiteUrlLabel: "عنوان URL لموقع الويب",
+    websiteUrl: "الصق عنوان URL لموقع ويب",
+    figmaUrlLabel: "رابط Figma",
+    invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
+    tooMany: "اختر ما يصل إلى 20 مرجعًا.",
+    invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
+    createSystem: "إنشاء نظام تصميم",
+    noSystems:
+      "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
+    searchSystems: "البحث في أنظمة التصميم…",
+    searchFrames: "البحث في إطارات Figma…",
+    searchDesigns: "البحث في التصاميم…",
+    searchPresentations: "البحث في العروض التقديمية…",
+    searchDesign: "البحث في التصميم…",
+    useDesignSystem: "استخدام نظام تصميم",
+    notReady:
+      "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
+    search: "البحث في السياق…",
+    figmaUrl: "ألصق رابط Figma",
+    browse: "تصفح الإطارات",
+    loadFailed: "تعذّر تحميل هذا المرجع.",
+    retry: "إعادة المحاولة",
+    empty: "لا توجد مراجع مطابقة.",
+    none: "بلا",
+    design: "التصميم",
+    slides: "الشرائح",
+    referenceDesign: "استخدام تصميم كمرجع",
+    figmaReference: "إرفاق Figma",
+    referenceDeck: "استخدام عرض تقديمي كمرجع",
+    quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
+    quickDashboard: "إنشاء لوحة معلومات",
+    quickDeck: "إنشاء عرض تقديمي",
+    deckPrompt:
+      "أنشئ عرضًا تقديميًا أنيقًا يتضمن شريحة عنوان وسردًا واضحًا وبيانات مرئية وشريحة ختامية موجزة.",
+  },
   home: {
+    suggestedPrompts: "الاقتراحات المقترحة",
+    import: "استيراد",
+    importOptions: "خيارات الاستيراد",
+    figmaLink: "رابط Figma",
+    importFromFigma: "الاستيراد من Figma",
+    figmaFile: "ملف Figma (.fig)",
+    openImport: "فتح الاستيراد",
+    importSelectedFile: "استيراد الملف المحدد",
+    starterSaasPrompt:
+      "صفحة هبوط حديثة لخدمة SaaS بتصميم داكن، وقسم رئيسي، وثلاث بطاقات للميزات، وقسم أخير يحث على اتخاذ إجراء.",
+    starterDashboardPrompt:
+      "لوحة تحليلات واضحة تضم تنقلاً جانبياً وأربع بطاقات للمؤشرات الرئيسية ومخططاً وجدولاً للنشاط الأخير.",
+    starterMobilePrompt:
+      "نموذج أولي لتطبيق جوال داخل إطار هاتف، مع شريط تبويبات في الأسفل وثلاث بطاقات قوائم على الشاشة الرئيسية.",
+    starterPricingPrompt:
+      "صفحة أسعار بثلاث خطط، مع التبديل بين الدفع الشهري والسنوي، وقوائم للميزات، وإبراز الخطة الموصى بها.",
+    designPromptTitle: "لنصمم أول تصميم لك",
+    recent: "الأخيرة",
+    browseAllTemplates: "تصفح الكل",
+    connectBuilderIo: "ربط Builder.io",
+    connectingBuilder: "جارٍ ربط Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
@@ -1681,6 +1773,8 @@ export default {
     layoutLabel: "تخطيط الشاشة جاهز للحفظ",
   },
   templatesPage: {
+    previewEmpty: "لا توجد شاشات قابلة للمعاينة في هذا القالب.",
+    loading: "جارٍ تحميل القوالب",
     title: "القوالب",
     description:
       "ابدأ بالأبعاد والإعدادات الصحيحة، ثم عدّل المحتوى غير المقفل باستخدام مطالبة.",
@@ -1707,7 +1801,7 @@ export default {
     deleteTitle: "حذف القالب؟",
     deleteDescription:
       "سيؤدي هذا إلى حذف {{title}} نهائيًا. لن تتأثر التصاميم التي تم إنشاؤها بالفعل.",
-    templateActions: "إجراءات القالب",
+    templateActions: "إجراءات {{title}}",
     lockedCount: "{{count}} مقفلة",
     categories: {
       ad: "إعلان",

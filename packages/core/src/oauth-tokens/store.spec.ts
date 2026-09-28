@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Deterministic key so the at-rest encryption round-trips within the test.
-// Must be set before importing ./store.js (which pulls in secrets/crypto).
 process.env.SECRETS_ENCRYPTION_KEY ||= "oauth-store-test-key";
 
 const { decryptSecretValue, isEncryptedSecretValue } =
@@ -132,6 +130,7 @@ const {
   getOAuthTokenSnapshot,
   getOAuthTokenSnapshotForUserOwner,
   getOAuthTokens,
+  listOAuthTokenOwners,
   replaceOAuthTokensIfRevision,
   saveOAuthTokens,
 } = await import("./store.js");
@@ -153,6 +152,39 @@ describe("oauth token store", () => {
     conflictOwnerAfterUpsert = null;
     upsertAttempted = false;
     vi.clearAllMocks();
+  });
+
+  it("reads token owners for many accounts in bounded batches", async () => {
+    const accountIds = Array.from({ length: 1_100 }, (_, i) => `acct-${i}`);
+    const original = mockDb.execute.getMockImplementation()!;
+    mockDb.execute.mockImplementation(async (input) => {
+      const sql = typeof input === "string" ? input : input.sql;
+      const args = typeof input === "string" ? [] : (input.args ?? []);
+      execCalls.push({ sql, args });
+      if (
+        /SELECT account_id, owner FROM/i.test(sql) &&
+        args.includes("acct-7")
+      ) {
+        return {
+          rows: [{ account_id: "acct-7", owner: "user:ann@example.com" }],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      listOAuthTokenOwners("mcp", [...accountIds, "acct-7"]),
+    ).resolves.toEqual([
+      { accountId: "acct-7", owner: "user:ann@example.com" },
+    ]);
+
+    const reads = execCalls.filter((call) =>
+      /SELECT account_id, owner FROM/i.test(call.sql),
+    );
+    expect(reads.map((call) => call.args.length - 1)).toEqual([500, 500, 100]);
+    expect(reads.every((call) => call.args[0] === "mcp")).toBe(true);
+    await expect(listOAuthTokenOwners("mcp", [])).resolves.toEqual([]);
+    mockDb.execute.mockImplementation(original);
   });
 
   it("refuses to rebind a Google account owned by a different user", async () => {
@@ -478,7 +510,6 @@ describe("oauth token store", () => {
     );
 
     const storedColumn = lastInsert().args[4] as string;
-    // Tokens are encrypted at rest, not stored as plaintext JSON.
     expect(isEncryptedSecretValue(storedColumn)).toBe(true);
     const stored = JSON.parse(decryptSecretValue(storedColumn));
     expect(stored).toMatchObject({

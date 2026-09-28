@@ -131,7 +131,6 @@ describe("useUnviewedDebugEventCount", () => {
     });
     expect(renderedCount()).toBe("0");
 
-    // New failures arrive while the viewer is on a different tab.
     act(() => {
       root.render(
         <Harness

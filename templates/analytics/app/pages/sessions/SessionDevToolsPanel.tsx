@@ -37,19 +37,12 @@ import {
   type ReplayNetworkEntry,
 } from "./session-replay-devtools";
 
-/**
- * A session console error line resolved to its captured, Sentry-style issue.
- * Keyed by `ReplayConsoleEntry.id`, computed server-side by `match-error-issues`
- * so the resolution shares one fingerprint implementation with ingest.
- */
 export type SessionIssueMatch = { issueId: string; status: string };
 
-/** Deep-link from a session error to the Monitoring → Errors issue detail. */
 export function issueDetailPath(issueId: string): string {
   return `/monitoring?view=errors&issue=${encodeURIComponent(issueId)}`;
 }
 
-/** Search Monitoring for all captured issues resembling an unmatched line. */
 export function issueSearchPath(message: string): string {
   const params = new URLSearchParams({
     view: "errors",
@@ -59,7 +52,6 @@ export function issueSearchPath(message: string): string {
   return `/monitoring?${params.toString()}`;
 }
 
-/** Pause row auto-follow for a while after the user scrolls the list. */
 const MANUAL_SCROLL_FOLLOW_PAUSE_MS = 4000;
 const DEVTOOLS_ROW_HEIGHT = 34;
 const DEVTOOLS_EXPANDED_ESTIMATE = 220;
@@ -67,11 +59,6 @@ const DEVTOOLS_OVERSCAN_ROWS = 10;
 const DEVTOOLS_MIN_HEIGHT = 180;
 const DEVTOOLS_MAX_HEIGHT = 620;
 
-/**
- * Layout offsets for the virtualized Dev Tools list. Expanded rows reserve
- * extra height so details render inline under the selected line without
- * disabling virtualization for the rest of the list.
- */
 export function buildDevToolsRowOffsets(
   entryCount: number,
   expandedIndex: number,
@@ -103,9 +90,7 @@ export function SessionDevToolsPanel({
   maxHeight?: number;
   onHeightChange: (height: number) => void;
   onSeek: (ms: number) => void;
-  /** Resolved error issues by console entry id, for cross-linking to Errors. */
   issueMatches?: ReadonlyMap<string, SessionIssueMatch>;
-  /** Prevent an unmatched fallback from flashing while issue lookup is active. */
   issueMatching?: boolean;
 }) {
   const t = useT();
@@ -649,11 +634,6 @@ function JumpToButton({
   );
 }
 
-/**
- * Compact link from a captured session error to its Errors issue detail. Kept
- * outside the row's toggle `<button>` (an anchor nested in a button is invalid)
- * and stops click propagation so following the link never also toggles/seeks.
- */
 function ViewIssueLink({
   issueId,
   className,

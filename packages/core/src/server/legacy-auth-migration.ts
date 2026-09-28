@@ -43,8 +43,6 @@ async function ensureCanonicalUser(
       created: true,
     };
   } catch (error) {
-    // A concurrent request may have created the same canonical user. Treat
-    // that race as success only after the adapter can read the winner.
     const winner = await findExisting();
     if (winner) return { user: winner, created: false };
     throw error;

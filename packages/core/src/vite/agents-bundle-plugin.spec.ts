@@ -103,7 +103,6 @@ describe("agentsBundlePlugin full-reload coalescing", () => {
     fire("add", skillFile("alpha"));
     fire("change", skillFile("beta"));
 
-    // Module invalidation happens per event; the browser reload does not.
     expect(fake.invalidateModule).toHaveBeenCalledTimes(4);
     expect(fake.send).not.toHaveBeenCalled();
 
@@ -135,10 +134,6 @@ describe("agentsBundlePlugin full-reload coalescing", () => {
   });
 
   it("invalidates on non-SKILL.md reference files inside a skills directory", async () => {
-    // Reference sub-files (e.g. references/*.md) are now read into the
-    // bundle alongside SKILL.md, so editing one in dev must rebuild the
-    // bundle the same way production build does — narrower matching here
-    // would let dev silently serve stale reference content.
     const { fake, fire } = await setupPlugin(root);
 
     fire(

@@ -21,14 +21,12 @@ type ServerRuntimeGlobal = typeof globalThis & {
   __AGENT_NATIVE_SERVER_RUNTIME__?: boolean;
 };
 
-/** True once a real Nitro server instance has started wiring its H3 app. */
 export function isServerRuntimeStarted(): boolean {
   return (
     (globalThis as ServerRuntimeGlobal).__AGENT_NATIVE_SERVER_RUNTIME__ === true
   );
 }
 
-/** Claim server-serving duty. Idempotent; never unset for the life of the process. */
 export function markServerRuntimeStarted(): void {
   (globalThis as ServerRuntimeGlobal).__AGENT_NATIVE_SERVER_RUNTIME__ = true;
 }

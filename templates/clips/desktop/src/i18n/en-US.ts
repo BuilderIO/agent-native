@@ -53,3 +53,13 @@ export const desktopRecordingFailureCopy = {
   saveBody:
     "A complete local copy is not confirmed. Open Clips to review recovery options.",
 } as const;
+
+export const desktopAuthCopy = {
+  verificationTitle: "Two-step verification",
+  codePlaceholder: "Authentication code",
+  codeRequired: "Enter the code from your authenticator.",
+  verifyCode: "Verify code",
+  verifyingCode: "Verifying…",
+  backToSignIn: "Back to sign in",
+  verificationFailed: "Couldn't complete verification. Try signing in again.",
+} as const;

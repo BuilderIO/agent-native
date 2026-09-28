@@ -99,13 +99,9 @@ export interface ChangeSelectedZIndexArgs {
 }
 
 interface InFlowZIndexContext {
-  /** Bounds a negative index so it cannot escape behind an ancestor. */
   parentId?: string;
-  /** Lowest paint level among the siblings the layer must get behind. */
   siblingFloor: number;
-  /** Rendered paint levels used to cross the next explicit stacking sibling. */
   siblingPaintLevels: number[];
-  /** Positioning the target would re-resolve these children's left/top. */
   hasPositionedDescendant: boolean;
 }
 
@@ -268,8 +264,6 @@ function inFlowZIndexContext(
     targetId,
   );
 
-  // An unpositioned sibling paints at the auto level, so 0 is the floor to beat
-  // even when no sibling declares a z-index.
   let siblingFloor = 0;
   const siblingPaintLevels = [0];
   for (const siblingId of siblingOrder?.siblingIds ?? []) {
@@ -312,9 +306,6 @@ function inFlowZIndexContext(
       hasPositionedDescendant = true;
       break;
     }
-    // A positioned wrapper owns the containing block for its descendants.
-    // Looking below it would make a nested absolute child look like it will
-    // move when the selected container becomes relative.
     if (position !== "static") continue;
     pending.push(...node.children);
   }
@@ -701,8 +692,6 @@ export function runChangeSelectedZIndex(
 
   if (linkedRoots.size > 0 && styles.length > 0) {
     if (hasResponsiveBounds) return refuse("responsive-scope");
-    // The linked style action can batch one canonical component write, but it
-    // cannot atomically combine that write with local sibling moves.
     if (targets.length > 1 || intents.length > 0 || styles.length > 2) {
       return refuse("linked-component");
     }
