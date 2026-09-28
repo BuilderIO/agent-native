@@ -4,6 +4,7 @@ import {
   GmailQuotaCooldownError,
   createOAuth2Client,
   gmailBatchGetMessages,
+  gmailListHistory,
   googleFetch,
 } from "./google-api.js";
 
@@ -60,6 +61,39 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow("Google API error (502): bad gateway");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts an in-flight Gmail read when its sweep signal is aborted", async () => {
+    let markStarted = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            throw new Error("Expected an AbortSignal in the Gmail request.");
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          markStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const request = gmailListHistory(
+      "sweep-abort-token",
+      { startHistoryId: "history-1" },
+      controller.signal,
+    );
+    await requestStarted;
+    controller.abort();
+
+    await expect(request).rejects.toBe(controller.signal.reason);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("preserves the final 503 error body after read retries are exhausted", async () => {

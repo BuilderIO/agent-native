@@ -825,6 +825,7 @@ const messages = {
       invalidFile: "请选择 PDF 或 PPTX 文件。",
       networkFailed: "导入请求超时或网络连接中断。请检查网络连接后重试。",
       notStarted: "完成所需的登录后，请重试导入。",
+      unsupportedFileType: "不支持此文件类型。请选择受支持的文件。",
       uploadLimitExceeded:
         "上传内容超出允许的限制。请缩小文件或减少文件数量后重试。",
     },
@@ -863,6 +864,7 @@ const messages = {
       figma: "Figma 画框",
       notReady: "上下文仍在加载或不可用。请重试或移除后再发送。",
       emptySource: "此来源未返回可用的上下文。",
+      websiteReadFailed: "无法自动读取此网站。请改为复制并粘贴相关文本。",
       figmaReadFailed:
         "Design 无法读取此 Figma 参考内容。请检查 Design 中保存的 Figma 访问令牌，以及关联账号是否有权打开该文件，然后重试。",
       tooMany: "最多选择 20 项参考资料。",
@@ -1012,6 +1014,11 @@ const messages = {
     emptyTitle: "还没有幻灯片",
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
   },
 };
 

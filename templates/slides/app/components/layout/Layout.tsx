@@ -41,6 +41,7 @@ import {
   getEffectiveSlidesSidebarCollapsed,
   isSlidesEditorRoute,
   isSlidesFullWidthSettingsRoute,
+  isSlidesHomeRoute,
   shouldShowSlidesAppSidebar,
 } from "./layout-route-policy";
 import { Sidebar } from "./Sidebar";
@@ -411,6 +412,7 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={TAB_ID}
           agentPageHref="/settings/agent"
           suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
+          showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
           onComposerTextChange={setComposerText}
           composerSlot={
             <>

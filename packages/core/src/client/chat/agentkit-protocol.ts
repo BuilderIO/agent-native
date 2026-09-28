@@ -2470,10 +2470,11 @@ export function createAgentKitProtocolAdapter(
     ) {
       return null;
     }
+    const runtimeRunId = run.turn.runId ?? run.runId;
     const resumeInput = {
       sessionId: run.session.id,
       turnId: run.turn.id,
-      runId: run.runId,
+      runId: runtimeRunId,
       after: run.runtimeSequence === undefined ? 0 : run.runtimeSequence + 1,
       metadata: run.metadata,
     };
@@ -2493,7 +2494,7 @@ export function createAgentKitProtocolAdapter(
           ...resumed,
           id: resumed.id ?? run.turn.id,
           sessionId: run.session.id,
-          runId: run.runId,
+          runId: resumed.runId ?? runtimeRunId,
         };
       } catch (error) {
         lastError = error;
@@ -2502,6 +2503,18 @@ export function createAgentKitProtocolAdapter(
     }
     if (lastError !== undefined) throw lastError;
     return null;
+  }
+
+  function setResumedRuntimeTurn(
+    run: ProtocolRun,
+    resumed: AgentChatRuntimeTurn,
+  ): void {
+    const runtimeRunId = run.turn.runId ?? run.runId;
+    if (resumed.runId && resumed.runId !== runtimeRunId) {
+      run.runtimeSequence = undefined;
+      run.resumeAttempts = 0;
+    }
+    run.turn = resumed;
   }
 
   function ensurePump(run: ProtocolRun): void {
@@ -2532,7 +2545,7 @@ export function createAgentKitProtocolAdapter(
             if (run.terminal || run.waitingForContinuation) break;
             const resumed = await resumeRuntimeTurn(run);
             if (resumed) {
-              run.turn = resumed;
+              setResumedRuntimeTurn(run, resumed);
               continue;
             }
             run.streamClosed = true;
@@ -2551,7 +2564,7 @@ export function createAgentKitProtocolAdapter(
             try {
               const resumed = await resumeRuntimeTurn(run, error);
               if (resumed) {
-                run.turn = resumed;
+                setResumedRuntimeTurn(run, resumed);
                 continue;
               }
             } catch (resumeError) {

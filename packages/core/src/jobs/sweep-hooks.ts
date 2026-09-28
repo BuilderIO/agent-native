@@ -2,6 +2,7 @@ export const RECURRING_SWEEP_BUDGET_MS = 90_000;
 
 export interface RecurringSweepContext {
   deadlineAt: number;
+  signal?: AbortSignal;
 }
 
 export type RecurringSweepHandler = (
@@ -30,6 +31,18 @@ export async function runRecurringSweepHandlers(
   context: RecurringSweepContext,
 ): Promise<{ registered: number; failed: string[] }> {
   const snapshot = [...handlers.entries()];
+  const controller = new AbortController();
+  const sweepContext = { ...context, signal: controller.signal };
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timeoutId = setTimeout(
+      () => {
+        controller.abort();
+        resolve(false);
+      },
+      Math.max(0, context.deadlineAt - Date.now()),
+    );
+  });
   const outcomes = await Promise.allSettled(
     snapshot.map(async ([id, handler]) => {
       if (Date.now() >= context.deadlineAt) {
@@ -37,13 +50,19 @@ export async function runRecurringSweepHandlers(
           "Recurring sweep deadline elapsed before handler start.",
         );
       }
-      await handler(context);
-      if (Date.now() > context.deadlineAt) {
+      const completed = await Promise.race([
+        Promise.resolve()
+          .then(() => handler(sweepContext))
+          .then(() => true),
+        deadline,
+      ]);
+      if (!completed || Date.now() >= context.deadlineAt) {
         throw new Error("Recurring sweep handler exceeded its deadline.");
       }
       return id;
     }),
   );
+  if (timeoutId) clearTimeout(timeoutId);
   const failed = outcomes.flatMap((outcome, index) => {
     if (outcome.status === "fulfilled") return [];
     const id = snapshot[index]![0];

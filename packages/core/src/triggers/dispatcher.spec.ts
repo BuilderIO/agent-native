@@ -575,8 +575,7 @@ Respond to the event.`,
     expect(runAgentLoopMock).toHaveBeenCalledTimes(101);
   });
 
-  it("expires stale mail events instead of replaying old notifications", async () => {
-    isProductionServerlessRuntimeMock.mockReturnValue(true);
+  it("expires stale mail events in in-process and durable drains", async () => {
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -594,16 +593,42 @@ Respond to the event.`,
     const eventHandler = subscribeMock.mock.calls.find(
       ([name]) => name === "mail.message.received",
     )?.[1];
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     await eventHandler?.(
       { messageId: "stale-message" },
       {
         owner: "alice+triggers@agent-native.test",
-        eventId: "stale-event",
+        eventId: "stale-in-process-event",
         emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
       },
     );
+    await vi.waitFor(() =>
+      expect(triggerQueueMocks.rows[0]?.status).toBe("completed"),
+    );
 
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    expect(triggerQueueMocks.rows[0]).toMatchObject({
+      status: "completed",
+      lastError: "Expired because the mail event was older than 60 minutes.",
+    });
+    await vi.waitFor(() =>
+      expect(info).toHaveBeenCalledWith(
+        "[triggers] Expired 1 stale mail.message.received events from in-process drain.",
+      ),
+    );
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+
+    triggerQueueMocks.reset();
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await eventHandler?.(
+      { messageId: "stale-serverless-message" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "stale-serverless-event",
+        emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      },
+    );
+    expect(triggerQueueMocks.rows[0]?.status).toBe("pending");
+
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;

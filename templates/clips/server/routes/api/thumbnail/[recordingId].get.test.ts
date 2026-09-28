@@ -1,3 +1,4 @@
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetCookie = vi.hoisted(() => vi.fn());
@@ -124,6 +125,14 @@ function makeRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function expectDefaultSocialRedirect(result: unknown) {
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).status).toBe(302);
+  expect((result as Response).headers.get("location")).toBe(
+    AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  );
+}
+
 describe("/api/thumbnail/:recordingId route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -176,6 +185,42 @@ describe("/api/thumbnail/:recordingId route", () => {
     );
   });
 
+  it("redirects to the branded image while a thumbnail is unavailable", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(
+        makeRow({ thumbnailUrl: null, animatedThumbnailUrl: null }),
+      ),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("redirects to the branded image when the provider object is missing", async () => {
+    mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("Not found", {
+        status: 404,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+  });
+
+  it("redirects to the branded image when the provider fetch fails", async () => {
+    mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
+    vi.mocked(fetch).mockRejectedValue(new Error("Storage unavailable"));
+
+    const result = await handler(makeEvent() as any);
+
+    expectDefaultSocialRedirect(result);
+  });
+
   it("can proxy the animated preview when requested", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(
@@ -219,7 +264,7 @@ describe("/api/thumbnail/:recordingId route", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("rejects active image formats from data URLs", async () => {
+  it("does not serve active image formats from data URLs", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(
         makeRow({
@@ -231,15 +276,11 @@ describe("/api/thumbnail/:recordingId route", () => {
 
     const result = await handler(makeEvent() as any);
 
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(415);
-    expect((result as Response).headers.get("content-type")).toBe(
-      "text/plain; charset=utf-8",
-    );
+    expectDefaultSocialRedirect(result);
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("rejects active content returned by the provider", async () => {
+  it("does not serve active content returned by the provider", async () => {
     mockGetDb.mockReturnValue(createDbWithRow(makeRow()));
     vi.mocked(fetch).mockResolvedValue(
       new Response("<svg></svg>", {
@@ -250,11 +291,7 @@ describe("/api/thumbnail/:recordingId route", () => {
 
     const result = await handler(makeEvent() as any);
 
-    expect(result).toBeInstanceOf(Response);
-    expect((result as Response).status).toBe(415);
-    expect((result as Response).headers.get("content-type")).toBe(
-      "text/plain; charset=utf-8",
-    );
+    expectDefaultSocialRedirect(result);
   });
 
   it("cancels redirect bodies before following the next URL", async () => {

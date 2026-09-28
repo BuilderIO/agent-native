@@ -19,7 +19,8 @@ vi.mock("../settings/user-settings.js", () => ({
   getUserSetting: (...args: any[]) => mockGetUserSetting(...args),
   putUserSetting: (...args: any[]) => mockPutUserSetting(...args),
 }));
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: (...args: any[]) => mockGetSetting(...args),
 }));
 vi.mock("../application-state/store.js", () => ({

@@ -3281,6 +3281,31 @@ describe("server/auth", () => {
       expect(result).toBeUndefined();
     });
 
+    it("allows Better Auth endpoints under a custom framework route prefix", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv(
+        "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
+        "/_platform",
+      );
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      await expect(
+        guard(createJsonPostEvent("/_platform/auth/ba/sign-in/email", {})),
+      ).resolves.toBeUndefined();
+      await expect(
+        guard(createJsonPostEvent("/_platform/actions/list", {})),
+      ).resolves.toEqual({ error: "Unauthorized" });
+    });
+
     it("allows public workspace app pages while keeping API and framework routes protected", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");

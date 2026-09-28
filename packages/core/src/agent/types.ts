@@ -335,6 +335,7 @@ export interface AgentChatRequest {
   harness?: AgentChatHarnessRequest;
   trackInRunsTray?: boolean;
   approvedToolCalls?: string[];
+  skipPendingSelectionContext?: boolean;
 }
 
 export type AgentToolInput = Record<string, unknown>;

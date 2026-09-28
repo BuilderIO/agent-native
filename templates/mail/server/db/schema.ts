@@ -178,7 +178,17 @@ export const mailSyncAccounts = table(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
+  (t) => [
+    index("mail_sync_accounts_owner_idx").on(t.ownerEmail),
+    index("mail_sync_accounts_automation_attempted_id_idx").on(
+      sql`COALESCE(${t.lastAutomationAttemptedAt}, 0)`,
+      t.id,
+    ),
+    index("mail_sync_accounts_watch_attempted_id_idx").on(
+      sql`COALESCE(${t.lastWatchAttemptedAt}, 0)`,
+      t.id,
+    ),
+  ],
 );
 
 export const mailInboxPushInvalidations = table(
