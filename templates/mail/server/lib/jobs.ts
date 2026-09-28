@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/oauth-tokens";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
-import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { db, schema } from "../db/index.js";
@@ -921,6 +921,7 @@ export async function markJobProcessing(id: string): Promise<boolean> {
 
 export async function getDuePendingJobs(
   now: number,
+  limit: number,
 ): Promise<ScheduledJobRecord[]> {
   const due = await db
     .select()
@@ -930,7 +931,9 @@ export async function getDuePendingJobs(
         eq(schema.scheduledJobs.status, "pending"),
         lte(schema.scheduledJobs.runAt, now),
       ),
-    );
+    )
+    .orderBy(asc(schema.scheduledJobs.runAt), asc(schema.scheduledJobs.id))
+    .limit(limit);
 
   return due as ScheduledJobRecord[];
 }

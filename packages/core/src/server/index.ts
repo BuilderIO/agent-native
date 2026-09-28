@@ -807,6 +807,7 @@ export {
   hasRecurringSweepHandler,
   registerRecurringSweepHandler,
   runRecurringSweepHandlers,
+  type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
 export {

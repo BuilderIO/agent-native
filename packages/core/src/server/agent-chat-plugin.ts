@@ -181,6 +181,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
+import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import {
   McpClientManager,
   mcpToolsToActionEntries,
@@ -7581,6 +7582,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
+            const sweepContext = {
+              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
+            };
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -7612,6 +7616,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const { runRecurringSweepHandlers } =
+              await import("../jobs/sweep-hooks.js");
+            const appSweepHandlers =
+              await runRecurringSweepHandlers(sweepContext);
             // Rides the same site-tick as the reap above, for the same reason:
             // it is the only durable driver on serverless. Never fatal to the
             // job sweep, and its own failure is a distinguishable outcome
@@ -7643,9 +7651,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
-            const { runRecurringSweepHandlers } =
-              await import("../jobs/sweep-hooks.js");
-            const appSweepHandlers = await runRecurringSweepHandlers();
             const triggerAvailability = scheduledTriggerAvailability();
             if (unclaimedBackgroundRuns === null) {
               setResponseStatus(event, 500);
