@@ -15,7 +15,8 @@
 //!
 //! `refresh` skips the request entirely when neither a cookie nor a bearer
 //! token is available (a request would just 401), and `spawn_watcher` backs
-//! off a credential pair that did 401 (`UnauthorizedRetry`, shared with
+//! off a credential pair that did 401 and pauses it after a few rejections
+//! (`MeetingsWatcherState::note_unauthorized`, shared with
 //! `meetings_watcher.rs`) instead of retrying it every poll — otherwise a
 //! stuck install with a dead session polls prod forever at the fast-poll
 //! cadence.
@@ -26,9 +27,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
-use crate::meetings_watcher::{
-    should_poll, MeetingsWatcherState, SessionCredentials, UnauthorizedRetry,
-};
+use crate::meetings_watcher::{MeetingsWatcherState, Poller, SessionCredentials};
 
 const REMOTE_FLAGS_POLL_SECS: u64 = 60;
 const REMOTE_FLAGS_FAST_POLL_SECS: u64 = 5;
@@ -174,14 +173,13 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
             }
         };
         let mut fetched_once = false;
-        let mut unauthorized_retry: Option<UnauthorizedRetry> = None;
         loop {
             if let Some(state) = app.try_state::<MeetingsWatcherState>() {
                 let snapshot = state.session_snapshot();
                 let credentials: SessionCredentials =
                     (snapshot.session_cookie.clone(), snapshot.auth_token.clone());
                 let now = Instant::now();
-                if should_poll(&unauthorized_retry, &credentials, now) {
+                if state.should_poll(Poller::FeatureFlags, &credentials, now) {
                     if let Some(server_url) = snapshot.server_url {
                         match refresh(
                             &client,
@@ -193,17 +191,17 @@ pub(crate) fn spawn_watcher(app: AppHandle) {
                         {
                             Ok(()) => {
                                 fetched_once = true;
-                                unauthorized_retry = None;
+                                state.note_authorized(Poller::FeatureFlags);
                             }
                             Err(RefreshError::NoCredentials) => {}
                             Err(RefreshError::Unauthorized) => {
                                 eprintln!("[feature-flags] watcher refresh failed: unauthorized");
-                                unauthorized_retry = Some(UnauthorizedRetry::after(
-                                    unauthorized_retry.as_ref(),
+                                state.note_unauthorized(
+                                    Poller::FeatureFlags,
                                     credentials,
                                     Duration::from_secs(REMOTE_FLAGS_FAST_POLL_SECS),
                                     now,
-                                ));
+                                );
                             }
                             Err(err) => eprintln!("[feature-flags] watcher refresh failed: {err}"),
                         }

@@ -1493,6 +1493,7 @@ export function App({
     listen("meetings:auth-needed", () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
       pushSession();
+      void checkAuth();
     })
       .then((u) => {
         unlisten = u;
@@ -1507,7 +1508,22 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl]);
+  }, [signedInAs, serverUrl, checkAuth]);
+
+  useEffect(() => {
+    if (authStatus !== "authed") return;
+    function resumePolling() {
+      if (document.hidden) return;
+      invoke("meetings_watcher_resume_polling").catch(() => {
+        // Older builds may not expose this command yet — best-effort.
+      });
+    }
+    resumePolling();
+    document.addEventListener("visibilitychange", resumePolling);
+    return () => {
+      document.removeEventListener("visibilitychange", resumePolling);
+    };
+  }, [authStatus]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
