@@ -66,32 +66,32 @@ interface WizardState {
 const START_CHOICES: Array<{
   value: Exclude<CreateStartKind, "workspace-add">;
   label: string;
-  hint: string;
+  summary: string;
 }> = [
   {
     value: "chat-workspace",
     label: "Chat workspace",
-    hint: "Dispatch + Chat in one shared workspace",
+    summary: "Dispatch + Chat in one shared workspace",
   },
   {
     value: "standalone",
     label: "Standalone app",
-    hint: "One app, with no Dispatch workspace",
+    summary: "One app, with no Dispatch workspace",
   },
   {
     value: "headless",
     label: "Headless",
-    hint: "Actions and CLI, without a UI",
+    summary: "Actions and CLI, without a UI",
   },
   {
     value: "first-party",
     label: "First-party template",
-    hint: "Choose official Agent-Native apps for a workspace",
+    summary: "Choose official Agent-Native apps for a workspace",
   },
   {
     value: "community",
     label: "Community template",
-    hint: "Start from an app in a public GitHub repository",
+    summary: "Start from an app in a public GitHub repository",
   },
 ];
 
@@ -642,7 +642,7 @@ export function CreateWizard({
                     <Text bold={state.activeIndex === index}>
                       {choice.label}
                     </Text>
-                    <Text dimColor> {choice.hint}</Text>
+                    <Text dimColor> {choice.summary}</Text>
                   </Text>
                 </Box>
               ))}
