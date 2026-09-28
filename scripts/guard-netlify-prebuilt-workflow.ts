@@ -331,12 +331,11 @@ export function validateNetlifyPrPreviewWorkflow(
   }
   if (
     workflowConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}" ||
-    workflowConcurrency?.["cancel-in-progress"] !==
-      "${{ github.event_name == 'pull_request_target' }}"
+      "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{ github.event.comment.body || github.run_id }}" ||
+    workflowConcurrency?.["cancel-in-progress"] !== false
   ) {
     issues.push(
-      `${pullRequestPath} must serialize each PR workflow before revalidation and let closed-PR cleanup cancel it`,
+      `${pullRequestPath} must serialize preview requests per PR and exact site command before revalidation`,
     );
   }
   const authorizeIf = String(authorize?.if ?? "")
@@ -626,7 +625,7 @@ export function validateNetlifyPrPreviewWorkflow(
     JSON.stringify(cleanupMatrix.site) !==
       JSON.stringify(previewEligibleSiteNames()) ||
     cleanupConcurrency?.group !==
-      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}" ||
+      "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ format('/preview {0}', matrix.site) }}" ||
     cleanupConcurrency["cancel-in-progress"] !== true ||
     !source.includes('--site "$SITE_NAME"')
   ) {

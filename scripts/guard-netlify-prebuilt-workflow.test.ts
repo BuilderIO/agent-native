@@ -216,8 +216,8 @@ describe("Netlify PR preview workflow guard", () => {
     assert.equal((preview.on as Workflow).workflow_dispatch, undefined);
     assert.deepEqual(preview.concurrency, {
       group:
-        "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}",
-      "cancel-in-progress": "${{ github.event_name == 'pull_request_target' }}",
+        "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{ github.event.comment.body || github.run_id }}",
+      "cancel-in-progress": false,
     });
     assert.equal(previewDeploy.concurrency, undefined);
     assert.deepEqual(previewDeploy.permissions, { contents: "read" });
@@ -250,7 +250,7 @@ describe("Netlify PR preview workflow guard", () => {
     );
     assert.deepEqual(previewJobs.cleanup.concurrency, {
       group:
-        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}",
+        "netlify-pr-preview-${{ github.event.pull_request.number }}-${{ format('/preview {0}', matrix.site) }}",
       "cancel-in-progress": true,
     });
     const authorize = previewJobs.authorize;
@@ -350,13 +350,10 @@ describe("Netlify PR preview workflow guard", () => {
         "false",
       ],
       ["issue_comment:", "workflow_dispatch:"],
+      ["github.event.comment.body || github.run_id", "github.run_id"],
       [
-        "netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}",
-        "netlify-pr-preview-${{ github.event.issue.number || github.run_id }}",
-      ],
-      [
-        "cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}",
-        "cancel-in-progress: false",
+        "format('/preview {0}', matrix.site)",
+        "format('/preview {0}', matrix.site) || 'unknown'",
       ],
       ["cancel-in-progress: true", "cancel-in-progress: false"],
       ["          - fw", "          - unknown"],

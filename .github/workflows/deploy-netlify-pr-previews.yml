@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
+  group: netlify-pr-preview-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-${{ github.event.comment.body || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   authorize:
@@ -360,7 +360,7 @@ jobs:
           - starter
           - fw
     concurrency:
-      group: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ matrix.site }}
+      group: netlify-pr-preview-${{ github.event.pull_request.number }}-${{ format('/preview {0}', matrix.site) }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
