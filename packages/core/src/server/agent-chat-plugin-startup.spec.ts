@@ -131,6 +131,9 @@ describe("agent chat startup", () => {
     expect(sweepRoute).toContain("appSweepHandlers.failed.length > 0");
     expect(sweepRoute).toContain("setResponseStatus(event, 500)");
     expect(sweepRoute.indexOf("const staleRunsReaped")).toBeLessThan(
+      sweepRoute.indexOf("const sweepContext"),
+    );
+    expect(sweepRoute.indexOf("const sweepContext")).toBeLessThan(
       sweepRoute.indexOf("runRecurringSweepHandlers(sweepContext)"),
     );
     expect(

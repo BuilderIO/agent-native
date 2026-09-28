@@ -7594,9 +7594,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "Recurring-job sweep reached the synchronous server instead of the durable background worker.",
               };
             }
-            const sweepContext = {
-              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
-            };
             // Stale reaping runs FIRST and site-wide, before the open-ended job
             // sweep can spend the platform wall. It is the durable driver the
             // in-process fast sweep below cannot be on serverless: that timer is
@@ -7630,6 +7627,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
             const { runRecurringSweepHandlers } =
               await import("../jobs/sweep-hooks.js");
+            const sweepContext = {
+              deadlineAt: Date.now() + RECURRING_SWEEP_BUDGET_MS,
+            };
             const appSweepHandlers =
               await runRecurringSweepHandlers(sweepContext);
             // Rides the same site-tick as the reap above, for the same reason:

@@ -31,10 +31,12 @@ vi.mock("../server/framework-request-handler.js", () => ({
   getH3App: (app: any) => app.h3,
 }));
 
-vi.mock("../settings/store.js", async () => {
+vi.mock("../settings/store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../settings/store.js")>();
   const { EventEmitter } = await import("node:events");
   mockedSettings.emitter = new EventEmitter();
   return {
+    ...actual,
     getSetting: async (key: string) => mockedSettings.all[key] ?? null,
     putSetting: async (key: string, value: Record<string, unknown>) => {
       mockedSettings.all[key] = value;

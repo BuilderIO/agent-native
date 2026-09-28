@@ -1015,6 +1015,11 @@ const messages = {
     createFirstDeck: "创建你的第一份幻灯片",
     emptyDescription: "使用 AI 生成精美演示文稿。",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法检查 AI 连接。",
+    },
+  },
 };
 
 export default messages;
