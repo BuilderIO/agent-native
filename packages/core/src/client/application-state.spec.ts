@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compareAndSetClientAppState,
   deleteClientAppState,
+  isClientAppStateMutationPending,
   readClientAppState,
   readClientAppStateMany,
   setClientAppState,
@@ -195,6 +196,60 @@ describe("client application-state helpers", () => {
       values: {},
       missing: ["pending-selection-context"],
     });
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "DELETE",
+      "GET",
+    ]);
+  });
+
+  it("reads persisted selection after an in-flight delete fails", async () => {
+    let rejectDelete!: (error: Error) => void;
+    let deleteStarted!: () => void;
+    const deletionStarted = new Promise<void>((resolve) => {
+      deleteStarted = resolve;
+    });
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deleteStarted();
+        return new Promise<Response>((_, reject) => {
+          rejectDelete = reject;
+        });
+      }
+      return Promise.resolve(
+        jsonResponse({
+          values: {
+            "pending-selection-context": {
+              text: "retry selection",
+              capturedAt: 1,
+            },
+          },
+          missing: [],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deletion = deleteClientAppState("pending-selection-context");
+    await deletionStarted;
+    const read = readClientAppState("pending-selection-context");
+    const deletionFailure = expect(deletion).rejects.toThrow(
+      "network unavailable",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "DELETE",
+    ]);
+
+    rejectDelete(new Error("network unavailable"));
+    await deletionFailure;
+    await expect(read).resolves.toEqual({
+      text: "retry selection",
+      capturedAt: 1,
+    });
+    expect(isClientAppStateMutationPending("pending-selection-context")).toBe(
+      false,
+    );
     expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
       "DELETE",
       "GET",

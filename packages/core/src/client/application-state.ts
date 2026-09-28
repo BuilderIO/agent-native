@@ -3,7 +3,7 @@ import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
-const pendingMutations = new Map<string, Promise<unknown>>();
+const pendingMutations = new Map<string, Promise<void>>();
 const mutationRevisions = new Map<string, number>();
 
 export interface ClientAppStateReadOptions {
@@ -50,45 +50,26 @@ export function isClientAppStateMutationPending(key: string): boolean {
   return pendingMutations.has(requestKey(key));
 }
 
-async function runClientAppStateMutation<T>(
+function runClientAppStateMutation<T>(
   key: string,
   operation: () => Promise<T>,
-  clearOnSuccess: (result: T) => boolean = () => true,
 ): Promise<T> {
   const id = requestKey(key);
   const previous = pendingMutations.get(id);
   mutationRevisions.set(id, (mutationRevisions.get(id) ?? 0) + 1);
-  let previousFailed = false;
   const mutation = (async () => {
-    if (previous) {
-      try {
-        await previous;
-      } catch {
-        previousFailed = true;
-      }
-    }
+    if (previous) await previous;
     return operation();
   })();
-  pendingMutations.set(id, mutation);
-  let result: T;
-  try {
-    result = await mutation;
-  } catch (error) {
-    // A failed clear must not let a later chat reuse stale selection context.
-    if (
-      pendingMutations.get(id) === mutation &&
-      key !== "pending-selection-context"
-    ) {
+  let pending!: Promise<void>;
+  const clearPending = () => {
+    if (pendingMutations.get(id) === pending) {
       pendingMutations.delete(id);
     }
-    throw error;
-  }
-  if (pendingMutations.get(id) === mutation) {
-    if (clearOnSuccess(result) || !previousFailed) pendingMutations.delete(id);
-    else if (previous) pendingMutations.set(id, previous);
-    else pendingMutations.delete(id);
-  }
-  return result;
+  };
+  pending = mutation.then(clearPending, clearPending);
+  pendingMutations.set(id, pending);
+  return mutation;
 }
 
 async function parseAppStateResponse<T>(
@@ -178,14 +159,11 @@ export async function readClientAppStateMany(
         return [id, mutationRevisions.get(id) ?? 0] as const;
       }),
     );
-    await awaitWithAbort(
-      Promise.all(
-        unique
-          .map((key) => pendingMutations.get(requestKey(key)))
-          .filter(Boolean),
-      ),
-      options.signal,
-    );
+    const pending = unique.flatMap((key) => {
+      const mutation = pendingMutations.get(requestKey(key));
+      return mutation ? [mutation] : [];
+    });
+    await awaitWithAbort(Promise.all(pending), options.signal);
     if (
       unique.some((key) => {
         const id = requestKey(key);
@@ -319,29 +297,25 @@ export async function compareAndSetClientAppState(
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
-  return runClientAppStateMutation(
-    key,
-    async () => {
-      const response = await fetch(appStateUrl(key), {
-        method: "PATCH",
-        headers: buildHeaders(options.requestSource),
-        body: jsonBody({ expected, next }),
-        keepalive: options.keepalive,
-        signal: options.signal,
-      });
-      const result = await parseAppStateResponse<{ changed?: unknown }>(
-        response,
-        `Compare application state \"${key}\"`,
+  return runClientAppStateMutation(key, async () => {
+    const response = await fetch(appStateUrl(key), {
+      method: "PATCH",
+      headers: buildHeaders(options.requestSource),
+      body: jsonBody({ expected, next }),
+      keepalive: options.keepalive,
+      signal: options.signal,
+    });
+    const result = await parseAppStateResponse<{ changed?: unknown }>(
+      response,
+      `Compare application state \"${key}\"`,
+    );
+    if (typeof result?.changed !== "boolean") {
+      throw new Error(
+        `Compare application state \"${key}\" returned an unexpected payload.`,
       );
-      if (typeof result?.changed !== "boolean") {
-        throw new Error(
-          `Compare application state \"${key}\" returned an unexpected payload.`,
-        );
-      }
-      return result.changed;
-    },
-    (changed) => changed,
-  );
+    }
+    return result.changed;
+  });
 }
 
 export async function deleteClientAppState(
