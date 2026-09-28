@@ -184,7 +184,9 @@ const mocks = vi.hoisted(() => ({
   mutateUserSetting: vi.fn(),
   buildLabelCache: vi.fn(),
   ensureGmailLabel: vi.fn(),
+  gmailBatchGetThreads: vi.fn(),
   gmailGetThread: vi.fn(),
+  gmailListThreads: vi.fn(),
   gmailModifyThread: vi.fn(),
   syncInboxLabelDelta: vi.fn(),
   evaluateAiFilterBackfillRules: vi.fn(),
@@ -242,9 +244,9 @@ vi.mock("./automation-actions.js", () => ({
 }));
 vi.mock("./google-api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./google-api.js")>()),
-  gmailBatchGetThreads: vi.fn(),
+  gmailBatchGetThreads: mocks.gmailBatchGetThreads,
   gmailGetThread: mocks.gmailGetThread,
-  gmailListThreads: vi.fn(),
+  gmailListThreads: mocks.gmailListThreads,
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: mocks.gmailModifyThread,
 }));
@@ -587,6 +589,78 @@ describe("startMailAiFilterBackfill", () => {
     const state = JSON.parse(row.stateJson);
     expect(state.retryCount).toBe(1);
     expect(state.retryAfterAt).toBeGreaterThan(Date.now());
+  });
+
+  it("applies a rule to available Gmail accounts and reports incomplete coverage", async () => {
+    const activeRule = rule("rule-a");
+    mocks.rules = [activeRule];
+    const state: any = backfillState([activeRule]);
+    state.candidates = [];
+    state.evaluations = {};
+    const row = runningRow([activeRule]);
+    row.stateJson = JSON.stringify(state);
+    database.rows.push(row);
+    mocks.getClientsWithErrors.mockResolvedValue({
+      clients: [
+        { email: "available@example.test", accessToken: "available-token" },
+      ],
+      errors: [{ email: "unavailable@example.test", error: "Refresh failed." }],
+    });
+    mocks.gmailListThreads.mockResolvedValue({
+      threads: [{ id: "thread-healthy" }],
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValue([
+      {
+        data: {
+          id: "thread-healthy",
+          messages: [
+            {
+              id: "message-healthy",
+              internalDate: String(Date.now()),
+              labelIds: ["INBOX"],
+              payload: {
+                headers: [
+                  { name: "From", value: "Sender <sender@example.test>" },
+                  { name: "Subject", value: "Review needed" },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    ]);
+    mocks.evaluateAiFilterBackfillRules.mockResolvedValue(
+      new Map([
+        [
+          aiPriorityEmailKey("available@example.test", "thread-healthy"),
+          [{ ruleId: activeRule.id, confidence: 0.95 }],
+        ],
+      ]),
+    );
+    mocks.gmailGetThread
+      .mockResolvedValueOnce({
+        messages: [{ id: "message-healthy", labelIds: ["INBOX"] }],
+      })
+      .mockResolvedValueOnce({
+        messages: [{ id: "message-healthy", labelIds: ["INBOX", "label-id"] }],
+      });
+    mocks.gmailModifyThread.mockResolvedValue({ historyId: "history-1" });
+    mocks.syncInboxLabelDelta.mockResolvedValue(undefined);
+
+    await processMailAiFilterBackfills(ownerEmail);
+
+    const saved = JSON.parse(row.stateJson);
+    expect(row.status).toBe("failed");
+    expect(saved.candidateIndex).toBe(1);
+    expect(saved.processedThreads).toBe(1);
+    expect(saved.perRule[0].appliedCount).toBe(1);
+    expect(saved.error).toContain("unavailable@example.test: Refresh failed.");
+    expect(mocks.gmailModifyThread).toHaveBeenCalledWith(
+      "available-token",
+      "thread-healthy",
+      ["label-id"],
+      [],
+    );
   });
 
   it("retries wrapped credential refresh failures while undoing Gmail changes", async () => {

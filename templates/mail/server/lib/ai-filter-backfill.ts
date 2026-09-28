@@ -945,13 +945,16 @@ async function captureGmailCandidates(
 
 async function captureCandidates(
   ownerEmail: string,
+  state: BackfillState,
 ): Promise<BackfillCandidate[]> {
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw googleClientErrorsError(
+    const error = googleClientErrorsError(
       errors.map((error) => `${error.email}: ${error.error}`).join("; "),
       errors,
     );
+    if (clients.length === 0) throw error;
+    state.error ??= sanitizeBackfillError(error);
   }
   return clients.length > 0
     ? captureGmailCandidates(clients)
@@ -1650,7 +1653,7 @@ async function processRunningBatch(
   }
 
   if (state.candidates.length === 0 && state.candidateIndex === 0) {
-    const candidates = await captureCandidates(ownerEmail);
+    const candidates = await captureCandidates(ownerEmail, state);
     state.candidates = candidates;
     if (!(await saveRunState(row.id, claimId, state, "running"))) return;
     if (candidates.length === 0) {
@@ -1658,8 +1661,12 @@ async function processRunningBatch(
         return;
       state.retryCount = 0;
       delete state.retryAfterAt;
-      delete state.error;
-      await saveRunState(row.id, claimId, state, "completed");
+      await saveRunState(
+        row.id,
+        claimId,
+        state,
+        state.error ? "failed" : "completed",
+      );
       return;
     }
   }
@@ -1674,17 +1681,23 @@ async function processRunningBatch(
       return;
     state.retryCount = 0;
     delete state.retryAfterAt;
-    delete state.error;
-    await saveRunState(row.id, claimId, state, "completed");
+    await saveRunState(
+      row.id,
+      claimId,
+      state,
+      state.error ? "failed" : "completed",
+    );
     return;
   }
 
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (errors.length > 0) {
-    throw googleClientErrorsError(
+    const error = googleClientErrorsError(
       errors.map((error) => `${error.email}: ${error.error}`).join("; "),
       errors,
     );
+    if (clients.length === 0) throw error;
+    state.error ??= sanitizeBackfillError(error);
   }
   const clientsByEmail = new Map(
     clients.map((client) => [client.email.toLowerCase(), client]),
@@ -1834,9 +1847,13 @@ async function processRunningBatch(
   if (!(await flushBackfillDecisions(ownerEmail, row, claimId, state))) return;
   state.retryCount = 0;
   delete state.retryAfterAt;
-  delete state.error;
   if (state.candidateIndex >= state.candidates.length) {
-    await saveRunState(row.id, claimId, state, "completed");
+    await saveRunState(
+      row.id,
+      claimId,
+      state,
+      state.error ? "failed" : "completed",
+    );
   } else {
     await saveRunState(row.id, claimId, state, "running");
   }
