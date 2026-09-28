@@ -6,7 +6,59 @@ import {
 } from "../agent/thread-data-builder.js";
 import { foldAgentChatRunCompletion } from "./agent-chat-plugin.js";
 
-describe("AgentKit approval continuation history", () => {
+describe("AgentKit thread history", () => {
+  it("deduplicates plain replies across thread snapshot saves", () => {
+    const reply = "Hello, AgentKit Browser!";
+    const message = (id: string) => ({
+      id,
+      role: "assistant",
+      parts: [{ type: "text", text: reply }],
+      status: "complete",
+    });
+    const completion = (id: string, runId: string) => ({
+      id: `event-${id}`,
+      runId,
+      type: "message.completed",
+      message: { id, role: "assistant" },
+    });
+    const liveMessages = [message("message-live-reply")];
+    const existing = {
+      messages: [],
+      agentKit: {
+        messages: [message("message-server-reply")],
+        events: [completion("message-server-reply", "run-plain-reply")],
+      },
+    };
+
+    expect(liveMessages).toHaveLength(1);
+    const saved = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        messages: liveMessages,
+        events: [completion("message-live-reply", "run-plain-reply")],
+      },
+    });
+    const restored = JSON.parse(JSON.stringify(saved));
+
+    expect(
+      restored.agentKit.messages.filter((message: any) =>
+        message.parts.some(
+          (part: any) => part.type === "text" && part.text === reply,
+        ),
+      ),
+    ).toHaveLength(1);
+    expect(restored.agentKit.messages[0].status).toBe("complete");
+
+    const nextTurn = mergeThreadDataForClientSave(existing, {
+      messages: [],
+      agentKit: {
+        messages: [message("message-live-next-turn")],
+        events: [completion("message-live-next-turn", "run-next-turn")],
+      },
+    });
+    expect(nextTurn.agentKit.messages).toHaveLength(2);
+  });
+
   it("keeps continuation output out of the server placeholder before reload", () => {
     const toolCallId = "accept-release-call";
     const serverSnapshot = {

@@ -1359,6 +1359,55 @@ function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   return typeof entry.id === "string" ? entry.id : undefined;
 }
 
+function snapshotMessageRunIds(agentKit: any): Map<string, string> {
+  const runIds = new Map<string, string>();
+  for (const event of Array.isArray(agentKit?.events) ? agentKit.events : []) {
+    if (
+      (event?.type === "message.created" ||
+        event?.type === "message.completed") &&
+      event.message?.role === "assistant" &&
+      typeof event.message.id === "string" &&
+      typeof event.runId === "string"
+    ) {
+      runIds.set(event.message.id, event.runId);
+    }
+  }
+  for (const run of Array.isArray(agentKit?.runs) ? agentKit.runs : []) {
+    if (
+      typeof run?.activeMessageId === "string" &&
+      typeof run.id === "string"
+    ) {
+      runIds.set(run.activeMessageId, run.id);
+    }
+  }
+  return runIds;
+}
+
+function snapshotAssistantTextKey(
+  message: any,
+  runIds: Map<string, string>,
+): string | undefined {
+  const runId =
+    (typeof message?.id === "string" ? runIds.get(message.id) : undefined) ??
+    message?.metadata?.runId ??
+    message?.metadata?.custom?.runId;
+  if (
+    message?.role !== "assistant" ||
+    typeof runId !== "string" ||
+    !Array.isArray(message.parts) ||
+    message.parts.length === 0 ||
+    !message.parts.every(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+  ) {
+    return undefined;
+  }
+  return JSON.stringify([
+    runId,
+    message.parts.map((part: any) => [part.text, part.format ?? null]),
+  ]);
+}
+
 function preferIncomingSnapshotEntry(
   kind: "message" | "toolCall" | "widget",
   existing: any,
@@ -1394,22 +1443,50 @@ function mergeAgentKitHistoryArray(
   existing: unknown,
   incoming: unknown,
   kind: "message" | "toolCall" | "widget",
+  existingMessageRunIds: Map<string, string>,
+  incomingMessageRunIds: Map<string, string>,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
   const positions = new Map<string, number>();
+  const assistantTextPositions = new Map<string, number[]>();
   merged.forEach((entry, index) => {
     const id = snapshotEntryId(entry, kind);
     if (id && !positions.has(id)) positions.set(id, index);
+    if (kind === "message") {
+      const key = snapshotAssistantTextKey(entry, existingMessageRunIds);
+      if (key) {
+        assistantTextPositions.set(key, [
+          ...(assistantTextPositions.get(key) ?? []),
+          index,
+        ]);
+      }
+    }
   });
+  const matchedAssistantTextPositions = new Set<number>();
   for (const entry of Array.isArray(incoming) ? incoming : []) {
     const id = snapshotEntryId(entry, kind);
-    const index = id ? positions.get(id) : undefined;
+    const idIndex = id ? positions.get(id) : undefined;
+    const textKey =
+      kind === "message"
+        ? snapshotAssistantTextKey(entry, incomingMessageRunIds)
+        : undefined;
+    const textIndex =
+      idIndex === undefined && textKey
+        ? assistantTextPositions
+            .get(textKey)
+            ?.find((candidate) => !matchedAssistantTextPositions.has(candidate))
+        : undefined;
+    const index = idIndex ?? textIndex;
     if (index === undefined) {
       if (id) positions.set(id, merged.length);
       merged.push(entry);
-    } else if (preferIncomingSnapshotEntry(kind, merged[index], entry)) {
-      merged[index] = entry;
+    } else {
+      if (kind === "message") matchedAssistantTextPositions.add(index);
+      if (id && idIndex === undefined) positions.set(id, index);
+      if (preferIncomingSnapshotEntry(kind, merged[index], entry)) {
+        merged[index] = entry;
+      }
     }
   }
   return merged;
@@ -1429,12 +1506,20 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
   const previous = existing as Record<string, unknown>;
   const next = incoming as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...previous, ...next };
+  const existingMessageRunIds = snapshotMessageRunIds(previous);
+  const incomingMessageRunIds = snapshotMessageRunIds(next);
   for (const [key, kind] of [
     ["messages", "message"],
     ["toolCalls", "toolCall"],
     ["widgets", "widget"],
   ] as const) {
-    const entries = mergeAgentKitHistoryArray(previous[key], next[key], kind);
+    const entries = mergeAgentKitHistoryArray(
+      previous[key],
+      next[key],
+      kind,
+      existingMessageRunIds,
+      incomingMessageRunIds,
+    );
     if (entries) merged[key] = entries;
   }
   return merged;
