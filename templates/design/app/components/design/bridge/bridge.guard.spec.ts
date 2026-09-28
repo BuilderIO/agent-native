@@ -9493,9 +9493,9 @@ it("editor chrome bridge appends cross-parent drops into plain frames but keeps 
   expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
 });
 
-it("editor chrome bridge converts a body flow slot to an absolute board-root drop", () => {
+it("editor chrome bridge promotes an empty body drop through clipped frames to the board root", () => {
   const body = { parentElement: null } as unknown as Element;
-  const frame = {
+  const outer = {
     parentElement: body,
     getBoundingClientRect: () => ({
       left: 100,
@@ -9504,8 +9504,17 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
       bottom: 300,
     }),
   } as unknown as Element;
+  const inner = {
+    parentElement: outer,
+    getBoundingClientRect: () => ({
+      left: 120,
+      top: 120,
+      right: 260,
+      bottom: 260,
+    }),
+  } as unknown as Element;
   const rootSibling = { parentElement: body } as unknown as Element;
-  const el = { parentElement: frame } as unknown as Element;
+  const el = { parentElement: inner } as unknown as Element;
   const document = {
     body,
     documentElement: { parentElement: null },
@@ -9515,6 +9524,8 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
     placement: "after",
     dropMode: "flow-insert",
   };
+  let bodyAutoLayout = false;
+  let unnestCalls = 0;
   const flowMoveTargetForPoint = compileBridgeFunction<
     (el: Element, x: number, y: number) => Record<string, unknown>
   >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
@@ -9524,20 +9535,34 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
         ? dropTarget.anchor
         : dropTarget.anchor.parentElement,
     elementFromEditorPoint: () => body,
-    isAutoLayoutElement: () => false,
+    isAutoLayoutElement: (element: Element) =>
+      element === body && bodyAutoLayout,
+    screenRootFlowInsertionTargetForPoint: () => target,
     reorderTargetForPoint: () => target,
     isContainerDropTarget: () => false,
     parentFlowAxis: () => "y",
-    unnestAbsoluteToScreenRoot: () => null,
+    unnestAbsoluteToScreenRoot: () => {
+      unnestCalls += 1;
+      return {
+        anchor: outer,
+        placement: "after",
+        dropMode: "absolute-container",
+      };
+    },
     nearestChildInsertionTarget: () => null,
     isEmptyDropContainer: () => false,
   });
 
   expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
-    anchor: frame,
+    anchor: outer,
     placement: "after",
     dropMode: "absolute-container",
   });
+  expect(unnestCalls).toBe(1);
+
+  bodyAutoLayout = true;
+  expect(flowMoveTargetForPoint(el, 500, 500)).toBe(target);
+  expect(unnestCalls).toBe(1);
 });
 
 it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a promoted board-root drop", () => {
