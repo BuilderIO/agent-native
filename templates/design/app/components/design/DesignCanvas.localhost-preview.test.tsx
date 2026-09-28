@@ -102,7 +102,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
   });
 
-  it("shows the Chrome permission prompt and confirms before closing setup", async () => {
+  it("shows the Chrome permission prompt and closes from its X button", async () => {
     const onDismiss = vi.fn();
 
     await act(async () => {
@@ -117,7 +117,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
 
-    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(
       document.querySelector('img[src="/local-network-access-permission.png"]'),
     ).not.toBeNull();
@@ -127,21 +126,6 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(dismissButton).toBeDefined();
 
     await act(async () => dismissButton?.click());
-    expect(
-      document
-        .querySelector('[role="alertdialog"]')
-        ?.getAttribute("data-state"),
-    ).toBe("open");
-    expect(document.body.textContent).toContain("Close setup?");
-    expect(document.body.textContent).toContain(
-      "Live editing won't work until you allow access in Chrome.",
-    );
-    expect(onDismiss).not.toHaveBeenCalled();
-
-    const closeAnyway = Array.from(
-      document.body.querySelectorAll("button"),
-    ).find((button) => button.textContent?.trim() === "Close anyway");
-    await act(async () => closeAnyway?.click());
     expect(onDismiss).toHaveBeenCalledOnce();
   });
 
