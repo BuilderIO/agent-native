@@ -11,6 +11,8 @@ import {
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
+import { installBridge, waitForBridge } from "./helpers";
+
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -542,10 +544,15 @@ test.describe("URL-backed live auto-layout probe", () => {
     if (!initialSourceBounds) {
       throw new Error("live focus probe source has no bounds");
     }
+    expect(await source.getAttribute("data-agent-native-node-id")).toBe("v1");
+    await installBridge(page);
+    await page.evaluate(() => ((window as any).__bridge = []));
     await page.mouse.click(
       initialSourceBounds.x + initialSourceBounds.width / 2,
       initialSourceBounds.y + initialSourceBounds.height / 2,
     );
+    const selection = await waitForBridge(page, "element-select");
+    expect((selection.payload ?? selection).sourceId).toBe("v1");
     await expect
       .poll(() =>
         focusFrame
