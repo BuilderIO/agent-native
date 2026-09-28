@@ -180,7 +180,7 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
 
 function quotaCooldownMessage(cooldownMs = QUOTA_COOLDOWN_MS): string {
   const seconds = Math.ceil(cooldownMs / 1000);
-  return `Email service is briefly busy and will be ready again in about ${seconds}s. Ask the user for the missing info if you need it now, or try again in a moment.`;
+  return `Email service is briefly busy and will be ready again in about ${seconds}s.`;
 }
 
 /**

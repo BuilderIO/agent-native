@@ -238,7 +238,7 @@ describe("listInboxEmails", () => {
         {
           email: OWNER,
           error:
-            "Email service is briefly busy and will be ready again in about 45s. Ask the user for the missing info if you need it now, or try again in a moment.",
+            "Email service is briefly busy and will be ready again in about 45s.",
           isQuotaError: true,
           retryAfterMs: 45_000,
         },

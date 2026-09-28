@@ -182,6 +182,7 @@ describe("googleFetch quota handling", () => {
     expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
     expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
     expect((caught as Error).message).toMatch(/about 90s/);
+    expect((caught as Error).message).not.toContain("Ask the user");
     expect(caught).toMatchObject({
       statusCode: 429,
       errorCode: "gmail_quota_cooldown",
