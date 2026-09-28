@@ -78,9 +78,6 @@ export default function ChatRoute() {
           <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
             {t("chat.heroTitle")}
           </h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {t("chat.heroDescription")}
-          </p>
         </div>
       }
     />

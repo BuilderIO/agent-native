@@ -8,6 +8,7 @@ const chatMocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
   composerDrafts: new Map<string, string>(),
   threadId: "thread-1",
+  renderEmptyState: false,
   readThread: () => chatMocks.thread,
   thread: {
     thread: null,
@@ -85,6 +86,7 @@ vi.mock("@agent-native/agentkit/react", async () => {
       chatMocks.thinkingDisplay = useThinkingDisplay();
       const slots = chatMocks.rootProps?.slots;
       const Composer = slots?.composer;
+      const EmptyState = slots?.emptyState;
       const Transcript = slots?.transcript;
       const Failure = slots?.runFailure;
       const Approval = slots?.approval;
@@ -94,6 +96,9 @@ vi.mock("@agent-native/agentkit/react", async () => {
         null,
         Composer
           ? React.createElement(Composer, { threadId: chatMocks.threadId })
+          : null,
+        EmptyState && chatMocks.renderEmptyState
+          ? React.createElement(EmptyState, { threadId: chatMocks.threadId })
           : null,
         Transcript
           ? React.createElement(Transcript, {
@@ -128,7 +133,9 @@ vi.mock("@agent-native/agentkit/react", async () => {
     },
     AgentKitComposer: (props: unknown) => {
       chatMocks.composerProps = props;
-      return null;
+      return React.createElement("div", {
+        "data-testid": "agentkit-composer",
+      });
     },
     AgentApprovalPrompt: () => null,
     AgentMessageView: ({ value }: any) => {
@@ -169,7 +176,10 @@ vi.mock("@agent-native/agentkit/react/root", async () => {
 vi.mock("@agent-native/toolkit/composer", () => ({
   AgentSuggestionBar: (props: unknown) => {
     chatMocks.suggestionBarProps = props;
-    return null;
+    return React.createElement("div", {
+      "data-testid": "agentkit-suggestion-bar",
+      className: (props as { className?: string }).className,
+    });
   },
   agentSuggestionPrompt: (suggestion: any) =>
     typeof suggestion === "string" ? suggestion : suggestion.prompt,
@@ -497,6 +507,7 @@ beforeEach(() => {
   chatMocks.appState.clear();
   chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
+  chatMocks.renderEmptyState = false;
   chatMocks.thread = {
     thread: null,
     messages: [],
@@ -571,11 +582,13 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
-  it("places empty home content and starter prompts above the composer", async () => {
+  it("places starter prompts between the composer and after-composer content", async () => {
+    chatMocks.renderEmptyState = true;
     await mount(
       baseProps({
         centerComposerWhenEmpty: true,
-        suggestionPlacement: "context-chips",
+        suggestionPlacement: "after-composer",
+        emptyStateDisplay: "default",
         homeIntroSlot: <h1>What should we do?</h1>,
         afterComposerSlot: <div data-testid="home-app-grid" />,
         suggestions: ["Explore my apps"],
@@ -593,6 +606,31 @@ describe("AgentKitAssistantChat host behavior", () => {
       "agentkit-home-suggestions",
     );
     expect(chatMocks.chatProps.emptyComposerPlacement).toBe("center");
+    const composerElement = container.querySelector(
+      '[data-testid="agentkit-composer"]',
+    );
+    const suggestionElement = container.querySelector(
+      ".agentkit-home-suggestions",
+    );
+    const afterComposerElement = container.querySelector(
+      ".agentkit-after-composer-slot",
+    );
+    expect(composerElement).not.toBeNull();
+    expect(suggestionElement).not.toBeNull();
+    expect(afterComposerElement).not.toBeNull();
+    expect(
+      composerElement!.compareDocumentPosition(suggestionElement!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      suggestionElement!.compareDocumentPosition(afterComposerElement!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      container.querySelectorAll('[data-testid="agentkit-suggestion-bar"]'),
+    ).toHaveLength(1);
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector(".agentkit-host-suggestions")).toBeNull();
     expect(
       composer?.querySelector(".agentkit-after-composer-slot"),
     ).not.toBeNull();
@@ -1980,16 +2018,9 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     chatMocks.thread.activeRunIds = ["run-1"];
     const blockedEvents: CustomEvent[] = [];
-    const providerRefreshEvents: Event[] = [];
     const onBlocked = (event: Event) =>
       blockedEvents.push(event as CustomEvent);
-    const onProviderRefresh = (event: Event) =>
-      providerRefreshEvents.push(event);
     window.addEventListener("agent-chat:missing-api-key", onBlocked);
-    window.addEventListener(
-      "agent-engine:configured-changed",
-      onProviderRefresh,
-    );
     await mount(baseProps({ providerStatusChecksEnabled: true }));
 
     expect(
@@ -1997,9 +2028,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         .querySelector(".agentkit-host-composer")
         ?.classList.contains("agent-composer-area--attached-above"),
     ).toBe(true);
-    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
-    await act(async () => chatMocks.setupCardProps.onRetry());
-    expect(providerRefreshEvents).toHaveLength(1);
+    expect(chatMocks.setupCardProps.onRetry).toBeUndefined();
     const stopButton = chatMocks.composerProps.stopButton as React.ReactElement;
     expect(stopButton.props).toMatchObject({
       "aria-label": "agentChat.composer.stopResponse",
@@ -2012,10 +2041,6 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.setupCardProps.bouncePulse).toBeGreaterThan(0);
     expect(blockedEvents).toHaveLength(1);
     window.removeEventListener("agent-chat:missing-api-key", onBlocked);
-    window.removeEventListener(
-      "agent-engine:configured-changed",
-      onProviderRefresh,
-    );
   });
 
   it("dispatches custom-transport running changes to the chat host", async () => {

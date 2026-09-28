@@ -176,8 +176,12 @@ export interface AssistantChatProps {
   suggestions?: AgentSuggestionInput[];
   /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AgentDynamicSuggestionsOption;
-  /** Where suggestions appear. The panel uses a next-action bar at the thread base. */
-  suggestionPlacement?: "empty-state" | "context-chips" | "hidden";
+  /** Where suggestions appear. Context chips use a next-action bar at the thread base. */
+  suggestionPlacement?:
+    | "empty-state"
+    | "context-chips"
+    | "after-composer"
+    | "hidden";
   /** When suggestions become visible. Full-page chat can defer them until the agent has replied. */
   suggestionVisibility?: AssistantChatSuggestionVisibility;
   /** Optional content rendered as part of the conversation before persisted messages. */

@@ -65,6 +65,18 @@ describe("AgentPanel compatibility exports", () => {
   });
 });
 
+describe("AgentPanel suggestion placement", () => {
+  it("forwards explicit placement and defaults to context chips", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /suggestionPlacement=\{\s*assistantChatProps\.suggestionPlacement \?\? "context-chips"\s*\}/,
+    );
+  });
+});
+
 describe("resolveAgentPanelChatSurface", () => {
   it("uses the desktop surface only for explicitly marked local app previews", () => {
     expect(resolveAgentPanelChatSurface(undefined, true)).toBe("desktop");
