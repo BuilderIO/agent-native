@@ -241,9 +241,11 @@ the major product/UX decision above.
 
 ## Review actions
 
-For a PR that passes the applicable gate, submit one GitHub approval review and
-record the approval URL in the recap. Do not add a tag, assignment, mention,
-or explanatory comment unless the invocation explicitly asks for it.
+For a PR that passes the applicable gate and lacks a current-head approval,
+submit one GitHub approval review and record the approval URL in the recap.
+Do not duplicate an existing current-head approval. Do not add a tag,
+assignment, mention, or explanatory comment unless the invocation explicitly
+asks for it.
 
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
@@ -281,8 +283,6 @@ off. Keep this review sweep in the foreground for a 10-minute merge gate. Once
 all the conditions hold, record the live `headRefOid`; they must remain true
 for 10 consecutive minutes on that same head:
 
- - the working tree has no uncommitted changes and the task branch has no
-   unpushed commits;
  - all required GitHub Actions checks pass;
  - every actionable review finding has a verified fix or terminal disposition;
  - the PR is `MERGEABLE` with no conflicts;
@@ -374,8 +374,7 @@ non-auto-approved external PR that needs an update or screenshot, include its
 draft reply in a separate section, or mark it waiting on the contributor with
 a link to Steve's outstanding request. For internal PRs, report the needed
 update or screenshot without drafting an author-facing reply. Do not add rows
-for bots, `steve8708`, drafts, or human PRs excluded because they already had
-an approval; those are ignored completely.
+for bots, `steve8708`, or drafts; those are ignored completely.
 
 Use this shape:
 
