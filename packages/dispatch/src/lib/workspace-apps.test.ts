@@ -178,9 +178,11 @@ describe("navigateToWorkspaceApp", () => {
     });
 
     expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
-    navigateToWorkspaceApp("https://mail.example.test/inbox");
+    navigateToWorkspaceApp("/mail");
 
-    expect(topWindow.location.href).toBe("https://mail.example.test/inbox");
+    expect(topWindow.location.href).toBe(
+      new URL("/mail", window.location.href).href,
+    );
   });
 
   it("reports when the embedded top window rejects navigation", () => {
@@ -218,49 +220,5 @@ describe("navigateToWorkspaceApp", () => {
 
     expect(navigateToWorkspaceApp("javascript:alert(1)")).toBe(false);
     expect(topWindow.location.href).toBe("");
-  });
-});
-
-describe("workspaceAppDirectHref behind a tunnel", () => {
-  const happyDOM = (
-    window as unknown as { happyDOM: { setURL(url: string): void } }
-  ).happyDOM;
-  const originalUrl = window.location.href;
-
-  afterEach(() => {
-    happyDOM.setURL(originalUrl);
-  });
-
-  it("rebases loopback gateway app URLs onto the page origin", () => {
-    happyDOM.setURL("https://abc-development.builderio.xyz/dispatch/overview");
-
-    expect(
-      workspaceAppDirectHref(
-        { path: "/mail", url: "http://127.0.0.1:8080/mail" },
-        "/inbox",
-      ),
-    ).toBe("https://abc-development.builderio.xyz/mail/inbox");
-  });
-
-  it("keeps loopback app URLs when the page itself is on loopback", () => {
-    happyDOM.setURL("http://localhost:8080/dispatch/overview");
-
-    expect(
-      workspaceAppDirectHref(
-        { path: "/mail", url: "http://127.0.0.1:8080/mail" },
-        "/",
-      ),
-    ).toBe("http://127.0.0.1:8080/mail");
-  });
-
-  it("leaves public app URLs untouched", () => {
-    happyDOM.setURL("https://abc-development.builderio.xyz/dispatch/overview");
-
-    expect(
-      workspaceAppDirectHref(
-        { path: "/mail", url: "https://mail.example.test/" },
-        "/",
-      ),
-    ).toBe("https://mail.example.test/");
   });
 });

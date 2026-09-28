@@ -345,7 +345,7 @@ export function workspaceAppDirectHref(
     try {
       const parsedBase = new URL(rawUrl);
       if (parsedBase.protocol === "http:" || parsedBase.protocol === "https:") {
-        absoluteBase = rebaseLoopbackAppUrl(parsedBase);
+        absoluteBase = parsedBase;
       }
       // coercion-ok: invalid app URLs use the mounted path fallback below.
     } catch {
@@ -382,28 +382,6 @@ export function workspaceAppDirectHref(
   }
 
   return `${resolvedPath}${targetUrl.search}${targetUrl.hash}`;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "[::1]" ||
-    hostname.startsWith("127.")
-  );
-}
-
-// Behind a tunnel (Builder preview) the workspace server only sees its loopback
-// gateway, so it reports app URLs like http://127.0.0.1:8080/mail that the
-// browser cannot reach. Those apps are served from the page's own origin.
-function rebaseLoopbackAppUrl(url: URL): URL {
-  if (typeof window === "undefined") return url;
-  if (!isLoopbackHostname(url.hostname)) return url;
-  if (isLoopbackHostname(window.location.hostname)) return url;
-  return new URL(
-    `${url.pathname}${url.search}${url.hash}`,
-    window.location.origin,
-  );
 }
 
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
