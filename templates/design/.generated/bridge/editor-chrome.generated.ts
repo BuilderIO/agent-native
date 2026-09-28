@@ -12667,8 +12667,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       var receivingContainer = currentParent.parentElement;
-      var target = null;
-      if (pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
+      var target = pointerOutsideCurrentParent && isAutoLayoutElement(document.body) && (!pointHit || pointHit === document.body || pointHit === document.documentElement) ? screenRootFlowInsertionTargetForPoint(clientX, clientY, dragged) : null;
+      if (!target && pointerOutsideCurrentParent && receivingContainer && isAutoLayoutElement(receivingContainer) && pointHit === receivingContainer) {
         target = nearestChildInsertionTarget(
           receivingContainer,
           clientX,
@@ -12680,7 +12680,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           axis: parentFlowAxis(receivingContainer),
           dropMode: "flow-insert"
         };
-      } else {
+      } else if (!target) {
         target = reorderTargetForPoint(el, clientX, clientY, excludeEls);
       }
       if ((forceNestedAutoLayout || ignoreTargetAutoLayout) && !pointerOutsideCurrentParent) {
@@ -12706,7 +12706,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           };
         }
       }
-      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && dropContainerForTarget(target) === currentParent) {
+      if (pointerOutsideCurrentParent && (!pointHit || pointHit === document.body || pointHit === document.documentElement) && !isAutoLayoutElement(document.body)) {
         target = unnestAbsoluteToScreenRoot(el, clientX, clientY) || target;
       }
       var container = dropContainerForTarget(target);
@@ -12719,7 +12719,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         };
       }
       var unnestPromotedBoardRootTarget = target?.dropMode === "absolute-container" && target.placement !== "inside" && target.anchor?.parentElement === document.body;
-      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget) {
+      var screenRootFlowTarget = container === document.body && target?.dropMode === "flow-insert" && isAutoLayoutElement(document.body);
+      if (currentParent !== document.body && (container === document.body || container === document.documentElement || target?.anchor === document.body) && !unnestPromotedBoardRootTarget && !screenRootFlowTarget) {
         target = {
           anchor: currentParent,
           placement: "after",
