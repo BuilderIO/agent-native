@@ -78,6 +78,7 @@ export function stateFromLocation(
     if (!recordingId) return { view: "library" };
     const panel = params.get("panel");
     const agentSidebarOpen =
+      !params.has("panel") &&
       params.get(AGENT_SIDEBAR_QUERY_PARAM) === AGENT_SIDEBAR_QUERY_VALUE_OPEN;
     const atParam = params.get("at") ?? params.get("t");
     const atMs = atParam == null ? undefined : parseTimeParam(atParam);

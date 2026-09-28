@@ -38,6 +38,16 @@ describe("Clips shared navigation", () => {
     });
   });
 
+  it("prefers an explicit recording panel over the legacy Agent sidebar query", () => {
+    expect(
+      stateFromLocation("/r/recording-1", "?panel=comments&agentSidebar=open"),
+    ).toEqual({
+      view: "recording",
+      recordingId: "recording-1",
+      panel: "comments",
+    });
+  });
+
   it("round-trips encoded resource IDs", () => {
     const cases = [
       {
