@@ -12,6 +12,7 @@ import {
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   getServerAppBasePath,
 } from "../server/lib/public-agent-context.js";
+import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
@@ -64,7 +65,8 @@ export default defineAction({
 
     const recording = access.resource as {
       id: string;
-      password?: string | null;
+      password: string | null;
+      updatedAt: string;
       archivedAt?: string | null;
       trashedAt?: string | null;
     };
@@ -86,7 +88,11 @@ export default defineAction({
 
     const grant = createScopedAgentAccessGrant({
       resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-      resourceId: recording.id,
+      resourceId: getRecordingAccessTokenResourceId(
+        recording.id,
+        recording.password,
+        recording.updatedAt,
+      ),
       viewerEmail: getRequestUserEmail() || undefined,
       agentLabel: args.agentLabel,
       ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,

@@ -30,7 +30,10 @@ import {
 } from "../../../lib/pending-redactions.js";
 import { isRecordingExpiredForViewer } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
-import { verifySharePassword } from "../../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../../lib/share-password.js";
 
 const FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
@@ -53,6 +56,7 @@ type ThumbnailRecording = {
   expiresAt?: string | null;
   organizationId?: string | null;
   password?: string | null;
+  updatedAt?: string | null;
   visibility?: string | null;
 };
 
@@ -79,9 +83,18 @@ function isHttpsRequest(event: H3Event): boolean {
   );
 }
 
-function renewProtectedMediaCookie(event: H3Event, recordingId: string): void {
+function renewProtectedMediaCookie(
+  event: H3Event,
+  recordingId: string,
+  password: string | null | undefined,
+  updatedAt: string | null | undefined,
+): void {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      updatedAt,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -211,6 +224,7 @@ async function loadRecording(recordingId: string, event: H3Event) {
         expiresAt: schema.recordings.expiresAt,
         organizationId: schema.recordings.organizationId,
         password: schema.recordings.password,
+        updatedAt: schema.recordings.updatedAt,
         visibility: schema.recordings.visibility,
       })
       .from(schema.recordings)
@@ -280,17 +294,29 @@ export default defineEventHandler(async (event: H3Event) => {
       if (recording.password && loaded.role !== "owner") {
         const queryToken = typeof query.t === "string" ? query.t : "";
         const cookieToken = getCookie(event, cookieName(recordingId)) ?? "";
+        const scopedRecordingId = getRecordingAccessTokenResourceId(
+          recordingId,
+          recording.password,
+          recording.updatedAt,
+        );
         const password =
           typeof query.password === "string" ? query.password : "";
         const allowed =
-          (queryToken && verifyShortLivedToken(queryToken, recordingId).ok) ||
-          (cookieToken && verifyShortLivedToken(cookieToken, recordingId).ok) ||
+          (queryToken &&
+            verifyShortLivedToken(queryToken, scopedRecordingId).ok) ||
+          (cookieToken &&
+            verifyShortLivedToken(cookieToken, scopedRecordingId).ok) ||
           (password && verifySharePassword(password, recording.password));
         if (!allowed) {
           setResponseStatus(event, 401);
           return { error: "Password required", passwordRequired: true };
         }
-        renewProtectedMediaCookie(event, recordingId);
+        renewProtectedMediaCookie(
+          event,
+          recordingId,
+          recording.password,
+          recording.updatedAt,
+        );
       }
 
       const sourceUrl =

@@ -55,3 +55,20 @@ export function verifySharePassword(
   const b = createHash("sha256").update(expected, "utf8").digest();
   return timingSafeEqual(a, b);
 }
+
+export function getRecordingAccessTokenResourceId(
+  recordingId: string,
+  storedPassword: string | null | undefined,
+  updatedAt: string | null | undefined,
+): string {
+  // Timestamp-scope passwordless and legacy rows so clearing a password cannot revive an older token.
+  const versionSource =
+    storedPassword && isEncryptedSecretValue(storedPassword)
+      ? storedPassword
+      : updatedAt;
+  if (!versionSource) {
+    throw new Error("Recording access scope requires an update timestamp");
+  }
+  const version = createHash("sha256").update(versionSource).digest("hex");
+  return `${recordingId}:access:${version}`;
+}

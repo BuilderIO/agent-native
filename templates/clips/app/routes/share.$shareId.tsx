@@ -251,9 +251,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       verifyScopedAgentAccessToken,
     },
     { resolveAccess },
+    { getRecordingAccessTokenResourceId },
   ] = await Promise.all([
     import("@agent-native/core/server"),
     import("@agent-native/core/sharing"),
+    import("../../server/lib/share-password.js"),
   ]);
 
   const db = getDb();
@@ -282,14 +284,18 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
+  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: id,
+        resourceId: getRecordingAccessTokenResourceId(
+          id,
+          rec.password,
+          rec.updatedAt,
+        ),
       }).ok
     : false;
-
-  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
   if (isRecordingExpired(rec.expiresAt)) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);

@@ -49,7 +49,10 @@ import {
   type RecordingVisibility,
 } from "../../lib/recordings.js";
 import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
-import { verifySharePassword } from "../../lib/share-password.js";
+import {
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} from "../../lib/share-password.js";
 import { hydrateCommentAuthorNames } from "../../lib/user-identities.js";
 
 function appPath(path: string): string {
@@ -95,9 +98,15 @@ function isHttpsRequest(event: H3Event): boolean {
 function setProtectedMediaAccessCookie(
   event: H3Event,
   recordingId: string,
+  password: string | null | undefined,
+  updatedAt: string | null | undefined,
 ): string {
   const token = signShortLivedToken({
-    resourceId: recordingId,
+    resourceId: getRecordingAccessTokenResourceId(
+      recordingId,
+      password,
+      updatedAt,
+    ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
   const secure = isHttpsRequest(event);
@@ -213,7 +222,11 @@ export default defineEventHandler(async (event) => {
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: rec.id,
+        resourceId: getRecordingAccessTokenResourceId(
+          rec.id,
+          rec.password,
+          rec.updatedAt,
+        ),
       }).ok
     : false;
 
@@ -294,9 +307,19 @@ export default defineEventHandler(async (event) => {
         return { error: "Password required", passwordRequired: true };
       }
     }
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.updatedAt,
+    );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
-    protectedMediaToken = setProtectedMediaAccessCookie(event, recordingId);
+    protectedMediaToken = setProtectedMediaAccessCookie(
+      event,
+      recordingId,
+      rec.password,
+      rec.updatedAt,
+    );
   }
 
   const [transcript] = await db
@@ -405,7 +428,11 @@ export default defineEventHandler(async (event) => {
       : canExposeAgentContext && rec.password
         ? signScopedAgentAccessToken({
             resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-            resourceId: recordingId,
+            resourceId: getRecordingAccessTokenResourceId(
+              recordingId,
+              rec.password,
+              rec.updatedAt,
+            ),
           })
         : undefined;
   const agentContextUrl = canExposeAgentContext

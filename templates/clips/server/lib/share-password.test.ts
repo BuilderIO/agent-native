@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 process.env.SECRETS_ENCRYPTION_KEY ||= "clips-share-password-test-key";
 
-const { encryptSharePassword, verifySharePassword } =
-  await import("./share-password.js");
+const {
+  encryptSharePassword,
+  getRecordingAccessTokenResourceId,
+  verifySharePassword,
+} = await import("./share-password.js");
 const { isEncryptedSecretValue } =
   await import("@agent-native/core/secrets/crypto");
 
@@ -45,5 +48,43 @@ describe("share-password storage", () => {
     expect(verifySharePassword("anything", null)).toBe(false);
     expect(verifySharePassword("anything", undefined)).toBe(false);
     expect(verifySharePassword("anything", "")).toBe(false);
+  });
+
+  it("invalidates scoped tokens when the stored password changes", () => {
+    const previous = encryptSharePassword("same password");
+    const current = encryptSharePassword("same password");
+
+    expect(
+      getRecordingAccessTokenResourceId("rec-1", previous, "same-update"),
+    ).not.toBe(
+      getRecordingAccessTokenResourceId("rec-1", current, "same-update"),
+    );
+  });
+
+  it("uses the update timestamp for legacy plaintext rows without exposing the password", () => {
+    const previous = getRecordingAccessTokenResourceId(
+      "rec-1",
+      "legacy-password",
+      "2026-01-01T00:00:00.000Z",
+    );
+    const current = getRecordingAccessTokenResourceId(
+      "rec-1",
+      "legacy-password",
+      "2026-01-02T00:00:00.000Z",
+    );
+
+    expect(previous).not.toBe(current);
+    expect(previous).not.toContain("legacy-password");
+    expect(() =>
+      getRecordingAccessTokenResourceId("rec-1", "legacy-password", null),
+    ).toThrow("Recording access scope requires an update timestamp");
+  });
+
+  it("versions passwordless recording links so removed passwords do not revive old links", () => {
+    expect(
+      getRecordingAccessTokenResourceId("rec-1", null, "before-password"),
+    ).not.toBe(
+      getRecordingAccessTokenResourceId("rec-1", null, "after-password"),
+    );
   });
 });

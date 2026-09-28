@@ -76,6 +76,11 @@ vi.mock("../../../lib/recordings.js", () => ({
 }));
 
 vi.mock("../../../lib/share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (
+    id: string,
+    password: string | null,
+    _updatedAt?: string | null,
+  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
   verifySharePassword: vi.fn(() => true),
 }));
 
@@ -112,6 +117,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     organizationId: null,
     password: null,
     visibility: "public",
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -308,11 +314,34 @@ describe("/api/thumbnail/:recordingId route", () => {
     expect(result).toBeInstanceOf(Response);
     expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
       "media-token",
-      "rec-1",
+      "rec-1:password-scoped",
     );
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: 21_600,
     });
+  });
+
+  it("rejects a protected media token minted before a password was added", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRow(makeRow({ password: "encrypted-password" })),
+    );
+    mockGetQuery.mockReturnValue({ t: "old-media-token" });
+    mockVerifyShortLivedToken.mockImplementation(
+      (_token: string, resourceId: string) => ({ ok: resourceId === "rec-1" }),
+    );
+
+    const event = makeEvent();
+    const result = await handler(event as any);
+
+    expect(event.status).toBe(401);
+    expect(result).toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      "old-media-token",
+      "rec-1:password-scoped",
+    );
   });
 });

@@ -57,6 +57,8 @@ vi.mock("../db/index.js", () => ({
 }));
 
 vi.mock("./share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
+    password ? `${id}:password-scoped` : `${id}:update-scoped`,
   verifySharePassword: vi.fn(() => false),
 }));
 
@@ -127,9 +129,31 @@ describe("public agent context access", () => {
     }
     expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
       resourceKind: "clip-agent-context",
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
+  });
+
+  it("does not accept an agent token scoped before a password was added", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+        password: "encrypted-password",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "old-agent-token",
+    });
+
+    expect(result).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
+    );
   });
 
   it("allows a scoped agent token to read private clips without making them public", async () => {
@@ -153,7 +177,7 @@ describe("public agent context access", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
     );
   });
