@@ -10,6 +10,7 @@ import {
   signShortLivedToken,
   verifyShortLivedToken,
 } from "@agent-native/core/server";
+import { AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
@@ -143,6 +144,18 @@ function imageResponse(
     "X-Content-Type-Options": "nosniff",
   });
   return new Response(body, { status, headers });
+}
+
+function defaultSocialImageResponse(): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+      "Cache-Control": "private, max-age=0, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
 
 async function fetchThumbnail(sourceUrl: string): Promise<Response> {
@@ -297,20 +310,13 @@ export default defineEventHandler(async (event: H3Event) => {
         query.animated === "1"
           ? recording.animatedThumbnailUrl || recording.thumbnailUrl
           : recording.thumbnailUrl || recording.animatedThumbnailUrl;
-      if (!sourceUrl) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
-      }
+      if (!sourceUrl) return defaultSocialImageResponse();
 
       if (sourceUrl.startsWith("data:")) {
-        return (
-          dataUrlResponse(sourceUrl) ??
-          imageResponse(null, "text/plain; charset=utf-8", 415)
-        );
+        return dataUrlResponse(sourceUrl) ?? defaultSocialImageResponse();
       }
       if (isRecursiveThumbnailUrl(sourceUrl, recordingId)) {
-        setResponseStatus(event, 404);
-        return { error: "Thumbnail not found" };
+        return defaultSocialImageResponse();
       }
 
       let resolvedSourceUrl = sourceUrl;
@@ -332,17 +338,23 @@ export default defineEventHandler(async (event: H3Event) => {
               extra: { recordingId },
             },
           );
-          setResponseStatus(event, 502);
-          return { error: "The recording thumbnail could not be loaded." };
         }
-        return response;
+        const contentType = response.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase();
+        return response.ok &&
+          contentType &&
+          SAFE_RASTER_IMAGE_TYPES.has(contentType)
+          ? response
+          : defaultSocialImageResponse();
       } catch (error) {
         captureRouteError(error, {
           route: "api/thumbnail",
           extra: { recordingId },
         });
-        setResponseStatus(event, 502);
-        return { error: "The recording thumbnail could not be loaded." };
+        return defaultSocialImageResponse();
       }
     },
   );
