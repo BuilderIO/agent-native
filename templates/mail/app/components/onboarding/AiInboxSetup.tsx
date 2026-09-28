@@ -24,7 +24,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
@@ -467,6 +467,7 @@ export function AiInboxSetup({
   onSkip?: () => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
   const firstRunOnboardingOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const onboardingPreview = useOnboardingPreviewMode();
@@ -475,7 +476,13 @@ export function AiInboxSetup({
   const googleStatus = useGoogleAuthStatus();
   const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
   const gmailStatusUnknown = googleStatus.isError && !googleStatus.data;
-  const hasPendingSetupRuleIds = readPendingSetupRuleIds().length > 0;
+  const aiRules = useMemo(
+    () =>
+      rules.filter(
+        (rule) => rule.domain === "mail" && rule.kind === "ai-filter",
+      ),
+    [rules],
+  );
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
     [],
@@ -498,9 +505,12 @@ export function AiInboxSetup({
         connected &&
         !onboardingPreview &&
         firstRunStage !== "preferences" &&
-        (forceOpen || hasPendingSetupRuleIds),
+        (forceOpen ||
+          (!rulesLoading &&
+            settings?.aiSetupCompleted !== true &&
+            aiRules.length === 0)),
       staleTime: 0,
-      // request-storm-allow: this query is enabled only while a first-run backfill waits for model setup.
+      // request-storm-allow: this query is enabled only while setup is open or eligible for initial auto-open.
       refetchOnWindowFocus: true,
     },
   );
@@ -548,13 +558,6 @@ export function AiInboxSetup({
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, [importantPrompt]);
 
-  const aiRules = useMemo(
-    () =>
-      rules.filter(
-        (rule) => rule.domain === "mail" && rule.kind === "ai-filter",
-      ),
-    [rules],
-  );
   const setupSurfaceAllowed =
     embedded || (!firstRunOnboardingOwnsSurface && !onboardingPreview);
   const firstRunPreferences = firstRunStage === "preferences";
@@ -699,44 +702,14 @@ export function AiInboxSetup({
 
   useEffect(() => {
     if (
-      embedded ||
-      forceOpen ||
-      visible ||
-      firstRunStage !== undefined ||
-      firstRunOnboardingOwnsSurface ||
       onboardingPreview ||
-      !connected ||
-      !canApplyRules ||
-      rulesLoading ||
-      backfillStarted.current
+      firstRunOnboardingOwnsSurface ||
+      !location.pathname.split("/").includes("settings")
     ) {
       return;
     }
-    const ruleIds = readPendingSetupRuleIds();
-    if (ruleIds.length === 0) return;
-    backfillStarted.current = true;
-    const destinations = Object.fromEntries(
-      aiRules.flatMap((rule) => {
-        if (!ruleIds.includes(rule.id)) return [];
-        const destination = reviewDestinationForRule(rule);
-        return destination ? [[rule.id, destination] as const] : [];
-      }),
-    );
-    void runBackfill(ruleIds, destinations);
-  }, [
-    aiRules,
-    canApplyRules,
-    connected,
-    embedded,
-    firstRunOnboardingOwnsSurface,
-    firstRunStage,
-    forceOpen,
-    onboardingPreview,
-    rulesLoading,
-    runBackfill,
-    settings?.aiSetupCompleted,
-    visible,
-  ]);
+    window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
+  }, [firstRunOnboardingOwnsSurface, location.pathname, onboardingPreview]);
 
   const savePreferences = async (includeArchive: boolean) => {
     if (onboardingPreview) {

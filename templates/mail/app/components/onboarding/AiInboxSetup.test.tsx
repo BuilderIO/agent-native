@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   canOfferGoogleOAuthSetup: false,
   sendToAgentChat: vi.fn(),
   navigate: vi.fn(),
+  locationPath: "/inbox",
   backfillStatus: {
     data: undefined as
       | {
@@ -142,6 +143,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
+  useLocation: () => ({ pathname: mocks.locationPath }),
 }));
 
 vi.mock("@/components/settings/JevConnectionPrompt", () => ({
@@ -242,6 +244,7 @@ describe("AiInboxSetup", () => {
     mocks.canOfferGoogleOAuthSetup = false;
     mocks.sendToAgentChat.mockReset();
     mocks.navigate.mockReset();
+    mocks.locationPath = "/inbox";
     mocks.backfillStatus.data = undefined;
     mocks.backfillStatus.isLoading = false;
     mocks.backfillStatus.isFetching = false;
@@ -673,7 +676,8 @@ describe("AiInboxSetup", () => {
     expect(screen.queryByTestId("jev-connect")).toBeNull();
   });
 
-  it("applies deferred first-run rules after manual model setup is ready", async () => {
+  it("clears pending rules without backfilling after custom setup opens Settings", async () => {
+    mocks.locationPath = "/settings/model";
     window.sessionStorage.setItem(
       "mail.ai-setup.pending-rule-ids",
       JSON.stringify(["rule-custom"]),
@@ -689,26 +693,18 @@ describe("AiInboxSetup", () => {
       },
     ];
     mocks.jevAvailability.data = { configured: false };
-    const view = render(<AiInboxSetup />);
-    expect(mocks.startBackfill).not.toHaveBeenCalled();
-
     mocks.automationSettings.data = {
       engine: "test-engine",
       model: "test-model",
     };
-    view.rerender(<AiInboxSetup />);
+    render(<AiInboxSetup />);
 
-    await waitFor(() =>
-      expect(mocks.startBackfill).toHaveBeenCalledWith({
-        operation: "start",
-        ruleIds: ["rule-custom"],
-      }),
-    );
     await waitFor(() =>
       expect(
         window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
       ).toBeNull(),
     );
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
   });
 
   it("re-enables a matching disabled rule before backfilling it", async () => {
