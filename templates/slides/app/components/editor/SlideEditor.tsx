@@ -6777,6 +6777,14 @@ export default function SlideEditor({
         } else {
           restoreSlideObjectDomSnapshot(promotion.element, promotion.snapshot);
         }
+        if (promotion.snapshot.objectId) {
+          promotion.element.setAttribute(
+            "data-slide-object-id",
+            promotion.snapshot.objectId,
+          );
+        } else {
+          promotion.element.removeAttribute("data-slide-object-id");
+        }
         promotion = null;
       };
       let elements = getObjectOperationSelection()?.elements;
