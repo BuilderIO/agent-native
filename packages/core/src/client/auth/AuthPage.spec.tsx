@@ -202,14 +202,25 @@ describe("AuthPage", () => {
     expect(html).not.toContain("onclick");
   });
 
-  it("offers the existing federation flow when identity SSO is available", () => {
+  it("offers manual federation only when silent sign-in is unavailable", () => {
     const props = propsFromHtml(getOnboardingHtml());
-    const html = renderToString(<AuthPage {...props} identitySsoEnabled />);
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto={false} />,
+    );
 
     expect(html).toContain('id="identity-sso-btn"');
     expect(html).toContain('href="/_agent-native/identity/login?return=%2F"');
     expect(html).toContain("Continue with Agent-Native");
     expect(html).toContain("Use the same verified email");
+  });
+
+  it("keeps the manual federation CTA off canonical pages with silent sign-in", () => {
+    const props = propsFromHtml(getOnboardingHtml());
+    const html = renderToString(
+      <AuthPage {...props} identitySsoEnabled identitySsoAuto />,
+    );
+
+    expect(html).not.toContain('id="identity-sso-btn"');
   });
 
   it("keeps the federation CTA off auth pages without an available hub", () => {
