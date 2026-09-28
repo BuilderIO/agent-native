@@ -61,8 +61,11 @@ export function getRecordingAccessTokenResourceId(
   storedPassword: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
 ): string {
-  if (!storedPassword && sharePasswordVersion?.startsWith("legacy:")) {
-    // Keep pre-version grants valid until a password mutation rotates this migration baseline.
+  if (
+    sharePasswordVersion === "initial" ||
+    sharePasswordVersion?.startsWith("legacy:")
+  ) {
+    // Keep pre-version grants and grants from older writers valid until a password mutation.
     return recordingId;
   }
 

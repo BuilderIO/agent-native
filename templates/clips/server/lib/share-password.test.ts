@@ -96,6 +96,7 @@ describe("share-password storage", () => {
   });
 
   it("preserves old passwordless agent-link scopes until a password changes", () => {
+    const encryptedPassword = encryptSharePassword("example password");
     expect(
       getRecordingAccessTokenResourceId(
         "rec-1",
@@ -103,6 +104,19 @@ describe("share-password storage", () => {
         "legacy:2026-01-01T00:00:00.000Z",
       ),
     ).toBe("rec-1");
+    expect(
+      getRecordingAccessTokenResourceId(
+        "rec-1",
+        encryptedPassword,
+        "legacy:2026-01-01T00:00:00.000Z",
+      ),
+    ).toBe("rec-1");
+    expect(getRecordingAccessTokenResourceId("rec-2", null, "initial")).toBe(
+      "rec-2",
+    );
+    expect(
+      getRecordingAccessTokenResourceId("rec-2", encryptedPassword, "initial"),
+    ).toBe("rec-2");
 
     expect(
       getRecordingAccessTokenResourceId("rec-1", null, "rotated-version"),

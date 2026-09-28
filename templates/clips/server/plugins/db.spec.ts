@@ -139,11 +139,11 @@ describe("recording share password version migration", () => {
     expect(dbTsSource).toMatch(
       /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
     );
-    expect(dbTsSource).toMatch(
-      /SET share_password_version = 'legacy:' \|\| updated_at\s+WHERE share_password_version IS NULL/,
+    expect(dbTsSource).toContain(
+      "SET share_password_version = ''''legacy:'''' || updated_at",
     );
-    expect(dbTsSource).toMatch(
-      /ALTER COLUMN share_password_version SET DEFAULT 'initial'/,
+    expect(dbTsSource).toContain(
+      "ALTER COLUMN share_password_version SET DEFAULT ''''initial''''",
     );
     expect(dbTsSource).toContain(
       "CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()",
@@ -158,6 +158,7 @@ describe("recording share password version migration", () => {
       /version:\s*77,\s*name:\s*"recording-share-password-version"[\s\S]*?sql:\s*`([\s\S]*?)`/,
     )?.[1];
     expect(migrationSql).toBeTruthy();
+    expect(migrationSql?.trim()).toMatch(/^DO 'BEGIN[\s\S]*END';?$/);
 
     const db = await PGlite.create("memory://");
     try {
@@ -185,6 +186,14 @@ describe("recording share password version migration", () => {
           String(before.rows[0]?.share_password_version),
         ),
       ).toBe("rec-1");
+
+      await db.query(
+        "INSERT INTO public.recordings (id, password, updated_at) VALUES ('rec-2', NULL, '2026-01-01T00:00:00.000Z')",
+      );
+      const newRecording = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-2'",
+      );
+      expect(newRecording.rows[0]?.share_password_version).toBe("initial");
 
       await db.query(
         "UPDATE public.recordings SET password = 'old-writer-password', updated_at = '2026-01-02T00:00:00.000Z' WHERE id = 'rec-1'",
