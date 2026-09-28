@@ -10,6 +10,11 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconAssignment,
+} from "../server/lib/private-icon-references.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
@@ -205,6 +210,11 @@ export default defineAction({
           ),
         );
 
+      await verifyPrivateIconAssignment({
+        icon: lockedRow.document.icon,
+        userEmail: actor,
+        orgId: lockedRow.document.orgId,
+      });
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
         spaceId: row.database.spaceId,
@@ -222,6 +232,28 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+      await syncPrivateIconReference(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          elementType: "document",
+          elementId: nextDocumentId,
+          documentId: nextDocumentId,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId: nextDocumentId,
+          before: "",
+          after: lockedRow.document.content,
+          userEmail: actor,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
 
       await tx.insert(schema.contentDatabaseItems).values({
         id: nextItemId,

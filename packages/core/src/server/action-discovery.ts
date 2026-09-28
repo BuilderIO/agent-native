@@ -492,6 +492,10 @@ export async function mergeCoreSharingActions(
       () => import("../org/actions/list-workspace-app-access.js"),
     ],
     [
+      "list-workspace-icons",
+      () => import("../org/actions/list-workspace-icons.js"),
+    ],
+    [
       "set-workspace-app-access",
       () => import("../org/actions/set-workspace-app-access.js"),
     ],

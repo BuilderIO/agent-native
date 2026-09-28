@@ -6559,6 +6559,7 @@ function PageEditorSessionBody({
                     ) ? (
                       <EmojiPicker
                         icon={document.icon}
+                        assetScopeDocumentId={document.id}
                         defaultIcon={defaultIcon}
                         defaultIconLabel={
                           defaultIconKind === "database" ? "database" : "page"

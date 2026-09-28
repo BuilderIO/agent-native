@@ -64,6 +64,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { signOut } from "../sign-out.js";
+import { workspacePrivateIconUrl } from "../uploads/private-icon.js";
 import { useActionQuery } from "../use-action.js";
 import { useAvatarUrl } from "../use-avatar.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
@@ -504,7 +505,7 @@ export function OrgSwitcher({
               value={org.icon}
               size={12}
               resolveImageUrl={(image) =>
-                image.authority === "url" ? image.assetId : undefined
+                workspacePrivateIconUrl(org.orgId ?? "", image)
               }
               fallback={<IconBriefcase className="size-3 shrink-0" />}
             />
@@ -586,7 +587,7 @@ export function OrgSwitcher({
                 value={o.icon}
                 size={14}
                 resolveImageUrl={(image) =>
-                  image.authority === "url" ? image.assetId : undefined
+                  workspacePrivateIconUrl(o.orgId, image)
                 }
                 fallback={<IconBriefcase className={ITEM_ICON_CLASS} />}
               />

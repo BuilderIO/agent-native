@@ -27,6 +27,18 @@ const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
 const mockGetUserProfiles = vi.hoisted(() => vi.fn());
 const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
+const mockGetIconAsset = vi.hoisted(() => vi.fn());
+const mockVerifyFederatedWorkspaceIconOwner = vi.hoisted(() => vi.fn());
+
+vi.mock("../icon-assets/index.js", () => ({
+  getIconAsset: (...args: unknown[]) => mockGetIconAsset(...args),
+  putIconAsset: vi.fn(),
+  readIconAssetForAuthorizedReference: vi.fn(),
+}));
+vi.mock("../icon-assets/workspace-transport.js", () => ({
+  verifyFederatedWorkspaceIconOwner: (...args: unknown[]) =>
+    mockVerifyFederatedWorkspaceIconOwner(...args),
+}));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
@@ -169,6 +181,8 @@ describe("org handlers", () => {
     mockEvaluateFeatureFlagStrict.mockResolvedValue(false);
     mockBootstrapAdminOrganization.mockResolvedValue(false);
     mockGetUserProfiles.mockResolvedValue(new Map());
+    mockGetIconAsset.mockResolvedValue(null);
+    mockVerifyFederatedWorkspaceIconOwner.mockResolvedValue(false);
     mockOffboardMember.mockResolvedValue({
       removedMemberships: 1,
       removedAppRoles: 1,
@@ -224,6 +238,35 @@ describe("org handlers", () => {
     expect(mockExecute.mock.calls[1]?.[0]).toMatchObject({
       args: [JSON.stringify(icon), 5, "org-1", 4],
     });
+  });
+
+  it("rejects assigning a private workspace icon the administrator does not own", async () => {
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          name: "Example",
+          icon_revision: 1,
+          identity_authority: null,
+          identity_id: null,
+        },
+      ],
+    });
+    const icon = {
+      version: 1,
+      kind: "image",
+      authority: "private-icon",
+      assetId: "12345678-1234-4234-8234-123456789abc",
+    };
+    await expect(
+      setOrgVisualIdentityHandler(
+        makeEvent("/_agent-native/org/visual-identity", { icon }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockGetIconAsset).toHaveBeenCalledWith(icon.assetId, {
+      ownerEmail: "owner@example.test",
+      orgId: "org-1",
+    });
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
   it("commits a federated workspace icon before syncing and reports a pending hub update", async () => {

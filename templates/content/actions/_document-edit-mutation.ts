@@ -21,6 +21,7 @@ import {
 } from "../server/lib/document-body-intents.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
+import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import {
   resolveDocumentTextEdits,
@@ -538,6 +539,14 @@ export async function mutateDocumentBody(
             },
           );
         }
+        await syncPrivateCalloutReferences(tx, {
+          documentId: document.id,
+          before: beforeContent,
+          after: resolved.content,
+          userEmail: actor,
+          ownerEmail: document.ownerEmail,
+          orgId: document.orgId,
+        });
         for (const field of primaryBlocksFields) {
           await persistBlocksFieldIdentity({
             db: tx,

@@ -38,7 +38,10 @@ describe("dispatchAuthPlugin", () => {
 
     expect(mocks.createAuthPlugin).toHaveBeenCalledOnce();
     expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
-      expect.objectContaining({ googleOnly: true, publicPaths }),
+      expect.objectContaining({
+        googleOnly: true,
+        publicPaths: [...publicPaths, "/_agent-native/private-icons"],
+      }),
     );
     expect(mocks.authPlugin).toHaveBeenCalledWith(nitroApp);
   });

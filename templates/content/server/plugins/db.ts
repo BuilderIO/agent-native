@@ -1378,6 +1378,25 @@ export const runContentMigrations = runMigrations(
         CREATE INDEX IF NOT EXISTS document_comment_reactions_document_idx
           ON document_comment_reactions (owner_email, document_id)`,
     },
+    {
+      version: 115,
+      name: "content-private-icon-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_icon_references (
+        element_type TEXT NOT NULL,
+        element_id TEXT NOT NULL,
+        asset_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_icon_reference_element_unique
+        ON content_private_icon_references (element_type, element_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_asset_idx
+        ON content_private_icon_references (asset_id);
+      CREATE INDEX IF NOT EXISTS content_private_icon_reference_document_idx
+        ON content_private_icon_references (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
