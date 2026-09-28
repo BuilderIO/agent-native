@@ -232,8 +232,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       trustedFocusIntent = null;
     }
-    if (activeTextEditEl) return false;
     var active = document.activeElement;
+    if (activeTextEditEl?.isConnected && activeTextEditEl.contains(active)) {
+      return false;
+    }
     var visited = new Set();
     while (active && !visited.has(active)) {
       visited.add(active);

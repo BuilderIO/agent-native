@@ -1037,8 +1037,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         trustedFocusIntent = null;
       }
-      if (activeTextEditEl) return false;
       var active = document.activeElement;
+      if (activeTextEditEl?.isConnected && activeTextEditEl.contains(active)) {
+        return false;
+      }
       var visited = /* @__PURE__ */ new Set();
       while (active && !visited.has(active)) {
         visited.add(active);
