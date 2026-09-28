@@ -102,7 +102,7 @@ export function LocalNetworkAccessPrompt({
   if (proactive) {
     return (
       <>
-        <Dialog open>
+        <Dialog defaultOpen>
           <DialogContent
             className="sm:max-w-md"
             overlayClassName="backdrop-blur-[4px]"

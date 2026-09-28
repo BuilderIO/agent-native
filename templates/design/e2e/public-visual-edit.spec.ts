@@ -1651,6 +1651,8 @@ async function expectSharePopoverReturnUrl(
       exact: true,
     });
     await expect(signUp).toBeVisible();
+    await signUp.hover();
+    await expect(signUp).toBeVisible();
     await signUp.click();
     await expect(signedOut.page).toHaveURL(/\/sign-in\?c=/);
 

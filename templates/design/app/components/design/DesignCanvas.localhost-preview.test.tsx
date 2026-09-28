@@ -170,13 +170,21 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 
     await act(async () => {
       overlay?.dispatchEvent(
-        new PointerEvent("pointerdown", { bubbles: true }),
-      );
-      dialog?.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        new PointerEvent("pointerdown", { bubbles: true, cancelable: true }),
       );
     });
-
+    expect(
+      document.querySelector('[role="dialog"][data-state="open"]'),
+    ).not.toBeNull();
+    await act(async () => {
+      dialog?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
     expect(
       document.querySelector('[role="dialog"][data-state="open"]'),
     ).not.toBeNull();
