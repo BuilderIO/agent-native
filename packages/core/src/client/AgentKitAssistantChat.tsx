@@ -1,5 +1,8 @@
-import type { AgentKitUploadDriver } from "@agent-native/agentkit";
-import type { AgentThreadState } from "@agent-native/agentkit";
+import {
+  hasActiveAgentRuns,
+  type AgentKitUploadDriver,
+  type AgentThreadState,
+} from "@agent-native/agentkit";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
@@ -999,7 +1002,7 @@ const AgentKitAssistantChatBody = forwardRef<
     onThreadRestoreLoaded: () => void;
   }
 >(function AgentKitAssistantChatBody(props, ref) {
-  const { threadId, requestComposerFocus } = useAgentKit();
+  const { controller, threadId, requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const history = useOptionalAgentKitHistory();
@@ -1160,7 +1163,11 @@ const AgentKitAssistantChatBody = forwardRef<
         .find((message) => message.role === "assistant"),
     [thread.messages],
   );
-  const isRunning = thread.activeRunIds.length > 0;
+  const isRunning = hasActiveAgentRuns(thread);
+  const isThreadRunning = useCallback(
+    () => hasActiveAgentRuns(controller.getThread(threadId)),
+    [controller, threadId],
+  );
 
   useEffect(() => {
     if (previousPrefillRevisionRef.current === prefillRevision) return;
@@ -2232,7 +2239,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           ...options,
           attachments: [
@@ -2245,7 +2252,7 @@ const AgentKitAssistantChatBody = forwardRef<
           ],
         },
       ),
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
     async (
@@ -2266,7 +2273,7 @@ const AgentKitAssistantChatBody = forwardRef<
         text,
         [],
         [],
-        { intent: isRunning ? "queued" : "immediate" },
+        { intent: isThreadRunning() ? "queued" : "immediate" },
         {
           hideUserMessage: true,
           recoveryAction,
@@ -2283,7 +2290,7 @@ const AgentKitAssistantChatBody = forwardRef<
         },
       );
     },
-    [isRunning, submit],
+    [isThreadRunning, submit],
   );
   const resumeIntegrationPrompt = useCallback(
     (message: string) => {
@@ -2297,11 +2304,11 @@ const AgentKitAssistantChatBody = forwardRef<
   const submitSuggestion = useCallback(
     (prompt: string) =>
       void submit(prompt, [], [], {
-        intent: isRunning ? "queued" : "immediate",
+        intent: isThreadRunning() ? "queued" : "immediate",
       }).catch((error) => {
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
       }),
-    [isRunning, props.tabId, submit, threadId],
+    [isThreadRunning, props.tabId, submit, threadId],
   );
   const retryDeferredSubmission = useCallback(async () => {
     if (!deferredProviderSubmissionFailureId) return;
@@ -2416,7 +2423,7 @@ const AgentKitAssistantChatBody = forwardRef<
             })),
           },
         ),
-      isRunning: () => thread.activeRunIds.length > 0,
+      isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
         Object.values(thread.activities).some(
@@ -2665,6 +2672,7 @@ function AgentKitSelectionPill({
 }
 
 function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
+  const { controller } = useAgentKit();
   const surface = useAgentKitSurface();
   const t = useT();
   const thread = useAgentThread(threadId);
@@ -2683,7 +2691,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -2692,7 +2704,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         appendAgentChatContextToMessage(message, context),
         [],
         [],
-        { intent: surface.isRunning ? "queued" : "immediate" },
+        {
+          intent: hasActiveAgentRuns(controller.getThread(threadId))
+            ? "queued"
+            : "immediate",
+        },
       );
       return { delivered: true };
     },
@@ -3418,7 +3434,7 @@ function AgentKitMessageSupplement(props: AgentKitRenderProps<AgentMessage>) {
   const integration =
     value.role === "assistant" &&
     value.status === "complete" &&
-    thread.activeRunIds.length === 0
+    !hasActiveAgentRuns(thread)
       ? findMcpConnectionSuggestionIntegration({
           text,
           contextText,

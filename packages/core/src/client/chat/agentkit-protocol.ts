@@ -3243,6 +3243,9 @@ export function createAgentKitProtocolAdapter(
   }
 
   const hostOperations = options.operations;
+  if (hostOperations?.persistThreadSnapshot) {
+    transport.persistThreadSnapshot = hostOperations.persistThreadSnapshot;
+  }
   if (hostOperations?.createThread) {
     transport.createThread = (input = {}, context) => {
       const metadata = mergeTrustedProtocolMetadata(
