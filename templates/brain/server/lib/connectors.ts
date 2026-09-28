@@ -1067,8 +1067,16 @@ async function slackPrivateChannelMemberEmails(
       "conversations.members",
       { channel: channelId, limit: 1_000, cursor },
     );
-    for (const memberId of response.members ?? []) {
-      if (memberId) memberIds.add(memberId);
+    if (
+      !Array.isArray(response.members) ||
+      response.members.some(
+        (memberId) => typeof memberId !== "string" || !memberId,
+      )
+    ) {
+      return null;
+    }
+    for (const memberId of response.members) {
+      memberIds.add(memberId);
     }
     const nextCursor = response.response_metadata?.next_cursor?.trim();
     if (!nextCursor) break;
@@ -1077,7 +1085,6 @@ async function slackPrivateChannelMemberEmails(
     cursor = nextCursor;
   }
   const userIds = Array.from(memberIds);
-  if (!userIds.length) return null;
   if (
     userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
   ) {
@@ -1131,7 +1138,6 @@ async function slackPrivateChannelMemberEmails(
     const entry = userEmailCache.get(userId);
     return entry?.kind === "human" ? [entry.email] : [];
   });
-  if (!emails.length) return null;
   return Array.from(new Set(emails)).sort();
 }
 
@@ -2491,16 +2497,20 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
             userEmailCache,
           )
         : null;
-      if (channel.is_private && !privateMemberEmails?.length) {
-        stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-        continue;
-      }
-      if (channel.is_private && privateMemberEmails) {
+      if (channel.is_private) {
+        if (privateMemberEmails === null) {
+          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+          continue;
+        }
         await refreshSlackPrivateChannelAudience({
           source,
           channelId: channel.id,
           memberEmails: privateMemberEmails,
         });
+        if (!privateMemberEmails.length) {
+          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
+          continue;
+        }
       }
 
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
@@ -2756,10 +2766,22 @@ export async function refreshSlackThreadCapture(
     const memberEmails = channel.is_private
       ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
       : null;
-    if (channel.is_private && !memberEmails?.length) {
-      throw new Error(
-        `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
-      );
+    if (channel.is_private) {
+      if (memberEmails === null) {
+        throw new Error(
+          `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
+        );
+      }
+      if (!memberEmails.length) {
+        await refreshSlackPrivateChannelAudience({
+          source,
+          channelId: channel.id,
+          memberEmails,
+        });
+        throw new Error(
+          `Slack private channel ${channel.id} has no human members; refusing to refresh a capture`,
+        );
+      }
     }
     const [thread, permalink] = await Promise.all([
       slackApi<SlackRepliesResponse>(token, "conversations.replies", {

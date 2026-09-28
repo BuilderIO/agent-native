@@ -471,7 +471,7 @@ export async function refreshSlackPrivateChannelAudience(input: {
   memberEmails: string[];
 }) {
   const members =
-    input.source.visibility === "private"
+    input.source.visibility === "private" && input.memberEmails.length
       ? [normalizeEmail(input.source.ownerEmail)]
       : Array.from(new Set(input.memberEmails.map(normalizeEmail))).sort();
   const upstreamRefHash = await sha256(input.channelId);
