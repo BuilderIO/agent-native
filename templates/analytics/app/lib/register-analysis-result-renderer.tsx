@@ -27,20 +27,40 @@ function AnalysisResultRenderer({ context }: ToolRendererProps) {
   if (!metric) return null;
 
   const label = metric.label.replace(/[_-]+/g, " ").trim();
+  const comparison = metric.comparison;
 
   return (
-    <figure
-      data-analysis-result-card
-      className="my-1.5 min-w-0 rounded-lg border border-border bg-background px-4 py-3 text-foreground shadow-sm"
-    >
+    <figure data-analysis-result-card className="my-0 min-w-0 text-foreground">
       <figcaption className="text-xs font-medium text-muted-foreground">
         {t("analysisResult.title")}
       </figcaption>
-      <output className="mt-2 block truncate text-3xl font-semibold tracking-tight tabular-nums">
-        {formatters.formatNumber(metric.value, { maximumFractionDigits: 2 })}
+      <output className="mt-2 flex min-w-0 items-baseline gap-2 truncate text-3xl font-semibold tracking-tight tabular-nums">
+        {comparison ? (
+          <>
+            <span>
+              {formatters.formatNumber(comparison.changeRatio, {
+                style: "percent",
+                signDisplay: "always",
+                maximumFractionDigits: 0,
+              })}
+            </span>
+            <span className="truncate text-base font-medium">{label}</span>
+          </>
+        ) : (
+          formatters.formatNumber(metric.value, { maximumFractionDigits: 2 })
+        )}
       </output>
-      <p className="mt-1 truncate text-xs text-muted-foreground" title={label}>
-        {label}
+      <p
+        className="mt-1 truncate text-xs text-muted-foreground"
+        title={comparison ? comparison.period : label}
+      >
+        {comparison
+          ? t("analysisResult.comparisonContext", {
+              period: comparison.period,
+              current: formatters.formatNumber(metric.value),
+              previous: formatters.formatNumber(comparison.previousValue),
+            })
+          : label}
       </p>
     </figure>
   );

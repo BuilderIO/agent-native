@@ -15,6 +15,7 @@ import {
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentActivityGroup,
   AgentKitChat,
   AgentMessageActions,
   formatAgentKitDuration,
@@ -1038,6 +1039,53 @@ describe("AgentChat lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps internal activity labels out of a restored summary without run state", async () => {
+    const threadId = "thread-activity-without-run";
+    const runId = "run-activity-without-run";
+    const events: AgentEvent[] = [
+      "Starting agent",
+      "Contacting model",
+      "Preparing action",
+    ].map((label, index) => ({
+      id: `event-${index}`,
+      threadId,
+      runId,
+      sequence: index + 1,
+      occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+      type: "activity.completed",
+      activity: {
+        id: `activity-${index}`,
+        kind: "tool",
+        label,
+        status: "completed",
+      },
+    }));
+    const thread = { ...createAgentThreadState(threadId), events };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const summary = tree.container.querySelector(
+      ".agentkit-activities-summary",
+    );
+    expect(summary?.textContent).toBe("Worked");
+    expect(summary?.textContent).not.toContain("Starting agent");
+    expect(summary?.textContent).not.toContain("Contacting model");
+    expect(summary?.textContent).not.toContain("3");
+    await tree.unmount();
   });
 
   it("keeps each execution segment between the assistant responses it produced", async () => {

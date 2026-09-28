@@ -77,6 +77,8 @@ export interface DeckDesignSystemResult {
   designSystemTitle: string | null;
   imageStyleReferenceUrls: string[];
   isLoading: boolean;
+  /** Raw JSON of the design system row, before defaults are merged in. */
+  rawData: string | null;
 }
 
 export function resolveDeckDesignSystem(
@@ -88,6 +90,7 @@ export function resolveDeckDesignSystem(
       designSystem: undefined,
       designSystemTitle: null,
       imageStyleReferenceUrls: [],
+      rawData: null,
     };
   }
 
@@ -97,12 +100,14 @@ export function resolveDeckDesignSystem(
       designSystem: parsed,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: getDesignSystemImageStyleReferenceUrls(parsed),
+      rawData: data.data,
     };
   } catch {
     return {
       designSystem: undefined,
       designSystemTitle: data.title ?? null,
       imageStyleReferenceUrls: [],
+      rawData: data.data,
     };
   }
 }

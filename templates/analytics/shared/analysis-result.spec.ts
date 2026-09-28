@@ -22,6 +22,47 @@ describe("getSingleNumericAnalysisResult", () => {
     ).toBeNull();
   });
 
+  it("summarizes a comparison only with explicit values and period context", () => {
+    const result = {
+      rows: [
+        {
+          metric: "activated users",
+          current_value: 482,
+          previous_value: 408,
+          period: "Last 30 days",
+        },
+      ],
+      schema: [
+        { name: "metric", type: "string" },
+        { name: "current_value", type: "number" },
+        { name: "previous_value", type: "number" },
+        { name: "period", type: "string" },
+      ],
+    };
+
+    expect(getSingleNumericAnalysisResult(result)).toEqual({
+      label: "activated users",
+      value: 482,
+      comparison: {
+        changeRatio: (482 - 408) / 408,
+        period: "Last 30 days",
+        previousValue: 408,
+      },
+    });
+    expect(
+      getSingleNumericAnalysisResult({
+        ...result,
+        rows: [{ ...result.rows[0], period: "" }],
+      }),
+    ).toBeNull();
+    expect(
+      getSingleNumericAnalysisResult({
+        ...result,
+        rows: [{ ...result.rows[0], previous_value: 0 }],
+      }),
+    ).toBeNull();
+  });
+
   it.each([
     { rows: [], schema: [{ name: "count", type: "number" }] },
     {
