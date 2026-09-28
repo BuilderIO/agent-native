@@ -30,6 +30,7 @@ import {
 } from "../../agent/model-config.js";
 import type { OrgInfo } from "../../org/types.js";
 import { serializeFrontmatter } from "../../resources/metadata.js";
+import { RESOURCE_PACK_MAX_BODY_BYTES } from "../../resources/pack-constants.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
@@ -1843,6 +1844,10 @@ export function ResourcesPanel({
 
   const handleImportPackFile = useCallback(
     async (file: File) => {
+      if (file.size > RESOURCE_PACK_MAX_BODY_BYTES) {
+        showToast("err", t("agentResources.importPackInvalid"));
+        return;
+      }
       let pack: unknown;
       try {
         pack = JSON.parse(await file.text());

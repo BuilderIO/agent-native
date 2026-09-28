@@ -115,17 +115,23 @@ vi.mock("h3", () => ({
 const mockExportResourcePackRun = vi.fn();
 const mockImportResourcePackRun = vi.fn();
 
-vi.mock("./actions/export-resource-pack.js", () => ({
-  default: {
-    run: (...args: any[]) => mockExportResourcePackRun(...args),
-  },
-}));
+vi.mock("./actions/export-resource-pack.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./actions/export-resource-pack.js")>();
+  return {
+    ...actual,
+    default: { run: (...args: any[]) => mockExportResourcePackRun(...args) },
+  };
+});
 
-vi.mock("./actions/import-resource-pack.js", () => ({
-  default: {
-    run: (...args: any[]) => mockImportResourcePackRun(...args),
-  },
-}));
+vi.mock("./actions/import-resource-pack.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./actions/import-resource-pack.js")>();
+  return {
+    ...actual,
+    default: { run: (...args: any[]) => mockImportResourcePackRun(...args) },
+  };
+});
 
 import { getSession } from "../server/auth.js";
 import {
@@ -1391,7 +1397,7 @@ Legacy webhook.`,
       });
 
       const result = await handleExportResourcePack({
-        _body: { scope: "personal", prefix: "memory/" },
+        _query: { scope: "personal", prefix: "memory/" },
       });
 
       expect(mockExportResourcePackRun).toHaveBeenCalledWith(
@@ -1410,7 +1416,7 @@ Legacy webhook.`,
         details: { fileCount: 201 },
       });
 
-      const result = await handleExportResourcePack({ _body: {} });
+      const result = await handleExportResourcePack({ _query: {} });
 
       expect(lastStatus).toBe(400);
       expect(result).toEqual({
@@ -1463,6 +1469,19 @@ Legacy webhook.`,
       ).rejects.toMatchObject({ statusCode: 413 });
 
       expect(lastStatus).toBe(413);
+      expect(mockImportResourcePackRun).not.toHaveBeenCalled();
+    });
+
+    it("rejects an invalid target scope before running the import action", async () => {
+      const result = await handleImportResourcePack({
+        _body: { pack: {}, targetScope: "other" },
+      });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "Invalid resource pack import request.",
+        errorCode: "invalid_action_request_body",
+      });
       expect(mockImportResourcePackRun).not.toHaveBeenCalled();
     });
   });

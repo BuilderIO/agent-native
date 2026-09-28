@@ -7,7 +7,7 @@ import {
 } from "h3";
 import { createError } from "h3";
 
-import { isActionContractError } from "../action.js";
+import { fail, isActionContractError } from "../action.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
 import { uploadFile } from "../file-upload/index.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
@@ -20,8 +20,14 @@ import {
   isAllowedUploadMimeType,
 } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import exportResourcePack from "./actions/export-resource-pack.js";
-import importResourcePack from "./actions/import-resource-pack.js";
+import {
+  exportResourcePackSchema,
+  default as exportResourcePack,
+} from "./actions/export-resource-pack.js";
+import {
+  importResourcePackSchema,
+  default as importResourcePack,
+} from "./actions/import-resource-pack.js";
 import {
   getResourceKind,
   isRemoteAgentPath,
@@ -789,19 +795,23 @@ function packHandlerError(event: any, err: unknown) {
   throw err;
 }
 
-/** POST /_agent-native/resources/export-pack — same pack as export-resource-pack. */
+/** GET /_agent-native/resources/export-pack — same pack as export-resource-pack. */
 export async function handleExportResourcePack(event: any) {
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  const body = await readBody(event);
   try {
-    return await exportResourcePack.run(
-      {
-        scope: body.scope ?? "accessible",
-        ...(typeof body.prefix === "string" ? { prefix: body.prefix } : {}),
-      },
-      { userEmail: email, orgId, caller: "http" },
-    );
+    const parsed = exportResourcePackSchema.safeParse(getQuery(event));
+    if (!parsed.success) {
+      fail("Invalid resource pack export request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await exportResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
   } catch (err) {
     return packHandlerError(event, err);
   }
@@ -816,14 +826,18 @@ export async function handleImportResourcePack(event: any) {
       event,
       RESOURCE_PACK_MAX_BODY_BYTES,
     );
-    return await importResourcePack.run(
-      {
-        pack: body.pack,
-        targetScope: body.targetScope ?? "personal",
-        onConflict: body.onConflict ?? "skip",
-      },
-      { userEmail: email, orgId, caller: "http" },
-    );
+    const parsed = importResourcePackSchema.safeParse(body);
+    if (!parsed.success) {
+      fail("Invalid resource pack import request.", {
+        errorCode: "invalid_action_request_body",
+        statusCode: 400,
+      });
+    }
+    return await importResourcePack.run(parsed.data, {
+      userEmail: email,
+      orgId,
+      caller: "http",
+    });
   } catch (err) {
     return packHandlerError(event, err);
   }

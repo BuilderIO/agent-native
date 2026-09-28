@@ -36,7 +36,8 @@ vi.mock("../../app-config/index.js", () => ({
 
 const { default: exportResourcePack } =
   await import("./export-resource-pack.js");
-const { verifyResourcePack } = await import("../pack.js");
+const { RESOURCE_PACK_MAX_BODY_BYTES, verifyResourcePack } =
+  await import("../pack.js");
 
 function meta(
   path: string,
@@ -223,6 +224,29 @@ describe("export-resource-pack", () => {
         maxFiles: 200,
       }),
     });
+    expect(mockResourceGet).not.toHaveBeenCalled();
+  });
+
+  it("caps the complete import request including redaction records", async () => {
+    mockResourceListAccessible.mockResolvedValue([
+      meta("x".repeat(RESOURCE_PACK_MAX_BODY_BYTES + 1), {
+        mimeType: "image/png",
+      }),
+    ]);
+
+    await expect(
+      exportResourcePack.run(
+        { scope: "accessible" },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({
+        fileCount: 1,
+        maxBytes: RESOURCE_PACK_MAX_BODY_BYTES,
+      }),
+    });
+    expect(mockResourceGet).not.toHaveBeenCalled();
   });
 
   it("counts the export cap after redaction", async () => {

@@ -227,6 +227,28 @@ describe("import-resource-pack", () => {
     expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
   });
 
+  it("counts redaction records toward the file cap", async () => {
+    const pack = buildResourcePack([], {
+      exportedAt: 1,
+      source: { scope: "personal" },
+      redactions: Array.from({ length: 201 }, (_, index) => ({
+        path: `file-${index}.bin`,
+        reason: "binary" as const,
+      })),
+    });
+
+    await expect(
+      importResourcePack.run(
+        { pack },
+        { userEmail: "alice@x.com", caller: "http" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "too_large",
+      details: expect.objectContaining({ fileCount: 201, maxFiles: 200 }),
+    });
+    expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+  });
+
   it("advertises a body cap the route can enforce before parsing", () => {
     expect(importResourcePack.maxBodyBytes).toBe(RESOURCE_PACK_MAX_BODY_BYTES);
   });

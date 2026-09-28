@@ -66,8 +66,10 @@ function rawPackOverCap(pack: unknown): {
   if (!pack || typeof pack !== "object") return null;
   const resources = (pack as { resources?: unknown }).resources;
   if (!Array.isArray(resources)) return null;
+  const redactions = (pack as { redactions?: unknown }).redactions;
 
-  const fileCount = resources.length;
+  const fileCount =
+    resources.length + (Array.isArray(redactions) ? redactions.length : 0);
   if (fileCount > RESOURCE_PACK_MAX_FILES) {
     return { fileCount, byteCount: 0 };
   }

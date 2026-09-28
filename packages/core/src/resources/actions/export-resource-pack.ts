@@ -6,6 +6,7 @@ import { getAppConfig } from "../../app-config/index.js";
 import {
   buildResourcePack,
   redactResourceContent,
+  RESOURCE_PACK_MAX_BODY_BYTES,
   RESOURCE_PACK_MAX_BYTES,
   RESOURCE_PACK_MAX_FILES,
   type ResourcePack,
@@ -111,70 +112,103 @@ export async function exportResourcePackForCaller(
     args.scope,
     args.prefix,
   );
-  const entries: ResourcePackEntry[] = [];
-  const redactions: ResourcePackRedaction[] = [];
-  let byteCount = 0;
-  const loaded = await mapWithConcurrency(
-    metas,
-    EXPORT_RESOURCE_READ_CONCURRENCY,
-    async (meta) => {
-      if (isBinaryResourceMimeType(meta.mimeType)) {
-        return { meta, resource: null, binary: true as const };
-      }
-      return {
-        meta,
-        resource: await resourceGet(meta.id, { userEmail, orgId }),
-        binary: false as const,
-      };
-    },
-  );
-
-  for (const item of loaded) {
-    if (item.binary) {
-      redactions.push({ path: item.meta.path, reason: "binary" });
-      continue;
-    }
-    const resource = item.resource;
-    if (!resource || typeof resource.content !== "string") {
-      redactions.push({ path: item.meta.path, reason: "unreadable" });
-      continue;
-    }
-    const redacted = redactResourceContent(item.meta.path, resource.content);
-    if (redacted.redacted) {
-      redactions.push({ path: item.meta.path, reason: "secret" });
-    }
-    byteCount += Buffer.byteLength(redacted.content, "utf8");
-    entries.push({
-      path: item.meta.path,
-      scope: packScopeFromOwner(resource.owner, userEmail),
-      content: redacted.content,
-    });
-  }
-
-  if (
-    entries.length > RESOURCE_PACK_MAX_FILES ||
-    byteCount > RESOURCE_PACK_MAX_BYTES
-  ) {
+  if (metas.length > RESOURCE_PACK_MAX_FILES) {
     fail("Resource pack exceeds the export cap.", {
       errorCode: "too_large",
       details: {
-        fileCount: entries.length,
-        byteCount,
+        fileCount: metas.length,
+        byteCount: 0,
         maxFiles: RESOURCE_PACK_MAX_FILES,
         maxBytes: RESOURCE_PACK_MAX_BYTES,
       },
     });
   }
+  const entries: ResourcePackEntry[] = [];
+  const redactions: ResourcePackRedaction[] = [];
+  let byteCount = 0;
+  for (
+    let offset = 0;
+    offset < metas.length;
+    offset += EXPORT_RESOURCE_READ_CONCURRENCY
+  ) {
+    const loaded = await mapWithConcurrency(
+      metas.slice(offset, offset + EXPORT_RESOURCE_READ_CONCURRENCY),
+      EXPORT_RESOURCE_READ_CONCURRENCY,
+      async (meta) => {
+        if (isBinaryResourceMimeType(meta.mimeType)) {
+          return { meta, resource: null, binary: true as const };
+        }
+        return {
+          meta,
+          resource: await resourceGet(meta.id, { userEmail, orgId }),
+          binary: false as const,
+        };
+      },
+    );
+
+    for (const item of loaded) {
+      if (item.binary) {
+        redactions.push({ path: item.meta.path, reason: "binary" });
+        continue;
+      }
+      const resource = item.resource;
+      if (!resource || typeof resource.content !== "string") {
+        redactions.push({ path: item.meta.path, reason: "unreadable" });
+        continue;
+      }
+      const redacted = redactResourceContent(item.meta.path, resource.content);
+      if (redacted.redacted) {
+        redactions.push({ path: item.meta.path, reason: "secret" });
+      }
+      byteCount += Buffer.byteLength(redacted.content, "utf8");
+      if (byteCount > RESOURCE_PACK_MAX_BYTES) {
+        fail("Resource pack exceeds the export cap.", {
+          errorCode: "too_large",
+          details: {
+            fileCount: metas.length,
+            byteCount,
+            maxFiles: RESOURCE_PACK_MAX_FILES,
+            maxBytes: RESOURCE_PACK_MAX_BYTES,
+          },
+        });
+      }
+      entries.push({
+        path: item.meta.path,
+        scope: packScopeFromOwner(resource.owner, userEmail),
+        content: redacted.content,
+      });
+    }
+  }
 
   const appId = resolveAppId(ctx);
-  return {
-    pack: buildResourcePack(entries, {
-      source: {
-        ...(appId ? { appId } : {}),
-        scope: packSourceScope(args.scope),
-      },
-      redactions,
+  const pack = buildResourcePack(entries, {
+    source: {
+      ...(appId ? { appId } : {}),
+      scope: packSourceScope(args.scope),
+    },
+    redactions,
+  });
+  const requestBytes = Buffer.byteLength(
+    JSON.stringify({
+      pack,
+      targetScope: "organization",
+      onConflict: "overwrite",
     }),
+    "utf8",
+  );
+  if (requestBytes > RESOURCE_PACK_MAX_BODY_BYTES) {
+    fail("Resource pack exceeds the export cap.", {
+      errorCode: "too_large",
+      details: {
+        fileCount: metas.length,
+        byteCount: requestBytes,
+        maxFiles: RESOURCE_PACK_MAX_FILES,
+        maxBytes: RESOURCE_PACK_MAX_BODY_BYTES,
+      },
+    });
+  }
+  return {
+    pack,
   };
 }
 

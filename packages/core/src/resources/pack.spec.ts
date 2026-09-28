@@ -258,6 +258,52 @@ describe("redactResourceContent", () => {
     expect(reparsed.keep).toBe("visible");
   });
 
+  it("redacts camel-case credential keys without matching ordinary words", () => {
+    const clientSecret = "fake-client-secret-value";
+    const oauthSecret = "fake-oauth-secret-value";
+    const result = redactResourceContent(
+      "config.json",
+      JSON.stringify({
+        clientSecret,
+        oauthClientSecret: oauthSecret,
+        secretary: "visible",
+      }),
+    );
+
+    expect(result.redacted).toBe(true);
+    const reparsed = JSON.parse(result.content) as Record<string, string>;
+    expect(reparsed.clientSecret).toBe("[REDACTED]");
+    expect(reparsed.oauthClientSecret).toBe("[REDACTED]");
+    expect(reparsed.secretary).toBe("visible");
+    expect(result.content).not.toContain(clientSecret);
+    expect(result.content).not.toContain(oauthSecret);
+  });
+
+  it("redacts an unlabeled SendGrid API token", () => {
+    const token = `SG.${"a".repeat(22)}.${"b".repeat(43)}`;
+
+    const result = redactResourceContent("notes.md", `copied key: ${token}`);
+
+    expect(result.redacted).toBe(true);
+    expect(result.content).not.toContain(token);
+    expect(result.content).toContain("copied key: [REDACTED]");
+  });
+
+  it("keeps escaped quotes inside a redacted JSON value", () => {
+    const source = JSON.stringify({
+      password: 'before " quote',
+      keep: "visible",
+    });
+
+    const result = redactResourceContent("config.json", source);
+
+    expect(result.redacted).toBe(true);
+    expect(JSON.parse(result.content)).toEqual({
+      password: "[REDACTED]",
+      keep: "visible",
+    });
+  });
+
   it("keeps numeric, boolean, and null JSON credentials parseable", () => {
     const source =
       '{"password":12345,"retries":8,"token":true,"secret":null,"keep":"visible"}';
@@ -298,12 +344,18 @@ describe("redactResourceContent", () => {
       pemMaterial,
       "-----END OPENSSH PRIVATE KEY-----",
     ].join("\n");
+    const databaseUrl = new URL("postgresql://db.internal:5432/app");
+    databaseUrl.username = "app";
+    databaseUrl.password = dbPassword;
+    const inlineDatabaseUrl = new URL("postgres://db.internal/app");
+    inlineDatabaseUrl.username = "app";
+    inlineDatabaseUrl.password = inlinePassword;
     const source = [
       `SSH_PRIVATE_KEY=${privateKey}`,
       `PRIVATE_KEY="${privateKey}-quoted"`,
       pem,
-      `DATABASE_URL=postgresql://app:${dbPassword}@db.internal:5432/app`,
-      `see postgres://app:${inlinePassword}@db.internal/app`,
+      `DATABASE_URL=${databaseUrl.toString()}`,
+      `see ${inlineDatabaseUrl.toString()}`,
       `PUBLIC_KEY=${publicKey}`,
       "-----BEGIN PUBLIC KEY-----",
       publicKey,

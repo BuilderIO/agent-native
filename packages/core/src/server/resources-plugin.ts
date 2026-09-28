@@ -59,7 +59,7 @@ export function createResourcesPlugin(): NitroPluginDef {
     getH3App(nitroApp).use(
       "/_agent-native/resources/export-pack",
       defineEventHandler(async (event) => {
-        if (getMethod(event) !== "POST") {
+        if (getMethod(event) !== "GET") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }

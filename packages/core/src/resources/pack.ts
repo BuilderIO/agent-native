@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+export {
+  RESOURCE_PACK_MAX_BODY_BYTES,
+  RESOURCE_PACK_MAX_BYTES,
+  RESOURCE_PACK_MAX_FILES,
+} from "./pack-constants.js";
+
 export const RESOURCE_PACK_VERSION = 1;
-export const RESOURCE_PACK_MAX_FILES = 200;
-export const RESOURCE_PACK_MAX_BYTES = 1_000_000;
-// Content is capped at RESOURCE_PACK_MAX_BYTES. The HTTP body also carries
-// JSON framing, checksums, and escaping, so the route limit sits above that.
-export const RESOURCE_PACK_MAX_BODY_BYTES =
-  RESOURCE_PACK_MAX_BYTES * 6 + 65_536;
 
 export type ResourcePackScope = "personal" | "organization" | "workspace";
 export type ResourcePackRedactionReason = "secret" | "binary" | "unreadable";
@@ -69,7 +69,7 @@ const packSchema = z.object({
  * than imported so a pack never pulls the tracing surface in as a side effect.
  */
 const STANDALONE_API_KEY_PATTERN =
-  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b/g;
 
 const CREDENTIAL_NAME = [
   "authorization",
@@ -229,18 +229,22 @@ function redactLabeledCredentials(value: string): {
   content: string;
   redacted: boolean;
 } {
-  // `_` is a word character, so `\b` misses env names such as
-  // `SENDGRID_API_KEY` and `CLIENT_SECRET`. Treat `_` as a separator and
-  // redact the whole identifier when it contains a credential word.
-  const pattern = new RegExp(
-    `["']?(?<![A-Za-z0-9])(?:[A-Za-z0-9]+_){0,12}(?:${CREDENTIAL_NAME})(?:_[A-Za-z0-9]+){0,12}["']?\\s*[:=]\\s*`,
-    "gi",
+  const pattern =
+    /(?<![A-Za-z0-9])(["']?)([A-Za-z0-9][A-Za-z0-9 _-]{0,127})\1\s*[:=]\s*/g;
+  const credentialName = new RegExp(
+    `(?:^|[^a-z0-9])(?:${CREDENTIAL_NAME})(?:$|[^a-z0-9])`,
+    "i",
   );
   let content = "";
   let cursor = 0;
   let redacted = false;
 
   for (let match = pattern.exec(value); match; match = pattern.exec(value)) {
+    const label = match[2]!
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .toLowerCase();
+    if (!credentialName.test(label)) continue;
+
     const valueStart = match.index + match[0].length;
     const valueEnd = endOfCredentialValue(value, valueStart);
     if (valueEnd <= valueStart) continue;
