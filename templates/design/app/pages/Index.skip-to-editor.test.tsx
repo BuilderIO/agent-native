@@ -518,7 +518,7 @@ describe("Index skip to editor", () => {
       disabled: false,
       submissionDisabled: false,
       showModelSelector: true,
-      modelStatusChecksEnabled: false,
+      modelStatusChecksEnabled: true,
     });
     expect(container.textContent).not.toContain("Connect AI");
     expect(container.querySelector("[data-testid='ai-setup-card']")).toBeNull();

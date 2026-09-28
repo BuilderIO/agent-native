@@ -665,7 +665,7 @@ describe("Slides prompt-led home", () => {
         disabled: false,
         submissionDisabled: false,
         showModelSelector: true,
-        modelStatusChecksEnabled: false,
+        modelStatusChecksEnabled: true,
       }),
     );
   });
