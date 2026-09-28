@@ -54,7 +54,6 @@ function runScript({
   session?: Record<string, unknown> | null;
   sessionResponseOk?: boolean;
   sessionStatus?: number;
-  /** Fixed clock for the script's `Date.now()`; real time when omitted. */
   now?: () => number;
   sessionPath?: string;
   workspaceRuntime?: boolean;
@@ -528,8 +527,6 @@ describe("getSsrBetaRedirectScript", () => {
       expect(
         Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)),
       ).toBeGreaterThan(Date.now());
-      // The guard and the opt-out handed to production share one deadline, so
-      // neither can outlive the other.
       expect(
         Number(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)),
       ).toBe(Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)));
@@ -565,7 +562,6 @@ describe("getSsrBetaRedirectScript", () => {
         sessionStatus: 401,
       });
       await Promise.resolve();
-      // What the client session gate does while the probe is in flight.
       href.current = "https://beta.plan.agent-native.com/sign-in?c=abc123";
       resolveProbe!(null);
 
@@ -636,8 +632,6 @@ describe("getSsrBetaRedirectScript", () => {
       });
       expect(first.redirectedTo).not.toBeNull();
 
-      // Production bouncing straight back means its opt-out did not stick.
-      // Returning again would be the ping-pong, so beta stays put.
       const second = await runScript({
         href: BETA_ARRIVAL,
         sessionStorage,
@@ -662,9 +656,6 @@ describe("getSsrBetaRedirectScript", () => {
       });
       expect(first.redirectedTo).not.toBeNull();
 
-      // The opt-out lasts 8 hours. A tab open longer than that gets redirected
-      // again, and a permanently-set guard would strand the visitor on beta
-      // exactly as the original bug did.
       const second = await runScript({
         href: BETA_ARRIVAL,
         sessionStorage,
@@ -760,12 +751,6 @@ describe("getSsrBetaRedirectScript", () => {
       ).toBeGreaterThan(Date.now());
     });
 
-    // Regression pin for the Design template: Google sign-in on production
-    // was reported broken on beta because a fresh production session got
-    // auto-redirected to a beta host with no session of its own. This
-    // exercises the exact host pair Design deploys to, so a future edit to
-    // ENVIRONMENT_BETA_HOSTS that drops or renames the Design entry fails
-    // here instead of only reaching Design's beta sign-in page in the wild.
     it("returns a signed-out Design beta arrival to Design's production page", async () => {
       const result = await runScript({
         href: "https://beta.design.agent-native.com/inbox?agentNativeLaneRedirect=1",

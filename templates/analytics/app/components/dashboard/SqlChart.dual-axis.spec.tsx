@@ -62,7 +62,6 @@ function yAxisCount(container: HTMLElement): number {
   return container.querySelectorAll(".recharts-yAxis").length;
 }
 
-/** Recharts renders tick labels outside the axis group, tagged by orientation. */
 function axisTicks(container: HTMLElement, side: "left" | "right"): string[] {
   return [
     ...container.querySelectorAll(
@@ -77,7 +76,6 @@ describe("SqlChart dual axis", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    // ResponsiveContainer measures its parent, which happy-dom reports as 0x0.
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -147,7 +145,6 @@ describe("SqlChart dual axis", () => {
     expect(yAxisCount(container)).toBe(2);
     expect(axisTicks(container, "left")).toContain("3,000");
     expect(axisTicks(container, "right")).toContain("40.00%");
-    // Each axis names the series it carries.
     expect(container.textContent).toContain("signups");
     expect(container.textContent).toContain("conversion_rate");
   });

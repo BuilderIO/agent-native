@@ -4,13 +4,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 
-/**
- * The MCP-facing half of the browser publication handshake. Keeping this as a
- * normal read action means CLI, Claude Code, and Codex use the same access
- * check and result shape instead of inventing a Design-specific transport.
- */
 export default defineAction({
   title: "Pull pending visual edits into app source",
   description:

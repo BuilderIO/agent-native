@@ -13,8 +13,17 @@ const clientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentChatSurface: ({ composerSlot }: { composerSlot?: React.ReactNode }) => (
-    <div data-testid="chat">{composerSlot}</div>
+  AgentChatHome: ({
+    composerSlot,
+    homeIntroSlot,
+  }: {
+    composerSlot?: React.ReactNode;
+    homeIntroSlot?: React.ReactNode;
+  }) => (
+    <div data-testid="chat">
+      {composerSlot}
+      {homeIntroSlot}
+    </div>
   ),
   useAgentChatContext: () => ({
     items: clientMocks.contextItems,

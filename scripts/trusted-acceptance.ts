@@ -1,13 +1,5 @@
 import { readFileSync } from "node:fs";
 
-/**
- * Pure validation contracts for the isolated trusted-acceptance lane.
- *
- * This module deliberately contains no environment access, network access, or
- * deployment code. The default-branch controller supplies available templates
- * and PR metadata, then fails closed on these results before a build starts.
- */
-
 export type AcceptancePaths = {
   health: string;
   oauthMetadata: string;
@@ -147,7 +139,6 @@ function isAcceptanceOrigin(origin: string): boolean {
   }
 }
 
-/** Validates config shape plus the isolation constraints that are knowable locally. */
 export function validateTrustedAcceptanceConfig(
   config: TrustedAcceptanceConfig,
   availableTemplates: readonly string[],
@@ -587,7 +578,6 @@ export type PullRequestProvenanceInput = {
   pullRequest: PullRequestProvenance;
 };
 
-/** Checks GitHub-sourced PR facts without making a GitHub request itself. */
 export function validatePullRequestProvenance(
   input: PullRequestProvenanceInput,
 ): ValidationResult {
@@ -730,7 +720,6 @@ function containsSensitiveReceiptData(
   return [];
 }
 
-/** Validates the redacted receipt shape before it is emitted as an artifact. */
 export function validateTrustedAcceptanceReceipt(
   receipt: TrustedAcceptanceReceipt,
   expectedAssertions?: readonly string[],
@@ -1126,14 +1115,6 @@ function argumentValue(args: string[], name: string): string | undefined {
   return index === -1 ? undefined : args[index + 1];
 }
 
-/**
- * CLI commands intentionally accept JSON files, never inline secrets:
- *
- * - config --file <config.json> --templates calendar,content
- * - plan --file <config.json> --templates calendar,content --workspace <id> [--allow-disabled]
- * - provenance --file <github-pr.json> --sha <full-sha> --repository BuilderIO/agent-native
- * - receipt --file <receipt.json>
- */
 export function runTrustedAcceptanceCli(
   args: string[],
 ): ValidationResult | { ok: true; plan: TrustedAcceptancePlan } {

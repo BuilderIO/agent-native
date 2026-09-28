@@ -20,10 +20,6 @@ function getDispatchAccess(): AppRoles<"admin", "administer"> {
   return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor));
 }
 
-/**
- * Keep the Dispatch shell open to every signed-in member while protecting
- * workspace-wide administration operations for org or Dispatch admins.
- */
 export async function authorizeDispatchAdmin(
   _args: unknown,
   ctx?: ActionRunContext,

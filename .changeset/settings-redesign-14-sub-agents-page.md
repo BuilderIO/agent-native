@@ -1,0 +1,5 @@
+---
+"@agent-native/core": minor
+---
+
+With the `settings-redesign` flag on, Settings › Agent › Sub-agents lists every agent the main agent can delegate to, each once: {Org} apps (first-party and workspace apps with their reachability and URL), External agents, and Custom agents. Owners and admins get a Connect agent directory dialog (Microsoft Foundry, Gemini Enterprise, Anthropic Managed Agents, or any A2A agent by URL, plus a Global A2A Registry link) and an Edit or Remove menu on each agent; members see the list read only and can add personal custom agents by describing them to the agent or writing them. `?connect=` deep links and legacy Connected agents, Agent directory, and Remote agents links open this page. `AgentsSection.tsx` now exports `useRemoteAgents`, `AgentAddForm`, `AgentEditForm`, and `readAgentConnectRequest`. With the flag on or off, the connected agents list refetches after agent writes and says when it could not load instead of showing an empty list, and a peer's register-back link opens its Connected agents list.

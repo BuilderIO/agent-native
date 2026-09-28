@@ -39,9 +39,6 @@ describe("designSystemUploadStart session-lookup regression", () => {
   });
 
   it("reports a 503 service error, not 401 Unauthorized, when the session lookup fails", async () => {
-    // Regression: `getSession(event).catch(() => null)` used to collapse a
-    // DB blip / cookie race into the same shape a genuine anonymous visitor
-    // gets, so this route returned 401 "Unauthorized" for a server failure.
     mockGetSession.mockRejectedValue(new Error("db unavailable"));
 
     const result = await designSystemUploadStart({} as any);

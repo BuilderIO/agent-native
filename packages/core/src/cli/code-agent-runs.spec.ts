@@ -349,10 +349,6 @@ describe("local code background agent controller", () => {
       message: "retry this",
     });
 
-    // resume/retry are non-blocking control actions: they kick the run off
-    // in the background and return immediately with the current run state
-    // (a control action must not await the full session, which would time
-    // out the HTTP/IPC caller).
     await expect(
       controller.control({ runId: resumeRun.id, command: "resume" }),
     ).resolves.toMatchObject({
@@ -368,8 +364,6 @@ describe("local code background agent controller", () => {
       message: "Agent-Native Code run retrying in the background.",
     });
 
-    // The background executions still complete (fake response) — wait for
-    // them so the run records settle before the test tears down its temp home.
     await vi.waitFor(() => {
       expect(getCodeAgentRunRecord(resumeRun.id)?.status).toBe("completed");
       expect(getCodeAgentRunRecord(retryRun.id)?.status).toBe("completed");

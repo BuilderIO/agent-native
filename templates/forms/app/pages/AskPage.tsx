@@ -1,5 +1,5 @@
 import {
-  AgentChatSurface,
+  AgentChatHome,
   markAgentChatHomeHandoff,
   sendToAgentChat,
 } from "@agent-native/core/client/agent-chat";
@@ -50,43 +50,41 @@ export function AskPage() {
   ];
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="forms-ask-chat-panel bg-background shadow-none"
-        defaultMode="chat"
-        storageKey="forms"
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={t("home.emptyState")}
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder={t("home.composerPlaceholder")}
-        composerSlot={
-          <div className="forms-chat-intro">
-            <h1>{t("home.heading")}</h1>
-            <p>{t("home.description")}</p>
-            <div className="forms-chat-pill-row">
-              {suggestions.map(({ icon: Icon, label, prompt }) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="forms-chat-pill"
-                  onClick={() => prefillSuggestion(prompt)}
-                >
-                  <Icon className="size-3.5" />
-                  {label}
-                </button>
-              ))}
-            </div>
+    <AgentChatHome
+      className="h-full min-h-0"
+      chatViewTransition
+      surfaceClassName="forms-ask-chat-panel bg-background shadow-none"
+      defaultMode="chat"
+      storageKey="forms"
+      browserTabId={TAB_ID}
+      showHeader={false}
+      showTabBar={false}
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={t("home.emptyState")}
+      emptyStateDisplay="hidden"
+      centerComposerWhenEmpty
+      composerLayoutVariant="hero"
+      composerPlaceholder={t("home.composerPlaceholder")}
+      homeIntroSlot={
+        <div className="forms-chat-intro">
+          <h1>{t("home.heading")}</h1>
+          <p>{t("home.description")}</p>
+          <div className="forms-chat-pill-row">
+            {suggestions.map(({ icon: Icon, label, prompt }) => (
+              <button
+                key={prompt}
+                type="button"
+                className="forms-chat-pill"
+                onClick={() => prefillSuggestion(prompt)}
+              >
+                <Icon className="size-3.5" />
+                {label}
+              </button>
+            ))}
           </div>
-        }
-      />
-    </div>
+        </div>
+      }
+    />
   );
 }

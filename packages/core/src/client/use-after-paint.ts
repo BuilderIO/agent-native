@@ -58,8 +58,6 @@ export function scheduleAfterPaint(
     };
     const outer = requestAnimationFrame(() => {
       if (settled) return;
-      // A single frame's callback still runs before that frame's paint; the
-      // second frame runs after the browser has committed the first paint.
       scheduleIdleAfterFrame();
     });
     cancels.push(() => cancelAnimationFrame(outer));
@@ -73,13 +71,6 @@ export function scheduleAfterPaint(
   };
 }
 
-/**
- * Opt-in deferral for non-visible startup reads. Returns `false` until the
- * first paint has happened and the main thread has been idle once, then
- * `true` for the rest of the mount. Call sites use it as an `enabled` gate or
- * to schedule their first read, keeping the first-paint window for work the
- * visitor can actually see.
- */
 export function useAfterPaint(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => scheduleAfterPaint(() => setReady(true)), []);

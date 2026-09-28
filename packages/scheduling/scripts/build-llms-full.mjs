@@ -1,5 +1,3 @@
-// Concatenate all docs into a single llms-full.txt bundle for AI consumption.
-// Run by `pnpm build` after `tsc`.
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,13 +15,6 @@ function walk(dir, files = []) {
   return files;
 }
 
-// Code-unit order, never `localeCompare`: this file is committed, and every
-// `pnpm install` regenerates it. Locale collation sorts `UI_UNIFICATION.md`
-// after `actions.md` under full ICU and before it under small-icu, so the
-// bundle's order — and the working tree's cleanliness — depended on which Node
-// build ran it. A permanently dirty tree makes `changeset status` report
-// scheduling as "changed with no changeset", which is what stopped a stable
-// npm release.
 const files = walk(docsDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 const out = [];
 out.push("# @agent-native/scheduling — Full Documentation Bundle");

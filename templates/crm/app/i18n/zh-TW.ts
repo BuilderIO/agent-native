@@ -23,6 +23,11 @@ const messages = {
     retry: "重試",
     search: "搜尋",
   },
+  chatHome: {
+    description:
+      "探索 Native SQL 與已連線記錄中的授權帳戶脈絡、後續工作與證據。",
+    placeholder: "詢問你的 CRM",
+  },
   commandMenu: {
     placeholder: "搜尋記錄、清單和指令…",
     groupRecords: "記錄",
@@ -64,6 +69,8 @@ const messages = {
     languageTitle: "語言",
     languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
     languageLabel: "介面語言",
+    mcpAbout:
+      "將 CRM 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 CRM 中工作：尋找記錄、更新欄位並管理任務。它只能看到你有權看到的內容。",
   },
   connection: {
     tab: "連線",

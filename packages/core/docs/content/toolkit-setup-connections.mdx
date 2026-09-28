@@ -56,9 +56,12 @@ export function SettingsConnectionsTab() {
 ```
 
 Register setup steps close to the feature that needs them. Link users to the
-standard settings tab instead of building bespoke credential forms.
+Settings page that owns the credential instead of building bespoke credential
+forms: model provider keys live on Agent › Model, other keys on
+Connections › API keys, and Builder.io on Connections › Integrations.
 
 ```ts
+import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 
 registerOnboardingStep({
@@ -73,7 +76,7 @@ registerOnboardingStep({
       kind: "link",
       label: "Open settings",
       primary: true,
-      payload: { url: "/settings/integrations#secrets" },
+      payload: { url: buildSettingsRoute("model") },
     },
   ],
   isComplete: async () => hasOpenAIKey(),
@@ -94,14 +97,14 @@ registerWorkspaceConnectionOnboardingStep({
 ```
 
 For app settings, compose `SettingsTabsPage` with `SetupConnectionsPage` and the
-standard Settings Kit tabs so keys, connections, Builder connect, and team
-settings live in one predictable place.
+standard [Settings Kit](/docs/toolkit-settings) pages so keys, connections,
+Builder connect, and team settings live in one predictable place.
 
 ## UX Standard {#ux-standard}
 
 - Errors explain the missing connection and offer the direct settings link.
 - Secrets are never stored in app tables or pasted into docs/examples.
-- App setup pages and settings tabs use the same readiness source.
+- App setup pages and Settings pages use the same readiness source.
 - Builder connect is offered as a first-class path, not buried as an env-var
   fallback.
 

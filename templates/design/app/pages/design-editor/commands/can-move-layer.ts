@@ -34,9 +34,6 @@ export function runCanMoveLayer(
   intent: LayersPanelMoveIntent,
 ) {
   const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
-  // L19: a file/screen row is a valid drop target too — dropping a layer
-  // "on" a screen row (no code-layer owner, since it isn't a DOM node)
-  // appends it into that screen's body via moveNodeBetweenDocuments.
   const targetFile = !targetOwner
     ? files.find((file) => file.id === intent.targetId)
     : undefined;
@@ -55,10 +52,6 @@ export function runCanMoveLayer(
       ),
     );
   }
-  // L8: a locked or hidden row can still be used as a before/after/inside
-  // drop ANCHOR — locking/hiding a layer shouldn't make it impossible to
-  // position other layers relative to it in the panel. Only dragging
-  // (see per-draggedId checks below) stays gated by locked/hidden.
   if (!targetOwner && !targetFile) {
     return false;
   }
@@ -97,30 +90,19 @@ export function runCanMoveLayer(
       draggedId === intent.targetId ||
       !draggedOwner ||
       draggedOwner.runtimeOnly ||
-      // L8: dragging a LOCKED row is still blocked (locked means
-      // don't-touch-this-layer). A HIDDEN row is now draggable — hidden
-      // only means "not rendered in canvas", not "structurally frozen".
       effectiveCodeLayerState.lockedIds.has(draggedId)
     ) {
       return false;
     }
     if (targetFile) {
-      // Dropping directly onto a screen row: any non-locked DOM layer
-      // from any file can be appended into that screen's body, EXCEPT a
-      // node that's already a top-level (parentless) child of that same
-      // screen and would end up in the same place — still allow it
-      // through here; handleLayerMove no-ops that case cheaply.
       return true;
     }
-    // Same-file move: also exclude ancestor drags (would orphan the node).
     if (targetOwner && draggedOwner.fileId === targetOwner.fileId) {
       return !collectCodeLayerAncestors(
         targetOwner.tree,
         intent.targetId,
       ).includes(draggedId);
     }
-    // Cross-file move: allowed as long as the dragged side isn't locked
-    // (already checked above). File-row ids are excluded by the owner check.
     return true;
   });
 }

@@ -1,26 +1,3 @@
-/**
- * AgentPanel — unified agent component with chat, CLI, and workspace modes.
- *
- * A self-contained panel with no layout opinions — drop it into a sidebar,
- * popover, dialog, full page, or any container. It fills its parent via
- * flex and min-h-0.
- *
- * Features:
- * - Chat mode: assistant-ui powered chat with tool calls
- * - CLI mode: embedded xterm.js terminal (dev mode only)
- * - Toggle between modes via header buttons
- *
- * Usage:
- *   // In a sidebar
- *   <div style={{ width: 380 }}><AgentPanel /></div>
- *
- *   // In a popover
- *   <Popover><AgentPanel suggestions={[...]} /></Popover>
- *
- *   // Full page chat surface
- *   <AgentChatSurface mode="page" className="h-screen" />
- */
-
 import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import {
   IconMessageCircle,
@@ -36,6 +13,7 @@ import {
   IconArrowsHorizontal,
   IconArrowsMaximize,
   IconExternalLink,
+  IconPlugConnected,
   IconShare3,
 } from "@tabler/icons-react";
 import React, {
@@ -65,23 +43,24 @@ import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
-// Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
-// assistant-ui + zod block schemas) so it is NOT in the static import closure of
-// every page. The header/tab chrome renders immediately; chat streams in once the
-// chunk lands (~650-700 KB gzip saved from the critical path).
 const loadMultiTabAssistantChat = () =>
   import("./MultiTabAssistantChat.js").then((m) => ({
     default: m.MultiTabAssistantChat,
   }));
 const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
+import { buildSettingsRoute } from "../navigation/index.js";
+import {
+  isSettingsSectionId,
+  SETTINGS_SECTION_ALIASES,
+} from "../navigation/settings-redirects.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
 } from "./agent-sidebar-events.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
@@ -94,15 +73,18 @@ export {
 } from "./AgentSidebar.js";
 export type { AgentSidebarProps } from "./AgentSidebar.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
-import { URLSync } from "./agent-sidebar-url-sync.js";
+import {
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath, appPath } from "./api-path.js";
 import { assistantUiRecoverableRenderErrorKind } from "./assistant-ui-recovery.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
 import {
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
   getAgentChatViewTransitionStyle,
 } from "./chat-view-transition.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import { fetchBuilderStatus } from "./client-status-requests.js";
 import { getFramePostMessageTargetOrigin } from "./frame.js";
 import { useT } from "./i18n.js";
@@ -114,7 +96,9 @@ import { isFirstRunOnboardingEnabled } from "./onboarding/first-run-enabled.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "./onboarding/first-run-startup-gate.js";
 import { useOnboardingPreviewMode } from "./onboarding/use-preview-mode.js";
 import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
+import { SETTINGS_SECTION_STATE_KEY } from "./settings/shell/routing.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
+import { RouterSidebarLink } from "./ui/AppSidebar.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { cn } from "./utils.js";
 
@@ -122,17 +106,33 @@ function parentFrameTargetOrigin(): string {
   return getFramePostMessageTargetOrigin() ?? window.location.origin;
 }
 
-// Lazy-load AgentTerminal to avoid bundling xterm.js when not needed
 const AgentTerminal = lazy(() =>
   import("./terminal/index.js").then((m) => ({ default: m.AgentTerminal })),
 );
 
+/**
+ * The section an `agent-panel:open-settings` request names. Callers that set
+ * the hash and dispatch no section (run recovery's `#agent-limits`, the
+ * composer's `#llm`) meant that hash.
+ */
+export function requestedSettingsSection(
+  section?: string | null,
+  currentHash?: string | null,
+): string {
+  const requested = section?.replace(/^#/, "").trim() ?? "";
+  if (requested) return requested;
+  const hash = currentHash?.replace(/^#/, "").trim() ?? "";
+  return isSettingsSectionId(hash) || /^secrets:./i.test(hash) ? hash : "";
+}
+
+/** Today's Settings hash for a section; the redesigned shell reads the section itself. */
 export function settingsRouteHashForSection(
   section?: string | null,
   currentHash?: string | null,
 ): string {
-  const raw = section?.replace(/^#/, "").trim() ?? "";
-  const normalized = raw.toLowerCase();
+  const raw = requestedSettingsSection(section, currentHash);
+  const lowered = raw.toLowerCase();
+  const normalized = SETTINGS_SECTION_ALIASES[lowered] ?? lowered;
   if (
     [
       "llm",
@@ -198,10 +198,18 @@ export function AgentPanelSettingsNavigation({
         onOpenSettings(section);
         return;
       }
-      const navigation = navigate({
-        pathname: appPath("/settings"),
-        hash: settingsRouteHashForSection(section, window.location.hash),
-      });
+      const requested = requestedSettingsSection(section, window.location.hash);
+      const navigation = navigate(
+        {
+          pathname: appPath("/settings"),
+          hash: settingsRouteHashForSection(section, window.location.hash),
+        },
+        // The hash can't tell API keys from Integrations; the redesigned
+        // Settings reads the section from history state instead.
+        {
+          state: requested ? { [SETTINGS_SECTION_STATE_KEY]: requested } : null,
+        },
+      );
       const notifyLocationChange = () => {
         window.dispatchEvent(new Event("popstate"));
         window.dispatchEvent(new Event("hashchange"));
@@ -224,14 +232,12 @@ export function AgentPanelSettingsNavigation({
 
   return null;
 }
-// Lazy-load ResourcesPanel to avoid bundling when not needed
 const ResourcesPanel = lazy(() =>
   import("./resources/ResourcesPanel.js").then((m) => ({
     default: m.ResourcesPanel,
   })),
 );
 
-// Lazy-load OnboardingPanel — only pulled in when onboarding is active.
 const OnboardingPanel = lazy(() =>
   import("./onboarding/OnboardingPanel.js").then((m) => ({
     default: m.OnboardingPanel,
@@ -244,18 +250,12 @@ const FirstRunOnboarding = lazy(() =>
   })),
 );
 
-// Lazy-load SetupButton — the header entry-point that re-opens the
-// onboarding panel after the user has dismissed it.
 const SetupButton = lazy(() =>
   import("./onboarding/SetupButton.js").then((m) => ({
     default: m.SetupButton,
   })),
 );
 
-// The setup/onboarding checklist that used to appear above chat is disabled
-// for every app — setup (AI engine, image/video gen, asset storage, email,
-// GitHub, etc.) is surfaced in the settings pages and per-feature setup
-// affordances. Keep this off; do not re-enable globally.
 const SHOW_ONBOARDING = false;
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 
@@ -331,8 +331,6 @@ interface AvailableCli {
 function useAvailableClis() {
   const [clis, setClis] = useState<AvailableCli[]>([]);
   useEffect(() => {
-    // Try to fetch available CLIs — endpoint is provided by the terminal plugin.
-    // Returns 404 gracefully when the plugin isn't loaded.
     fetch(agentNativePath("/_agent-native/available-clis"))
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setClis(Array.isArray(data) ? data : []))
@@ -359,8 +357,6 @@ function useCliSelection(keyPrefix: string) {
   return [selected, select] as const;
 }
 
-// ─── Settings panel components moved to ./settings/ ────────────────────────
-
 function IconTooltip({
   content,
   children,
@@ -379,12 +375,6 @@ function IconTooltip({
   );
 }
 
-// AgentSettingsPopover and AgentsSection moved to ./settings/
-
-// ─── ChatLoadingSkeleton ─────────────────────────────────────────────────────
-// Renders the sidebar header chrome immediately while the lazy assistant-ui
-// chunk is in flight. Matches the composer-area height so layout does not
-// shift when the real chat surface mounts.
 type ChatHeaderRenderer = (
   props: MultiTabAssistantChatHeaderProps,
 ) => React.ReactNode;
@@ -403,8 +393,6 @@ function ChatLoadingSkeleton({
   composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
 }) {
   const t = useT();
-  // Provide empty no-op implementations so renderHeader can render the real
-  // tab/mode buttons without needing actual chat state.
   const noop = useCallback(() => {}, []);
   const noopStr = useCallback((_id: string) => {}, []);
   const stubProps: MultiTabAssistantChatHeaderProps = {
@@ -584,6 +572,19 @@ export function resolveAgentPanelFullViewAction(
     : ({ kind: "link", href: agentPageHref } as const);
 }
 
+// Hosts without a Settings route pass no agentPageHref, so it doubles as the
+// signal that an Integrations page exists to link to. Both paths are
+// router-local; RouterSidebarLink adds the app base path.
+export function resolveAgentPanelIntegrationsHref(
+  agentPageHref: string | undefined,
+  currentPath?: string,
+) {
+  if (!agentPageHref) return null;
+  const href = buildSettingsRoute("integrations");
+  if (currentPath === href || currentPath?.startsWith(`${href}/`)) return null;
+  return href;
+}
+
 export function getAgentPanelShortcutHints(isMac: boolean) {
   return {
     closeTab: isMac ? "⌃W" : "⌥W",
@@ -593,22 +594,13 @@ export function getAgentPanelShortcutHints(isMac: boolean) {
   };
 }
 
-// ─── AgentPanel ─────────────────────────────────────────────────────────────
-
 export interface AgentPanelCodeAccess {
-  /** Whether this surface can safely edit source and run shell commands. */
   enabled: boolean;
-  /** Heading shown when code access is unavailable. */
   unavailableTitle?: string;
-  /** Detail copy shown when code access is unavailable. */
   unavailableDescription?: string;
-  /** Optional CTA label for the unavailable state. */
   unavailableCtaLabel?: string;
-  /** Optional CTA URL for the unavailable state. */
   unavailableCtaHref?: string;
-  /** Optional secondary CTA label, usually for Builder cloud code changes. */
   unavailableSecondaryCtaLabel?: string;
-  /** Optional secondary CTA URL, usually the Builder connect URL. */
   unavailableSecondaryCtaHref?: string;
   /** @deprecated Chat stays available when code access is unavailable. */
   unavailableComposerPlaceholder?: string;
@@ -620,12 +612,6 @@ function useBuilderConnectUrl() {
 
   useEffect(() => {
     let cancelled = false;
-    // Track previous configured state so we only fanout the
-    // `agent-engine:configured-changed` event on a real false→true
-    // transition. Without this, every `/builder/status` response with
-    // `configured: true` dispatched the event, our own `onConfigured`
-    // listener caught it (because we both fire AND listen on the same
-    // global), refresh fired again, and we'd loop forever.
     let lastConfigured = false;
     const refresh = () => {
       fetchBuilderStatus<{
@@ -641,11 +627,6 @@ function useBuilderConnectUrl() {
           setConfigured(nextConfigured);
           if (nextConfigured && !lastConfigured) {
             lastConfigured = true;
-            // Tell other listeners (the agent panel's "Use Builder" CTA
-            // lives in a different React tree than the connect-flow popup
-            // poller, so a fresh status read here is the only thing that
-            // flips its UI). Dispatch only on transition so listeners
-            // that share this hook don't bounce the event back here.
             window.dispatchEvent(
               new CustomEvent("agent-engine:configured-changed", {
                 detail: { source: "builder-status" },
@@ -658,17 +639,11 @@ function useBuilderConnectUrl() {
         .catch(() => {});
     };
     refresh();
-    // The "Use Builder" CTA opens Builder in a `<a target="_blank">` tab
-    // (not a popup), so the previous one-shot fetch never noticed the
-    // connect succeeded when the user came back to the original tab.
     const onFocus = () => refresh();
     const onVisibility = () => {
       if (document.visibilityState === "visible") refresh();
     };
     const onConfigured = (e: Event) => {
-      // Ignore our own dispatch — refresh() already wrote the new state.
-      // Other dispatchers (the connect-flow popup poller, an external
-      // tab that completed connect, etc.) get the refresh they need.
       const detail = (e as CustomEvent).detail as
         | { source?: string }
         | undefined;
@@ -714,75 +689,42 @@ export interface AgentPanelProps extends Omit<
   AssistantChatProps,
   "onSwitchToCli"
 > {
-  /** Initial mode. Default: "chat" */
   defaultMode?: "chat" | "cli";
-  /** CSS class for the outer container */
   className?: string;
-  /** Inline styles for the outer container. */
   style?: React.CSSProperties;
-  /** Called when the user clicks the collapse button. If provided, a collapse button appears in the header. */
   onCollapse?: () => void;
-  /** Whether to render the header collapse button when `onCollapse` is provided. Default: true. */
   showCollapseButton?: boolean;
-  /** Whether the panel is currently in fullscreen (Claude-style centered) mode. */
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
-  /** Called when the user selects the full-view action from a sidebar chat. */
   onFullViewRequest?: () => void;
-  /** Called when the user asks the sidebar to use the wide chat width preset. */
   onSnapTo75Percent?: () => void;
-  /** Whether the sidebar is currently using the wide fixed drawer presentation. */
   isWideDrawer?: boolean;
-  /** Called when the user returns the wide drawer to the normal layout. */
   onExitWideDrawer?: () => void;
-  /** Route settings requests to a host-owned settings surface. */
   onOpenSettings?: (section?: string) => void;
-  /** Start a desktop-owned CLI tab from the chat sidebar menu. */
   onNewCliTab?: () => void;
-  /** Return from a desktop-owned CLI tab to a UI chat tab. */
   onNewUiTab?: () => void;
-  /** Render a host-owned CLI tab; the built-in terminal is used when omitted. */
   renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
-  /** Select the mode used by the chat sidebar's new-tab affordances. */
   newTabMode?: "ui" | "cli";
-  /** Host-owned label for the desktop CLI tab action. */
   newCliTabLabel?: string;
-  /** Host-owned label for the desktop UI tab action. */
   newUiTabLabel?: string;
-  /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
   storageKey?: string;
-  /** Restore the previously active chat thread on mount. Default: true. */
   restoreActiveThread?: boolean;
-  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
-  /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
-  /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
-  /** Optional notice rendered below the main header while Chat mode is active. */
   chatNotice?: React.ReactNode;
-  /** Show the chat thread tab row when the panel header is hidden. Default: true. */
   showTabBar?: boolean;
-  /** Show a compact New chat action in page chat when the main header is hidden. */
   showPageNewChatButton?: boolean;
-  /** Show the active thread title and page-level toolbar above fullscreen chat. */
   showPageHeader?: boolean;
-  /** App-shell content rendered before the active thread title. */
   pageHeaderLeadingSlot?: React.ReactNode;
-  /** App- or AgentKit-provided controls rendered in the page chat toolbar. */
   pageToolbarSlot?: React.ReactNode;
-  /** Reports whether the active conversation has enough state to show page chrome. */
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
-  /** Keep this surface on chat even when mode controls are hidden. */
   chatOnly?: boolean;
-  /** Optional link shown in Resources mode for the full Agent page. */
   agentPageHref?: string;
-  /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
 
@@ -1097,7 +1039,6 @@ function AgentPanelInner({
     [],
   );
 
-  // Listen for mode changes from the frame parent (via AgentSidebar)
   useEffect(() => {
     function handler(e: Event) {
       const requestedMode = (e as CustomEvent<{ mode?: unknown }>).detail?.mode;
@@ -1114,7 +1055,6 @@ function AgentPanelInner({
       window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handler);
   }, [switchMode]);
 
-  // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
   const [activeCliTab, setActiveCliTab] = useState("cli-1");
   const [mountedCliTabs, setMountedCliTabs] = useState<string[]>([]);
@@ -1159,7 +1099,6 @@ function AgentPanelInner({
     (id: string) => {
       setCliTabs((prev) => {
         if (prev.length <= 1) {
-          // Last tab — replace with a new one (acts as "clear")
           const newId = `cli-${++cliCounter.current}`;
           setActiveCliTab(newId);
           return [newId];
@@ -1186,10 +1125,6 @@ function AgentPanelInner({
     setActiveCliTab(id);
   }, []);
 
-  // Tab close shortcuts. Avoid Cmd+W (browser/OS) and (on Windows) Ctrl+W.
-  //   Mac:           Ctrl+W → close tab,  Ctrl+Alt+W → close all
-  //   Windows/Linux: Alt+W  → close tab,  Ctrl+Alt+W → close all
-  // Use e.code (physical key) — on Mac, Alt+W inserts ∑ and e.key isn't "w".
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code !== "KeyW" || e.metaKey || e.shiftKey) return;
@@ -1243,9 +1178,6 @@ function AgentPanelInner({
     codeAccess?.unavailableSecondaryCtaHref;
   const canUseCodeTools =
     isDevMode && codeAccessEnabled && isCodeEditingChatSurface;
-  // Hide the CLI tab when embedded in the Builder.io frame — code editing
-  // there happens via Builder, and the CLI panel only offers a Download
-  // Desktop CTA, which adds clutter without value.
   const showCliMode =
     Boolean(renderCliTab) ||
     ((isDevMode || !codeAccessEnabled) && isCodeEditingChatSurface);
@@ -1253,9 +1185,6 @@ function AgentPanelInner({
     if (mode === "cli" && !showCliMode) switchMode("chat");
   }, [mode, showCliMode, switchMode]);
 
-  // Notify frame when dev mode changes — use both a local CustomEvent (for
-  // when AgentPanel is rendered directly in the frame) AND postMessage (for
-  // when AgentPanel is inside the iframe and needs to cross the boundary).
   const prevIsDevMode = useRef(isDevMode);
   useEffect(() => {
     if (prevIsDevMode.current !== isDevMode) {
@@ -1265,7 +1194,6 @@ function AgentPanelInner({
           detail: { isDevMode },
         }),
       );
-      // Cross iframe boundary to the frame parent
       if (window.parent !== window) {
         window.parent.postMessage(
           { type: "agentNative.devModeChange", data: { isDevMode } },
@@ -1387,6 +1315,10 @@ function AgentPanelInner({
     onFullViewRequest,
     mode,
     chatOnly,
+    location.pathname,
+  );
+  const integrationsHref = resolveAgentPanelIntegrationsHref(
+    agentPageHref,
     location.pathname,
   );
 
@@ -1541,8 +1473,6 @@ function AgentPanelInner({
             sideOffset={6}
             className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
-              // A sibling overlay owns focus next; restoring it to the menu
-              // trigger would dismiss that overlay as an outside interaction.
               consumeAgentPanelOverlayFocusRestore(
                 preventHeaderMenuFocusRestoreRef,
                 event,
@@ -1581,17 +1511,26 @@ function AgentPanelInner({
               </DropdownMenuItem>
             ) : fullViewAction?.kind === "link" ? (
               <DropdownMenuItem asChild>
-                <Link
+                <RouterSidebarLink
                   to={fullViewAction.href}
                   aria-label={t("agentPanel.openFullView")}
                 >
                   <IconArrowsMaximize size={14} className="shrink-0" />
                   {t("agentPanel.openFullView")}
-                </Link>
+                </RouterSidebarLink>
+              </DropdownMenuItem>
+            ) : null}
+            {integrationsHref ? (
+              <DropdownMenuItem asChild>
+                <RouterSidebarLink to={integrationsHref}>
+                  <IconPlugConnected size={14} className="shrink-0" />
+                  {t("agentPanel.integrations")}
+                </RouterSidebarLink>
               </DropdownMenuItem>
             ) : null}
             {(onCollapse && mode === "chat" && wideDrawerAction) ||
-            fullViewAction ? (
+            fullViewAction ||
+            integrationsHref ? (
               <DropdownMenuSeparator />
             ) : null}
             {onCollapse &&
@@ -1821,6 +1760,7 @@ function AgentPanelInner({
       newUiTabLabel,
       agentPageHref,
       fullViewAction,
+      integrationsHref,
       onCollapse,
       onFullViewRequest,
       onExitWideDrawer,
@@ -1976,7 +1916,7 @@ function AgentPanelInner({
 
   const activeTabResizeObserverRef = useRef<ResizeObserver | null>(null);
   const scrollActiveTabIntoView = useCallback((el: HTMLDivElement) => {
-    const container = el.parentElement;
+    const container = getActiveTabScrollContainer(el);
     if (!container) return;
     requestAnimationFrame(() => {
       const delta = getActiveTabScrollDelta(
@@ -1987,14 +1927,12 @@ function AgentPanelInner({
     });
   }, []);
 
-  // The sidebar stays mounted while closed and animates its width on open, so
-  // the active tab ref alone can run before the overflow container is usable.
   const activeTabRefCb = useCallback(
     (el: HTMLDivElement | null) => {
       activeTabResizeObserverRef.current?.disconnect();
       activeTabResizeObserverRef.current = null;
       if (!el) return;
-      const container = el.parentElement;
+      const container = getActiveTabScrollContainer(el);
       if (!container) return;
 
       const observer =
@@ -2002,6 +1940,7 @@ function AgentPanelInner({
           ? null
           : new ResizeObserver(() => scrollActiveTabIntoView(el));
       observer?.observe(container);
+      observer?.observe(el);
       activeTabResizeObserverRef.current = observer;
       scrollActiveTabIntoView(el);
     },
@@ -2286,7 +2225,6 @@ function AgentPanelInner({
                       <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
                         {mode === "chat"
                           ? mainTabs.map((tab) => {
-                              // Highlight the parent tab if a child is active
                               const isActive =
                                 tab.id === activeTabId ||
                                 (tab.id === focusParentId &&
@@ -2517,8 +2455,6 @@ function AgentPanelInner({
         style={{
           ...AGENT_PANEL_ROOT_STYLE,
           ...style,
-          // The chat view-transition container otherwise traps fixed onboarding
-          // chrome below the app's own header instead of the viewport edge.
           ...(isFirstRunOnboardingSurface ? { contain: "none" } : {}),
         }}
         data-agent-fullscreen={isFullscreen ? "true" : undefined}
@@ -2727,6 +2663,12 @@ export function getActiveTabScrollDelta(
   return 0;
 }
 
+export function getActiveTabScrollContainer(
+  el: HTMLElement,
+): HTMLElement | null {
+  return el.closest<HTMLElement>(".agent-tabs-scroll");
+}
+
 class AgentPanelErrorBoundary extends React.Component<
   { children: React.ReactNode; onReset: () => void },
   { error: Error | null; staleIndexRecoveryCount: number }
@@ -2834,9 +2776,6 @@ class AgentPanelErrorBoundary extends React.Component<
   }
 }
 
-// The boundary must stay a class (componentDidCatch), but its copy still has to
-// come from the catalog like every other string in this file — so the fallback
-// UI lives in function components that can call useT.
 function AgentPanelReloadingNotice() {
   const t = useT();
   return (
@@ -2910,18 +2849,7 @@ export function AgentPanel(props: AgentPanelProps) {
 export type AgentChatSurfaceMode = "panel" | "page";
 
 export interface AgentChatSurfaceProps extends AgentPanelProps {
-  /**
-   * Layout treatment for the reusable chat surface. Use "page" when rendering
-   * chat as the primary route content instead of inside the sidebar shell.
-   * Default: "panel". Inline header and chat-tab chrome are hidden by default;
-   * pass `showHeader` or `showTabBar` to opt into those controls.
-   */
   mode?: AgentChatSurfaceMode;
-  /**
-   * Apply the shared chat view-transition marker/name to this surface. Pair
-   * with `AgentSidebar chatViewTransition` and navigate via
-   * `startAgentChatViewTransition` or `useAgentRouteState`.
-   */
   chatViewTransition?: boolean;
 }
 
@@ -2938,13 +2866,6 @@ export function shouldDefaultAgentChatSurfacePageHeader(
   return mode === "page";
 }
 
-/**
- * Reusable chat surface backed by AgentPanel internals.
- *
- * This gives page-level routes the same tabbed conversations, composer,
- * model controls, context chips, and recovery boundary used by the
- * sidebar without introducing a second chat implementation.
- */
 export function AgentChatSurface({
   mode = "panel",
   className,
@@ -2995,6 +2916,7 @@ export function AgentChatSurface({
     <>
       <URLSync browserTabId={resolvedBrowserTabId} />
       {panel}
+      <SettingsReturnPathRecorder />
     </>
   );
 }

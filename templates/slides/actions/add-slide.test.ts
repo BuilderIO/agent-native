@@ -128,8 +128,6 @@ vi.mock("@agent-native/core/collab", () => ({
   agentTouchDocument: (...args: unknown[]) => mockAgentTouchDocument(...args),
 }));
 
-// Real per-deck lock just runs the fn; a passthrough keeps the unit test focused
-// on add-slide's own logic without exercising the shared lock module.
 vi.mock("./patch-deck.js", () => ({
   withDeckLock: (_deckId: string, fn: () => Promise<unknown>) => fn(),
   isAgentPatchCaller: (caller: string | undefined) =>
@@ -445,6 +443,43 @@ describe("add-slide", () => {
     expect(updateFn).not.toHaveBeenCalled();
   });
 
+  it("adds a legacy slide that stores contenteditable=false, and an exact duplicate", async () => {
+    const legacy =
+      '<div class="fmd-slide"><h2 contenteditable="false" data-builder-id="b-2">Kept</h2></div>';
+    deckData.slides = [{ id: "slide-1", content: legacy }];
+    await expect(
+      action.run(
+        { deckId: "deck-1", slideId: "slide-dup", content: legacy },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-legacy",
+          content:
+            '<div class="fmd-slide"><p contenteditable="false">x</p></div>',
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("refuses a new slide that carries rendered editor markup", async () => {
+    await expect(
+      action.run(
+        {
+          deckId: "deck-1",
+          slideId: "slide-new",
+          content: '<div contenteditable="true">New</div>',
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({ errorCode: "render_artifact_in_slide_content" });
+    expect(updateFn).not.toHaveBeenCalled();
+  });
+
   it("forces a WebMCP version snapshot with its run context", async () => {
     deckData.generationContext = { targetSlideCount: 3 };
 
@@ -584,14 +619,10 @@ describe("add-slide", () => {
       "slide-2",
     ]);
     expect(mockAssertAccess).toHaveBeenCalledWith("deck", "deck-1", "editor");
-    // The broadcast now carries the new slideId + agent actor (backwards-
-    // compatible payload — the { type, deckId } fields are still present).
     expect(mockNotifyClients).toHaveBeenCalledWith("deck-1", {
       slideId: "slide-new",
       actor: "agent",
     });
-    // The agent's presence is recorded on the DECK presence doc for the new
-    // slide so the editor can light it up + show a lingering "AI edited" tag.
     expect(mockAgentTouchDocument).toHaveBeenCalledWith(
       "deck-deck-1",
       expect.objectContaining({
@@ -633,7 +664,6 @@ describe("add-slide", () => {
   });
 
   it('appends for position "end" instead of failing validation', async () => {
-    // "end" is the word an agent reaches for; it used to fail zod as NaN.
     const result = await action.run({
       deckId: "deck-1",
       slideId: "slide-new",

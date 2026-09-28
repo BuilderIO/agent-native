@@ -1,11 +1,7 @@
-/**
- * <NewKeyMenu /> — the "+ New" key picker shared by every place a key can be
- * added: search the keys an app declares, or type any name to add a custom
- * one. The app Keys section and the Dispatch Vault render the same menu so
- * adding a key feels identical wherever you do it.
- */
-
-import { ButtonBase as ToolkitButtonBase } from "@agent-native/toolkit/ui/button";
+import {
+  ButtonBase as ToolkitButtonBase,
+  type ButtonProps,
+} from "@agent-native/toolkit/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -28,23 +24,28 @@ import { cn } from "../utils.js";
 import { providerLogoForKey } from "./KeyProviderTile.js";
 
 export interface NewKeyOption {
-  /** Env-var style key name, e.g. `OPENAI_API_KEY`. */
   key: string;
-  /** Human label shown in the list, e.g. "OpenAI API key". */
   label: string;
   required?: boolean;
-  /** Small muted text on the right, e.g. the app that declares the key. */
   hint?: string;
 }
 
 export interface NewKeyMenuProps {
-  /** Keys the caller already knows about that are not set yet. */
   options: NewKeyOption[];
   onPick: (option: NewKeyOption) => void;
-  /** Custom key chosen; `name` is the typed search, already normalized. */
   onCustom: (name?: string) => void;
-  /** Trigger button text. Defaults to "New". */
   label?: string;
+  /**
+   * Trigger size and variant, per the Settings control contract: `xs`
+   * outline beside a group title (the default), `sm` for a row or page
+   * action, `default` inside a dialog field.
+   */
+  size?: "xs" | "sm" | "default";
+  variant?: Extract<
+    ButtonProps["variant"],
+    "default" | "secondary" | "outline" | "ghost"
+  >;
+  /** Layout only (flex, margin, width); size and color come from the props. */
   triggerClassName?: string;
 }
 
@@ -62,6 +63,8 @@ export function NewKeyMenu({
   onPick,
   onCustom,
   label,
+  size = "xs",
+  variant = "outline",
   triggerClassName,
 }: NewKeyMenuProps) {
   const t = useT();
@@ -81,20 +84,16 @@ export function NewKeyMenu({
       <PopoverTrigger asChild>
         <ToolkitButtonBase
           type="button"
-          variant="outline"
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground",
-            triggerClassName,
-          )}
+          variant={variant}
+          size={size}
+          className={triggerClassName}
         >
-          <IconPlus size={11} />
+          <IconPlus aria-hidden />
           {triggerLabel}
         </ToolkitButtonBase>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-0">
         <Command
-          // cmdk's default scorer matches loose subsequences, so "logo"
-          // also surfaces every "G-o-o-g-l-e ... " key.
           filter={(value, search) =>
             value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
           }

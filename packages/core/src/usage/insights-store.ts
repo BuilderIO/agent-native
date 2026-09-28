@@ -11,6 +11,9 @@ import {
 } from "./metrics-store.js";
 import { calculateCost } from "./store.js";
 
+/** Run insights are always read for one app, never across all apps. */
+type RunAccessInput = UsageMetricsAccessInput & { app: string };
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Anthropic's default prompt-cache TTL; a gap longer than this re-writes the prefix.
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -502,7 +505,7 @@ async function feedbackByRun(
 
 const RUN_COLUMNS = `MIN(id) AS id, MIN(created_at) AS created_at,
   MAX(owner_email) AS owner_email, MAX(app) AS app, MAX(label) AS label,
-  MAX(model) AS model, MAX(thread_id) AS thread_id,
+  MAX(model) AS model, MAX(thread_id) AS thread_id, MAX(task_id) AS task_id,
   SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
   SUM(cache_read_tokens) AS cache_read_tokens,
   SUM(cache_write_tokens) AS cache_write_tokens,
@@ -576,7 +579,7 @@ export async function getUsageInsights(
     scope?: UsageMetricsScope;
     userEmail?: string | null;
   },
-  accessInput: UsageMetricsAccessInput,
+  accessInput: RunAccessInput,
 ): Promise<UsageInsights> {
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const sinceMs = Date.now() - sinceDays * DAY_MS;
@@ -668,7 +671,7 @@ export async function getUsageRun(
     scope?: UsageMetricsScope;
     userEmail?: string | null;
   },
-  accessInput: UsageMetricsAccessInput,
+  accessInput: RunAccessInput,
 ): Promise<UsageRunDetail | null> {
   const appScope = usageAppScope(accessInput.app.trim());
   const resolved = await resolveScope(

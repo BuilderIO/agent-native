@@ -1,4 +1,4 @@
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { getUserSetting, mutateUserSetting } from "@agent-native/core/settings";
 import { nanoid } from "nanoid";
 
 import {
@@ -13,11 +13,24 @@ import {
 const AI_FILTER_SETTING_KEY = "ai-filter-state";
 const MAX_FEEDBACK = 100;
 const MAX_DECISIONS = 200;
+const aiFilterSettingsPatchSchema = aiFilterStateSchema
+  .pick({
+    enabled: true,
+    autoFilter: true,
+    autoFilterThreshold: true,
+    suggestionThreshold: true,
+  })
+  .partial()
+  .strict();
 
-export async function getAiFilterState(
-  ownerEmail: string,
-): Promise<AiFilterState> {
-  const stored = await getUserSetting(ownerEmail, AI_FILTER_SETTING_KEY);
+type AiFilterSettingsPatch = Partial<
+  Pick<
+    AiFilterState,
+    "enabled" | "autoFilter" | "autoFilterThreshold" | "suggestionThreshold"
+  >
+>;
+
+function parseAiFilterState(stored: unknown): AiFilterState {
   if (stored === undefined || stored === null) {
     return createDefaultAiFilterState();
   }
@@ -31,16 +44,33 @@ export async function getAiFilterState(
   return parsed.data;
 }
 
+export async function getAiFilterState(
+  ownerEmail: string,
+): Promise<AiFilterState> {
+  const stored = await getUserSetting(ownerEmail, AI_FILTER_SETTING_KEY);
+  return parseAiFilterState(stored);
+}
+
 export async function saveAiFilterState(
   ownerEmail: string,
-  state: AiFilterState,
+  patch: AiFilterSettingsPatch,
 ): Promise<AiFilterState> {
-  const parsed = aiFilterStateSchema.safeParse(state);
-  if (!parsed.success) {
+  const parsedPatch = aiFilterSettingsPatchSchema.safeParse(patch);
+  if (!parsedPatch.success) {
     throw new Error("Invalid AI filter settings.");
   }
-  await putUserSetting(ownerEmail, AI_FILTER_SETTING_KEY, parsed.data);
-  return parsed.data;
+  const updated = await mutateUserSetting(
+    ownerEmail,
+    AI_FILTER_SETTING_KEY,
+    (current) => {
+      const latest = parseAiFilterState(current);
+      const next = { ...latest, ...parsedPatch.data };
+      const nextParsed = aiFilterStateSchema.safeParse(next);
+      if (!nextParsed.success) throw new Error("Invalid AI filter settings.");
+      return nextParsed.data;
+    },
+  );
+  return parseAiFilterState(updated);
 }
 
 function bounded(value: string | undefined, max: number): string {
@@ -55,7 +85,6 @@ export async function recordAiFilterFeedback(
     comment?: string;
   },
 ): Promise<AiFilterState> {
-  const state = await getAiFilterState(ownerEmail);
   const now = Date.now();
   const comment = input.comment?.trim()
     ? bounded(input.comment.trim(), 500)
@@ -81,13 +110,24 @@ export async function recordAiFilterFeedback(
     createdAt: now,
   }));
 
-  // ponytail: a capped settings ledger keeps this MVP small; move to a table
-  // when review history needs search, pagination, or concurrent writers.
-  return saveAiFilterState(ownerEmail, {
-    ...state,
-    feedback: [...state.feedback, ...feedback].slice(-MAX_FEEDBACK),
-    decisions: [...state.decisions, ...decisions].slice(-MAX_DECISIONS),
-  });
+  // ponytail: move this capped ledger to a table when review history needs
+  // search or pagination.
+  const updated = await mutateUserSetting(
+    ownerEmail,
+    AI_FILTER_SETTING_KEY,
+    (current) => {
+      const state = parseAiFilterState(current);
+      const next = {
+        ...state,
+        feedback: [...state.feedback, ...feedback].slice(-MAX_FEEDBACK),
+        decisions: [...state.decisions, ...decisions].slice(-MAX_DECISIONS),
+      };
+      const parsed = aiFilterStateSchema.safeParse(next);
+      if (!parsed.success) throw new Error("Invalid AI filter settings.");
+      return parsed.data;
+    },
+  );
+  return parseAiFilterState(updated);
 }
 
 export async function recordAiFilterDecisions(
@@ -95,9 +135,23 @@ export async function recordAiFilterDecisions(
   decisions: AiFilterDecision[],
 ): Promise<AiFilterState> {
   if (decisions.length === 0) return getAiFilterState(ownerEmail);
-  const state = await getAiFilterState(ownerEmail);
-  return saveAiFilterState(ownerEmail, {
-    ...state,
-    decisions: [...state.decisions, ...decisions].slice(-MAX_DECISIONS),
-  });
+  const updated = await mutateUserSetting(
+    ownerEmail,
+    AI_FILTER_SETTING_KEY,
+    (current) => {
+      const state = parseAiFilterState(current);
+      const byId = new Map(
+        state.decisions.map((decision) => [decision.id, decision]),
+      );
+      for (const decision of decisions) byId.set(decision.id, decision);
+      const next = {
+        ...state,
+        decisions: [...byId.values()].slice(-MAX_DECISIONS),
+      };
+      const parsed = aiFilterStateSchema.safeParse(next);
+      if (!parsed.success) throw new Error("Invalid AI filter settings.");
+      return parsed.data;
+    },
+  );
+  return parseAiFilterState(updated);
 }

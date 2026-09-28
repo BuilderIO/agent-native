@@ -31,8 +31,6 @@ function dateBoundary(raw: string): number | null {
   )
     return null;
 
-  // 08:00 UTC is still in the requested Pacific calendar day in both PST
-  // and PDT, including the two DST transition dates.
   const approximate = Date.UTC(year, month - 1, day, 8);
   const localParts = Object.fromEntries(
     pacificDateFormatter
@@ -89,7 +87,6 @@ type ParsedSearch = {
   excludedTerms: string[];
 };
 
-/** Attachment operators need Gmail's MIME parts, which metadata responses omit. */
 export function searchQueryNeedsAttachmentMetadata(query: string): boolean {
   return /(?:^|[\s({])-?(?:has|filename):/i.test(query);
 }
@@ -214,12 +211,6 @@ function expandSearchDisjunction(query: string): string[] | undefined {
   return splitSearchOr(query);
 }
 
-/**
- * Keep local/demo search compatible with the Gmail query strings saved by
- * search tabs. Gmail-connected reads send the raw query to Gmail; this parser
- * gives the local backend the same behavior for the operators Mail exposes
- * most often, especially `from:` filters copied from other mail clients.
- */
 function parseSearch(query: string): ParsedSearch {
   const operators: ParsedSearch["operators"] = [];
   const operatorPattern =

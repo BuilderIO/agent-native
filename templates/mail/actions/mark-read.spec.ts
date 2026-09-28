@@ -52,10 +52,6 @@ beforeEach(() => {
   mocks.writeAppState.mockResolvedValue(undefined);
   mocks.isConnected.mockResolvedValue(false);
   mocks.markRead.mockResolvedValue({ id: "email-1", isRead: true });
-  // Default: every target already carries an explicit accountEmail in these
-  // tests, so resolution is a pure passthrough (matches the real resolver's
-  // behavior when accountEmail is already set — see email-state.spec.ts for
-  // the actual resolution-rule coverage).
   mocks.resolveMutationAccounts.mockImplementation(
     async (
       _owner: string,
@@ -130,9 +126,6 @@ describe("mark-read action", () => {
       accountEmails: "acct-a@example.com,acct-b@example.com",
     });
 
-    // Passes the SAME resolved targets to the Gmail mutation and the store
-    // mirror (see resolveMutationAccounts in email-state.ts) — the two must
-    // never group by different accounts.
     expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
       OWNER,
       [

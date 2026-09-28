@@ -301,7 +301,7 @@ npx @agent-native/core@latest deploy
 # https://your-agents.com/forms/*      → apps/forms
 ```
 
-Jede App wird mit `APP_BASE_PATH=/<name>` und `VITE_APP_BASE_PATH=/<name>` erstellt und über die ausgewählte Nitro-Voreinstellung ausgegeben. Cloudflare Pages ist die Standardvoreinstellung und verwendet einen Dispatcher-Worker bei `dist/_worker.js` plus `_routes.json`. Netlify wird mit `npx @agent-native/core@latest deploy --preset netlify` unterstützt; Es gibt App-Funktionen unter `.netlify/functions-internal/<app>-server` aus und generiert Weiterleitungen, die statische Assets nicht erzwingen, sodass CDN Dateien zuerst bereitstellt. Vercel wird mit `npx @agent-native/core@latest deploy --preset vercel` unterstützt; Es schreibt ein Root-`.vercel/output`-Bundle mit Vercels Build Output API.
+Jede App wird mit `APP_BASE_PATH=/<name>` und `VITE_APP_BASE_PATH=/<name>` erstellt und über die ausgewählte Nitro-Voreinstellung ausgegeben. **Netlify** ist die Standardvoreinstellung für den einheitlichen `deploy`-Befehl; sie gibt App-Funktionen unter `.netlify/functions-internal/<app>-server` aus und erzeugt Weiterleitungen, die statische Assets nicht erzwingen, sodass das CDN Dateien zuerst ausliefert. **Vercel** wird mit `npx @agent-native/core@latest deploy --preset vercel` unterstützt; sie schreibt ein Root-`.vercel/output`-Bundle mit Vercels Build Output API.
 
 <Diagram id="doc-block-18vbd0h" title="Einheitliche Bereitstellung: ein Ursprung, ein Pfad pro App" summary={"Jede App wird hinter einem einzigen Ursprung ausgeliefert, sodass Anmeldesitzungen und App-übergreifendes A2A kostenlos sind."}>
 
@@ -352,10 +352,11 @@ Am **gleichen Ursprung** zu sein, ist der wahre Vorteil:
 - **App-übergreifendes A2A ohne Konfiguration.** `@mail`-Tagging `@calendar` wird zu einem Abruf mit demselben Ursprung – kein CORS, kein JWT-Signieren zwischen Geschwistern. Extern A2A verwendet immer noch JWT wie heute.
 - **Ein DNS-Eintrag, ein Zertifikat, ein CDN-Cache.**
 
-Veröffentlichen Sie die `dist/`-Ausgabe:
+Veröffentlichen Sie den Build für Ihre Plattform:
 
 ```bash
-wrangler pages deploy dist
+npx @agent-native/core@latest deploy
+netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
 Für Netlify:
@@ -405,7 +406,7 @@ Bevorzugen Sie jede App in einer eigenen Domain (`mail.company.com`, `calendar.c
 
 ### Gemeinsame Datenbank, gemeinsame Anmeldeinformationen
 
-Was auch immer Sie auswählen, verweisen Sie jede App auf den gleichen `DATABASE_URL` für einen App-übergreifenden Status: ein Satz Benutzerkonten, ein Satz Organisationen, ein Satz gemeinsamer Einstellungen. Wenn jede App über eine eigene Datenbank verfügt, funktioniert das Arbeitsbereichsmuster weiterhin – Sie verlieren nur die Geschichte des gemeinsamen Status.
+Damit Benutzerkonten, Organisationen, Einstellungen und andere App-übergreifende Daten geteilt werden, muss jede App dieselbe `DATABASE_URL` verwenden. Legen Sie sie für die lokale Entwicklung in der `.env`-Datei des Workspace-Stammverzeichnisses fest, damit alle Apps dieselbe PostgreSQL-Datenbank nutzen. Ist sie nicht gesetzt, verwendet jede App eine eigene prozesslokale PGlite-Datenbank. Benutzer und Organisationen werden dann nicht geteilt.
 
 Der Verbindungsbedarf summiert sich über alle Prozesse, die dieselbe Datenbank verwenden. Wenn fünf dauerhaft laufende Node.js-App-Prozesse jeweils einen gemeinsamen Pool für dieselbe `DATABASE_URL` nutzen, können sie beim Standardwert von 20 Verbindungen pro Pool bis zu 100 Verbindungen belegen (`5 × 1 Pool × 20`). Bei serverlosen Workspaces schätzen Sie die Zahl warmer Funktionsinstanzen pro App anhand der laufzeitspezifischen Pool-Standardwerte. Unter [Serverdatenbank](/docs/server-database) finden Sie `AGENT_NATIVE_DB_POOL_MAX` und die vollständigen Hinweise zur Verbindungsplanung.
 

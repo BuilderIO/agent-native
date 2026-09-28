@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core/action";
+import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 import {
+  parseBookingConferencingConfig,
   rowToBookingLink,
   serializeBookingHosts,
 } from "../server/lib/booking-link-utils.js";
@@ -91,6 +93,7 @@ export default defineAction({
         slug: schema.bookingLinks.slug,
         ownerEmail: schema.bookingLinks.ownerEmail,
         isActive: schema.bookingLinks.isActive,
+        conferencing: schema.bookingLinks.conferencing,
       })
       .from(schema.bookingLinks)
       .where(eq(schema.bookingLinks.id, args.id));
@@ -98,6 +101,29 @@ export default defineAction({
     if (!current) throw new Error("Booking link not found");
     const oldSlug = current.slug;
     const slugChanged = oldSlug !== slug;
+    const savedConferencing = parseBookingConferencingConfig(
+      current.conferencing,
+    );
+    const mayHaveZoomBookings =
+      savedConferencing.status === "invalid" ||
+      (savedConferencing.status === "valid" &&
+        savedConferencing.config.type === "zoom");
+
+    if (mayHaveZoomBookings && args.conferencing?.type !== "zoom") {
+      await getDb()
+        .update(schema.bookings)
+        .set({ zoomNeedsReview: true })
+        .where(
+          and(
+            eq(schema.bookings.slug, oldSlug),
+            ne(schema.bookings.status, "cancelled"),
+            or(
+              isNull(schema.bookings.zoomMeetingId),
+              isNull(schema.bookings.zoomAccountId),
+            ),
+          ),
+        );
+    }
 
     await getDb()
       .update(schema.bookingLinks)
@@ -141,6 +167,23 @@ export default defineAction({
       .where(eq(schema.bookingLinks.id, args.id));
 
     if (!updated) throw new Error("Booking link not found");
-    return { ...rowToBookingLink(updated), accessRole: access.role };
+    const bookingLink = rowToBookingLink(updated);
+    const title = bookingLink.title.trim().slice(0, 180);
+    return {
+      ...bookingLink,
+      accessRole: access.role,
+      change: {
+        verb: "updated",
+        kind: "booking-link",
+        title: title || "Booking link",
+        ...(title ? {} : { titleIsFallback: true }),
+        detail: String(durationInput.duration),
+        url: buildDeepLink({
+          app: "calendar",
+          view: "booking-links",
+          params: { bookingLinkId: args.id },
+        }),
+      },
+    };
   },
 });

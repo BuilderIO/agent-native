@@ -11,19 +11,6 @@ import {
   type CalloutTone,
 } from "./callout.config.js";
 
-/**
- * Standard `callout` block — an emphasized note with a tone (info / decision /
- * risk / warning / success) and a markdown body. Lives in core so any app can
- * register it (it originated in the plan template).
- *
- * The section carries BOTH the app-neutral `an-callout` classes (styled by
- * core's `blocks.css` with shadcn theme tokens, so it looks right in any app)
- * and the legacy `plan-callout` classes (styled by the plan template's own
- * stylesheet). Plan therefore renders byte-identically to before; content (and
- * any other app) gets the theme-token treatment. `data-tone` drives the accent
- * in both. The body renders through `ctx.renderMarkdown` so each app supplies
- * its own GFM renderer (plan's react-markdown reader, content's, etc.).
- */
 export function CalloutBlock({
   data,
   blockId,
@@ -131,7 +118,6 @@ export function CalloutBlockEdit({
   );
 }
 
-/** Full client spec for the shared `callout` block (schema + MDX + Read/Edit). */
 export const calloutBlock = defineBlock<CalloutData>({
   type: "callout",
   schema: calloutSchema,
@@ -143,7 +129,5 @@ export const calloutBlock = defineBlock<CalloutData>({
   label: "Callout",
   description:
     "An emphasized note with a tone (info/decision/risk/warning/success) and a markdown body.",
-  // `body` is a `markdown(min(1))` field, so a fresh callout needs non-empty
-  // placeholder prose; `tone` defaults to the neutral "info" register.
   empty: () => ({ tone: "info", body: "Callout text" }),
 });

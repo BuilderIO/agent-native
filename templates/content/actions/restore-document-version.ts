@@ -23,6 +23,7 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
+import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 function isLinkedLocalSource(
   documentId: string,
@@ -78,6 +79,53 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     const db = getDb();
+    const [beforeFlush] = await db
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    if (!beforeFlush) {
+      throw new ActionContractError("Document not found.", {
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+    }
+    if (beforeFlush.updatedAt !== args.expectedUpdatedAt) {
+      throw new ActionContractError(
+        "The document changed after this restore was prepared.",
+        {
+          errorCode: "DOCUMENT_RESTORE_CONFLICT",
+          statusCode: 409,
+          details: {
+            expectedUpdatedAt: args.expectedUpdatedAt,
+            currentUpdatedAt: beforeFlush.updatedAt,
+          },
+        },
+      );
+    }
+    await flushOpenDocumentEditorToSql({ documentId, ownerEmail });
+    const [afterFlush] = await db
+      .select({ updatedAt: schema.documents.updatedAt })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    if (!afterFlush) {
+      throw new ActionContractError("Document not found.", {
+        errorCode: "DOCUMENT_NOT_FOUND",
+        statusCode: 404,
+      });
+    }
+    const expectedUpdatedAt = afterFlush.updatedAt;
     let softDeletedDatabaseIds: string[] = [];
     const updated = await db.transaction(async (rawTx) => {
       const tx = rawTx as any;
@@ -110,14 +158,14 @@ export default defineAction({
       if (isLinkedLocalSource(documentId, current)) {
         linkedLocalRestoreUnsupported();
       }
-      if (current.updatedAt !== args.expectedUpdatedAt) {
+      if (current.updatedAt !== expectedUpdatedAt) {
         throw new ActionContractError(
           "The document changed after this restore was prepared.",
           {
             errorCode: "DOCUMENT_RESTORE_CONFLICT",
             statusCode: 409,
             details: {
-              expectedUpdatedAt: args.expectedUpdatedAt,
+              expectedUpdatedAt,
               currentUpdatedAt: current.updatedAt,
             },
           },

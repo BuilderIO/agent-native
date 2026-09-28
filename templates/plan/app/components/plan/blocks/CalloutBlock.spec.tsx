@@ -37,10 +37,6 @@ function setInputValue(input: HTMLTextAreaElement, value: string) {
   });
 }
 
-// The `callout` block now lives in the shared core library
-// (`@agent-native/core/blocks`); plan registers it via `registerLibraryBlocks`.
-// This guards that plan's expected callout edit UX — inline-prose body plus a
-// tone/type picker in the edit popover — survives in the shared component.
 describe("CalloutBlockEdit", () => {
   let container: HTMLDivElement;
   let root: Root;

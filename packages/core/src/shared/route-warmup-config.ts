@@ -15,23 +15,10 @@ const AGENT_NATIVE_ROUTE_WARMUP_STRATEGIES =
   ]);
 
 export interface AgentNativeRouteWarmupResolvedConfig {
-  /**
-   * How unmarked internal route links are warmed.
-   *
-   * Links can opt in/out individually with `data-an-prefetch`:
-   * - `render`: warm as soon as the link renders.
-   * - `intent`: warm on hover/focus/touch.
-   * - `viewport`: warm when the link scrolls into view.
-   * - `none`: never warm this link.
-   */
   strategy: AgentNativeRouteWarmupStrategy;
-  /** Warm React Router `.data` URLs with ordinary fetches. */
   data: boolean;
-  /** Warm matched route JS chunks with `modulepreload`. */
   modules: boolean;
-  /** Selector for links explicitly marked for render-time warmup. */
   selector: string;
-  /** Maximum concurrent `.data` fetches. */
   maxConcurrent: number;
 }
 

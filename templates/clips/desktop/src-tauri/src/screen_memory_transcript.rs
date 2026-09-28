@@ -118,10 +118,6 @@ pub struct ScreenMemoryTranscriptRow {
     pub text: String,
 }
 
-/// The exact background-worker entry point intended for `screen_memory.rs`.
-/// `duration_ms` comes from finalized segment metadata and is checked before
-/// ffmpeg is started. `source` should describe the recorded audio track (for
-/// example `mixed-audio`); rows retain that source verbatim after validation.
 pub fn transcribe_segment(
     app: &AppHandle,
     segment_path: &Path,

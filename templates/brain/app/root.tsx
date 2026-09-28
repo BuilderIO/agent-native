@@ -21,7 +21,6 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -159,6 +158,7 @@ function AppContent() {
         onOpenChange={setCmdkOpen}
         changelog={changelog}
         changelogKey="brain"
+        chatStorageKey="brain"
       >
         <CommandMenu.Group heading={t("root.commandNavigate")}>
           <CommandMenu.Item onSelect={() => navigate("/home")}>
@@ -178,9 +178,6 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
             {t("navigation.ops")}
-          </CommandMenu.Item>
-          <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            {t("navigation.settings")}
           </CommandMenu.Item>
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
@@ -213,35 +210,22 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Brain has a faster sync cadence for source distillation status;
-          // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Flat retry: Brain data fetches are rarely auth failures so a
-          // flat count is sufficient.
           retry: 1,
         },
       },
     }),
   );
-  const location = useLocation();
-  const isMarketingPath = location.pathname === "/";
-
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        isPublicPath={isMarketingPath}
+        skeletonLayout="assistant"
         tooltipDelayDuration={250}
         i18n={{ catalog: i18nCatalog }}
       >
-        {isMarketingPath ? (
-          <Outlet />
-        ) : (
-          <>
-            <DbSyncSetup />
-            <AppContent />
-          </>
-        )}
+        <DbSyncSetup />
+        <AppContent />
       </AppProviders>
     </AppToolkitProvider>
   );

@@ -7,7 +7,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
-import { deckVersionChatContextFromRun } from "../lib/deck-versions.js";
+import {
+  createDeckChatBeginningSnapshot,
+  deckVersionChatContextFromRun,
+} from "../lib/deck-versions.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -44,11 +47,7 @@ const INITIAL_TOOL_NAMES = [
 ];
 
 const EXTERNAL_CONNECTOR_TOOL_NAMES = [
-  // Read-only; the selected-text edit rule in mcp.instructions depends on it.
   "view-screen",
-  // Pairs with view-screen: an external agent that can read the screen but
-  // cannot move it has to drive the browser to change screens, which is the
-  // UI automation the WebMCP contract exists to avoid.
   "navigate",
   "list-decks",
   "get-deck",
@@ -138,6 +137,7 @@ async function autosaveDeckAfterAgentTurn(
   },
 ): Promise<void> {
   if (scope.type !== "deck" || !hasDeckEdit(run, scope.id)) return;
+  if (!run.threadId || !run.runId) return;
 
   const access = await assertAccess("deck", scope.id, "editor");
   const deck = access.resource as {
@@ -147,15 +147,35 @@ async function autosaveDeckAfterAgentTurn(
     ownerEmail: string;
   };
   const { createDeckVersionSnapshot } = await import("../lib/deck-versions.js");
+  const chatContext = deckVersionChatContextFromRun(run);
   await createDeckVersionSnapshot(deck, {
     force: true,
     label: "Chat autosave",
-    chatContext: deckVersionChatContextFromRun(run),
+    chatContext: chatContext ? { ...chatContext, phase: "end" } : undefined,
+  });
+}
+
+async function autosaveDeckBeforeAgentTurn(
+  scope: { type: string; id: string },
+  run: { threadId?: string; runId?: string },
+): Promise<void> {
+  if (scope.type !== "deck" || !run.threadId || !run.runId) return;
+  const access = await assertAccess("deck", scope.id, "editor");
+  const deck = access.resource as {
+    id: string;
+    title: string;
+    data: string;
+    ownerEmail: string;
+  };
+  await createDeckChatBeginningSnapshot(deck, {
+    threadId: run.threadId,
+    runId: run.runId,
   });
 }
 
 export default createAgentChatPlugin({
   appId: "slides",
+  onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
@@ -170,25 +190,12 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   a2aAgentDelegation: true,
-  // Customer and product activity data belongs to Analytics. Keep raw DB
-  // tools out of both the interactive and A2A Slides agent surfaces so the
-  // agent cannot bypass the Analytics data dictionary with local SQL.
   frameworkTools: { database: "off" },
-  // Enable sandboxed JavaScript execution so Slides agents can fetch,
-  // paginate, and reduce provider data through providerFetch() without us
-  // hardcoding one action per Google Drive endpoint.
   codeExecution: { production: "sandboxed" },
-  // Upload routes and action routes must use the same session/org resolver.
-  // Reading getOrgContext directly here skipped the upload route's session
-  // fallback and could reject a freshly uploaded reference after a transient
-  // org lookup or active-org transition.
   resolveOrgId: async (event) => {
     const authContext = await resolveSlidesRequestAuthContext(event);
     return authContext.orgId === undefined ? null : authContext.orgId;
   },
-  // Guest access requests authenticate with a signed deck capability and the
-  // requester email, so this action must reach its own validation without a
-  // browser session.
   actionRoutePublicPaths: [
     "/_agent-native/actions/get-deck-access-status",
     "/_agent-native/actions/request-deck-access",
@@ -301,8 +308,6 @@ When a Google Drive or Google Slides request needs authentication, tell the user
         search: async (query: string) => {
           const db = getDb();
           const access = accessFilter(decks, deckShares);
-          // Project only id/title — decks.data is the full deck JSON (every
-          // slide) and must not be pulled into this per-keystroke search.
           const mentionColumns = { id: decks.id, title: decks.title };
           const rows = query
             ? await db

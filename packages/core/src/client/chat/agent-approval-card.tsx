@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import React from "react";
 
+import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -111,7 +112,7 @@ export function AgentApprovalCard({
                 disabled={isAlwaysAllowing}
                 onClick={onApprove}
                 className={cn(
-                  "inline-flex shrink-0 h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
+                  "inline-flex shrink-0 h-8 items-center gap-1.5 rounded-md px-3 text-xs font-medium",
                   "bg-foreground text-background hover:bg-foreground/90",
                   onAlwaysAllow && "rounded-e-none",
                   "disabled:pointer-events-none disabled:opacity-50",
@@ -128,7 +129,7 @@ export function AgentApprovalCard({
                       disabled={isAlwaysAllowing}
                       aria-label={moreOptionsLabel}
                       title={moreOptionsLabel}
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-s-none rounded-e-md border-s border-background/25 bg-foreground text-background transition-colors hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-50"
+                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-s-none rounded-e-md border-s border-background/25 bg-foreground text-background hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-50"
                     >
                       <IconChevronDown className="size-3.5" />
                     </button>
@@ -150,7 +151,10 @@ export function AgentApprovalCard({
             type="button"
             disabled={isAlwaysAllowing}
             onClick={onDeny}
-            className="order-2 inline-flex shrink-0 h-8 items-center gap-1.5 rounded-md border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            className={cn(
+              compactOutlineButtonClassName,
+              "order-2 gap-1.5 px-3 hover:bg-muted",
+            )}
           >
             <IconX className="size-3.5" />
             {denyLabel}
@@ -216,7 +220,7 @@ export function AgentChoiceCard({
             <button
               type="button"
               onClick={onSkip}
-              className="order-1 inline-flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="order-1 inline-flex h-8 items-center rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               {skipLabel}
             </button>
@@ -225,7 +229,7 @@ export function AgentChoiceCard({
             type="button"
             disabled={selected.length === 0}
             onClick={() => onSubmit(selected)}
-            className="order-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-45"
+            className="order-2 inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:bg-foreground/90 disabled:pointer-events-none disabled:opacity-45"
           >
             <IconCheck className="size-3.5" />
             {submitLabel}
@@ -243,7 +247,7 @@ export function AgentChoiceCard({
               aria-pressed={isSelected}
               onClick={() => toggle(option.value)}
               className={cn(
-                "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left",
                 "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected ? "border-primary bg-primary/5" : "border-border",
               )}

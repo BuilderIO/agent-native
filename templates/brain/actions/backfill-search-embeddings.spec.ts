@@ -198,6 +198,16 @@ describe("backfill-search-embeddings", () => {
     mocks.getDb.mockReturnValue(createDb());
   });
 
+  it("requires an explicit dryRun in the advertised agent tool schema", () => {
+    const jsonSchema = action.tool.parameters;
+
+    expect(jsonSchema?.required).toContain("dryRun");
+    expect(jsonSchema?.properties?.dryRun).toMatchObject({ type: "boolean" });
+    expect(
+      backfillSearchEmbeddingsSchema.parse({ sourceId: "source-1" }).dryRun,
+    ).toBe(true);
+  });
+
   it("defaults to a bounded metadata-only dry run", async () => {
     const args = backfillSearchEmbeddingsSchema.parse({
       sourceId: "source-1",
@@ -289,6 +299,26 @@ describe("backfill-search-embeddings", () => {
         limit: 25,
       }),
     ).rejects.toThrow("Configure exactly one embedding provider.");
+    expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
+  });
+
+  it("asks for an embeddings provider when readiness has no warning", async () => {
+    mocks.readEmbeddingReadiness.mockResolvedValue({
+      ...readiness,
+      status: "not-configured",
+      ready: false,
+      embeddingSetId: null,
+      warning: null,
+    });
+
+    await expect(
+      action.run({
+        sourceId: "source-1",
+        dryRun: false,
+        force: false,
+        limit: 25,
+      }),
+    ).rejects.toThrow("Set up an embeddings provider before backfilling.");
     expect(mocks.enqueueBrainOperation).not.toHaveBeenCalled();
   });
 

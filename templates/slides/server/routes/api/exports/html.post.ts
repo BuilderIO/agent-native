@@ -46,15 +46,8 @@ export default defineEventHandler(async (event) => {
       `attachment; filename="${path.basename(result.filename)}"`,
     );
 
-    // Return the in-memory HTML string directly. Writing to disk first
-    // would break on serverless: a separate /api/exports/:filename GET
-    // would hit a different Lambda's empty filesystem and 404 with
-    // "file doesn't exist on site".
     return result.html;
   } catch (error) {
-    // The action raises caller-correctable failures through `fail()`, so take
-    // the status and the stable code from the contract instead of sniffing the
-    // message. Clients get the same `errorCode` the action transport returns.
     if (isActionContractError(error)) {
       setResponseStatus(event, error.statusCode);
       return {
@@ -66,8 +59,6 @@ export default defineEventHandler(async (event) => {
       error instanceof Error
         ? error.message
         : "Something went wrong exporting as HTML.";
-    // `native-creative-context` still raises a bare "Deck not found", so the
-    // prefix check stays until that producer is typed too.
     setResponseStatus(event, message.startsWith("Deck not found") ? 404 : 500);
     return {
       error: message,

@@ -76,7 +76,10 @@ export default defineAction({
       designId,
       allowPublicViewer: publicVisualEdit === true,
     });
-    const canIssueLiveEditCapability = access.role === "editor";
+    const canIssueLiveEditCapability =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
     const canIssueRegistrationCapability =
       canIssueLiveEditCapability || publicVisualEdit === true;
     const connections = await getDb()
@@ -110,11 +113,6 @@ export default defineAction({
       }
     }
 
-    // A bridge restarted from its stored bridge token derives the same
-    // read-only credential every time. Older rows can still contain a random
-    // preview token from before that contract existed; returning the derived
-    // value lets a public viewer recover without asking the user to reconnect
-    // the Design screen or exposing the write-capable token.
     const previewTokenFor = (connection: {
       bridgeToken?: string | null;
       previewToken?: string | null;

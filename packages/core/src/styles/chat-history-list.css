@@ -1,7 +1,5 @@
 @import "@agent-native/toolkit/chat-history.css";
 
-/* Chat-first rails share this geometry across Dispatch and Electron. Keep
-   the row at the same compact rhythm as the primary nav and app list. */
 section[data-chat-first-chat-history]
   .an-chat-history--rail
   .an-chat-history-row {

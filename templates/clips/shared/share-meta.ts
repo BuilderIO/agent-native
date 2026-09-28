@@ -28,6 +28,7 @@ export type ClipsShareMetaRecording = {
   trashedAt?: string | null;
   sourceAppName?: string | null;
   videoUrl?: string | null;
+  updatedAt?: string | null;
   isLoomEmbedBacked?: boolean;
 };
 
@@ -131,10 +132,15 @@ export function resolveClipsSocialImageUrl(options: {
 
   if (storedImage) {
     if (recording?.id && recording.visibility === "public") {
-      return absoluteUrl(
+      const imageUrl = new URL(
         appPath(`/api/thumbnail/${encodeURIComponent(recording.id)}`, basePath),
-        origin,
+        origin ?? "https://clips.invalid",
       );
+      const version = recording.updatedAt?.trim();
+      if (version) imageUrl.searchParams.set("v", version);
+      return origin
+        ? imageUrl.toString()
+        : `${imageUrl.pathname}${imageUrl.search}`;
     }
     return absoluteUrl(storedImage, origin);
   }
@@ -156,10 +162,15 @@ export function resolveClipsSocialImageUrl(options: {
     recordingId: recording.id,
     fallback: "live-frame",
   });
-  return buildAgentApiUrls(recording.id, {
-    origin,
-    basePath,
-  }).frameUrl(SOCIAL_FRAME_AT_MS);
+  const frameUrl = new URL(
+    buildAgentApiUrls(recording.id, {
+      origin,
+      basePath,
+    }).frameUrl(SOCIAL_FRAME_AT_MS),
+  );
+  const version = recording.updatedAt?.trim();
+  if (version) frameUrl.searchParams.set("v", version);
+  return frameUrl.toString();
 }
 
 export function buildClipsShareMeta(options: {

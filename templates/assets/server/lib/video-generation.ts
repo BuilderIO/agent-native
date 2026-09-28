@@ -653,8 +653,6 @@ function extractVideo(
   return null;
 }
 
-// Mirrors the image path: the failure text reaches the generation tray and the
-// audit page verbatim, so it must be prose rather than the provider payload.
 function videoErrorDetailForUser(value: unknown, model?: VideoModel): string {
   const detail = readableProviderErrorDetail(value, 500);
   if (!detail) return "";

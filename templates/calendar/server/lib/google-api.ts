@@ -1,15 +1,14 @@
-// Lightweight, fetch-based Google API client for Cloudflare Workers compatibility.
-// Replaces the heavyweight `googleapis` npm package with pure fetch calls.
-
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PEOPLE_BASE = "https://people.googleapis.com/v1";
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
 const OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
 
-// ---------------------------------------------------------------------------
-// OAuth2 helpers
-// ---------------------------------------------------------------------------
+function googleRequestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
 
 export function createOAuth2Client(
   clientId: string,
@@ -39,6 +38,7 @@ export function createOAuth2Client(
       const res = await fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        signal: googleRequestSignal(),
         body: new URLSearchParams({
           code,
           client_id: clientId,
@@ -49,11 +49,6 @@ export function createOAuth2Client(
       });
       const data = await res.json();
       if (!res.ok) {
-        // Include both the OAuth `error` code (e.g. `invalid_grant`,
-        // `unauthorized_client`) and `error_description` so callers can
-        // pattern-match on the canonical code — Google often returns a
-        // generic description ("Unauthorized") that hides which permanent
-        // failure we actually hit.
         const code = (data as any).error;
         const desc = (data as any).error_description;
         const detail =
@@ -77,6 +72,7 @@ export function createOAuth2Client(
       const res = await fetch(OAUTH_TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        signal: googleRequestSignal(),
         body: new URLSearchParams({
           refresh_token: refreshToken,
           client_id: clientId,
@@ -86,9 +82,6 @@ export function createOAuth2Client(
       });
       const data = await res.json();
       if (!res.ok) {
-        // Same rationale as getToken: surface the OAuth `error` code so
-        // isPermanentRefreshError can detect invalid_grant /
-        // unauthorized_client / invalid_client and self-heal the row.
         const code = (data as any).error;
         const desc = (data as any).error_description;
         const detail =
@@ -108,10 +101,6 @@ export function createOAuth2Client(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Authenticated fetch helper
-// ---------------------------------------------------------------------------
 
 export class GoogleApiError extends Error {
   readonly status: number;
@@ -146,9 +135,12 @@ export async function googleFetch(
   const headers = new Headers(opts?.headers);
   headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const res = await fetch(url, { ...opts, headers });
+  const res = await fetch(url, {
+    ...opts,
+    headers,
+    signal: googleRequestSignal(opts?.signal ?? undefined),
+  });
 
-  // 204 No Content — return null
   if (res.status === 204) return null;
 
   const data = await res.json();
@@ -163,10 +155,6 @@ export async function googleFetch(
 
   return data;
 }
-
-// ---------------------------------------------------------------------------
-// URL builder helpers
-// ---------------------------------------------------------------------------
 
 function qs(
   params: Record<
@@ -186,10 +174,6 @@ function qs(
   const str = sp.toString();
   return str ? `?${str}` : "";
 }
-
-// ---------------------------------------------------------------------------
-// Gmail API
-// ---------------------------------------------------------------------------
 
 export function gmailGetProfile(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/profile`, accessToken);
@@ -272,10 +256,6 @@ export function gmailListLabels(accessToken: string) {
   return googleFetch(`${GMAIL_BASE}/labels`, accessToken);
 }
 
-// ---------------------------------------------------------------------------
-// People API
-// ---------------------------------------------------------------------------
-
 export function peopleGetProfile(accessToken: string, personFields: string) {
   return googleFetch(
     `${PEOPLE_BASE}/people/me${qs({ personFields })}`,
@@ -327,10 +307,6 @@ export function peopleSearchDirectoryPeople(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Calendar API
-// ---------------------------------------------------------------------------
-
 export function calendarGetEvent(
   accessToken: string,
   calendarId: string,
@@ -377,6 +353,7 @@ export function calendarListEvents(
     maxResults?: number;
     pageToken?: string;
     eventTypes?: string[];
+    syncToken?: string;
   } = {},
 ) {
   return googleFetch(
@@ -473,10 +450,6 @@ export function calendarDeleteEvent(
     { method: "DELETE" },
   );
 }
-
-// ---------------------------------------------------------------------------
-// OAuth2 Userinfo
-// ---------------------------------------------------------------------------
 
 export function oauth2GetUserInfo(accessToken: string) {
   return googleFetch(

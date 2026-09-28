@@ -12,9 +12,6 @@ export function fingerprintMedia(
   mimeType?: string,
 ): MediaFingerprint {
   return {
-    // Not node:crypto: this module is re-exported from the `ingestion` barrel,
-    // and a single `node:crypto` import there makes the whole barrel — the
-    // Figma converters included — unloadable in a browser.
     sha256: bytesToHex(sha256(data)),
     byteLength: data.byteLength,
     ...(mimeType ? { mimeType } : {}),
@@ -143,7 +140,6 @@ export async function compareRasterImages(input: {
   };
 }
 
-/** Crops a bounded raster region without retaining the source image. */
 export async function cropImageRegion(input: {
   data: Uint8Array;
   left: number;
@@ -203,24 +199,9 @@ export interface ResizedImage {
   height: number;
 }
 
-/**
- * Re-encode an image so it fits a byte budget, keeping its aspect ratio.
- *
- * For a caller that must inline an image — an SVG export, an email — an
- * oversized source is a reason to send fewer pixels, not to send nothing: a
- * real product page dropped its 11.5MB hero shot rather than embedding it, and
- * the hole was the largest single difference in the exported file.
- *
- * Bytes track pixel count closely enough to jump most of the way in one guess,
- * then halve until it fits. Alpha keeps the image in PNG; anything else
- * re-encodes as JPEG, which is far smaller for the photographs that hit a cap.
- * Returns null when sharp is unavailable or the image cannot fit above
- * `minEdge` — callers must be able to tell "shrunk" from "could not".
- */
 export async function downscaleImageToFit(input: {
   data: Uint8Array;
   maxBytes: number;
-  /** Stop shrinking here rather than returning an unusably small image. */
   minEdge?: number;
 }): Promise<ResizedImage | null> {
   const sharp = await loadSharp();

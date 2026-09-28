@@ -34,6 +34,19 @@ export default defineAction({
     status: z.string().optional(),
     issue: z.enum(["all", "failed", "stale", "retryable"]).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+    settingsSection: z
+      .enum([
+        "general",
+        "identity",
+        "behavior",
+        "publishing",
+        "safety",
+        "privacy",
+      ])
+      .optional()
+      .describe(
+        "With view settings, the Brain › General tab to open: general, identity, behavior, publishing, safety, or privacy.",
+      ),
   }),
   http: false,
   run: async (args) => {

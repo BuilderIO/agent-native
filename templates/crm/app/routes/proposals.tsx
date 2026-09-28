@@ -79,7 +79,6 @@ export default function ProposalsRoute() {
     try {
       const handoff = await prepare.mutateAsync({ proposalId: proposal.id });
       await query.refetch();
-      // Never phrased as a completed upstream write, and never as a failure.
       toast.info(
         t("proposals.preparedToast", { provider: handoff.providerLabel }),
       );
@@ -305,10 +304,6 @@ function ProposalFields({ fields }: { fields?: ProposalField[] }) {
   );
 }
 
-/**
- * `approved` without `appliedAt` is a prepared handoff, not an upstream write.
- * Labelling it "Approved" would read as done.
- */
 function statusKey(proposal: ProposalPreview) {
   if (proposal.status === "approved" && !proposal.appliedAt) return "prepared";
   return proposal.status;

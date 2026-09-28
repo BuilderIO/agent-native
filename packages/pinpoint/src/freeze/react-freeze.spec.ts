@@ -32,7 +32,6 @@ afterEach(() => {
   }
 });
 
-/** Installs a fake React DevTools hook and returns the dispatcher ref it exposes. */
 function installDevtoolsHook(dispatcher: any): { current: any } {
   const currentDispatcherRef = { current: dispatcher };
   const renderers = new Map([[1, { currentDispatcherRef }]]);
@@ -96,12 +95,9 @@ describe("freezeReact", () => {
 
     const unfreeze = freezeReact();
 
-    // A component re-rendering while frozen would call useState() through
-    // the proxy — simulate that call directly.
     const [, queuedSetter] = dispatcherRef.current.useState();
     queuedSetter("updated");
 
-    // Queued, not applied yet.
     expect(setValue).not.toHaveBeenCalled();
     expect(value).toBe("initial");
 
@@ -148,7 +144,7 @@ describe("freezeReact", () => {
 
     const unfreeze2 = freezeReact();
     unfreeze2();
-    expect(isReactFrozen()).toBe(true); // still frozen — unfreeze2 was a no-op
+    expect(isReactFrozen()).toBe(true);
 
     unfreeze1();
     expect(isReactFrozen()).toBe(false);

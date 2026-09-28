@@ -22,8 +22,6 @@ const originalHome = process.env.HOME;
 beforeEach(() => {
   process.exitCode = undefined;
   process.env.HOME = tmpDir();
-  // Keep CLI output out of the test log; individual tests that assert on
-  // output re-spy with their own captured implementation.
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
@@ -53,10 +51,6 @@ function fakeJwt(sub: string): string {
     Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${encode({ alg: "HS256" })}.${encode({ sub })}.sig`;
 }
-
-// ---------------------------------------------------------------------------
-// Arg parsing
-// ---------------------------------------------------------------------------
 
 describe("parseConnectArgs", () => {
   it("parses the positional url and defaults", () => {
@@ -157,10 +151,6 @@ describe("parseConnectArgs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// URL normalization
-// ---------------------------------------------------------------------------
-
 describe("normalizeUrl", () => {
   it("strips trailing slashes and keeps the origin", () => {
     expect(normalizeUrl("https://mail.agent-native.com/")).toBe(
@@ -238,10 +228,6 @@ describe("supportsRemoteMcpOAuth", () => {
     expect(supportsRemoteMcpOAuth("cowork")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Device-flow poll state machine
-// ---------------------------------------------------------------------------
 
 function makeFetch(
   pollResponses: any[],
@@ -398,8 +384,6 @@ describe("runDeviceFlow", () => {
       fetchImpl: makeFetch([{ status: "pending" }], { expires_in: 2 }),
       sleep: noopSleep,
       openBrowser: vi.fn(),
-      // First call (deadline calc) → 0; subsequent loop checks advance past
-      // the 2s expiry so the loop exits.
       now: () => (t === 0 ? ((t = 1), 0) : 5000),
     });
     expect(grant).toBeNull();
@@ -417,9 +401,6 @@ describe("runDeviceFlow", () => {
   });
 
   it("retries transient server errors while polling, then gives up", async () => {
-    // A cold/propagating instance can briefly 5xx (or bare-404) before its
-    // route/DB is ready; the connect flow must ride that out rather than fail
-    // on the first blip. Persistent failure still gives up gracefully.
     const err = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
@@ -453,15 +434,11 @@ describe("runDeviceFlow", () => {
     });
 
     expect(grant).toBeNull();
-    // The transient 503 is retried (not fatal on the first poll), then the
-    // flow gives up once the failure streak is exhausted.
     expect(pollCount).toBeGreaterThan(1);
     expect(err.mock.calls.flat().join("")).toContain("not responding");
   });
 
   it("recovers when a transient poll error is followed by approval", async () => {
-    // The core durable-404 guarantee: a bare-404 / 5xx blip mid-poll must not
-    // kill the connect — the next healthy poll should still complete.
     let pollCount = 0;
     const fetchImpl = vi.fn(async (url: string) => {
       if (String(url).endsWith("/device/start")) {
@@ -479,8 +456,6 @@ describe("runDeviceFlow", () => {
         );
       }
       pollCount++;
-      // First two polls hit a cold/propagating instance (bare 404, no JSON
-      // body) — the exact recurring "Cannot find any route matching" case.
       if (pollCount <= 2) {
         return new Response("Cannot find any route matching", { status: 404 });
       }
@@ -544,10 +519,6 @@ describe("runDeviceFlow", () => {
     expect(err.mock.calls.flat().join("")).toContain("unknown code");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Idempotent config writing
-// ---------------------------------------------------------------------------
 
 describe("writeConfigs", () => {
   it("writes a JSON HTTP entry for claude-code (project scope)", () => {
@@ -640,7 +611,6 @@ describe("writeConfigs", () => {
   it("writes a Codex TOML block with HTTP url + auth header", () => {
     const root = tmpDir();
     const HOME = process.env.HOME;
-    // Point HOME at our tmp dir so ~/.codex/config.toml lands under it.
     const codexHome = tmpDir();
     process.env.HOME = codexHome;
     try {
@@ -658,7 +628,6 @@ describe("writeConfigs", () => {
       expect(toml).toContain('[mcp_servers."agent-native-mail"]');
       expect(toml).toContain('url = "https://mail.agent-native.com/mcp"');
       expect(toml).toContain('"Authorization" = "Bearer tok-1"');
-      // Re-run is idempotent (single block).
       writeConfigs(
         ["codex"],
         "agent-native-mail",
@@ -751,30 +720,19 @@ describe("writeConfigs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// hostedApps respects the allow-list
-// ---------------------------------------------------------------------------
-
 describe("hostedApps", () => {
   it("returns only visible (non-hidden) templates that have a prodUrl", () => {
     const apps = hostedApps();
     const names = apps.map((a) => a.name);
-    // Allow-listed hosted apps are present.
     expect(names).toContain("mail");
     expect(names).toContain("calendar");
-    // Hidden templates must never appear.
     expect(names).not.toContain("voice");
     expect(names).not.toContain("scheduling");
-    // Every returned app has an https prodUrl.
     for (const a of apps) {
       expect(a.url).toMatch(/^https:\/\//);
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// runConnect end-to-end (token fallback + exit codes)
-// ---------------------------------------------------------------------------
 
 describe("runConnect", () => {
   const originalExitCode = process.exitCode;
@@ -1202,7 +1160,6 @@ describe("runConnect", () => {
 
     expect(process.exitCode).toBeFalsy();
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
-    // Shape consumed by templates/plan/server/lib/plan-publish.ts.
     expect(canonical).toMatchObject({
       url: "https://plan.agent-native.com",
       token: "tok-plan-publish",
@@ -1276,7 +1233,6 @@ describe("runConnect", () => {
   it("mints a supplemental publish token for OAuth-only Claude Code connecting to the first-party Plans app", async () => {
     const root = tmpDir();
     process.chdir(root);
-    // makeFetch handles OAuth metadata + device/start + device/poll
     const fetchImpl = makeFetch([
       {
         status: "approved",
@@ -1298,13 +1254,11 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    // OAuth clients get a supplemental device-flow mint for the publish store.
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
     expect(canonical).toMatchObject({
       url: "https://plan.agent-native.com",
       token: "tok-publish-mint",
     });
-    // The Claude Code MCP entry itself must NOT have a bearer header.
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
@@ -1322,7 +1276,6 @@ describe("runConnect", () => {
       output.push(String(chunk));
       return true;
     });
-    // OAuth metadata succeeds; device/start fails (server error).
     const fetchImpl = vi.fn(async (url: string) => {
       if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
         return new Response(
@@ -1332,7 +1285,6 @@ describe("runConnect", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
-      // Simulate a device/start failure.
       return new Response(JSON.stringify({ error: "unavailable" }), {
         status: 503,
         headers: { "content-type": "application/json" },
@@ -1350,11 +1302,8 @@ describe("runConnect", () => {
       { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
     );
 
-    // Connect must succeed even if the supplemental mint failed.
     expect(process.exitCode).toBeFalsy();
-    // No canonical publish file written since the mint returned no token.
     expect(fs.existsSync(planPublishPath)).toBe(false);
-    // A warning should be visible.
     expect(output.join("")).toContain("could not mint a publish token");
   });
 
@@ -2028,10 +1977,6 @@ describe("runConnect", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// runConnect --service-token (org service-token mint for CI)
-// ---------------------------------------------------------------------------
-
 describe("runConnect --service-token", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
@@ -2041,11 +1986,6 @@ describe("runConnect --service-token", () => {
     process.chdir(originalCwd);
   });
 
-  /**
-   * Fetch stub for the full mint flow: device start → poll (approved with a
-   * personal bearer grant) → POST to the create-org-service-token action.
-   * Captures the action request so tests can assert auth + body.
-   */
   function makeServiceTokenFetch(
     actionResponse: { status: number; json: unknown },
     captured: { url?: string; auth?: string; body?: any },
@@ -2129,17 +2069,14 @@ describe("runConnect --service-token", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    // The action call is authenticated with the device-flow grant.
     expect(captured.auth).toBe("Bearer personal-grant-token");
     expect(captured.body).toEqual({ name: "PR Recap", ttlDays: 90 });
 
     const printed = out.mock.calls.flat().join("");
-    // Token printed exactly once, with PLAN_RECAP_TOKEN guidance.
     expect(printed.split("svc-token-value-shown-once").length - 1).toBe(1);
     expect(printed).toContain("PLAN_RECAP_TOKEN");
     expect(printed).toContain("svc-pr-recap@service.org_1");
 
-    // No local MCP config is written by the service-token path.
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
   });
 
@@ -2179,10 +2116,6 @@ describe("runConnect --service-token", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// URL-based reconnect discovery
-// ---------------------------------------------------------------------------
-
 describe("reconnect — URL-based discovery", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
@@ -2200,7 +2133,6 @@ describe("reconnect — URL-based discovery", () => {
     process.chdir(root);
     const codexFile = path.join(home, ".codex", "config.toml");
     fs.mkdirSync(path.dirname(codexFile), { recursive: true });
-    // Entry named 'plan' — old prefix scan ('agent-native-') would miss this.
     fs.writeFileSync(
       codexFile,
       [
@@ -2239,8 +2171,6 @@ describe("reconnect — URL-based discovery", () => {
   it("removes alias duplicates when connecting (same URL, different name)", async () => {
     const root = tmpDir();
     process.chdir(root);
-    // Pre-seed the config with both the canonical 'plan' entry and a stale
-    // 'agent-native-plans' alias pointing at the same MCP URL.
     fs.writeFileSync(
       path.join(root, ".mcp.json"),
       JSON.stringify(
@@ -2278,12 +2208,10 @@ describe("reconnect — URL-based discovery", () => {
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    // Canonical entry should be present and updated.
     expect(cfg.mcpServers["plan"]).toMatchObject({
       type: "http",
       url: "https://plan.agent-native.com/mcp",
     });
-    // Alias duplicate must have been removed.
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
   });
 
@@ -2384,7 +2312,6 @@ describe("reconnect — URL-based discovery", () => {
     process.chdir(root);
     const codexFile = path.join(home, ".codex", "config.toml");
     fs.mkdirSync(path.dirname(codexFile), { recursive: true });
-    // Three entries for the same MCP URL, worst-case ordering: canonical last.
     fs.writeFileSync(
       codexFile,
       [
@@ -2420,7 +2347,6 @@ describe("reconnect — URL-based discovery", () => {
 
       expect(process.exitCode).toBeFalsy();
       const toml = fs.readFileSync(codexFile, "utf-8");
-      // The canonical 'plan' entry must have been refreshed.
       expect(toml).toContain('[mcp_servers."plan"]');
       expect(toml).toContain('"Authorization" = "Bearer refreshed-token"');
     } finally {
@@ -2435,7 +2361,6 @@ describe("reconnect — URL-based discovery", () => {
     process.env.HOME = home;
     process.chdir(root);
 
-    // Seed two DIFFERENT agent-native apps.
     const claudeFile = path.join(home, ".claude.json");
     fs.writeFileSync(
       claudeFile,
@@ -2471,10 +2396,8 @@ describe("reconnect — URL-based discovery", () => {
 
       expect(process.exitCode).toBe(1);
       const combined = errLines.join("");
-      // Should mention both apps.
       expect(combined).toContain("plan.agent-native.com");
       expect(combined).toContain("mail.agent-native.com");
-      // Should include paste-ready reconnect hints.
       expect(combined).toMatch(/npx -y @agent-native\/core@latest reconnect/);
     } finally {
       process.env.HOME = oldHome;

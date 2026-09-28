@@ -43,6 +43,8 @@ const messages = {
     suggestionSurvey: "أنشئ استطلاع ملاحظات العملاء",
     suggestionSubmissions: "اعرض الإرسالات حسب اليوم",
     suggestionExport: "صدر الردود إلى CSV",
+    topSignal: "أبرز إشارة",
+    draftFollowUp: "صياغة سؤال متابعة",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",

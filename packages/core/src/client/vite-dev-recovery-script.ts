@@ -3,13 +3,6 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
-/**
- * Synchronous dev-only browser recovery for Vite optimized-dependency races.
- *
- * Keep this script dependency-free and non-module-safe: React Router SSR roots
- * inline it before `<Scripts />`, and the Vite plugin injects it at
- * `head-prepend` for HTML that does pass through transformIndexHtml.
- */
 export function getViteDevRecoveryScript(): string {
   const embedModeParam = JSON.stringify(EMBED_MODE_QUERY_PARAM);
   const embedTokenParam = JSON.stringify(EMBED_TOKEN_QUERY_PARAM);

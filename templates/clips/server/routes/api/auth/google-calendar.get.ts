@@ -50,9 +50,6 @@ export default defineEventHandler(async (event: H3Event) => {
 
   try {
     const q = getQuery(event);
-    // Use the framework-standard callback path. The local Google OAuth client
-    // is documented/configured for `/_agent-native/google/callback`; using a
-    // custom `/api/auth/...` callback causes redirect_uri_mismatch locally.
     const redirectUri = resolveOAuthRedirectUri(
       event,
       "/_agent-native/google/callback",
@@ -109,9 +106,6 @@ export default defineEventHandler(async (event: H3Event) => {
     });
     const url = `${GOOGLE_AUTH_URL}?${params.toString()}`;
 
-    // Default: 302 redirect — the natural behavior for a browser hitting
-    // this route (popup, direct nav, etc.). Only return JSON when the
-    // caller explicitly wants the URL string.
     if (q.json === "1") return { url };
     return new Response(null, {
       status: 302,

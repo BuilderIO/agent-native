@@ -1,4 +1,9 @@
-import { AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER } from "@agent-native/core/shared";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import {
+  buildResourceSocialMeta,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
+import { and, eq } from "drizzle-orm";
 import type {
   LoaderFunctionArgs,
   MetaArgs,
@@ -7,8 +12,19 @@ import type {
 
 import enUSMessages from "@/i18n/en-US";
 
+import { getDb, schema } from "../../server/db";
+
 export interface BookingOgLoaderData {
   ogImageUrl: string;
+  link: {
+    title: string;
+    description: string | null;
+    duration: number;
+    updatedAt: string;
+  } | null;
+  origin: string;
+  pageUrl: string;
+  basePath: string;
 }
 
 function normalizeAppBasePath(value: string | undefined): string {
@@ -33,47 +49,72 @@ function appBasePath(): string {
   );
 }
 
-export function bookingOgLoader({
+export async function bookingOgLoader({
   params,
   request,
-}: LoaderFunctionArgs): BookingOgLoaderData {
+}: LoaderFunctionArgs): Promise<BookingOgLoaderData> {
   const slug = params.slug ?? "";
+  const url = new URL(request.url);
+  const [link] = slug
+    ? await getDb()
+        .select({
+          title: schema.bookingLinks.title,
+          description: schema.bookingLinks.description,
+          duration: schema.bookingLinks.duration,
+          updatedAt: schema.bookingLinks.updatedAt,
+        })
+        .from(schema.bookingLinks)
+        .where(
+          and(
+            eq(schema.bookingLinks.slug, slug),
+            eq(schema.bookingLinks.isActive, true),
+          ),
+        )
+        .limit(1)
+    : [];
   const imageUrl = new URL(
     `${appBasePath()}/api/public/booking-links/${encodeURIComponent(slug)}/og.png`,
     request.url,
   );
-  imageUrl.searchParams.set("v", AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER);
   if (params.username) imageUrl.searchParams.set("username", params.username);
-  return { ogImageUrl: imageUrl.toString() };
+  if (link) imageUrl.searchParams.set("bookingUpdatedAt", link.updatedAt);
+  return {
+    ogImageUrl: imageUrl.toString(),
+    link: link ?? null,
+    origin: url.origin,
+    pageUrl: `${url.origin}${url.pathname}`,
+    basePath: getConfiguredAppBasePath(),
+  };
 }
 
 export function bookingOgMeta({
   loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
-  const image = loaderData?.ogImageUrl;
-  const title = enUSMessages.routeTitles.bookMeeting;
+  const link = loaderData?.link;
+  if (!link || !loaderData) {
+    return [
+      { title: enUSMessages.routeTitles.bookMeeting },
+      { name: "robots", content: "noindex" },
+    ];
+  }
+
+  const title = normalizeDocumentTitle(
+    link.title,
+    enUSMessages.routeTitles.bookMeeting,
+  );
+  const description =
+    link.description?.trim() ||
+    `Book a ${link.duration}-minute meeting through this public Calendar link.`;
   return [
     { title },
-    { property: "og:title", content: title },
-    { property: "og:type", content: "website" },
-    ...(image
-      ? [
-          { property: "og:image", content: image },
-          { property: "og:image:secure_url", content: image },
-          { property: "og:image:type", content: "image/png" },
-          { property: "og:image:width", content: "1200" },
-          { property: "og:image:height", content: "630" },
-          {
-            property: "og:image:alt",
-            content: "Agent-Native Calendar booking link",
-          },
-          { name: "twitter:card", content: "summary_large_image" },
-          { name: "twitter:image", content: image },
-          {
-            name: "twitter:image:alt",
-            content: "Agent-Native Calendar booking link",
-          },
-        ]
-      : []),
+    { property: "og:url", content: loaderData.pageUrl },
+    ...buildResourceSocialMeta({
+      title,
+      description,
+      origin: loaderData.origin,
+      basePath: loaderData.basePath,
+      type: "website",
+      imageUrl: loaderData.ogImageUrl,
+    }),
   ];
 }

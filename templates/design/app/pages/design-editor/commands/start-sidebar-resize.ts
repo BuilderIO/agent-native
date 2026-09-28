@@ -81,9 +81,6 @@ export function runStartSidebarResize(
     if (target) {
       target.style.width = `${next}px`;
     }
-    // Width-dependent Inspector grids need the live state during the gesture;
-    // the imperative write keeps the panel edge pinned to the pointer between
-    // React renders.
     if (pendingFrame !== null) {
       window.cancelAnimationFrame(pendingFrame);
     }
@@ -104,7 +101,6 @@ export function runStartSidebarResize(
     document.body.style.cursor = previousCursor;
     document.body.style.userSelect = previousUserSelect;
     if (target) target.style.transition = previousTransition;
-    // Ensure the final clamped width is represented after the gesture.
     setWidth(latestWidth);
   };
 

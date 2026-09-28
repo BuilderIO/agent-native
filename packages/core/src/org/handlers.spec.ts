@@ -109,6 +109,11 @@ vi.mock("../settings/user-settings.js", () => ({
 vi.mock("../user-profile/store.js", () => ({
   getUserProfiles: (...args: any[]) => mockGetUserProfiles(...args),
 }));
+const mockRecordOrgAdminAuditEvent = vi.hoisted(() => vi.fn());
+vi.mock("../audit/org-admin.js", () => ({
+  recordOrgAdminAuditEvent: (...args: any[]) =>
+    mockRecordOrgAdminAuditEvent(...args),
+}));
 vi.mock("./track-invite-accepted.js", () => ({
   trackInviteAccepted: (...args: any[]) => mockTrackInviteAccepted(...args),
   registerBackgroundWork: (event: any, promise: Promise<unknown>) => {
@@ -504,10 +509,6 @@ describe("org handlers", () => {
   });
 
   it("registers invite_sent telemetry with the event's waitUntil", async () => {
-    // Regression test for the P1 finding on PR #5765: the fire-and-forget
-    // `invite_sent` import had no lifecycle hook, so a serverless runtime
-    // could freeze the function before it ever emitted. Fails before the
-    // fix (no waitUntil wiring existed) and passes after.
     mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
     const waitUntil = vi.fn();
     const event = {
@@ -524,6 +525,79 @@ describe("org handlers", () => {
 
     expect(waitUntil).toHaveBeenCalledTimes(1);
     expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+  });
+
+  it("refuses an admin inviting an admin in the single-invite shape", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+
+    await expect(
+      createInvitationHandler(
+        makeEvent("/_agent-native/org/invitations", {
+          email: "new@example.test",
+          role: "admin",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      message: "Only the organization owner can invite admins",
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it("fails only the admin entries when an admin bulk-invites", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "admin@example.test",
+      orgId: "org-1",
+      orgName: "Example",
+      role: "admin",
+    });
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    const result = await createInvitationHandler(
+      makeEvent("/_agent-native/org/invitations", {
+        invites: [
+          { email: "member@example.test", role: "member" },
+          { email: "second-admin@example.test", role: "admin" },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      succeeded: [{ email: "member@example.test", role: "member" }],
+      failed: [
+        {
+          email: "second-admin@example.test",
+          error: "Only the organization owner can invite admins",
+        },
+      ],
+      total: 2,
+    });
+    const inserts = mockExecute.mock.calls.filter(([input]) =>
+      String(input.sql).includes("INSERT INTO org_invitations"),
+    );
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][0].args[5]).toBe("member");
+  });
+
+  it("lets the owner invite an admin", async () => {
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      createInvitationHandler(
+        makeEvent("/_agent-native/org/invitations", {
+          email: "new-admin@example.test",
+          role: "admin",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      email: "new-admin@example.test",
+      role: "admin",
+    });
   });
 
   it("keeps invite_sent background work pending until providers flush", async () => {
@@ -604,10 +678,6 @@ describe("org handlers", () => {
       return true;
     });
 
-    // A `waitUntil`-carrying event, so we can assert the handler forwards it
-    // to `trackInviteAccepted` instead of discarding the telemetry promise
-    // (PR #5765 review: fire-and-forget telemetry can be dropped mid-flight
-    // on a serverless runtime).
     const event = {
       ...makeEvent("/_agent-native/org/invitations/invite-1/accept"),
       waitUntil: vi.fn(),
@@ -932,13 +1002,13 @@ describe("org handlers", () => {
   describe("deleteOrgHandler", () => {
     it("deletes invitations, settings, members, and the org, then repoints active-org-id", async () => {
       mockExecute
-        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 }) // SELECT name
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 }) // DELETE org_invitations
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 }) // DELETE app_secrets
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 }) // DELETE settings
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 }) // DELETE org_members
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 }) // DELETE organizations
-        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 }); // SELECT next org
+        .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "  example  " }),
@@ -990,7 +1060,7 @@ describe("org handlers", () => {
         .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 }); // no other membership
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
 
       const result = await deleteOrgHandler(
         makeEvent("/_agent-native/org", { name: "Example" }),
@@ -1083,10 +1153,47 @@ describe("org handlers", () => {
     });
   });
 
-  // `cachedMemberships` holds a JOIN of org_members and organizations for 15s
-  // across requests. Anything that edits a column inside that projection —
-  // `role`, `name`, `allowed_domain` — must evict it, or the process keeps
-  // authorizing and rendering from the pre-write snapshot until the TTL lapses.
+  describe("setDomainHandler", () => {
+    it("lets an admin turn on auto-join for their own domain", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "admin@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: "admin",
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).resolves.toEqual({ domain: "example.test" });
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining(
+            "UPDATE organizations SET allowed_domain",
+          ),
+          args: ["example.test", "org-1"],
+        }),
+      );
+    });
+
+    it("rejects a member", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "org-1",
+        orgName: "Example",
+        role: "member",
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+  });
+
   describe("membership cache invalidation", () => {
     function seedCachedMemberships() {
       const load = vi.fn(async () => [{ orgId: "org-1", role: "admin" }]);
@@ -1137,6 +1244,31 @@ describe("org handlers", () => {
           memberRole: "admin",
         },
       );
+    });
+
+    it("records the role change in the organization audit log", async () => {
+      mockExecute.mockResolvedValue({ rows: [{ role: "member" }] });
+      mockUpdateFederatedOrganizationMemberRole.mockResolvedValue(true);
+
+      await changeMemberRoleHandler(
+        makeEvent("/_agent-native/org/members/member@example.test/role", {
+          role: "admin",
+        }),
+      );
+
+      expect(mockRecordOrgAdminAuditEvent).toHaveBeenCalledWith({
+        action: "change-member-role",
+        targetType: "org-member-role",
+        targetId: "member@example.test",
+        summary: "Changed member@example.test from member to admin",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        args: {
+          email: "member@example.test",
+          previousRole: "member",
+          role: "admin",
+        },
+      });
     });
 
     it("evicts the cached org name when the org is renamed", async () => {

@@ -160,6 +160,8 @@ export default {
     untitledAnalysis: "Unbenannte Analyse",
   },
   settings: {
+    agentObservability: "Agentenbeobachtbarkeit",
+    reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     agentTitle: "Agent verwalten",
     agentDescription:
       "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
@@ -181,6 +183,9 @@ export default {
     bellSoundDescription:
       "Einen Ton abspielen, wenn der Agent einen Lauf beendet. Standardmäßig deaktiviert.",
     bellSoundSaveFailed: "Die Toneinstellung konnte nicht gespeichert werden.",
+    notificationsTitle: "Benachrichtigungen",
+    notificationsEmailGroup: "E-Mail",
+    notificationsSoundGroup: "Ton",
     replayStorage: "Speicher für Sitzungswiedergabe",
     replayStorageDescription:
       "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Verbinden Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",
@@ -981,6 +986,7 @@ export default {
     recentSales: "Aktuelle Verkäufe",
     recentSalesDescription: "Du hast diesen Monat 265 Verkäufe erzielt.",
   },
+  analysisResult: { title: "Analyseergebnis" },
   routeTitles: {
     notFound: "Nicht gefunden – Analytics",
     analysis: "Analyse - Analytics",

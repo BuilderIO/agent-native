@@ -243,6 +243,13 @@ export default defineAction({
   description:
     "Dry-run or durably queue semantic embedding backfills for a bounded page of allowed captures from one accessible Brain source.",
   schema: backfillSearchEmbeddingsSchema,
+  agentInputSchema: backfillSearchEmbeddingsSchema.safeExtend({
+    dryRun: z
+      .boolean()
+      .describe(
+        "True previews candidates; false requests approval to queue them.",
+      ),
+  }),
   needsApproval: backfillSearchEmbeddingsNeedsApproval,
   toolCallable: false,
   run: async (args) => {
@@ -251,7 +258,7 @@ export default defineAction({
     if (!args.dryRun && !readiness.ready) {
       throw new Error(
         readiness.warning ??
-          "Configure exactly one embedding provider before backfilling.",
+          "Set up an embeddings provider before backfilling.",
       );
     }
 

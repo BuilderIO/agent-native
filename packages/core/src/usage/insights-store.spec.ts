@@ -38,6 +38,7 @@ async function seedUsage(row: {
   id: number;
   runId: string | null;
   threadId: string;
+  taskId?: string;
   owner?: string;
   model?: string;
   costX100?: number;
@@ -48,11 +49,11 @@ async function seedUsage(row: {
 }) {
   await pglite.exec(`INSERT INTO token_usage
     (id, owner_email, input_tokens, output_tokens, cache_read_tokens,
-     cache_write_tokens, cost_cents_x100, model, app, run_id, thread_id, created_at)
+     cache_write_tokens, cost_cents_x100, model, app, run_id, thread_id, task_id, created_at)
     VALUES (${row.id}, '${row.owner ?? OWNER}', ${row.input}, ${row.output},
      ${row.read}, ${row.write}, ${row.costX100 ?? 100}, '${row.model ?? MODEL}',
      'design', ${row.runId === null ? "NULL" : `'${row.runId}'`},
-     '${row.threadId}', ${Date.now()})`);
+     '${row.threadId}', ${row.taskId ? `'${row.taskId}'` : "NULL"}, ${Date.now()})`);
 }
 
 let spanSeq = 0;
@@ -97,7 +98,7 @@ beforeAll(async () => {
     cache_read_tokens BIGINT NOT NULL DEFAULT 0, cache_write_tokens BIGINT NOT NULL DEFAULT 0,
     cost_cents_x100 BIGINT NOT NULL DEFAULT 0, model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat', app TEXT NOT NULL DEFAULT '', org_id TEXT,
-    run_id TEXT, thread_id TEXT, created_at BIGINT NOT NULL)`);
+    run_id TEXT, thread_id TEXT, task_id TEXT, created_at BIGINT NOT NULL)`);
   await pglite.exec(
     `CREATE TABLE chat_threads (id TEXT PRIMARY KEY, preview TEXT, thread_data TEXT)`,
   );
@@ -371,7 +372,7 @@ describe("getUsageInsights", () => {
     expect(after.current.runs).toBe(before.current.runs);
   });
 
-  it("labels each run with its own prompt, without the hidden context block", async () => {
+  it("labels each run with its own prompt and reply, without the hidden context block", async () => {
     await pglite.exec(`INSERT INTO chat_threads (id, preview, thread_data) VALUES (
       'thread-1', 'first prompt', '${JSON.stringify({
         messages: [
@@ -380,7 +381,7 @@ describe("getUsageInsights", () => {
             message: {
               role: "assistant",
               content: "ok",
-              metadata: { runId: "run-a" },
+              metadata: { custom: { turnId: "turn-a" } },
             },
           },
           {
@@ -394,7 +395,7 @@ describe("getUsageInsights", () => {
             message: {
               role: "assistant",
               content: "done",
-              metadata: { custom: { foldedRunIds: ["run-b"] } },
+              metadata: { custom: { turnId: "turn-b" } },
             },
           },
         ],
@@ -403,6 +404,7 @@ describe("getUsageInsights", () => {
       id: 3,
       runId: "run-a",
       threadId: "thread-1",
+      taskId: "turn-a",
       input: 10,
       output: 1,
       read: 0,
@@ -412,6 +414,7 @@ describe("getUsageInsights", () => {
       id: 4,
       runId: "run-b",
       threadId: "thread-1",
+      taskId: "turn-b",
       input: 10,
       output: 1,
       read: 0,
@@ -425,5 +428,6 @@ describe("getUsageInsights", () => {
     );
     expect(prompts["run-a"]).toBe("first prompt");
     expect(prompts["run-b"]).toBe("second prompt");
+    expect((await getUsageRun({ runId: "run-b" }, ACCESS))!.reply).toBe("done");
   });
 });
