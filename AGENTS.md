@@ -31,8 +31,9 @@ A few are entry points rather than area guides:
 - `concurrent-agents` — read before working in a shared checkout.
 - `ship` — normal guarded ship through merge and branch rotation; beta and docs
   production deploys are automatic, while other production promotion is manual.
-- `ship-and-monitor` — read when the normal ship flow also needs post-merge
-  beta/release monitoring or explicit production-promotion verification.
+- `ship-and-monitor` — read for requested post-merge checks or concrete beta
+  risks local proof cannot cover; routine source changes need no extra beta
+  behavior check.
 - `ship-now` — fast admin-merge path with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
@@ -53,22 +54,18 @@ contract.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
-  sole automatic beta publisher. It builds in GitHub Actions and uploads
-  prebuilt artifacts to the independent Netlify beta sites at
-  `beta.*.agent-native.com`; Netlify Git-connected auto-builds are disabled.
-  Do not wait for Netlify build queues or deploy-preview checks. Verify the
-  GitHub Actions run and its per-site smoke checks instead. Normal `/ship` does
-  not monitor post-merge deployments or claim beta health; use
-  `/ship-and-monitor` to verify beta. The public docs site is the temporary
-  production exception: `.github/workflows/deploy-docs-production.yml` builds
-  and publishes `fw` / `www.agent-native.com` from matching `main` changes,
-  then disables the site's Git-connected Netlify builds. There is no beta docs
-  site or beta docs hostname today. Other production promotion is manual, and
-  critical fixes must be explicitly promoted to production through the manual
-  `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
-  `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
-  transitions; do not manually remove a lock or imply that clearing one makes
-  production live.
+  sole beta publisher; Actions uploads prebuilt artifacts to independent
+  `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
+  on their queues or previews. If beta deployment status is in scope, check the
+  Actions run and built-in site smoke. Normal `/ship` does not monitor beta or
+  claim beta health. Add an independent beta behavior check only when requested
+  or a concrete beta risk needs proof local checks cannot cover; use
+  `/ship-and-monitor`. The docs exception is `.github/workflows/deploy-docs-production.yml`:
+  it publishes `fw` / `www.agent-native.com` from matching `main` changes and
+  disables Git builds; there is no beta docs site. Other production promotion
+  is manual through `.github/workflows/deploy-production-sites-prebuilt.yml` or
+  `promote-netlify-deploy.yml`. Let workflows manage Netlify locks; clearing
+  one does not promote production.
 - Worktrees are valid PR sources. When the user authorizes shipping or opening
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
