@@ -135,6 +135,7 @@ import {
   resolveDefaultMailHref,
   labelTabHref,
   resolveInboxEmailQueryScope,
+  filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
@@ -843,9 +844,37 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     shellQueryScope.effectiveLabel,
     { enabled: isMailboxView },
   );
-  const actionTargetEmails = currentViewEmailsArePlaceholder
-    ? []
-    : currentViewEmails;
+  const actionTargetTab =
+    view === "inbox" &&
+    !combineInbox &&
+    !activeSearchQuery &&
+    !activeSavedFilterQuery &&
+    (activeInboxTabId === OTHER_INBOX_TAB_PARAM ||
+      pinnedTriageLabels(pinnedLabels).includes(activeInboxTabId ?? ""))
+      ? activeInboxTabId
+      : undefined;
+  const actionTargetEmails = useMemo(
+    () =>
+      currentViewEmailsArePlaceholder
+        ? []
+        : actionTargetTab === undefined
+          ? currentViewEmails
+          : filterInboxTabEmails(
+              currentViewEmails,
+              actionTargetTab === OTHER_INBOX_TAB_PARAM
+                ? null
+                : actionTargetTab,
+              pinnedLabels,
+              savedFilters.map((filter) => filter.query),
+            ),
+    [
+      actionTargetTab,
+      currentViewEmails,
+      currentViewEmailsArePlaceholder,
+      pinnedLabels,
+      savedFilters,
+    ],
+  );
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();

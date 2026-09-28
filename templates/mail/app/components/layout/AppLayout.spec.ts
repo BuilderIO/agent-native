@@ -117,6 +117,24 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("shellQueryScope.effectiveLabel");
   });
 
+  it("keeps inbox action targets inside the active pinned-label or Other tab", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+    const targetStart = source.indexOf("const targetEmail = useMemo(() => {");
+    const targetEnd = source.indexOf("const dismissEmail", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(source).toContain("pinnedTriageLabels(pinnedLabels).includes(");
+    expect(source).toContain("filterInboxTabEmails(");
+    expect(source).toContain(
+      "actionTargetTab === OTHER_INBOX_TAB_PARAM ? null : actionTargetTab",
+    );
+    expect(targetSelection).toContain("actionTargetEmails.find(");
+    expect(targetSelection).toContain(
+      "return actionTargetEmails[0] ?? undefined",
+    );
+    expect(targetSelection).not.toContain("currentViewEmails");
+  });
+
   it("keys the shell mailbox query to the active saved filter", () => {
     const source = appLayoutSource();
 
@@ -136,9 +154,12 @@ describe("AppLayout inbox tab bar", () => {
     );
 
     expect(hookSource).toContain("isPlaceholderData: q.isPlaceholderData");
-    expect(source).toContain(
-      "const actionTargetEmails = currentViewEmailsArePlaceholder\n    ? []\n    : currentViewEmails;",
-    );
+    const targetStart = source.indexOf("const actionTargetEmails = useMemo(");
+    const targetEnd = source.indexOf("const reportSpam", targetStart);
+    const targetSelection = source.slice(targetStart, targetEnd);
+
+    expect(targetSelection).toContain("currentViewEmailsArePlaceholder");
+    expect(targetSelection).toContain("filterInboxTabEmails(");
     expect(source).toContain("return actionTargetEmails[0] ?? undefined;");
   });
 

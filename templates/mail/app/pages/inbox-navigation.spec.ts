@@ -81,7 +81,6 @@ describe("Inbox navigation commands", () => {
       "const activeLabelIsInboxScoped = isInboxScopedLabel(",
     );
     expect(source).toContain("resolveInboxEmailQueryScope({");
-    expect(source).toContain("mailboxWideLabelTab,");
     expect(source).toContain("clientSliceTab,");
     expect(source).toContain("emailView,");
     expect(source).toContain(

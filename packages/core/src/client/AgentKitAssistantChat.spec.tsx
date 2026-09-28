@@ -464,7 +464,10 @@ import {
   AgentKitAssistantChat,
   type AgentKitAssistantChatProps,
 } from "./AgentKitAssistantChat.js";
-import { deleteClientAppState } from "./application-state.js";
+import {
+  deleteClientAppState,
+  readClientAppState,
+} from "./application-state.js";
 import type {
   AssistantChatHandle,
   AssistantChatSendOptions,
@@ -506,6 +509,9 @@ function baseProps(
 }
 
 beforeEach(() => {
+  vi.mocked(readClientAppState)
+    .mockReset()
+    .mockImplementation(async (key) => chatMocks.appState.get(key) ?? null);
   vi.mocked(deleteClientAppState)
     .mockReset()
     .mockImplementation(async (key) => {
@@ -1063,6 +1069,47 @@ describe("AgentKitAssistantChat host behavior", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it("hydrates pending selection before constructing the send", async () => {
+    let resolveSelectionRead!: (value: unknown) => void;
+    vi.mocked(readClientAppState).mockImplementation(async (key) => {
+      if (key === "pending-selection-context") {
+        return await new Promise((resolve) => {
+          resolveSelectionRead = resolve;
+        });
+      }
+      return chatMocks.appState.get(key) ?? null;
+    });
+    await mount(baseProps());
+
+    let submitPromise!: Promise<void>;
+    await act(async () => {
+      submitPromise = chatMocks.composerProps.onSubmit(
+        "Use the selected text",
+        [],
+        [],
+        {},
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(deleteClientAppState).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSelectionRead({
+        value: { text: "Hydrated selection", capturedAt: Date.now() },
+      });
+      await submitPromise;
+    });
+
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: expect.stringContaining("Hydrated selection"),
+      options: {
+        metadata: { agentNativeSkipPendingSelectionContext: true },
+      },
+    });
   });
 
   it("durably queues unresolved sends with files and references across remounts", async () => {
