@@ -5,7 +5,8 @@ const readAppSecret = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({ readAppSecret }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async (key: string) => store.get(key) ?? null,
   putSetting: async (key: string, value: { value: unknown }) => {
     store.set(key, value);
