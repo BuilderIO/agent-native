@@ -193,6 +193,36 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
+  it("does not clear the previous error after the sweep is aborted", async () => {
+    configureOwnerSweep({ rules: {}, runtime: { lastError: "previous" } });
+    let continueMutation!: () => void;
+    let mutationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      mutationStarted = resolve;
+    });
+    mocks.mutateUserSetting.mockImplementationOnce(
+      async (
+        _owner: string,
+        _key: string,
+        update: (current: unknown) => unknown,
+      ) => {
+        mutationStarted();
+        await new Promise<void>((resolve) => {
+          continueMutation = resolve;
+        });
+        return update({ lastError: "previous" });
+      },
+    );
+
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+    await started;
+    controller.abort();
+    continueMutation();
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("keeps per-account progress and continues to later owners after failure", async () => {
     const settingsByOwner: Record<string, Record<string, any>> = {
       "first@example.com": {

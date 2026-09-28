@@ -643,6 +643,7 @@ export async function runCalendarEventRulesOnce(signal?: AbortSignal) {
           await syncOwner(owner, signal);
           signal?.throwIfAborted();
           await mutateUserSetting(owner, RUNTIME_KEY, (current) => {
+            signal?.throwIfAborted();
             const next = { ...((current ?? {}) as Runtime) };
             delete next.lastError;
             return next;
