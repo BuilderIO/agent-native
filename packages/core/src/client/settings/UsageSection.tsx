@@ -84,7 +84,6 @@ interface UsageRecentMetric extends RecentPromptEntry {
 }
 
 interface UsageMetricsData {
-  builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
   app: string;
   viewScope: UsageScope;
@@ -1011,7 +1010,7 @@ export function UsageSection({
   });
   const data = query.data;
   const canViewBuilderCreditUsage = Boolean(
-    !appId && data?.builderCreditUsageEnabled && data.access.canViewWorkspace,
+    !appId && data?.access.canViewWorkspace,
   );
   const builderCreditUsageQuery = useActionQuery<BuilderCreditUsageData | null>(
     "get-builder-credit-usage",
