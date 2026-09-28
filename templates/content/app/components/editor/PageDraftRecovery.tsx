@@ -144,8 +144,10 @@ export function PageDraftRecovery({
       return;
     }
     if (!entry) {
-      if (!sweepLegacyRetainedPageDraftMarkers()) {
-        console.warn("Unable to remove legacy Content draft markers.");
+      try {
+        sweepLegacyRetainedPageDraftMarkers();
+      } catch (error) {
+        console.warn("Unable to remove legacy Content draft markers.", error);
       }
       setJournalState("ready");
       return;

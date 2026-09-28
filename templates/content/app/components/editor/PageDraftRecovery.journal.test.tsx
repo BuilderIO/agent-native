@@ -151,7 +151,6 @@ describe("Page browser journal recovery", () => {
     );
     state.receipt.mockResolvedValue({ found: false });
     state.refetch.mockResolvedValue(undefined);
-    state.sweep.mockReturnValue(true);
     state.rebase.mockResolvedValue({ status: "saved", document: page });
     state.upsert.mockResolvedValue({
       status: "saved",

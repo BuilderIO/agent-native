@@ -110,7 +110,7 @@ describe("Page draft journal", () => {
     values.set("content-page-draft-retained-v1:a:org:page-one:old-writer", "1");
     values.set("content-page-draft-retained-v1:a:org:page-two:other", "1");
     writePageDraftJournal({ scope, snapshot });
-    expect(sweepLegacyRetainedPageDraftMarkers()).toBe(true);
+    sweepLegacyRetainedPageDraftMarkers();
     expect(
       Array.from(values.keys()).filter((key) =>
         key.startsWith("content-page-draft-retained-v1:"),
@@ -138,7 +138,9 @@ describe("Page draft journal", () => {
       },
     });
 
-    expect(sweepLegacyRetainedPageDraftMarkers()).toBe(false);
+    expect(sweepLegacyRetainedPageDraftMarkers).toThrowError(
+      PageDraftJournalError,
+    );
     expect(values.has(marker)).toBe(true);
   });
 

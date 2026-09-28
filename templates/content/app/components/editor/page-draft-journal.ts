@@ -201,8 +201,8 @@ export function readPageDraftJournal(
   );
 }
 
-/** Removes every legacy retained-draft marker and reports whether cleanup completed. */
-export function sweepLegacyRetainedPageDraftMarkers(): boolean {
+/** Removes every legacy retained-draft marker or throws a typed storage error. */
+export function sweepLegacyRetainedPageDraftMarkers(): void {
   try {
     const store = storage();
     const keys: string[] = [];
@@ -211,9 +211,9 @@ export function sweepLegacyRetainedPageDraftMarkers(): boolean {
       if (itemKey?.startsWith(LEGACY_RETAINED_PREFIX)) keys.push(itemKey);
     }
     for (const itemKey of keys) store.removeItem(itemKey);
-    return true;
-  } catch {
-    return false;
+  } catch (cause) {
+    if (cause instanceof PageDraftJournalError) throw cause;
+    throw new PageDraftJournalError("write_failed", cause);
   }
 }
 
