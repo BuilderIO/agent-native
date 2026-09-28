@@ -389,6 +389,14 @@ ALTER TABLE mail_sync_accounts
 CREATE INDEX IF NOT EXISTS idx_scheduled_jobs_status_run_at_id
   ON scheduled_jobs(status, run_at, id);`,
     },
+    {
+      version: 32,
+      name: "mail-background-account-sweep-order",
+      sql: `CREATE INDEX IF NOT EXISTS mail_sync_accounts_automation_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_automation_attempted_at, 0), id);
+CREATE INDEX IF NOT EXISTS mail_sync_accounts_watch_attempted_id_idx
+  ON mail_sync_accounts (COALESCE(last_watch_attempted_at, 0), id);`,
+    },
   ],
   { table: "mail_migrations" },
 );

@@ -1038,6 +1038,11 @@ const messages = {
     createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
   },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
+  },
 };
 
 export default messages;

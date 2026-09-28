@@ -123,6 +123,27 @@ describe("insertNotification", () => {
     expect(listed.deliveredChannels).toEqual(["inbox"]);
   });
 
+  it("returns the existing inbox row for a repeated idempotency key", async () => {
+    const first = await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "Mail arrived",
+      metadata: { messageId: "message-1" },
+      idempotencyKey: "mail-rule:rule-1:mailbox@example.com:message-1",
+    });
+    const second = await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "Mail arrived after retry",
+      metadata: { messageId: "message-1" },
+      idempotencyKey: "mail-rule:rule-1:mailbox@example.com:message-1",
+    });
+
+    expect(second).toEqual(first);
+    expect(await listNotifications(ALICE)).toHaveLength(1);
+    expect(recordChange).toHaveBeenCalledTimes(1);
+  });
+
   it("stores null body/metadata cleanly and defaults delivered channels", async () => {
     const n = await insertNotification({
       owner: ALICE,
