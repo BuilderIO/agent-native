@@ -217,7 +217,7 @@ export function OrgSwitcher({
   compact,
   utilityLinks,
 }: OrgSwitcherProps) {
-  const { data: org, isLoading } = useOrg();
+  const { data: org, isLoading, dataUpdatedAt } = useOrg();
   const { session } = useSession();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
@@ -270,15 +270,23 @@ export function OrgSwitcher({
 
   // Accounts that picked the retired "Personal" choice have `orgId: null`
   // stored while still holding memberships, which strands them outside the
-  // org-scoped Builder.io connection and vault credentials. Move them back once.
+  // org-scoped Builder.io connection and vault credentials. Move them back.
+  // A failed switch retries on the next org fetch, not on the next render:
+  // the mutation's state changes would otherwise re-run this in a tight loop.
   const personalRecoveryRef = useRef(false);
   const firstMembershipId = org?.orgs?.[0]?.orgId ?? null;
+  const switchOrgMutate = switchOrg.mutate;
   useEffect(() => {
-    if (org?.orgId || !firstMembershipId) return;
-    if (personalRecoveryRef.current || switchOrg.isPending) return;
+    if (org?.orgId || !firstMembershipId || personalRecoveryRef.current) {
+      return;
+    }
     personalRecoveryRef.current = true;
-    switchOrg.mutate(firstMembershipId);
-  }, [org?.orgId, firstMembershipId, switchOrg]);
+    switchOrgMutate(firstMembershipId, {
+      onError: () => {
+        personalRecoveryRef.current = false;
+      },
+    });
+  }, [org?.orgId, firstMembershipId, switchOrgMutate, dataUpdatedAt]);
 
   const showView = (next: MenuView) => {
     viewChangedRef.current = true;

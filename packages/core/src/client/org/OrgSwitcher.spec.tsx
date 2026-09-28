@@ -289,8 +289,42 @@ describe("OrgSwitcher (account menu)", () => {
     render(<OrgSwitcher />);
     render(<OrgSwitcher />);
 
-    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith("org-1");
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledWith(
+      "org-1",
+      expect.any(Object),
+    );
     expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed move on the next organization fetch, not on re-render", () => {
+    const stuck = { ...ownerOrg, orgId: null, orgName: null, role: null };
+    mocks.switchOrg.mutate.mockImplementationOnce(
+      (_orgId: unknown, options?: { onError?: () => void }) => {
+        options?.onError?.();
+      },
+    );
+    mocks.useOrg.mockReturnValue({
+      data: stuck,
+      isLoading: false,
+      dataUpdatedAt: 1,
+    });
+
+    render(<OrgSwitcher />);
+    render(<OrgSwitcher />);
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(1);
+
+    mocks.useOrg.mockReturnValue({
+      data: { ...stuck },
+      isLoading: false,
+      dataUpdatedAt: 2,
+    });
+    render(<OrgSwitcher />);
+
+    expect(mocks.switchOrg.mutate).toHaveBeenCalledTimes(2);
+    expect(mocks.switchOrg.mutate).toHaveBeenLastCalledWith(
+      "org-1",
+      expect.any(Object),
+    );
   });
 
   it("keeps the compact trigger to the avatar, with name and org in the tooltip", () => {
