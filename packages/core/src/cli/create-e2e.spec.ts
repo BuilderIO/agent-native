@@ -12,6 +12,7 @@ import {
   _scaffoldWorkspaceRoot,
   _scaffoldAppTemplate,
   _scaffoldRequiredPackages,
+  _mergeWorkspaceYamlSections,
   _fixPackageJsonName,
   _renameGitignore,
   _loadCatalog,
@@ -421,6 +422,9 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@agent-native/agentkit"');
+    expect(workspaceYaml).toContain('"@agent-native/toolkit"');
+    expect(workspaceYaml).toContain('"@agent-native/recap-cli"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/client"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/core"');
     expect(workspaceYaml).toContain('"@modelcontextprotocol/node"');
@@ -769,6 +773,28 @@ describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
 );
 
 describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
+  it("merges workspace entries only within their own YAML section", () => {
+    const yaml = [
+      "minimumReleaseAgeExclude:",
+      '  - "@agent-native/toolkit"',
+      "",
+      "overrides:",
+      '  "@agent-native/recap-cli": "latest"',
+      "",
+    ].join("\n");
+    const merged = _mergeWorkspaceYamlSections(yaml, {
+      overrides: {
+        '"@agent-native/toolkit"': '"file:///toolkit.tgz"',
+        '"@agent-native/recap-cli"': '"file:///recap-cli"',
+      },
+    });
+
+    expect(merged).toContain(
+      '  "@agent-native/toolkit": "file:///toolkit.tgz"',
+    );
+    expect(merged.split('"@agent-native/recap-cli":')).toHaveLength(2);
+  });
+
   async function scaffoldWorkspace(
     name: string,
     templates: string[],
@@ -878,6 +904,19 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         ).toBe(true);
       }
     }
+  });
+
+  it("keeps release-age checks while allowing fresh first-party workspace packages", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const workspaceYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(workspaceYaml).toContain("minimumReleaseAge: 1440");
+    expect(workspaceYaml).toContain('- "@agent-native/agentkit"');
+    expect(workspaceYaml).toContain('- "@agent-native/toolkit"');
+    expect(workspaceYaml).toContain('- "@agent-native/recap-cli"');
   });
 
   it("converts @agent-native/core workspace:* in scaffolded packages", async () => {

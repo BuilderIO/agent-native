@@ -6,6 +6,9 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@bacons/apple-targets"
   - "@agent-native/core"
+  - "@agent-native/agentkit"
+  - "@agent-native/toolkit"
+  - "@agent-native/recap-cli"
   - "@modelcontextprotocol/client"
   - "@modelcontextprotocol/core"
   - "@modelcontextprotocol/node"

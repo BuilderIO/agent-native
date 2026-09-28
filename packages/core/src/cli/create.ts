@@ -8,6 +8,7 @@ import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import type { CreateStartKind } from "./create-tui.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
@@ -87,6 +88,9 @@ const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@modelcontextprotocol/core"',
   '"@modelcontextprotocol/node"',
   '"@modelcontextprotocol/server"',
+  '"@agent-native/agentkit"',
+  '"@agent-native/toolkit"',
+  '"@agent-native/recap-cli"',
   '"@typescript/*"',
   '"@sentry/*"',
   "fast-xml-parser",
@@ -115,6 +119,13 @@ export class ValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ValidationError";
+  }
+}
+
+class CreateWizardCancelledError extends Error {
+  constructor() {
+    super("Scaffold cancelled.");
+    this.name = "CreateWizardCancelledError";
   }
 }
 
@@ -152,6 +163,162 @@ export interface CreateAppOptions {
   noInstall?: boolean;
   forceWorkspace?: boolean;
   inPlace?: boolean;
+  _communityAppPicker?: (
+    apps: CommunityWorkspaceAppOption[],
+  ) => Promise<string>;
+}
+
+export async function runCreateCommand(
+  name?: string,
+  opts?: CreateAppOptions,
+): Promise<void> {
+  if (name === "." || name === "./") {
+    name = path.basename(process.cwd());
+    opts = { ...opts, inPlace: true };
+  }
+
+  const workspace = detectWorkspace(process.cwd());
+  const parsed = parseTemplateList(opts?.template);
+  const hasInteractiveConfig =
+    !name || !opts?.template || Boolean(workspace && parsed.length > 1);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (hasInteractiveConfig) {
+      console.error(
+        "An interactive terminal is needed to choose a project type. Pass a project name and --template, or run `agent-native create --help`.",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    await createApp(name, opts);
+    return;
+  }
+
+  if (!hasInteractiveConfig) {
+    await createApp(name, opts);
+    return;
+  }
+
+  if (workspace && parsed.includes("headless")) {
+    await createApp(name, opts);
+    return;
+  }
+  const installedApps = workspace
+    ? listInstalledApps(workspace.workspaceRoot)
+    : [];
+  const alreadyInstalled = parsed.find((template) =>
+    installedApps.includes(template),
+  );
+  if (alreadyInstalled) {
+    console.error(
+      `App "${alreadyInstalled}" is already installed in this workspace.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const initialKind: CreateStartKind | undefined = workspace
+    ? "workspace-add"
+    : opts?.forceWorkspace
+      ? "first-party"
+      : opts?.standalone
+        ? parsed.some((template) => isCommunityTemplateSelection(template))
+          ? "community"
+          : parsed.includes("headless")
+            ? "headless"
+            : "standalone"
+        : parsed.includes("headless")
+          ? "headless"
+          : parsed.length > 1
+            ? "first-party"
+            : parsed.length === 1
+              ? isCommunityTemplateSelection(parsed[0])
+                ? "community"
+                : "standalone"
+              : undefined;
+  const initialCommunityTemplate =
+    initialKind === "community" && parsed[0] !== "community"
+      ? parsed[0]
+      : undefined;
+  if (
+    workspace &&
+    coreTemplates().every((template) => installedApps.includes(template.name))
+  ) {
+    console.log("All available apps are already installed.");
+    return;
+  }
+
+  const { runCreateWizard } = await import("./create-tui.js");
+  const answers = await runCreateWizard({
+    cwd: process.cwd(),
+    initialName: workspace ? undefined : name,
+    initialKind,
+    initialTemplates: workspace
+      ? parsed.filter(
+          (template) =>
+            template !== "dispatch" || !installedApps.includes("dispatch"),
+        )
+      : parsed,
+    initialCommunityTemplate,
+    installedApps,
+    validateName(value) {
+      if (!/^[a-z][a-z0-9-]*$/.test(value)) {
+        return "Use lowercase letters, numbers, and hyphens (must start with a letter).";
+      }
+      if (opts?.inPlace) {
+        const conflicting = fs
+          .readdirSync(process.cwd())
+          .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
+        if (conflicting.length > 0) {
+          return "This folder is not empty. Choose another name or use an empty folder.";
+        }
+      } else if (fs.existsSync(path.resolve(process.cwd(), value))) {
+        return `Directory "${value}" already exists. Choose another name.`;
+      }
+      return undefined;
+    },
+    validateCommunityTemplate(value) {
+      try {
+        parseCommunityPromptValue(value);
+        return undefined;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    },
+  });
+  if (!answers) {
+    console.log("Cancelled. No files were created.");
+    return;
+  }
+
+  if (answers.addToWorkspace) {
+    await addSelectedAppsToWorkspace(answers.templates);
+    return;
+  }
+
+  const selection =
+    answers.kind === "headless"
+      ? "headless"
+      : answers.kind === "community"
+        ? parseCommunityPromptValue(answers.communityTemplate ?? "").canonical
+        : answers.kind === "standalone"
+          ? (answers.templates[0] ?? "chat")
+          : answers.templates.join(",") || "dispatch";
+  await createApp(answers.name, {
+    ...opts,
+    template: selection,
+    standalone: answers.kind === "standalone" || answers.kind === "headless",
+    forceWorkspace:
+      answers.kind === "chat-workspace" || answers.kind === "first-party",
+    _communityAppPicker: async (apps) => {
+      const { promptInkChoice } = await import("./create-tui.js");
+      const selection = await promptInkChoice(
+        "Choose an app from this community workspace",
+        apps.map((app) => ({ value: app.name, label: app.label })),
+      );
+      if (!selection) throw new CreateWizardCancelledError();
+      return selection;
+    },
+  });
 }
 
 export async function createApp(
@@ -315,17 +482,21 @@ function communityScaffoldOptions(
   shape: "standalone" | "workspace",
   destinationAppName: string,
   targetWorkspaceCoreName?: string,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
 ): ScaffoldAppTemplateOptions {
   return {
     shape,
     destinationAppName,
     targetWorkspaceCoreName,
-    ...(process.stdin.isTTY && process.stdout.isTTY
-      ? {
-          selectCommunityWorkspaceApp: (apps: CommunityWorkspaceAppOption[]) =>
-            promptCommunityWorkspaceApp(apps, clack),
-        }
-      : {}),
+    ...(appPicker
+      ? { selectCommunityWorkspaceApp: appPicker }
+      : process.stdin.isTTY && process.stdout.isTTY
+        ? {
+            selectCommunityWorkspaceApp: (
+              apps: CommunityWorkspaceAppOption[],
+            ) => promptCommunityWorkspaceApp(apps, clack),
+          }
+        : {}),
   };
 }
 
@@ -447,6 +618,7 @@ async function createWorkspaceInteractive(
           "workspace",
           appName,
           workspaceCoreName,
+          opts?._communityAppPicker,
         ),
       );
       s.message(
@@ -497,6 +669,12 @@ async function createWorkspaceInteractive(
       `Workspace scaffolded with ${templates.length} app${templates.length === 1 ? "" : "s"}.`,
     );
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to scaffold workspace.");
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
@@ -504,20 +682,6 @@ async function createWorkspaceInteractive(
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
-
-  const treeLines = [
-    `  ${name}/                    ← your workspace`,
-    ...scaffoldedApps.map(
-      (appName, i) =>
-        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
-          30,
-        ) + `   ← app`,
-    ),
-  ];
-  const dispatchNextStep = [
-    `Once running, open Dispatch — you'll see "Workspace: ${titleCase(name)}"`,
-    `at the top, with all your apps listed under it.`,
-  ];
 
   const installSteps = hasPnpm()
     ? [
@@ -534,19 +698,12 @@ async function createWorkspaceInteractive(
 
   clack.outro(
     [
-      `Created workspace "${name}" with ${templates.length} app${templates.length === 1 ? "" : "s"}:`,
-      ``,
-      ...treeLines,
-      ``,
-      `Next steps:`,
-      ``,
-      `  cd ${name}`,
+      `Workspace ready · ${templates.length} app${templates.length === 1 ? "" : "s"}`,
+      `Path: ${opts?.inPlace ? process.cwd() : path.resolve(targetDir)}`,
+      `Apps: ${scaffoldedApps.map(titleCase).join(", ")}`,
+      "Next:",
+      `  cd ${opts?.inPlace ? "." : name}`,
       ...installSteps,
-      ``,
-      ...dispatchNextStep,
-      ``,
-      `Add another app later:        npx @agent-native/core@latest add-app`,
-      `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
 }
@@ -692,7 +849,14 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
-    await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
+    await scaffoldOneAppIntoWorkspace(
+      workspace,
+      name,
+      tpl,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
     return;
   }
 
@@ -720,8 +884,49 @@ export async function addAppToWorkspace(
   }
 
   for (const t of templates) {
-    await scaffoldOneAppIntoWorkspace(workspace, t, t, clack);
+    await scaffoldOneAppIntoWorkspace(
+      workspace,
+      t,
+      t,
+      clack,
+      true,
+      opts?._communityAppPicker,
+    );
   }
+}
+
+async function addSelectedAppsToWorkspace(templates: string[]): Promise<void> {
+  const clack = await import("@clack/prompts");
+  const workspace = detectWorkspace(process.cwd());
+  if (!workspace) {
+    clack.cancel("Not inside a workspace. Run `agent-native create` first.");
+    process.exit(1);
+  }
+  if (templates.length === 0) {
+    clack.cancel("No apps selected. Choose at least one app to add.");
+    process.exit(0);
+  }
+
+  for (const template of templates) {
+    await scaffoldOneAppIntoWorkspace(
+      workspace,
+      template,
+      template,
+      clack,
+      false,
+    );
+  }
+
+  clack.outro(
+    [
+      `Added ${templates.length} app${templates.length === 1 ? "" : "s"} to ${path.resolve(workspace.workspaceRoot)}:`,
+      ...templates.map((template) => `  · ${template}`),
+      "",
+      "Next steps:",
+      "  pnpm install",
+      "  pnpm dev",
+    ].join("\n"),
+  );
 }
 
 async function scaffoldOneAppIntoWorkspace(
@@ -729,6 +934,8 @@ async function scaffoldOneAppIntoWorkspace(
   appName: string,
   templateName: string,
   clack: typeof import("@clack/prompts"),
+  showOutro = true,
+  appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
 ): Promise<void> {
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
@@ -757,6 +964,7 @@ async function scaffoldOneAppIntoWorkspace(
         "workspace",
         appName,
         workspace.workspaceCoreName,
+        appPicker,
       ),
     );
     replacePlaceholders(
@@ -804,22 +1012,30 @@ async function scaffoldOneAppIntoWorkspace(
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(appDir);
+      clack.outro("Cancelled. No app was added.");
+      return;
+    }
     s.stop(`Failed to scaffold apps/${appName}.`);
     cleanupOnFailure(appDir);
     clack.cancel(err?.message ?? String(err));
     process.exit(1);
   }
 
-  clack.outro(
-    [
-      `Done!`,
-      ``,
-      `  pnpm install`,
-      `  pnpm dev`,
-      ``,
-      `The workspace gateway will detect apps/${appName} and serve it at /${appName}.`,
-    ].join("\n"),
-  );
+  if (showOutro) {
+    clack.outro(
+      [
+        `Added apps/${appName} to ${path.resolve(workspace.workspaceRoot)}.`,
+        ``,
+        `  pnpm install`,
+        `  pnpm dev`,
+        ``,
+        `The workspace gateway will serve this app at /${appName}.`,
+      ].join("\n"),
+    );
+  }
 }
 
 async function createStandaloneApp(
@@ -853,22 +1069,49 @@ async function createStandaloneApp(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  const includedAppName =
+    template === "headless"
+      ? "Headless"
+      : titleCase(normalizeTemplateName(template));
+  const willDownload =
+    template !== "headless" &&
+    (isCommunityTemplateSelection(template) ||
+      !findLocalTemplate(normalizeTemplateName(template)));
   s.start(
     template === "headless"
       ? "Scaffolding the headless agent app..."
-      : (communityTemplateDownloadMessage(template) ??
-          `Downloading the ${template} template from GitHub...`),
+      : willDownload
+        ? (communityTemplateDownloadMessage(template) ??
+          `Downloading the ${template} template from GitHub...`)
+        : `Scaffolding the ${titleCase(template)} template...`,
   );
+  let includedApp = includedAppName;
   try {
     const resolution = await scaffoldAppTemplate(
       targetDir,
       template,
-      communityScaffoldOptions(clack, "standalone", name),
+      communityScaffoldOptions(
+        clack,
+        "standalone",
+        name,
+        undefined,
+        opts?._communityAppPicker,
+      ),
     );
-    s.message(`Setting up ${name}…`);
+    includedApp =
+      resolution.sourceIdentity?.appTitle ??
+      resolution.communityTemplate?.app ??
+      includedApp;
+    s.message(`Configuring ${name}...`);
     postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
   } catch (err: any) {
+    if (err instanceof CreateWizardCancelledError) {
+      s.stop("Cancelled.");
+      cleanupOnFailure(targetDir);
+      clack.outro("Cancelled. No files were created.");
+      return;
+    }
     s.stop("Failed to create app.");
     cleanupOnFailure(targetDir);
     clack.cancel(err?.message ?? String(err));
@@ -876,23 +1119,35 @@ async function createStandaloneApp(
   }
 
   finalizeScaffold(targetDir, opts?.inPlace);
+  const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
+  const changeDirectory = opts?.inPlace ? "." : name;
 
   if (template === "headless") {
     clack.outro(
       [
-        "Done! Next steps:",
+        "Headless app ready",
+        `Path: ${projectPath}`,
+        "Included: Headless",
+        "Next:",
         "",
-        `  cd ${name}`,
+        `  cd ${changeDirectory}`,
         "  pnpm install",
         "  pnpm action hello --name Builder",
         `  pnpm agent "Call hello for Builder"`,
-        "",
-        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
       ].join("\n"),
     );
   } else {
     clack.outro(
-      `Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`,
+      [
+        "Standalone app ready",
+        `Path: ${projectPath}`,
+        `Included: ${includedApp}`,
+        "Next:",
+        "",
+        `  cd ${changeDirectory}`,
+        "  pnpm install",
+        "  pnpm dev",
+      ].join("\n"),
     );
   }
 }
@@ -2101,6 +2356,7 @@ export { parseWorkspaceScope };
 /** @internal — exported for E2E tests */
 export {
   scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
+  mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
@@ -2968,7 +3224,7 @@ function mergeWorkspaceYamlSections(
   let result = yaml;
   for (const [section, entries] of Object.entries(sections)) {
     for (const [key, value] of Object.entries(entries)) {
-      if (result.includes(key)) continue;
+      if (workspaceYamlSectionHasEntry(result, section, key)) continue;
       const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
       const match = sectionHeader.exec(result);
       if (match) {
@@ -2986,6 +3242,26 @@ function mergeWorkspaceYamlSections(
     }
   }
   return result;
+}
+
+function workspaceYamlSectionHasEntry(
+  yaml: string,
+  section: string,
+  key: string,
+): boolean {
+  const sectionHeader = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m");
+  const match = sectionHeader.exec(yaml);
+  if (!match) return false;
+
+  const sectionStart = match.index + match[0].length;
+  const remaining = yaml.slice(sectionStart);
+  const nextSection = /^\S[^\n]*$/m.exec(remaining);
+  const sectionBody = remaining.slice(
+    0,
+    nextSection?.index ?? remaining.length,
+  );
+  const entry = new RegExp(`^  ${escapeRegExp(key)}\\s*:`, "m");
+  return entry.test(sectionBody);
 }
 
 function mergeWorkspaceYamlListItems(
