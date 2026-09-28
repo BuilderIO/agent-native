@@ -523,6 +523,12 @@ body:has(> [data-agent-native-composer-popover="true"]) > .fixed.inset-0 {
   grid-template-rows: minmax(0, 1fr) auto 1rem auto minmax(0, 1fr);
 }
 
+.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]:has(
+    .agentkit-transcript-content:empty
+  ) {
+  grid-template-rows: minmax(0, 1fr) 0 0 auto minmax(0, 1fr);
+}
+
 .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
   .agentkit-transcript {
   grid-row: 2;

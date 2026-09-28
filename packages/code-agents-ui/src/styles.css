@@ -1409,7 +1409,7 @@
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: 999px;
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
 }
