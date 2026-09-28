@@ -992,7 +992,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           source: "new_deck_prompt",
         });
       }
-      settlePendingDeckAttachments("discard");
+      settlePendingDeckAttachments("commit");
       if (
         !savePromptForRetry(prompt, {
           context: additionalContext,
@@ -1353,10 +1353,10 @@ export default function Index({ active = true }: { active?: boolean }) {
     ) => {
       if (!agentEngineConfigured) return "retain" as const;
       pendingDeckAttachmentActionsRef.current = attachments;
-      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       const retryContext =
         attachments.context ??
         (prompt === newDeckRetryPrompt ? newDeckRetryContext : undefined);
+      setNewDeckPromptOpen(false, { clearInitialPrompt: false });
       if (options?.slidesContext) {
         void runPendingDeckGeneration(
           prompt,
@@ -1423,6 +1423,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     settlePendingDeckAttachments("discard");
     setNewDeckPromptOpen(false, { clearInitialPrompt: false });
     setNewDeckRetryPrompt(undefined);
+    setNewDeckRetryFiles([]);
     setNewDeckRetryReferenceFilePaths([]);
     setNewDeckRetryImportedReference(undefined);
     setNewDeckRetryContext(undefined);
@@ -2313,10 +2314,19 @@ export default function Index({ active = true }: { active?: boolean }) {
         onOpenChange={(open) => {
           if (!open && !pendingDeckGenerationRef.current) {
             const pending = pendingDeck;
-            settlePendingDeckAttachments("discard");
             setShowNewDeckReferenceStep(false);
             setPendingDeck(null);
             if (pending) {
+              settlePendingDeckAttachments("commit");
+              setNewDeckRetryPrompt(pending.prompt);
+              setNewDeckRetryFiles((files) =>
+                mergeUploadedFilesForRetry(files, pending.files),
+              );
+              setNewDeckRetryReferenceFilePaths(pending.referenceFilePaths);
+              setNewDeckRetryImportedReference(pending.importedReference);
+              setNewDeckRetryContext(pending.context);
+              setNewDeckRetryAttachments(pending.attachments);
+              setNewDeckRetryModelSelection(pending.modelSelection);
               setNewDeckInitialPrompt({
                 text: pending.prompt,
                 key: Date.now(),

@@ -845,6 +845,8 @@ const messages = {
       networkFailed:
         "가져오기가 시간 초과되었거나 네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요.",
       notStarted: "필요한 로그인을 완료한 후 가져오기를 다시 시도하세요.",
+      unsupportedFileType:
+        "지원되지 않는 파일 형식입니다. 지원되는 파일을 선택하세요.",
       uploadLimitExceeded:
         "업로드가 허용된 한도를 초과했습니다. 파일 크기를 줄이거나 더 적은 파일을 선택한 다음 다시 시도하세요.",
     },
@@ -885,6 +887,8 @@ const messages = {
       notReady:
         "컨텍스트를 불러오는 중이거나 사용할 수 없습니다. 전송 전에 다시 시도하거나 제거하세요.",
       emptySource: "이 소스에 사용 가능한 컨텍스트가 없습니다.",
+      websiteReadFailed:
+        "이 웹사이트를 자동으로 읽을 수 없습니다. 관련 텍스트를 복사해 붙여넣어 주세요.",
       figmaReadFailed:
         "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",

@@ -883,6 +883,7 @@ describe("Slides prompt-led home", () => {
         }),
       ).toBe("retain");
     });
+    expect(promptProps.mock.lastCall![0].open).toBe(false);
     expect(referenceProps.mock.lastCall![0].open).toBe(true);
 
     fireEvent.click(screen.getByRole("link", { name: "Open templates" }));
@@ -924,36 +925,125 @@ describe("Slides prompt-led home", () => {
     expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
   });
 
-  it("reopens the inline prompt on reference cancellation without discarding uploads just for hiding it", async () => {
-    renderHome();
+  it("restores the full pending generation when reference selection is canceled", async () => {
+    const uploadedFile = {
+      path: "/uploads/source.pptx",
+      originalName: "source.pptx",
+      filename: "source.pptx",
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      size: 32,
+    };
+    const chatAttachment = {
+      type: "file" as const,
+      name: "notes.txt",
+      contentType: "text/plain",
+      displayOnly: true as const,
+      text: "Keep these notes attached.",
+    };
+    const modelSelection = {
+      model: "test-model",
+      engine: "builder",
+      effort: "high" as const,
+    };
+    createDeck.mockReturnValue({ id: "new-deck" });
+    renderHome(
+      {
+        decks: [
+          {
+            id: "reference-deck",
+            title: "Reference deck",
+            createdByMe: true,
+          },
+        ],
+        ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+        deleteDeck: vi.fn(),
+      },
+      {
+        retryPrompt: "Create a roadmap",
+        retryFiles: [uploadedFile],
+        retryReferenceFilePaths: [uploadedFile.path],
+        retryImportedReference: {
+          deckId: "reference-deck",
+          filePath: uploadedFile.path,
+        },
+        retryContext: "Saved source context",
+        retryAttachments: [chatAttachment],
+        modelSelection,
+      },
+    );
     await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await waitFor(() =>
+      expect(promptProps.mock.lastCall![0].initialText).toBe(
+        "Create a roadmap",
+      ),
+    );
     const attachments = { commit: vi.fn(), discard: vi.fn(), attachments: [] };
     await act(async () => {
       const props = promptProps.mock.lastCall![0] as ComponentProps<
         typeof PromptPopover
       >;
-      expect(
-        await props.onSubmit("My outline", [], attachments, {
-          model: "test-model",
-          engine: "builder",
-          effort: "high",
-        }),
-      ).toBe("retain");
+      expect(await props.onSubmit("Create a roadmap", [], attachments)).toBe(
+        "retain",
+      );
     });
     expect(
       screen.queryByRole("textbox", { name: "Presentation prompt" }),
     ).toBeNull();
     expect(attachments.discard).not.toHaveBeenCalled();
     act(() => referenceProps.mock.lastCall![0].onOpenChange(false));
+    expect(promptProps.mock.lastCall![0].open).toBe(true);
+    expect(promptProps.mock.lastCall![0].initialModelSelection).toEqual(
+      modelSelection,
+    );
     expect(
       (
         (await screen.findByRole("textbox", {
           name: "Presentation prompt",
         })) as HTMLTextAreaElement
       ).value,
-    ).toBe("My outline");
-    expect(attachments.discard).toHaveBeenCalledOnce();
-    expect(createDeck).not.toHaveBeenCalled();
+    ).toBe("Create a roadmap");
+    expect(attachments.commit).toHaveBeenCalledOnce();
+    expect(attachments.discard).not.toHaveBeenCalled();
+
+    await act(async () => {
+      const props = promptProps.mock.lastCall![0] as ComponentProps<
+        typeof PromptPopover
+      >;
+      expect(
+        await props.onSubmit("Create a roadmap", [], {
+          commit: vi.fn(),
+          discard: vi.fn(),
+          attachments: [],
+        }),
+      ).toBe("retain");
+    });
+    await act(async () =>
+      referenceProps.mock.lastCall![0].onSelect({
+        designSystemId: null,
+        referenceDeckId: "reference-deck",
+      }),
+    );
+
+    await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
+    const [, generationContext, generationOptions] = agentSubmit.mock.calls[0];
+    expect(generationContext).toContain("Saved source context");
+    expect(generationContext).toContain("source.pptx");
+    expect(generationOptions).toMatchObject({
+      attachments: [chatAttachment],
+      model: modelSelection.model,
+      engine: modelSelection.engine,
+      effort: modelSelection.effort,
+    });
+    expect(callAction).toHaveBeenCalledWith(
+      "get-deck-reference-context",
+      { id: "reference-deck" },
+      { method: "GET" },
+    );
+    expect(callAction).not.toHaveBeenCalledWith(
+      "import-file",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("uses generic copy for a storage status failure during reference import", async () => {

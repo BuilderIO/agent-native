@@ -294,6 +294,7 @@ export interface AgentSidebarProps {
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
+  showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
   openOnChatRunning?: boolean;
   onFullscreenRequest?: () => void;
   onOpenSettings?: (section?: string) => void;
@@ -365,6 +366,7 @@ export function AgentSidebar({
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
+  showMissingApiKeySetup,
   openOnChatRunning = false,
   onFullscreenRequest,
   onOpenSettings,
@@ -1177,6 +1179,7 @@ export function AgentSidebar({
                 showTabBar={effectiveShowTabBar}
                 suppressInlineOpenApp={suppressInlineOpenApp}
                 composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
                 missingApiKeySetupLayout="sidebar"
                 defaultMode={defaultMode}
                 onCollapse={() => setOpenPersisted(false)}

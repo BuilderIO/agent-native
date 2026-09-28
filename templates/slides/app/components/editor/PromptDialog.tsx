@@ -35,6 +35,7 @@ import {
   isPromptUploadLimitError,
   isPromptUploadNetworkError,
   isPromptUploadStorageStatusError,
+  isPromptUploadUnsupportedFileTypeError,
   uploadPromptFiles,
   type UploadedFile,
 } from "@/lib/prompt-file-uploads";
@@ -410,11 +411,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
       });
@@ -541,11 +544,13 @@ export default function PromptPopover({
                   ? t("home.importMenu.notStarted")
                   : isPromptUploadLimitError(error)
                     ? t("home.importMenu.uploadLimitExceeded")
-                    : isPromptUploadStorageStatusError(error)
-                      ? t("editorToolbar.importFailedDescription")
-                      : error instanceof Error
-                        ? error.message
-                        : t("raw.uploadAttachedFailed"),
+                    : isPromptUploadUnsupportedFileTypeError(error)
+                      ? t("home.importMenu.unsupportedFileType")
+                      : isPromptUploadStorageStatusError(error)
+                        ? t("editorToolbar.importFailedDescription")
+                        : error instanceof Error
+                          ? error.message
+                          : t("raw.uploadAttachedFailed"),
           ),
         });
         throw error;
