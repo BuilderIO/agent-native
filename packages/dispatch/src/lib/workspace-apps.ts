@@ -461,9 +461,12 @@ export function mergeChatFirstWorkspaceApps(
     });
   }
   for (const app of apps ?? []) {
-    const fallback = merged.get(app.id);
-    merged.set(app.id, {
+    const id = app.id.trim();
+    const normalizedId = id.toLowerCase();
+    const fallback = merged.get(normalizedId);
+    merged.set(normalizedId, {
       ...app,
+      id,
       description: app.description ?? fallback?.description,
       defaultDescriptionKey:
         app.description === undefined ||

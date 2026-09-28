@@ -79,7 +79,7 @@ describe("workspace app routes", () => {
 
   it("includes granted-only apps without replacing registered app summaries", () => {
     const apps = mergeChatFirstWorkspaceApps(
-      [{ id: "calendar", name: "Workspace Calendar", path: "/calendar" }],
+      [{ id: "Calendar", name: "Workspace Calendar", path: "/calendar" }],
       [
         {
           id: "calendar",
@@ -95,7 +95,12 @@ describe("workspace app routes", () => {
       ],
     );
 
-    expect(apps.find((app) => app.id === "calendar")).toMatchObject({
+    const calendarApps = apps.filter(
+      (app) => app.id.toLowerCase() === "calendar",
+    );
+    expect(calendarApps).toHaveLength(1);
+    expect(calendarApps[0]).toMatchObject({
+      id: "Calendar",
       name: "Workspace Calendar",
       path: "/calendar",
     });
