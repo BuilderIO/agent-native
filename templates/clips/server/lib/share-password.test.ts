@@ -64,19 +64,19 @@ describe("share-password storage", () => {
   it("uses the update timestamp for legacy plaintext rows without exposing the password", () => {
     const previous = getRecordingAccessTokenResourceId(
       "rec-1",
-      "legacy-password",
+      "example-legacy-value",
       "2026-01-01T00:00:00.000Z",
     );
     const current = getRecordingAccessTokenResourceId(
       "rec-1",
-      "legacy-password",
+      "example-legacy-value",
       "2026-01-02T00:00:00.000Z",
     );
 
     expect(previous).not.toBe(current);
-    expect(previous).not.toContain("legacy-password");
+    expect(previous).not.toContain("example-legacy-value");
     expect(() =>
-      getRecordingAccessTokenResourceId("rec-1", "legacy-password", null),
+      getRecordingAccessTokenResourceId("rec-1", "example-legacy-value", null),
     ).toThrow("Recording access scope requires an update timestamp");
   });
 
