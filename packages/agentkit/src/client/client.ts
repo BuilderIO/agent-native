@@ -790,10 +790,17 @@ export class AgentKitClient implements AgentKitController {
       const refreshedRuns = new Map<RunId, AgentRunSnapshot>();
       runIdsToRefresh.forEach((runId, index) => {
         const run = activeRuns[index];
-        const appliedSequence =
-          this.getThread(threadId).runs[runId]?.lastSequence ??
-          runSnapshots.get(runId)?.lastSequence ??
-          0;
+        const appliedSequence = Math.max(
+          this.getThread(threadId).runs[runId]?.lastSequence ?? 0,
+          runSnapshots.get(runId)?.lastSequence ?? 0,
+          snapshot?.events?.reduce(
+            (sequence, event) =>
+              event.runId === runId
+                ? Math.max(sequence, event.sequence)
+                : sequence,
+            0,
+          ) ?? 0,
+        );
         if (
           run &&
           !this.isTerminalStatus(run.status) &&

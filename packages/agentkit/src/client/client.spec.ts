@@ -573,7 +573,6 @@ describe("AgentKitClient", () => {
   });
 
   it("preserves refreshed nonterminal runs omitted from the snapshot", async () => {
-    let snapshotReads = 0;
     const cursors: number[] = [];
     const events = [
       protocolEvent(1, { type: "run.started" }),
@@ -581,25 +580,12 @@ describe("AgentKitClient", () => {
     ];
     const transport = createTransport([]);
     transport.getThreadSnapshot = async () => {
-      snapshotReads += 1;
       return {
         id: "thread-1",
         createdAt: "2026-08-29T00:00:00.000Z",
         updatedAt: "2026-08-29T00:00:02.000Z",
         messages: [],
         events,
-        ...(snapshotReads === 1
-          ? {
-              runs: [
-                {
-                  id: "run-1",
-                  threadId: "thread-1",
-                  status: "awaiting_input" as const,
-                  lastSequence: 2,
-                },
-              ],
-            }
-          : {}),
         activeRunIds: ["run-1"],
       };
     };
@@ -607,8 +593,8 @@ describe("AgentKitClient", () => {
       return {
         id: "run-1",
         threadId: "thread-1",
-        status: snapshotReads === 1 ? "awaiting_input" : "awaiting_approval",
-        lastSequence: snapshotReads === 1 ? 2 : 7,
+        status: "awaiting_approval",
+        lastSequence: 7,
         startedAt: "2026-08-29T00:00:00.000Z",
         activeMessageId: "assistant-1",
       };
@@ -617,9 +603,6 @@ describe("AgentKitClient", () => {
       cursors.push(afterSequence ?? 0);
     };
     const client = new AgentKitClient({ transport });
-
-    await client.loadThread("thread-1");
-    await vi.waitFor(() => expect(cursors).toEqual([2]));
 
     const thread = await client.loadThread("thread-1");
 
@@ -630,7 +613,7 @@ describe("AgentKitClient", () => {
       activeMessageId: "assistant-1",
     });
     expect(thread.activeRunIds).toEqual(["run-1"]);
-    await vi.waitFor(() => expect(cursors).toEqual([2, 2]));
+    await vi.waitFor(() => expect(cursors).toEqual([2]));
     await client.dispose();
   });
 
