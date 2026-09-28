@@ -427,23 +427,27 @@ function ShareRecordingContent({
 
       <div className="px-3 py-2">
         {view === "main" ? (
-          <ShareModeTabs
-            value={shareMode}
-            onValueChange={(value) =>
-              setShareMode(value as "people" | "agents")
-            }
-            peopleLabel={t("shareDialog.people")}
-            agentsLabel={t("shareDialog.agents")}
-            people={peopleTab}
-            agents={
-              <AgentTab
-                recordingId={recordingId}
-                visibility={visibility}
-                hasPassword={passwordProtected}
-                active={shareMode === "agents"}
-              />
-            }
-          />
+          viewerReshareOnly && passwordProtected ? (
+            peopleTab
+          ) : (
+            <ShareModeTabs
+              value={shareMode}
+              onValueChange={(value) =>
+                setShareMode(value as "people" | "agents")
+              }
+              peopleLabel={t("shareDialog.people")}
+              agentsLabel={t("shareDialog.agents")}
+              people={peopleTab}
+              agents={
+                <AgentTab
+                  recordingId={recordingId}
+                  visibility={visibility}
+                  hasPassword={passwordProtected}
+                  active={shareMode === "agents"}
+                />
+              }
+            />
+          )
         ) : view === "social" ? (
           <SocialTab
             shareUrl={shareUrl}

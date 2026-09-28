@@ -49,7 +49,7 @@ describe("recording share popover", () => {
     );
   });
 
-  it("keeps Agents available to viewer reshares without loading share details", () => {
+  it("keeps Agents available to unprotected viewer reshares without loading share details", () => {
     const source = readSource("./share-dialog.tsx");
     const mainView = source.slice(
       source.indexOf('{view === "main" ? ('),
@@ -63,9 +63,9 @@ describe("recording share popover", () => {
     const viewerPeople = peopleTab.slice(viewerOnlyStart, viewerOnlyEnd);
 
     expect(source).toContain("{ enabled: !viewerReshareOnly }");
+    expect(mainView).toContain("viewerReshareOnly && passwordProtected");
     expect(mainView).toContain("<ShareModeTabs");
     expect(mainView).toContain("<AgentTab");
-    expect(mainView).not.toContain("viewerReshareOnly");
     expect(viewerPeople).toContain('label={t("shareDialog.social")}');
     expect(viewerPeople).toContain('label={t("shareDialog.embed")}');
     expect(viewerPeople).not.toContain("<PeopleAccessSection");
