@@ -76,10 +76,11 @@ a worktree, keep validation, commit, push, PR lookup, and admin merge in that
 worktree's current branch and cwd. Do not copy changes into the shared
 checkout, and update the existing PR rather than creating a second one. If the
 explicit `/ship-now` request starts in a shared checkout that cannot safely
-serve as the PR source, keep it unchanged and create a managed task-owned
-worktree from fresh `origin/main`; carry only this task's changes and create
-the task branch there without asking. If those changes cannot be isolated
-safely, preserve all state and report the exact paths or commits.
+serve as the PR source, keep it unchanged and follow `new-branch` to create a
+managed task-owned worktree without asking. Base a new PR on fresh
+`origin/main`; base an existing PR update on its fetched live head so its
+history stays publishable. Carry only this task's changes. If they cannot be
+isolated safely, preserve all state and report the exact paths or commits.
 
 ## Workflow
 

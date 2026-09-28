@@ -41,15 +41,17 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   movement, classify all staged, unstaged, and untracked paths; a switch carries
   the whole index and worktree, so proceed only when every dirty path belongs to
   this task. Otherwise preserve the checkout and report exact paths without
-  asking again. Base new branches on fresh `origin/main`. Never move or rewrite
+  asking again. Base new shipments on fresh `origin/main`; existing PR updates
+  use the fetched live PR head as `new-branch` describes. Never move or rewrite
   a branch used by another worktree or a platform-assigned branch. After
   `origin/main` ancestry is verified, rotate to a fresh task branch in the
   task-owned worktree without asking when `/ship` safety checks pass. If
   unpublished commits or dirty publishable paths remain, retain the source
   branch and report them. In a shared checkout, keep its branch unchanged. If
   it cannot safely serve as the PR source, `/ship` authorizes a managed
-  task-owned worktree from fresh `origin/main`; carry only this task's changes
-  and create the shipping branch there without asking. If the changes cannot be
+  task-owned worktree and branch without asking. Follow `new-branch` for the
+  base: fresh `origin/main` for a new PR, the fetched live PR head for an
+  existing PR update. Carry only this task's changes. If they cannot be
   isolated safely, preserve all state and report exact paths or commits without
   asking for branch or worktree permission.
 - In Codex, inspect the task goal with `get_goal` at the start. If none exists,
@@ -58,8 +60,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   is verified, and the task-owned worktree is rotated to a fresh branch when
   the safety checks pass. Retain the source branch and report any unpushed
   commits or dirty publishable paths. In a shared checkout, keep the source
-  branch; if it cannot safely source the PR, isolate this shipment in a managed
-  task-owned worktree from fresh `origin/main` without asking. Preserve
+  branch; if it cannot safely source the PR, follow `new-branch` to isolate
+  this shipment with the correct base without asking. Preserve
   platform-assigned branches while checking and fixing CI/review feedback and
   using the guarded squash-admin merge. If the user explicitly opts out of
   merging, make the goal match that endpoint. Reuse an existing goal only when
@@ -78,9 +80,9 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   to a fresh branch when no unpushed commits or dirty publishable paths remain.
   Do this without asking for confirmation. Keep the source branch and report
   any remaining commits or paths. In a shared checkout, keep the source branch;
-  if it cannot safely source the PR, create a managed task-owned worktree from
-  fresh origin/main and carry only this task's changes without asking. Keep
-  platform-assigned Builder.io and Fusion branches unchanged. Keep checking
+  if it cannot safely source the PR, follow `new-branch` to create a managed
+  task-owned worktree from the correct base and carry only this task's changes
+  without asking. Keep platform-assigned Builder.io and Fusion branches unchanged. Keep checking
   and fixing CI and review feedback until then.` Do not replace an
   unrelated active goal; Claude Code permits one per session. If `/ship` was
   already invoked without one, keep shipping in the
@@ -125,8 +127,8 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
 6. After a merge, verify it reached `origin/main`, then finish branch
    disposition. In a task-owned worktree, rotate to a fresh task branch without
    asking if `/ship` safety checks pass; in a shared checkout, keep the source
-   branch and isolate in a managed task-owned worktree if it cannot safely
-   source the PR, without asking. `ready-only`
+   branch and follow `new-branch` to isolate if it cannot safely source the PR.
+   `ready-only`
    shipments do not rotate.
 7. Report source checks, PR, merge or intentional open state, branch
    disposition, and deployment boundaries separately.
@@ -214,9 +216,9 @@ discard, or overwrite them. If histories diverge, create from the saved
 `detached_head` and reconcile fresh `origin/main` on that task branch. A name
 already in use belongs to its existing task; pick another. In a shared
 checkout, keep its branch unchanged. When `/ship` cannot safely publish from
-that checkout, isolate this shipment in a managed task-owned worktree from
-fresh `origin/main` without asking, then create the shipping branch there. Never
-move or rewrite a branch checked out in another worktree.
+that checkout, follow `new-branch` to isolate this shipment without asking.
+Use fresh `origin/main` for a new PR and the live PR head for an existing PR
+update. Never move or rewrite a branch checked out in another worktree.
 
 Before publishing, classify every dirty path and unpushed commit. If any is
 unrelated or incomplete concurrent work, preserve it and stop the publishing

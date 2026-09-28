@@ -82,7 +82,8 @@ it over.
 - Re-read dirty files. In task worktrees, make needed branch changes without
   asking; preserve peer work and branches. Keep shared checkouts on their
   current branch. Explicit ship/PR requests authorize a managed task worktree
-  from fresh `origin/main` when needed; carry only this task's changes there.
+  from the base selected by `new-branch` when needed; carry only this task's
+  changes there.
   Never reset, stash, or overwrite peer work.
 
 ## Slack identity

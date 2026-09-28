@@ -26,18 +26,31 @@ asking. Carry only changes belonging to this PR. If they cannot be isolated
 safely, preserve state and report the exact paths or commits without asking
 for branch or worktree permission.
 
+For an existing PR update, fetch and record its live `headRefName` and
+`headRefOid`, then base the isolated task branch on that exact head so the PR
+history remains publishable. If the local task branch has a different name,
+publish to the existing PR head with a normal fast-forward refspec. Before
+pushing, recheck the head OID and inspect any worktree using that head branch
+for unpublished PR commits. If the head moved or peer work blocks a safe
+fast-forward, preserve state and report the exact branch, commits, or paths
+without asking. Never replace an existing PR's history with a branch from
+`origin/main` or force-push.
+
 ## Branch-wide Snapshot Rule
 
 During `/babysit-pr`, the PR remains the unit of review and the shared checkout
 is the branch snapshot. At the first tick, record dirty paths and unpushed
 commits; publish the requested initial work only after verifying that every
 candidate belongs to this PR's requested fix. If unrelated or incomplete
-concurrent work is present, preserve it for its owner and wait. On later ticks,
-inspect the tree before every push. Publish only a complete, coherent set of
-currently known fixes for failing CI, PR feedback, a real merge conflict, or
-an explicit user request. Batch multiple feedback items and delegate changes
-into one update; do not create a commit for each finding, checkpoint, or timer
-tick. Every new head reruns affected checks and resets the soak. Use
+concurrent work is present in a shared checkout, continue in the managed
+worktree using the existing PR's live head and carry only this task's fixes.
+Preserve the shared checkout. If safe isolation is impossible, report exact
+paths or commits without asking. On later ticks, inspect the tree before every
+push. Publish only a complete, coherent set of currently known fixes for
+failing CI, PR feedback, a real merge conflict, or an explicit user request.
+Batch multiple feedback items and delegate changes into one update; do not
+create a commit for each finding, checkpoint, or timer tick. Every new head
+reruns affected checks and resets the soak. Use
 `corepack pnpm ship:push -m` with a subject naming the actual fix (for example,
 `fix: deduplicate chat start checkpoints`); the helper rejects an omitted or
 generic subject. A clean tree, `origin/main` drift, queued checks, or a timer

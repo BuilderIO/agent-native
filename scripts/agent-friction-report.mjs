@@ -233,8 +233,13 @@ const WORKTREE_BRANCH_PERMISSION_REGEX_CASES = [
   ],
   [false, "The worktree has a branch checked out."],
 ];
-const BRANCH_SETUP_PROMPT_RE =
-  /\b(?:stop|don['’]?t|do not|no need to|never|why (?:did|do|are|were|was))\b[^.!?\n]{0,120}\b(?:ask\w*|prompt\w*|request\w*|confirmation|approval|permission)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b/i;
+const BRANCH_SETUP_PROMPT_RE = new RegExp(
+  [
+    String.raw`\b(?:stop|don['’]?t|do not|no need to|never|why (?:did|do|are|were|was))\b[^.!?\n]{0,120}\b(?:ask\w*|prompt\w*|request\w*|confirmation|approval|permission)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b`,
+    String.raw`\bwhy (?:did|do|are|were|was)\b[^.!?\n]{0,100}\b(?:branch(?:es)?|worktrees?)\b[^.!?\n]{0,100}\b(?:require\w*|need\w*)\s+(?:(?:my|your)\s+)?(?:confirmation|approval|permission)\b`,
+  ].join("|"),
+  "i",
+);
 const BRANCH_WORKTREE_ASK_RE = {
   test(text) {
     return text
@@ -259,6 +264,7 @@ const BRANCH_WORKTREE_ASK_REGEX_CASES = [
   [true, "Stop asking whether you can create a new branch."],
   [true, "Stop prompting me before creating a task worktree."],
   [true, "Don't request confirmation before creating the shipping branch."],
+  [true, "Why did creating a task worktree require my confirmation?"],
   [
     true,
     "Why did you ask for permission to create a branch in the shared checkout?",
@@ -292,6 +298,7 @@ const BRANCH_CLASSIFICATION_REGEX_CASES = [
     "Stop asking permission to create a branch in a task worktree.",
   ],
   [true, false, "Why did you create a new branch without asking?"],
+  [false, true, "Why did creating a task worktree require my confirmation?"],
   [true, false, "Don't create a new branch in the shared checkout."],
 ];
 // ponytail: count explicit "couldn't renew, so stopped" reports; broaden only from clear transcript examples.

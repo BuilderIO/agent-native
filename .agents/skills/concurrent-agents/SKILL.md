@@ -64,11 +64,12 @@ path belongs to this task. If any path is unrelated or incomplete, keep the
 checkout in place and report the exact paths without asking again.
 
 In a shared checkout, keep its branch unchanged. For an explicit `/ship` or
-PR-publishing request that cannot safely use the current checkout, create a
-managed task-owned worktree from fresh `origin/main`, carry only the requested
-task's changes, and create its task branch without asking. For other work, use
-the current branch unless the user gave an exact branch operation. Keep
-platform-assigned Builder.io and Fusion branches in place.
+PR-publishing request that cannot safely use the current checkout, follow
+`new-branch` to create a managed task-owned worktree from the correct base,
+carry only the requested task's changes, and create its task branch without
+asking. For other work, use the current branch unless the user gave an exact
+branch operation. Keep platform-assigned Builder.io and Fusion branches in
+place.
 
 ## Timing the next branch
 
