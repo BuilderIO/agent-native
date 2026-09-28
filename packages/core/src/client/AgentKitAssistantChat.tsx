@@ -3250,7 +3250,10 @@ function AgentKitComposerSurface({
           extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           onSlashCommand={props.onSlashCommand}
-          modelStatusChecksEnabled={false}
+          modelStatusChecksEnabled={
+            props.showModelSelector !== false &&
+            props.availableModels === undefined
+          }
           attachmentsEnabled={fileStorageConfigured}
           onAttachmentRequest={requestFileStorage}
           contextButtonTooltipDisabled={fileStoragePromptOpen}

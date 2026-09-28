@@ -582,6 +582,19 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("loads the model catalog only when the visible picker has no host catalog", async () => {
+    await mount(baseProps());
+    expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(true);
+
+    await unmount();
+    await mount(baseProps({ availableModels: [], modelListLoading: true }));
+    expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
+
+    await unmount();
+    await mount(baseProps({ showModelSelector: false }));
+    expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
+  });
+
   it("places starter prompts between the composer and after-composer content", async () => {
     chatMocks.renderEmptyState = true;
     await mount(
