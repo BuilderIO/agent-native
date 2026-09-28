@@ -3422,6 +3422,9 @@ export function createAgentChatPlugin(
                 ? run.turnId
                 : undefined,
             parentId: run.parentId,
+            agentKitOwnsContinuation:
+              run.agentKitApprovalContinuation === true &&
+              Array.isArray(repo.agentKit?.messages),
           });
 
           // Store debug metadata so we can inspect what the LLM actually

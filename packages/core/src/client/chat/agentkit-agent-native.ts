@@ -391,76 +391,65 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   });
 }
 
-function persistedMessages(
-  messages: AgentMessage[],
-  runIdByMessageId: ReadonlyMap<string, string>,
-): AgentMessage[] {
-  return messages.map((message) => {
-    const messageRunId = asRecord(message.metadata)?.runId;
-    const runId =
-      typeof messageRunId === "string"
-        ? messageRunId
-        : runIdByMessageId.get(message.id);
-    return {
-      id: message.id,
-      role: message.role,
-      parts: message.parts.flatMap((part): AgentMessagePart[] => {
-        if (part.type === "text") {
-          return [
-            {
-              type: "text",
-              text: part.text,
-              ...(part.format ? { format: part.format } : {}),
+function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
+  return messages.map((message) => ({
+    id: message.id,
+    role: message.role,
+    parts: message.parts.flatMap((part): AgentMessagePart[] => {
+      if (part.type === "text") {
+        return [
+          {
+            type: "text",
+            text: part.text,
+            ...(part.format ? { format: part.format } : {}),
+          },
+        ];
+      }
+      if (part.type === "citation") {
+        return [
+          {
+            type: "citation",
+            title: part.title,
+            ...(part.url ? { url: part.url } : {}),
+            ...(part.sourceId ? { sourceId: part.sourceId } : {}),
+          },
+        ];
+      }
+      if (part.type === "annotation") {
+        return [
+          {
+            type: "annotation",
+            annotation: {
+              id: part.annotation.id,
+              kind: part.annotation.kind,
+              label: part.annotation.label,
+              ...(part.annotation.url ? { url: part.annotation.url } : {}),
+              ...(part.annotation.start !== undefined
+                ? { start: part.annotation.start }
+                : {}),
+              ...(part.annotation.end !== undefined
+                ? { end: part.annotation.end }
+                : {}),
             },
-          ];
-        }
-        if (part.type === "citation") {
-          return [
-            {
-              type: "citation",
-              title: part.title,
-              ...(part.url ? { url: part.url } : {}),
-              ...(part.sourceId ? { sourceId: part.sourceId } : {}),
-            },
-          ];
-        }
-        if (part.type === "annotation") {
-          return [
-            {
-              type: "annotation",
-              annotation: {
-                id: part.annotation.id,
-                kind: part.annotation.kind,
-                label: part.annotation.label,
-                ...(part.annotation.url ? { url: part.annotation.url } : {}),
-                ...(part.annotation.start !== undefined
-                  ? { start: part.annotation.start }
-                  : {}),
-                ...(part.annotation.end !== undefined
-                  ? { end: part.annotation.end }
-                  : {}),
-              },
-            },
-          ];
-        }
-        if (part.type === "file") {
-          return [
-            {
-              type: "file",
-              name: part.name,
-              ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-              ...(part.url ? { url: part.url } : {}),
-              ...(part.fileId ? { fileId: part.fileId } : {}),
-            },
-          ];
-        }
-        return [];
-      }),
-      ...(message.createdAt ? { createdAt: message.createdAt } : {}),
-      ...(message.status ? { status: message.status } : {}),
-      ...(typeof runId === "string" ? { metadata: { runId } } : {}),
-    };
-  });
+          },
+        ];
+      }
+      if (part.type === "file") {
+        return [
+          {
+            type: "file",
+            name: part.name,
+            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+            ...(part.url ? { url: part.url } : {}),
+            ...(part.fileId ? { fileId: part.fileId } : {}),
+          },
+        ];
+      }
+      return [];
+    }),
+    ...(message.createdAt ? { createdAt: message.createdAt } : {}),
+    ...(message.status ? { status: message.status } : {}),
+  }));
 }
 
 function persistedActionWidgets(
@@ -752,159 +741,15 @@ export function createAgentNativeAgentKitTransport(
           widgets: agentKit.widgets,
         })
       : undefined;
-    const candidateMessages = [
+    const messages = [
       ...(protocolSnapshot?.messages ?? storedMessageProjection),
     ];
     const actionWidgets = storedActionWidgets(repository.messages);
-    const canonicalMessageIds = new Set(
-      candidateMessages
-        .filter((message) => !message.id.startsWith("server-run-"))
-        .map((message) => message.id),
+    const canonicalToolCallMessageIds = new Map(
+      (protocolSnapshot?.toolCalls ?? []).flatMap((toolCall) =>
+        toolCall.messageId ? [[toolCall.id, toolCall.messageId] as const] : [],
+      ),
     );
-    const canonicalMessageIdByRunId = new Map<string, string>();
-    for (const event of protocolSnapshot?.events ?? []) {
-      if (
-        event.type === "message.completed" &&
-        canonicalMessageIds.has(event.message.id)
-      ) {
-        canonicalMessageIdByRunId.set(event.runId, event.message.id);
-      }
-    }
-    for (const message of candidateMessages) {
-      if (
-        message.role !== "assistant" ||
-        !canonicalMessageIds.has(message.id)
-      ) {
-        continue;
-      }
-      const runId = asRecord(message.metadata)?.runId;
-      if (typeof runId === "string" && !canonicalMessageIdByRunId.has(runId)) {
-        canonicalMessageIdByRunId.set(runId, message.id);
-      }
-    }
-    for (const run of protocolSnapshot?.runs ?? []) {
-      if (
-        run.activeMessageId &&
-        canonicalMessageIds.has(run.activeMessageId) &&
-        !canonicalMessageIdByRunId.has(run.id)
-      ) {
-        canonicalMessageIdByRunId.set(run.id, run.activeMessageId);
-      }
-    }
-    for (const toolCall of protocolSnapshot?.toolCalls ?? []) {
-      if (
-        toolCall.runId &&
-        toolCall.messageId &&
-        canonicalMessageIds.has(toolCall.messageId) &&
-        !canonicalMessageIdByRunId.has(toolCall.runId)
-      ) {
-        canonicalMessageIdByRunId.set(toolCall.runId, toolCall.messageId);
-      }
-    }
-    const canonicalToolCallMessageIds = new Map<string, string>();
-    for (const toolCall of protocolSnapshot?.toolCalls ?? []) {
-      const messageId =
-        (toolCall.messageId && canonicalMessageIds.has(toolCall.messageId)
-          ? toolCall.messageId
-          : undefined) ??
-        (toolCall.runId
-          ? canonicalMessageIdByRunId.get(toolCall.runId)
-          : undefined);
-      if (messageId) canonicalToolCallMessageIds.set(toolCall.id, messageId);
-    }
-    const canonicalWidgetIds = new Set<string>();
-    for (const widget of protocolSnapshot?.widgets ?? []) {
-      const toolCallId = asRecord(widget.widget.data)?.toolCallId;
-      if (
-        typeof toolCallId === "string" &&
-        canonicalMessageIds.has(widget.messageId)
-      ) {
-        canonicalToolCallMessageIds.set(toolCallId, widget.messageId);
-        canonicalWidgetIds.add(widget.widget.id);
-      }
-    }
-    for (const message of candidateMessages) {
-      if (!canonicalMessageIds.has(message.id)) continue;
-      for (const part of message.parts) {
-        if (part.type !== "widget") continue;
-        const toolCallId = asRecord(part.widget.data)?.toolCallId;
-        if (typeof toolCallId === "string") {
-          canonicalToolCallMessageIds.set(toolCallId, message.id);
-          canonicalWidgetIds.add(part.widget.id);
-        }
-      }
-    }
-    const legacyRunIdsByMessageId = new Map(
-      storedMessageProjection.flatMap((message) => {
-        const metadata = asRecord(message.metadata);
-        const custom = asRecord(metadata?.custom);
-        const runIds = [
-          ...(typeof metadata?.runId === "string" ? [metadata.runId] : []),
-          ...(Array.isArray(custom?.foldedRunIds)
-            ? custom.foldedRunIds.filter(
-                (runId): runId is string => typeof runId === "string",
-              )
-            : []),
-        ];
-        return runIds.length
-          ? [[message.id, [...new Set(runIds)]] as const]
-          : [];
-      }),
-    );
-    const foldedCanonicalMessageIds = new Set(
-      [...legacyRunIdsByMessageId.entries()]
-        .filter(([messageId]) => messageId.startsWith("server-run-"))
-        .flatMap(([, runIds]) =>
-          runIds.flatMap((runId) => {
-            const messageId = canonicalMessageIdByRunId.get(runId);
-            return messageId ? [messageId] : [];
-          }),
-        ),
-    );
-    const canonicalAssistantText = new Set(
-      candidateMessages
-        .filter(
-          (message) =>
-            message.role === "assistant" &&
-            foldedCanonicalMessageIds.has(message.id),
-        )
-        .flatMap((message) =>
-          message.parts.flatMap((part) =>
-            part.type === "text" ? [part.text] : [],
-          ),
-        ),
-    );
-    const duplicateTextByLength = [...canonicalAssistantText].sort(
-      (a, b) => b.length - a.length,
-    );
-    const remainingServerRunParts = (message: AgentMessage) =>
-      message.parts.flatMap((part): AgentMessagePart[] => {
-        if (part.type === "data") return [];
-        if (part.type === "text") {
-          let text = part.text;
-          for (const duplicate of duplicateTextByLength) {
-            const index = text.lastIndexOf(duplicate);
-            if (index >= 0) {
-              text = `${text.slice(0, index)}${text.slice(index + duplicate.length)}`;
-            }
-          }
-          text = text.trimEnd();
-          return text ? [{ ...part, text }] : [];
-        }
-        return part.type === "widget" && canonicalWidgetIds.has(part.widget.id)
-          ? []
-          : [part];
-      });
-    const messages = candidateMessages.flatMap((message) => {
-      if (
-        message.role !== "assistant" ||
-        !message.id.startsWith("server-run-")
-      ) {
-        return [message];
-      }
-      const parts = remainingServerRunParts(message);
-      return parts.length ? [{ ...message, parts }] : [];
-    });
     const embeddedWidgetIds = new Set(
       messages.flatMap((message) =>
         message.parts.flatMap((part) =>
@@ -920,23 +765,15 @@ export function createAgentNativeAgentKitTransport(
     const reconciledActionWidgets = actionWidgets.widgets.map(
       ({ messageId, widget }) => {
         const toolCallId = asRecord(widget.data)?.toolCallId;
-        const toolCallMessageId =
+        const canonicalMessageId =
           typeof toolCallId === "string"
             ? canonicalToolCallMessageIds.get(toolCallId)
             : undefined;
-        const runIds = legacyRunIdsByMessageId.get(messageId);
-        const canonicalMessageId =
-          (toolCallMessageId && messageIds.has(toolCallMessageId)
-            ? toolCallMessageId
-            : undefined) ??
-          runIds
-            ?.map((legacyRunId) => canonicalMessageIdByRunId.get(legacyRunId))
-            .find(
-              (candidateId): candidateId is string =>
-                candidateId !== undefined && messageIds.has(candidateId),
-            );
         return {
-          messageId: canonicalMessageId ?? messageId,
+          messageId:
+            canonicalMessageId && messageIds.has(canonicalMessageId)
+              ? canonicalMessageId
+              : messageId,
           widget,
         };
       },
@@ -950,34 +787,11 @@ export function createAgentNativeAgentKitTransport(
       if (!widgetMessageIds.has(message.id) || messageIds.has(message.id)) {
         continue;
       }
-      const parts = message.id.startsWith("server-run-")
-        ? remainingServerRunParts(message)
-        : message.parts.filter((part) => part.type !== "data");
-      if (message.id.startsWith("server-run-") && !parts.length) continue;
       messages.push({
         ...message,
-        parts,
+        parts: message.parts.filter((part) => part.type !== "data"),
       });
       messageIds.add(message.id);
-    }
-    for (const message of storedMessageProjection) {
-      if (
-        messageIds.has(message.id) ||
-        message.role !== "assistant" ||
-        !message.id.startsWith("server-run-") ||
-        !message.parts.some(
-          (part) =>
-            part.type === "text" &&
-            duplicateTextByLength.some((text) => part.text.includes(text)),
-        )
-      ) {
-        continue;
-      }
-      const parts = remainingServerRunParts(message);
-      if (parts.some((part) => part.type === "text")) {
-        messages.push({ ...message, parts });
-        messageIds.add(message.id);
-      }
     }
     for (const { messageId, widget } of reconciledActionWidgets) {
       if (!persistedWidgetIds.has(widget.id) && !messageIds.has(messageId)) {
@@ -1138,17 +952,7 @@ export function createAgentNativeAgentKitTransport(
     }
     const agentKit = {
       ...previousAgentKit,
-      messages: persistedMessages(
-        input.snapshot.messages,
-        new Map(
-          (input.snapshot.events ?? []).flatMap((event) =>
-            event.type === "message.completed" &&
-            event.message.role === "assistant"
-              ? [[event.message.id, event.runId] as const]
-              : [],
-          ),
-        ),
-      ),
+      messages: persistedMessages(input.snapshot.messages),
       widgets: persistedActionWidgets(
         input.snapshot.widgets,
         new Set(input.snapshot.messages.map((message) => message.id)),

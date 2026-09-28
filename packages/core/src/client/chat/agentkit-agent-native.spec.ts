@@ -467,7 +467,6 @@ describe("createAgentNativeAgentKitTransport", () => {
       {
         id: "assistant-history",
         role: "assistant",
-        metadata: { runId: "run-history" },
         parts: [{ type: "text", text: "Release created." }],
       },
     ]);
@@ -542,7 +541,6 @@ describe("createAgentNativeAgentKitTransport", () => {
       {
         id: "assistant-history",
         role: "assistant",
-        metadata: { runId: "run-history" },
         parts: [{ type: "text", text: "Release created." }],
       },
     ]);
@@ -796,141 +794,6 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.toolCalls).toMatchObject([
       { id: "tool-shared", output: { created: true } },
     ]);
-  });
-
-  it("keeps only the approval prompt in a folded server-run placeholder", async () => {
-    const transport = createAgentNativeAgentKitTransport({
-      fetch: vi.fn(async () =>
-        json({
-          id: "thread-server-run-placeholder",
-          createdAt: "2026-09-26T00:00:00.000Z",
-          updatedAt: "2026-09-26T00:01:00.000Z",
-          threadData: JSON.stringify({
-            messages: [
-              {
-                id: "server-run-1",
-                role: "assistant",
-                metadata: {
-                  runId: "run-continuation",
-                  custom: {
-                    turnId: "turn-approval",
-                    foldedRunIds: ["run-approval", "run-continuation"],
-                  },
-                },
-                content: [
-                  {
-                    type: "tool-call",
-                    toolCallId: "approval-call",
-                    toolName: "accept-agentkit-release",
-                    args: { release: "agentkit-acceptance" },
-                  },
-                  {
-                    type: "text",
-                    text: "Waiting for your approval to run accept-agentkit-release.\n\nApproval continuation completed. Release accepted.",
-                  },
-                  {
-                    type: "tool-call",
-                    toolCallId: "tool-shared",
-                    toolName: "accept-agentkit-release",
-                    args: { release: "agentkit-acceptance" },
-                    result: { display: { title: "Release accepted" } },
-                    chatUI: { renderer: "test.action" },
-                  },
-                ],
-              },
-            ],
-            agentKit: {
-              messages: [
-                {
-                  id: "assistant-canonical",
-                  role: "assistant",
-                  parts: [
-                    {
-                      type: "text",
-                      text: "Approval continuation completed. Release accepted.",
-                    },
-                  ],
-                  status: "complete",
-                },
-              ],
-              events: [
-                {
-                  id: "event-1",
-                  threadId: "thread-server-run-placeholder",
-                  runId: "run-continuation",
-                  sequence: 1,
-                  occurredAt: "2026-09-26T00:00:01.000Z",
-                  type: "message.completed",
-                  message: {
-                    id: "assistant-canonical",
-                    role: "assistant",
-                    parts: [
-                      {
-                        type: "text",
-                        text: "Approval continuation completed. Release accepted.",
-                      },
-                    ],
-                    status: "complete",
-                  },
-                },
-              ],
-              widgets: [
-                {
-                  messageId: "assistant-canonical",
-                  widget: {
-                    id: "tool-shared:chat-ui",
-                    kind: "test.action",
-                    data: {
-                      toolCallId: "tool-shared",
-                      toolName: "accept-agentkit-release",
-                    },
-                  },
-                },
-              ],
-              toolCalls: [
-                {
-                  id: "tool-shared",
-                  name: "accept-agentkit-release",
-                  status: "completed",
-                  runId: "run-continuation",
-                  output: { display: { title: "Release accepted" } },
-                },
-              ],
-            },
-          }),
-        }),
-      ) as typeof fetch,
-    });
-
-    const snapshot = await transport.getThreadSnapshot?.({
-      threadId: "thread-server-run-placeholder",
-    });
-
-    expect(snapshot?.messages.map((message) => message.id)).toEqual([
-      "assistant-canonical",
-      "server-run-1",
-    ]);
-    const restoredAssistantText = snapshot?.messages
-      .flatMap((message) => message.parts)
-      .flatMap((part) => (part.type === "text" ? [part.text] : []))
-      .join("\n");
-    expect(restoredAssistantText?.match(/Release accepted/g)).toHaveLength(1);
-    expect(
-      snapshot?.messages.find((message) => message.id === "server-run-1")
-        ?.parts,
-    ).toEqual([
-      {
-        type: "text",
-        text: "Waiting for your approval to run accept-agentkit-release.",
-      },
-    ]);
-    expect(snapshot?.widgets).toMatchObject([
-      {
-        messageId: "assistant-canonical",
-        widget: { id: "tool-shared:chat-ui" },
-      },
-    ]);
-    expect(snapshot?.widgets).toHaveLength(1);
   });
 
   it("attaches a legacy widget to its canonical tool message after reload", async () => {

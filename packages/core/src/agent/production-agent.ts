@@ -10230,6 +10230,9 @@ export function createProductionAgentHandler(
         backgroundFunction: runsInBackgroundFunction,
         noProgressTimeoutMs: options.runNoProgressTimeoutMs,
         turnId: effectiveTurnId,
+        agentKitApprovalContinuation:
+          internalContinuation &&
+          Boolean(approvedToolCallsForExecution?.length),
         turnInitiator,
         parentId: requestParentId,
         waitUntil: getRequestRunContext()?.waitUntil,

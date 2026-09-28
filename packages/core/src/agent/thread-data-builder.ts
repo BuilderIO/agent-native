@@ -1938,8 +1938,14 @@ function appendFoldedContent(existing: any[], incoming: any[]): any[] {
 export function foldAssistantTurn(
   repo: any,
   assistantMsg: AssistantMessage,
-  options: { turnId?: string; runId?: string; parentId?: string | null },
+  options: {
+    turnId?: string;
+    runId?: string;
+    parentId?: string | null;
+    agentKitOwnsContinuation?: boolean;
+  },
 ): any {
+  if (options.agentKitOwnsContinuation) return repo;
   const turnId = options.turnId;
   const runId = options.runId;
   if (!turnId)
