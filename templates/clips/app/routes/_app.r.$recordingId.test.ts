@@ -40,6 +40,11 @@ describe("direct recording route shell cue", () => {
 
     expect(route).toContain("AGENT_SIDEBAR_QUERY_PARAM");
     expect(route).toContain("AGENT_SIDEBAR_QUERY_VALUE_OPEN");
+    expect(route).toContain("nextParams.delete(AGENT_SIDEBAR_QUERY_PARAM)");
+    expect(route).toContain('!nextParams.has("panel")');
+    expect(route).toContain(
+      "legacyAgentSidebar === AGENT_SIDEBAR_QUERY_VALUE_OPEN",
+    );
     expect(route).toContain(
       'if (panelParam === "agent") {\n      setPanel("agent");\n      return;',
     );
@@ -51,13 +56,28 @@ describe("direct recording route shell cue", () => {
     );
   });
 
-  it("routes the Agent shortcut to the recording composer", () => {
+  it("routes the Agent shortcut to the recording composer after it mounts", () => {
     const route = readRoute("_app.r.$recordingId.tsx");
+    const shortcutStart = route.indexOf(
+      "const handleKeyDown = (event: KeyboardEvent)",
+    );
+    const shortcutEnd = route.indexOf(
+      'document.addEventListener("keydown", handleKeyDown)',
+      shortcutStart,
+    );
 
     expect(route).toContain('event.key !== "i"');
     expect(route).toContain('".ProseMirror, textarea"');
     expect(route).toContain("window.setTimeout(() => focus(attempt + 1), 50)");
     expect(route).toContain('"pending-selection-context"');
+    expect(route).toContain(
+      ").then(dispatchSelectionAttached, dispatchSelectionAttached)",
+    );
+    expect(route.slice(shortcutStart, shortcutEnd)).not.toContain(
+      "agent-panel:selection-attached",
+    );
+    expect(route).toContain('if (panel !== "agent") return;');
+    expect(route).toContain("setPendingSelectionText(selectionText)");
   });
 
   it("clamps route playback state before exposing it", () => {

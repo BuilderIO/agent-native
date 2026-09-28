@@ -452,7 +452,9 @@ export function AgentSidebar({
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
-      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey, {
+        ignoreUrlOverride: !enabled,
+      }),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -560,9 +562,10 @@ export function AgentSidebar({
   }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     applyUrlOpenOverride();
     return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
-  }, [applyUrlOpenOverride]);
+  }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
     if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
@@ -869,6 +872,7 @@ export function AgentSidebar({
   }, [setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -917,7 +921,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut]);
+  }, [disableChatShortcut, enabled]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {

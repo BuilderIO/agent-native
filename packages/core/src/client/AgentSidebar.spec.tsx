@@ -85,23 +85,29 @@ function renderSidebar(
   defaultOpen: boolean,
   position?: "left" | "right",
   disableChatShortcut = false,
+  enabled = true,
 ) {
+  const render = (nextEnabled: boolean) => {
+    flushSync(() => {
+      root?.render(
+        <MemoryRouter>
+          <AgentSidebar
+            defaultOpen={defaultOpen}
+            disableChatShortcut={disableChatShortcut}
+            enabled={nextEnabled}
+            position={position}
+          >
+            <div data-testid="app-content">App content</div>
+          </AgentSidebar>
+        </MemoryRouter>,
+      );
+    });
+  };
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  flushSync(() => {
-    root?.render(
-      <MemoryRouter>
-        <AgentSidebar
-          defaultOpen={defaultOpen}
-          disableChatShortcut={disableChatShortcut}
-          position={position}
-        >
-          <div data-testid="app-content">App content</div>
-        </AgentSidebar>
-      </MemoryRouter>,
-    );
-  });
+  render(enabled);
+  return render;
 }
 
 afterEach(() => {
@@ -112,6 +118,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "/");
   mockHostedHarness.configured = false;
   mockHostedHarness.enabled = false;
   const values = new Map<string, string>();
@@ -258,6 +265,53 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(onOpen).not.toHaveBeenCalled();
     expect(
       container?.querySelector("[data-agent-sidebar-main-state='closed']"),
+    ).toBeTruthy();
+  });
+
+  it("does not handle global shortcuts or URL overrides while disabled", async () => {
+    localStorage.setItem("agent-native-sidebar-open", "false");
+    window.history.replaceState({}, "", "/?agentSidebar=open");
+    const setEnabled = renderSidebar(false, undefined, false, false);
+
+    await act(async () => {});
+
+    const onOpen = vi.fn();
+    const onToggle = vi.fn();
+    window.addEventListener("agent-panel:open", onOpen);
+    window.addEventListener("agent-panel:toggle", onToggle);
+
+    const chatShortcut = new KeyboardEvent("keydown", {
+      key: "i",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    const toggleShortcut = new KeyboardEvent("keydown", {
+      key: "\\",
+      code: "Backslash",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+
+    await act(async () => {
+      document.dispatchEvent(chatShortcut);
+      document.dispatchEvent(toggleShortcut);
+    });
+
+    window.removeEventListener("agent-panel:open", onOpen);
+    window.removeEventListener("agent-panel:toggle", onToggle);
+    expect(chatShortcut.defaultPrevented).toBe(false);
+    expect(toggleShortcut.defaultPrevented).toBe(false);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(localStorage.getItem("agent-native-sidebar-open")).toBe("false");
+    expect(window.location.search).toBe("?agentSidebar=open");
+
+    window.history.replaceState({}, "", "/");
+    setEnabled(true);
+    expect(
+      container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
     ).toBeTruthy();
   });
 });

@@ -611,6 +611,9 @@ export default function RecordingPage() {
   }, []);
 
   const [panel, setPanel] = useState<SidePanel | null>("comments");
+  const [pendingSelectionText, setPendingSelectionText] = useState<
+    string | null
+  >(null);
   const { collapsed: sidePanelCollapsed, setCollapsed: setSidePanelCollapsed } =
     usePersistentSidebarCollapsed({
       storageKey: "clips:share-sidebar-collapsed",
@@ -737,18 +740,7 @@ export default function RecordingPage() {
 
       event.preventDefault();
       const selectionText = window.getSelection()?.toString().trim() ?? "";
-      if (selectionText) {
-        void writeClientAppState(
-          "pending-selection-context",
-          { text: selectionText, capturedAt: Date.now() },
-          { requestSource: browserTabId, keepalive: true },
-        ).catch(() => {});
-        window.dispatchEvent(
-          new CustomEvent("agent-panel:selection-attached", {
-            detail: { text: selectionText, length: selectionText.length },
-          }),
-        );
-      }
+      if (selectionText) setPendingSelectionText(selectionText);
 
       focusAgentComposerRef.current = panel !== "agent";
       openAgentPanel();
@@ -760,10 +752,30 @@ export default function RecordingPage() {
   }, [browserTabId, focusAgentComposer, openAgentPanel, panel]);
 
   useEffect(() => {
-    if (panel !== "agent" || !focusAgentComposerRef.current) return;
-    focusAgentComposerRef.current = false;
-    focusAgentComposer();
-  }, [focusAgentComposer, panel]);
+    if (panel !== "agent") return;
+    if (focusAgentComposerRef.current) {
+      focusAgentComposerRef.current = false;
+      focusAgentComposer();
+    }
+    if (!pendingSelectionText) return;
+
+    setPendingSelectionText(null);
+    const dispatchSelectionAttached = () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: {
+            text: pendingSelectionText,
+            length: pendingSelectionText.length,
+          },
+        }),
+      );
+    };
+    void writeClientAppState(
+      "pending-selection-context",
+      { text: pendingSelectionText, capturedAt: Date.now() },
+      { requestSource: browserTabId, keepalive: true },
+    ).then(dispatchSelectionAttached, dispatchSelectionAttached);
+  }, [browserTabId, focusAgentComposer, panel, pendingSelectionText]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -1088,6 +1100,19 @@ export default function RecordingPage() {
   }, [browserDiagnostics, canEdit, panel, recording]);
 
   useEffect(() => {
+    const legacyAgentSidebar = searchParams.get(AGENT_SIDEBAR_QUERY_PARAM);
+    if (legacyAgentSidebar !== null) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete(AGENT_SIDEBAR_QUERY_PARAM);
+      if (
+        !nextParams.has("panel") &&
+        legacyAgentSidebar === AGENT_SIDEBAR_QUERY_VALUE_OPEN
+      ) {
+        nextParams.set("panel", "agent");
+      }
+      setSearchParams(nextParams, { replace: true });
+    }
+
     if (panelParam === "agent") {
       setPanel("agent");
       return;
@@ -1119,6 +1144,8 @@ export default function RecordingPage() {
     isCompactLayout,
     panelParam,
     recording?.enableComments,
+    searchParams,
+    setSearchParams,
     setSidePanelCollapsed,
   ]);
 
