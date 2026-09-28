@@ -21,9 +21,10 @@ on its current branch. When an explicit `/ship` or PR-publishing request cannot
 safely use that checkout, create a managed task-owned worktree and branch
 without asking. Base new PRs on fresh `origin/main`. For an existing PR update,
 base the task worktree on the fetched live PR head so its ancestry remains
-publishable; carry only this task's changes and update that same head with a
-normal fast-forward after rechecking its OID. If peer or unpublished PR work
-blocks a safe update, preserve it and report exact blockers without asking.
+publishable; carry only this task's changes. Follow `babysit-pr` to resolve the
+PR head repository and ref, update it with a normal fast-forward, and recover
+safely if its OID moves. If peer or unpublished PR work blocks recovery,
+preserve it and report exact blockers without asking.
 Platform-assigned Builder.io and Fusion branches stay in place; never touch
 another checkout or move a branch used by another worktree.
 

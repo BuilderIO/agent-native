@@ -26,15 +26,22 @@ asking. Carry only changes belonging to this PR. If they cannot be isolated
 safely, preserve state and report the exact paths or commits without asking
 for branch or worktree permission.
 
-For an existing PR update, fetch and record its live `headRefName` and
-`headRefOid`, then base the isolated task branch on that exact head so the PR
-history remains publishable. If the local task branch has a different name,
-publish to the existing PR head with a normal fast-forward refspec. Before
-pushing, recheck the head OID and inspect any worktree using that head branch
-for unpublished PR commits. If the head moved or peer work blocks a safe
-fast-forward, preserve state and report the exact branch, commits, or paths
-without asking. Never replace an existing PR's history with a branch from
-`origin/main` or force-push.
+For an existing PR update, record `headRepository.nameWithOwner`, `headRefName`,
+and `headRefOid`, then base the isolated task branch on that exact head. Resolve
+a remote for that exact head repository; `origin` is correct only when its URL
+matches. If needed, add a uniquely named remote for the verified head
+repository. Never infer the push target from the base repository or a matching
+branch name. If no writable head repository is available, preserve state and
+report the blocker.
+
+If the local task branch has a different name, push it to the existing PR head
+with a normal fast-forward refspec. Before each push, recheck the live head OID
+and inspect any worktree using that head branch for unpublished PR commits. If
+the head moved, follow Setup's non-fast-forward recovery: fetch the refreshed
+head and merge it into the clean task branch, resolve and test, then recheck
+before pushing. Preserve state and report only when peer or unpublished work,
+or conflicts that cannot be safely resolved, block recovery. Never replace an
+existing PR's history, rebase, or force-push.
 
 ## Branch-wide Snapshot Rule
 
@@ -71,7 +78,7 @@ invokes `/ship-now`.
 At the start and on every resumed tick, query the PR:
 
 ```bash
-gh pr view <number> --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit
+gh pr view <number> --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit
 ```
 
 If the query fails or is ambiguous, stay foreground-only until its state is
@@ -83,11 +90,19 @@ an unexpected merge without rotating.
 1. Run one foreground tick immediately and continue until this mode's endpoint.
    Do not create or mutate automations for this workflow.
 2. Before each PR write, reread the live state. Push normally (never force).
-   On a non-fast-forward rejection, fetch and verify the remote PR head. If it
-   does not already contain the local commits, confirm the tree is clean and
-   those commits belong to this PR, merge the refreshed `origin/<branch>` into
-   the current branch, resolve and test, then recheck the live head before
-   pushing. Never retry the same stale push, rebase, or force-push. Never
+   Query and record `headRepository.nameWithOwner`, `headRefName`, and
+   `headRefOid`. Resolve the writable push remote by matching its URL to that
+   exact repository; `origin` is valid only when it matches. If none exists,
+   add a uniquely named remote for the exact head repository. Fetch the PR
+   head from that remote at setup and on each tick. On a non-fast-forward
+   rejection or changed `headRefOid`, verify the fetched head against live PR
+   metadata. If it already contains the local commits, do not push them again.
+   Otherwise confirm the tree is clean and those commits belong to this PR,
+   merge the refreshed `<head_remote>/<headRefName>` into the current branch,
+   resolve and test, then recheck the live head before pushing normally to the
+   same remote and ref. Never retry the same stale push, rebase, or force-push.
+   If peer or unpublished work or unresolvable conflicts block recovery,
+   preserve state and report exact blockers. Never
    update from `origin/main` unless GitHub reports a confirmed `CONFLICTING`
    PR; then use a normal merge, never a rebase. A behind count or pending
    checks are not conflicts. Guard PR merges with
@@ -130,7 +145,7 @@ fi
 ```
 
 Immediately query the live PR state with
-`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRefName,headRefOid,mergeCommit`.
+`gh pr view $ARGUMENTS --json state,mergedAt,closedAt,headRepository,headRepositoryOwner,headRefName,headRefOid,mergeCommit`.
 If the query fails, do not run branch, review, or CI checks; retry on the next
 foreground tick. A closed but unmerged PR ends babysitting and is reported as
 unsuccessful. A merged PR is a
@@ -139,15 +154,23 @@ terminal state for standalone `/babysit-pr` and inherited `ship_mode=ready-only`
 `ship_mode=merge-authorized`, continue the `/ship` post-merge path below before
 cleanup. Never treat PR merge alone as completion of the parent ship goal.
 
+For an open PR, resolve `head_remote` by matching a configured remote URL to
+`headRepository.nameWithOwner`; `origin` is valid only when it matches. If no
+remote exists, add a uniquely named one for the exact head repository. Fetch
+`headRefName` from it and verify the fetched OID matches live PR metadata before
+using it as the task branch base, comparison ref, or push target. If no
+writable head repository is available, preserve state and report that blocker.
+
 For an open PR, inspect the branch snapshot:
 
 ```bash
+git fetch "$head_remote" "$headRefName"
 git status --short
 git diff --name-only
-if git show-ref --verify --quiet "refs/remotes/origin/$(git branch --show-current)"; then
-  git log --oneline --decorate "origin/$(git branch --show-current)"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+if git show-ref --verify --quiet "refs/remotes/$head_remote/$headRefName"; then
+  git log --oneline --decorate "refs/remotes/$head_remote/$headRefName"..HEAD -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 else
-  git log --oneline --decorate HEAD --not --remotes=origin -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
+  git log --oneline --decorate HEAD --not --remotes="$head_remote" -- . ':(exclude)learnings.md' ':(exclude)bridge/**' ':(exclude)data/**'
 fi
 ```
 

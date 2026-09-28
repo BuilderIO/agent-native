@@ -49,8 +49,8 @@ contract.
   failures.
 - In task worktrees, create safe needed branches without asking. For `/ship`
   from an unsafe shared checkout, use a managed worktree without asking:
-  fresh `origin/main` for new PRs, live PR head for updates. Carry only task
-  changes; preserve the checkout. See `new-branch`.
+  fresh `origin/main` for new PRs, the live PR head and its head repository
+  for updates. Carry only task changes; preserve the checkout. See `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
