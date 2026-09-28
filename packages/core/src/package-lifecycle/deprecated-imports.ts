@@ -234,10 +234,14 @@ export function scanDeprecatedImports(
     /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:await\s+)?require\(\s*["']([^"']+)["']\s*\)/g;
   const dynamicImportDestructure =
     /\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*await\s+import\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicImportThenDestructure =
+    /\bimport\(\s*["']([^"']+)["']\s*\)\s*\.then\(\s*(?:async\s*)?\(\s*\{([^}]*)\}\s*\)\s*=>/g;
   const commonJsNamespace =
     /\b(?:const|let|var)\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
   const dynamicImportNamespace =
     /\b(?:const|let|var)\s+([\w$]+)\s*=\s*await\s+import\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicImportThenNamespace =
+    /\bimport\(\s*["']([^"']+)["']\s*\)\s*\.then\(\s*(?:async\s*)?(?:\(\s*([\w$]+)\s*\)|([\w$]+))\s*=>/g;
   const importEquals =
     /\bimport\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
   const commonJsMember =
@@ -322,6 +326,18 @@ export function scanDeprecatedImports(
         match.index ?? 0,
       );
     }
+    for (const match of text.matchAll(dynamicImportThenDestructure)) {
+      const from = match[1];
+      appendRemovedImportFinding(
+        findings,
+        file,
+        text,
+        from,
+        removedExports[from],
+        destructuredNames(match[2]),
+        match.index ?? 0,
+      );
+    }
     for (const match of text.matchAll(commonJsNamespace)) {
       appendRemovedNamespaceFindings(
         findings,
@@ -340,6 +356,17 @@ export function scanDeprecatedImports(
         match[2],
         match[1],
         removedExports[match[2]],
+      );
+    }
+    for (const match of text.matchAll(dynamicImportThenNamespace)) {
+      const from = match[1];
+      appendRemovedNamespaceFindings(
+        findings,
+        file,
+        text,
+        from,
+        match[2] ?? match[3],
+        removedExports[from],
       );
     }
     for (const match of text.matchAll(importEquals)) {

@@ -231,6 +231,13 @@ describe("scanDeprecatedImports", () => {
       ].join("\n"),
     );
     fs.writeFileSync(
+      path.join(root, "consumer-promise.mjs"),
+      [
+        `import("${moduleName}").then(({ AssistantMessageActionBar }) => AssistantMessageActionBar);`,
+        `import("${moduleName}").then((chatModule) => chatModule?.codeAgentTranscriptHasPendingApproval?.());`,
+      ].join("\n"),
+    );
+    fs.writeFileSync(
       path.join(root, "consumer.cjs"),
       [
         `const { createAgentChatRuntimeAdapter: createRuntimeAdapter } = require("${moduleName}");`,
@@ -270,7 +277,7 @@ describe("scanDeprecatedImports", () => {
       ],
     });
 
-    expect(findings).toHaveLength(7);
+    expect(findings).toHaveLength(9);
     expect(findings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -283,6 +290,18 @@ describe("scanDeprecatedImports", () => {
           file: path.join(root, "consumer-dynamic.mjs"),
           line: 1,
           symbols: ["createAgentChatRuntimeAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer-promise.mjs"),
+          line: 1,
+          symbols: ["AssistantMessageActionBar"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer-promise.mjs"),
+          line: 2,
+          symbols: ["codeAgentTranscriptHasPendingApproval"],
           status: "removed",
         }),
         expect.objectContaining({
