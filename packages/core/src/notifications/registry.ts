@@ -10,6 +10,8 @@ import {
   completeNotificationDelivery,
   insertNotification,
   listCompletedNotificationChannels,
+  markNotificationDeliveryDispatching,
+  markNotificationDeliveryUncertain,
   notificationIdForIdempotencyKey,
   releaseNotificationDelivery,
 } from "./store.js";
@@ -152,46 +154,18 @@ export async function notifyWithDelivery(
         : undefined;
       if (deliveryId && !claimToken) return null;
 
-      let deliveryCompleted = false;
       try {
         signal?.throwIfAborted();
-        const result = signal
-          ? await channel.deliver(input, meta, { signal })
-          : await channel.deliver(input, meta);
-        if (result === false) {
-          if (claimToken) {
-            await releaseNotificationDelivery(
-              deliveryId!,
-              channel.name,
-              claimToken,
-            );
-          }
-          return null;
-        }
-
-        // Persist each successful side effect before observing a later abort.
-        // A sweep retry can then skip this channel even if the run itself aborts.
-        deliveryCompleted = true;
         if (claimToken) {
-          await completeNotificationDelivery(
+          await markNotificationDeliveryDispatching(
             deliveryId!,
             channel.name,
             claimToken,
           );
         }
-        if (stored) {
-          try {
-            await addDeliveredChannel(stored.id, channel.name);
-          } catch (err) {
-            console.error(
-              "[notifications] delivered-channel update failed:",
-              err,
-            );
-          }
-        }
-        return channel.name;
+        signal?.throwIfAborted();
       } catch (err) {
-        if (claimToken && !deliveryCompleted) {
+        if (claimToken) {
           try {
             await releaseNotificationDelivery(
               deliveryId!,
@@ -207,6 +181,80 @@ export async function notifyWithDelivery(
         }
         throw err;
       }
+
+      let result: void | boolean;
+      try {
+        result = signal
+          ? await channel.deliver(input, meta, { signal })
+          : await channel.deliver(input, meta);
+      } catch (err) {
+        if (claimToken) {
+          try {
+            await markNotificationDeliveryUncertain(
+              deliveryId!,
+              channel.name,
+              claimToken,
+            );
+          } catch (uncertainErr) {
+            console.error(
+              `[notifications] channel "${channel.name}" uncertain outcome could not be recorded:`,
+              uncertainErr,
+            );
+          }
+        }
+        throw err;
+      }
+
+      if (result === false) {
+        if (claimToken) {
+          await releaseNotificationDelivery(
+            deliveryId!,
+            channel.name,
+            claimToken,
+          );
+        }
+        return null;
+      }
+
+      // Persist each successful side effect before observing a later abort.
+      // A sweep retry can then skip this channel even if the run itself aborts.
+      try {
+        if (claimToken) {
+          await completeNotificationDelivery(
+            deliveryId!,
+            channel.name,
+            claimToken,
+          );
+        }
+      } catch (err) {
+        if (claimToken) {
+          try {
+            await markNotificationDeliveryUncertain(
+              deliveryId!,
+              channel.name,
+              claimToken,
+            );
+          } catch (uncertainErr) {
+            console.error(
+              `[notifications] channel "${channel.name}" uncertain outcome could not be recorded:`,
+              uncertainErr,
+            );
+          }
+        }
+        throw err;
+      }
+
+      if (stored) {
+        try {
+          await addDeliveredChannel(stored.id, channel.name);
+        } catch (err) {
+          console.error(
+            "[notifications] delivered-channel update failed:",
+            err,
+          );
+        }
+      }
+      return channel.name;
     }),
   );
   results.forEach((r, i) => {
@@ -235,8 +283,18 @@ export async function notifyWithDelivery(
           "event",
         )
       : undefined;
+    let eventDispatchStarted = false;
     try {
       if (!deliveryId || eventClaim) {
+        if (deliveryId && eventClaim) {
+          await markNotificationDeliveryDispatching(
+            deliveryId,
+            "notification.sent",
+            eventClaim,
+            "event",
+          );
+        }
+        eventDispatchStarted = true;
         emitBusEvent(
           "notification.sent",
           {
@@ -260,12 +318,21 @@ export async function notifyWithDelivery(
     } catch {
       if (deliveryId && eventClaim) {
         try {
-          await releaseNotificationDelivery(
-            deliveryId,
-            "notification.sent",
-            eventClaim,
-            "event",
-          );
+          if (eventDispatchStarted) {
+            await markNotificationDeliveryUncertain(
+              deliveryId,
+              "notification.sent",
+              eventClaim,
+              "event",
+            );
+          } else {
+            await releaseNotificationDelivery(
+              deliveryId,
+              "notification.sent",
+              eventClaim,
+              "event",
+            );
+          }
         } catch {
           // best-effort
         }

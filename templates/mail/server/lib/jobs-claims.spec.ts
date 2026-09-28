@@ -17,9 +17,9 @@ vi.mock("../db/index.js", async (importOriginal) => {
         from: () => ({
           where: (condition: unknown) => {
             captured.selectedCondition = condition;
-            return {
+            return Object.assign(Promise.resolve(captured.selectedRows), {
               orderBy: () => ({ limit: async () => captured.selectedRows }),
-            };
+            });
           },
         }),
       }),
@@ -40,7 +40,11 @@ vi.mock("../db/index.js", async (importOriginal) => {
 
 import { PgDialect } from "drizzle-orm/pg-core";
 
-import { getDuePendingJobs, markJobProcessing } from "./jobs.js";
+import {
+  cancelScheduledJobForOwner,
+  getDuePendingJobs,
+  markJobProcessing,
+} from "./jobs.js";
 
 describe("scheduled job lease claims", () => {
   it("selects pending and expired processing jobs while excluding dispatched sends", async () => {
@@ -83,4 +87,27 @@ describe("scheduled job lease claims", () => {
     expect(query.params).toContain("stale-snooze");
     expect(query.params).toContain(now);
   });
+
+  it.each(["processing", "done", "cancelled"] as const)(
+    "does not cancel a job that is already %s",
+    async (status) => {
+      captured.claimedRows = [];
+      captured.selectedRows = [
+        {
+          id: "claimed-send",
+          status,
+          sendStartedAt: status === "processing" ? 1_000 : null,
+        },
+      ];
+
+      await expect(
+        cancelScheduledJobForOwner("alice@example.com", "claimed-send"),
+      ).rejects.toThrow(`Scheduled email is already ${status}`);
+
+      expect(captured.updateValues).toEqual({ status: "cancelled" });
+      const query = new PgDialect().sqlToQuery(captured.claimCondition);
+      expect(query.sql).toContain('"status" =');
+      expect(query.params).toContain("pending");
+    },
+  );
 });

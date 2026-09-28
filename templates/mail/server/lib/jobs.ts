@@ -862,6 +862,20 @@ export async function cancelScheduledJobForOwner(
   ownerEmail: string,
   id: string,
 ): Promise<ScheduledJobRecord | null> {
+  const [cancelled] = await db
+    .update(schema.scheduledJobs)
+    .set({ status: "cancelled" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (cancelled) return cancelled as ScheduledJobRecord;
+
   const [existing] = await db
     .select()
     .from(schema.scheduledJobs)
@@ -873,18 +887,7 @@ export async function cancelScheduledJobForOwner(
     );
 
   if (!existing) return null;
-
-  await db
-    .update(schema.scheduledJobs)
-    .set({ status: "cancelled" } as any)
-    .where(
-      and(
-        eq(schema.scheduledJobs.id, id),
-        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
-      ),
-    );
-
-  return { ...(existing as ScheduledJobRecord), status: "cancelled" };
+  throw new Error(`Scheduled email is already ${existing.status}`);
 }
 
 export async function sendScheduledJobNowForOwner(

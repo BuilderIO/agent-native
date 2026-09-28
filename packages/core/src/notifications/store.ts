@@ -158,9 +158,8 @@ function deliveryStateKey(key: string, kind: "channel" | "event"): string {
 }
 
 /**
- * Claims one idempotent notification side effect. A live claim prevents two
- * overlapping retries from delivering the same channel at once; a completed
- * claim is durable and suppresses later retries.
+ * Claims one idempotent notification side effect. Expired pending claims may
+ * be retried; once dispatch starts, the receipt is never automatically reused.
  */
 export async function claimNotificationDelivery(
   notificationId: string,
@@ -202,6 +201,26 @@ export async function claimNotificationDelivery(
     : undefined;
 }
 
+export async function markNotificationDeliveryDispatching(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'dispatching', lease_expires_at = 0
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state = 'pending' AND claim_token = ?`,
+    args: [notificationId, deliveryStateKey(key, kind), claimToken],
+  });
+  if (result.rowsAffected === 0) {
+    throw new Error("Notification delivery claim was lost before dispatch.");
+  }
+}
+
 export async function completeNotificationDelivery(
   notificationId: string,
   key: string,
@@ -214,11 +233,33 @@ export async function completeNotificationDelivery(
     sql: `UPDATE notification_delivery_state
       SET state = 'delivered', claim_token = NULL, lease_expires_at = 0, completed_at = ?
       WHERE notification_id = ? AND delivery_key = ?
-        AND state = 'pending' AND claim_token = ?`,
+        AND state = 'dispatching' AND claim_token = ?`,
     args: [Date.now(), notificationId, deliveryStateKey(key, kind), claimToken],
   });
   if (result.rowsAffected === 0) {
     throw new Error("Notification delivery claim was lost before completion.");
+  }
+}
+
+export async function markNotificationDeliveryUncertain(
+  notificationId: string,
+  key: string,
+  claimToken: string,
+  kind: "channel" | "event" = "channel",
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE notification_delivery_state
+      SET state = 'uncertain', claim_token = NULL, lease_expires_at = 0, completed_at = ?
+      WHERE notification_id = ? AND delivery_key = ?
+        AND state = 'dispatching' AND claim_token = ?`,
+    args: [Date.now(), notificationId, deliveryStateKey(key, kind), claimToken],
+  });
+  if (result.rowsAffected === 0) {
+    throw new Error(
+      "Notification delivery claim was lost before uncertainty was recorded.",
+    );
   }
 }
 
@@ -233,7 +274,7 @@ export async function releaseNotificationDelivery(
   await client.execute({
     sql: `DELETE FROM notification_delivery_state
       WHERE notification_id = ? AND delivery_key = ?
-        AND state = 'pending' AND claim_token = ?`,
+        AND state IN ('pending', 'dispatching') AND claim_token = ?`,
     args: [notificationId, deliveryStateKey(key, kind), claimToken],
   });
 }

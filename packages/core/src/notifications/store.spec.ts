@@ -50,6 +50,8 @@ const {
   updateDeliveredChannels,
   addDeliveredChannel,
   claimNotificationDelivery,
+  markNotificationDeliveryDispatching,
+  markNotificationDeliveryUncertain,
   completeNotificationDelivery,
   listCompletedNotificationChannels,
   notificationIdForIdempotencyKey,
@@ -326,6 +328,7 @@ describe("notification delivery receipts", () => {
     expect(claims.filter((token) => token !== undefined)).toHaveLength(1);
     expect(claim).toBeTruthy();
 
+    await markNotificationDeliveryDispatching("n-1", "slack", claim!);
     await completeNotificationDelivery("n-1", "slack", claim!);
     await expect(claimNotificationDelivery("n-1", "slack")).resolves.toBe(
       undefined,
@@ -337,11 +340,49 @@ describe("notification delivery receipts", () => {
 
   it("releases an unsuccessful attempt so a later retry can claim it", async () => {
     const first = await claimNotificationDelivery("n-1", "webhook");
+    await markNotificationDeliveryDispatching("n-1", "webhook", first!);
     await releaseNotificationDelivery("n-1", "webhook", first!);
 
     const retry = await claimNotificationDelivery("n-1", "webhook");
     expect(retry).toBeTruthy();
     expect(retry).not.toBe(first);
+  });
+
+  it("does not reclaim a dispatching delivery after its pending lease expires", async () => {
+    const initialTime = 1_700_000_000_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(initialTime);
+    try {
+      const claim = await claimNotificationDelivery("n-1", "slow-webhook");
+      await markNotificationDeliveryDispatching("n-1", "slow-webhook", claim!);
+
+      now.mockReturnValue(initialTime + 2 * 60 * 1000 + 1);
+      await expect(
+        claimNotificationDelivery("n-1", "slow-webhook"),
+      ).resolves.toBeUndefined();
+
+      const { rows } = await rawClient.execute({
+        sql: `SELECT state FROM notification_delivery_state
+          WHERE notification_id = ? AND delivery_key = ? LIMIT 1`,
+        args: ["n-1", "channel:slow-webhook"],
+      });
+      expect(rows[0]?.state).toBe("dispatching");
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("keeps an uncertain delivery suppressed on later retries", async () => {
+    const claim = await claimNotificationDelivery("n-1", "ambiguous-webhook");
+    await markNotificationDeliveryDispatching(
+      "n-1",
+      "ambiguous-webhook",
+      claim!,
+    );
+    await markNotificationDeliveryUncertain("n-1", "ambiguous-webhook", claim!);
+
+    await expect(
+      claimNotificationDelivery("n-1", "ambiguous-webhook"),
+    ).resolves.toBeUndefined();
   });
 
   it("tracks the sent event separately from channel completion", async () => {
@@ -352,6 +393,12 @@ describe("notification delivery receipts", () => {
     );
     expect(claim).toBeTruthy();
 
+    await markNotificationDeliveryDispatching(
+      "n-1",
+      "notification.sent",
+      claim!,
+      "event",
+    );
     await completeNotificationDelivery(
       "n-1",
       "notification.sent",

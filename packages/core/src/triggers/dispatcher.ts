@@ -32,7 +32,6 @@ import {
 import { startIntervalJob } from "../server/interval-job.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
-  AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
   AUTOMATION_TRIGGER_EVENT_PURGE_BATCH_SIZE,
   MAX_AUTOMATION_TRIGGER_EVENT_FAILURES,
   claimNextAutomationTriggerEvent,
@@ -40,7 +39,6 @@ import {
   enqueueAutomationTriggerEvent,
   ensureAutomationTriggerEventQueue,
   expireAutomationTriggerEvent,
-  expireStaleAutomationTriggerEvents,
   failAutomationTriggerEvent,
   getAutomationTriggerSweepCursor,
   listReadyAutomationTriggerIds,
@@ -255,33 +253,6 @@ async function drainReadyTriggerQueue(
   }
 
   const deadline = context.deadlineAt;
-  let expiredCount = 0;
-  if (deps.appId === "mail") {
-    while (
-      !context.signal?.aborted &&
-      Date.now() +
-        DB_QUERY_TIMEOUT_MS +
-        DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
-        MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
-        deadline
-    ) {
-      const expired = await expireStaleAutomationTriggerEvents({
-        appId: deps.appId,
-        eventName: MAIL_RECEIVED_EVENT,
-        emittedBefore: new Date(
-          Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS,
-        ).toISOString(),
-        reason: "Expired because the mail event was older than 60 minutes.",
-      });
-      expiredCount += expired;
-      if (expired < AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE) break;
-    }
-  }
-  if (expiredCount > 0) {
-    console.info(
-      `[triggers] Expired ${expiredCount} stale ${MAIL_RECEIVED_EVENT} events.`,
-    );
-  }
   let reclaimedExpiredCount = 0;
 
   let cycleStart = await getAutomationTriggerSweepCursor(deps.appId);
@@ -432,7 +403,7 @@ async function drainReadyTriggerQueue(
     while (activeDrains.size > 0) await settleOneDrain();
     if (reclaimedExpiredCount > 0) {
       console.info(
-        `[triggers] Expired ${reclaimedExpiredCount} stale ${MAIL_RECEIVED_EVENT} events from reclaimed claims.`,
+        `[triggers] Expired ${reclaimedExpiredCount} stale ${MAIL_RECEIVED_EVENT} events during durable queue drain.`,
       );
     }
   }
