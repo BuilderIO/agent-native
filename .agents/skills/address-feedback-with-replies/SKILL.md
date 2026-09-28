@@ -81,8 +81,11 @@ it over.
   reports and existing fixes before editing.
 - Re-read dirty files before edits. In task-owned worktrees, make safe task
   branch changes without asking; preserve peer changes and never move peer
-  branches. Do not reset, stash, or overwrite peer work. Ask before branch
-  changes in shared checkouts.
+  branches. Do not reset, stash, or overwrite peer work. In shared checkouts,
+  keep the current branch; when the user explicitly asks to ship or open a PR
+  and the checkout is unsafe as its source, create a managed task-owned
+  worktree from fresh `origin/main`, carry only this task's changes, and create
+  its branch without asking. Otherwise work on the current branch.
 
 ## Slack identity
 

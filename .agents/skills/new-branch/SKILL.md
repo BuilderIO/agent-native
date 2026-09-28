@@ -16,15 +16,21 @@ metadata:
 
 Use this skill when the user invokes `/new-branch`, asks for a fresh branch, or
 `/ship` needs a branch in a dedicated task-owned worktree. Safe branch
-operations in that worktree need no extra permission. In a shared checkout,
-ask before changing branches unless the user gave the exact operation.
+operations in that worktree need no extra permission. Keep a shared checkout
+on its current branch. When an explicit `/ship` or PR-publishing request cannot
+safely use that checkout, create a managed task-owned worktree from fresh
+`origin/main`, carry only the requested task's changes, and create its task
+branch without asking.
 Platform-assigned Builder.io and Fusion branches stay in place; never touch
 another checkout or move a branch used by another worktree.
 
 Steve's standing instruction applies across tasks and sessions: needed, safe
 branch creation or switching inside a task-owned worktree needs no repeated
-permission. It never authorizes moving a branch used by another worktree or
-platform, branch changes in a shared checkout, or destructive branch operations.
+permission. An explicit `/ship` or PR-publishing request also authorizes a
+separate task-owned worktree when the shared checkout is unsafe as a PR source;
+it does not authorize changing the shared checkout's branch. Neither authorizes
+moving a branch used by another worktree or platform, or destructive branch
+operations.
 
 If the current branch is already suitable, keep using it. When a detached
 task-owned worktree needs a branch to ship, create one without pausing for
@@ -44,7 +50,9 @@ These are mistakes other agents have made that stranded concurrent work:
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
 In a task-owned worktree, choose a safe branch and proceed without asking. In a
-shared checkout, ask before changing branches unless the user gave the exact
+shared checkout, keep the current branch. For an explicit ship or PR request,
+automatically isolate the work in a managed task-owned worktree if needed; for
+other tasks, use the current branch unless the user gave an exact branch
 operation.
 
 Fetch `origin/main`, inspect the current branch, dirty paths, and worktree ownership, then create the new branch from the freshest base that preserves all current work. Never stash changes as a shortcut.
@@ -178,8 +186,12 @@ asking again. Fetch `origin/main`, inspect commits and
 or changing another worktree. Carry current commits and local changes. Use fresh
 `origin/main` as the base when that preserves the task's work; otherwise create
 from the current task head and reconcile only when the ship workflow requires
-it. In a shared checkout, ask before changing branches unless the user gave the
-exact operation.
+it. In a shared checkout, keep its branch unchanged. An explicit ship or
+PR-publishing request authorizes a managed task-owned worktree from fresh
+`origin/main` when needed; classify the full path set, carry only this task's
+changes, and create the needed branch there without asking. If the task's
+changes cannot be isolated safely, preserve all state and report the exact
+paths or commits without asking for branch or worktree permission.
 
 ## Branch naming
 

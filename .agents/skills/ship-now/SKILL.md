@@ -74,7 +74,12 @@ beta deploy checks, or the normal `/ship` soak; monitor those after the merge.
 A worktree is a valid publishing checkout. When `/ship-now` is authorized from
 a worktree, keep validation, commit, push, PR lookup, and admin merge in that
 worktree's current branch and cwd. Do not copy changes into the shared
-checkout, and update the existing PR rather than creating a second one.
+checkout, and update the existing PR rather than creating a second one. If the
+explicit `/ship-now` request starts in a shared checkout that cannot safely
+serve as the PR source, keep it unchanged and create a managed task-owned
+worktree from fresh `origin/main`; carry only this task's changes and create
+the task branch there without asking. If those changes cannot be isolated
+safely, preserve all state and report the exact paths or commits.
 
 ## Workflow
 
@@ -163,8 +168,8 @@ checkout, and update the existing PR rather than creating a second one.
    6. Run `/new-branch` after the merge lands. In a task-owned worktree, rotate
    to a fresh branch without asking when its freshness and clean-work gates
    pass. Preserve the source branch if unpushed commits or dirty publishable
-   paths remain. In a shared checkout, ask before changing branches unless the
-   user gave the exact operation. Never stash or touch another worktree.
+   paths remain. In a shared checkout, keep the source branch and do not rotate
+   it or ask for branch permission. Never stash or touch another worktree.
 
 7. Monitor the merged PR and release tail after rotation. Check the merged PR's
    merge commit, all workflows attached to that commit, beta deployment status,

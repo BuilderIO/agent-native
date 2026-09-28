@@ -47,9 +47,11 @@ contract.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- In task worktrees, make needed safe branch changes without asking. Classify
-  dirty paths first; preserve unrelated work; never move peer/platform branches.
-  Shared checkouts need exact authorization. See `new-branch`.
+- In task worktrees, make needed safe branch changes without asking. During
+  `/ship` from a shared checkout that cannot safely source the PR, create a
+  managed task worktree from fresh `origin/main`, carry only this task's
+  changes, and preserve the shared checkout without asking for branch or
+  worktree permission. See `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Use the current suitable branch. PRs are ready for review unless drafts are
   requested.
