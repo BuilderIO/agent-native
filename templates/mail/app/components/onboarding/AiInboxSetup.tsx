@@ -473,7 +473,10 @@ export function AiInboxSetup({
   const { data: settings } = useSettings();
   const { data: rules = [], isLoading: rulesLoading } = useAutomations();
   const googleStatus = useGoogleAuthStatus();
-  const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
+  const connected =
+    googleStatus.isSuccess &&
+    !googleStatus.isError &&
+    (googleStatus.data?.accounts.length ?? 0) > 0;
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
     [],
@@ -794,17 +797,24 @@ export function AiInboxSetup({
           ? t("mail.sort.aiSetupSkipInboxDescription")
           : t("mail.sort.aiSetupSortingDescription");
   const needsSetupToSort = firstRunSorting && (!connected || !jevConfigured);
-  const displayHeadline = needsSetupToSort
-    ? connected
-      ? t("mail.sort.aiSetupConnectJevHeadline")
-      : t("mail.sort.aiSetupConnectGmailHeadline")
-    : headline;
-  const displayDescription = needsSetupToSort
-    ? connected
-      ? t("mail.sort.aiSetupConnectJevDescription")
-      : t("mail.sort.aiSetupConnectGmailDescription")
-    : description;
+  const displayHeadline =
+    firstRunSorting && googleStatus.isError
+      ? headline
+      : needsSetupToSort
+        ? connected
+          ? t("mail.sort.aiSetupConnectJevHeadline")
+          : t("mail.sort.aiSetupConnectGmailHeadline")
+        : headline;
+  const displayDescription =
+    firstRunSorting && googleStatus.isError
+      ? undefined
+      : needsSetupToSort
+        ? connected
+          ? t("mail.sort.aiSetupConnectJevDescription")
+          : t("mail.sort.aiSetupConnectGmailDescription")
+        : description;
   const bossSuggestion = t("mail.sort.aiSetupImportantBoss");
+  const bossSuggestionLabel = t("mail.sort.aiSetupImportantBossChip");
   const bossSuggestionPrefix = bossSuggestion.trimEnd();
   const bossSuggestionSelected = importantLines.some((line) =>
     line.startsWith(bossSuggestionPrefix),
@@ -1172,7 +1182,7 @@ export function AiInboxSetup({
                   ) : (
                     <IconPlus className="size-3.5" />
                   )}
-                  {suggestion}
+                  {isBossSuggestion ? bossSuggestionLabel : suggestion}
                 </button>
               );
             })}
@@ -1231,10 +1241,26 @@ export function AiInboxSetup({
         </div>
       ) : (
         <div className={cn(!firstRunSorting && "mt-7", "space-y-5")}>
-          {firstRunSorting && !connected ? (
+          {firstRunSorting && googleStatus.isError ? (
+            <div className="flex items-center gap-3" role="alert">
+              <p className="text-sm text-muted-foreground">
+                {t("mail.sort.aiSetupGmailStatusFailed")}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => void googleStatus.refetch()}
+                disabled={googleStatus.isFetching}
+              >
+                {t("mail.sort.aiSetupRetry")}
+              </Button>
+            </div>
+          ) : null}
+          {firstRunSorting && googleStatus.isSuccess && !connected ? (
             googleStatus.data?.configured === true ||
-            canOfferGoogleOAuthSetup ||
-            googleStatus.isError ? (
+            canOfferGoogleOAuthSetup ? (
               <GoogleConnectBanner variant="button" />
             ) : (
               <p className="text-sm text-muted-foreground">

@@ -868,6 +868,54 @@ describe("FirstRunOnboarding", () => {
     ).toBeUndefined();
   });
 
+  it("does not ask Mail users to connect Gmail again in manual setup", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "mail",
+        appName: "Mail",
+        capabilities: [
+          {
+            id: "llm",
+            service: "model",
+            label: "AI model",
+            required: true,
+            builderIncluded: false,
+            keySummary: "Connect your own AI model",
+            why: "Needed for agent responses.",
+          },
+          {
+            id: "gmail",
+            label: "Gmail",
+            required: true,
+            builderIncluded: false,
+            keySummary: "Connect Gmail with OAuth",
+            why: "Google sign-in already connects Mail.",
+          },
+        ],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.body.textContent).not.toContain("Connect Gmail with OAuth");
+    expect(document.body.textContent).toContain("Connect your own AI model");
+  });
+
   it("keeps per-app optional keys off both setup cards", () => {
     act(() => {
       root.render(

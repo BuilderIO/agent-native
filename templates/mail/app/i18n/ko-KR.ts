@@ -82,6 +82,7 @@ const messages = {
       aiSetupSortingDescription: "최근 메일에서 규칙과 일치한 결과입니다.",
       aiSetupFindingRecentMail: "최근 메일을 찾는 중…",
       aiSetupRetry: "다시 시도",
+      aiSetupGmailStatusFailed: "Gmail 연결을 확인할 수 없어요",
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
@@ -105,6 +106,7 @@ const messages = {
       aiSetupAddTab: "탭 추가",
       aiSetupAdjustRules: "규칙 조정",
       aiSetupImportantBoss: "상사의 메일, ",
+      aiSetupImportantBossChip: "상사의 메일",
       aiSetupImportantReply: "답장이 필요해요",
       aiSetupImportantDeadlines: "마감일",
       aiSetupImportantCustomers: "고객",

@@ -74,8 +74,11 @@ const mocks = vi.hoisted(() => ({
       accounts: [{ email: "mail-test@example.test" }],
       configured: true,
     } as { accounts: { email: string }[]; configured?: boolean } | undefined,
+    isSuccess: true,
     isLoading: false,
     isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
   },
 }));
 
@@ -125,7 +128,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       ? `Matched ${options?.count ?? ""}`
       : key === "mail.sort.aiSetupImportantBoss"
         ? "Messages from my boss, "
-        : key,
+        : key === "mail.sort.aiSetupImportantBossChip"
+          ? "Messages from my boss"
+          : key,
 }));
 
 vi.mock("react-router", () => ({
@@ -245,6 +250,9 @@ describe("AiInboxSetup", () => {
     };
     mocks.googleStatus.isLoading = false;
     mocks.googleStatus.isError = false;
+    mocks.googleStatus.isSuccess = true;
+    mocks.googleStatus.isFetching = false;
+    mocks.googleStatus.refetch.mockReset();
   });
 
   afterEach(() => {
@@ -301,7 +309,7 @@ describe("AiInboxSetup", () => {
       "mail.sort.aiSetupImportantExample",
     );
     const bossSuggestion = screen.getByRole("button", {
-      name: /Messages from my boss/,
+      name: "Messages from my boss",
     });
     fireEvent.click(bossSuggestion);
     expect((important as HTMLTextAreaElement).value).toBe(
@@ -915,6 +923,38 @@ describe("AiInboxSetup", () => {
       }),
     ).toBeNull();
     expect(screen.queryByText("mail.sort.aiSetupNoRules")).toBeNull();
+  });
+
+  it("waits for Gmail status before deciding whether to connect", () => {
+    mocks.googleStatus.data = undefined;
+    mocks.googleStatus.isLoading = true;
+    mocks.googleStatus.isSuccess = false;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "mail.sort.aiSetupConnectGmailHeadline",
+      }),
+    ).toBeNull();
+  });
+
+  it("shows a retry instead of a Gmail connect prompt when status fails", () => {
+    mocks.googleStatus.data = { accounts: [], configured: true };
+    mocks.googleStatus.isError = true;
+    mocks.googleStatus.isSuccess = false;
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByText("mail.sort.aiSetupGmailStatusFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    expect(mocks.googleStatus.refetch).toHaveBeenCalledOnce();
   });
 
   it("offers Skip for now while Gmail or Jev setup is still needed", () => {

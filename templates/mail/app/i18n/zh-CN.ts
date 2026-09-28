@@ -79,6 +79,7 @@ const messages = {
       aiSetupSortingDescription: "这是你的规则在近期邮件中找到的内容。",
       aiSetupFindingRecentMail: "正在查找近期邮件…",
       aiSetupRetry: "重试",
+      aiSetupGmailStatusFailed: "无法检查 Gmail 连接",
       aiSetupSortingProgress:
         "正在整理近期邮件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在撤销收件箱更改…",
@@ -101,6 +102,7 @@ const messages = {
       aiSetupAddTab: "添加标签页",
       aiSetupAdjustRules: "调整规则",
       aiSetupImportantBoss: "老板的邮件，",
+      aiSetupImportantBossChip: "老板的邮件",
       aiSetupImportantReply: "需要回复",
       aiSetupImportantDeadlines: "截止日期",
       aiSetupImportantCustomers: "客户",

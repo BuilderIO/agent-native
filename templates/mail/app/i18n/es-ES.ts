@@ -91,6 +91,7 @@ const messages = {
         "Esto es lo que tus reglas encontraron en el correo reciente.",
       aiSetupFindingRecentMail: "Buscando mensajes recientes…",
       aiSetupRetry: "Reintentar",
+      aiSetupGmailStatusFailed: "No se pudo comprobar la conexión con Gmail",
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
@@ -116,6 +117,7 @@ const messages = {
       aiSetupAddTab: "Añadir pestaña",
       aiSetupAdjustRules: "Ajustar reglas",
       aiSetupImportantBoss: "Mensajes de mi jefe, ",
+      aiSetupImportantBossChip: "Mensajes de mi jefe",
       aiSetupImportantReply: "Necesita respuesta",
       aiSetupImportantDeadlines: "Plazos",
       aiSetupImportantCustomers: "Clientes",

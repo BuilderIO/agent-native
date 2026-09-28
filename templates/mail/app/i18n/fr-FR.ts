@@ -92,6 +92,7 @@ const messages = {
         "Voici ce que vos règles ont trouvé dans les e-mails récents.",
       aiSetupFindingRecentMail: "Recherche des e-mails récents…",
       aiSetupRetry: "Réessayer",
+      aiSetupGmailStatusFailed: "Impossible de vérifier la connexion à Gmail",
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
@@ -119,6 +120,7 @@ const messages = {
       aiSetupAddTab: "Ajouter un onglet",
       aiSetupAdjustRules: "Ajuster les règles",
       aiSetupImportantBoss: "Messages de mon patron, ",
+      aiSetupImportantBossChip: "Messages de mon patron",
       aiSetupImportantReply: "À répondre",
       aiSetupImportantDeadlines: "Échéances",
       aiSetupImportantCustomers: "Clients",

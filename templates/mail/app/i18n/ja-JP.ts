@@ -83,6 +83,7 @@ const messages = {
       aiSetupSortingDescription: "最近のメールでルールに一致した結果です。",
       aiSetupFindingRecentMail: "最近のメールを検索しています…",
       aiSetupRetry: "再試行",
+      aiSetupGmailStatusFailed: "Gmail 接続を確認できませんでした",
       aiSetupSortingProgress:
         "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
       aiSetupUndoing: "受信トレイの変更を取り消しています…",
@@ -108,6 +109,7 @@ const messages = {
       aiSetupAddTab: "タブを追加",
       aiSetupAdjustRules: "ルールを調整",
       aiSetupImportantBoss: "上司からのメール、",
+      aiSetupImportantBossChip: "上司からのメール",
       aiSetupImportantReply: "返信が必要",
       aiSetupImportantDeadlines: "期限",
       aiSetupImportantCustomers: "顧客",

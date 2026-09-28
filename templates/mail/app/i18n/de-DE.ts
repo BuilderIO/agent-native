@@ -90,6 +90,8 @@ const messages = {
         "Das haben deine Regeln in aktuellen E-Mails gefunden.",
       aiSetupFindingRecentMail: "Aktuelle E-Mails werden gesucht…",
       aiSetupRetry: "Erneut versuchen",
+      aiSetupGmailStatusFailed:
+        "Die Gmail-Verbindung konnte nicht geprüft werden",
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
@@ -118,6 +120,7 @@ const messages = {
       aiSetupAddTab: "Tab hinzufügen",
       aiSetupAdjustRules: "Regeln anpassen",
       aiSetupImportantBoss: "Nachrichten von meinem Chef, ",
+      aiSetupImportantBossChip: "Nachrichten von meinem Chef",
       aiSetupImportantReply: "Antwort nötig",
       aiSetupImportantDeadlines: "Fristen",
       aiSetupImportantCustomers: "Kunden",

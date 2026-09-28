@@ -79,6 +79,7 @@ const messages = {
       aiSetupSortingDescription: "這是你的規則在近期郵件中找到的內容。",
       aiSetupFindingRecentMail: "正在尋找近期郵件…",
       aiSetupRetry: "重試",
+      aiSetupGmailStatusFailed: "無法檢查 Gmail 連線",
       aiSetupSortingProgress:
         "正在整理近期郵件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在復原收件匣變更…",
@@ -101,6 +102,7 @@ const messages = {
       aiSetupAddTab: "新增分頁",
       aiSetupAdjustRules: "調整規則",
       aiSetupImportantBoss: "老闆的郵件，",
+      aiSetupImportantBossChip: "老闆的郵件",
       aiSetupImportantReply: "需要回覆",
       aiSetupImportantDeadlines: "截止日期",
       aiSetupImportantCustomers: "客戶",

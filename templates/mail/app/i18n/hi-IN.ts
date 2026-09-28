@@ -83,6 +83,7 @@ const messages = {
       aiSetupSortingDescription: "हाल के ईमेल में आपके नियमों को ये मेल मिले।",
       aiSetupFindingRecentMail: "हाल के ईमेल ढूँढे जा रहे हैं…",
       aiSetupRetry: "फिर कोशिश करें",
+      aiSetupGmailStatusFailed: "आपका Gmail कनेक्शन जाँचा नहीं जा सका",
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
@@ -106,6 +107,7 @@ const messages = {
       aiSetupAddTab: "टैब जोड़ें",
       aiSetupAdjustRules: "नियम बदलें",
       aiSetupImportantBoss: "मेरे बॉस के संदेश, ",
+      aiSetupImportantBossChip: "मेरे बॉस के संदेश",
       aiSetupImportantReply: "जवाब देना है",
       aiSetupImportantDeadlines: "समय-सीमाएँ",
       aiSetupImportantCustomers: "ग्राहक",

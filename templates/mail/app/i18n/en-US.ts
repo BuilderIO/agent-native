@@ -86,6 +86,7 @@ const messages = {
       aiSetupSortingDescription: "Here’s what your rules found in recent mail.",
       aiSetupFindingRecentMail: "Finding recent mail…",
       aiSetupRetry: "Retry",
+      aiSetupGmailStatusFailed: "Couldn't check your Gmail connection",
       aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
       aiSetupUndoing: "Undoing inbox changes…",
       aiSetupSortingFailed:
@@ -110,6 +111,7 @@ const messages = {
       aiSetupAddTab: "Add tab",
       aiSetupAdjustRules: "Adjust rules",
       aiSetupImportantBoss: "Messages from my boss, ",
+      aiSetupImportantBossChip: "Messages from my boss",
       aiSetupImportantReply: "Needs a reply",
       aiSetupImportantDeadlines: "Deadlines",
       aiSetupImportantCustomers: "Customers",

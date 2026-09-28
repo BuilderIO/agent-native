@@ -85,6 +85,7 @@ const messages = {
         "هذه هي النتائج التي وجدتها قواعدك في الرسائل الحديثة.",
       aiSetupFindingRecentMail: "جارٍ العثور على الرسائل الحديثة…",
       aiSetupRetry: "أعِد المحاولة",
+      aiSetupGmailStatusFailed: "تعذّر التحقق من اتصال Gmail",
       aiSetupSortingProgress:
         "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
       aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
@@ -108,6 +109,7 @@ const messages = {
       aiSetupAddTab: "إضافة تبويب",
       aiSetupAdjustRules: "تعديل القواعد",
       aiSetupImportantBoss: "رسائل من مديري، ",
+      aiSetupImportantBossChip: "رسائل من مديري",
       aiSetupImportantReply: "تحتاج إلى رد",
       aiSetupImportantDeadlines: "المواعيد النهائية",
       aiSetupImportantCustomers: "العملاء",
