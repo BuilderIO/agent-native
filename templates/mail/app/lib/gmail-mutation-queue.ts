@@ -33,6 +33,16 @@ type TrashActionResult = {
   failed: Array<{ id: string; error: string }>;
 };
 
+type ArchiveActionResult = {
+  requested: string[];
+  succeeded: string[];
+  failed: Array<{ id: string; error: string }>;
+  remaining: string[];
+  retryAfterSeconds?: number;
+};
+
+const MAX_ARCHIVE_BATCH_ATTEMPTS = 5;
+
 function targetKey(
   kind: GmailMutationKind,
   target: GmailMutationTarget,
@@ -45,6 +55,20 @@ function bulkArgs(targets: GmailMutationTarget[]) {
     id: targets.map((t) => t.id).join(","),
     threadIds: targets.map((t) => t.threadId ?? "").join(","),
     accountEmails: targets.map((t) => t.accountEmail ?? "").join(","),
+  };
+}
+
+function bulkMessageArgs(targets: GmailMutationTarget[]) {
+  return {
+    id: targets.map((t) => t.id).join(","),
+    accountEmails: targets.map((t) => t.accountEmail ?? "").join(","),
+  };
+}
+
+function bulkThreadMessageArgs(targets: GmailMutationTarget[]) {
+  return {
+    ...bulkMessageArgs(targets),
+    threadIds: targets.map((t) => t.threadId ?? "").join(","),
   };
 }
 
@@ -85,6 +109,50 @@ function isTrashActionResult(value: unknown): value is TrashActionResult {
     Array.isArray((value as TrashActionResult).succeeded) &&
     Array.isArray((value as TrashActionResult).failed)
   );
+}
+
+function isArchiveActionResult(value: unknown): value is ArchiveActionResult {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Array.isArray((value as ArchiveActionResult).requested) &&
+    Array.isArray((value as ArchiveActionResult).succeeded) &&
+    Array.isArray((value as ArchiveActionResult).failed) &&
+    Array.isArray((value as ArchiveActionResult).remaining)
+  );
+}
+
+function isGmailQuotaCooldown(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as {
+    errorCode?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  return (
+    value.errorCode === "gmail_quota_cooldown" ||
+    value.statusCode === 429 ||
+    value.status === 429
+  );
+}
+
+function gmailQuotaRetryDelayMs(value: unknown): number {
+  if (value && typeof value === "object") {
+    const error = value as {
+      retryAfterMs?: unknown;
+      retryAfterSeconds?: unknown;
+      details?: { retryAfterSeconds?: unknown };
+    };
+    if (typeof error.retryAfterMs === "number" && error.retryAfterMs >= 0) {
+      return error.retryAfterMs;
+    }
+    const seconds =
+      typeof error.retryAfterSeconds === "number"
+        ? error.retryAfterSeconds
+        : error.details?.retryAfterSeconds;
+    if (typeof seconds === "number" && seconds >= 0) return seconds * 1000;
+  }
+  return 1_000;
 }
 
 class GmailMutationQueue {
@@ -301,61 +369,247 @@ class GmailMutationQueue {
   }
 
   private async flushArchive(ops: QueuedMutation[]): Promise<void> {
-    try {
-      await callAction("archive-email", {
-        ...bulkArgs(ops),
-        removeLabel: ops[0]?.removeLabel,
-      }).then(assertActionSuccess);
-      for (const op of ops) {
-        this.recordOutcome(op, "success");
-        for (const resolve of op.resolves) resolve();
+    let pending = [...ops];
+    let firstError: unknown;
+
+    for (let attempt = 0; pending.length > 0; attempt += 1) {
+      let result: unknown;
+      try {
+        result = await callAction("archive-email", {
+          ...bulkArgs(pending),
+          removeLabel: pending[0]?.removeLabel,
+        }).then(assertActionSuccess);
+      } catch (error) {
+        if (isGmailQuotaCooldown(error)) {
+          if (attempt + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, gmailQuotaRetryDelayMs(error)),
+            );
+            continue;
+          }
+          firstError = error;
+          for (const op of pending) {
+            this.recordOutcome(op, "failure");
+            for (const reject of op.rejects) reject(error);
+          }
+          pending = [];
+          break;
+        }
+
+        const fallbackError = await this.flushIndividually(pending, (op) =>
+          callAction("archive-email", {
+            id: op.id,
+            threadId: op.threadId,
+            accountEmail: op.accountEmail,
+            removeLabel: op.removeLabel,
+          }).then(assertActionSuccess),
+        );
+        if (fallbackError) firstError ??= fallbackError;
+        pending = [];
+        break;
       }
-      this.emit({ kind: "archive", count: ops.length });
-    } catch {
-      const error = await this.flushIndividually(ops, (op) =>
-        callAction("archive-email", {
-          id: op.id,
-          threadId: op.threadId,
-          accountEmail: op.accountEmail,
-          removeLabel: op.removeLabel,
-        }).then(assertActionSuccess),
+
+      if (!isArchiveActionResult(result)) {
+        try {
+          if (typeof result !== "string") {
+            throw new Error("Archive action returned an invalid result");
+          }
+          for (const op of pending) {
+            this.recordOutcome(op, "success");
+            for (const resolve of op.resolves) resolve();
+          }
+          pending = [];
+          break;
+        } catch (error) {
+          const fallbackError = await this.flushIndividually(pending, (op) =>
+            callAction("archive-email", {
+              id: op.id,
+              threadId: op.threadId,
+              accountEmail: op.accountEmail,
+              removeLabel: op.removeLabel,
+            }).then(assertActionSuccess),
+          );
+          if (fallbackError) firstError ??= fallbackError;
+          pending = [];
+          break;
+        }
+      }
+
+      const succeeded = new Set(result.succeeded);
+      const remainingIds = new Set(result.remaining);
+      const failures = new Map(
+        result.failed.map(({ id, error }) => [id, error]),
       );
-      this.emit(
-        error
-          ? { kind: "archive", count: ops.length, error }
-          : { kind: "archive", count: ops.length },
-      );
+      const nextPending: QueuedMutation[] = [];
+
+      for (const op of pending) {
+        if (succeeded.has(op.id)) {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        } else if (failures.has(op.id)) {
+          const error = new Error(failures.get(op.id)!);
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        } else if (remainingIds.has(op.id)) {
+          nextPending.push(op);
+        } else {
+          const error = new Error("Archive action omitted a target outcome");
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+      }
+
+      pending = nextPending;
+      if (pending.length === 0) break;
+
+      if (attempt + 1 >= MAX_ARCHIVE_BATCH_ATTEMPTS) {
+        const error = new Error("Archive remains incomplete after retries");
+        firstError ??= error;
+        for (const op of pending) {
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+        pending = [];
+        break;
+      }
+
+      const delayMs =
+        typeof result.retryAfterSeconds === "number" &&
+        result.retryAfterSeconds > 0
+          ? result.retryAfterSeconds * 1000
+          : 0;
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
     }
+
+    this.emit(
+      firstError
+        ? { kind: "archive", count: ops.length, error: firstError }
+        : { kind: "archive", count: ops.length },
+    );
   }
 
   private async flushMarkRead(
     ops: QueuedMutation[],
     isRead: boolean,
   ): Promise<void> {
-    try {
-      await callAction("mark-read", {
-        ...bulkArgs(ops),
-        unread: !isRead,
-      }).then(assertActionSuccess);
-      for (const op of ops) {
-        this.recordOutcome(op, "success");
-        for (const resolve of op.resolves) resolve();
-      }
-      this.emit({ kind: "mark-read", count: ops.length });
-    } catch {
-      const error = await this.flushIndividually(ops, (op) =>
-        callAction("mark-read", {
-          id: op.id,
-          accountEmail: op.accountEmail,
+    // Bulk reads with thread hints clear UNREAD from every cached message in
+    // each selected thread. Unread mutations stay message-scoped so Gmail can
+    // mark the conversation unread from its newest message.
+    const threadTargetMode =
+      isRead && ops.length > 1 && ops.every((op) => Boolean(op.threadId));
+    let pending = [...ops];
+    let firstError: unknown;
+
+    for (let attempt = 0; pending.length > 0; attempt += 1) {
+      let result: unknown;
+      try {
+        result = await callAction("mark-read", {
+          ...(threadTargetMode
+            ? bulkThreadMessageArgs(pending)
+            : bulkMessageArgs(pending)),
           unread: !isRead,
-        }).then(assertActionSuccess),
+        }).then(assertActionSuccess);
+      } catch (error) {
+        if (isGmailQuotaCooldown(error)) {
+          if (attempt + 1 < MAX_ARCHIVE_BATCH_ATTEMPTS) {
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, gmailQuotaRetryDelayMs(error)),
+            );
+            continue;
+          }
+          firstError = error;
+          for (const op of pending) {
+            this.recordOutcome(op, "failure");
+            for (const reject of op.rejects) reject(error);
+          }
+          pending = [];
+          break;
+        }
+
+        if (threadTargetMode) {
+          firstError ??= error;
+          for (const op of pending) {
+            this.recordOutcome(op, "failure");
+            for (const reject of op.rejects) reject(error);
+          }
+        } else {
+          const fallbackError = await this.flushIndividually(pending, (op) =>
+            callAction("mark-read", {
+              id: op.id,
+              accountEmail: op.accountEmail,
+              unread: !isRead,
+            }).then(assertActionSuccess),
+          );
+          if (fallbackError) firstError ??= fallbackError;
+        }
+        pending = [];
+        break;
+      }
+
+      if (!isArchiveActionResult(result)) {
+        for (const op of pending) {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        }
+        pending = [];
+        break;
+      }
+
+      const succeeded = new Set(result.succeeded);
+      const remainingIds = new Set(result.remaining);
+      const failures = new Map(
+        result.failed.map(({ id, error }) => [id, error]),
       );
-      this.emit(
-        error
-          ? { kind: "mark-read", count: ops.length, error }
-          : { kind: "mark-read", count: ops.length },
-      );
+      const nextPending: QueuedMutation[] = [];
+      for (const op of pending) {
+        if (succeeded.has(op.id)) {
+          this.recordOutcome(op, "success");
+          for (const resolve of op.resolves) resolve();
+        } else if (failures.has(op.id)) {
+          const error = new Error(failures.get(op.id)!);
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        } else if (remainingIds.has(op.id)) {
+          nextPending.push(op);
+        } else {
+          const error = new Error("Mark-read action omitted a target outcome");
+          firstError ??= error;
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+      }
+      pending = nextPending;
+      if (pending.length === 0) break;
+
+      if (attempt + 1 >= MAX_ARCHIVE_BATCH_ATTEMPTS) {
+        const error = new Error("Mark-read remains incomplete after retries");
+        firstError ??= error;
+        for (const op of pending) {
+          this.recordOutcome(op, "failure");
+          for (const reject of op.rejects) reject(error);
+        }
+        pending = [];
+        break;
+      }
+
+      if (typeof result.retryAfterSeconds === "number") {
+        const delayMs = Math.max(0, result.retryAfterSeconds * 1000);
+        if (delayMs > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
     }
+
+    this.emit(
+      firstError
+        ? { kind: "mark-read", count: ops.length, error: firstError }
+        : { kind: "mark-read", count: ops.length },
+    );
   }
 
   private async flushStar(

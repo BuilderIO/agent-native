@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "ملاحظة لنفسي",
     },
     inbox: {
+      atLeastCount: "على الأقل {{count}}",
       syncing: "جارٍ مزامنة الوارد…",
     },
     sort: {

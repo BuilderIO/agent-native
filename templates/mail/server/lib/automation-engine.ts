@@ -419,7 +419,7 @@ async function refreshReceivedEventCursor(
   accessToken: string,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
-  const profile = await gmailGetProfile(accessToken);
+  const profile = await gmailGetProfile(accessToken, "incremental");
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
   }
@@ -586,13 +586,17 @@ async function fetchNewInboxMessages(
     while (messageIds.length < MAX_EMAILS_PER_RUN) {
       let history: any;
       try {
-        history = await gmailListHistory(accessToken, {
-          startHistoryId: watermark.lastHistoryId,
-          historyTypes: ["messageAdded"],
-          labelId: "INBOX",
-          maxResults: MAX_EMAILS_PER_RUN,
-          ...(pageToken ? { pageToken } : {}),
-        });
+        history = await gmailListHistory(
+          accessToken,
+          {
+            startHistoryId: watermark.lastHistoryId,
+            historyTypes: ["messageAdded"],
+            labelId: "INBOX",
+            maxResults: MAX_EMAILS_PER_RUN,
+            ...(pageToken ? { pageToken } : {}),
+          },
+          "incremental",
+        );
       } catch (err: any) {
         if (pageToken) throw err;
         console.warn(
@@ -671,7 +675,7 @@ async function fetchNewInboxMessages(
   if (fallbackToList || watermark.fallbackPageToken) {
     try {
       if (fallbackToList) {
-        const profile = await gmailGetProfile(accessToken);
+        const profile = await gmailGetProfile(accessToken, "incremental");
         if (typeof profile.historyId !== "string" || !profile.historyId) {
           throw new Error(
             "Gmail did not return a history cursor before listing.",
@@ -683,13 +687,17 @@ async function fetchNewInboxMessages(
           lastTimestamp: Date.now(),
         };
       }
-      const res = await gmailListMessages(accessToken, {
-        q: "in:inbox newer_than:3d",
-        maxResults: MAX_EMAILS_PER_RUN,
-        ...(watermark.fallbackPageToken
-          ? { pageToken: watermark.fallbackPageToken }
-          : {}),
-      });
+      const res = await gmailListMessages(
+        accessToken,
+        {
+          q: "in:inbox newer_than:3d",
+          maxResults: MAX_EMAILS_PER_RUN,
+          ...(watermark.fallbackPageToken
+            ? { pageToken: watermark.fallbackPageToken }
+            : {}),
+        },
+        "incremental",
+      );
       const listedMessageIds = new Set<string>();
       for (const message of res.messages || []) {
         if (typeof message?.id === "string") {
@@ -744,6 +752,7 @@ async function fetchNewInboxMessages(
       accessToken,
       messageIds,
       "metadata",
+      "incremental",
     );
   } catch (error) {
     console.error(
@@ -771,7 +780,12 @@ async function fetchNewInboxMessages(
     const refills = await Promise.all(
       missing.map(async (id) => {
         try {
-          const data = await gmailGetMessage(accessToken, id, "metadata");
+          const data = await gmailGetMessage(
+            accessToken,
+            id,
+            "metadata",
+            "incremental",
+          );
           return { id, data };
         } catch (err: any) {
           if (/^Google API error \(404\):/.test(err?.message || "")) {
@@ -1858,7 +1872,7 @@ async function runAutomationsForAccount(
 
   if ([...matches.values()].some((matchedRules) => matchedRules.length > 0)) {
     await assertAutomationPollClaim(ownerEmail, accountEmail, claimToken);
-    const labelCache = await buildLabelCache(accessToken);
+    const labelCache = await buildLabelCache(accessToken, "incremental");
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
 
@@ -1891,6 +1905,7 @@ async function runAutomationsForAccount(
           ownerEmail,
           accountEmail,
           labelCache,
+          lane: "incremental",
           from: message.from,
           subject: message.subject,
           snippet: message.snippet,

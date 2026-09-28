@@ -57,6 +57,21 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("marks every unread message in a sidebar thread read when opening it", () => {
+    const source = inboxSource();
+    const sidebar = source.slice(
+      source.indexOf("function ThreadListSidebar("),
+      source.indexOf("const EMPTY_ACCOUNTS"),
+    );
+
+    expect(sidebar).toContain("const markThreadRead = useMarkThreadRead();");
+    expect(sidebar).toContain("if (thread.hasUnread)");
+    expect(sidebar).toContain(
+      "markThreadRead.mutate({\n                    threadId: threadKey,\n                    accountEmail: email.accountEmail,\n                  });",
+    );
+    expect(sidebar).not.toContain("useMarkRead");
+  });
+
   it("routes a plain inbox to the All tab by default", () => {
     const source = inboxSource();
 
@@ -355,9 +370,9 @@ describe("Inbox pagination", () => {
   it("pages the inbox view for real instead of a flat capped fetch", () => {
     const source = inboxSource();
 
-    expect(source).toContain(
-      "const inboxHasNextPage =\n    isInboxView && inboxThreads.data !== undefined\n      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)\n      : false;",
-    );
+    expect(source).toContain("totalIsLowerBound:");
+    expect(source).toContain("lastPageLength:");
+    expect(source).toContain("pageSize: INBOX_PAGE_SIZE");
     expect(source).toContain(
       "const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;",
     );

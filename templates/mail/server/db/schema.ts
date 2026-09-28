@@ -154,6 +154,14 @@ export const mailSyncAccounts = table(
     fullSyncPageToken: text("full_sync_page_token"),
     fullSyncHistoryId: text("full_sync_history_id"),
     fullSyncStartedAt: integer("full_sync_started_at"),
+    fullSyncPhase: text("full_sync_phase", { enum: ["reconcile"] }),
+    fullSyncReconcilePageToken: text("full_sync_reconcile_page_token"),
+    fullSyncReconcilePendingIdsJson: text(
+      "full_sync_reconcile_pending_ids_json",
+    ),
+    fullSyncReconcilePasses: integer("full_sync_reconcile_passes")
+      .notNull()
+      .default(0),
     status: text("status", {
       enum: ["idle", "syncing", "error", "needs_reauth"],
     })
@@ -172,6 +180,32 @@ export const mailSyncAccounts = table(
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => [index("mail_sync_accounts_owner_idx").on(t.ownerEmail)],
+);
+
+export const mailGmailQuotaBudgets = table(
+  "mail_gmail_quota_budgets",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    accountEmail: text("account_email").notNull(),
+    quotaWindowStartedAt: bigint("quota_window_started_at", { mode: "number" })
+      .notNull()
+      .default(0),
+    quotaUnitsUsed: integer("quota_units_used").notNull().default(0),
+    quotaBackgroundUnitsUsed: integer("quota_background_units_used")
+      .notNull()
+      .default(0),
+    quotaBackfillUnitsUsed: integer("quota_backfill_units_used")
+      .notNull()
+      .default(0),
+    quotaCooldownUntil: bigint("quota_cooldown_until", { mode: "number" }),
+    quotaCooldownAttempts: integer("quota_cooldown_attempts")
+      .notNull()
+      .default(0),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("mail_gmail_quota_budgets_owner_idx").on(t.ownerEmail)],
 );
 
 export const mailInboxPushInvalidations = table(

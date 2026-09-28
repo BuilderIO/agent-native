@@ -1,12 +1,15 @@
-import { callActionWithRetry } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  callActionWithRetry,
+} from "@agent-native/core/client/hooks";
 import { agentNativeApiDisabledReason } from "@agent-native/core/client/host";
 import type {
   InboxThreadItem,
+  InboxSyncAccountStatus,
   ListInboxThreadsInput,
   ListInboxThreadsResult,
 } from "@shared/inbox-threads";
 import {
-  keepPreviousData,
   skipToken,
   useQuery,
   useQueries,
@@ -17,10 +20,28 @@ import {
 } from "@tanstack/react-query";
 
 export const INBOX_THREADS_QUERY_KEY = ["action", "list-inbox-threads"];
+export const INBOX_SYNC_QUERY_KEY = ["action", "sync-inbox"];
+
+export type InboxSyncAccountProgress = InboxSyncAccountStatus & {
+  backfillPending?: boolean;
+  changed: boolean;
+  lastPushGeneration: number;
+  pushBumped?: boolean;
+  pushGeneration: number;
+  pushPending: boolean;
+  retryAt?: number;
+  retryAfterSeconds?: number;
+};
+
+export type InboxSyncResult = { accounts: InboxSyncAccountProgress[] };
+
+export function inboxThreadsQueryKey(input: ListInboxThreadsInput) {
+  return ["action", "list-inbox-threads", input] as const;
+}
 
 const SYNCING_POLL_MS = 3_000;
 const IDLE_POLL_MS = 20_000;
-const INBOX_THREADS_STALE_TIME_MS = IDLE_POLL_MS;
+const INBOX_THREADS_STALE_TIME_MS = Infinity;
 
 export type InboxOverview = Pick<
   ListInboxThreadsResult,
@@ -74,6 +95,14 @@ export function inboxOverviewQueryKey(accountEmails?: readonly string[]) {
   return ["mail-inbox-overview", accounts] as const;
 }
 
+export function inboxSyncQueryKey(accountEmails?: readonly string[]) {
+  return [
+    "action",
+    "sync-inbox",
+    accountEmails ? { accountEmails } : {},
+  ] as const;
+}
+
 export function publishInboxOverview(
   qc: QueryClient,
   accountEmails: readonly string[] | undefined,
@@ -107,10 +136,65 @@ export function inboxThreadsRefetchInterval(query: {
   state: { error: unknown; data?: { syncing?: boolean } };
 }): number | false {
   if (isUnauthorizedError(query.state.error)) return false;
-  return query.state.data?.syncing ? SYNCING_POLL_MS : IDLE_POLL_MS;
+  return IDLE_POLL_MS;
 }
 
-export const INBOX_PAGE_SIZE = 100;
+function retryAfterSeconds(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const value = error as {
+    details?: { retryAfterSeconds?: unknown };
+    errorCode?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+  };
+  const status = value.statusCode ?? value.status;
+  const seconds = value.details?.retryAfterSeconds;
+  if (
+    status !== 429 ||
+    value.errorCode !== "gmail_quota_cooldown" ||
+    typeof seconds !== "number" ||
+    !Number.isFinite(seconds) ||
+    seconds <= 0
+  ) {
+    return undefined;
+  }
+  return seconds;
+}
+
+export function inboxSyncRefetchInterval(query: {
+  state: { error: unknown; data?: InboxSyncResult };
+}): number | false {
+  if (isUnauthorizedError(query.state.error)) return false;
+  const errorRetryAfter = retryAfterSeconds(query.state.error);
+  if (errorRetryAfter !== undefined) return errorRetryAfter * 1_000;
+  if (query.state.error) return IDLE_POLL_MS;
+
+  const accounts = query.state.data?.accounts ?? [];
+  const intervals = accounts.flatMap((account) => {
+    if (account.state === "error" || account.state === "needs_reauth") {
+      return [];
+    }
+    if (typeof account.retryAt === "number") {
+      return [Math.max(1, account.retryAt - Date.now())];
+    }
+    const retryAfter = account.retryAfterSeconds;
+    if (
+      typeof retryAfter === "number" &&
+      Number.isFinite(retryAfter) &&
+      retryAfter > 0
+    ) {
+      return [retryAfter * 1_000];
+    }
+    if (account.changed || account.pushBumped) return [1];
+    if (account.state === "initial" || account.pushPending) {
+      return [SYNCING_POLL_MS];
+    }
+    return [IDLE_POLL_MS];
+  });
+  return intervals.length > 0 ? Math.min(...intervals) : IDLE_POLL_MS;
+}
+
+export const INBOX_PAGE_SIZE = 50;
 
 type InboxQueryResult = ListInboxThreadsResult & {
   clientSnapshotId: number;
@@ -123,6 +207,40 @@ export function keepLatestInboxSnapshot(
   return current && current.clientSnapshotId > incoming.clientSnapshotId
     ? current
     : incoming;
+}
+
+export function keepInboxProgressOrder(
+  current: InboxQueryResult | undefined,
+  incoming: InboxQueryResult,
+): InboxQueryResult {
+  const latest = keepLatestInboxSnapshot(current, incoming);
+  if (
+    !current ||
+    latest !== incoming ||
+    !current.syncing ||
+    current.activeTabId !== incoming.activeTabId
+  ) {
+    return latest;
+  }
+
+  const incomingByThreadId = new Map(
+    incoming.items.map((item) => [threadKeyOf(item), item]),
+  );
+  const seen = new Set<string>();
+  const items = current.items.map((item) => {
+    const threadId = threadKeyOf(item);
+    seen.add(threadId);
+    return incomingByThreadId.get(threadId) ?? item;
+  });
+  for (const item of incoming.items) {
+    const threadId = threadKeyOf(item);
+    if (!seen.has(threadId)) {
+      seen.add(threadId);
+      items.push(item);
+    }
+  }
+
+  return { ...incoming, items };
 }
 
 let nextInboxSnapshotId = 0;
@@ -192,9 +310,39 @@ function fetchInboxThreads(
       labels: incoming.labels,
       clientSnapshotId,
     });
+    seedInboxTabPreviews(qc, input, incoming);
     const current = qc.getQueryData<InboxQueryResult>(queryKey);
-    return keepLatestInboxSnapshot(current, incoming);
+    return keepInboxProgressOrder(current, incoming);
   });
+}
+
+export function seedInboxTabPreviews(
+  qc: QueryClient,
+  input: ListInboxThreadsInput,
+  incoming: InboxQueryResult,
+) {
+  if ((input.offset ?? 0) !== 0 || input.unreadOnly === true) return;
+
+  for (const tab of incoming.tabs) {
+    if (input.tab === tab.id) continue;
+    const items = incoming.tabPreviews?.[tab.id];
+    if (!items) continue;
+
+    const tabInput = { ...input, tab: tab.id, offset: 0 };
+    const queryKey = inboxThreadsQueryKey(tabInput);
+    const current = qc.getQueryData<InboxQueryResult>(queryKey);
+    if (current && current.clientSnapshotId >= incoming.clientSnapshotId) {
+      continue;
+    }
+
+    qc.setQueryData<InboxQueryResult>(queryKey, {
+      ...incoming,
+      activeTabId: tab.id,
+      items,
+      total: tab.total,
+      complete: !tab.totalIsLowerBound && items.length >= tab.total,
+    });
+  }
 }
 
 export function useInboxThreads(
@@ -203,15 +351,116 @@ export function useInboxThreads(
 ) {
   const qc = useQueryClient();
   return useQuery<InboxQueryResult>({
-    queryKey: ["action", "list-inbox-threads", input],
+    queryKey: inboxThreadsQueryKey(input),
     queryFn: ({ signal, queryKey }) =>
       fetchInboxThreads(input, signal, qc, queryKey),
     enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
     retry: false,
     refetchInterval: inboxThreadsRefetchInterval,
     staleTime: INBOX_THREADS_STALE_TIME_MS,
-    placeholderData: keepPreviousData,
     select: (data) => applyInboxMutationOverlay(qc, data) as InboxQueryResult,
+  });
+}
+
+export function useInboxSyncPoller(
+  accountEmails?: readonly string[],
+  opts?: { enabled?: boolean },
+) {
+  const qc = useQueryClient();
+
+  return useQuery<InboxSyncResult>({
+    queryKey: inboxSyncQueryKey(accountEmails),
+    queryFn: async ({ signal, queryKey }) => {
+      const previous = qc.getQueryData<InboxSyncResult>(queryKey);
+      const now = Date.now();
+      const scopedEmails = accountEmails?.map((email) => email.toLowerCase());
+      const eligibleEmails = previous?.accounts
+        .filter((account) => {
+          if (
+            scopedEmails &&
+            !scopedEmails.includes(account.accountEmail.toLowerCase())
+          ) {
+            return false;
+          }
+          return typeof account.retryAt !== "number" || account.retryAt <= now;
+        })
+        .map((account) => account.accountEmail);
+      if (
+        previous &&
+        previous.accounts.length > 0 &&
+        eligibleEmails?.length === 0
+      ) {
+        return {
+          ...previous,
+          accounts: previous.accounts.map((account) => ({
+            ...account,
+            changed: false,
+            pushBumped: false,
+          })),
+        };
+      }
+      const requestedEmails = previous
+        ? previous.accounts.length === 0 && !accountEmails
+          ? undefined
+          : (eligibleEmails ?? scopedEmails ?? [])
+        : accountEmails
+          ? [...accountEmails]
+          : undefined;
+      const request = requestedEmails ? { accountEmails: requestedEmails } : {};
+      const result = await callAction<InboxSyncResult>("sync-inbox", request, {
+        method: "POST",
+        signal,
+      });
+      const receivedAt = Date.now();
+      const returnedByEmail = new Set(
+        result.accounts.map((account) => account.accountEmail.toLowerCase()),
+      );
+      const accounts: InboxSyncAccountProgress[] = result.accounts.map(
+        (account) => {
+          const previousAccount = previous?.accounts.find(
+            (candidate) =>
+              candidate.accountEmail.toLowerCase() ===
+              account.accountEmail.toLowerCase(),
+          );
+          const priorGeneration =
+            previousAccount?.pushGeneration ?? account.lastPushGeneration;
+          return {
+            ...account,
+            retryAt:
+              typeof account.retryAfterSeconds === "number" &&
+              account.retryAfterSeconds > 0
+                ? receivedAt + account.retryAfterSeconds * 1_000
+                : undefined,
+            pushBumped:
+              account.state !== "error" &&
+              account.state !== "needs_reauth" &&
+              account.pushPending &&
+              account.pushGeneration > priorGeneration,
+          };
+        },
+      );
+      for (const account of previous?.accounts ?? []) {
+        const email = account.accountEmail.toLowerCase();
+        if (
+          returnedByEmail.has(email) ||
+          (scopedEmails && !scopedEmails.includes(email))
+        ) {
+          continue;
+        }
+        accounts.push({ ...account, changed: false, pushBumped: false });
+      }
+      if (result.accounts.some((account) => account.changed)) {
+        await qc.invalidateQueries({
+          queryKey: INBOX_THREADS_QUERY_KEY,
+          refetchType: "active",
+        });
+      }
+      return { ...result, accounts };
+    },
+    enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
+    retry: false,
+    refetchInterval: inboxSyncRefetchInterval,
+    staleTime: IDLE_POLL_MS,
   });
 }
 
@@ -235,7 +484,6 @@ export function useInboxThreadsPages(
         }) => fetchInboxThreads(params, signal, qc, queryKey),
         enabled: (opts?.enabled ?? true) && !agentNativeApiDisabledReason(),
         retry: false,
-        placeholderData: keepPreviousData,
         select: (data: ListInboxThreadsResult) =>
           applyInboxMutationOverlay(qc, data) as InboxQueryResult,
         staleTime: 60_000,
@@ -247,18 +495,41 @@ export function useInboxThreadsPages(
 export function mergeInboxThreadPages(
   pages: ReadonlyArray<Pick<ListInboxThreadsResult, "items"> | undefined>,
 ): InboxThreadItem[] {
-  return pages.flatMap((page) => page?.items ?? []);
+  const seen = new Set<string>();
+  return pages
+    .flatMap((page) => page?.items ?? [])
+    .filter((item) => {
+      const threadId = threadKeyOf(item);
+      if (seen.has(threadId)) return false;
+      seen.add(threadId);
+      return true;
+    });
 }
 
 export function inboxThreadsHasNextPage(
   loadedCount: number,
   total: number,
+  options?: {
+    complete?: boolean;
+    lastPageLength?: number;
+    pageSize?: number;
+    totalIsLowerBound?: boolean;
+  },
 ): boolean {
+  if (options?.totalIsLowerBound) {
+    return (
+      options.complete !== true &&
+      options.lastPageLength === (options.pageSize ?? INBOX_PAGE_SIZE)
+    );
+  }
   return loadedCount < total;
 }
 
 export function invalidateInboxThreads(qc: QueryClient) {
-  return qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY });
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: INBOX_THREADS_QUERY_KEY }),
+    qc.invalidateQueries({ queryKey: INBOX_SYNC_QUERY_KEY }),
+  ]).then(() => undefined);
 }
 
 export function snapshotInboxThreads(qc: QueryClient) {

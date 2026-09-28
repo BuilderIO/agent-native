@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "स्वयं के लिए नोट",
     },
     inbox: {
+      atLeastCount: "कम से कम {{count}}",
       syncing: "इनबॉक्स सिंक हो रहा है…",
     },
     sort: {

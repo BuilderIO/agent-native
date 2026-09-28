@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "自分へのメモ",
     },
     inbox: {
+      atLeastCount: "少なくとも{{count}}",
       syncing: "受信トレイを同期中…",
     },
     sort: {

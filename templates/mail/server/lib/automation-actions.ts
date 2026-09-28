@@ -1,6 +1,7 @@
 import { notify } from "@agent-native/core/notifications";
 import type { AutomationAction } from "@shared/types.js";
 
+import type { GmailQuotaLane } from "./gmail-quota.js";
 import {
   gmailModifyMessage,
   gmailTrashMessage,
@@ -16,6 +17,7 @@ export interface ActionContext {
   ownerEmail: string;
   accountEmail: string;
   labelCache: Map<string, string>;
+  lane?: GmailQuotaLane;
   from?: string;
   subject?: string;
   snippet?: string;
@@ -23,10 +25,11 @@ export interface ActionContext {
 
 export async function buildLabelCache(
   accessToken: string,
+  lane: GmailQuotaLane = "interactive",
 ): Promise<Map<string, string>> {
   const cache = new Map<string, string>();
   try {
-    const res = await gmailListLabels(accessToken);
+    const res = await gmailListLabels(accessToken, lane);
     for (const label of res.labels || []) {
       if (label.id && label.name) {
         cache.set(label.name.toLowerCase(), label.id);
@@ -42,19 +45,25 @@ export async function ensureGmailLabel(
   accessToken: string,
   labelName: string,
   labelCache: Map<string, string>,
+  lane: GmailQuotaLane = "interactive",
 ): Promise<string> {
   const key = labelName.toLowerCase();
   const existing = labelCache.get(key);
   if (existing) return existing;
 
   try {
-    const created = await gmailCreateLabel(accessToken, labelName);
+    const created = await gmailCreateLabel(
+      accessToken,
+      labelName,
+      undefined,
+      lane,
+    );
     if (created.id) {
       labelCache.set(key, created.id);
       return created.id;
     }
   } catch (err: any) {
-    const refreshed = await buildLabelCache(accessToken);
+    const refreshed = await buildLabelCache(accessToken, lane);
     for (const [k, v] of refreshed) labelCache.set(k, v);
     const retryId = labelCache.get(key);
     if (retryId) return retryId;
@@ -117,11 +126,14 @@ export async function executeAction(
           ctx.accessToken,
           action.labelName,
           ctx.labelCache,
+          ctx.lane,
         );
         const updated = (await gmailModifyMessage(
           ctx.accessToken,
           ctx.messageId,
           [labelId],
+          undefined,
+          ctx.lane,
         )) as { historyId?: string } | undefined;
         await mirrorStoreDelta(ctx, {
           add: [labelId],
@@ -135,6 +147,7 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["INBOX"],
+          ctx.lane,
         )) as { historyId?: string } | undefined;
         await mirrorStoreDelta(ctx, {
           remove: ["INBOX"],
@@ -148,6 +161,7 @@ export async function executeAction(
           ctx.messageId,
           undefined,
           ["UNREAD"],
+          ctx.lane,
         )) as { historyId?: string } | undefined;
         await mirrorStoreDelta(ctx, {
           remove: ["UNREAD"],
@@ -160,6 +174,8 @@ export async function executeAction(
           ctx.accessToken,
           ctx.messageId,
           ["STARRED"],
+          undefined,
+          ctx.lane,
         )) as { historyId?: string } | undefined;
         await mirrorStoreDelta(ctx, {
           add: ["STARRED"],
@@ -171,6 +187,7 @@ export async function executeAction(
         const updated = (await gmailTrashMessage(
           ctx.accessToken,
           ctx.messageId,
+          ctx.lane,
         )) as { historyId?: string } | undefined;
         await mirrorStoreDelta(ctx, {
           add: ["TRASH"],

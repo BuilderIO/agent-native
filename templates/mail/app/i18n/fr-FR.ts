@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Note à moi-même",
     },
     inbox: {
+      atLeastCount: "Au moins {{count}}",
       syncing: "Synchronisation de la boîte...",
     },
     sort: {

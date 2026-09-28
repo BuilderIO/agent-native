@@ -373,6 +373,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS mail_ai_filter_backfills_owner_rule_set_active
   ON mail_ai_filter_backfills(owner_email, rule_set_key)
   WHERE rule_set_key IS NOT NULL AND status IN ('queued', 'running', 'undoing');`,
     },
+    {
+      version: 31,
+      name: "mail-gmail-account-quota-budget",
+      sql: `CREATE TABLE IF NOT EXISTS mail_gmail_quota_budgets (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    account_email TEXT NOT NULL,
+    quota_window_started_at BIGINT NOT NULL DEFAULT 0,
+    quota_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_background_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_backfill_units_used INTEGER NOT NULL DEFAULT 0,
+    quota_cooldown_until BIGINT,
+    quota_cooldown_attempts INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS mail_gmail_quota_budgets_owner_idx
+  ON mail_gmail_quota_budgets(owner_email);`,
+    },
+    {
+      version: 32,
+      name: "mail-inbox-id-reconciliation",
+      sql: `ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_phase TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_page_token TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_pending_ids_json TEXT;
+ALTER TABLE mail_sync_accounts
+  ADD COLUMN IF NOT EXISTS full_sync_reconcile_passes INTEGER NOT NULL DEFAULT 0;`,
+    },
   ],
   { table: "mail_migrations" },
 );

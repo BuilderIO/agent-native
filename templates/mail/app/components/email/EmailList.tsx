@@ -184,6 +184,7 @@ interface EmailListProps {
   emails?: EmailMessage[];
   isLoading?: boolean;
   isFetching?: boolean;
+  isSyncing?: boolean;
   emailsError?: Error | null;
   accountErrors?: AccountError[];
   labels?: Label[];
@@ -475,6 +476,7 @@ export function EmailList({
   emails: emailsProp,
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
+  isSyncing = false,
   emailsError: emailsErrorProp,
   accountErrors: accountErrorsProp,
   labels: labelsProp,
@@ -2709,6 +2711,21 @@ export function EmailList({
             );
           })}
         </div>
+        {isSyncing && (
+          <div aria-hidden="true">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div
+                key={index}
+                className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
+              >
+                <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
+                <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+                <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-12 animate-pulse rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        )}
         {/* Sentinel for infinite scroll + loading indicator — lives after the
             virtualizer's sized inner container so it still sits at the true
             end of scrollable content and the IntersectionObserver above

@@ -851,10 +851,14 @@ async function captureGmailCandidates(
 ): Promise<BackfillCandidate[]> {
   const listedByAccount = await Promise.all(
     clients.map(async (client) => {
-      const response = await gmailListThreads(client.accessToken, {
-        q: `in:inbox newer_than:${AI_FILTER_BACKFILL_WINDOW_DAYS}d`,
-        maxResults: AI_FILTER_BACKFILL_MAX_THREADS,
-      });
+      const response = await gmailListThreads(
+        client.accessToken,
+        {
+          q: `in:inbox newer_than:${AI_FILTER_BACKFILL_WINDOW_DAYS}d`,
+          maxResults: AI_FILTER_BACKFILL_MAX_THREADS,
+        },
+        "backfill",
+      );
       const threads = Array.isArray(response.threads) ? response.threads : [];
       return threads.map((thread: any) => ({
         accountEmail: client.email,
@@ -877,6 +881,7 @@ async function captureGmailCandidates(
         ids.slice(offset, offset + 10),
         "metadata",
         METADATA_HEADERS,
+        "backfill",
       );
       for (const result of batch) {
         if (result.error || !result.data) {
@@ -1273,6 +1278,7 @@ async function snapshotGmailThread(
     candidate.threadId,
     "metadata",
     METADATA_HEADERS,
+    "backfill",
   );
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
   if (messages.length === 0)
@@ -1390,7 +1396,9 @@ async function applyGmailActions(
   const effects = backfillActionEffects(actions);
   const addLabelIds: string[] = [];
   for (const name of effects.labels) {
-    addLabelIds.push(await ensureGmailLabel(accessToken, name, labelCache));
+    addLabelIds.push(
+      await ensureGmailLabel(accessToken, name, labelCache, "backfill"),
+    );
   }
   const archive = effects.archive;
   const touched = [...addLabelIds, ...(archive ? ["INBOX"] : [])];
@@ -1436,6 +1444,7 @@ async function applyGmailActions(
     candidate.threadId,
     "metadata",
     METADATA_HEADERS,
+    "backfill",
   );
   return {
     snapshot: captureGmailPostApplyState(expectedAfter, after),
@@ -1765,7 +1774,7 @@ async function processRunningBatch(
         if (client) {
           const cache =
             labelCaches.get(client.email.toLowerCase()) ??
-            (await buildLabelCache(client.accessToken));
+            (await buildLabelCache(client.accessToken, "backfill"));
           labelCaches.set(client.email.toLowerCase(), cache);
           applied = await applyGmailActions(
             ownerEmail,
@@ -1948,6 +1957,7 @@ async function restoreGmailSnapshot(
     snapshot.threadId,
     "metadata",
     METADATA_HEADERS,
+    "backfill",
   );
   const messages = Array.isArray(current.messages) ? current.messages : [];
   const currentById = new Map(
@@ -1994,6 +2004,7 @@ async function restoreGmailSnapshot(
     snapshot.threadId,
     "metadata",
     METADATA_HEADERS,
+    "backfill",
   );
   const afterLabels = new Set(gmailLabelIds(after.messages ?? []));
   await syncInboxLabelDelta(ownerEmail, accountEmail, [snapshot.threadId], {

@@ -15,6 +15,7 @@ import {
   gmailModifyThread,
   gmailTrashThread,
   gmailUntrashThread,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import {
   getClientForConnectedAccount,
@@ -75,7 +76,11 @@ async function getToken(
   const tokens = (await getOAuthTokens("google", accountId)) as unknown as
     | StoredTokens
     | undefined;
-  if (tokens?.access_token) return refreshIfNeeded(accountId, tokens);
+  if (tokens?.access_token) {
+    const accessToken = await refreshIfNeeded(accountId, tokens);
+    registerGmailAccountToken(accessToken, ownerEmail, accountId);
+    return accessToken;
+  }
   const managed = await getClientForConnectedAccount(ownerEmail, accountId);
   return managed && managed.email.toLowerCase() === accountId.toLowerCase()
     ? managed.accessToken

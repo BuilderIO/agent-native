@@ -767,6 +767,7 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-2",
       }),
+      "incremental",
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(50);
 
@@ -782,6 +783,7 @@ describe("Mail Jev automation routing", () => {
         startHistoryId: "history-1",
         pageToken: "page-3",
       }),
+      "incremental",
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "history-final",
@@ -1122,7 +1124,10 @@ describe("Mail Jev automation routing", () => {
       "google-access-token",
     );
 
-    expect(mocks.gmailGetProfile).toHaveBeenCalledOnce();
+    expect(mocks.gmailGetProfile).toHaveBeenCalledWith(
+      "google-access-token",
+      "incremental",
+    );
     expect(mocks.gmailListHistory).not.toHaveBeenCalled();
     expect(mocks.gmailListMessages).not.toHaveBeenCalled();
   });
@@ -1332,6 +1337,7 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      "incremental",
     );
     expect(mocks.emitAsync).toHaveBeenCalledTimes(60);
     expect(
@@ -1393,6 +1399,7 @@ describe("Mail Jev automation routing", () => {
     expect(mocks.gmailListMessages).toHaveBeenCalledWith(
       "google-access-token",
       expect.objectContaining({ pageToken: "fallback-page-two" }),
+      "incremental",
     );
     expect(mocks.userSettings.get(watermarkKey)).toMatchObject({
       lastHistoryId: "fallback-base",
@@ -1408,6 +1415,7 @@ describe("Mail Jev automation routing", () => {
       2,
       "google-access-token",
       expect.objectContaining({ startHistoryId: "fallback-base" }),
+      "incremental",
     );
     expect(mocks.emitAsync).toHaveBeenCalledWith(
       "mail.message.received",

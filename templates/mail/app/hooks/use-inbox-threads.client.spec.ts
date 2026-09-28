@@ -1,0 +1,256 @@
+// @vitest-environment happy-dom
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, createElement, type PropsWithChildren } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { callAction, callActionWithRetry } = vi.hoisted(() => ({
+  callAction: vi.fn(),
+  callActionWithRetry: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction,
+  callActionWithRetry,
+}));
+
+import type {
+  InboxThreadItem,
+  ListInboxThreadsInput,
+  ListInboxThreadsResult,
+} from "@shared/inbox-threads";
+
+import { useInboxSyncPoller, useInboxThreads } from "./use-inbox-threads";
+
+afterEach(() => {
+  cleanup();
+  callAction.mockReset();
+  callActionWithRetry.mockReset();
+});
+
+function thread(id: string, threadId: string): InboxThreadItem {
+  return {
+    id,
+    threadId,
+    messageIds: [id],
+    messageCount: 1,
+    unreadCount: 0,
+    isAutomated: false,
+    isRead: true,
+    isStarred: false,
+  } as InboxThreadItem;
+}
+
+function response(): ListInboxThreadsResult {
+  const important = thread("important-message", "important-thread");
+  const other = thread("other-message", "other-thread");
+
+  return {
+    tabs: [
+      {
+        id: "important",
+        kind: "important",
+        name: "Important",
+        total: 1,
+        unread: 0,
+      },
+      { id: "other", kind: "other", name: "Other", total: 1, unread: 0 },
+    ],
+    activeTabId: "important",
+    items: [important],
+    tabPreviews: { important: [important], other: [other] },
+    total: 1,
+    complete: true,
+    syncing: false,
+    accounts: [],
+    labels: [],
+  };
+}
+
+describe("useInboxThreads tab previews", () => {
+  it("seeds account-scoped tab pages so switching to a cached tab makes no action request", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    callActionWithRetry.mockResolvedValue(response());
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const accountEmails = ["first@example.com", "second@example.com"];
+    const activeInput: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails,
+      limit: 50,
+      offset: 0,
+    };
+    const otherInput = { ...activeInput, tab: "other" };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(
+      ({ input }: { input: ListInboxThreadsInput }) => useInboxThreads(input),
+      { initialProps: { input: activeInput }, wrapper },
+    );
+
+    await waitFor(() =>
+      expect(hook.result.current.data?.items[0]?.id).toBe("important-message"),
+    );
+    expect(callActionWithRetry).toHaveBeenCalledTimes(1);
+    expect(
+      queryClient.getQueryData(["action", "list-inbox-threads", otherInput]),
+    ).toMatchObject({
+      activeTabId: "other",
+      items: [{ id: "other-message" }],
+      total: 1,
+    });
+
+    clock.mockReturnValue(60_000);
+    act(() => hook.rerender({ input: otherInput }));
+
+    expect(hook.result.current.data?.items[0]?.id).toBe("other-message");
+    expect(callActionWithRetry).toHaveBeenCalledTimes(1);
+    hook.unmount();
+    queryClient.clear();
+    clock.mockRestore();
+  });
+
+  it("does not seed other tabs from an unread-only result", async () => {
+    callActionWithRetry.mockResolvedValue(response());
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      unreadOnly: true,
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(hook.result.current.data).toBeDefined());
+
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "list-inbox-threads",
+        { ...input, tab: "other" },
+      ]),
+    ).toBeUndefined();
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("does not show the prior tab while an uncached tab is loading", async () => {
+    let resolveOtherTab!: (data: ListInboxThreadsResult) => void;
+    callActionWithRetry
+      .mockResolvedValueOnce({ ...response(), tabPreviews: {} })
+      .mockImplementationOnce(
+        () =>
+          new Promise<ListInboxThreadsResult>((resolve) => {
+            resolveOtherTab = resolve;
+          }),
+      );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const activeInput: ListInboxThreadsInput = {
+      tab: "important",
+      limit: 50,
+      offset: 0,
+    };
+    const otherInput = { ...activeInput, tab: "other" };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(
+      ({ input }: { input: ListInboxThreadsInput }) => useInboxThreads(input),
+      { initialProps: { input: activeInput }, wrapper },
+    );
+
+    await waitFor(() => expect(hook.result.current.data).toBeDefined());
+    act(() => hook.rerender({ input: otherInput }));
+    await waitFor(() => expect(callActionWithRetry).toHaveBeenCalledTimes(2));
+    expect(hook.result.current.data).toBeUndefined();
+
+    await act(async () => {
+      resolveOtherTab({
+        ...response(),
+        activeTabId: "other",
+        items: [thread("other-message", "other-thread")],
+      });
+    });
+    await waitFor(() =>
+      expect(hook.result.current.data?.items[0]?.id).toBe("other-message"),
+    );
+    hook.unmount();
+    queryClient.clear();
+  });
+
+  it("refreshes the active list before continuing after a changed sync step", async () => {
+    const requestOrder: string[] = [];
+    callActionWithRetry.mockImplementation(async () => {
+      requestOrder.push("list");
+      return response();
+    });
+    callAction.mockImplementationOnce(async () => {
+      requestOrder.push("sync");
+      return {
+        accounts: [
+          {
+            accountEmail: "first@example.com",
+            state: "initial",
+            lastSyncedAt: null,
+            changed: true,
+            pushGeneration: 4,
+            lastPushGeneration: 3,
+            pushPending: true,
+          },
+        ],
+      };
+    });
+    callAction.mockImplementationOnce(async () => {
+      requestOrder.push("sync");
+      return {
+        accounts: [
+          {
+            accountEmail: "first@example.com",
+            state: "ready",
+            lastSyncedAt: Date.now(),
+            changed: false,
+            pushGeneration: 4,
+            lastPushGeneration: 4,
+            pushPending: false,
+          },
+        ],
+      };
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      accountEmails: ["first@example.com"],
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const listHook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(listHook.result.current.data).toBeDefined());
+    const syncHook = renderHook(() => useInboxSyncPoller(input.accountEmails), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(callAction).toHaveBeenCalledTimes(2));
+    expect(callAction).toHaveBeenCalledWith(
+      "sync-inbox",
+      { accountEmails: ["first@example.com"] },
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(requestOrder).toEqual(["list", "sync", "list", "sync"]);
+
+    syncHook.unmount();
+    listHook.unmount();
+    queryClient.clear();
+  });
+});
