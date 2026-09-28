@@ -787,6 +787,7 @@ export class AgentKitClient implements AgentKitController {
           )
         : [];
       this.assertActive();
+      const refreshedRuns = new Map<RunId, AgentRunSnapshot>();
       runIdsToRefresh.forEach((runId, index) => {
         const run = activeRuns[index];
         const appliedSequence =
@@ -794,6 +795,14 @@ export class AgentKitClient implements AgentKitController {
           runSnapshots.get(runId)?.lastSequence ??
           0;
         if (
+          run &&
+          !this.isTerminalStatus(run.status) &&
+          run.lastSequence >= appliedSequence
+        ) {
+          const refreshedRun = { ...run, lastSequence: appliedSequence };
+          runSnapshots.set(runId, refreshedRun);
+          refreshedRuns.set(runId, refreshedRun);
+        } else if (
           run &&
           this.isTerminalStatus(run.status) &&
           run.lastSequence <= appliedSequence
@@ -873,6 +882,15 @@ export class AgentKitClient implements AgentKitController {
           thread,
           this.hasLiveMessageProjection(current, thread),
         );
+      }
+      for (const [runId, run] of refreshedRuns) {
+        if ((thread.runs[runId]?.lastSequence ?? -1) <= run.lastSequence) {
+          thread = {
+            ...thread,
+            runs: { ...thread.runs, [runId]: this.runState(runId, run) },
+            activeRunIds: Array.from(new Set([...thread.activeRunIds, runId])),
+          };
+        }
       }
       thread = this.settleTerminalThread(thread, snapshot);
       if (threadMissing) this.missingThreadStates.add(thread);
