@@ -8,6 +8,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import {
+  isAutoTitleReplaceable,
+  isDefaultTitle,
+} from "../shared/title-source.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
@@ -20,7 +24,6 @@ import {
   cleanGeneratedTitle,
   fallbackTitleFromTranscript,
 } from "./lib/title-fallback.js";
-import { isAutoTitleReplaceable, isDefaultTitle } from "../shared/title-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 
 function transcriptTextFromSegments(raw: string | null | undefined): string {

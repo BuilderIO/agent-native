@@ -21,6 +21,7 @@ import {
 } from "../server/lib/recordings.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
+import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import {
   isRetryableTranscriptFailure,
   transcriptFailureMessage,
@@ -55,7 +56,6 @@ import {
   isLikelyMismatchedTranscriptLanguage,
   normalizeProviderTranscript,
 } from "./lib/provider-transcript.js";
-import { isAutoTitleReplaceable } from "../shared/title-source.js";
 import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
