@@ -43,6 +43,7 @@ import {
 import {
   classifyAgentEvent,
   createAgentThreadState,
+  hasActiveAgentRuns,
   reduceAgentEvent,
   settleRunProjection,
   type AgentKitSnapshot,
@@ -1275,7 +1276,7 @@ export class AgentKitClient implements AgentKitController {
     return this.enqueueQueueMutation(input.threadId, async () => {
       this.assertActive();
       const threadBeforeWrite = this.getThread(input.threadId);
-      const runWasActive = threadBeforeWrite.activeRunIds.length > 0;
+      const runWasActive = hasActiveAgentRuns(threadBeforeWrite);
       const runIdsBeforeWrite = new Set(Object.keys(threadBeforeWrite.runs));
       const result = await this.invokeRequest(requestContext, (context) =>
         queueMessage(
@@ -1302,14 +1303,13 @@ export class AgentKitClient implements AgentKitController {
         removedIds,
       });
       const updatedThread = this.getThread(input.threadId);
-      const waitingForInput = updatedThread.activeRunIds.some((runId) => {
-        const status = updatedThread.runs[runId]?.status;
-        return status === "awaiting_approval" || status === "awaiting_input";
-      });
       const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
         (runId) => !runIdsBeforeWrite.has(runId),
       );
-      if (!waitingForInput && (runWasActive || runStartedDuringWrite)) {
+      if (
+        !hasActiveAgentRuns(updatedThread) &&
+        (runWasActive || runStartedDuringWrite)
+      ) {
         this.scheduleQueuePromotion(input.threadId);
       }
       return result.message;
@@ -1846,8 +1846,11 @@ export class AgentKitClient implements AgentKitController {
             terminalEvent.type === "run.completed" ||
             (terminalEvent.type === "run.status" &&
               terminalEvent.status === "completed");
+          const terminalThread = this.getThread(threadId);
           const queuedWorkKnown =
-            completed && this.getThread(threadId).queuedMessages.length > 0;
+            completed &&
+            terminalThread.queuedMessages.length > 0 &&
+            !hasActiveAgentRuns(terminalThread);
           if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
           const persistenceError = await snapshotPersistence;
           if (completed) {
@@ -1861,7 +1864,12 @@ export class AgentKitClient implements AgentKitController {
                 true,
               );
             }
-            if (!queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+            if (
+              !queuedWorkKnown &&
+              !hasActiveAgentRuns(this.getThread(threadId))
+            ) {
+              this.scheduleQueuePromotion(threadId);
+            }
           }
           if (persistenceError) {
             this.fail(persistenceError.error, "thread_snapshot_persist_failed");

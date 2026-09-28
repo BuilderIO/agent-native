@@ -1903,10 +1903,11 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
-  it("keeps a queued message visible while the server waits for the active run", async () => {
+  it("waits for the active run to finish before promoting queued work", async () => {
     const runCompletion = Promise.withResolvers<void>();
     const promotionStarted = Promise.withResolvers<void>();
     const finishPromotion = Promise.withResolvers<void>();
+    let promotionAttempts = 0;
     const queued: AgentQueuedMessage = {
       id: "queued-during-run",
       threadId: "thread-1",
@@ -1922,6 +1923,7 @@ describe("AgentKitClient", () => {
         return { message: queued };
       },
       async steerQueuedMessage() {
+        promotionAttempts += 1;
         promotionStarted.resolve();
         await finishPromotion.promise;
         return { runId: "run-2" };
@@ -1939,8 +1941,8 @@ describe("AgentKitClient", () => {
       text: "Finish this response first",
     });
     await client.queueMessage({ threadId: "thread-1", text: queued.text });
-    await promotionStarted.promise;
 
+    expect(promotionAttempts).toBe(0);
     expect(client.getThread("thread-1")).toMatchObject({
       queuedMessages: [queued],
       messages: [{ role: "user" }],
@@ -1948,6 +1950,7 @@ describe("AgentKitClient", () => {
 
     runCompletion.resolve();
     await firstRun.completed;
+    await promotionStarted.promise;
     finishPromotion.resolve();
     await vi.waitFor(() =>
       expect(client.getThread("thread-1").runs["run-2"]?.status).toBe(
