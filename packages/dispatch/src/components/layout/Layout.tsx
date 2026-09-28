@@ -403,7 +403,7 @@ function chatFirstPrimaryTabForPath(
   return undefined;
 }
 
-function dispatchNavLinkTarget(path: string): string {
+export function dispatchNavLinkTarget(path: string): string {
   if (typeof window === "undefined") return path;
   const basePath = appBasePath();
   if (!basePath) return path;

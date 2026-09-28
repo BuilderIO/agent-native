@@ -460,6 +460,17 @@ const enUS = {
       threadDebugSelectPrompt: "Select a failed run or thread to inspect.",
       chatFirstWorkspaceApps: "Workspace apps",
       chatFirstNewApp: "New",
+      chatFirstOpenInNewTab: "Open in new tab",
+      chatFirstDefaultDescriptionCalendar:
+        "Agent-Native Google Calendar — manage events, sync, and public booking",
+      chatFirstDefaultDescriptionClips:
+        "Screen recording, meeting notes, and voice dictation — all with AI",
+      chatFirstDefaultDescriptionContent:
+        "Open-source Obsidian for MDX — edit local docs with agent assistance",
+      chatFirstDefaultDescriptionDesign:
+        "Agent-Native design tool — create and edit visual designs with agent assistance",
+      chatFirstDefaultDescriptionMail:
+        "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
       searchApps: "Search apps",
       searchAppsPlaceholder: "Search apps",
       clearAppSearch: "Clear search",

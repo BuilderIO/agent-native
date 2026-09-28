@@ -30,6 +30,9 @@ const launcherState = vi.hoisted(() => ({
     retry: vi.fn(),
   },
 }));
+const appLayoutState = vi.hoisted(() => ({
+  value: { pinnedIds: ["mail"], orderedIds: ["mail", "plan"] },
+}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
@@ -38,14 +41,27 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "dispatch.pages.allApps": "All apps",
       "dispatch.pages.chatFirstNewApp": "New",
       "dispatch.pages.openApp": "Open",
+      "dispatch.pages.chatFirstOpenInNewTab": "Open in new tab",
+      "dispatch.pages.chatFirstDefaultDescriptionCalendar":
+        "Localized Calendar description",
       "dispatch.pages.searchApps": "Search apps",
       "dispatch.pages.searchAppsPlaceholder": "Search apps",
     })[key] ?? key,
 }));
 
 vi.mock("./layout/Layout", () => ({
+  dispatchNavLinkTarget: (path: string) => path,
   useDispatchWorkspaceAppLauncher: () => launcherState.value,
 }));
+
+vi.mock("../lib/workspace-app-layout", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../lib/workspace-app-layout")>();
+  return {
+    ...actual,
+    useWorkspaceAppLayout: () => ({ layout: appLayoutState.value }),
+  };
+});
 
 import { DispatchChatHomeApps } from "./chat-home-apps";
 
@@ -95,6 +111,9 @@ describe("DispatchChatHomeApps", () => {
     const grid = section?.querySelector(".grid.grid-cols-1");
     expect(grid?.className.split(" ")).toContain("sm:grid-cols-2");
     expect(section?.querySelectorAll("article")).toHaveLength(2);
+    expect(section?.querySelectorAll("article")[0]?.textContent).toContain(
+      "Mail",
+    );
     expect(container.textContent).toContain("Structured project plans");
     expect(
       container.querySelector("button[aria-label='Open options for Plan']"),
@@ -145,5 +164,29 @@ describe("DispatchChatHomeApps", () => {
     expect(launcherState.value.openApp).toHaveBeenCalledWith(
       expect.objectContaining({ id: "mail" }),
     );
+  });
+
+  it("localizes the default description for a built-in app", async () => {
+    launcherState.value.workspaceApps = [
+      {
+        id: "calendar",
+        name: "Calendar",
+        description: "Default English text",
+        defaultDescriptionKey:
+          "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+        path: "/calendar",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat"]}>
+          <DispatchChatHomeApps />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Localized Calendar description");
+    expect(container.textContent).not.toContain("Default English text");
   });
 });

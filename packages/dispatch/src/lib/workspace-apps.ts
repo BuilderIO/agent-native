@@ -18,6 +18,7 @@ export interface WorkspaceAppSummary {
   id: string;
   name: string;
   description?: string;
+  defaultDescriptionKey?: string;
   path: string;
   homePath?: string;
   url?: string | null;
@@ -156,15 +157,30 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
 
-const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<string, string> = {
-  calendar:
-    "Agent-Native Google Calendar — manage events, sync, and public booking",
-  clips: "Screen recording, meeting notes, and voice dictation — all with AI",
-  content:
-    "Open-source Obsidian for MDX — edit local docs with agent assistance",
-  design:
-    "Agent-Native design tool — create and edit visual designs with agent assistance",
-  mail: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
+  string,
+  { text: string; key: string }
+> = {
+  calendar: {
+    text: "Agent-Native Google Calendar — manage events, sync, and public booking",
+    key: "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+  },
+  clips: {
+    text: "Screen recording, meeting notes, and voice dictation — all with AI",
+    key: "dispatch.pages.chatFirstDefaultDescriptionClips",
+  },
+  content: {
+    text: "Open-source Obsidian for MDX — edit local docs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionContent",
+  },
+  design: {
+    text: "Agent-Native design tool — create and edit visual designs with agent assistance",
+    key: "dispatch.pages.chatFirstDefaultDescriptionDesign",
+  },
+  mail: {
+    text: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+    key: "dispatch.pages.chatFirstDefaultDescriptionMail",
+  },
 };
 
 function defaultWorkspaceAppUrl(rawUrl: string): string {
@@ -427,20 +443,28 @@ export function mergeChatFirstWorkspaceApps(
 ): WorkspaceAppSummary[] {
   const merged = new Map<string, WorkspaceAppSummary>();
   for (const id of CHAT_FIRST_DEFAULT_APP_IDS) {
+    const fallback = DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id];
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      description: DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id],
+      description: fallback?.text,
+      defaultDescriptionKey: fallback?.key,
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
     });
   }
   for (const app of apps ?? []) {
-    const fallbackDescription = merged.get(app.id)?.description;
+    const fallback = merged.get(app.id);
     merged.set(app.id, {
       ...app,
-      description: app.description ?? fallbackDescription,
+      description: app.description ?? fallback?.description,
+      defaultDescriptionKey:
+        app.description === undefined ||
+        app.description === null ||
+        app.description === fallback?.description
+          ? fallback?.defaultDescriptionKey
+          : undefined,
     });
   }
 

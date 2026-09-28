@@ -38,6 +38,45 @@ describe("workspace app routes", () => {
     expect(workspaceAppIdFromRoute(route)).toBe("sales ops");
   });
 
+  it("marks fallback app descriptions for localization but preserves custom copy", () => {
+    const calendar = mergeChatFirstWorkspaceApps([
+      {
+        id: "calendar",
+        name: "Calendar",
+        description:
+          "Agent-Native Google Calendar — manage events, sync, and public booking",
+        path: "/calendar",
+      },
+    ]).find((app) => app.id === "calendar");
+    expect(calendar).toMatchObject({
+      description:
+        "Agent-Native Google Calendar — manage events, sync, and public booking",
+      defaultDescriptionKey:
+        "dispatch.pages.chatFirstDefaultDescriptionCalendar",
+    });
+
+    const mail = mergeChatFirstWorkspaceApps([
+      {
+        id: "mail",
+        name: "Mail",
+        description: "A workspace-specific description",
+        path: "/mail",
+      },
+    ]).find((app) => app.id === "mail");
+    expect(mail).toMatchObject({
+      description: "A workspace-specific description",
+      defaultDescriptionKey: undefined,
+    });
+
+    const emptyDescription = mergeChatFirstWorkspaceApps([
+      { id: "mail", name: "Mail", description: "", path: "/mail" },
+    ]).find((app) => app.id === "mail");
+    expect(emptyDescription).toMatchObject({
+      description: "",
+      defaultDescriptionKey: undefined,
+    });
+  });
+
   it("does not mark app paths or the apps index as an active app route", () => {
     expect(workspaceAppIdFromRoute("/sales-ops")).toBeNull();
     expect(workspaceAppIdFromRoute("/apps")).toBeNull();

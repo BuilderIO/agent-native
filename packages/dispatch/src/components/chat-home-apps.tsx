@@ -4,12 +4,19 @@ import { IconArrowUpRight, IconPlus } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
-import { workspaceAppMatchesQuery } from "../lib/workspace-app-layout";
+import {
+  orderWorkspaceApps,
+  useWorkspaceAppLayout,
+  workspaceAppMatchesQuery,
+} from "../lib/workspace-app-layout";
 import { workspaceAppHref } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { CreateAppPopover } from "./create-app-popover";
-import { useDispatchWorkspaceAppLauncher } from "./layout/Layout";
+import {
+  dispatchNavLinkTarget,
+  useDispatchWorkspaceAppLauncher,
+} from "./layout/Layout";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
 import {
@@ -20,13 +27,21 @@ import {
 export function DispatchChatHomeApps() {
   const t = useT();
   const launcher = useDispatchWorkspaceAppLauncher();
+  const { layout } = useWorkspaceAppLayout();
   const [query, setQuery] = useState("");
   const apps = useMemo(
     () =>
-      launcher?.workspaceApps.filter((app) =>
-        workspaceAppMatchesQuery(app, query),
-      ) ?? [],
-    [launcher?.workspaceApps, query],
+      orderWorkspaceApps(launcher?.workspaceApps ?? [], layout)
+        .map((app) => ({
+          app,
+          description: app.defaultDescriptionKey
+            ? t(app.defaultDescriptionKey)
+            : app.description,
+        }))
+        .filter(({ app, description }) =>
+          workspaceAppMatchesQuery({ ...app, description }, query),
+        ),
+    [launcher?.workspaceApps, layout, query, t],
   );
   if (!launcher) return null;
 
@@ -89,7 +104,7 @@ export function DispatchChatHomeApps() {
           </div>
         ) : apps.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {apps.map((app) => {
+            {apps.map(({ app, description }) => {
               const href = workspaceAppHref(app);
               return (
                 <article
@@ -102,9 +117,9 @@ export function DispatchChatHomeApps() {
                       <span className="block truncate text-sm font-semibold text-foreground">
                         {app.name}
                       </span>
-                      {app.description ? (
+                      {description ? (
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {app.description}
+                          {description}
                         </span>
                       ) : null}
                     </span>
@@ -118,6 +133,7 @@ export function DispatchChatHomeApps() {
                       openApp: t("dispatch.pages.openApp", {
                         defaultValue: "Open",
                       }),
+                      openInNewTab: t("dispatch.pages.chatFirstOpenInNewTab"),
                     }}
                   />
                 </article>
@@ -128,7 +144,7 @@ export function DispatchChatHomeApps() {
           <WorkspaceAppSearchEmpty query={query} onClear={() => setQuery("")} />
         )}
         <Link
-          to="/apps"
+          to={dispatchNavLinkTarget("/apps")}
           className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           {t("dispatch.pages.allApps")}
