@@ -47,7 +47,6 @@ export function loadEmojiCatalog(): Promise<EmojiCatalogEntry[]> {
       const rows = (module.default ?? module) as EmojibaseEntry[];
       return rows
         .flatMap((row) => {
-          // Components (including regional letters) are not standalone emoji choices.
           if (
             row.group === undefined ||
             row.group === 2 ||

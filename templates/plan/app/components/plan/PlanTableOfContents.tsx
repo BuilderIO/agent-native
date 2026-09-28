@@ -41,8 +41,6 @@ export function PlanTableOfContents({
 }: {
   content: PlanContent;
   isRecap?: boolean;
-  /** Block anchors dropped from the contents (e.g. the relocated file-tree and
-   * its heading) so a link never resolves to a hidden element. */
   omitBlockIds?: string[];
 }) {
   const t = useT();
@@ -57,8 +55,6 @@ export function PlanTableOfContents({
     [content.blocks, omitBlockIds],
   );
 
-  // Keep the item -> element map and the active section in sync with the
-  // asynchronously-mounted document editor, reading the DOM only.
   useEffect(() => {
     const ids = items.map((item) => item.id);
     if (ids.length === 0) {
@@ -79,7 +75,6 @@ export function PlanTableOfContents({
     const getActiveId = () =>
       getActivePlanTocId(
         ids,
-        // Skip detached nodes; their rect collapses to top 0 and wrongly wins.
         (id) => {
           const el = elementsRef.current.get(id);
           return el && el.isConnected ? el : null;
@@ -102,15 +97,11 @@ export function PlanTableOfContents({
       if (scrollRaf) return;
       scrollRaf = window.requestAnimationFrame(() => {
         scrollRaf = 0;
-        // Re-resolve so scroll reads live nodes, not refs Tiptap has swapped.
         refreshElements();
         updateActiveId();
       });
     };
 
-    // Resolve element references, then bind the scroll listener once a target
-    // exists. The editor mounts asynchronously, so this re-resolves on every
-    // document mutation until the headings appear.
     const sync = (root: HTMLElement) => {
       elementsRef.current = resolvePlanTocElements(root, items);
       if (!scrollTarget) {
@@ -125,9 +116,6 @@ export function PlanTableOfContents({
       updateActiveId();
     };
 
-    // Debounce with setTimeout (not requestAnimationFrame, which is paused in
-    // background tabs) to coalesce the editor's mutation bursts. Because sync
-    // never writes to the editor DOM, this cannot feed back into the observer.
     const scheduleSync = (root: HTMLElement) => {
       if (syncTimer) return;
       syncTimer = window.setTimeout(() => {
@@ -139,8 +127,6 @@ export function PlanTableOfContents({
     const start = () => {
       const root = findDocumentFlow(navRef.current);
       if (!root) {
-        // The document flow shares this render, so it is normally present
-        // immediately; retry briefly in case of an SSR/hydration gap.
         if (rootAttempts < MAX_ROOT_ATTEMPTS) {
           rootAttempts += 1;
           rootTimer = window.setTimeout(start, 50);
@@ -174,8 +160,6 @@ export function PlanTableOfContents({
     const target = elementsRef.current.get(item.id);
     if (!target) return;
     event.preventDefault();
-    // Set a stable `id` lazily (not during DOM setup, to avoid fighting Tiptap's
-    // reconcile) so native hash-navigation and back/forward work.
     if (!target.id) target.id = item.id;
     target.scrollIntoView({
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -184,8 +168,6 @@ export function PlanTableOfContents({
       block: "start",
     });
     setActiveId(item.id);
-    // Update the URL hash so the deep link is shareable and the browser
-    // back-button returns to this section.
     try {
       history.pushState(null, "", `#${item.id}`);
     } catch {

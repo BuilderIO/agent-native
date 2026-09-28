@@ -179,8 +179,6 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    // Legacy rows keep their null generation and unscoped scratch. A reset
-    // upgrades them by installing a fresh generation before it deletes data.
     const existingGenerationId = recording.uploadGenerationId ?? null;
     let generationId = existingGenerationId;
     let session = generationId
@@ -382,8 +380,6 @@ export default defineEventHandler(async (event: H3Event) => {
         .map(recordingChunkIndexFromKey)
         .filter((index): index is number => index !== null),
     );
-    // Finalize requires chunks contiguous from 0, so resume at the first gap
-    // rather than after the highest index we happen to hold.
     let nextChunkIndex = 0;
     while (stored.has(nextChunkIndex)) nextChunkIndex += 1;
 

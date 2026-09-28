@@ -1,4 +1,4 @@
-import { createApp, type H3Event } from "h3";
+import { createApp, defineEventHandler, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,6 +7,7 @@ import {
   unregisterFileUploadProvider,
 } from "../file-upload/index.js";
 import type { FileUploadProvider } from "../file-upload/types.js";
+import { EMBED_SESSION_COOKIE } from "../shared/embed-auth.js";
 import {
   BUILDER_CONNECT_PARAM,
   createBuilderConnectState,
@@ -40,7 +41,9 @@ import {
   createPublicRemoteAgentsHandler,
   createOAuthPopupWaitingHandler,
 } from "./core-routes-plugin.js";
+import { signEmbedSessionToken } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 
 describe("mountApplicationStateRoutes", () => {
   it("registers the compose matcher before generic application state", () => {
@@ -79,6 +82,66 @@ describe("OAuth popup waiting route", () => {
       "unsafe-none",
     );
     expect(await response.text()).not.toContain("script");
+  });
+
+  it("stays reachable from the framework pages that open it", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/settings",
+      defineEventHandler(() => new Response("<!doctype html>")),
+    );
+
+    const opener = await app.fetch(new Request("http://example.test/settings"));
+    const popup = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+
+    // A popup whose COOP differs from its opener's is moved to a new
+    // browsing-context group, unless the opener allows popups and the popup
+    // opts out with `unsafe-none`. A severed popup never reaches the provider
+    // and the opener reports it closed ("allow popups"). Changing either
+    // header alone reintroduces that; change them together.
+    const openerPolicy = opener.headers.get("cross-origin-opener-policy");
+    const popupPolicy = popup.headers.get("cross-origin-opener-policy");
+    expect(popupPolicy).toBe("unsafe-none");
+    expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
+      openerPolicy,
+    );
+  });
+
+  it("stays navigable when opened from an embedded app session", async () => {
+    const previousSecret = process.env.OAUTH_STATE_SECRET;
+    process.env.OAUTH_STATE_SECRET = "oauth-popup-embed-test-secret";
+    try {
+      const token = signEmbedSessionToken({
+        ownerEmail: "owner@example.com",
+        targetPath: "/_agent-native/oauth/popup",
+        ttlSeconds: 60,
+      });
+      const app = createApp();
+      app.use(createSecurityHeadersMiddleware());
+      app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+      const popup = await app.fetch(
+        new Request("http://example.test/_agent-native/oauth/popup", {
+          headers: { cookie: `${EMBED_SESSION_COOKIE}=${token}` },
+        }),
+      );
+
+      // The embed session's strict COOP belongs to the framed document, not
+      // to the top-level popup it opens.
+      expect(popup.headers.get("cross-origin-opener-policy")).toBe(
+        "unsafe-none",
+      );
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.OAUTH_STATE_SECRET;
+      } else {
+        process.env.OAUTH_STATE_SECRET = previousSecret;
+      }
+    }
   });
 
   it("rejects writes", async () => {
@@ -462,9 +525,6 @@ describe("resolveLegacyToolsRedirect", () => {
 
   it("falls through when path is outside APP_BASE_PATH", () => {
     process.env.APP_BASE_PATH = "/dispatch";
-    // /tools without the /dispatch prefix is outside this app's base path,
-    // so stripAppBasePath leaves it unchanged and the helper still matches.
-    // The redirect target is built relative to the configured base path.
     expect(resolveLegacyToolsRedirect("/tools/abc", "")).toBe(
       "/dispatch/extensions/abc",
     );
@@ -952,7 +1012,6 @@ describe("checkBuilderWaitlistRateLimit", () => {
 });
 
 describe("AVATAR_RASTER_MIME", () => {
-  // Accepted raster types
   it("accepts data:image/png", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/png;base64,iVBORw0KGgo=")).toBe(
       true,
@@ -983,7 +1042,6 @@ describe("AVATAR_RASTER_MIME", () => {
     );
   });
 
-  // Rejected types — SVG is the primary stored-XSS vector
   it("rejects data:image/svg+xml (stored-XSS risk)", () => {
     expect(
       AVATAR_RASTER_MIME.test(
@@ -1044,9 +1102,6 @@ describe("resolveAvatarEmailParam", () => {
 
 describe("runDbHealthProbe", () => {
   it("reports db:true when SELECT 1 succeeds", async () => {
-    // Captures every statement, not just the last one: `db:true` also
-    // triggers the identity read on this same exec (see the "database
-    // identity" describe block below), so more than one call is expected.
     const queries: unknown[] = [];
     const result = await runDbHealthProbe(() => ({
       execute: async (sql: unknown) => {
@@ -1062,10 +1117,6 @@ describe("runDbHealthProbe", () => {
   });
 
   it("answers within a deadline when the query HANGS, and says so distinctly", async () => {
-    // The docs site's health route hung 20-40s on an unbounded `SELECT 1`
-    // until the CDN 502'd. Its keep-warm cron then failed every minute, the
-    // function stayed permanently cold, and every cache miss paid a ~10x cold
-    // start. The contract says "always resolves"; this pins it.
     vi.useFakeTimers();
     try {
       const probe = runDbHealthProbe(() => ({
@@ -1075,9 +1126,6 @@ describe("runDbHealthProbe", () => {
       const result = await probe;
       expect(result.ok).toBe(true);
       expect(result.db).toBe(false);
-      // A hang is NOT the same as "no database" — folding them together is the
-      // coercion this repo bans, and it is why nobody could tell the docs site
-      // apart from an app that simply has no DB.
       expect(result.dbTimedOut).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -1102,8 +1150,6 @@ describe("runDbHealthProbe", () => {
         return { rows: [], rowsAffected: 0 };
       },
     }));
-    // The one query pressure would add, not counting the identity read that
-    // every db:true probe now makes on this same connection.
     expect(queries).toEqual([
       "SELECT 1",
       {
@@ -1174,8 +1220,6 @@ describe("runDbHealthProbe: database identity", () => {
     expect(result.database.identityMismatch).toBe(false);
   });
 
-  // The exact incident this exists to catch: a database recorded for one app
-  // while a different app is actually running against it.
   it("reports a mismatch when the recorded app differs from the running app", async () => {
     vi.stubEnv("APP_ID", "chat");
     const result = await runDbHealthProbe(
@@ -1191,10 +1235,6 @@ describe("runDbHealthProbe: database identity", () => {
     expect(result.database.identityMismatch).toBe(true);
   });
 
-  // The first crm production promotion failed on exactly this: the release
-  // migration recorded "crm" while the hosted bundle could not derive any
-  // identity for itself. An unknown runtime identity is a gap to report, not a
-  // mismatch to block on.
   it("does not claim a mismatch when the runtime cannot derive its own app identity", async () => {
     vi.stubEnv("APP_ID", "");
     const result = await runDbHealthProbe(
@@ -1211,7 +1251,6 @@ describe("runDbHealthProbe: database identity", () => {
   it("reports unreadable, not unrecorded, for a malformed stored value", async () => {
     const result = await runDbHealthProbe(settingsRowExec({ app: 42 }));
     expect(result.database.identity?.state).toBe("unreadable");
-    // Only "recorded" can prove a mismatch — a check that failed proves nothing.
     expect(result.database.identityMismatch).toBe(false);
   });
 
@@ -1221,14 +1260,12 @@ describe("runDbHealthProbe: database identity", () => {
       const probe = runDbHealthProbe(() => ({
         execute: async (sql: unknown) => {
           if (sql === "SELECT 1") return { rows: [], rowsAffected: 0 };
-          return new Promise(() => {}); // never settles
+          return new Promise(() => {});
         },
       }));
       await vi.advanceTimersByTimeAsync(6_000);
       const result = await probe;
       expect(result.db).toBe(true);
-      // A hung read is its own state, not "unrecorded" — the exact coercion
-      // this file already bans for `dbTimedOut` above, applied here too.
       expect(result.database.identity).toEqual({ state: "timeout" });
       expect(result.database.identityMismatch).toBe(false);
     } finally {

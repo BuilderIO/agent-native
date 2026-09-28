@@ -112,9 +112,6 @@ describe("renderDataDictionary", () => {
   });
 
   it("caps the total rendered block at a total char budget even under the 40-entry count cap", () => {
-    // Every field maxed out renders roughly ~3-3.5K chars per entry (see the
-    // per-field caps in renderEntry), so well under 40 entries is enough to
-    // blow past a 10K total budget if there were no total-char guard.
     const longField = (label: string) => `${label} `.repeat(80);
     const entries = Array.from({ length: 40 }, (_, index) => ({
       metric: `Metric ${String(index + 1).padStart(2, "0")}`,
@@ -136,18 +133,12 @@ describe("renderDataDictionary", () => {
 
     const context = renderDataDictionary(entries);
 
-    // The rendered block should stay close to the ~10K budget, not balloon to
-    // the ~130K theoretical ceiling from 40 maxed-out entries.
     expect(context.length).toBeLessThan(15_000);
-    // At least one entry must always render, even under a tight budget.
     expect(context).toContain("Metric 01** (approved/canonical)");
-    // Some later entry must have been omitted for the budget to have engaged.
     expect(context).toContain(
       "additional data-dictionary entries were omitted",
     );
     expect(context).toContain("list-data-dictionary");
-    // No entry should be cut mid-render: every entry that appears must show
-    // its full definition line intact (not truncated partway through a field).
     const definitionLines = context
       .split("\n")
       .filter((line) => line.startsWith("- **Metric"));

@@ -51,9 +51,6 @@ afterEach(async () => {
 
 describe("settings store", () => {
   it("issues the poll-path index DDL on init", async () => {
-    // The first store call triggers ensureTable(), which must create the
-    // settings_updated_at_idx index so MAX(updated_at) poll queries avoid
-    // full table scans. Capture which SQL strings are executed and assert.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -70,6 +67,9 @@ describe("settings store", () => {
     }
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON public.settings (updated_at)",
+    );
+    expect(seen).toContain(
+      "CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON public.settings ((substring(key from '[^:]+$')))",
     );
   });
 
@@ -100,15 +100,9 @@ describe("settings store", () => {
         )
         .run("corrupt-cached", "{not valid json", Date.now());
 
-      // Seed the request cache with the raw corrupt string via the batch
-      // path, which isolates it as null instead of throwing.
       await getSettings(["corrupt-cached"]);
       rawClient.execute.mockClear();
 
-      // getSetting must still throw when serving that same cached raw value,
-      // not silently return the batch path's null. Asserting no DB call
-      // happened confirms this is the cache-hit branch throwing, not a
-      // fallback re-query that happens to also throw.
       await expect(getSetting("corrupt-cached")).rejects.toThrow(SyntaxError);
       expect(rawClient.execute).not.toHaveBeenCalled();
     });
@@ -178,6 +172,54 @@ describe("settings store", () => {
       "builder-connect-pending:a",
       "builder-connect-pending:b",
     ]);
+  });
+
+  it("reads only settings with requested key segments", async () => {
+    const { listSettingsByKeySegments } = await import("./store.js");
+    await runWithRequestContext(
+      { userEmail: "alice@example.com" },
+      async () => {
+        await putSetting("u:alice@example.com:mcp-servers-remote", {
+          servers: [],
+        });
+        await putSetting("u:alice@example.com:other-setting", { value: 1 });
+
+        rawClient.execute.mockClear();
+        const rows = await listSettingsByKeySegments(["mcp-servers-remote"]);
+
+        expect(rows).toEqual([
+          {
+            key: "u:alice@example.com:mcp-servers-remote",
+            value: { servers: [] },
+          },
+        ]);
+        expect(rawClient.execute).toHaveBeenCalledWith({
+          sql: expect.stringContaining(
+            "WHERE substring(key from '[^:]+$') IN (?)",
+          ),
+          args: ["mcp-servers-remote"],
+        });
+
+        rawClient.execute.mockClear();
+        await getSetting("u:alice@example.com:mcp-servers-remote");
+        expect(rawClient.execute).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it("bounds and orders prefix reads when requested", async () => {
+    await putSetting("dashboard:c", { id: "c" });
+    await putSetting("dashboard:a", { id: "a" });
+    await putSetting("dashboard:b", { id: "b" });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
+
+    expect(rows.map((row) => row.key)).toEqual(["dashboard:a", "dashboard:b"]);
+    expect(rawClient.execute).toHaveBeenLastCalledWith({
+      sql: expect.stringContaining("ORDER BY key ASC LIMIT ?"),
+      args: ["dashboard:%", 2],
+    });
   });
 });
 
@@ -277,8 +319,6 @@ describe("getSettings (batched read)", () => {
   });
 
   it("bypasses and does not populate the request cache when bypassCache is set", async () => {
-    // Write directly, bypassing putSetting's own cache write-through, so
-    // entering the request context finds this key genuinely uncached.
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("k", JSON.stringify({ v: 1 }), Date.now());
@@ -289,8 +329,6 @@ describe("getSettings (batched read)", () => {
       await getSettings(["k"], { bypassCache: true });
       rawClient.execute.mockClear();
 
-      // A later plain getSetting must not see a cache entry seeded by the
-      // bypassed read.
       await getSetting("k");
       expect(rawClient.execute).toHaveBeenCalledTimes(1);
     });

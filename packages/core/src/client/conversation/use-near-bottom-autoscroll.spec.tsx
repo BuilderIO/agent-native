@@ -67,9 +67,6 @@ function setUserScrollTop(element: HTMLDivElement, value: number) {
   element.dispatchEvent(new Event("scroll"));
 }
 
-// Simulates the message list briefly shrinking (content swap, collapsing
-// placeholder, etc.). The browser is forced to clamp scrollTop down to the new
-// bottom and fires a scroll event — without going through wheel/touch/keys.
 function simulateContentShrink(
   element: HTMLDivElement,
   metrics: ScrollMetrics,
@@ -399,13 +396,11 @@ describe("useNearBottomAutoscroll", () => {
     metrics.scrollHeight = 1400;
     await advanceAutoscrollTimers();
 
-    // The delayed rAF/timeout chain must not write to a detached scroller.
     expect(metrics.scrollTop).toBe(800);
   });
 
   it("stays anchored when content briefly collapses to the top", async () => {
     const apiRef = React.createRef<AutoscrollApi>();
-    // A long, ongoing conversation pinned to the bottom.
     const metrics = {
       clientHeight: 200,
       scrollHeight: 3000,
@@ -418,9 +413,6 @@ describe("useNearBottomAutoscroll", () => {
       streaming: true,
     });
 
-    // The list momentarily collapses (e.g. a re-render swaps the message
-    // subtree on send). The browser clamps scrollTop to 0 and fires a scroll
-    // event — this must NOT be mistaken for the user scrolling up.
     act(() => {
       simulateContentShrink(scroller, metrics, 200);
     });
@@ -429,8 +421,6 @@ describe("useNearBottomAutoscroll", () => {
       container.querySelector('[data-testid="follow-state"]')?.textContent,
     ).toBe("following");
 
-    // Once the content comes back, we snap to the bottom instead of being
-    // stranded at the top.
     metrics.scrollHeight = 3000;
     renderHarness({ apiRef, followKey: 2, metrics, streaming: true });
     await advanceAutoscrollTimers();

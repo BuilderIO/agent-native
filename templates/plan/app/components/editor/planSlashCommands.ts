@@ -8,22 +8,8 @@ import type { SlashCommandItem } from "@agent-native/toolkit/editor";
 import { isNotionCompatibleBlockType } from "@shared/notion-compat";
 import { createPlanBlockId } from "@shared/plan-content";
 
-/**
- * The Tiptap editor handed to a slash command's `action`. Derived from the Toolkit
- * {@link SlashCommandItem} contract instead of importing `@tiptap/react`
- * directly, so this file carries no extra tiptap dependency (the plan template
- * uses tiptap through `@agent-native/toolkit/editor`).
- */
 type SlashEditor = Parameters<SlashCommandItem["action"]>[0];
 
-/**
- * The `insertTable` command is contributed by `@tiptap/extension-table`, which
- * the shared editor registers at runtime but whose `ChainedCommands` type
- * augmentation is not visible from this template (it has no direct tiptap
- * dependency — tiptap is transitive through `@agent-native/toolkit/editor`). This
- * narrow shape re-adds just that one command signature so the Table slash item
- * stays type-safe without importing tiptap here.
- */
 type TableChain = {
   insertTable: (options: {
     rows: number;
@@ -32,23 +18,6 @@ type TableChain = {
   }) => { run: () => boolean };
 };
 
-/**
- * Build the plan document editor's slash command list, returned in the exact
- * shape the shared Toolkit {@link SlashCommandItem} contract expects. `icon` is a
- * short text glyph; `description` is compact visible copy; `searchText` carries
- * raw block types and aliases. `SharedRichEditor`/`RichMarkdownEditor` forward
- * this array to `SlashCommandMenu` via its `items` prop.
- *
- * Two tiers of commands:
- *  - Base prose commands (Text, Headings, lists, quote, code, divider, table,
- *    image) drive standard Tiptap chains — mirroring the content app's slash set
- *    but emitting the Toolkit menu item type.
- *  - Registry block commands are derived from every `BlockSpec` whose
- *    `placement` includes `"block"`. Each inserts a `planBlock` node referencing
- *    the spec by `blockType` with a freshly minted `blockId`. The editor seeds
- *    `blocks[]` from `spec.empty()` when a new `planBlock` id first appears, so
- *    no block `data` is seeded here.
- */
 export function buildPlanSlashCommands(
   registry: BlockRegistry,
   options: {
@@ -168,11 +137,6 @@ export function buildPlanSlashCommands(
     },
   ];
 
-  // Registry block commands come from the shared core builder so adding a library
-  // block only touches the registry. Plan's per-app parts: a text-glyph `icon`,
-  // compact visible descriptions, hidden search text for type/alias matching,
-  // the union Notion-compat predicate (which also covers prose-only NFM analogs),
-  // and inserting a `planBlock` node.
   const blockCommands = buildRegistryBlockSlashItems<
     SlashCommandItem,
     SlashEditor

@@ -24,8 +24,6 @@ export interface ReviewCommentObservation {
   path?: string;
   line?: number;
   createdAt: string;
-  // Provider thread resolution. `undefined` means the provider could not tell
-  // us — its lookup can fail or page out — so it is unknown, never resolved.
   isResolved?: boolean;
   isOutdated?: boolean;
   threadId?: string;
@@ -81,11 +79,6 @@ export type BabysitRecommendation =
 
 export type BabysitAgentDecision = "ping" | "defer" | "already_asked" | "stuck";
 
-/**
- * `mergeConflict` is the caller's resolved answer, not a raw GitHub reading.
- * Deriving it here would let an uncomputed read flip a conflicted branch to
- * clean, which restarts the episode and earns the pull request another ping.
- */
 export interface BabysitWorkSignal {
   mergeConflict: boolean;
   snapshot: BabysitProposal;
@@ -152,10 +145,8 @@ export function isFactoryBabysitCommentBody(
   return trimmed.startsWith(BABYSIT_COMMENT_V2_PREFIX);
 }
 
-/** Shared by the read-only briefing and the write action so their verdicts cannot diverge. */
 export const MIN_BABYSIT_COMMENT_INTERVAL_MS = 90_000;
 
-/** How many times the hardcoded request appears on the pull request from any author. */
 export function countBabysitComments(
   comments: readonly { body: string }[],
   body: string = DEFAULT_BABYSIT_PR_COMMENT,
@@ -164,7 +155,6 @@ export function countBabysitComments(
   return comments.filter((comment) => comment.body.trim() === target).length;
 }
 
-/** Factory-only duplicate detection: human copies of the template must not block re-ping. */
 export function countFactoryBabysitComments(
   comments: readonly { body: string; author: string }[],
   factoryAuthorLogin: string | null | undefined,
@@ -237,13 +227,6 @@ export interface StoredMergeability {
   mergeabilityComputed: boolean | null | undefined;
 }
 
-/**
- * GitHub computes mergeability lazily, so the first read of a pull request
- * answers null and a later read answers for real. Holding the last definite
- * reading keeps that computation from looking like a changed branch. The two
- * fields move together: overwriting the conflict bit while dropping the
- * definite flag would erase the basis every rising-edge check depends on.
- */
 export function resolveStickyMergeability(
   stored: StoredMergeability,
   live: { mergeable: boolean | null; mergeableState: string | null },
@@ -260,12 +243,6 @@ export function resolveStickyMergeability(
   };
 }
 
-/**
- * A conflict that appeared after a definite no-conflict reading. A stored
- * reading that was never definite cannot produce a rising edge, so GitHub
- * finishing its first computation is adoption rather than new work — including
- * on rows written before `prBabysitMergeabilityComputed` existed.
- */
 export function hasNewDefiniteMergeConflict(input: {
   storedMergeConflict: boolean | null | undefined;
   storedMergeabilityComputed: boolean | null | undefined;
@@ -298,11 +275,6 @@ export interface BabysitPingDecision {
   reason: BabysitPingReason;
 }
 
-/**
- * The only gate on posting the hardcoded comment. The agent classifies, this
- * decides whether the classification may reach GitHub, so the read-only
- * briefing and the write action both call it instead of re-deriving the rule.
- */
 export function decideBabysitPing(input: {
   previousState: string | null | undefined;
   lastCommentAtMs: number | null;
@@ -317,8 +289,6 @@ export function decideBabysitPing(input: {
   builderActive?: boolean;
   headShaChangedSinceLastPing?: boolean;
 }): BabysitPingDecision {
-  // A capped page cannot prove the hardcoded comment is absent, and absence is
-  // what authorizes a first ask.
   if (input.commentScanTruncated) {
     return { allowed: false, reason: "comment-scan-truncated" };
   }
@@ -354,7 +324,6 @@ export function decideBabysitPing(input: {
   return { allowed: false, reason: "already-asked" };
 }
 
-/** POST-path duplicate scans must follow the same new-work override as decideBabysitPing. */
 export function shouldVetoDuplicateBabysitComment(input: {
   existingFactoryBabysitCommentCount: number;
   newHumanWork: boolean;
@@ -374,11 +343,6 @@ export function shouldVetoDuplicateBabysitComment(input: {
   return true;
 }
 
-/**
- * `quiet` is no longer written, because posting parks straight to `waiting`.
- * Rows stored before that change still carry it, and dropping the string here
- * would put every one of them back into needsReview for another ping.
- */
 export const PARKED_BABYSIT_STATES = [
   "waiting",
   "quiet",
@@ -401,7 +365,6 @@ export function hasChangesRequested(
   return (reviewStates ?? []).includes("changes_requested");
 }
 
-/** Record inbox/audit only when babysit state changes or a comment is posted. */
 export function shouldRecordBabysitAudit(input: {
   previousState: string | null | undefined;
   nextState: string;
@@ -513,7 +476,6 @@ export function hasNewBotReviewWork(input: {
   return (input.nextBotReviewBodyKeys?.length ?? 0) > stored.size;
 }
 
-/** New top-level human review work. Author replies, bot replies, and truncated totals do not count. */
 export function hasNewHumanReviewWork(
   input: HumanReviewWorkComparison,
 ): boolean {
@@ -535,11 +497,6 @@ export function hasNewHumanReviewWork(
   );
 }
 
-/**
- * New human review work, or a conflict that rose on a parked state that still
- * reopens for one. Takes the rising edge rather than the raw conflict bits, so
- * reopen and the ping veto cannot disagree about what counts as a new conflict.
- */
 export function deferBabysitQuietWindowExpired(
   metadata: TriageMetadata,
   nowMs: number,
@@ -562,15 +519,12 @@ export function shouldReopenParkedBabysit(
   if (!input.parked) return false;
   if (input.botErrorAfterPing && input.parkedState !== "stuck") return true;
   if (hasNewBotReviewWork(input)) return true;
-  // `stuck` is the agent's judgement that another ask cannot help, so a
-  // conflict appearing on it is not news. Only a human reopens it.
   if (input.parkedState !== "stuck" && input.newDefiniteMergeConflict) {
     return true;
   }
   return hasNewHumanReviewWork(input);
 }
 
-/** Work that may start another GitHub poke. SHA, CI flicker, and uncomputed mergeability do not. */
 export function babysitFingerprint(input: {
   headSha?: string;
   mergeable: boolean | null;
@@ -611,9 +565,6 @@ function parseMissingChangesetPackages(log: string | undefined): string[] {
     .filter((pkg) => pkg.length > 0);
 }
 
-// A reply is an explicit human response even when the provider still reports
-// the thread as unresolved. That covers a deliberate "won't fix" explanation;
-// provider resolution handles outdated threads with no reply.
 function isAnswered(
   comment: ReviewCommentObservation,
   repliedToIds: ReadonlySet<string>,
@@ -627,9 +578,6 @@ function isAnswered(
 export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
   const botAuthors = new Set(input.botAuthors ?? []);
   const checksCoverage = input.checksCoverage ?? "unknown";
-  // Reply state, not a timestamp: a comment with any reply anywhere in the
-  // set is answered, regardless of when it was posted relative to a prior
-  // check. Filtering by "since" would re-hide an earlier unanswered round.
   const repliedToIds = new Set(
     input.comments
       .map((comment) => comment.inReplyToId)
@@ -679,8 +627,6 @@ export function reconcileBabysitState(input: BabysitInput): BabysitProposal {
     input.failingJobLog,
   );
 
-  // A capped comment page hides unanswered threads beyond it, which reads as
-  // clean — the same false all-clear a "since" filter produces.
   const commentsTruncated = input.commentsTruncated === true;
   const reviewsTruncated = input.reviewsTruncated === true;
   const reviewBots = input.botAuthors ?? [...DEFAULT_BABYSIT_BOT_AUTHORS];

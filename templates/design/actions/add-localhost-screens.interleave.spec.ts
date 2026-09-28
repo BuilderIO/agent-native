@@ -1,7 +1,3 @@
-/**
- * Real-database regression coverage for a localhost refresh racing canvas and
- * tweak writes while collab/file work is in flight.
- */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const harness = vi.hoisted(() => ({
@@ -294,9 +290,6 @@ describe("add-localhost-screens concurrent design data writes", () => {
       ),
     ]);
 
-    // This commits after add-localhost-screens read its initial snapshot but
-    // before that action persists metadata. It represents a simultaneous
-    // canvas move/resize plus tweak and per-screen state edits.
     await mutateDesignData({
       designId: "design_1",
       mutate: (current) => ({
@@ -340,9 +333,7 @@ describe("add-localhost-screens concurrent design data writes", () => {
     expect(data.keep).toEqual({ untouched: true });
     expect(data.tweakSelections).toEqual({ accent: "blue" });
     expect(data.canvasFrames.file_1).toEqual({
-      // Explicit refresh fields win.
       x: 42,
-      // Omitted fields keep the concurrent canvas edit.
       y: 333,
       width: 420,
       height: 860,

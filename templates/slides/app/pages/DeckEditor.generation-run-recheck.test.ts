@@ -20,9 +20,6 @@ describe("DeckEditor new-deck generation run cleanup", () => {
       deckEditorSource.indexOf("}, [", effectStart),
     );
 
-    // The stopped run's chatRunning event can beat the guided-question
-    // app-state read; clearing on the stale reactive `waitingOnNewDeckQuestions`
-    // value alone would leave a later answer with no tab to route to.
     expect(effectBody).toContain("refetchPendingQuestion()");
     const clearIndex = effectBody.indexOf("clearNewDeckGenerationRun(id");
     const thenIndex = effectBody.indexOf(".then((stillWaiting)");

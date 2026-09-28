@@ -1,9 +1,3 @@
-/**
- * Core script: db-migrate-user-api-keys
- *
- * Move legacy user API-key settings rows into encrypted app_secrets rows.
- */
-
 import path from "node:path";
 
 import { PROVIDER_TO_ENV } from "../../agent/engine/provider-env-vars.js";

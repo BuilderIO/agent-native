@@ -1,6 +1,7 @@
 import {
   GuidedQuestionFlow,
   type GuidedQuestion,
+  type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
 import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
 import { useMemo } from "react";
@@ -15,6 +16,9 @@ interface QuestionFlowProps {
   skipLabel?: string;
   submitLabel?: string;
   isSubmitting?: boolean;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
 }
 
 const DESIGN_SYSTEM_COLOR_KEYS: Array<
@@ -65,6 +69,9 @@ export function QuestionFlow({
   skipLabel,
   submitLabel,
   isSubmitting,
+  isSubmissionBlocked,
+  providerStatus,
+  onRetryProviderStatus,
 }: QuestionFlowProps) {
   const visibleQuestions = useMemo(
     () =>
@@ -83,7 +90,7 @@ export function QuestionFlow({
   );
 
   return (
-    <div className="absolute inset-0 z-50 bg-background">
+    <div className="slides-question-flow absolute inset-0 z-50 bg-background">
       <GuidedQuestionFlow
         questions={visibleQuestions as GuidedQuestion[]}
         onSubmit={onSubmit}
@@ -96,6 +103,9 @@ export function QuestionFlow({
         skipLabel={skipLabel}
         submitLabel={submitLabel}
         isSubmitting={isSubmitting}
+        isSubmissionBlocked={isSubmissionBlocked}
+        providerStatus={providerStatus}
+        onRetryProviderStatus={onRetryProviderStatus}
       />
     </div>
   );

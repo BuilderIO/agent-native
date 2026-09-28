@@ -2,11 +2,13 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
+  fetchVideoStorageStatus: vi.fn(),
   invalidateQueries: vi.fn(),
+  onStorageSetupRequired: vi.fn(),
   probeVideoMetadata: vi.fn(),
   resolveVideoMimeType: vi.fn(),
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
@@ -24,7 +26,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@shared/recording-core", () => ({
+vi.mock("@/hooks/use-video-storage-status", () => ({
+  fetchVideoStorageStatus: (...args: unknown[]) =>
+    mocks.fetchVideoStorageStatus(...args),
+}));
+vi.mock("@shared/recording-core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@shared/recording-core")>()),
   chunkUploadParallelism: () => 1,
   chunkUploadUrl: (base: string) => base,
   UPLOAD_SLICE_BYTES: 1024,
@@ -37,7 +44,7 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
-vi.mock("@/lib/compress", () => ({ MAX_UPLOAD_BYTES: 1024 }));
+vi.mock("@/lib/compress", () => ({ MAX_UPLOAD_BYTES: 4096 }));
 vi.mock("@/lib/recording-title", () => ({
   defaultRecordingTitle: () => "Untitled",
 }));
@@ -65,7 +72,7 @@ function Probe({
 }: {
   scope?: { spaceId?: string | null; folderId?: string | null };
 }) {
-  const state = useDropVideoUpload(scope);
+  const state = useDropVideoUpload(scope, mocks.onStorageSetupRequired);
   uploadFiles = state.uploadFiles;
   return <span>{state.uploads.length}</span>;
 }
@@ -73,10 +80,56 @@ function Probe({
 afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
+beforeEach(() => {
+  mocks.fetchVideoStorageStatus.mockResolvedValue({ configured: true });
+});
+
 describe("useDropVideoUpload", () => {
+  it("does not create a row when video storage is missing", async () => {
+    mocks.fetchVideoStorageStatus.mockResolvedValue({ configured: false });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() =>
+      expect(mocks.onStorageSetupRequired).toHaveBeenCalledWith("missing"),
+    );
+    await vi.waitFor(() => expect(container.textContent).toBe("0"));
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.probeVideoMetadata).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "clipsFinalRaw.connectStorageToFinish",
+    );
+  });
+
+  it("keeps storage status failures distinct from missing storage", async () => {
+    mocks.fetchVideoStorageStatus.mockRejectedValue(
+      new Error("status unavailable"),
+    );
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() =>
+      expect(mocks.onStorageSetupRequired).toHaveBeenCalledWith("unavailable"),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.probeVideoMetadata).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "meetingsRoute.calendarStatusUnavailable",
+    );
+  });
+
   it("uploads dropped files one at a time", async () => {
     let finishFirstUpload!: (response: Response) => void;
     const firstUpload = new Promise<Response>((resolve) => {
@@ -129,6 +182,93 @@ describe("useDropVideoUpload", () => {
     );
     expect(mocks.callAction).toHaveBeenCalledTimes(2);
   });
+
+  it("classifies library drops from mobile browsers as mobile recordings", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      userAgentData: { mobile: true },
+    });
+    mocks.callAction.mockResolvedValue({
+      id: "recording-mobile",
+      uploadChunkUrl: "/api/uploads/recording-mobile/chunk",
+    });
+    mocks.probeVideoMetadata.mockResolvedValue({
+      durationMs: 1000,
+      width: 640,
+      height: 480,
+    });
+    mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+    mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+    mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.uploadChunkRequest.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+
+    container = document.createElement("div");
+    root = createRoot(container);
+    act(() => root.render(<Probe />));
+    act(() => uploadFiles([new File(["video"], "video.mp4")]));
+
+    await vi.waitFor(() => expect(mocks.toast.success).toHaveBeenCalledOnce());
+    expect(mocks.callAction.mock.calls[0]?.[1]).toMatchObject({
+      recordingPlatform: "mobile",
+    });
+  });
+
+  it.each([
+    { name: "ordinary", fileSize: 1200 },
+    { name: "final", fileSize: 300 },
+  ])(
+    "classifies and sanitizes HTML $name chunk failures",
+    async ({ fileSize }) => {
+      const abortRequest = vi.fn().mockResolvedValue(new Response(null));
+      vi.stubGlobal("fetch", abortRequest);
+      mocks.callAction.mockResolvedValue({
+        id: `recording-html-${fileSize}`,
+        uploadChunkUrl: `/api/uploads/recording-html-${fileSize}/chunk`,
+      });
+      mocks.probeVideoMetadata.mockResolvedValue({
+        durationMs: 1000,
+        width: 640,
+        height: 480,
+      });
+      mocks.resolveVideoMimeType.mockReturnValue("video/mp4");
+      mocks.uploadVideoBlobThumbnail.mockResolvedValue(undefined);
+      mocks.invalidateQueries.mockResolvedValue(undefined);
+      mocks.waitForAcceptedRecordingAfterFinalizeError.mockResolvedValue(null);
+      mocks.uploadChunkRequest.mockResolvedValueOnce(
+        new Response("<html>private upstream response</html>", {
+          status: 502,
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+      container = document.createElement("div");
+      root = createRoot(container);
+      act(() => root.render(<Probe />));
+      act(() =>
+        uploadFiles([
+          new File([new Uint8Array(fileSize)], "video.mp4", {
+            type: "video/mp4",
+          }),
+        ]),
+      );
+
+      await vi.waitFor(() => expect(abortRequest).toHaveBeenCalledOnce());
+      const request = abortRequest.mock.calls[0]?.[1] as RequestInit;
+      const abortBody = JSON.parse(String(request.body)) as Record<
+        string,
+        unknown
+      >;
+      expect(abortBody).toMatchObject({
+        failureCode: "chunk_html_error",
+        failureStage: "chunk_upload",
+        httpStatus: 502,
+      });
+      expect(abortBody.reason).toContain("HTML error response (502)");
+      expect(abortBody.reason).not.toContain("private upstream response");
+    },
+  );
 
   it("keeps the drop scope when navigation happens during metadata probing", async () => {
     let finishMetadata!: (metadata: {

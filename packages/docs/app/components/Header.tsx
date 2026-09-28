@@ -129,10 +129,6 @@ export default function Header() {
 
   useEffect(() => {
     if (!isHome) return;
-    // AgentSidebar wraps content in an overflow-auto div, so the window
-    // typically doesn't scroll. Listening on document with capture: true
-    // catches scroll events from any descendant scroll container, regardless
-    // of when AgentSidebar mounts or which element is actually scrolling.
     const onScroll = (e: Event) => {
       const target = e.target;
       let top = 0;

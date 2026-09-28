@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   uploadAndIndexFigmaFiles,
@@ -135,6 +136,20 @@ function designSystemIndexFailureMessage(
 }
 
 export default function DesignSystemSetup() {
+  const enabled = useDesignSystemWorkflows();
+  const t = useT();
+  return enabled ? (
+    <DesignSystemSetupContent />
+  ) : (
+    <Button asChild variant="outline">
+      <Link to="/design-systems">
+        {t("designSystemSetup.backToDesignSystems")}
+      </Link>
+    </Button>
+  );
+}
+
+function DesignSystemSetupContent() {
   const t = useT();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -192,7 +207,6 @@ export default function DesignSystemSetup() {
   const existingProjects = designsData?.designs ?? [];
   const existingSystems = designSystemsData?.designSystems ?? [];
 
-  // --- Figma .fig import (Builder design-system indexing) -----------------
   const realFigInputRef = useRef<HTMLInputElement>(null);
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
@@ -1911,8 +1925,6 @@ function isMarkdownFile(file: Pick<UploadedFile, "name">): boolean {
   return name.endsWith(".md") || name.endsWith(".mdx");
 }
 
-// Only the exact name, because this classifies a bulk code-file drop: widening it
-// to any Markdown silently promotes a README into design-system guidance.
 function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
   const name = uploadedFileBasename(file);
   return name === "design.md" || name === "design.mdx";

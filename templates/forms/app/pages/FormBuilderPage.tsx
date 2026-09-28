@@ -119,9 +119,6 @@ interface FormsSelectionState {
   selectedFieldType: FormFieldType;
 }
 
-/** Mirrors `syncSelectionToAppState` in the Slides editor: tab-scoped key
- *  first so `view-screen` can match it against the tab's own navigation
- *  state, plus a generic fallback key for callers with no browser tab id. */
 function publishFormsSelection(state: FormsSelectionState | null) {
   const keys = [
     appStateKeyForBrowserTab("forms-selection", TAB_ID),
@@ -216,8 +213,6 @@ export function FormBuilderPage() {
   );
   const activeBuilderTab: FormBuilderTab = canEdit ? activeTab : "edit";
   const [copied, setCopied] = useState(false);
-  // Target status while a publish/unpublish is in flight (and until the cache
-  // refetch catches up). `null` once the displayed form.status matches it.
   const [pendingStatus, setPendingStatus] = useState<
     "published" | "draft" | null
   >(null);
@@ -265,11 +260,6 @@ export function FormBuilderPage() {
     setSearchParams(nextParams, { replace: true });
   }, [activeBuilderTab, form, searchParams, setSearchParams, tabParam]);
 
-  // Local state for text inputs and fields — prevents polling-driven refetches
-  // from resetting input values while the user is typing or losing optimistic
-  // updates (e.g. newly added fields). `useReconciledState` re-adopts the
-  // server/agent value whenever the field isn't focused, so an agent edit to
-  // the title/description shows up live without yanking in-progress typing.
   const titleFocused = useRef(false);
   const descriptionFocused = useRef(false);
   const fieldsDirty = useRef(false);
@@ -299,7 +289,6 @@ export function FormBuilderPage() {
   const titleMeasureRef = useRef<HTMLSpanElement>(null);
   const [titleInputWidth, setTitleInputWidth] = useState<number | undefined>();
 
-  // Esc to deselect field
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && selectedFieldId) {
@@ -310,9 +299,6 @@ export function FormBuilderPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedFieldId]);
 
-  // Publish the selected field to application state so the agent can resolve
-  // "the selected question" (view-screen) without a screenshot. Mirrors the
-  // Slides editor's `syncSelectionToAppState`.
   const selectedFieldForSync = localFields.find(
     (f) => f.id === selectedFieldId,
   );
@@ -335,36 +321,28 @@ export function FormBuilderPage() {
     selectedFieldForSync?.type,
   ]);
 
-  // Clear the selection when this form's builder unmounts (navigating away)
-  // so a stale selection doesn't outlive the properties panel it described.
   useEffect(() => {
     return () => publishFormsSelection(null);
   }, []);
 
-  // Measure title text width for auto-sizing input
   useEffect(() => {
     if (titleMeasureRef.current) {
       setTitleInputWidth(Math.max(titleMeasureRef.current.offsetWidth + 4, 60));
     }
   }, [localTitle]);
 
-  // Sync fields from server when not dirty (e.g. agent updates the fields).
-  // Title/description re-sync is handled by `useReconciledState` above.
   useEffect(() => {
     if (form && !fieldsDirty.current)
       setLocalFields(normalizeFields(form.fields));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form?.fields]);
 
-  // Clear pending publish state once the refetched form reflects the new
-  // status — otherwise the spinner stops before the badge/label updates.
   useEffect(() => {
     if (pendingStatus && form?.status === pendingStatus) {
       setPendingStatus(null);
     }
   }, [form?.status, pendingStatus]);
 
-  // Auto-grow description textarea
   useEffect(() => {
     const el = descriptionRef.current;
     if (el) {
@@ -373,8 +351,6 @@ export function FormBuilderPage() {
     }
   }, [localDescription]);
 
-  // Debounced save for non-field form properties (title, description, status,
-  // settings). Full-array field saves are handled by saveFieldOps below.
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const save = useCallback(
     (data: Parameters<typeof updateForm.mutate>[0]) => {
@@ -402,8 +378,6 @@ export function FormBuilderPage() {
     [updateForm],
   );
 
-  // Debounced field-op save — uses patch-form-fields (server-side merge) so
-  // concurrent edits to different fields both survive.
   const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const pendingOps = useRef<FieldOp[]>([]);
   const saveFieldOps = useCallback(
@@ -447,8 +421,8 @@ export function FormBuilderPage() {
                 <Button
                   asChild
                   variant="ghost"
-                  size="icon"
-                  className="size-10 shrink-0 active:scale-[0.96]"
+                  size="icon-lg"
+                  className="shrink-0 active:scale-[0.96]"
                   aria-label={t("builder.backToForms")}
                 >
                   <Link to="/forms">
@@ -500,9 +474,6 @@ export function FormBuilderPage() {
   }
 
   if (error && !form) {
-    // `get-form` throws the same "not found" for both missing forms and forms
-    // the current user has no access to. Phrase the message so it works for
-    // both without leaking which case applies.
     const errorMessage = error instanceof Error ? error.message : "";
     const isAccessIssue = /not found|forbidden|no access/i.test(errorMessage);
     return (
@@ -529,8 +500,6 @@ export function FormBuilderPage() {
 
   const fields = localFields;
   const selectedField = fields.find((f) => f.id === selectedFieldId);
-  // Viewers can see the form but not edit it or peek at responses / settings /
-  // integrations. The role is set by `get-form` based on ownership + shares.
 
   function addField(type: AppFormFieldType) {
     trackEvent("form_field_type_selected", {
@@ -577,7 +546,6 @@ export function FormBuilderPage() {
       const next = [...prev];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      // Emit a reorder op with the new order.
       saveFieldOps([{ op: "reorder", ids: next.map((f) => f.id) }]);
       return next;
     });
@@ -623,8 +591,6 @@ export function FormBuilderPage() {
               ? t("builder.publishedToast")
               : t("builder.unpublishedToast"),
           ),
-        // Errors (including publish-validation failures) are surfaced by
-        // useUpdateForm's onError, which echoes the server's actual message.
         onError: () => setPendingStatus(null),
       },
     );
@@ -672,8 +638,8 @@ export function FormBuilderPage() {
               <Button
                 asChild
                 variant="ghost"
-                size="icon"
-                className="size-10 shrink-0 active:scale-[0.96]"
+                size="icon-lg"
+                className="shrink-0 active:scale-[0.96]"
                 aria-label={t("builder.backToForms")}
               >
                 <Link to="/forms">
@@ -691,6 +657,7 @@ export function FormBuilderPage() {
             {localTitle || " "}
           </span>
           <Input
+            size="sm"
             value={localTitle}
             onChange={(e) => {
               setLocalTitle(e.target.value);
@@ -699,7 +666,7 @@ export function FormBuilderPage() {
             onFocus={() => (titleFocused.current = true)}
             onBlur={() => (titleFocused.current = false)}
             style={{ width: titleInputWidth }}
-            className="h-8 text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
+            className="text-sm font-medium border-none bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-w-[50vw] sm:max-w-80"
           />
           <Badge
             variant="outline"
@@ -720,8 +687,8 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
                   <a
@@ -750,8 +717,8 @@ export function FormBuilderPage() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                  size="icon-lg"
+                  className="active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
                   aria-label={t("builder.copyPublicFormLink")}
                 >
@@ -845,8 +812,8 @@ export function FormBuilderPage() {
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
                       <IconDotsVertical className="h-4 w-4" />
@@ -1025,10 +992,6 @@ export function FormBuilderPage() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Builder content (form editor + properties panel)
-// ---------------------------------------------------------------------------
-
 function BuilderContent({
   form,
   fields,
@@ -1183,7 +1146,6 @@ function BuilderContent({
                     className="w-[calc(100vw-2rem)] max-h-[70vh] overflow-auto rounded-lg p-0 shadow-md sm:w-72 sm:max-h-[520px]"
                     onOpenAutoFocus={(e) => e.preventDefault()}
                     onInteractOutside={(e) => {
-                      // Don't close when interacting with dropdowns portaled to body
                       const target = e.target as HTMLElement;
                       if (
                         target.closest("[data-radix-popper-content-wrapper]") ||
@@ -1292,8 +1254,8 @@ function BuilderContent({
                     </span>
                     <Button
                       variant="secondary"
-                      size="icon"
-                      className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
+                      size="icon-lg"
+                      className="active:scale-[0.96] motion-reduce:active:scale-100"
                       onClick={onSubmitAgent}
                       disabled={
                         !agentPrompt.trim() ||
@@ -1313,10 +1275,6 @@ function BuilderContent({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Results content (responses table)
-// ---------------------------------------------------------------------------
 
 function responseValueAsString(val: unknown): string {
   if (val === undefined || val === null) return "";
@@ -1354,7 +1312,6 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   const formatNumber = formatters.formatNumber.bind(formatters);
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
-  // `_submitted` is the synthetic Submitted column. Field columns sort by id.
   const [sortKey, setSortKey] = useState<string>("_submitted");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
@@ -1510,11 +1467,12 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           <div className="relative">
             <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
+              size="sm"
               type="search"
               placeholder={t("builder.results.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 ps-7 text-xs w-44 sm:w-56"
+              className="ps-7 text-xs w-44 sm:w-56"
             />
           </div>
           <Button
@@ -1708,10 +1666,6 @@ function ResultsSortableHeader({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Settings editor (general settings)
-// ---------------------------------------------------------------------------
-
 function SettingsEditor({
   form,
   onSave,
@@ -1734,9 +1688,10 @@ function SettingsEditor({
           {t("builder.settings.submitButtonText")}
         </Label>
         <Input
+          size="sm"
           value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
-          className="h-8 text-sm"
+          className="text-sm"
         />
       </div>
 
@@ -1765,7 +1720,7 @@ function SettingsEditor({
             update({ completionMode: value as FormCompletionMode })
           }
         >
-          <SelectTrigger className="h-8 text-sm">
+          <SelectTrigger size="sm" className="text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1789,10 +1744,11 @@ function SettingsEditor({
         <div className="space-y-2">
           <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
           <Input
+            size="sm"
             value={settings.redirectUrl || ""}
             onChange={(e) => update({ redirectUrl: e.target.value })}
             placeholder="https://..."
-            className="h-8 text-sm"
+            className="text-sm"
           />
         </div>
       )}
@@ -1803,6 +1759,7 @@ function SettingsEditor({
             {t("builder.settings.completionRefreshSeconds")}
           </Label>
           <Input
+            size="sm"
             type="number"
             min={MIN_FORM_COMPLETION_REFRESH_SECONDS}
             max={MAX_FORM_COMPLETION_REFRESH_SECONDS}
@@ -1818,7 +1775,7 @@ function SettingsEditor({
                   value === "" ? undefined : Number(value),
               });
             }}
-            className="h-8 text-sm"
+            className="text-sm"
           />
         </div>
       )}
@@ -1869,10 +1826,6 @@ function SettingsEditor({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Integrations editor
-// ---------------------------------------------------------------------------
 
 const integrationMeta: Record<
   IntegrationType,
@@ -2114,8 +2067,8 @@ function IntegrationsEditor({
               />
               <Button
                 variant="ghost"
-                size="icon"
-                className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
+                size="icon-lg"
+                className="shrink-0 text-muted-foreground hover:text-destructive active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => removeIntegration(integration.id)}
               >
                 <IconTrash className="h-4 w-4" />
@@ -2133,7 +2086,7 @@ function IntegrationsEditor({
                     name: e.target.value,
                   })
                 }
-                className="h-9 text-sm font-medium"
+                className="text-sm font-medium"
               />
             </div>
 
@@ -2147,7 +2100,7 @@ function IntegrationsEditor({
                   updateIntegration(integration.id, { url: e.target.value })
                 }
                 placeholder={meta.placeholder}
-                className="h-9 text-sm font-mono"
+                className="text-sm font-mono"
               />
             </div>
 

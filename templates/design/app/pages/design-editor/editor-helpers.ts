@@ -9,9 +9,6 @@ import type {
   RuntimeLayerSnapshot,
 } from "@/pages/design-editor/command-types";
 
-// Selection is tab-scoped (like navigation) so a second editor tab cannot
-// overwrite this tab's selection context. The global key is mirrored as a
-// fallback for CLI/external agents that do not send a browser tab id.
 export function designSelectionStateKeys(): string[] {
   return designSelectionStateKeysForTab(getBrowserTabId());
 }
@@ -109,20 +106,10 @@ export function buildSignInHrefForComment(): string {
   });
 }
 
-/**
- * True only when the incoming (intent-less) selection authoritatively refers to
- * a different element than the committed one (sourceId match wins, else CSS
- * selector). Returns false when identity can't be compared, so a real selection
- * is never dropped.
- */
 export function isSupersededSelectionEcho(
   incoming: ElementInfo,
   current: ElementInfo | null,
 ): boolean {
-  // The bridge emits an intent-less selection when an Alt-drag creates its
-  // optimistic runtime clone. That is an authoritative selection, not a
-  // delayed echo from the previous source element; the runtime identity is
-  // the marker that lets it cross this boundary without adding history.
   if (incoming.runtimeSourceId?.trim()) return false;
   if (!current) return false;
   const incomingId = incoming.sourceId?.trim();
@@ -180,11 +167,6 @@ export function reloadRunningAppPreviewFrames(): void {
   }
 }
 
-/**
- * A code-layer-derived ElementInfo carries authored inline styles and a zero
- * rect, so the inspector shows 0 for anything the source does not state
- * (hug sizing, in-flow position). Measure the live preview node instead.
- */
 export function withMeasuredGeometry(
   info: ElementInfo,
   screenId?: string,
@@ -194,8 +176,6 @@ export function withMeasuredGeometry(
   if (typeof document === "undefined") return info;
   const selector = info.runtimeSelector ?? info.selector;
   if (!selector) return info;
-  // Selectors and stamped ids are per-screen, so an unscoped scan can measure
-  // identical markup on a different screen.
   const owning = screenId
     ? document.querySelector<HTMLIFrameElement>(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,

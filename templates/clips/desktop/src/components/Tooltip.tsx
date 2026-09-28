@@ -1,16 +1,6 @@
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import * as React from "react";
 
-/**
- * shadcn-style Tooltip for the Tauri tray app.
- *
- * Mirrors shadcn/ui's tooltip API (Tooltip / TooltipTrigger / TooltipContent),
- * styled with the desktop app's existing theme tokens. Radix provides the
- * portaled, collision-aware positioning and keyboard focus behavior; the
- * viewport cap below keeps that positioning honest inside the small native
- * tray window.
- */
-
 function TooltipProvider({
   delayDuration = 150,
   skipDelayDuration = 300,
@@ -28,8 +18,6 @@ function TooltipProvider({
 function Tooltip(
   props: React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Root>,
 ) {
-  // Each Tooltip bundles its own provider so callers don't have to mount one
-  // at the app root (matches shadcn's current tooltip.tsx).
   return (
     <TooltipProvider>
       <TooltipPrimitive.Root {...props} />

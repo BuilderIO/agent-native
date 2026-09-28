@@ -61,7 +61,7 @@ export default function VisualEditPage() {
               variant="ghost"
               size="sm"
               onClick={copyInstallCommand}
-              className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
               aria-label={
                 installCommandCopied
                   ? t("designEditor.copied")

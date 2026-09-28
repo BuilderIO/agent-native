@@ -46,8 +46,6 @@ test("Design full-page chat keeps shared tabs, new-chat, and clear controls", as
     }, openTabsKey);
   const initialOpenTabCount = await readOpenTabCount();
   await newChat.click();
-  // Wait for this click's new thread, not merely the initial tab persisted by
-  // mount-time reconciliation.
   await expect.poll(readOpenTabCount).toBeGreaterThan(initialOpenTabCount);
   await newChat.click();
   await expect

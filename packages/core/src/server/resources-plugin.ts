@@ -17,22 +17,9 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-/**
- * Creates a Nitro plugin that mounts all resource CRUD routes.
- *
- * Routes:
- *   GET    /_agent-native/resources          — list resources
- *   POST   /_agent-native/resources          — create resource
- *   GET    /_agent-native/resources/tree     — get resource tree
- *   POST   /_agent-native/resources/upload   — upload file
- *   GET    /_agent-native/resources/:id      — get resource by ID
- *   PUT    /_agent-native/resources/:id      — update resource
- *   DELETE /_agent-native/resources/:id      — delete resource
- */
 export function createResourcesPlugin(): NitroPluginDef {
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "resources");
-    // Mount specific sub-routes BEFORE the catch-all
 
     getH3App(nitroApp).use(
       "/_agent-native/resources/effective",
@@ -67,16 +54,13 @@ export function createResourcesPlugin(): NitroPluginDef {
       }),
     );
 
-    // Catch-all for /_agent-native/resources and /_agent-native/resources/:id
     getH3App(nitroApp).use(
       "/_agent-native/resources",
       defineEventHandler(async (event) => {
         const method = getMethod(event);
-        // h3 strips the mount prefix, so event.path is "/" or "/:id"
         const raw = (event.path || "/").split("?")[0];
         const subPath = raw.replace(/^\//, "");
 
-        // No sub-path: /_agent-native/resources — list or create
         if (!subPath || subPath === "") {
           if (method === "GET") return handleListResources(event);
           if (method === "POST") return handleCreateResource(event);
@@ -84,7 +68,6 @@ export function createResourcesPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
 
-        // Already handled by dedicated routes above
         if (
           subPath === "effective" ||
           subPath === "tree" ||
@@ -92,7 +75,6 @@ export function createResourcesPlugin(): NitroPluginDef {
         )
           return;
 
-        // /_agent-native/resources/:id — get, update, delete
         event.context.params = { ...event.context.params, id: subPath };
 
         if (method === "GET") return handleGetResource(event);
@@ -106,14 +88,4 @@ export function createResourcesPlugin(): NitroPluginDef {
   };
 }
 
-/**
- * Default resources plugin — mount with no configuration needed.
- *
- * Usage in templates:
- * ```ts
- * // server/plugins/resources.ts
- * import { defaultResourcesPlugin } from "@agent-native/core/server";
- * export default defaultResourcesPlugin;
- * ```
- */
 export const defaultResourcesPlugin: NitroPluginDef = createResourcesPlugin();

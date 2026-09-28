@@ -368,6 +368,13 @@ ${userPrompt}
     expect(prompt).not.toContain("2 minutes");
     expect(prompt).not.toContain("Do not ask the bot to poll");
   });
+
+  it("binds the scheduled PR governance exception to Shomix's immutable ID", () => {
+    const prompt = factoryAutomationTemplatePrompt("pr-governance", "github");
+
+    expect(prompt).toContain("shomix, GitHub user ID 100691266");
+    expect(prompt).toContain("do not rely on the mutable login alone");
+  });
 });
 
 describe("removeFactoryAutomationResources", () => {
@@ -514,8 +521,6 @@ describe("recordFinishedAutomationPrompt", () => {
     expect(recordFactoryAutomationRunPromptMock).toHaveBeenCalledTimes(1);
     const call = recordFactoryAutomationRunPromptMock.mock.calls[0][0];
     expect(call.promptVersion).toBe(3);
-    // Must be the agent run id (list-factory-audit's join key), not the core
-    // history-row id — those are two different id spaces.
     expect(call.automationRunId).toBe("agent-run-1");
     expect(call.path).toBe(path);
   });

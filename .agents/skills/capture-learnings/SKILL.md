@@ -36,6 +36,15 @@ Memories are stored as **resources** in the SQL database, not as files on disk.
 
 ## When to Capture
 
+Follow the user's personal `memory/INSTRUCTIONS.md` when deciding what to
+preserve or leave out. It is loaded automatically with the user's personal
+`AGENTS.md` instructions.
+
+At the natural stopping point of a meaningful multi-turn task, review the
+conversation for durable preferences, corrections, decisions, conventions, or
+project context that would improve a future thread. Save only new, supported
+facts; completed task details and temporary debugging notes stay in the thread.
+
 ### Team and organization knowledge (`LEARNINGS.md`, shared scope)
 - Canonical destinations and workflows (for example, which Content database receives a type of Slack request)
 - Required intake fields, ownership, prioritization conventions, metric definitions, and approved terminology
@@ -78,8 +87,11 @@ Store the fact and a concise provenance link when available. Do not paste full p
 2. **Choose scope by audience.** Organization workflow or reference → shared `LEARNINGS.md`; one person's preference/context → personal memory.
 3. **One memory per topic** — e.g. `coding-style`, `project-alpha`, not one giant dump
 4. **Read before updating** — if a memory exists, read it first and merge, don't overwrite
-5. **Keep descriptions concise** — the index is loaded every conversation
-6. **Memories are SQL-backed** — they persist across sessions and are not in git; still minimize sensitive content
+5. **Make memories retrievable** — concise descriptions include names,
+   relationships, and common wording the user may use to ask for that memory;
+   the index powers automatic recall.
+6. **Keep descriptions concise** — the index is loaded every conversation
+7. **Memories are SQL-backed** — they persist across sessions and are not in git; still minimize sensitive content
 
 ## Graduation
 

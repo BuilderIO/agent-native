@@ -242,6 +242,7 @@ isComplete: async () => {
 | `form`             | `{ fields, writeScope? }`                             | 收集环境变量（密钥、秘密、URL）        |
 | `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra) |
 | `agent-task`       | `{ prompt }`                                          | 向客服聊天发送提示进行处理             |
+| `file-storage`     | -                                                     | 显示共享的 S3 兼容存储表单             |
 
 `primary: true` 标志将方法标记为其步骤的大 CTA。
 当设置路径应该可见时，使用 `badge: "soon"` 和 `disabled: true`

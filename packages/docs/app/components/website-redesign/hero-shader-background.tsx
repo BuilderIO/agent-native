@@ -7,14 +7,6 @@ void main() {
 }
 `;
 
-// Gentle travelling waves of light, domain-warped with hash noise, attenuated
-// by a radial falloff around the focus point (which drifts toward the pointer)
-// and resolved through a Ben-Day
-// halftone dot grid. The falloff is applied to the tone *before* dot radius is
-// derived, which is what makes the dot sizes ring outward from the bright
-// centre instead of merely striping along the flow direction. Strictly
-// two-color (bg/fg, both read from brand tokens), so the field takes its hue
-// from whatever the theme sets --b-hero-shader-fg to.
 const fragmentShader = `
 precision highp float;
 
@@ -173,17 +165,9 @@ void main() {
 }
 `;
 
-// Per-frame approach fractions at the 30fps draw budget below, so ~0.12 is a
-// ~250ms settle. Deliberately slow: the lag is the "floating toward the mouse"
-// feel, and anything fast enough to keep up reads as the glow being pinned to
-// the cursor.
 const POINTER_POSITION_EASING = 0.12;
 const POINTER_STRENGTH_EASING = 0.08;
 
-// Module scope, not per-mount: the shader clock (and with it the intro fade)
-// has to survive a remount, otherwise anything that re-runs the setup effect --
-// HMR, a route revalidation -- replays the fade and it reads as the field
-// fading in twice in a row.
 let shaderEpoch = 0;
 
 function hexToRgb01(hex: string): [number, number, number] {
@@ -201,9 +185,6 @@ export interface HeroShaderBackgroundProps {
   frameRate?: number;
 }
 
-// Sits behind the page-grid's column-divider lines inside the hero's
-// `PageSection` (which is `position: relative`, so `zIndex: -1` here stays
-// scoped to that section instead of dropping behind the whole page).
 export function HeroShaderBackground({
   frameRate = 30,
 }: HeroShaderBackgroundProps) {
@@ -296,9 +277,6 @@ export function HeroShaderBackground({
     let targetY = 0;
     let targetStrength = 0;
 
-    // --b-bg-page and --b-text-secondary are authored as hex strings in
-    // tokens.css and both flip value under `.light .builder-brand-tokens`,
-    // so reading them here keeps the shader theme-correct.
     function readBgColor(): [number, number, number] {
       const raw = getComputedStyle(container)
         .getPropertyValue("--b-bg-page")
@@ -355,8 +333,6 @@ export function HeroShaderBackground({
       const w = container.clientWidth;
       const h = container.clientHeight;
       dpr = Math.min(window.devicePixelRatio, 1.5);
-      // Drawing-buffer sizing, not styling: the buffer is in device pixels and
-      // the CSS box is in layout pixels, so neither has a Tailwind equivalent.
       canvas.width = w * dpr;
       canvas.height = h * dpr;
       canvas.style.width = w + "px";
@@ -366,8 +342,6 @@ export function HeroShaderBackground({
         pointerX = targetX = canvas.width * 0.5;
         pointerY = targetY = canvas.height * 0.5;
       }
-      // Under reduced motion there is no next frame to pick the new size up,
-      // so the buffer would stay blank until something else redraws.
       if (reducedMotion) draw(20, false);
     }
 
@@ -390,9 +364,6 @@ export function HeroShaderBackground({
     }
 
     resize();
-    // Observes the box, not the window: the hero's height comes from padding
-    // tokens and its own content, so it changes without the viewport changing
-    // and the buffer would otherwise keep the size it had on mount.
     const sizeObserver = new ResizeObserver(resize);
     sizeObserver.observe(container);
     window.addEventListener("pointermove", handlePointerMove, {

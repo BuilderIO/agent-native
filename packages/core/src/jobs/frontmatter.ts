@@ -7,30 +7,14 @@ export type JobLastStatus = "success" | "error" | "running" | "skipped";
 export type JobTriggerType = "schedule" | "event" | "webhook";
 export type JobExecutionMode = "agentic" | "deterministic";
 
-/**
- * Every persisted field understood by either recurring jobs or automations.
- *
- * Automation-only fields stay optional so legacy recurring jobs can remain
- * distinguishable from explicitly defined schedule automations.
- */
 export interface JobFrontmatter {
   schedule: string;
   enabled: boolean;
-  /**
-   * IANA zone the cron fields are read in. Absent means the schedule predates
-   * timezone support and keeps its original host-relative meaning.
-   */
   timezone?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";
-  /** Last time the automation actually started executing. */
   lastRun?: string;
-  /**
-   * Last time a tick evaluated this automation and declined to run it. Kept
-   * distinct from `lastRun` so a blocked automation cannot report a run it
-   * never performed.
-   */
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
@@ -41,61 +25,28 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
-  /**
-   * Per-run reasoning effort override; omitted uses the model's default (see
-   * `normalizeReasoningEffortForRequest`).
-   */
   reasoningEffort?: ReasoningEffort;
-  /** Per-run guard for background automations; omitted uses the app setting. */
   maxIterations?: number;
-  /** Per-turn input-token guard; omitted uses the app setting. */
   maxRunInputTokens?: number;
-  /** Explicit MCP tool capabilities available to this background run. */
   mcpTools?: string[];
-  /** Present only for resources explicitly defined as automations. */
   triggerType?: JobTriggerType;
-  /** For event automations: the event name to subscribe to. */
   event?: string;
-  /** Legacy only. New webhook tokens live in the encrypted secret store. */
   webhookToken?: string;
-  /** Natural-language condition evaluated before dispatch. */
   condition?: string;
   mode?: JobExecutionMode;
-  /** Domain tag for filtering in per-template UIs. */
   domain?: string;
-  /** Explicit application owner used by the recurring-job scheduler. */
   appId?: string;
-  /** Optional paired execution host for code-agent work. */
   executionHostId?: string;
-  /** Optional engine id understood by the selected execution host. */
   executionEngine?: string;
-  /** Optional host-local workspace path used by code-agent work. */
   executionCwd?: string;
-  /** Stable remote dispatch key for a running host-targeted job. */
   remoteRequestId?: string;
-  /** Durable relay command id for a running host-targeted job. */
   remoteCommandId?: string;
-  /** Durable remote code-agent run id, when the host has started one. */
   remoteRunId?: string;
-  /** Durable automation history row associated with the remote dispatch. */
   remoteAutomationRunId?: string;
-  /** Whether a completed remote dispatch should advance the cron schedule. */
   remoteAdvanceSchedule?: boolean;
-  /**
-   * Optional application-owned policy id carried into actions by the trusted
-   * trigger dispatcher. It is not model-supplied action input.
-   */
   delegatedPolicyId?: string;
 }
 
-/**
- * Return whether a scheduler or trigger dispatcher may claim this resource.
- *
- * Personal legacy jobs have no app owner and remain compatible with the
- * shared scheduler. An organization-owned resource without an explicit app
- * owner is ambiguous, though: letting every installed app claim it can run
- * the same job multiple times and with the wrong deployment credentials.
- */
 export function jobBelongsToApp(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   appId: string | null | undefined,
@@ -115,7 +66,6 @@ function isFactoryAutomationPath(path: string): boolean {
   );
 }
 
-/** Same prefix as `organizationResourceOwner`; keep this file free of store. */
 function organizationIdFromOwner(
   owner: string | null | undefined,
 ): string | null {
@@ -130,11 +80,6 @@ function organizationIdFromOwner(
   }
 }
 
-/**
- * Organization id for a recovered Factory-folder job. Null when the path is
- * not Factory-owned, the resource is not organization-scoped, another app
- * owns it, or a declared `orgId` does not match the resource owner.
- */
 export function recoveredFactoryOwnerOrgId(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   path: string,
@@ -150,11 +95,6 @@ export function recoveredFactoryOwnerOrgId(
   return ownerOrgId;
 }
 
-/**
- * Path-scoped recovery for Factory-folder org jobs that lost `appId`.
- * Owner must be organization-scoped; a personal resource on a Factory-looking
- * path is not Factory-owned. Do not loosen `jobBelongsToApp` for other apps.
- */
 export function isRecoveredFactoryJob(
   meta: Pick<JobFrontmatter, "appId" | "orgId">,
   path: string,
@@ -184,9 +124,6 @@ const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
 const WEBHOOK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-// Enumerable so `{ ...meta }` keeps application-owned YAML. A Symbol is
-// dropped by object spread, which is how Factory extras vanished on run
-// completion.
 const EXTRA_FRONTMATTER_LINES = "_extraFrontmatterLines";
 const KNOWN_FRONTMATTER_FIELDS = new Set([
   "schedule",
@@ -415,8 +352,6 @@ function parseKnownField(
       meta.mcpTools = normalizeJobMcpTools(value);
       break;
     case "triggerType":
-      // The field's presence is the durable legacy-job/automation boundary.
-      // Preserve that marker even if an old writer stored an invalid value.
       meta.triggerType =
         value === "event" || value === "webhook" ? value : "schedule";
       break;
@@ -539,12 +474,6 @@ function pushString(
   lines.push(`${key}: ${serialized}`);
 }
 
-/**
- * Serialize a new job document from known fields plus any extras bag.
- *
- * Existing jobs must `patchJobFrontmatterFields` / `replaceJobResourceBody`
- * so application extras are not dropped.
- */
 export function buildJobResourceContent(
   meta: JobFrontmatter,
   body: string,
@@ -594,9 +523,6 @@ export function buildJobResourceContent(
   if (meta.remoteAdvanceSchedule !== undefined) {
     lines.push(`remoteAdvanceSchedule: ${meta.remoteAdvanceSchedule}`);
   }
-  // Keep the long-standing human-readable owner shape used by existing
-  // resources and diagnostics; values that can contain free-form text use
-  // JSON quoting below.
   pushString(lines, "createdBy", meta.createdBy, false);
   pushString(lines, "orgId", meta.orgId);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -725,13 +651,6 @@ function serializeFrontmatterPatchValue(
   return JSON.stringify(value);
 }
 
-/**
- * Update named YAML keys on the stored document.
- *
- * Create may rebuild from `JobFrontmatter`. Existing jobs must patch: a
- * parse-then-rebuild from known fields drops application extras (`displayName`,
- * `slackChannelId`) and renormalizes the rest of the file.
- */
 export function patchJobFrontmatterFields(
   content: string,
   fields: JobFrontmatterPatch,
@@ -752,7 +671,6 @@ export function patchJobFrontmatterFields(
   return next;
 }
 
-/** Replace the markdown body after the closing `---` without touching YAML. */
 export function replaceJobResourceBody(content: string, body: string): string {
   const { newline, closer, end } = jobFrontmatterBounds(content);
   return `${content.slice(0, end + closer.length)}${newline}${newline}${body}`;

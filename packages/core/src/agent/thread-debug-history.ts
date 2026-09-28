@@ -28,10 +28,6 @@ function compactDebugEntry(
   return entry;
 }
 
-/**
- * Append one run's diagnostics while keeping repeated system prompts out of
- * every history entry. Existing full-prompt history is migrated on write.
- */
 export function appendThreadDebugHistory(
   threadData: UnknownRecord,
   currentDebug: UnknownRecord,

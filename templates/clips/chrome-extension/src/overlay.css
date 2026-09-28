@@ -1,7 +1,4 @@
 :root {
-  /* "dark" to match the dark overlay: a declared color-scheme always paints an
-     opaque iframe canvas, so we keep it dark rather than white. Shaped parts clip
-     the canvas away (see content-script styleFrame); the countdown uses it. */
   color-scheme: dark;
 }
 
@@ -26,8 +23,6 @@ body {
   width: 100%;
   height: 100%;
 }
-
-/* ---------- Camera bubble ---------- */
 
 .bubble {
   position: absolute;
@@ -67,8 +62,6 @@ body {
   width: 38%;
   height: 38%;
 }
-
-/* ---------- Countdown ---------- */
 
 .countdown {
   position: absolute;
@@ -190,14 +183,7 @@ body {
   border-radius: 999px;
 }
 
-/* ---------- Toolbar (vertical left pill, desktop layout) ---------- */
-
 .toolbar-v {
-  /* Fill the iframe so the (opaque) iframe canvas is fully covered by the pill —
-     the iframe is clipped to this same 20px radius in styleFrame, so no canvas
-     box shows. Top-anchored content (justify-content:flex-start) keeps Stop/time/
-     pause put as the pill grows DOWNWARD on hover (centering caused misclicks).
-     Shadow lives on the iframe element so the clip doesn't cut it off. */
   position: absolute;
   inset: 0;
   display: flex;
@@ -319,8 +305,6 @@ body {
   color: #fca5a5;
 }
 
-/* ---------- Saving card (bottom-left, mirrors desktop Finalizing) ---------- */
-
 .saving-card {
   position: absolute;
   inset: 0;
@@ -366,7 +350,6 @@ body {
   }
 }
 
-/* Bubble size dots (small / large), revealed on hover — desktop-style. */
 .bubble-sizes {
   position: absolute;
   bottom: 7%;

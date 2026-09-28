@@ -132,6 +132,36 @@ describe("get-layout-overflows", () => {
     });
   });
 
+  it("keeps legacy FNV measurements unknown until the browser remeasures", async () => {
+    mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
+      if (key === "deck-fit-checks") {
+        return {
+          deckId: "deck-1",
+          aspectRatio: "16:9",
+          slides: {
+            "slide-a": {
+              ...measurement(slideAContent),
+              contentHash: "1ca88cd3",
+            },
+            "slide-b": measurement(slideBContent),
+          },
+        };
+      }
+      return null;
+    });
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      status: "unknown",
+      measuredSlideCount: 1,
+      slideCount: 2,
+      unknownSlideIds: ["slide-a"],
+      overflows: [],
+      canClaimDeckFits: false,
+    });
+  });
+
   it("rejects a matching hash from an older persisted write", async () => {
     const currentRevision = "write-2";
     mockResolveAccess.mockResolvedValue({
@@ -215,8 +245,6 @@ describe("get-layout-overflows", () => {
   it("keeps incrementing through unknown (not-yet-measured) results, not just overflow", async () => {
     let history: { deckId: string; count: number; lastCheckAt: number } | null =
       null;
-    // No deck-fit-checks/slide-fit-check state at all -> every slide is
-    // unknown, overflows stays empty, but canClaimDeckFits is still false.
     mockReadAppStateForCurrentTab.mockImplementation(async (key: string) => {
       if (key === "layout-overflow-check-history:deck-1") return history;
       return null;
@@ -252,7 +280,6 @@ describe("get-layout-overflows", () => {
       },
     );
 
-    // Interleave checks for deck-1 and deck-2, both unresolved (unknown).
     await action.run({ deckId: "deck-1" });
     await action.run({ deckId: "deck-2" });
     await action.run({ deckId: "deck-1" });

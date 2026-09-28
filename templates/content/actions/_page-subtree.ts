@@ -6,7 +6,6 @@ import { getDb, schema } from "../server/db/index.js";
 type ContentDb = ReturnType<typeof getDb>;
 export type PageSubtreeDocument = typeof schema.documents.$inferSelect;
 
-/** Upper bound on how many Pages one move or duplicate may touch. */
 export const PAGE_SUBTREE_LIMIT = 500;
 
 function groups<T>(values: T[], size = 90): T[][] {
@@ -17,12 +16,6 @@ function groups<T>(values: T[], size = 90): T[][] {
   return result;
 }
 
-/**
- * A Page and every Page beneath it, root first and each level in sibling
- * order. Unlike the owner-scoped tree walkers, this follows `parentId`
- * regardless of owner, and trashed descendants follow the Page they would be
- * restored under, so nothing is left behind in the old place.
- */
 export async function loadPageSubtree(
   db: ContentDb,
   root: PageSubtreeDocument,
@@ -72,7 +65,6 @@ export async function loadPageSubtree(
   return documents;
 }
 
-/** Collections whose backing document sits in (or is owned by) the subtree. */
 export async function subtreeCollectionDocumentIds(
   db: ContentDb,
   documentIds: string[],
@@ -100,11 +92,6 @@ function blocked(message: string, errorCode: string): never {
   throw new ActionContractError(message, { errorCode, statusCode: 409 });
 }
 
-/**
- * Refuse subtrees whose data is tied to their current space or owner in ways
- * a move cannot carry yet: Collections (rows, properties, views, sources),
- * rows of a Collection, local-folder files, and Notion or Builder links.
- */
 export async function assertSubtreeCanChangeSpace(
   db: ContentDb,
   documents: PageSubtreeDocument[],

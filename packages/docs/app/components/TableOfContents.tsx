@@ -13,9 +13,7 @@ import {
 interface TocItem {
   id: string;
   label: string;
-  /** Heading depth: 2=top-level, 3=indented, 4=double-indented */
   level?: number;
-  /** Legacy boolean alias — treated as level 3 when true */
   indent?: boolean;
 }
 
@@ -75,9 +73,8 @@ export async function copyMarkdownFromUrl(
   await writeText(await response.text());
 }
 
-/** Resolve indent depth (in multiples of 12px) from a TocItem. */
 function indentDepth(item: TocItem): number {
-  if (item.level && item.level >= 3) return item.level - 2; // h3→1, h4→2
+  if (item.level && item.level >= 3) return item.level - 2;
   if (item.indent) return 1;
   return 0;
 }

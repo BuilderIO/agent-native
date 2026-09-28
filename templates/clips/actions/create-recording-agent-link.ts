@@ -12,6 +12,7 @@ import {
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   getServerAppBasePath,
 } from "../server/lib/public-agent-context.js";
+import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 import {
   buildAgentApiUrls,
   CLIP_AGENT_ACCESS_TOKEN_PREFIX,
@@ -64,6 +65,8 @@ export default defineAction({
 
     const recording = access.resource as {
       id: string;
+      password: string | null;
+      sharePasswordVersion: string;
       archivedAt?: string | null;
       trashedAt?: string | null;
     };
@@ -72,10 +75,24 @@ export default defineAction({
         `Recording ${args.recordingId} is not shareable`,
       );
     }
+    if (
+      recording.password &&
+      access.role !== "owner" &&
+      access.role !== "admin" &&
+      access.role !== "editor"
+    ) {
+      throw new ForbiddenError(
+        "Only recording owners, admins, and editors can create agent links for password-protected recordings",
+      );
+    }
 
     const grant = createScopedAgentAccessGrant({
       resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-      resourceId: recording.id,
+      resourceId: getRecordingAccessTokenResourceId(
+        recording.id,
+        recording.password,
+        recording.sharePasswordVersion,
+      ),
       viewerEmail: getRequestUserEmail() || undefined,
       agentLabel: args.agentLabel,
       ttlSeconds: args.ttlSeconds ?? CLIPS_AGENT_ACCESS_TTL_SECONDS,

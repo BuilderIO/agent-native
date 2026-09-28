@@ -1,7 +1,3 @@
-/**
- * Get a single meeting (with its participants and action items) — access checked.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
@@ -24,10 +20,6 @@ interface ActionItem {
   completedAt?: string | null;
 }
 
-/**
- * Defensive JSON parse — returns the fallback (and logs a warning) on bad
- * data so legacy / malformed rows don't crash the response.
- */
 function safeParseArray<T>(
   raw: string | null | undefined,
   rowId: string,
@@ -64,10 +56,6 @@ export default defineAction({
       meetingId = materialized.meeting.id;
     }
 
-    // "cannot see it" and "does not exist" deliberately share one reason: a
-    // caller that could tell them apart could probe ids to learn which
-    // meetings exist. The distinction callers actually need is this vs a
-    // thrown read failure, which stays separate.
     const access = await resolveAccess("meeting", meetingId);
     if (!access) return { meeting: null, reason: "unavailable" as const };
 
@@ -84,7 +72,6 @@ export default defineAction({
       .limit(1);
     if (!row) return { meeting: null, reason: "unavailable" as const };
 
-    // Server-side JSON parse — clients see structured arrays, not raw TEXT.
     const bullets = safeParseArray<Bullet>(
       row.bulletsJson,
       row.id,
@@ -111,9 +98,6 @@ export default defineAction({
       .select()
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId));
-    // Older meetings may have action items only in the JSON column. Prefer
-    // the dedicated rows once present, but keep those legacy meetings
-    // editable instead of returning an empty action-item list.
     const actionItems = actionItemRows.length
       ? actionItemRows
       : actionItemsParsed;

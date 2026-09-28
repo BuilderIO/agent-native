@@ -37,11 +37,6 @@ function readThemeVars(value: unknown): Record<string, string> | undefined {
   return Object.keys(vars).length > 0 ? vars : undefined;
 }
 
-/**
- * Accepts both the current `theme` field and the legacy `isDark` field used by
- * extension iframes. Unknown messages and untrusted CSS variable names fail
- * closed so a cross-window event cannot become an arbitrary style sink.
- */
 export function parseEmbeddedThemeUpdate(
   value: unknown,
 ): NormalizedEmbeddedThemeUpdate | null {

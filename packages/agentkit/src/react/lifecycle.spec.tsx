@@ -15,6 +15,7 @@ import {
 import type { AgentEvent, AgentTransport } from "../protocol/index.js";
 import { AgentChat } from "./chat.js";
 import {
+  AgentActivityGroup,
   AgentKitChat,
   AgentMessageActions,
   formatAgentKitDuration,
@@ -1040,6 +1041,53 @@ describe("AgentChat lifecycle", () => {
     }
   });
 
+  it("keeps internal activity labels out of a restored summary without run state", async () => {
+    const threadId = "thread-activity-without-run";
+    const runId = "run-activity-without-run";
+    const events: AgentEvent[] = [
+      "Starting agent",
+      "Contacting model",
+      "Preparing action",
+    ].map((label, index) => ({
+      id: `event-${index}`,
+      threadId,
+      runId,
+      sequence: index + 1,
+      occurredAt: `2026-08-31T00:00:0${index}.000Z`,
+      type: "activity.completed",
+      activity: {
+        id: `activity-${index}`,
+        kind: "tool",
+        label,
+        status: "completed",
+      },
+    }));
+    const thread = { ...createAgentThreadState(threadId), events };
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const summary = tree.container.querySelector(
+      ".agentkit-activities-summary",
+    );
+    expect(summary?.textContent).toBe("Worked");
+    expect(summary?.textContent).not.toContain("Starting agent");
+    expect(summary?.textContent).not.toContain("Contacting model");
+    expect(summary?.textContent).not.toContain("3");
+    await tree.unmount();
+  });
+
   it("keeps each execution segment between the assistant responses it produced", async () => {
     const threadId = "thread-segmented-run-work";
     const runId = "run-segmented-work";
@@ -1964,18 +2012,18 @@ describe("AgentKit subscriptions and recovery", () => {
       expect(
         Array.from(
           assistantActions?.querySelectorAll(
-            ".agentkit-message-action-group--default button",
+            ".agentkit-message-actions-leading button",
           ) ?? [],
         ).map((button) => button.getAttribute("aria-label")),
       ).toEqual(["Copy message", "Helpful", "Not helpful"]);
       expect(
-        assistantActions?.querySelector(
-          '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
-        ),
+        assistantActions?.querySelector(".agentkit-message-actions-trailing"),
       ).toBeTruthy();
       expect(
         assistantActions
-          ?.querySelector('button[aria-label="Message actions"]')
+          ?.querySelector(
+            '.agentkit-message-actions-trailing button[aria-label="Message actions"]',
+          )
           ?.getAttribute("aria-expanded"),
       ).toBe("false");
       const copyButtons = tree.container.querySelectorAll(
@@ -2000,12 +2048,21 @@ describe("AgentKit subscriptions and recovery", () => {
         'button[aria-label="Message actions"]',
       );
       await act(async () => {
-        more?.click();
+        more?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
         await Promise.resolve();
       });
-      const fork = assistantActions?.querySelector(
-        '.agentkit-message-action-group--request-id button[aria-label="Fork conversation"]',
-      );
+      const fork = Array.from(
+        document.body.querySelectorAll(
+          '.agentkit-message-menu [role="menuitem"]',
+        ),
+      ).find((button) => button.textContent?.trim() === "Fork conversation");
+      expect(fork).toBeTruthy();
       await act(async () => {
         (fork as HTMLButtonElement | null)?.click();
         await Promise.resolve();
@@ -2066,27 +2123,39 @@ describe("AgentKit subscriptions and recovery", () => {
         'button[aria-label="Message actions"]',
       );
       expect(trigger).toBeTruthy();
+      expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      const leadingActions = tree.container.querySelector(
+        ".agentkit-message-actions-leading",
+      );
+      expect(
+        Array.from(leadingActions?.querySelectorAll("button") ?? []).map(
+          (button) => button.getAttribute("aria-label"),
+        ),
+      ).toEqual(["Copy message"]);
+      expect(
+        tree.container.querySelector(".agentkit-message-actions-trailing"),
+      ).toBeTruthy();
       await act(async () => {
-        trigger?.click();
+        (trigger as HTMLElement | null)?.focus();
+        trigger?.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" }),
+        );
         await Promise.resolve();
       });
-      const actionPanel = tree.container.querySelector(
-        ".agentkit-message-action-swap",
-      );
       expect(
         tree.container
           .querySelector(".agentkit-message-actions")
-          ?.getAttribute("data-action-mode"),
-      ).toBe("expanded");
-      expect(
-        actionPanel
-          ?.querySelector(".agentkit-message-action-group--default")
-          ?.getAttribute("aria-hidden"),
+          ?.querySelector('[aria-label="Message actions"]')
+          ?.getAttribute("aria-expanded"),
       ).toBe("true");
-      const requestIdButton = tree.container.querySelector(
-        'button[aria-label="Copy request ID"]',
+      const actionMenu = document.body.querySelector(
+        '.agentkit-message-menu[role="menu"]',
       );
+      expect(actionMenu).toBeTruthy();
+      const requestIdButton = Array.from(
+        actionMenu?.querySelectorAll('[role="menuitem"]') ?? [],
+      ).find((button) => button.textContent?.trim() === "Copy request ID");
       expect(requestIdButton).toBeTruthy();
       await act(async () => {
         requestIdButton?.click();
@@ -2097,22 +2166,35 @@ describe("AgentKit subscriptions and recovery", () => {
       expect(
         tree.container.querySelector('button[aria-label="Message actions"]'),
       ).toBeTruthy();
-      expect(
-        tree.container.querySelector(
-          '.agentkit-message-action-group--request-id button[aria-label="Copied"]',
-        ),
-      ).toBeTruthy();
-      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
       await act(async () => {
-        trigger?.click();
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+      const copiedRequestId = Array.from(
+        document.body.querySelectorAll(
+          '.agentkit-message-menu [role="menuitem"]',
+        ),
+      ).find((button) => button.textContent?.trim() === "Copied");
+      expect(copiedRequestId).toBeTruthy();
+      await act(async () => {
+        trigger?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
         await Promise.resolve();
       });
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-      expect(
-        actionPanel
-          ?.querySelector(".agentkit-message-action-group--request-id")
-          ?.getAttribute("aria-hidden"),
-      ).toBe("true");
     } finally {
       if (clipboardDescriptor) {
         Object.defineProperty(navigator, "clipboard", clipboardDescriptor);

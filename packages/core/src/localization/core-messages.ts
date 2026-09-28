@@ -24,6 +24,7 @@ export type AgentChatTranslation = Record<string, string> & {
 };
 
 const legacyAgentChatAliases = [
+  ["onboarding.fileStorage", "onboarding.fileStorage"],
   ["agentPanel.addOwnKeys", "composer.addOwnKeys"],
   ["agentPanel.builderModelCredits", "composer.builderModelCredits"],
   ["agentPanel.builderOrOwnKeys", "setup.builderOrOwnKeys"],
@@ -38,6 +39,7 @@ const legacyAgentChatAliases = [
   ["agentPanel.toggleAgent", "shell.toggleAgent"],
   ["agentPanel.voiceMode", "voiceMode"],
   ["contextXray", "contextXray"],
+  ["mcpIntegrations", "mcpIntegrations"],
 ] as const;
 
 function getNestedMessage(
@@ -148,6 +150,19 @@ function nestAgentChatMessages(
   return messages;
 }
 
+function observabilitySummaryMessages(messages: AgentChatTranslation) {
+  return {
+    summarizeWithAgent: messages["observability.summarizeWithAgent"],
+    regenerateSummary: messages["observability.regenerateSummary"],
+    summarizeWithAgentHelp: messages["observability.summarizeWithAgentHelp"],
+    regenerateSummaryHelp: messages["observability.regenerateSummaryHelp"],
+    summarySending: messages["observability.summarySending"],
+    summaryQueued: messages["observability.summaryQueued"],
+    summaryFailed: messages["observability.summaryFailed"],
+    summaryExpired: messages["observability.summaryExpired"],
+  };
+}
+
 const coreMessageLoaders = {
   "en-US": async () => ({ default: englishAgentChatMessages }),
   "zh-CN": () => import("./core-messages/zh-CN.js"),
@@ -203,6 +218,7 @@ export async function loadCoreMessagesForLocale(
   ]);
   return {
     ...nestAgentChatMessages(agentChatMessages),
+    observability: observabilitySummaryMessages(agentChatMessages),
     environmentBadge: supplementalMessages.environmentBadgeMessages,
     iconPicker: iconPickerMessagesForLocale(locale),
     settings: {
@@ -214,6 +230,7 @@ export async function loadCoreMessagesForLocale(
 
 const englishCoreMessages = {
   ...nestAgentChatMessages(englishAgentChatMessages),
+  observability: observabilitySummaryMessages(englishAgentChatMessages),
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   settings: {
@@ -222,7 +239,6 @@ const englishCoreMessages = {
   },
 };
 
-// Non-English chat and settings catalogs load with the app locale.
 export function coreMessagesForLocale(locale: LocaleCode): CoreLocaleMessages {
   if (locale === DEFAULT_LOCALE || !isLocaleCode(locale)) {
     return englishCoreMessages;

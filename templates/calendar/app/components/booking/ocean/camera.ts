@@ -1,6 +1,5 @@
 import { OCEAN_TUNING } from "./tuning";
 
-/** Exact fixed cinematic camera from the original ocean. */
 export function oceanCamera(size: readonly [number, number]) {
   const { eye, target, pitchDegrees, fovDegrees, near, far } =
     OCEAN_TUNING.camera;

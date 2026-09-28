@@ -17,26 +17,16 @@ minimumReleaseAgeExclude:
   - "@typescript/typescript-*"
 
 overrides:
-  # @sentry/vite-plugin's range can resolve a newly published bundler tarball
-  # before the registry has made it fetchable. Keep fresh workspaces on the
-  # version already verified by this repository until Sentry is upgraded.
   "@sentry/bundler-plugins": "10.73.0"
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
   better-auth: "1.7.4"
   nf3: "0.3.17"
-  # These five reach @agent-native/core through peer edges, so two apps that
-  # drift even a patch apart fork a second ~175 MB physical copy of core.
-  # One spec string per workspace is what keeps it at one copy — raise these
-  # together, never per app.
   "@types/node": "^25.8.0"
   "@tanstack/react-query": "^5.101.2"
   esbuild: "^0.28.1"
   srvx: "^0.12.4"
   zod: "^4.4.3"
-  # Tiptap 3.28 packages use caret ranges for their internal dependencies.
-  # Keep a fresh scaffold on one tested family: otherwise extension-list can
-  # resolve to 3.30 alongside core 3.28 and fail during the generated build.
   "@tiptap/core": "3.28.0"
   "@tiptap/extension-blockquote": "3.28.0"
   "@tiptap/extension-bold": "3.28.0"
@@ -80,7 +70,6 @@ overrides:
   "@tiptap/starter-kit": "3.28.0"
 
 packageExtensions:
-  # node-pty has no Linux prebuild and its install script invokes node-gyp.
   "node-pty@*":
     dependencies:
       node-gyp: "^12.4.0"

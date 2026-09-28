@@ -1,19 +1,9 @@
-/**
- * take-design-screenshot.spec.ts
- *
- * Covers the pure, browser-free parts of the screenshot action:
- *  - viewport resolution from the optional `widths` input
- *  - the "no Chromium available" error classifier + model-actionable message
- *  - the WCAG contrast math used by the in-page diagnostics script
- *
- * The actual render path (page.setContent / page.screenshot / page.evaluate)
- * requires a real headless Chromium and a live DB-backed design_files row; it
- * is not exercised here — see the `design-generation` skill's Phase 5 for how
- * the action is used in practice, and run-design-audit.spec.ts for the
- * sibling audit action's equivalent DB-free coverage split.
- */
-
 import { describe, expect, it, vi } from "vitest";
+
+const playwrightMocks = vi.hoisted(() => ({
+  importPlaywright: vi.fn(),
+  launchChromium: vi.fn(),
+}));
 
 const { mockAccessFilter, mockGetDb } = vi.hoisted(() => {
   const chain: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -69,11 +59,17 @@ vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    importPlaywright: vi
-      .fn()
-      .mockRejectedValue(new Error("no chromium binary")),
+    importPlaywright: playwrightMocks.importPlaywright.mockRejectedValue(
+      new Error("no chromium binary"),
+    ),
+    launchChromium: playwrightMocks.launchChromium,
   };
 });
+vi.mock("../server/source-workspace.js", () => ({
+  readLiveSourceFile: vi.fn(async () => ({ content: "<html></html>" })),
+}));
+
+import { uploadFile } from "@agent-native/core/file-upload";
 
 import action, {
   chromiumUnavailableReason,
@@ -82,6 +78,7 @@ import action, {
   parseRgbColor,
   relativeLuminance,
   requiredContrastRatio,
+  getScreenshotPngData,
   resolveViewports,
 } from "./take-design-screenshot.js";
 
@@ -104,9 +101,75 @@ describe("public design screenshot access", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveViewports
-// ---------------------------------------------------------------------------
+describe("screenshot image handoff", () => {
+  it("retains PNG bytes only for MCP export calls", async () => {
+    const png = Buffer.from("test png bytes");
+    const diagnostics = {
+      documentWidthPx: 900,
+      documentHeightPx: 600,
+      horizontalOverflowPx: 0,
+      overflowingElements: [],
+      lowContrastText: [],
+      brokenImages: [],
+      zeroSizeOrOffscreen: [],
+    };
+    const page = {
+      on: vi.fn(),
+      setContent: vi.fn().mockResolvedValue(undefined),
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValue(diagnostics),
+      waitForFunction: vi.fn().mockResolvedValue(undefined),
+      screenshot: vi.fn().mockResolvedValue(png),
+    };
+    const context = {
+      addInitScript: vi.fn().mockResolvedValue(undefined),
+      route: vi.fn().mockResolvedValue(undefined),
+      routeWebSocket: vi.fn().mockResolvedValue(undefined),
+      newPage: vi.fn().mockResolvedValue(page),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const browser = {
+      newContext: vi.fn().mockResolvedValue(context),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    playwrightMocks.importPlaywright.mockResolvedValue({ chromium: {} });
+    playwrightMocks.launchChromium.mockResolvedValue(browser);
+    vi.mocked(uploadFile).mockResolvedValue({
+      url: "https://files.example.test/screen.png",
+    } as never);
+
+    const args = { fileId: "file_1", widths: [900] };
+    const screenshotResult = await action.run(args, {
+      caller: "tool",
+      actionName: "take-design-screenshot",
+    });
+    const httpExportResult = await action.run(args, {
+      caller: "http",
+      actionName: "export-png",
+    });
+    const mcpExportResult = await action.run(args, {
+      caller: "mcp",
+      actionName: "export-png",
+    });
+
+    expect(screenshotResult).not.toHaveProperty("_agentImages");
+    expect(JSON.stringify(screenshotResult)).not.toContain(
+      png.toString("base64"),
+    );
+    expect(
+      getScreenshotPngData(screenshotResult.screenshots[0]),
+    ).toBeUndefined();
+    expect(
+      getScreenshotPngData(httpExportResult.screenshots[0]),
+    ).toBeUndefined();
+    expect(getScreenshotPngData(mcpExportResult.screenshots[0])).toEqual(png);
+    expect(mcpExportResult.screenshots[0].url).toBe(
+      "https://files.example.test/screen.png",
+    );
+  });
+});
 
 describe("resolveViewports", () => {
   it("defaults to desktop (1280) + mobile (375) when widths is omitted", () => {
@@ -130,7 +193,6 @@ describe("resolveViewports", () => {
       widthPx: 1440,
       label: "desktop-1440",
     });
-    // Heights should scale with width, never zero or negative.
     for (const vp of viewports) {
       expect(vp.heightPx).toBeGreaterThan(0);
     }
@@ -149,10 +211,6 @@ describe("resolveViewports", () => {
     expect(viewports[1]).toMatchObject({ widthPx: 375, heightPx: 812 });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Chromium-unavailable classification + message
-// ---------------------------------------------------------------------------
 
 describe("isMissingBrowserError", () => {
   it("recognizes a missing-executable Playwright error", () => {
@@ -198,11 +256,6 @@ describe("chromiumUnavailableReason", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// WCAG contrast math (module-scope copy used for testing; the in-page
-// evaluate closure duplicates this exact logic — see the comment above it)
-// ---------------------------------------------------------------------------
-
 describe("parseRgbColor", () => {
   it("parses an rgb() string", () => {
     expect(parseRgbColor("rgb(17, 24, 39)")).toEqual([17, 24, 39]);
@@ -239,7 +292,6 @@ describe("relativeLuminance + contrastRatio", () => {
   });
 
   it("flags light-gray-on-white as failing normal-text AA (< 4.5)", () => {
-    // #d1d5db (Tailwind gray-300) on white is a classic low-contrast failure.
     const ratio = contrastRatio([209, 213, 219], [255, 255, 255]);
     expect(ratio).toBeLessThan(4.5);
   });

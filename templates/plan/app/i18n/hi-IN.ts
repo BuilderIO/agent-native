@@ -33,6 +33,7 @@ const messages = {
     agentDescription:
       "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
     openAgentSettings: "एजेंट प्रबंधित करें",
+    editorGroupTitle: "एडिटर",
     editorTitle: "VS Code एक्सटेंशन",
     editorDescription:
       "अलग ब्राउज़र टैब के बजाय VS Code के साइड पैनल में योजनाएँ खोलें और उनकी समीक्षा करें।",
@@ -379,6 +380,12 @@ const messages = {
       shareAria: "साझा करें {{noun}}",
       share: "साझा करें {{noun}}",
       shareThis: "इसे साझा करें {{noun}}",
+      teammateSuggestion: {
+        message: "अपनी टीम को Plan में लाएँ।",
+        invite: "टीम को आमंत्रित करें",
+        enableDomain: "@{{domain}} के किसी भी व्यक्ति को जुड़ने दें",
+        enableFailed: "डोमेन से जुड़ना चालू नहीं हो सका। फिर कोशिश करें।",
+      },
       hostedCopy:
         "इस स्थानीय {{noun}} के पास साझा करने के लिए एक होस्टेड प्रति है। पहुंच प्रबंधित करने के लिए होस्ट किए गए {{noun}} को खोलें।",
       publishDescription:
@@ -648,6 +655,7 @@ const messages = {
       createAccount: "खाता बनाएं",
       signIn: "लॉग इन करें",
       haveAccount: "मेरा पहले से ही खाता है",
+      storageStatusUnavailable: "फ़ाइल संग्रहण की जाँच नहीं हो सकी।",
       retry: "पुनः प्रयास करें",
       sendFeedback: "फ़ीडबैक भेजें",
       feedbackPlaceholder: "इस प्लान त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",

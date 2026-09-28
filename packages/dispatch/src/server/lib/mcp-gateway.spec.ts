@@ -1336,7 +1336,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
   });
 
   it("keeps workspace sign-in behind the rollout flag", async () => {
-    mocks.isFeatureFlagEnabled.mockResolvedValueOnce(false);
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(
       runWithRequestContext(
@@ -1352,6 +1352,31 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       ),
     ).rejects.toThrow(/not enabled/);
     expect(mocks.managerConstructor).not.toHaveBeenCalled();
+  });
+
+  it("allows Desktop workspace sign-in when Dispatch pane SSO is off", async () => {
+    mocks.isFeatureFlagEnabled.mockImplementation(
+      async (flag) => flag.key === "desktop.workspace-sso",
+    );
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "analytics",
+            path: "/overview",
+          }),
+      ),
+    ).resolves.toMatchObject({ app: "analytics" });
+
+    expect(
+      mocks.isFeatureFlagEnabled.mock.calls.map(([flag]) => flag.key),
+    ).toEqual(["dispatch.workspace-sso", "desktop.workspace-sso"]);
+    expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
   it("allows an exact canonical app without requiring an MCP app grant", async () => {
@@ -1505,10 +1530,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         chrome: "full",
       },
     );
-    // Regression: the target MCP connection must use the home origin, not
-    // the discovered agent URL, which can be a deep share link
-    // (https://clips.agent-native.com/share/deep-link) that turns "/mcp"
-    // into a query-string suffix and hits Clips' HTML page instead of MCP.
     expect(mocks.managerConstructor).toHaveBeenCalledWith({
       servers: {
         target: expect.objectContaining({

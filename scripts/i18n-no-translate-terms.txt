@@ -10,6 +10,7 @@ Ease
 Ease In
 Ease In/Out
 Ease Out
+Error 403
 JetBrains Mono
 Playfair Display
 ~/.claude/ on a local disk

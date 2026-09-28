@@ -29,11 +29,6 @@ function calloutWithIcon(icon: IconValue) {
   return `<callout icon="${stored}">\n\tHeads up\n</callout>`;
 }
 
-/**
- * Structural read of an exported table: the point of these tests is that rows
- * and cells survive as real elements, so asserting on text alone would pass for
- * the flattened-paragraph bug this module exists to fix.
- */
 function readTable(html: string) {
   const table = html.match(/<table class="nfm-table[^"]*">([\s\S]*?)<\/table>/);
   if (!table) return null;

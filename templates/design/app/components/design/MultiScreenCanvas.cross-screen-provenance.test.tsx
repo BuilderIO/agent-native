@@ -4,6 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getPrimaryIframeId } from "./multi-screen/iframe-targeting";
+import {
+  __clearLinkedScreenPreviewHandlersForTests,
+  registerLinkedScreenPreviewHandlers,
+} from "./multi-screen/linked-screen-preview";
 import { MultiScreenCanvas } from "./MultiScreenCanvas";
 
 (
@@ -46,12 +51,19 @@ describe("cross-screen drag identity provenance", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    __clearLinkedScreenPreviewHandlersForTests();
     rectSpy.mockRestore();
     container.remove();
   });
 
   it("keeps start identity through move and forwards the target hit-test proof", async () => {
     const onCrossScreenElementDrop = vi.fn();
+    const previewPendingDelete = vi.fn(() => true);
+    registerLinkedScreenPreviewHandlers(getPrimaryIframeId("source"), {
+      replaceContent: () => true,
+      sendStyleChange: () => true,
+      pendingDelete: previewPendingDelete,
+    });
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -62,6 +74,7 @@ describe("cross-screen drag identity provenance", () => {
           zoom={100}
           activeId="source"
           activeTool="move"
+          editableScreenIds={new Set(["source", "target"])}
           geometryById={{
             source: { x: 0, y: 0, width: 400, height: 300 },
             target: { x: 600, y: 0, width: 400, height: 300 },
@@ -130,6 +143,7 @@ describe("cross-screen drag identity provenance", () => {
         screenId: "source",
         selector: ".source-at-start",
         sourceId: "source-start-node",
+        sourceDeleteRequestId: "source-delete-request",
         sourceProvenance: startProof,
       });
       sendDrag({
@@ -168,6 +182,7 @@ describe("cross-screen drag identity provenance", () => {
         targetAnchorNodeId: "target-anchor-proof",
       }),
     );
+    expect(previewPendingDelete).not.toHaveBeenCalled();
   });
 
   it("uses the source frame geometry from drag start after a Hug screen grows", async () => {
@@ -278,6 +293,105 @@ describe("cross-screen drag identity provenance", () => {
         sourceScreenId: "source",
         targetScreenId: "target",
       }),
+    );
+  });
+
+  it("finalizes a release the source frame never saw and ends its gesture", async () => {
+    const onCrossScreenElementDrop = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "source", filename: "source.html", content: "<html></html>" },
+            { id: "target", filename: "target.html", content: "<html></html>" },
+          ]}
+          zoom={100}
+          activeId="source"
+          activeTool="move"
+          geometryById={{
+            source: { x: 0, y: 0, width: 400, height: 300 },
+            target: { x: 600, y: 0, width: 400, height: 300 },
+          }}
+          renderScreenContent={(screen) => (
+            <iframe
+              data-design-preview-iframe=""
+              data-screen-iframe-id={screen.id}
+            />
+          )}
+          onPick={() => {}}
+          onCrossScreenElementDrop={onCrossScreenElementDrop}
+        />,
+      );
+    });
+    const sourceWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="source"]',
+    )!.contentWindow!;
+    const targetWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="target"]',
+    )!.contentWindow!;
+    vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+      correlationId: string;
+    }) => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:hit-test-result",
+            correlationId: message.correlationId,
+            anchorNodeId: "target-anchor",
+          },
+          source: targetWindow as unknown as Window,
+        }),
+      );
+    }) as typeof targetWindow.postMessage);
+    const sourcePostMessage = vi
+      .spyOn(sourceWindow, "postMessage")
+      .mockImplementation(() => {});
+    const sendDrag = (data: Record<string, unknown>) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:cross-screen-drag", ...data },
+          source: sourceWindow as unknown as Window,
+        }),
+      );
+    const sourceCloneHtml =
+      '<button data-agent-native-node-id="source-node">Move me</button>';
+
+    await act(async () => {
+      sendDrag({
+        phase: "start",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="source-node"]',
+        sourceId: "source-node",
+        sourceCloneHtml,
+      });
+      sendDrag({
+        phase: "move",
+        screenId: "source",
+        selector: '[data-agent-native-node-id="source-node"]',
+        sourceId: "source-node",
+        iframeX: 650,
+        iframeY: 100,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      window.dispatchEvent(
+        new MouseEvent("mouseup", { clientX: 1150, clientY: 400 }),
+      );
+    });
+
+    expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceScreenId: "source",
+        targetScreenId: "target",
+        sourceCloneHtml,
+      }),
+    );
+    expect(sourcePostMessage).toHaveBeenCalledWith(
+      {
+        type: "agent-native:cancel-active-drag",
+        pressedAt: expect.any(Number),
+      },
+      "*",
     );
   });
 });

@@ -8,7 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeCaptureData,
@@ -96,8 +96,6 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
-    // a single row can't bloat the DB or the shareable content it feeds.
     const sanitizedCaptureData = captureData
       ? sanitizeCaptureData(captureData)
       : null;

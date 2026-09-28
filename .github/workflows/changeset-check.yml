@@ -1,13 +1,5 @@
 name: Changeset check
 
-# Fails the PR if any publishable package's source changed without a
-# corresponding `.changeset/*.md`. The error message lists the missing
-# packages so `/babysit-pr` can add the changeset automatically and
-# unblock the merge.
-#
-# Skipped on the bot-authored "Version Packages" PR — that PR consumes
-# changesets and shouldn't itself need one.
-
 on:
   pull_request:
     branches: [main]

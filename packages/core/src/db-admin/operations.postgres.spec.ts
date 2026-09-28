@@ -1,11 +1,3 @@
-/**
- * Postgres-dialect verification for the DB-admin introspection path.
- *
- * This file mocks `../db/client.js` to return canned `information_schema` /
- * `pg_*` rows. That verifies the Postgres introspection queries and parsing
- * (columns, nullability, PK, FK, indexes, serial autoIncrement) without
- * needing a live Postgres instance.
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 let executed: string[] = [];

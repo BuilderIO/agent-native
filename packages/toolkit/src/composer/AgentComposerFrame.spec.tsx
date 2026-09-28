@@ -21,6 +21,7 @@ describe("AgentComposerFrame", () => {
     );
 
     expect(html).toContain("border-input");
+    expect(html).not.toContain("bg-muted/45");
     expect(html).not.toContain("focus-within:border-ring");
   });
 });

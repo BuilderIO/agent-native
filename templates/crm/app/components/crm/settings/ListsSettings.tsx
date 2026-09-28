@@ -48,6 +48,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 
+import {
+  CrmSettingsPanelHeader,
+  crmSettingsPanelClassName,
+  type CrmSettingsPanelProps,
+} from "./SettingsPanelHeader";
+
 interface CrmListRow {
   id: string;
   connectionId: string;
@@ -68,7 +74,7 @@ interface CrmConnectionSummary {
 const LISTS_PARAMS = { limit: 100 } as const;
 const LISTS_KEY = ["action", "list-crm-lists", LISTS_PARAMS];
 
-export function ListsSettings() {
+export function ListsSettings({ embedded }: CrmSettingsPanelProps = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const listsQuery = useActionQuery<{ lists: CrmListRow[] }>(
@@ -104,25 +110,23 @@ export function ListsSettings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("lists.title")}
-          </h1>
-          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-            {t("lists.description")}
-          </p>
-        </div>
-        <CreateListDialog
-          connections={connectionsQuery.data?.connections ?? []}
-          onCreated={() =>
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "list-crm-lists"],
-            })
-          }
-        />
-      </div>
+    <div className={crmSettingsPanelClassName(embedded)}>
+      <CrmSettingsPanelHeader
+        embedded={embedded}
+        title={t("lists.title")}
+        description={t("lists.description")}
+        descriptionClassName="max-w-xl"
+        action={
+          <CreateListDialog
+            connections={connectionsQuery.data?.connections ?? []}
+            onCreated={() =>
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "list-crm-lists"],
+              })
+            }
+          />
+        }
+      />
 
       {listsQuery.isError ? (
         <div className="mt-6 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">

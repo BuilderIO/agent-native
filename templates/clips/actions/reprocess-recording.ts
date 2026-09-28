@@ -1,24 +1,3 @@
-/**
- * Repair the playback of already-stored recordings.
- *
- * Clips uploaded via the streaming path (or before the seekable rewrite
- * existed) can ship raw MediaRecorder output: an MP4 with a trailing `moov`
- * atom or a WebM with no Cues index. Those load slowly and re-buffer on every
- * seek even though the file downloads fine. This action re-fetches the stored
- * media, rewrites it to be start-playable and seekable (MP4 faststart / WebM
- * Cues remux), re-uploads the fixed file, and repoints the recording at it.
- *
- * It's idempotent and non-destructive: clips that are already seekable are
- * skipped, and any clip we can't improve or re-upload is left untouched.
- *
- * Usage:
- *   pnpm action reprocess-recording --id=<recordingId>
- *   pnpm action reprocess-recording --ids='["id1","id2"]'
- *   pnpm action reprocess-recording --all --limit=20
- *   pnpm action reprocess-recording --id=<recordingId> --force
- *   pnpm action reprocess-recording --id=<recordingId> --normalizeTimeline
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
@@ -52,7 +31,6 @@ function parseIds(value: unknown): string[] {
         return parsed.filter((v): v is string => typeof v === "string" && !!v);
       }
     } catch {
-      // Fall back to a single comma-separated / plain id string.
       return value
         .split(",")
         .map((s) => s.trim())
@@ -122,8 +100,6 @@ export default defineAction({
       targetIds.push(...rows.map((r) => r.id));
     }
 
-    // De-dupe while preserving order, and bound the batch so a single call
-    // can't run unboundedly under the hosted foreground budget.
     targetIds = Array.from(new Set(targetIds)).slice(0, MAX_TARGETS_PER_CALL);
 
     if (targetIds.length === 0) {

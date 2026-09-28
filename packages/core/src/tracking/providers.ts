@@ -1,18 +1,3 @@
-/**
- * Built-in tracking providers that auto-register from env vars.
- *
- * No SDK dependencies — uses raw HTTP to keep core lightweight.
- * Set the env var and tracking starts automatically.
- *
- * POSTHOG_API_KEY + POSTHOG_HOST  → PostHog
- * MIXPANEL_TOKEN                  → Mixpanel
- * AMPLITUDE_API_KEY               → Amplitude
- * AGENT_NATIVE_ANALYTICS_PUBLIC_KEY → Agent-Native Analytics
- *
- * Call `registerBuiltinProviders()` at server startup (done
- * automatically by the core-routes plugin).
- */
-
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -26,8 +11,6 @@ const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
 const BATCH_INTERVAL_MS = 10_000;
 const MAX_BATCH_SIZE = 50;
 
-// ─── Batched sender ────────────────────────────────────────────────────────
-
 interface QueuedEvent {
   url: string;
   body: string;
@@ -38,8 +21,6 @@ interface EnqueueOptions {
   flushImmediately?: boolean;
 }
 
-// Use globalThis so multiple ESM graph instances (Vite dev + Nitro symlinks)
-// share one queue, matching the same pattern as the tracking registry.
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
 const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
 
@@ -71,14 +52,6 @@ function enqueue(
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  // The batch timer is unref'd so it never keeps a long-lived server alive —
-  // but on Netlify/Vercel/Lambda the execution environment can freeze the
-  // moment the event loop looks empty, which is exactly when an unref'd timer
-  // doesn't count. Without a signal, a warm container freezing between
-  // invocations never fires that timer, silently dropping every provider's
-  // queued events for a request that ends in a crash. Default to flushing
-  // synchronously with the response in that environment; a caller (e.g.
-  // Agent-Native Analytics' flush-mode override) can still force either way.
   const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
   if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
     void drainQueue();
@@ -169,27 +142,10 @@ function agentNativeAnalyticsFlushesImmediately(): boolean {
   return isServerlessRuntime();
 }
 
-// ─── PostHog ───────────────────────────────────────────────────────────────
-
 function isPostHogAiObservabilityEvent(eventName: string): boolean {
   return eventName.startsWith("$ai_");
 }
 
-/**
- * `$ai_*` and `$exception` are ingested through PostHog's dedicated endpoint
- * rather than `/capture/`, and `$exception` additionally has to carry
- * `$exception_list` — the framework's own `captureException()` emits camelCase
- * fields that PostHog would otherwise render as an empty, ungroupable issue.
- */
-/**
- * PostHog reads an AI event's timestamp as the moment the operation ENDED and
- * recovers its start by subtracting `$ai_latency` (its `operationStartMs`).
- * The framework stamps events when the operation began — which Mixpanel,
- * Amplitude, webhooks and Agent-Native Analytics consume verbatim — so the
- * shift belongs here, in the one backend that reads it that way. Events with no
- * `$ai_latency` (a trace, an exception) are unshifted: there is nothing for
- * PostHog to subtract.
- */
 function postHogAiEndTimestamp(event: TrackingEvent): string | undefined {
   const latencySeconds = Number(event.properties?.["$ai_latency"]);
   if (
@@ -219,11 +175,6 @@ function createPostHogProvider(
       JSON.stringify({
         api_key: apiKey,
         event: event.name,
-        // Top level, NOT inside `properties`: PostHog reads the event time from
-        // the payload root and treats a `properties.timestamp` as an ordinary
-        // custom property, stamping the event with its ingestion time instead.
-        // An agent run emits its whole tree in one burst at the end, so that
-        // collapsed a five-minute waterfall into the 100ms it took to flush.
         timestamp: postHogAiEndTimestamp(event),
         properties: {
           distinct_id: distinctId,
@@ -244,10 +195,6 @@ function createPostHogProvider(
       }
 
       if (event.name === "$exception") {
-        // `POSTHOG_ERROR_TRACKING=false` keeps product analytics flowing while
-        // another backend owns crashes. Drop rather than downgrade to
-        // `/capture/`: a malformed exception is what this branch exists to
-        // prevent.
         if (!errorTracking) return;
         const reshaped = reshapeTrackedExceptionProperties(event.properties);
         if (reshaped) {
@@ -290,19 +237,6 @@ function createPostHogProvider(
   };
 }
 
-/**
- * Send one event to PostHog only, bypassing the provider fan-out.
- *
- * For payloads whose *shape* is PostHog-specific and whose *content* other
- * backends must not receive. `track()` broadcasts to every configured provider,
- * so a PostHog-only integration (e.g. enabling a survey id) would otherwise
- * start exporting that integration's content — including user-authored text —
- * to Mixpanel, Amplitude, webhooks, and Agent-Native Analytics as a side
- * effect nobody opted into.
- *
- * Returns `false` when PostHog is not configured, so callers can tell "not
- * sent" from "sent".
- */
 export function sendPostHogEvent(
   name: string,
   properties: Record<string, unknown>,
@@ -338,8 +272,6 @@ export function sendPostHogEvent(
   return true;
 }
 
-// ─── Mixpanel ──────────────────────────────────────────────────────────────
-
 function createMixpanelProvider(token: string): TrackingProvider {
   return {
     name: "mixpanel",
@@ -353,8 +285,6 @@ function createMixpanelProvider(token: string): TrackingProvider {
             ? new Date(event.timestamp).getTime() / 1000
             : undefined,
           ...event.properties,
-          // Mixpanel's own `$session_id` is numeric and assigned by its SDK, so
-          // the browser session lands as a plain property here.
           ...(event.sessionId ? { session_id: event.sessionId } : {}),
         },
       };
@@ -373,8 +303,6 @@ function createMixpanelProvider(token: string): TrackingProvider {
     },
   };
 }
-
-// ─── Amplitude ─────────────────────────────────────────────────────────────
 
 function stripExceptionContextForAmplitude(
   properties: Record<string, unknown>,
@@ -408,8 +336,6 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
           {
             event_type: event.name,
             user_id: event.userId || "anonymous",
-            // Amplitude's top-level `session_id` must be a numeric epoch, so
-            // the browser session ships as an event property instead.
             event_properties: amplitudeEventProperties(event),
             time: event.timestamp
               ? new Date(event.timestamp).getTime()
@@ -438,8 +364,6 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
   };
 }
 
-// ─── Webhook (custom HTTP endpoint) ───────────────────────────────────────
-
 function createWebhookProvider(
   url: string,
   authHeader?: string,
@@ -454,8 +378,6 @@ function createWebhookProvider(
           event: event.name,
           properties: event.properties,
           userId: event.userId,
-          // Without this a webhook consumer cannot join a signup back to the
-          // anonymous pageviews that preceded it — the whole point of the id.
           anonymousId: event.anonymousId,
           sessionId: event.sessionId,
           timestamp: event.timestamp,
@@ -480,8 +402,6 @@ function createWebhookProvider(
     },
   };
 }
-
-// ─── Agent-Native Analytics ───────────────────────────────────────────────
 
 function createAgentNativeAnalyticsProvider(
   publicKey: string,
@@ -525,8 +445,6 @@ function createAgentNativeAnalyticsProvider(
     },
   };
 }
-
-// ─── Auto-registration ────────────────────────────────────────────────────
 
 let _registered = false;
 
