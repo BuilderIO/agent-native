@@ -6,6 +6,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { deleteSettingIfValue, mutateSetting } from "../settings/store.js";
 
 const WINDOW_MS = 60 * 60_000;
+const A2A_STALE_TASK_LOOKBACK_MS = 24 * 60 * 60_000;
 const MIN_TURNS = 5;
 const BAD_RATE_THRESHOLD = 0.5;
 const COOLDOWN_MS = 60 * 60_000;
@@ -82,17 +83,24 @@ async function countStaleA2ATasks(now: number): Promise<number> {
     processingStuckAfterMs,
     processingLifetimeMaxMs,
   } = getA2ATaskRecoveryLimits();
+  // Inline handlers move to working before execution and may stream for a long time.
   const { rows } = await client.execute({
     sql: `SELECT COUNT(*)::int AS stale_tasks
           FROM a2a_tasks
           WHERE status_state IN ('submitted', 'working', 'processing')
+            AND created_at > ?
             AND (
-              (status_state IN ('submitted', 'working') AND created_at <= ?)
+              (status_state IN ('submitted', 'working')
+                AND created_at <= ?
+                AND (status_state = 'submitted' OR
+                  strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0))
               OR
               (status_state = 'processing' AND
+                strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0 AND
                 (updated_at <= ? OR created_at <= ?))
             )`,
     args: [
+      now - A2A_STALE_TASK_LOOKBACK_MS,
       now - queuedLifetimeMaxMs,
       now - processingStuckAfterMs,
       now - processingLifetimeMaxMs,

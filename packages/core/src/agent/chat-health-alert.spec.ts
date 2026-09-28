@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 let turnRows: Array<Record<string, unknown>> = [];
 let memberRows: Array<Record<string, unknown>> = [];
 let staleA2aTasks = 0;
+let historicalStaleA2aTasks = 0;
+let unmarkedStaleWorkingTasks = 0;
+let unmarkedStaleSubmittedTasks = 0;
 let a2aTableExists = true;
 let turnQueryThrows = false;
 let a2aQueryThrows = false;
@@ -26,7 +29,16 @@ const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
   }
   if (sql.includes("FROM a2a_tasks")) {
     if (a2aQueryThrows) throw new Error("A2A task ledger unreadable");
-    return { rows: [{ stale_tasks: staleA2aTasks }], rowsAffected: 0 };
+    const total =
+      staleA2aTasks +
+      (sql.includes("created_at > ?") ? 0 : historicalStaleA2aTasks) +
+      (sql.includes("status_state = 'submitted' OR")
+        ? unmarkedStaleSubmittedTasks
+        : 0) +
+      (sql.includes("strpos(COALESCE(metadata, '')")
+        ? 0
+        : unmarkedStaleWorkingTasks);
+    return { rows: [{ stale_tasks: total }], rowsAffected: 0 };
   }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
@@ -90,6 +102,9 @@ beforeEach(() => {
   turnRows = [];
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   staleA2aTasks = 0;
+  historicalStaleA2aTasks = 0;
+  unmarkedStaleWorkingTasks = 0;
+  unmarkedStaleSubmittedTasks = 0;
   a2aTableExists = true;
   turnQueryThrows = false;
   a2aQueryThrows = false;
@@ -146,15 +161,18 @@ describe("checkChatHealthAndAlert", () => {
     const a2aQuery = execute.mock.calls
       .map(([input]) => input)
       .find((input) => input.sql.includes("FROM a2a_tasks"));
-    expect(a2aQuery?.sql).toContain(
-      "status_state IN ('submitted', 'working') AND created_at <= ?",
-    );
+    expect(a2aQuery?.sql).toContain("status_state IN ('submitted', 'working')");
+    expect(a2aQuery?.sql).toContain("created_at <= ?");
     expect(a2aQuery?.sql).toContain("updated_at <= ? OR created_at <= ?");
     expect(a2aQuery?.sql).toContain(
       "status_state IN ('submitted', 'working', 'processing')",
     );
-    expect(a2aQuery?.sql).not.toContain("strpos(");
+    expect(a2aQuery?.sql).toContain(
+      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+    );
+    expect(a2aQuery?.sql).toContain("created_at > ?");
     expect(a2aQuery?.args).toEqual([
+      NOW - 24 * 60 * 60_000,
       NOW - 3 * 60_000,
       NOW - 5 * 60_000,
       NOW - 30 * 60_000,
@@ -173,6 +191,7 @@ describe("checkChatHealthAndAlert", () => {
         .map(([input]) => input)
         .find((input) => input.sql.includes("FROM a2a_tasks"));
       expect(a2aQuery?.args).toEqual([
+        NOW - 24 * 60 * 60_000,
         NOW - 120_000,
         NOW - 5 * 60_000,
         NOW - 40 * 60_000,
@@ -180,6 +199,37 @@ describe("checkChatHealthAndAlert", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("ignores historical and unmarked working tasks in the A2A alert", async () => {
+    historicalStaleA2aTasks = 7;
+    unmarkedStaleWorkingTasks = 13;
+
+    const out = await checkChatHealthAndAlert(NOW);
+
+    expect(out).toMatchObject({ status: "insufficient-data", turns: 0 });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain("created_at > ?");
+    expect(a2aQuery?.sql).toContain(
+      `strpos(COALESCE(metadata, ''), '"__a2a_processor"') > 0`,
+    );
+    expect(a2aQuery?.args?.[0]).toBe(NOW - 24 * 60 * 60_000);
+  });
+
+  it("counts abandoned unmarked submissions before inline work starts", async () => {
+    unmarkedStaleSubmittedTasks = 1;
+
+    const out = await checkChatHealthAndAlert(NOW);
+
+    expect(out).toMatchObject({ status: "alerted", staleA2ATasks: 1 });
+    const a2aQuery = execute.mock.calls
+      .map(([input]) => input)
+      .find((input) => input.sql.includes("FROM a2a_tasks"));
+    expect(a2aQuery?.sql).toContain("status_state = 'submitted' OR");
+    expect(a2aQuery?.args?.[1]).toBe(NOW - 3 * 60_000);
   });
 
   it("treats an app with no A2A task table as having no stale tasks", async () => {
