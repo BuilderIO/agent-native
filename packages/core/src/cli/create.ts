@@ -3316,7 +3316,10 @@ function workspaceYamlSectionHasEntry(
 
   return existingSection.body.split(/\r?\n/).some((line) => {
     const entry = parseYamlMappingKey(line, existingSection.indent);
-    return entry !== undefined && normalizeYamlScalar(entry) === key;
+    return (
+      entry !== undefined &&
+      normalizeYamlScalar(entry) === normalizeYamlScalar(key)
+    );
   });
 }
 
