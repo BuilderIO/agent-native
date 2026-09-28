@@ -206,4 +206,95 @@ describe("scanDeprecatedImports", () => {
       }),
     ]);
   });
+
+  it("reports removed chat exports through namespace and CommonJS imports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-import-forms-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    fs.writeFileSync(
+      path.join(root, "consumer.mjs"),
+      [
+        `import * as chat from "${moduleName}";`,
+        "chat.createAgentChatAdapter();",
+        "chat.AssistantChat;",
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "consumer.cjs"),
+      [
+        `const { createAgentChatRuntimeAdapter: createRuntimeAdapter } = require("${moduleName}");`,
+        "createRuntimeAdapter();",
+        `const chat = require("${moduleName}");`,
+        "chat.createCodeAgentChatAdapter();",
+        `require("${moduleName}").codeAgentTranscriptHasPendingApproval();`,
+      ].join("\n"),
+    );
+    fs.writeFileSync(
+      path.join(root, "consumer.cts"),
+      [
+        `import chat = require("${moduleName}");`,
+        "chat.AssistantMessageActionBar;",
+      ].join("\n"),
+    );
+
+    const findings = scanDeprecatedImports({
+      root,
+      manifests: [
+        {
+          sinceVersion: "0.110.0",
+          moves: {},
+          removedExports: {
+            [moduleName]: {
+              symbols: [
+                "createAgentChatAdapter",
+                "createAgentChatRuntimeAdapter",
+                "createCodeAgentChatAdapter",
+                "codeAgentTranscriptHasPendingApproval",
+                "AssistantMessageActionBar",
+              ],
+              migrationGuide: "https://example.test/agentkit-chat.md",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(findings).toHaveLength(5);
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: path.join(root, "consumer.mjs"),
+          line: 2,
+          symbols: ["createAgentChatAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.cjs"),
+          line: 1,
+          symbols: ["createAgentChatRuntimeAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.cjs"),
+          line: 4,
+          symbols: ["createCodeAgentChatAdapter"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.cjs"),
+          line: 5,
+          symbols: ["codeAgentTranscriptHasPendingApproval"],
+          status: "removed",
+        }),
+        expect.objectContaining({
+          file: path.join(root, "consumer.cts"),
+          line: 2,
+          symbols: ["AssistantMessageActionBar"],
+          status: "removed",
+        }),
+      ]),
+    );
+  });
 });
