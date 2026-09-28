@@ -767,6 +767,10 @@ export async function mergeCoreSharingActions(
       () => import("../audit/actions/export-audit-events.js"),
     ],
     [
+      "promote-trace-eval",
+      () => import("../observability/actions/promote-trace-eval.js"),
+    ],
+    [
       "create-resource-version",
       () => import("../history/actions/create-resource-version.js"),
     ],

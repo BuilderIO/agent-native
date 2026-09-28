@@ -12,6 +12,9 @@ let selectedRows: Record<string, unknown>[] = [];
 const mockEnsureIndexExists = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const executeResults: Array<{ rows: any[]; rowsAffected: number }> = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
+const ensuredIndexes = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -19,10 +22,12 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      return {
-        rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
-        rowsAffected: 0,
-      };
+      return (
+        executeResults.shift() ?? {
+          rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
+          rowsAffected: 0,
+        }
+      );
     }),
   };
 }
@@ -35,8 +40,15 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: mockEnsureIndexExists,
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
+  ensureIndexExists: vi.fn(async (name: string, sql: string) => {
+    ensuredIndexes.push(`${name}:${sql}`);
+    return mockEnsureIndexExists(name, sql);
+  }),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -63,6 +75,10 @@ const {
   insertTraceSpan,
   insertEvalResult,
   insertFeedback,
+  insertEvalDataset,
+  getEvalDatasetByName,
+  findPromotedEvalDataset,
+  savePromotedEvalDataset,
   upsertTraceSummary,
   upsertHumanReviewSummary,
   upsertSatisfactionScore,
@@ -78,6 +94,7 @@ describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
     selectedRows = [];
+    executeResults.length = 0;
     vi.clearAllMocks();
   });
 
@@ -1137,6 +1154,21 @@ describe("observability store: per-user isolation", () => {
       expect(call.args).toEqual(["run-x", "alice"]);
     });
 
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
+    });
+
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
       await getEvalStats(3000, { userId: "alice" });
       const selects = execCalls.filter((c) => /^\s*SELECT\b/i.test(c.sql));
@@ -1248,6 +1280,24 @@ describe("observability store: per-user isolation", () => {
       );
     });
 
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
     it("insertEvalResult persists user_id", async () => {
       await insertEvalResult({
         id: "e1",
@@ -1285,6 +1335,133 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("claims one dataset per owner and source run", async () => {
+      await getEvalDatasetByName("warmup");
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.idempotency_key:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+      );
+      expect(ensuredIndexes).toContain(
+        "idx_eval_datasets_idempotency:CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)",
+      );
+
+      const key = "from-trace:alice%40example.com:run-1";
+      const description = "Promoted from production run run-1";
+      execCalls.length = 0;
+      const found = await findPromotedEvalDataset({
+        idempotencyKey: key,
+        description,
+        userId: "alice@example.com",
+      });
+      expect(found).toBeNull();
+      const lookup = execCalls.find((call) =>
+        /FROM agent_eval_datasets/i.test(call.sql),
+      );
+      expect(lookup?.sql).toMatch(/user_id = \?/);
+      expect(lookup?.sql).toMatch(/idempotency_key = \?/);
+      expect(lookup?.args).toEqual([
+        "alice@example.com",
+        "alice@example.com",
+        key,
+        description,
+        key,
+      ]);
+
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const saved = await savePromotedEvalDataset({
+        id: "ds-new",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(saved.id).toBe("ds-new");
+      const insert = execCalls.find((call) =>
+        /INSERT INTO agent_eval_datasets/.test(call.sql),
+      );
+      expect(insert?.sql).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/);
+      expect(insert?.args).toContain(key);
+      expect(insert?.args).toContain("alice@example.com");
+
+      const legacy = {
+        id: "ds-legacy",
+        name: "from-trace:run-1",
+        description,
+        entries: JSON.stringify([
+          { input: "hello", tags: ["from-trace", "run-1"] },
+        ]),
+        created_at: 1,
+        updated_at: 2,
+        user_id: "alice@example.com",
+        idempotency_key: null,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [legacy], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const claimed = await savePromotedEvalDataset({
+        id: "ds-retry",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 3,
+        updatedAt: 3,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(claimed.id).toBe("ds-legacy");
+      expect(claimed.idempotencyKey).toBe(key);
+      expect(
+        execCalls.some((call) =>
+          /INSERT INTO agent_eval_datasets/.test(call.sql),
+        ),
+      ).toBe(false);
+      const claim = execCalls.find((call) =>
+        /UPDATE agent_eval_datasets/i.test(call.sql),
+      );
+      expect(claim?.sql).toMatch(/SET idempotency_key = \?/);
+      expect(claim?.args?.[0]).toBe(key);
+
+      const winner = {
+        ...legacy,
+        id: "ds-winner",
+        idempotency_key: key,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [winner], rowsAffected: 0 });
+      const raced = await savePromotedEvalDataset({
+        id: "ds-loser",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 4,
+        updatedAt: 4,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(raced.id).toBe("ds-winner");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
     });
 
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {
