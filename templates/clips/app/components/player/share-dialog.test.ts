@@ -49,6 +49,28 @@ describe("recording share popover", () => {
     );
   });
 
+  it("keeps Agents available to viewer reshares without loading share details", () => {
+    const source = readSource("./share-dialog.tsx");
+    const mainView = source.slice(
+      source.indexOf('{view === "main" ? ('),
+      source.indexOf(') : view === "social" ? ('),
+    );
+    const peopleStart = source.indexOf("function PeopleTab(");
+    const agentStart = source.indexOf("function AgentTab(", peopleStart);
+    const peopleTab = source.slice(peopleStart, agentStart);
+    const viewerOnlyStart = peopleTab.indexOf("if (viewerReshareOnly) {");
+    const viewerOnlyEnd = peopleTab.indexOf("\n\n  return (", viewerOnlyStart);
+    const viewerPeople = peopleTab.slice(viewerOnlyStart, viewerOnlyEnd);
+
+    expect(source).toContain("{ enabled: !viewerReshareOnly }");
+    expect(mainView).toContain("<ShareModeTabs");
+    expect(mainView).toContain("<AgentTab");
+    expect(mainView).not.toContain("viewerReshareOnly");
+    expect(viewerPeople).toContain('label={t("shareDialog.social")}');
+    expect(viewerPeople).toContain('label={t("shareDialog.embed")}');
+    expect(viewerPeople).not.toContain("<PeopleAccessSection");
+  });
+
   it("keeps the joined Share and Copy link toolbar action", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
     const shareTriggerSource = readSource("./clips-share-trigger.tsx");
