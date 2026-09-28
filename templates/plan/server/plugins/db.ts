@@ -455,8 +455,38 @@ CREATE INDEX IF NOT EXISTS plans_edition_series_idx ON plans(kind, edition_serie
     name: "plan-edition-issue-number-unique",
     // Scoped exactly like nextIssueNumber()'s MAX: a NULL series is `daily`
     // there, so bucketing it as '' here would let two rows share a number.
+    // The renumber runs first because MAX+1 allocation could already have
+    // persisted duplicates, and CREATE UNIQUE INDEX on those fails the
+    // migration and every startup that retries it. The earliest holder keeps
+    // the number; the rest move above the series high-water mark.
     sql: {
-      postgres: `CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_issue_number_unique_idx
+      postgres: `WITH bucketed AS (
+  SELECT id, created_at, edition_issue_number AS issue, owner_email,
+         COALESCE(org_id, '') AS org_key,
+         COALESCE(edition_series, 'daily') AS series_key
+  FROM plans
+  WHERE kind = 'edition' AND edition_issue_number IS NOT NULL
+), tops AS (
+  SELECT owner_email, org_key, series_key, MAX(issue) AS top
+  FROM bucketed GROUP BY owner_email, org_key, series_key
+), ranked AS (
+  SELECT b.*, ROW_NUMBER() OVER (
+    PARTITION BY b.owner_email, b.org_key, b.series_key, b.issue
+    ORDER BY b.created_at, b.id
+  ) AS dup_rank FROM bucketed b
+), renumbered AS (
+  SELECT r.id, t.top + ROW_NUMBER() OVER (
+    PARTITION BY r.owner_email, r.org_key, r.series_key
+    ORDER BY r.issue, r.created_at, r.id
+  ) AS next_issue
+  FROM ranked r
+  JOIN tops t ON t.owner_email = r.owner_email
+    AND t.org_key = r.org_key AND t.series_key = r.series_key
+  WHERE r.dup_rank > 1
+)
+UPDATE plans SET edition_issue_number = renumbered.next_issue
+FROM renumbered WHERE plans.id = renumbered.id;
+CREATE UNIQUE INDEX IF NOT EXISTS plans_edition_issue_number_unique_idx
 ON plans(owner_email, COALESCE(org_id, ''), COALESCE(edition_series, 'daily'), edition_issue_number)
 WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
     },

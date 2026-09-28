@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   body: {} as Record<string, unknown>,
   bodyThrows: false,
+  contentLength: undefined as string | undefined,
   method: "POST",
   status: 0,
   headers: {} as Record<string, string>,
@@ -16,9 +17,11 @@ const state = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: () => state.method,
-  readBody: vi.fn(async () => {
-    if (state.bodyThrows) throw new Error("malformed JSON");
-    return state.body;
+  getRequestHeader: (_event: unknown, name: string) =>
+    name === "content-length" ? state.contentLength : undefined,
+  readRawBody: vi.fn(async () => {
+    if (state.bodyThrows) return "{ not json";
+    return JSON.stringify(state.body);
   }),
   setResponseStatus: (_event: unknown, status: number) => {
     state.status = status;
@@ -55,6 +58,8 @@ vi.mock("./credential-provider.js", () => ({
 
 const { createSpeakHandler, synthesizeSpeech, SPEECH_MAX_CHARS } =
   await import("./speak.js");
+const { SPEECH_MAX_BODY_BYTES, SPEECH_MAX_INSTRUCTION_CHARS } =
+  await import("../shared/speech.js");
 
 function mockFetch(
   response: { status?: number; body?: BodyInit | null } = {},
@@ -79,6 +84,7 @@ async function post() {
 beforeEach(() => {
   state.body = { text: "Good morning." };
   state.bodyThrows = false;
+  state.contentLength = undefined;
   state.method = "POST";
   state.status = 0;
   state.headers = {};
@@ -195,6 +201,31 @@ describe("speak route", () => {
     state.body = { text: "   " };
     await post();
     expect(state.status).toBe(400);
+  });
+
+  it("refuses an oversized body before parsing it", async () => {
+    const fetchMock = mockFetch();
+    state.contentLength = String(SPEECH_MAX_BODY_BYTES + 1);
+
+    const body = await post();
+
+    expect(state.status).toBe(413);
+    expect(body.reason).toBe("too-long");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses instructions longer than the delivery limit", async () => {
+    const fetchMock = mockFetch();
+    state.body = {
+      text: "Good morning.",
+      instructions: "a".repeat(SPEECH_MAX_INSTRUCTION_CHARS + 1),
+    };
+
+    const body = await post();
+
+    expect(state.status).toBe(413);
+    expect(body.reason).toBe("too-long");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps an unreadable body apart from an absent one", async () => {

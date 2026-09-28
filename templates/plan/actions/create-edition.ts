@@ -320,21 +320,28 @@ export default defineAction({
       };
 
       const existing = await findExistingEdition();
-      try {
-        return await publish(existing);
-      } catch (error) {
-        // Two schedulers publishing the same window both read "no edition yet";
-        // the partial unique index lets exactly one insert win. The loser must
-        // adopt the winner's row, or a retried run reports failure for an
-        // edition that exists and is complete.
-        if (existing) throw error;
-        const raced = await findExistingEdition();
-        if (raced) return await publish(raced);
-        // Or a publish for a DIFFERENT window took the issue number this one
-        // allocated. Nothing to adopt — re-read the high-water mark, which now
-        // includes the winner, and take the next one.
-        if (isUniqueViolation(error)) return await publish(undefined);
-        throw error;
+      // Every attempt re-reads the issue-number high-water mark, so a loser of
+      // one race takes the next free number on the retry. Bounded, not a `while`:
+      // N schedulers can collide N-1 times, but a run that cannot place a number
+      // after this many tries is reporting a broken index, not contention.
+      const MAX_PUBLISH_ATTEMPTS = 5;
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          return await publish(existing);
+        } catch (error) {
+          // Two schedulers publishing the same window both read "no edition
+          // yet"; the partial unique index lets exactly one insert win. The
+          // loser must adopt the winner's row, or a retried run reports failure
+          // for an edition that exists and is complete.
+          if (existing) throw error;
+          const raced = await findExistingEdition();
+          if (raced) return await publish(raced);
+          // Otherwise a publish for a DIFFERENT window took the issue number
+          // this attempt allocated, and there is nothing to adopt.
+          if (!isUniqueViolation(error) || attempt >= MAX_PUBLISH_ATTEMPTS) {
+            throw error;
+          }
+        }
       }
     }),
   link: ({ result }) => {

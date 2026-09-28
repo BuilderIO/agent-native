@@ -209,6 +209,30 @@ describe("migration 44 — plan-edition-issue-number-unique", () => {
     );
   }
 
+  it("renumbers duplicates an earlier release allowed, keeping the first", async () => {
+    await applyStatements(migration40Sql());
+    await applyStatements(migration41Sql());
+    await applyStatements(migration42Sql());
+    // Both rows hold No. 7: what MAX+1 allocation could persist before the
+    // index existed. The index cannot be created until one of them moves.
+    await insertEdition("ed-first", 7, "2026-02-03");
+    await insertEdition("ed-second", 7, "2026-02-04");
+
+    await applyStatements(migrationSql("plan-edition-issue-number-unique"));
+
+    const rows = (await client.query(
+      `SELECT id, edition_issue_number FROM plans WHERE kind = 'edition' ORDER BY id`,
+    )) as { rows: { id: string; edition_issue_number: number }[] };
+    expect(rows.rows).toEqual([
+      { id: "ed-first", edition_issue_number: 7 },
+      { id: "ed-second", edition_issue_number: 8 },
+    ]);
+
+    await expect(insertEdition("ed-third", 8, "2026-02-05")).rejects.toThrow(
+      /unique/i,
+    );
+  });
+
   it("refuses a second edition holding the same issue number", async () => {
     await applyEditionMigrations();
     await insertEdition("ed-1", 7, "2026-02-03");

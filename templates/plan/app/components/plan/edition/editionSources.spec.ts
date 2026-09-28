@@ -58,29 +58,40 @@ describe("storySources", () => {
     expect(sources).toHaveLength(1);
   });
 
-  it("leaves an ambiguous cohort number unlinked", () => {
+  it("links both repos behind a shared number even with cohorts", () => {
     const cohort: EditionStoryCohort = {
       name: "c",
       sentence: "s",
-      prNumbers: [42, 43],
+      prNumbers: [42],
       repos: ["BuilderIO/agent-native", "BuilderIO/builder"],
     };
     const sources = storySources(
       story(
-        [
-          recap("BuilderIO/agent-native", 42),
-          recap("BuilderIO/builder", 42),
-          recap("BuilderIO/agent-native", 43),
-        ],
+        [recap("BuilderIO/agent-native", 42), recap("BuilderIO/builder", 42)],
         [cohort],
       ),
     );
 
-    expect(
-      sources.find((source) => source.prNumber === 42)?.url,
-    ).toBeUndefined();
-    expect(sources.find((source) => source.prNumber === 43)?.url).toBe(
-      "https://github.com/BuilderIO/agent-native/pull/43",
+    expect(sources.map((source) => source.url)).toEqual([
+      "https://github.com/BuilderIO/agent-native/pull/42",
+      "https://github.com/BuilderIO/builder/pull/42",
+    ]);
+  });
+
+  it("leaves a cohort number no recap claims as bare text", () => {
+    const cohort: EditionStoryCohort = {
+      name: "c",
+      sentence: "s",
+      prNumbers: [42, 99],
+      repos: ["BuilderIO/agent-native"],
+    };
+    const sources = storySources(
+      story([recap("BuilderIO/agent-native", 42)], [cohort]),
     );
+
+    expect(sources.map((source) => [source.prNumber, source.url])).toEqual([
+      [42, "https://github.com/BuilderIO/agent-native/pull/42"],
+      [99, undefined],
+    ]);
   });
 });

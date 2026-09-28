@@ -68,16 +68,63 @@ function indexBlocksById(
  * edition can never show a diagram the recap has since corrected — and a
  * reference that no longer resolves is counted, not quietly dropped.
  */
+/**
+ * Strip every trace of a recap this reader may not open. Dropping the
+ * reference alone is not enough: a cohort repeats the same PR numbers, repos
+ * and aggregate diff stats, so the recap stays legible through the group it
+ * belonged to.
+ */
+function withoutHiddenRecaps(
+  story: EditionStoryData,
+  hidden: Set<string>,
+): EditionStoryData {
+  const isHidden = (recap: EditionStoryRecapRef) =>
+    Boolean(recap.recapId && hidden.has(recap.recapId));
+  if (!story.recaps.some(isHidden)) return story;
+
+  const recaps = story.recaps.filter((recap) => !isHidden(recap));
+  const visibleNumbers = new Set(recaps.map((recap) => recap.prNumber));
+  const visibleRepos = new Set(recaps.map((recap) => recap.repo));
+  // Only a number no surviving reference claims: two repos can share one, and
+  // hiding the pair would drop a pull request this reader may in fact read.
+  const hiddenNumbers = new Set(
+    story.recaps
+      .filter(isHidden)
+      .map((recap) => recap.prNumber)
+      .filter((prNumber) => !visibleNumbers.has(prNumber)),
+  );
+
+  const cohorts = story.cohorts.flatMap((cohort) => {
+    const prNumbers = cohort.prNumbers.filter(
+      (prNumber) => !hiddenNumbers.has(prNumber),
+    );
+    if (prNumbers.length === 0) return [];
+    if (prNumbers.length === cohort.prNumbers.length) return [cohort];
+    return [
+      {
+        ...cohort,
+        prNumbers,
+        repos: cohort.repos.filter((repo) => visibleRepos.has(repo)),
+        // The stored totals covered the removed PRs too, so they can be
+        // reported as unresolved but never recomputed from what is left.
+        additions: null,
+        deletions: null,
+      },
+    ];
+  });
+
+  return { ...story, recaps, cohorts };
+}
+
 async function resolveStoryBlocks(stories: EditionStoryData[]): Promise<{
   blocksByStory: Map<string, EditionStoryBlock[]>;
   unresolved: number;
   /**
-   * Cited recaps that exist and are live but are NOT this viewer's to read. An
-   * edition is shared more widely than the recaps it cites, and a reference
-   * carries the recap's repo, PR, author and diff stats, so the reference is
-   * itself a disclosure. A recap that is gone or soft-deleted is not in here:
-   * nothing is disclosed by citing it, and dropping it would lose a pull
-   * request the story really did cover.
+   * Cited recaps this reader may not open. An edition is shared more widely
+   * than the recaps it cites, and a reference carries the recap's repo, PR,
+   * author and diff stats, so the reference is itself a disclosure. Anything
+   * the access-scoped read did not return counts as hidden — telling a
+   * private recap apart from a deleted one is also something to withhold.
    */
   hiddenRecapIds: Set<string>;
 }> {
@@ -115,21 +162,8 @@ async function resolveStoryBlocks(stories: EditionStoryData[]): Promise<{
       ),
     );
 
-  const live = await getDb()
-    .select({ id: schema.plans.id })
-    .from(schema.plans)
-    .where(
-      and(
-        isNull(schema.plans.deletedAt),
-        eq(schema.plans.kind, "recap"),
-        inArray(schema.plans.id, [...cited]),
-      ),
-    );
-
   const readable = new Set(rows.map((row) => row.id));
-  const hiddenRecapIds = new Set(
-    live.map((row) => row.id).filter((id) => !readable.has(id)),
-  );
+  const hiddenRecapIds = new Set([...cited].filter((id) => !readable.has(id)));
   const byRecap = new Map<string, Map<string, PlanBlock>>();
   for (const row of rows) {
     if (!wanted.has(row.id)) continue;
@@ -261,12 +295,7 @@ export default defineAction({
         url: planPath(edition.id, "edition"),
       },
       stories: stories.map((story) => ({
-        ...story,
-        // Dropped, not redacted: an entry with no diff and no link reads as a
-        // recap that failed rather than one that was never theirs to see.
-        recaps: story.recaps.filter(
-          (recap) => !recap.recapId || !hiddenRecapIds.has(recap.recapId),
-        ),
+        ...withoutHiddenRecaps(story, hiddenRecapIds),
         blocks: blocksByStory.get(story.storyId) ?? [],
       })),
       coverage: parseJsonColumn<EditionCoverageData | null>(

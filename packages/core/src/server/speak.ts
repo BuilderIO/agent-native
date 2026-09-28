@@ -12,14 +12,19 @@
 import {
   defineEventHandler,
   getMethod,
-  readBody,
+  getRequestHeader,
+  readRawBody,
   setResponseHeader,
   setResponseStatus,
   type H3Event,
 } from "h3";
 
 import { getOrgContext } from "../org/context.js";
-import { SPEECH_MAX_CHARS } from "../shared/speech.js";
+import {
+  SPEECH_MAX_BODY_BYTES,
+  SPEECH_MAX_CHARS,
+  SPEECH_MAX_INSTRUCTION_CHARS,
+} from "../shared/speech.js";
 
 export { SPEECH_MAX_CHARS };
 import { getSession } from "./auth.js";
@@ -204,8 +209,33 @@ export function createSpeakHandler() {
         }
       | null
       | undefined;
+    // Measured before parsing, not after reading `text`: parsing is the work an
+    // oversized body is trying to spend, and the script limit below runs too
+    // late to refuse it.
+    const declaredLength = Number(getRequestHeader(event, "content-length"));
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > SPEECH_MAX_BODY_BYTES
+    ) {
+      setResponseStatus(event, 413);
+      return {
+        error: `Request body is ${declaredLength} bytes; the limit is ${SPEECH_MAX_BODY_BYTES}`,
+        reason: "too-long",
+      };
+    }
     try {
-      body = await readBody(event);
+      const raw = await readRawBody(event);
+      if (
+        typeof raw === "string" &&
+        Buffer.byteLength(raw) > SPEECH_MAX_BODY_BYTES
+      ) {
+        setResponseStatus(event, 413);
+        return {
+          error: `Request body is larger than ${SPEECH_MAX_BODY_BYTES} bytes`,
+          reason: "too-long",
+        };
+      }
+      body = raw ? JSON.parse(String(raw)) : null;
     } catch (err) {
       setResponseStatus(event, 400);
       return {
@@ -266,6 +296,16 @@ export function createSpeakHandler() {
       () => resolveSecret("OPENAI_API_KEY"),
     );
 
+    const instructions =
+      typeof body?.instructions === "string" ? body.instructions : "";
+    if (instructions.length > SPEECH_MAX_INSTRUCTION_CHARS) {
+      setResponseStatus(event, 413);
+      return {
+        error: `Instructions are ${instructions.length} characters; the limit is ${SPEECH_MAX_INSTRUCTION_CHARS}`,
+        reason: "too-long",
+      };
+    }
+
     // A misspelled voice must not quietly become the default one: the caller
     // asked for a specific narrator and would never hear that it got another.
     if (body?.voice !== undefined && !isSpeakVoice(body.voice)) {
@@ -279,8 +319,7 @@ export function createSpeakHandler() {
     const result = await synthesizeSpeech({
       text,
       voice: isSpeakVoice(body?.voice) ? body.voice : DEFAULT_SPEAK_VOICE,
-      instructions:
-        typeof body?.instructions === "string" ? body.instructions : undefined,
+      instructions: instructions || undefined,
       apiKey,
     });
 

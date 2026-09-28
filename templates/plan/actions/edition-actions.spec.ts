@@ -773,6 +773,14 @@ describe("get-edition block resolution", () => {
 
 describe("get-edition", () => {
   it("returns stories in reading order with their recap references", async () => {
+    // storyFixture cites this recap, and a citation the reader cannot resolve
+    // is withheld — so the row has to exist for the references to come back.
+    await insertRecap({
+      id: "recap-aaa",
+      prNumber: 5447,
+      mergedAt: "2026-09-20T09:00:00.000Z",
+    });
+
     const created = await asOwner(() =>
       createEdition.run({
         title: "ordered",
@@ -813,6 +821,77 @@ describe("get-edition", () => {
 });
 
 describe("edition reader access", () => {
+  it("strips a hidden recap from the cohort that grouped it", async () => {
+    await insertRecap({
+      id: "recap-mine",
+      prNumber: 8001,
+      mergedAt: "2026-09-20T10:00:00.000Z",
+    });
+    await insertRecap({
+      id: "recap-theirs",
+      prNumber: 8002,
+      mergedAt: "2026-09-20T11:00:00.000Z",
+      ownerEmail: "someone-else@example.com",
+      visibility: "private",
+      orgId: null,
+    });
+
+    const created = (await asOwner(() =>
+      createEdition.run({
+        title: "cohort with a private member",
+        brief: "b",
+        ...WINDOW,
+        stories: [
+          storyFixture({
+            recaps: [
+              {
+                recapId: "recap-mine",
+                repo: REPO,
+                prNumber: 8001,
+                prUrl: `https://github.com/${REPO}/pull/8001`,
+              },
+              {
+                recapId: "recap-theirs",
+                repo: "BuilderIO/private",
+                prNumber: 8002,
+                prUrl: "https://github.com/BuilderIO/private/pull/8002",
+              },
+            ],
+            cohorts: [
+              {
+                name: "the work",
+                sentence: "Two PRs, one of them not yours.",
+                prNumbers: [8001, 8002],
+                repos: [REPO, "BuilderIO/private"],
+                additions: 900,
+                deletions: 30,
+              },
+            ],
+          }),
+        ],
+      }),
+    )) as { editionId: string };
+
+    const read = (await asOwner(() =>
+      getEdition.run({ id: created.editionId }),
+    )) as {
+      stories: {
+        recaps: { prNumber: number }[];
+        cohorts: {
+          prNumbers: number[];
+          repos: string[];
+          additions: number | null;
+        }[];
+      }[];
+    };
+
+    const story = read.stories[0];
+    expect(story.recaps.map((recap) => recap.prNumber)).toEqual([8001]);
+    expect(story.cohorts[0].prNumbers).toEqual([8001]);
+    expect(story.cohorts[0].repos).toEqual([REPO]);
+    expect(story.cohorts[0].additions).toBeNull();
+  });
+
   it("drops a reference to a recap the reader cannot open", async () => {
     await insertRecap({
       id: "recap-not-mine",
