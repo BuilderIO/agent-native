@@ -48,21 +48,24 @@ author and draft state:
  - For remaining human PRs, read the current review summary to determine
    whether the PR already has a current, non-dismissed `APPROVED` review.
 
- - Ignore human PRs only when their current, non-dismissed `APPROVED` review
-   targets the current PR head and no newer commit, comment, review, or check
-   result exists. A current-head approval does not suppress re-review after a
-   later event; do not add the PR to the recap unless that re-review changes
-   its disposition.
+ - A current, non-dismissed `APPROVED` review targeting the current PR head
+   suppresses duplicate code review only while no newer commit, comment,
+   review, or check result exists. Such a PR still enters the merge-readiness
+   pass and recap; merge it if it meets the readiness gate. A later event
+   triggers a fresh review.
 
-Only the remaining non-draft, unapproved human PRs enter the ordinary
-evidence sweep below. Eligible Liam PRs with only older-head approvals also
-enter the sweep so the current head can be approved.
+All remaining non-draft human PRs enter the evidence sweep below. For
+current-head-approved PRs with no newer event, skip duplicate code review but
+check merge readiness and merge when ready. Eligible Liam PRs with only
+older-head approvals enter the sweep so the current head can be reviewed.
 
 For every PR you inspect, read:
 
  - the title, body, linked issue, and source links;
- - the complete changed-file list and diff, including generated or migration
-   files;
+ - for PRs requiring a new or repeat code review, the complete changed-file
+   list and diff, including generated or migration files; a current-head
+   approval with no newer event is the existing code assessment, so check its
+   merge evidence without repeating that review;
  - all current human and bot review summaries, inline comments, and replies;
  - required checks, their actual conclusions, and whether any lane is pending,
    skipped, unknown, or failing;
@@ -274,9 +277,22 @@ mean **Needs updates** or **Cannot assess**. Report skipped, unknown, and
 non-required checks accurately; never describe them as passing.
 
 A ready disposition is an instruction to merge, not a recommendation to hand
-off. Continue in the foreground through `babysit-pr`'s 10-minute guarded merge
-gate. When it holds, revalidate the exact live head and use
-the guarded admin merge:
+off. Keep this review sweep in the foreground for a 10-minute merge gate. Once
+all the conditions hold, record the live `headRefOid`; they must remain true
+for 10 consecutive minutes on that same head:
+
+ - the working tree has no uncommitted changes and the task branch has no
+   unpushed commits;
+ - all required GitHub Actions checks pass;
+ - every actionable review finding has a verified fix or terminal disposition;
+ - the PR is `MERGEABLE` with no conflicts;
+ - the same recorded `headRefOid` remains unchanged for the entire 10-minute
+   interval, and all checks and review dispositions apply to that head.
+
+Reset the 10-minute gate after a push, failed check, new actionable feedback,
+new commit, or merge conflict. This skill itself authorizes the guarded merge;
+do not hand off to standalone `babysit-pr` or wait for another approval. When
+the gate holds, revalidate the exact live head and use the guarded admin merge:
 
 ```bash
 gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
