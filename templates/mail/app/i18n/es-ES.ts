@@ -97,6 +97,8 @@ const messages = {
       aiSetupSortingProgress:
         "Ordenando correo reciente: {{processed}} de {{total}}",
       aiSetupUndoing: "Deshaciendo los cambios de la bandeja…",
+      aiSetupUndoBeforeRetry:
+        "Deshaz los cambios parciales antes de volver a intentarlo.",
       aiSetupSortingFailed:
         "No se pudo ordenar tu bandeja. Tus reglas están guardadas; inténtalo de nuevo.",
       aiSetupUndoComplete: "{{count}} mensajes volvieron a su estado anterior.",

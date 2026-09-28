@@ -90,6 +90,7 @@ const messages = {
       aiSetupAutomationSettingsFailed: "Couldn't check your AI model settings",
       aiSetupSortingProgress: "Sorting recent mail: {{processed}} of {{total}}",
       aiSetupUndoing: "Undoing inbox changes…",
+      aiSetupUndoBeforeRetry: "Undo the partial changes before trying again.",
       aiSetupSortingFailed:
         "Could not sort your inbox. Your rules are saved; try again.",
       aiSetupUndoComplete:

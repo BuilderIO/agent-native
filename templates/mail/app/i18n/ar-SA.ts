@@ -91,6 +91,8 @@ const messages = {
       aiSetupSortingProgress:
         "جارٍ تنظيم البريد الحديث: {{processed}} من {{total}}",
       aiSetupUndoing: "جارٍ التراجع عن تغييرات صندوق الوارد…",
+      aiSetupUndoBeforeRetry:
+        "تراجع عن التغييرات الجزئية قبل المحاولة مرة أخرى.",
       aiSetupSortingFailed:
         "تعذّر تنظيم صندوق الوارد. حُفظت قواعدك؛ حاول مرة أخرى.",
       aiSetupUndoComplete: "أُعيدت {{count}} رسالة إلى حالتها السابقة.",

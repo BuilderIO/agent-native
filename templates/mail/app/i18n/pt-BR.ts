@@ -97,6 +97,8 @@ const messages = {
       aiSetupSortingProgress:
         "Organizando e-mails recentes: {{processed}} de {{total}}",
       aiSetupUndoing: "Desfazendo alterações na caixa de entrada…",
+      aiSetupUndoBeforeRetry:
+        "Desfaça as alterações parciais antes de tentar novamente.",
       aiSetupSortingFailed:
         "Não foi possível organizar sua caixa de entrada. Suas regras foram salvas; tente novamente.",
       aiSetupUndoComplete: "{{count}} mensagens voltaram ao estado anterior.",

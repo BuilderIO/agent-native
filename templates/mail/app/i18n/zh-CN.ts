@@ -84,6 +84,7 @@ const messages = {
       aiSetupSortingProgress:
         "正在整理近期邮件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在撤销收件箱更改…",
+      aiSetupUndoBeforeRetry: "重试前请先撤销部分更改。",
       aiSetupSortingFailed: "无法整理收件箱。规则已保存，请重试。",
       aiSetupUndoComplete: "已将 {{count}} 封邮件恢复到原状态。",
       aiSetupRuleCount: "匹配 {{count}} 封",

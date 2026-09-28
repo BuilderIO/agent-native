@@ -98,6 +98,8 @@ const messages = {
       aiSetupSortingProgress:
         "Tri des messages récents : {{processed}} sur {{total}}",
       aiSetupUndoing: "Annulation des changements dans la boîte de réception…",
+      aiSetupUndoBeforeRetry:
+        "Annulez les modifications partielles avant de réessayer.",
       aiSetupSortingFailed:
         "Impossible de trier votre boîte de réception. Vos règles sont enregistrées ; réessayez.",
       aiSetupUndoComplete:

@@ -97,6 +97,8 @@ const messages = {
       aiSetupSortingProgress:
         "Aktuelle E-Mails: {{processed}} von {{total}} sortiert",
       aiSetupUndoing: "Änderungen im Posteingang werden rückgängig gemacht…",
+      aiSetupUndoBeforeRetry:
+        "Mache die Teiländerungen rückgängig, bevor du es erneut versuchst.",
       aiSetupSortingFailed:
         "Dein Posteingang konnte nicht sortiert werden. Deine Regeln sind gespeichert; versuche es erneut.",
       aiSetupUndoComplete:

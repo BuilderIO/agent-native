@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   firstRunOnboardingGateOwnsSurface: false,
   onboardingPreview: false,
   startBackfill: vi.fn(),
+  backfillRunIds: [] as Array<string | null>,
   updateSettings: vi.fn(),
   settingsPending: false,
   canOfferGoogleOAuthSetup: false,
@@ -202,7 +203,10 @@ vi.mock("@/hooks/use-ai-filter", () => ({
     mutateAsync: mocks.startBackfill,
     isPending: false,
   }),
-  useAiFilterBackfillStatus: () => mocks.backfillStatus,
+  useAiFilterBackfillStatus: (runId: string | null) => {
+    mocks.backfillRunIds.push(runId);
+    return mocks.backfillStatus;
+  },
 }));
 
 vi.mock("@/hooks/use-emails", () => ({
@@ -236,6 +240,7 @@ describe("AiInboxSetup", () => {
     }));
     mocks.updateRule.mockReset();
     mocks.startBackfill.mockReset();
+    mocks.backfillRunIds = [];
     mocks.startBackfill.mockImplementation(async (input) =>
       input.operation === "undo"
         ? { runId: "run-1", restoredThreads: 1, status: "undone" }
@@ -275,6 +280,7 @@ describe("AiInboxSetup", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -896,6 +902,129 @@ describe("AiInboxSetup", () => {
     expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry);
   });
 
+  it("restores a first-run backfill after remount until results are acknowledged", async () => {
+    const rule = {
+      id: "rule-receipts",
+      domain: "mail" as const,
+      kind: "ai-filter" as const,
+      condition: "Receipts",
+      actions: [{ type: "label" as const, labelName: "Receipts" }],
+      enabled: true,
+    };
+    const onComplete = vi.fn();
+    const props = {
+      embedded: true,
+      forceOpen: true,
+      firstRunStage: "sorting" as const,
+      onComplete,
+    };
+    mocks.automations = [rule];
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify([rule.id]),
+    );
+
+    const firstRender = render(<AiInboxSetup {...props} />);
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem("mail.ai-setup.backfill-run-id"),
+      ).toBe("run-1"),
+    );
+    firstRender.unmount();
+
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "running",
+      totalThreads: 4,
+      processedThreads: 2,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 0,
+      undoToken: "undo-run-1",
+      perRule: [
+        {
+          ruleId: rule.id,
+          name: "Receipts",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+    };
+
+    const secondRender = render(<AiInboxSetup {...props} />);
+    await waitFor(() => expect(mocks.backfillRunIds).toContain("run-1"));
+    expect(
+      screen.getByRole("link", { name: /Receipts/ }).getAttribute("href"),
+    ).toContain("Receipts");
+    expect(
+      screen.getByRole("button", { name: "mail.actions.undo" }),
+    ).not.toBeNull();
+    expect(mocks.startBackfill).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+    ).toBeNull();
+    expect(
+      window.sessionStorage.getItem("mail.ai-setup.backfill-run-id"),
+    ).toBeNull();
+    secondRender.unmount();
+  });
+
+  it("keeps Sorting usable when session storage reads are blocked", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+
+    render(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: "mail.sort.aiSetupSortingHeadline",
+      }),
+    ).not.toBeNull();
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+  });
+
+  it("keeps an active backfill and Done usable when session storage writes fail", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("Storage access is blocked");
+    });
+    mocks.backfillStatus.isLoading = true;
+    const onComplete = vi.fn();
+
+    render(
+      <AiInboxSetup
+        embedded
+        forceOpen
+        firstRunStage="sorting"
+        onComplete={onComplete}
+      />,
+    );
+    await waitFor(() => expect(mocks.backfillRunIds).toContain("run-1"));
+
+    expect(screen.queryByText("mail.sort.aiSetupSortingFailed")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sort.aiSetupDone" }),
+    );
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
+  });
+
   it("starts a new backfill after the active run reaches a failed state", async () => {
     window.sessionStorage.setItem(
       "mail.ai-setup.pending-rule-ids",
@@ -922,6 +1051,61 @@ describe("AiInboxSetup", () => {
 
     await waitFor(() =>
       expect(mocks.startBackfill).toHaveBeenCalledTimes(callsBeforeRetry + 1),
+    );
+  });
+
+  it("requires undoing partial changes before retrying a failed run", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-receipts"]),
+    );
+    window.sessionStorage.setItem("mail.ai-setup.backfill-run-id", "run-1");
+    mocks.backfillStatus.data = {
+      runId: "run-1",
+      status: "failed",
+      totalThreads: 8,
+      processedThreads: 3,
+      matchedThreads: 2,
+      appliedThreads: 1,
+      failedThreads: 1,
+      undoToken: "undo-run-1",
+      perRule: [],
+    };
+
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+    expect(
+      await screen.findByText("mail.sort.aiSetupUndoBeforeRetry"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "undo",
+        runId: "run-1",
+        undoToken: "undo-run-1",
+      }),
+    );
+
+    mocks.backfillStatus.data = {
+      ...mocks.backfillStatus.data!,
+      status: "undone",
+      restoredThreads: 1,
+      undoToken: undefined,
+    };
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "mail.sort.aiSetupRetry" }),
+    );
+    await waitFor(() =>
+      expect(
+        mocks.startBackfill.mock.calls.filter(
+          ([input]) => input.operation === "start",
+        ),
+      ).toHaveLength(1),
     );
   });
 

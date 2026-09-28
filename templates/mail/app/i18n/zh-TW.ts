@@ -84,6 +84,7 @@ const messages = {
       aiSetupSortingProgress:
         "正在整理近期郵件：{{total}} 封中的 {{processed}} 封",
       aiSetupUndoing: "正在復原收件匣變更…",
+      aiSetupUndoBeforeRetry: "重試前請先復原部分變更。",
       aiSetupSortingFailed: "無法整理收件匣。規則已儲存，請再試一次。",
       aiSetupUndoComplete: "已將 {{count}} 封郵件還原至原狀。",
       aiSetupRuleCount: "符合 {{count}} 封",

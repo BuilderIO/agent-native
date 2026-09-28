@@ -86,6 +86,7 @@ type CustomTag = {
 };
 
 const PENDING_SETUP_RULE_IDS = "mail.ai-setup.pending-rule-ids";
+const PENDING_SETUP_BACKFILL_RUN_ID = "mail.ai-setup.backfill-run-id";
 
 const IMPORTANT_SUGGESTIONS = [
   "mail.sort.aiSetupImportantBoss",
@@ -219,6 +220,9 @@ function SetupResults({
   const undone = status?.status === "undone";
   const hasFailed =
     status?.status === "failed" || (!loading && hasRun && failed);
+  const retryBlockedByUndo = Boolean(
+    onRetry && status?.status === "failed" && status.undoToken,
+  );
 
   return (
     <div className="space-y-5">
@@ -250,7 +254,11 @@ function SetupResults({
           <p role="alert" className="text-sm text-destructive">
             {t("mail.sort.aiSetupSortingFailed")}
           </p>
-          {onRetry ? (
+          {retryBlockedByUndo ? (
+            <p className="text-xs text-muted-foreground">
+              {t("mail.sort.aiSetupUndoBeforeRetry")}
+            </p>
+          ) : onRetry && !undone ? (
             <Button type="button" variant="outline" size="sm" onClick={onRetry}>
               {t("mail.sort.aiSetupRetry")}
             </Button>
@@ -258,11 +266,18 @@ function SetupResults({
         </div>
       ) : null}
       {undone ? (
-        <p className="text-sm text-muted-foreground">
-          {t("mail.sort.aiSetupUndoComplete", {
-            count: status.restoredThreads ?? 0,
-          })}
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {t("mail.sort.aiSetupUndoComplete", {
+              count: status.restoredThreads ?? 0,
+            })}
+          </p>
+          {onRetry ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              {t("mail.sort.aiSetupRetry")}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {status && !undone && status.perRule.length > 0 ? (
         <div className="space-y-2">
@@ -429,6 +444,26 @@ function readPendingSetupRuleIds(): string[] {
   }
 }
 
+function readPendingSetupBackfillRunId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage.getItem(PENDING_SETUP_BACKFILL_RUN_ID);
+  } catch {
+    // coercion-ok: recovery storage is optional and must not block setup rendering.
+    return null;
+  }
+}
+
+function clearPendingSetupBackfill(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
+    window.sessionStorage.removeItem(PENDING_SETUP_BACKFILL_RUN_ID);
+  } catch {
+    // coercion-ok: recovery storage must not block the user from finishing setup.
+  }
+}
+
 function suggestionLines(value: string): string[] {
   return value
     .split(/\r?\n/)
@@ -539,7 +574,9 @@ export function AiInboxSetup({
   const importantTextareaRef = useRef<HTMLTextAreaElement>(null);
   const focusBossSuggestionCaret = useRef(false);
   const [saving, setSaving] = useState(false);
-  const [backfillRunId, setBackfillRunId] = useState<string | null>(null);
+  const [backfillRunId, setBackfillRunId] = useState<string | null>(() =>
+    firstRunStage === "sorting" ? readPendingSetupBackfillRunId() : null,
+  );
   const [backfillStartFailed, setBackfillStartFailed] = useState(false);
   const [backfillReviewDestinations, setBackfillReviewDestinations] = useState<
     Record<string, ReviewDestination>
@@ -548,7 +585,7 @@ export function AiInboxSetup({
     firstRunStage === "sorting" ? readPendingSetupRuleIds() : [],
   );
   const previousForceOpen = useRef(forceOpen);
-  const backfillStarted = useRef(false);
+  const backfillStarted = useRef(backfillRunId !== null);
   const backfillStatus = useAiFilterBackfillStatus(backfillRunId);
 
   useEffect(() => {
@@ -599,10 +636,12 @@ export function AiInboxSetup({
     setCustomTags([]);
     setImportantPrompt("");
     setArchivePrompt("");
-    setBackfillRunId(null);
+    const recoveredRunId =
+      firstRunStage === "sorting" ? readPendingSetupBackfillRunId() : null;
+    setBackfillRunId(recoveredRunId);
     setBackfillStartFailed(false);
     setBackfillReviewDestinations({});
-    backfillStarted.current = false;
+    backfillStarted.current = recoveredRunId !== null;
   }, [firstRunStage, forceOpen]);
 
   const complete = async () => {
@@ -611,10 +650,16 @@ export function AiInboxSetup({
       onComplete?.();
       return;
     }
+    if (onComplete) {
+      clearPendingSetupBackfill();
+      onOpenChange?.(false);
+      onComplete();
+      return;
+    }
     try {
       await updateSettings.mutateAsync({ aiSetupCompleted: true });
+      clearPendingSetupBackfill();
       onOpenChange?.(false);
-      onComplete?.();
     } catch {
       toast.error(t("mail.aiFilter.settingsFailed"));
     }
@@ -648,6 +693,7 @@ export function AiInboxSetup({
       destinationsByRuleId: Record<string, ReviewDestination>,
     ) => {
       setBackfillStartFailed(false);
+      let runId: string;
       try {
         const result = await startBackfill.mutateAsync({
           operation: "start",
@@ -656,17 +702,23 @@ export function AiInboxSetup({
         if (!("runId" in result) || !result.runId) {
           throw new Error("Backfill did not return a run ID");
         }
-        setBackfillRunId(result.runId);
-        setBackfillReviewDestinations(destinationsByRuleId);
-        if (typeof window !== "undefined") {
-          window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
-        }
+        runId = result.runId;
       } catch {
         setBackfillStartFailed(true);
         backfillStarted.current = false;
+        return;
+      }
+      setBackfillRunId(runId);
+      setBackfillReviewDestinations(destinationsByRuleId);
+      if (typeof window !== "undefined" && firstRunSorting) {
+        try {
+          window.sessionStorage.setItem(PENDING_SETUP_BACKFILL_RUN_ID, runId);
+        } catch {
+          // coercion-ok: keep the started run available in memory when recovery storage is blocked.
+        }
       }
     },
-    [startBackfill.mutateAsync],
+    [firstRunSorting, startBackfill.mutateAsync],
   );
 
   useEffect(() => {
@@ -676,6 +728,7 @@ export function AiInboxSetup({
       !connected ||
       !canApplyRules ||
       rulesLoading ||
+      backfillRunId !== null ||
       backfillStarted.current
     ) {
       return;
@@ -692,6 +745,7 @@ export function AiInboxSetup({
     if (ruleIds.length > 0) void runBackfill(ruleIds, destinations);
   }, [
     aiRules,
+    backfillRunId,
     canApplyRules,
     connected,
     firstRunSorting,
@@ -703,6 +757,27 @@ export function AiInboxSetup({
   ]);
 
   useEffect(() => {
+    const perRule = backfillStatus.data?.perRule;
+    if (!firstRunSorting || !backfillRunId || rulesLoading || !perRule) return;
+    const runRuleIds = new Set(perRule.map(({ ruleId }) => ruleId));
+    setBackfillReviewDestinations(
+      Object.fromEntries(
+        aiRules.flatMap((rule) => {
+          if (!runRuleIds.has(rule.id)) return [];
+          const destination = reviewDestinationForRule(rule);
+          return destination ? [[rule.id, destination] as const] : [];
+        }),
+      ),
+    );
+  }, [
+    aiRules,
+    backfillRunId,
+    backfillStatus.data?.perRule,
+    firstRunSorting,
+    rulesLoading,
+  ]);
+
+  useEffect(() => {
     if (
       onboardingPreview ||
       firstRunOnboardingOwnsSurface ||
@@ -710,7 +785,7 @@ export function AiInboxSetup({
     ) {
       return;
     }
-    window.sessionStorage.removeItem(PENDING_SETUP_RULE_IDS);
+    clearPendingSetupBackfill();
   }, [firstRunOnboardingOwnsSurface, location.pathname, onboardingPreview]);
 
   const savePreferences = async (includeArchive: boolean) => {
@@ -760,6 +835,7 @@ export function AiInboxSetup({
 
       const uniqueRuleIds = [...new Set(ruleIds)];
       if (firstRunPreferences) {
+        clearPendingSetupBackfill();
         window.sessionStorage.setItem(
           PENDING_SETUP_RULE_IDS,
           JSON.stringify(uniqueRuleIds),
@@ -875,12 +951,20 @@ export function AiInboxSetup({
     );
   };
   const skipSorting = () => {
-    if (onSkip) onSkip();
-    else void complete();
+    if (onSkip) {
+      if (!onboardingPreview) clearPendingSetupBackfill();
+      onSkip();
+    } else void complete();
   };
   const startRetry = () => {
     const ruleIds = pendingRuleIds;
     if (onboardingPreview || ruleIds.length === 0) return;
+    if (
+      backfillStatus.data?.status === "failed" &&
+      backfillStatus.data.undoToken
+    ) {
+      return;
+    }
     if (
       backfillRunId &&
       backfillStatus.isError &&

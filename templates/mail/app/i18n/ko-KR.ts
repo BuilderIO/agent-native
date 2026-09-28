@@ -87,6 +87,8 @@ const messages = {
       aiSetupSortingProgress:
         "최근 메일 정리 중: {{total}}개 중 {{processed}}개",
       aiSetupUndoing: "받은편지함 변경을 되돌리고 있어요…",
+      aiSetupUndoBeforeRetry:
+        "다시 시도하기 전에 일부 변경 사항을 먼저 실행 취소하세요.",
       aiSetupSortingFailed:
         "받은편지함을 정리하지 못했어요. 규칙은 저장되었으니 다시 시도해 주세요.",
       aiSetupUndoComplete: "{{count}}개 메시지를 이전 상태로 복원했어요.",

@@ -88,6 +88,8 @@ const messages = {
       aiSetupSortingProgress:
         "最近のメールを整理中：{{total}} 件中 {{processed}} 件",
       aiSetupUndoing: "受信トレイの変更を取り消しています…",
+      aiSetupUndoBeforeRetry:
+        "再試行する前に、一部の変更を取り消してください。",
       aiSetupSortingFailed:
         "受信トレイを整理できませんでした。ルールは保存されています。もう一度お試しください。",
       aiSetupUndoComplete: "{{count}} 件のメッセージを元の状態に戻しました。",

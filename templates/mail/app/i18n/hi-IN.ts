@@ -88,6 +88,7 @@ const messages = {
       aiSetupSortingProgress:
         "हाल के मेल व्यवस्थित हो रहे हैं: {{total}} में से {{processed}}",
       aiSetupUndoing: "इनबॉक्स में किए बदलाव वापस हो रहे हैं…",
+      aiSetupUndoBeforeRetry: "फिर से कोशिश करने से पहले आंशिक बदलाव वापस लें।",
       aiSetupSortingFailed:
         "इनबॉक्स व्यवस्थित नहीं हो सका। आपके नियम सहेजे गए हैं; फिर कोशिश करें।",
       aiSetupUndoComplete: "{{count}} संदेश अपनी पिछली स्थिति में लौटे।",
