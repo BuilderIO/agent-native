@@ -47,6 +47,7 @@ describe("AgentKit thread history", () => {
         ),
       ),
     ).toHaveLength(1);
+    expect(restored.agentKit.messages[0].id).toBe("message-live-reply");
     expect(restored.agentKit.messages[0].status).toBe("complete");
 
     const nextTurn = mergeThreadDataForClientSave(existing, {

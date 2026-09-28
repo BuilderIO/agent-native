@@ -958,7 +958,10 @@ async function callModel(
       apiKey: anthropicKey,
     });
     const model = settings.model || engine.defaultModel;
-    const abortSignal = signal ?? new AbortController().signal;
+    const timeoutSignal = AbortSignal.timeout(30_000);
+    const abortSignal = signal
+      ? AbortSignal.any([signal, timeoutSignal])
+      : timeoutSignal;
     let text = "";
     let assistantText = "";
     let usage:
@@ -970,36 +973,46 @@ async function callModel(
         }
       | undefined;
 
-    for await (const event of engine.stream({
-      model,
-      systemPrompt: "",
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: prompt }],
-        },
-      ],
-      tools: [],
-      abortSignal,
-      maxOutputTokens: 2048,
-    })) {
-      if (event.type === "text-delta") {
-        text += event.text;
-      } else if (event.type === "assistant-content") {
-        assistantText = event.parts
-          .filter((part) => part.type === "text")
-          .map((part) => part.text)
-          .join("");
-      } else if (event.type === "usage") {
-        usage = {
-          inputTokens: event.inputTokens,
-          outputTokens: event.outputTokens,
-          cacheReadTokens: event.cacheReadTokens,
-          cacheWriteTokens: event.cacheWriteTokens,
-        };
-      } else if (event.type === "stop" && event.reason === "error") {
-        throw new Error(event.error || "Automation model call failed");
+    try {
+      for await (const event of engine.stream({
+        model,
+        systemPrompt: "",
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+          },
+        ],
+        tools: [],
+        abortSignal,
+        maxOutputTokens: 2048,
+      })) {
+        if (event.type === "text-delta") {
+          text += event.text;
+        } else if (event.type === "assistant-content") {
+          assistantText = event.parts
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("");
+        } else if (event.type === "usage") {
+          usage = {
+            inputTokens: event.inputTokens,
+            outputTokens: event.outputTokens,
+            cacheReadTokens: event.cacheReadTokens,
+            cacheWriteTokens: event.cacheWriteTokens,
+          };
+        } else if (event.type === "stop" && event.reason === "error") {
+          if (abortSignal.aborted && abortSignal.reason instanceof Error) {
+            throw abortSignal.reason;
+          }
+          throw new Error(event.error || "Automation model call failed");
+        }
       }
+    } catch (error) {
+      if (abortSignal.aborted && abortSignal.reason instanceof Error) {
+        throw abortSignal.reason;
+      }
+      throw error;
     }
 
     if (usage) {

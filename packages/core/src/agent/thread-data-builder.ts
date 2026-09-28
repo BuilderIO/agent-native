@@ -1484,7 +1484,16 @@ function mergeAgentKitHistoryArray(
     } else {
       if (kind === "message") matchedAssistantTextPositions.add(index);
       if (id && idIndex === undefined) positions.set(id, index);
-      if (preferIncomingSnapshotEntry(kind, merged[index], entry)) {
+      const preferIncoming = preferIncomingSnapshotEntry(
+        kind,
+        merged[index],
+        entry,
+      );
+      const preferCurrentMessageId =
+        kind === "message" &&
+        textIndex !== undefined &&
+        !preferIncomingSnapshotEntry(kind, entry, merged[index]);
+      if (preferIncoming || preferCurrentMessageId) {
         merged[index] = entry;
       }
     }

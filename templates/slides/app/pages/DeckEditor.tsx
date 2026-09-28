@@ -14,7 +14,11 @@ import {
   emailToColor,
   emailToName,
 } from "@agent-native/core/client/collab";
-import { useSession } from "@agent-native/core/client/hooks";
+import {
+  actionErrorMessage,
+  signOut,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
@@ -56,6 +60,7 @@ import SlideRenderer, {
 } from "@/components/deck/SlideRenderer";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
 import AssetLibraryPanel from "@/components/editor/AssetLibraryPanel";
+import { DeckAccessDeniedPage } from "@/components/editor/DeckAccessDeniedPage";
 import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import {
   EditorActionCluster,
@@ -130,7 +135,9 @@ import { useSlideFileStorageStatus } from "@/hooks/use-slide-file-storage-status
 import { getAspectRatioDims } from "@/lib/aspect-ratios";
 import { downloadDeckBackup, parseDeckBackup } from "@/lib/deck-backup";
 import {
+  deckAccessCheckFor,
   deckAccessCheckKey,
+  deckAccessRequestStateFor,
   retryMissingDeck,
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
@@ -525,6 +532,8 @@ export default function DeckEditor() {
   const deckAccessStatusQuery = useDeckAccessStatus(id);
   const refetchDeckAccessStatus = deckAccessStatusQuery.refetch;
   const requestDeckAccessMutation = useRequestDeckAccess();
+  const deniedPageAccessRequest = useRequestDeckAccess();
+  const resetDeniedPageAccessRequest = deniedPageAccessRequest.reset;
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [selectedSlideIds, setSelectedSlideIds] = useState<string[]>([]);
   const [altDragState, setAltDragState] = useState<{
@@ -875,6 +884,9 @@ export default function DeckEditor() {
   }, [deck]);
 
   const deckAccessStatus = deckAccessStatusQuery.data ?? null;
+  const deckAccessCheck = deckAccessCheckFor(deckAccessStatusQuery);
+  const showDeckAccessDeniedPage =
+    Boolean(session) && deckAccessCheck === "denied";
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
@@ -1987,12 +1999,11 @@ export default function DeckEditor() {
             if (result.alreadyHasAccess) void reloadDecks();
           },
           onError: (error: unknown) => {
+            const message =
+              actionErrorMessage(error) ?? t("deckEditor.accessRequestFailed");
+            toast.error(message);
             if (!normalizedGuestEmail) return;
-            setRequestAccessDialogError(
-              error instanceof Error && error.message
-                ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
-                : t("deckEditor.accessRequestFailed"),
-            );
+            setRequestAccessDialogError(message);
           },
         },
       );
@@ -2046,6 +2057,10 @@ export default function DeckEditor() {
       setAccessRequestNotified(false);
     }
   }, [accessRequestSentDeckId, id]);
+
+  useEffect(() => {
+    resetDeniedPageAccessRequest();
+  }, [id, resetDeniedPageAccessRequest]);
 
   // The final generation write can race the last sync event. Pull the
   // authoritative open deck when the run settles so a stale canvas does not
@@ -3412,12 +3427,40 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
-      deckAccessDeniedConfirmed: Boolean(
-        deckAccessStatus?.exists && !deckAccessStatus.hasAccess,
-      ),
+      accessCheck: deckAccessCheck,
     })
   ) {
     return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
+  }
+  if (id && !deck && showDeckAccessDeniedPage) {
+    const pendingAccessRequest = deckAccessStatus?.pendingAccessRequest;
+    return (
+      <DeckAccessDeniedPage
+        key={id}
+        canRequestAccess={deckAccessStatus?.visibility === "private"}
+        request={deckAccessRequestStateFor(
+          deniedPageAccessRequest,
+          pendingAccessRequest,
+        )}
+        savedNote={pendingAccessRequest?.note ?? null}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
+        onNoteChange={() => {
+          if (deniedPageAccessRequest.isError) resetDeniedPageAccessRequest();
+        }}
+        onRequestAccess={(note) =>
+          deniedPageAccessRequest.mutate(
+            { deckId: id, note },
+            {
+              onSuccess: (result) => {
+                if (result.alreadyHasAccess) void reloadDecks();
+              },
+            },
+          )
+        }
+        onSwitchAccount={() => void signOut()}
+        onGoHome={() => navigate("/home")}
+      />
+    );
   }
   if (!deck || !id) {
     return (

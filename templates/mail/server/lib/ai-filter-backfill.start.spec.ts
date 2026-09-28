@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const database = vi.hoisted(() => {
   const rows: Array<Record<string, any>> = [];
@@ -190,10 +190,16 @@ const mocks = vi.hoisted(() => ({
   evaluateAiFilterBackfillRules: vi.fn(),
 }));
 
+const dispatch = vi.hoisted(() => ({ fireInternalDispatch: vi.fn() }));
+
 vi.mock("@agent-native/core/action", () => ({
   fail: (message: string, details: Record<string, unknown>) => {
     throw Object.assign(new Error(message), details);
   },
+}));
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  fireInternalDispatch: dispatch.fireInternalDispatch,
 }));
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: mocks.getUserSetting,
@@ -257,6 +263,7 @@ vi.mock("./local-email-store.js", () => ({
 import { AI_FILTER_LABEL } from "../../shared/ai-filter.js";
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
+  aiFilterBackfillRetryDelay,
   checkpointAppliedBackfillMutation,
   processMailAiFilterBackfills,
   requestMailAiFilterBackfillUndo,
@@ -417,7 +424,10 @@ describe("startMailAiFilterBackfill", () => {
     mocks.mutateUserSetting.mockResolvedValue(undefined);
     mocks.buildLabelCache.mockResolvedValue(new Map());
     mocks.ensureGmailLabel.mockResolvedValue("label-id");
+    dispatch.fireInternalDispatch.mockResolvedValue(undefined);
   });
+
+  afterEach(() => vi.unstubAllEnvs());
 
   it("queues without synchronously resolving model availability", async () => {
     mocks.rules = [rule("rule-a")];
@@ -426,6 +436,45 @@ describe("startMailAiFilterBackfill", () => {
 
     expect(result).toMatchObject({ status: "queued" });
     expect(database.rows).toHaveLength(1);
+  });
+
+  it("keeps a queued run recoverable after an ambiguous handoff failure", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret");
+    mocks.rules = [rule("rule-a")];
+    dispatch.fireInternalDispatch.mockRejectedValueOnce(
+      new Error("background response timed out"),
+    );
+
+    const result = await startMailAiFilterBackfill(ownerEmail, ["rule-a"]);
+
+    expect(result).toMatchObject({ status: "queued" });
+    expect(database.rows).toHaveLength(1);
+    expect(database.rows[0].status).toBe("queued");
+    expect(JSON.parse(database.rows[0].stateJson).error).toBeUndefined();
+  });
+
+  it("requires the deployment signing secret before creating a Netlify run", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("A2A_SECRET", "");
+    mocks.rules = [rule("rule-a")];
+
+    await expect(
+      startMailAiFilterBackfill(ownerEmail, ["rule-a"]),
+    ).rejects.toMatchObject({
+      errorCode: "ai_filter_backfill_signing_secret_missing",
+      statusCode: 503,
+    });
+
+    expect(database.rows).toHaveLength(0);
+    expect(dispatch.fireInternalDispatch).not.toHaveBeenCalled();
+  });
+
+  it("treats bounded model timeouts as retryable", () => {
+    const timeout = Object.assign(new Error("model timed out"), {
+      name: "TimeoutError",
+    });
+    expect(aiFilterBackfillRetryDelay(timeout)).toBe(30_000);
   });
 
   it("skips delayed retries before bounding worker queue candidates", async () => {
@@ -635,7 +684,7 @@ describe("startMailAiFilterBackfill", () => {
     expect(database.rows).toHaveLength(0);
   });
 
-  it("rejects a concurrent start for the same canonical rule set", async () => {
+  it("reuses a concurrent start for the same canonical rule set", async () => {
     mocks.rules = [rule("rule-a"), rule("rule-b")];
 
     const results = await Promise.allSettled([
@@ -643,12 +692,11 @@ describe("startMailAiFilterBackfill", () => {
       startMailAiFilterBackfill(ownerEmail, ["rule-a", "rule-b"]),
     ]);
 
-    expect(
-      results.filter((result) => result.status === "fulfilled"),
-    ).toHaveLength(1);
-    expect(
-      results.filter((result) => result.status === "rejected"),
-    ).toHaveLength(1);
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect(results.map((result: any) => result.value.runId)).toEqual([
+      database.rows[0].id,
+      database.rows[0].id,
+    ]);
     expect(database.rows).toHaveLength(1);
     expect(database.rows[0].ruleSetKey).toBe(
       JSON.stringify([
