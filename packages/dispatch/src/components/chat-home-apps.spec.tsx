@@ -10,6 +10,20 @@ const launcherState = vi.hoisted(() => ({
       { id: "plan", name: "Plan" },
       { id: "mail", name: "Mail" },
     ],
+    workspaceApps: [
+      {
+        id: "plan",
+        name: "Plan",
+        description: "Structured project plans",
+        path: "/plan",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Email and inbox",
+        path: "/mail",
+      },
+    ],
     isLoading: false,
     error: undefined,
     openApp: vi.fn(),
@@ -19,11 +33,14 @@ const launcherState = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
-    key === "dispatch.pages.chatFirstWorkspaceApps"
-      ? "Workspace apps"
-      : key === "dispatch.pages.allApps"
-        ? "All apps"
-        : key,
+    ({
+      "dispatch.nav.apps": "Apps",
+      "dispatch.pages.allApps": "All apps",
+      "dispatch.pages.chatFirstNewApp": "New",
+      "dispatch.pages.openApp": "Open",
+      "dispatch.pages.searchApps": "Search apps",
+      "dispatch.pages.searchAppsPlaceholder": "Search apps",
+    })[key] ?? key,
 }));
 
 vi.mock("./layout/Layout", () => ({
@@ -38,9 +55,19 @@ describe("DispatchChatHomeApps", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    launcherState.value.apps = [
-      { id: "plan", name: "Plan" },
-      { id: "mail", name: "Mail" },
+    launcherState.value.workspaceApps = [
+      {
+        id: "plan",
+        name: "Plan",
+        description: "Structured project plans",
+        path: "/plan",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Email and inbox",
+        path: "/mail",
+      },
     ];
     launcherState.value.openApp.mockReset();
     launcherState.value.retry.mockReset();
@@ -55,7 +82,7 @@ describe("DispatchChatHomeApps", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows compact two-column app rows and a translated All apps link", async () => {
+  it("renders the searchable Electron-style app directory and open actions", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat"]}>
@@ -64,41 +91,29 @@ describe("DispatchChatHomeApps", () => {
       );
     });
 
-    const grid = container.querySelector("[aria-label='Workspace apps'] .grid");
-    expect(grid?.className.split(" ")).toContain("grid-cols-2");
-
-    const appButtons = [...(grid?.querySelectorAll("button") ?? [])];
-    expect(appButtons.map((button) => button.textContent?.trim())).toEqual([
-      "Plan",
-      "Mail",
-    ]);
-    expect(appButtons).toHaveLength(2);
-    for (const button of appButtons) {
-      expect(button.querySelector("[aria-hidden='true'] svg")).not.toBeNull();
-    }
+    const section = container.querySelector("section[aria-label='Apps']");
+    const grid = section?.querySelector(".grid.grid-cols-1");
+    expect(grid?.className.split(" ")).toContain("sm:grid-cols-2");
+    expect(section?.querySelectorAll("article")).toHaveLength(2);
+    expect(container.textContent).toContain("Structured project plans");
     expect(
-      appButtons[0]
-        ?.querySelector<HTMLElement>("[aria-hidden='true']")
-        ?.style.getPropertyValue("--dispatch-app-icon-color-rgb"),
-    ).toBe("47 111 237");
+      container.querySelector("button[aria-label='Open options for Plan']"),
+    ).not.toBeNull();
+    expect(container.querySelector("button[aria-label='Open Plan']")).not.toBe(
+      null,
+    );
     expect(
-      appButtons[1]
-        ?.querySelector<HTMLElement>("[aria-hidden='true']")
-        ?.style.getPropertyValue("--dispatch-app-icon-color-rgb"),
-    ).toBe("59 130 246");
+      container.querySelector<HTMLElement>(
+        "article [aria-hidden='true'][style*='--dispatch-app-icon-color-rgb']",
+      ),
+    ).not.toBeNull();
 
     const allAppsLink =
       container.querySelector<HTMLAnchorElement>("a[href='/apps']");
-    expect(allAppsLink?.textContent?.trim()).toBe("All apps");
-    expect(grid?.closest("section")?.lastElementChild).toBe(allAppsLink);
+    expect(allAppsLink?.textContent?.trim()).toContain("All apps");
   });
 
-  it("shows only the first six apps and keeps the All apps link", async () => {
-    launcherState.value.apps = Array.from({ length: 8 }, (_, index) => ({
-      id: `app-${index}`,
-      name: `App ${index}`,
-    }));
-
+  it("filters app descriptions and opens the selected app", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat"]}>
@@ -107,16 +122,28 @@ describe("DispatchChatHomeApps", () => {
       );
     });
 
-    const grid = container.querySelector("[aria-label='Workspace apps'] .grid");
-    expect(
-      [...(grid?.querySelectorAll("button") ?? [])].map((button) =>
-        button.textContent?.trim(),
-      ),
-    ).toEqual(["App 0", "App 1", "App 2", "App 3", "App 4", "App 5"]);
+    const search = container.querySelector<HTMLInputElement>(
+      "input[placeholder='Search apps']",
+    );
+    expect(search).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(search, "inbox");
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
 
-    const allAppsLink =
-      container.querySelector<HTMLAnchorElement>("a[href='/apps']");
-    expect(allAppsLink?.textContent?.trim()).toBe("All apps");
-    expect(grid?.closest("section")?.lastElementChild).toBe(allAppsLink);
+    expect(container.querySelectorAll("article")).toHaveLength(1);
+    expect(container.textContent).toContain("Mail");
+    expect(container.textContent).not.toContain("Plan");
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("button[aria-label='Open Mail']")
+        ?.click();
+    });
+    expect(launcherState.value.openApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mail" }),
+    );
   });
 });

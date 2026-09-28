@@ -1,25 +1,43 @@
-import { appPath } from "@agent-native/core/client/api-path";
+import { AppOpenActions } from "@agent-native/core/client/chat-first";
 import { useT } from "@agent-native/core/client/i18n";
+import { IconArrowUpRight, IconPlus } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
+import { workspaceAppMatchesQuery } from "../lib/workspace-app-layout";
+import { workspaceAppHref } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
+import { CreateAppPopover } from "./create-app-popover";
 import { useDispatchWorkspaceAppLauncher } from "./layout/Layout";
+import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
+import {
+  WorkspaceAppSearch,
+  WorkspaceAppSearchEmpty,
+} from "./workspace-app-search";
 
 export function DispatchChatHomeApps() {
   const t = useT();
   const launcher = useDispatchWorkspaceAppLauncher();
+  const [query, setQuery] = useState("");
+  const apps = useMemo(
+    () =>
+      launcher?.workspaceApps.filter((app) =>
+        workspaceAppMatchesQuery(app, query),
+      ) ?? [],
+    [launcher?.workspaceApps, query],
+  );
   if (!launcher) return null;
 
-  if (launcher.error && launcher.apps.length === 0) {
+  if (launcher.error && launcher.workspaceApps.length === 0) {
     return (
       <div className="mx-auto w-full max-w-[1000px]">
         <ActionQueryError error={launcher.error} onRetry={launcher.retry} />
       </div>
     );
   }
-  if (!launcher.isLoading && launcher.apps.length === 0) return null;
+  if (!launcher.isLoading && launcher.workspaceApps.length === 0) return null;
 
   return (
     <div className="mx-auto w-full max-w-[1000px]">
@@ -30,44 +48,91 @@ export function DispatchChatHomeApps() {
           className="mb-3"
         />
       ) : null}
-      <section aria-label={t("dispatch.pages.chatFirstWorkspaceApps")}>
-        <div className="max-h-[32vh] overflow-y-auto overscroll-contain">
-          <div className="grid grid-cols-2 gap-1.5">
-            {launcher.isLoading && launcher.apps.length === 0
-              ? Array.from({ length: 6 }, (_, index) => (
-                  <div
-                    key={index}
-                    className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5"
-                  >
-                    <Skeleton className="size-7 rounded-md" />
-                    <Skeleton className="h-3 w-16" />
-                  </div>
-                ))
-              : launcher.apps.slice(0, 6).map((app) => (
-                  <button
-                    key={app.id}
-                    type="button"
-                    onClick={() => launcher.openApp(app)}
-                    className="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <AppIcon
-                      id={app.id}
-                      name={app.name}
-                      size="sm"
-                      className="rounded-md"
-                    />
-                    <span className="min-w-0 truncate text-sm font-medium text-muted-foreground group-hover:text-foreground">
-                      {app.name}
-                    </span>
-                  </button>
-                ))}
+      <section aria-label={t("dispatch.nav.apps")}>
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("dispatch.nav.apps")}
+          </h2>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:flex-none">
+            <WorkspaceAppSearch
+              query={query}
+              onQueryChange={setQuery}
+              className="w-full max-w-[280px]"
+            />
+            <CreateAppPopover
+              align="end"
+              onCreated={launcher.retry}
+              trigger={
+                <Button type="button" size="sm" variant="outline">
+                  <IconPlus size={16} aria-hidden="true" />
+                  {t("dispatch.pages.chatFirstNewApp")}
+                </Button>
+              }
+            />
           </div>
-        </div>
+        </header>
+        {launcher.isLoading && launcher.workspaceApps.length === 0 ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={index}
+                className="flex min-w-0 items-center gap-3 rounded-xl bg-muted/30 px-3 py-2.5"
+              >
+                <Skeleton className="size-7 rounded-lg" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-3 w-40 max-w-full" />
+                </div>
+                <Skeleton className="h-7 w-20" />
+              </div>
+            ))}
+          </div>
+        ) : apps.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {apps.map((app) => {
+              const href = workspaceAppHref(app);
+              return (
+                <article
+                  key={app.id}
+                  className="flex min-w-0 items-center gap-3 rounded-xl bg-muted/30 px-3 py-2.5 transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <AppIcon id={app.id} name={app.name} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-foreground">
+                        {app.name}
+                      </span>
+                      {app.description ? (
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {app.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                  <AppOpenActions
+                    name={app.name}
+                    href={href}
+                    onOpen={() => launcher.openApp(app)}
+                    showNewTabOption={Boolean(href)}
+                    labels={{
+                      openApp: t("dispatch.pages.openApp", {
+                        defaultValue: "Open",
+                      }),
+                    }}
+                  />
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <WorkspaceAppSearchEmpty query={query} onClear={() => setQuery("")} />
+        )}
         <Link
-          to={appPath("/apps")}
-          className="mt-2 inline-flex text-xs font-medium text-muted-foreground hover:text-foreground"
+          to="/apps"
+          className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           {t("dispatch.pages.allApps")}
+          <IconArrowUpRight size={14} aria-hidden="true" />
         </Link>
       </section>
     </div>

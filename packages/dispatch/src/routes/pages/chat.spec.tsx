@@ -11,7 +11,14 @@ const clientState = vi.hoisted(() => ({
   activeRunId: null as string | null,
   writeClipboardText: vi.fn(),
   openWorkspaceApp: vi.fn(),
-  workspaceApps: [{ id: "content", name: "Content" }],
+  workspaceApps: [
+    {
+      id: "content",
+      name: "Content",
+      description: "Create and edit content",
+      path: "/content",
+    },
+  ],
   workspaceAppsError: null as unknown,
   retryWorkspaceApps: vi.fn(),
   agents: [] as Array<{
@@ -64,6 +71,7 @@ vi.mock("../../components/layout/Layout", () => ({
   useDispatchExtensions: () => undefined,
   useDispatchWorkspaceAppLauncher: () => ({
     apps: clientState.workspaceApps,
+    workspaceApps: clientState.workspaceApps,
     isLoading: false,
     error: clientState.workspaceAppsError,
     openApp: clientState.openWorkspaceApp,
@@ -72,6 +80,10 @@ vi.mock("../../components/layout/Layout", () => ({
 }));
 
 vi.mock("../../lib/workspace-app-layout", () => ({
+  workspaceAppMatchesQuery: (
+    app: { name: string; description?: string },
+    query: string,
+  ) => `${app.name} ${app.description ?? ""}`.toLowerCase().includes(query),
   orderWorkspaceApps: (apps: unknown[]) => apps,
   useWorkspaceAppLayout: () => ({
     layout: { pinnedIds: [], orderedIds: [] },
@@ -105,7 +117,14 @@ describe("Dispatch ChatRoute", () => {
     clientState.openWorkspaceApp.mockReset();
     clientState.retryWorkspaceApps.mockReset();
     clientState.workspaceAppsError = null;
-    clientState.workspaceApps = [{ id: "content", name: "Content" }];
+    clientState.workspaceApps = [
+      {
+        id: "content",
+        name: "Content",
+        description: "Create and edit content",
+        path: "/content",
+      },
+    ];
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -135,7 +154,7 @@ describe("Dispatch ChatRoute", () => {
       composerPlaceholder: "Tell Dispatch what you’d like to make happen…",
       suppressInlineOpenApp: true,
     });
-    expect(container.textContent).toContain("What should we do?");
+    expect(container.textContent).toContain("What should we do today?");
     expect(clientState.surfaceProps?.suggestions).toEqual([
       "dispatch.pages.suggestionWorkspaceHealth",
       "dispatch.pages.suggestionOnboardingApp",
@@ -144,7 +163,7 @@ describe("Dispatch ChatRoute", () => {
     expect(clientState.surfaceProps?.afterComposerSlot).toBeTruthy();
   });
 
-  it("renders colored launcher tiles below the empty chat composer", async () => {
+  it("renders the colored app directory below the empty chat composer", async () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/chat"]}>
@@ -153,21 +172,20 @@ describe("Dispatch ChatRoute", () => {
       );
     });
 
-    const appButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Content",
+    const appButton = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='Open Content']",
     );
     expect(appButton).toBeTruthy();
     expect(
-      appButton?.querySelector("span[style]")?.getAttribute("style"),
+      container.querySelector("article span[style]")?.getAttribute("style"),
     ).toContain("16 185 129");
 
     await act(async () => {
       appButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(clientState.openWorkspaceApp).toHaveBeenCalledWith({
-      id: "content",
-      name: "Content",
-    });
+    expect(clientState.openWorkspaceApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "content", name: "Content" }),
+    );
   });
 
   it("keeps loaded apps visible and offers retry after a partial list failure", async () => {
@@ -230,7 +248,7 @@ describe("Dispatch ChatRoute", () => {
       true,
     );
     expect(clientState.surfaceProps?.suggestions).toEqual([]);
-    expect(container.textContent).not.toContain("What should we do?");
+    expect(container.textContent).not.toContain("What should we do today?");
   });
 
   it("keeps an agent chat scoped and preserves the scope in thread URLs", async () => {

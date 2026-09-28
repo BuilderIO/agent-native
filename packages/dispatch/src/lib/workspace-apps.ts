@@ -156,6 +156,17 @@ export function isWorkspaceAppVisibleInDefaultLaunchers(
   return !app.isDispatch && !isDefaultWorkspaceAppHiddenId(app.id);
 }
 
+const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<string, string> = {
+  calendar:
+    "Agent-Native Google Calendar — manage events, sync, and public booking",
+  clips: "Screen recording, meeting notes, and voice dictation — all with AI",
+  content:
+    "Open-source Obsidian for MDX — edit local docs with agent assistance",
+  design:
+    "Agent-Native design tool — create and edit visual designs with agent assistance",
+  mail: "Agent-Native Superhuman — email client with keyboard shortcuts and AI triage",
+};
+
 function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
 
@@ -419,12 +430,19 @@ export function mergeChatFirstWorkspaceApps(
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
+      description: DEFAULT_WORKSPACE_APP_DESCRIPTIONS[id],
       path: "/",
       url: defaultWorkspaceAppUrl(CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id]),
       status: "ready",
     });
   }
-  for (const app of apps ?? []) merged.set(app.id, app);
+  for (const app of apps ?? []) {
+    const fallbackDescription = merged.get(app.id)?.description;
+    merged.set(app.id, {
+      ...app,
+      description: app.description ?? fallbackDescription,
+    });
+  }
 
   return [...merged.values()];
 }

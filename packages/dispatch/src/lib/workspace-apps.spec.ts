@@ -189,6 +189,7 @@ describe("workspace app routes", () => {
 
   it("maps default first-party apps to their canonical hosted origins", () => {
     const apps = mergeChatFirstWorkspaceApps(undefined);
+    expect(apps.find((app) => app.id === "content")?.description).toBeTruthy();
     expect(apps).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -254,6 +255,7 @@ describe("workspace app routes", () => {
       name: "Internal Mail",
       path: "/internal-mail",
       url: null,
+      description: expect.any(String),
     });
   });
 });

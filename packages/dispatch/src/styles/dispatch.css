@@ -49,17 +49,7 @@
   width: 100%;
   max-width: min(750px, 90%);
   gap: 0.5rem;
-  margin: 0 auto 1rem;
-  text-align: center;
-}
-
-.dispatch-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
-  .dispatch-chat-intro {
-  display: grid;
-  width: 100%;
-  max-width: min(750px, 90%);
-  gap: 0.5rem;
-  margin: 0 auto 1rem;
+  margin: 0 auto 1.5rem;
   text-align: center;
 }
 
@@ -124,7 +114,7 @@
   .dispatch-chat-panel.agentkit-chat[data-empty="true"][data-empty-composer-placement="center"]
     .dispatch-chat-intro {
     width: 100%;
-    margin-bottom: 0.875rem;
+    margin-bottom: 1.25rem;
   }
 
   .dispatch-chat-intro h1 {

@@ -13,6 +13,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "無法儲存應用程式釘選。",
       appPinSavedLocally: "應用程式釘選只儲存在此裝置上。",
       chatFirstCreateWorkspaceApp: "建立工作區應用程式",
+      chatFirstNewApp: "新增",
       chatFirstOpenApp: "開啟 {{name}}",
       chatFirstAppsLoadError: "無法載入工作區應用程式",
       chatFirstNoWorkspaceApps: "尚無工作區應用程式。",
@@ -90,6 +91,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "无法保存应用固定设置。",
       appPinSavedLocally: "应用固定设置仅保存在此设备上。",
       chatFirstCreateWorkspaceApp: "创建工作区应用",
+      chatFirstNewApp: "新建",
       chatFirstOpenApp: "打开 {{name}}",
       chatFirstAppsLoadError: "无法加载工作区应用",
       chatFirstNoWorkspaceApps: "尚无工作区应用。",
@@ -168,6 +170,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Las apps fijadas solo se guardan en este dispositivo.",
       chatFirstCreateWorkspaceApp: "Crear app del espacio de trabajo",
+      chatFirstNewApp: "Nuevo",
       chatFirstOpenApp: "Abrir {{name}}",
       chatFirstAppsLoadError:
         "No se pudieron cargar las apps del espacio de trabajo",
@@ -254,6 +257,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Les applications épinglées sont enregistrées uniquement sur cet appareil.",
       chatFirstCreateWorkspaceApp: "Créer une application d’espace de travail",
+      chatFirstNewApp: "Nouveau",
       chatFirstOpenApp: "Ouvrir {{name}}",
       chatFirstAppsLoadError:
         "Impossible de charger les applications de l’espace de travail",
@@ -342,6 +346,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "App-Anheftungen werden nur auf diesem Gerät gespeichert.",
       chatFirstCreateWorkspaceApp: "Arbeitsbereich-App erstellen",
+      chatFirstNewApp: "Neu",
       chatFirstOpenApp: "{{name}} öffnen",
       chatFirstAppsLoadError:
         "Arbeitsbereich-Apps konnten nicht geladen werden",
@@ -428,6 +433,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "アプリの固定を保存できませんでした。",
       appPinSavedLocally: "アプリの固定はこのデバイスにのみ保存されます。",
       chatFirstCreateWorkspaceApp: "ワークスペースアプリを作成",
+      chatFirstNewApp: "新規",
       chatFirstOpenApp: "{{name}}を開く",
       chatFirstAppsLoadError: "ワークスペースアプリを読み込めませんでした",
       chatFirstNoWorkspaceApps: "ワークスペースアプリはまだありません。",
@@ -513,6 +519,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "앱 고정을 저장하지 못했습니다.",
       appPinSavedLocally: "앱 고정은 이 기기에만 저장됩니다.",
       chatFirstCreateWorkspaceApp: "워크스페이스 앱 만들기",
+      chatFirstNewApp: "새로 만들기",
       chatFirstOpenApp: "{{name}} 열기",
       chatFirstAppsLoadError: "워크스페이스 앱을 불러오지 못했습니다",
       chatFirstNoWorkspaceApps: "아직 워크스페이스 앱이 없습니다.",
@@ -595,6 +602,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSavedLocally:
         "Os apps fixados são salvos somente neste dispositivo.",
       chatFirstCreateWorkspaceApp: "Criar app do espaço de trabalho",
+      chatFirstNewApp: "Novo",
       chatFirstOpenApp: "Abrir {{name}}",
       chatFirstAppsLoadError:
         "Não foi possível carregar os apps do espaço de trabalho",
@@ -680,6 +688,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "ऐप पिन सहेजे नहीं जा सके।",
       appPinSavedLocally: "ऐप पिन केवल इस डिवाइस पर सहेजे गए हैं।",
       chatFirstCreateWorkspaceApp: "वर्कस्पेस ऐप बनाएँ",
+      chatFirstNewApp: "नया",
       chatFirstOpenApp: "{{name}} खोलें",
       chatFirstAppsLoadError: "वर्कस्पेस ऐप्स लोड नहीं हो सके",
       chatFirstNoWorkspaceApps: "अभी कोई वर्कस्पेस ऐप नहीं है।",
@@ -759,6 +768,7 @@ export const chatFirstPageTranslations: Record<string, ChatFirstPageMessages> =
       appPinSaveFailed: "تعذر حفظ تثبيتات التطبيقات.",
       appPinSavedLocally: "تُحفظ تثبيتات التطبيقات على هذا الجهاز فقط.",
       chatFirstCreateWorkspaceApp: "إنشاء تطبيق مساحة عمل",
+      chatFirstNewApp: "جديد",
       chatFirstOpenApp: "فتح {{name}}",
       chatFirstAppsLoadError: "تعذر تحميل تطبيقات مساحة العمل",
       chatFirstNoWorkspaceApps: "لا توجد تطبيقات لمساحة العمل بعد.",

@@ -290,6 +290,7 @@ const DispatchExtensionsContext = createContext<
 >(undefined);
 interface DispatchWorkspaceAppLauncher {
   apps: readonly ChatFirstAppItem[];
+  workspaceApps: readonly WorkspaceAppSummary[];
   isLoading: boolean;
   error?: unknown;
   openApp: (app: ChatFirstAppItem) => void;
@@ -1453,6 +1454,16 @@ export function Layout({
     () => mergeChatFirstWorkspaceApps(chatFirstAppsQuery.data),
     [chatFirstAppsQuery.data],
   );
+  const chatHomeWorkspaceApps = useMemo(
+    () =>
+      chatFirstWorkspaceApps.filter(
+        (app) =>
+          app.status !== "pending" &&
+          app.archived !== true &&
+          isWorkspaceAppVisibleInDefaultLaunchers(app),
+      ),
+    [chatFirstWorkspaceApps],
+  );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
     const registrations = new Map<string, ChatFirstAppRegistration>();
     for (const app of chatFirstWorkspaceApps) {
@@ -1514,6 +1525,7 @@ export function Layout({
   const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
     () => ({
       apps: chatFirstAppItems,
+      workspaceApps: chatHomeWorkspaceApps,
       isLoading:
         chatFirstAppsQuery.isLoading || chatFirstGrantedAppsQuery.isLoading,
       error: chatFirstAppsQuery.isError
@@ -1537,6 +1549,7 @@ export function Layout({
       chatFirstGrantedAppsQuery.isLoading,
       chatFirstGrantedAppsQuery.refetch,
       chatFirstAppItems,
+      chatHomeWorkspaceApps,
       openChatFirstApp,
     ],
   );
