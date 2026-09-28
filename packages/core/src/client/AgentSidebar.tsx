@@ -45,7 +45,6 @@ import {
   SettingsReturnPathRecorder,
   URLSync,
 } from "./agent-sidebar-url-sync.js";
-import { agentNativePath } from "./api-path.js";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
@@ -55,6 +54,7 @@ import {
   usePerAppChatState,
 } from "./app-chat-sidebar.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
+import { writeClientAppState } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
@@ -252,6 +252,7 @@ function AgentSidebarPanelSkeleton() {
 export interface AgentSidebarProps {
   children: React.ReactNode;
   enabled?: boolean;
+  screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
   suggestions?: AssistantChatProps["suggestions"];
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
@@ -325,6 +326,7 @@ interface HostedHarnessStatus {
 export function AgentSidebar({
   children,
   enabled = true,
+  screenRefreshOnlyWhenPanelActive = false,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -896,19 +898,10 @@ export function AgentSidebar({
           // coercion-ok: selection capture is optional; the shortcut still opens chat.
         }
         if (selectionText) {
-          fetch(
-            agentNativePath(
-              "/_agent-native/application-state/pending-selection-context",
-            ),
-            {
-              method: "PUT",
-              keepalive: true,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: selectionText,
-                capturedAt: Date.now(),
-              }),
-            },
+          void writeClientAppState(
+            "pending-selection-context",
+            { text: selectionText, capturedAt: Date.now() },
+            { keepalive: true },
           ).catch(() => {});
           window.dispatchEvent(
             new CustomEvent("agent-panel:selection-attached", {
@@ -1299,7 +1292,11 @@ export function AgentSidebar({
           {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          <ScreenRefreshBoundary
+            active={!screenRefreshOnlyWhenPanelActive || shouldMountPanel}
+          >
+            {children}
+          </ScreenRefreshBoundary>
         </div>
         {!isLeft && !presentationMode ? drawerPlaceholder : null}
         {!isLeft && !presentationMode ? sidebar : null}

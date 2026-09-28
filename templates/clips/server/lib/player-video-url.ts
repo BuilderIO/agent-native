@@ -5,10 +5,12 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "../../shared/loom.js";
+import { getRecordingAccessTokenResourceId } from "./share-password.js";
 
 type PlayerVideoRecording = {
   id: string;
   password?: string | null;
+  sharePasswordVersion?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -66,7 +68,13 @@ export function resolvePlayerVideoUrl(
     recording.password &&
     resolvedVideoUrl.startsWith("/api/video/")
   ) {
-    const token = signShortLivedToken({ resourceId: recording.id });
+    const token = signShortLivedToken({
+      resourceId: getRecordingAccessTokenResourceId(
+        recording.id,
+        recording.password,
+        recording.sharePasswordVersion,
+      ),
+    });
     resolvedVideoUrl = appendQueryParam(resolvedVideoUrl, "t", token);
   }
 

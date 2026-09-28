@@ -13,6 +13,7 @@ const mockedSettings = vi.hoisted(() => ({
   all: {} as Record<string, Record<string, unknown>>,
   readError: null as Error | null,
   reads: 0,
+  segments: [] as string[][],
   emitter: null as null | import("node:events").EventEmitter,
 }));
 const getSessionMock = vi.hoisted(() => vi.fn());
@@ -43,10 +44,14 @@ vi.mock("../settings/store.js", async () => {
       delete mockedSettings.all[key];
       return existed;
     },
-    getAllSettings: async () => {
+    listSettingsByKeySegments: async (segments: string[]) => {
       mockedSettings.reads += 1;
+      mockedSettings.segments.push([...segments]);
       if (mockedSettings.readError) throw mockedSettings.readError;
-      return mockedSettings.all;
+      const included = new Set(segments);
+      return Object.entries(mockedSettings.all)
+        .filter(([key]) => included.has(key.slice(key.lastIndexOf(":") + 1)))
+        .map(([key, value]) => ({ key, value }));
     },
     getSettingsEmitter: () => mockedSettings.emitter,
   };
@@ -73,6 +78,7 @@ beforeEach(() => {
   mockedSettings.all = {};
   mockedSettings.readError = null;
   mockedSettings.reads = 0;
+  mockedSettings.segments = [];
   getSessionMock.mockReset();
   getOrgContextMock.mockReset();
 });
@@ -297,6 +303,7 @@ describe("buildMergedConfig built-in MCP capabilities", () => {
     };
 
     await expect(buildMergedConfig()).resolves.toBeNull();
+    expect(mockedSettings.segments).toEqual([["mcp-servers-remote"]]);
   });
 
   it("reports an unreadable settings table instead of an empty config", async () => {

@@ -62,6 +62,17 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
+  it("checks that a recording exists before verifying a scoped share token", () => {
+    const route = readRoute("share.$shareId.tsx");
+    const missingRecordGuard = route.indexOf(
+      "if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);",
+    );
+    const tokenVerification = route.indexOf("const tokenGrantsAgentAccess =");
+
+    expect(missingRecordGuard).toBeGreaterThanOrEqual(0);
+    expect(tokenVerification).toBeGreaterThan(missingRecordGuard);
+  });
+
   it("renders signed-in share viewers in the app shell with breadcrumbs", () => {
     const route = readRoute("share.$shareId.tsx");
     const root = readFileSync(resolve(process.cwd(), "app/root.tsx"), "utf8");

@@ -1108,7 +1108,7 @@ export default function Index() {
               disabled={!agentEngineConfigured}
               submissionDisabled={!agentEngineConfigured}
               showModelSelector={agentEngineConfigured}
-              modelStatusChecksEnabled={false}
+              modelStatusChecksEnabled={agentEngineConfigured}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={

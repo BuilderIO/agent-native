@@ -3,15 +3,33 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-09-28
+
+### Improved
+
+- Starter prompts now sit below the chat composer
+- The design list search and import controls stay legible on narrow screens.
+
+### Fixed
+
+- Canvas navigation and undo keep working when connected apps focus controls automatically
+- The model picker shows available models when AI is configured.
+- Template menus stay available when you hover over a card.
+
 ## 2026-09-27
 
 ### Improved
 
+- Chrome local editing guidance uses sharper permission screenshots and a neutral backdrop
+- Local access setup shows Chrome permission screenshots and confirms before closing
 - The Connect AI setup card now has even spacing above and below the composer.
 - Chrome local access guidance clarifies how to approve live editing
 
 ### Fixed
 
+- Auto-focused app fields no longer interrupt canvas shortcuts while editing live screens
+- Fix deeply nested drag-and-drop placement on Design canvases
+- Personalized home suggestions work when responses include extra text
 - Canvas shortcuts keep working when a connected app focuses an input.
 - Drops into plain frames now stack above existing content, while auto-layout keeps the chosen insertion position.
 - Layers dragged out of a frame now stay above the frame.
@@ -37,6 +55,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Opening a shared visual editor now completes its initial setup and hands visual edits back to your coding agent.
 - Live previews keep canvas keyboard shortcuts available when app fields autofocus
 - API key settings recover when loading stalls.
 - Cmd+D copies avoid existing screens while reserving simultaneous duplicates.
@@ -66,6 +85,8 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- In the new Settings, Agent Observability is a page in the Design group for owners and admins, and the MCP server page says what a connected app can do in Design.
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Design shows how to connect file storage before uploading media or fonts
 - Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
 - Recent designs now use the same consistent library card layout as templates.

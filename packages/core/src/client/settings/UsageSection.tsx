@@ -571,10 +571,10 @@ export function BuilderCreditUsagePanel({
   const t = useT();
   const quotaLabel =
     usage.quota.period === "daily"
-      ? t("agentChat.usage.dailyFreeLimit", {
-          defaultValue: "Free daily limit",
+      ? t("agentChat.usage.dailyDefaultLimit", {
+          defaultValue: "Default daily limit",
         })
-      : t("agentChat.usage.monthlyPlan", { defaultValue: "Monthly plan" });
+      : t("agentChat.usage.monthlyLimit", { defaultValue: "Monthly limit" });
   const canAddCredits = usage.quota.remaining === 0;
   const used = usage.quota.used.toLocaleString(undefined, {
     maximumFractionDigits: 2,

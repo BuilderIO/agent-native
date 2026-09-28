@@ -401,6 +401,32 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards pending-selection suppression to the agent request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([{ type: "text", text: "Done" }, { type: "done" }]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-selection",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession();
+    const turn = await session.startTurn({
+      prompt: "Use this selection once",
+      metadata: { agentNativeSkipPendingSelectionContext: true },
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Use this selection once",
+      skipPendingSelectionContext: true,
+    });
+  });
+
   it("keeps raw structured action results separate from display text", async () => {
     const result = {
       draft: { subject: "Launch notes" },

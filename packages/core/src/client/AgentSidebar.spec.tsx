@@ -17,8 +17,16 @@ vi.mock("./AgentSidebarPanel.js", () => ({
 vi.mock("./agent-chat.js", () => ({}));
 vi.mock("./mcp-app-host.js", () => ({}));
 vi.mock("./agent-sidebar-url-sync.js", () => ({
-  ScreenRefreshBoundary: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+  ScreenRefreshBoundary: ({
+    children,
+    active,
+  }: {
+    children: React.ReactNode;
+    active?: boolean;
+  }) => (
+    <div data-testid="screen-refresh-boundary" data-active={active ?? true}>
+      {children}
+    </div>
   ),
   SettingsReturnPathRecorder: () => null,
   URLSync: () => <div data-testid="agent-sidebar-url-sync" />,
@@ -86,6 +94,7 @@ function renderSidebar(
   position?: "left" | "right",
   disableChatShortcut = false,
   enabled = true,
+  screenRefreshOnlyWhenPanelActive = false,
 ) {
   const render = (nextEnabled: boolean) => {
     flushSync(() => {
@@ -96,6 +105,7 @@ function renderSidebar(
             disableChatShortcut={disableChatShortcut}
             enabled={nextEnabled}
             position={position}
+            screenRefreshOnlyWhenPanelActive={screenRefreshOnlyWhenPanelActive}
           >
             <div data-testid="app-content">App content</div>
           </AgentSidebar>
@@ -131,6 +141,19 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar lazy panel boundary", () => {
+  it("pauses screen refresh until the panel is active when requested", () => {
+    renderSidebar(false, undefined, false, true, true);
+
+    expect(
+      container?.querySelector("[data-testid='app-content']"),
+    ).toBeTruthy();
+    expect(
+      container
+        ?.querySelector("[data-testid='screen-refresh-boundary']")
+        ?.getAttribute("data-active"),
+    ).toBe("false");
+  });
+
   it("defaults hosted-harness chat to the right and respects a closed preference", async () => {
     mockHostedHarness.configured = true;
     mockHostedHarness.enabled = true;
@@ -313,5 +336,15 @@ describe("AgentSidebar lazy panel boundary", () => {
     expect(
       container?.querySelector('[data-agent-sidebar-main-state="closed"]'),
     ).toBeTruthy();
+  });
+
+  it("restores screen refresh while the panel is open", () => {
+    renderSidebar(true, undefined, false, true, true);
+
+    expect(
+      container
+        ?.querySelector("[data-testid='screen-refresh-boundary']")
+        ?.getAttribute("data-active"),
+    ).toBe("true");
   });
 });
