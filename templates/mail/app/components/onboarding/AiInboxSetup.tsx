@@ -475,6 +475,7 @@ export function AiInboxSetup({
   const googleStatus = useGoogleAuthStatus();
   const connected = (googleStatus.data?.accounts.length ?? 0) > 0;
   const gmailStatusUnknown = googleStatus.isError && !googleStatus.data;
+  const hasPendingSetupRuleIds = readPendingSetupRuleIds().length > 0;
   const canOfferGoogleOAuthSetup = useMemo(
     () => shouldOfferGoogleOAuthSetup(),
     [],
@@ -489,10 +490,27 @@ export function AiInboxSetup({
       refetchOnWindowFocus: true,
     },
   );
+  const automationSettings = useActionQuery(
+    "get-automation-settings",
+    {},
+    {
+      enabled:
+        connected &&
+        !onboardingPreview &&
+        firstRunStage !== "preferences" &&
+        (forceOpen || hasPendingSetupRuleIds),
+      staleTime: 0,
+      // request-storm-allow: this query is enabled only while a first-run backfill waits for model setup.
+      refetchOnWindowFocus: true,
+    },
+  );
   const jevAvailabilityResolved =
     !jevAvailability.isError && jevAvailability.data != null;
   const jevConfigured =
     jevAvailabilityResolved && jevAvailability.data?.configured === true;
+  const canApplyRules =
+    jevConfigured ||
+    Boolean(automationSettings.data?.engine && automationSettings.data?.model);
   const createRuleMutation = useCreateAutomation();
   const updateRuleMutation = useUpdateAutomation();
   const updateSettings = useUpdateSettings();
@@ -545,7 +563,9 @@ export function AiInboxSetup({
     setupSurfaceAllowed &&
     forceOpen &&
     !firstRunPreferences &&
-    (googleStatus.isLoading || (connected && jevAvailability.isLoading));
+    (googleStatus.isLoading ||
+      (connected &&
+        (jevAvailability.isLoading || automationSettings.isLoading)));
   const visible =
     setupSurfaceAllowed &&
     (firstRunPreferences
@@ -553,10 +573,12 @@ export function AiInboxSetup({
       : firstRunSorting
         ? forceOpen &&
           !googleStatus.isLoading &&
-          (!connected || !jevAvailability.isLoading)
+          (!connected ||
+            (!jevAvailability.isLoading && !automationSettings.isLoading))
         : connected &&
           !googleStatus.isLoading &&
           !jevAvailability.isLoading &&
+          !automationSettings.isLoading &&
           (forceOpen ||
             (!rulesLoading &&
               settings?.aiSetupCompleted !== true &&
@@ -647,7 +669,7 @@ export function AiInboxSetup({
       !firstRunSorting ||
       onboardingPreview ||
       !connected ||
-      !jevConfigured ||
+      !canApplyRules ||
       rulesLoading ||
       backfillStarted.current
     ) {
@@ -665,6 +687,7 @@ export function AiInboxSetup({
     if (ruleIds.length > 0) void runBackfill(ruleIds, destinations);
   }, [
     aiRules,
+    canApplyRules,
     connected,
     firstRunSorting,
     onboardingPreview,
@@ -672,6 +695,47 @@ export function AiInboxSetup({
     pendingRuleIds,
     rulesLoading,
     runBackfill,
+  ]);
+
+  useEffect(() => {
+    if (
+      embedded ||
+      forceOpen ||
+      visible ||
+      firstRunStage !== undefined ||
+      firstRunOnboardingOwnsSurface ||
+      onboardingPreview ||
+      !connected ||
+      !canApplyRules ||
+      rulesLoading ||
+      backfillStarted.current
+    ) {
+      return;
+    }
+    const ruleIds = readPendingSetupRuleIds();
+    if (ruleIds.length === 0) return;
+    backfillStarted.current = true;
+    const destinations = Object.fromEntries(
+      aiRules.flatMap((rule) => {
+        if (!ruleIds.includes(rule.id)) return [];
+        const destination = reviewDestinationForRule(rule);
+        return destination ? [[rule.id, destination] as const] : [];
+      }),
+    );
+    void runBackfill(ruleIds, destinations);
+  }, [
+    aiRules,
+    canApplyRules,
+    connected,
+    embedded,
+    firstRunOnboardingOwnsSurface,
+    firstRunStage,
+    forceOpen,
+    onboardingPreview,
+    rulesLoading,
+    runBackfill,
+    settings?.aiSetupCompleted,
+    visible,
   ]);
 
   const savePreferences = async (includeArchive: boolean) => {
@@ -729,7 +793,7 @@ export function AiInboxSetup({
         return;
       }
 
-      if (!jevConfigured) {
+      if (!canApplyRules) {
         await complete();
         return;
       }
@@ -794,7 +858,8 @@ export function AiInboxSetup({
         : step === 2
           ? t("mail.sort.aiSetupSkipInboxDescription")
           : t("mail.sort.aiSetupSortingDescription");
-  const needsSetupToSort = firstRunSorting && (!connected || !jevConfigured);
+  const needsSetupToSort =
+    firstRunSorting && !onboardingPreview && (!connected || !canApplyRules);
   const displayHeadline =
     firstRunSorting && gmailStatusUnknown
       ? headline
@@ -1256,7 +1321,8 @@ export function AiInboxSetup({
               </Button>
             </div>
           ) : null}
-          {firstRunSorting &&
+          {!onboardingPreview &&
+          firstRunSorting &&
           googleStatus.data &&
           googleStatus.data.accounts.length === 0 ? (
             googleStatus.data?.configured === true ||
@@ -1268,7 +1334,10 @@ export function AiInboxSetup({
               </p>
             )
           ) : null}
-          {firstRunSorting && connected && !jevConfigured ? (
+          {!onboardingPreview &&
+          firstRunSorting &&
+          connected &&
+          !canApplyRules ? (
             <JevConnectionPrompt
               showHeading={false}
               onConnected={() => void jevAvailability.refetch()}

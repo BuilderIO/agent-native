@@ -69,6 +69,10 @@ const mocks = vi.hoisted(() => ({
     isFetching: false,
     refetch: vi.fn(),
   },
+  automationSettings: {
+    data: undefined as { engine?: string; model?: string } | undefined,
+    isLoading: false,
+  },
   googleStatus: {
     data: {
       accounts: [{ email: "mail-test@example.test" }],
@@ -83,7 +87,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useActionQuery: () => mocks.jevAvailability,
+  useActionQuery: (actionName: string) =>
+    actionName === "get-automation-settings"
+      ? mocks.automationSettings
+      : mocks.jevAvailability,
 }));
 
 vi.mock("@agent-native/core/client/onboarding", () => ({
@@ -244,6 +251,8 @@ describe("AiInboxSetup", () => {
     mocks.jevAvailability.isLoading = false;
     mocks.jevAvailability.isError = false;
     mocks.jevAvailability.isFetching = false;
+    mocks.automationSettings.data = undefined;
+    mocks.automationSettings.isLoading = false;
     mocks.googleStatus.data = {
       accounts: [{ email: "mail-test@example.test" }],
       configured: true,
@@ -641,6 +650,65 @@ describe("AiInboxSetup", () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce());
     expect(mocks.startBackfill).not.toHaveBeenCalled();
     expect(mocks.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not expose provider connection actions in preview sorting", () => {
+    mocks.onboardingPreview = true;
+    mocks.googleStatus.data = { accounts: [], configured: true };
+    mocks.jevAvailability.data = { configured: false };
+    const view = render(
+      <AiInboxSetup embedded forceOpen firstRunStage="sorting" />,
+    );
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+
+    mocks.googleStatus.data = {
+      accounts: [{ email: "mail-test@example.test" }],
+      configured: true,
+    };
+    view.rerender(<AiInboxSetup embedded forceOpen firstRunStage="sorting" />);
+
+    expect(screen.queryByTestId("gmail-connect")).toBeNull();
+    expect(screen.queryByTestId("jev-connect")).toBeNull();
+  });
+
+  it("applies deferred first-run rules after manual model setup is ready", async () => {
+    window.sessionStorage.setItem(
+      "mail.ai-setup.pending-rule-ids",
+      JSON.stringify(["rule-custom"]),
+    );
+    mocks.automations = [
+      {
+        id: "rule-custom",
+        domain: "mail",
+        kind: "ai-filter",
+        condition: "Important mail from my manager",
+        actions: [{ type: "label", labelName: AI_IMPORTANT_LABEL }],
+        enabled: true,
+      },
+    ];
+    mocks.jevAvailability.data = { configured: false };
+    const view = render(<AiInboxSetup />);
+    expect(mocks.startBackfill).not.toHaveBeenCalled();
+
+    mocks.automationSettings.data = {
+      engine: "test-engine",
+      model: "test-model",
+    };
+    view.rerender(<AiInboxSetup />);
+
+    await waitFor(() =>
+      expect(mocks.startBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["rule-custom"],
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        window.sessionStorage.getItem("mail.ai-setup.pending-rule-ids"),
+      ).toBeNull(),
+    );
   });
 
   it("re-enables a matching disabled rule before backfilling it", async () => {
