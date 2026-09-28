@@ -48,6 +48,12 @@ const {
   markAllNotificationsRead,
   deleteNotification,
   updateDeliveredChannels,
+  addDeliveredChannel,
+  claimNotificationDelivery,
+  completeNotificationDelivery,
+  listCompletedNotificationChannels,
+  notificationIdForIdempotencyKey,
+  releaseNotificationDelivery,
 } = await import("./store.js");
 
 const ALICE = "alice@example.com";
@@ -81,6 +87,15 @@ beforeEach(async () => {
     delivered_channels TEXT NOT NULL DEFAULT '[]',
     created_at BIGINT NOT NULL,
     read_at BIGINT
+  )`);
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS notification_delivery_state (
+    notification_id TEXT NOT NULL,
+    delivery_key TEXT NOT NULL,
+    state TEXT NOT NULL,
+    claim_token TEXT,
+    lease_expires_at BIGINT NOT NULL,
+    completed_at BIGINT,
+    PRIMARY KEY (notification_id, delivery_key)
   )`);
 });
 
@@ -297,5 +312,83 @@ describe("updateDeliveredChannels", () => {
     await updateDeliveredChannels(n.id, ["inbox", "webhook", "slack"]);
     const [listed] = await listNotifications(ALICE);
     expect(listed.deliveredChannels).toEqual(["inbox", "webhook", "slack"]);
+  });
+});
+
+describe("notification delivery receipts", () => {
+  it("allows only one live claimant and persists per-channel completion", async () => {
+    const claims = await Promise.all([
+      claimNotificationDelivery("n-1", "slack"),
+      claimNotificationDelivery("n-1", "slack"),
+    ]);
+    const claim = claims.find((token) => token !== undefined);
+
+    expect(claims.filter((token) => token !== undefined)).toHaveLength(1);
+    expect(claim).toBeTruthy();
+
+    await completeNotificationDelivery("n-1", "slack", claim!);
+    await expect(claimNotificationDelivery("n-1", "slack")).resolves.toBe(
+      undefined,
+    );
+    await expect(listCompletedNotificationChannels("n-1")).resolves.toEqual([
+      "slack",
+    ]);
+  });
+
+  it("releases an unsuccessful attempt so a later retry can claim it", async () => {
+    const first = await claimNotificationDelivery("n-1", "webhook");
+    await releaseNotificationDelivery("n-1", "webhook", first!);
+
+    const retry = await claimNotificationDelivery("n-1", "webhook");
+    expect(retry).toBeTruthy();
+    expect(retry).not.toBe(first);
+  });
+
+  it("tracks the sent event separately from channel completion", async () => {
+    const claim = await claimNotificationDelivery(
+      "n-1",
+      "notification.sent",
+      "event",
+    );
+    expect(claim).toBeTruthy();
+
+    await completeNotificationDelivery(
+      "n-1",
+      "notification.sent",
+      claim!,
+      "event",
+    );
+
+    await expect(listCompletedNotificationChannels("n-1")).resolves.toEqual([]);
+    await expect(
+      claimNotificationDelivery("n-1", "notification.sent", "event"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("derives a stable private notification id from owner and idempotency key", () => {
+    expect(
+      notificationIdForIdempotencyKey(ALICE, "mail-rule:1:message-1"),
+    ).toMatch(/^idem_[a-f0-9]{64}$/);
+    expect(
+      notificationIdForIdempotencyKey(ALICE, "mail-rule:1:message-1"),
+    ).toBe(notificationIdForIdempotencyKey(ALICE, "mail-rule:1:message-1"));
+    expect(
+      notificationIdForIdempotencyKey(ALICE, "mail-rule:1:message-1"),
+    ).not.toBe(notificationIdForIdempotencyKey(BOB, "mail-rule:1:message-1"));
+  });
+
+  it("adds a delivered channel without duplicating the stored list", async () => {
+    const notification = await insertNotification({
+      owner: ALICE,
+      severity: "info",
+      title: "A1",
+      deliveredChannels: ["inbox"],
+    });
+
+    await addDeliveredChannel(notification.id, "slack");
+    await addDeliveredChannel(notification.id, "slack");
+
+    const [listed] = await listNotifications(ALICE);
+    expect(listed.deliveredChannels).toEqual(["inbox", "slack"]);
   });
 });

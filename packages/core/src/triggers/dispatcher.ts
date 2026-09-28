@@ -94,6 +94,7 @@ const DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS = 30_000;
 const DURABLE_TRIGGER_DRAIN_CONCURRENCY = 4;
 const DURABLE_TRIGGER_READY_PAGE_SIZE = 100;
 const MIN_DURABLE_TRIGGER_RUN_MS = 1_000;
+const MIN_DURABLE_TRIGGER_SWEEP_RUN_MS = 15_000;
 const DB_QUERY_TIMEOUT_MS = 15_000;
 const MAX_MAIL_TRIGGER_EVENT_AGE_MS = 60 * 60_000;
 const MAIL_RECEIVED_EVENT = "mail.message.received";
@@ -256,7 +257,14 @@ async function drainReadyTriggerQueue(
   const deadline = context.deadlineAt;
   let expiredCount = 0;
   if (deps.appId === "mail") {
-    while (Date.now() + DB_QUERY_TIMEOUT_MS < deadline) {
+    while (
+      !context.signal?.aborted &&
+      Date.now() +
+        DB_QUERY_TIMEOUT_MS +
+        DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+        MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
+        deadline
+    ) {
       const expired = await expireStaleAutomationTriggerEvents({
         appId: deps.appId,
         eventName: MAIL_RECEIVED_EVENT,
@@ -280,27 +288,41 @@ async function drainReadyTriggerQueue(
   let cursor = cycleStart;
   let wrapped = false;
   let madeProgress = false;
-  try {
-    while (
-      Date.now() +
-        DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
-        MIN_DURABLE_TRIGGER_RUN_MS <
-      deadline
-    ) {
+  const activeDrains = new Map<
+    string,
+    Promise<
+      | { triggerId: string; ok: true; value: boolean }
+      | { triggerId: string; ok: false; error: unknown }
+    >
+  >();
+  const failures: unknown[] = [];
+  const hasDrainBudget = () =>
+    !context.signal?.aborted &&
+    Date.now() +
+      DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+      MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
+      deadline;
+
+  const findNextReadyTriggerId = async (): Promise<string | null> => {
+    let scanCursor = cursor;
+    let scanWrapped = wrapped;
+
+    while (hasDrainBudget()) {
       const ready = await listReadyAutomationTriggerIds(
         deps.appId,
         DURABLE_TRIGGER_READY_PAGE_SIZE,
         {
-          ...(cursor === null ? {} : { afterTriggerId: cursor }),
-          ...(wrapped && cycleStart !== null
+          ...(scanCursor === null ? {} : { afterTriggerId: scanCursor }),
+          ...(scanWrapped && cycleStart !== null
             ? { throughTriggerId: cycleStart }
             : {}),
         },
       );
+
       if (ready.length === 0) {
-        if (!wrapped && cycleStart !== null) {
-          wrapped = true;
-          cursor = null;
+        if (!scanWrapped && cycleStart !== null) {
+          scanWrapped = true;
+          scanCursor = null;
           continue;
         }
         if (madeProgress) {
@@ -308,49 +330,119 @@ async function drainReadyTriggerQueue(
           cursor = cycleStart;
           wrapped = false;
           madeProgress = false;
+          scanCursor = cursor;
+          scanWrapped = false;
           continue;
         }
-        break;
+        return null;
       }
 
-      const batch = ready.slice(0, DURABLE_TRIGGER_DRAIN_CONCURRENCY);
-      cursor = batch.at(-1) ?? cursor;
-      if (cursor !== null) {
+      for (const triggerId of ready) {
+        scanCursor = triggerId;
+        if (activeDrains.has(triggerId)) continue;
+
+        cursor = triggerId;
+        wrapped = scanWrapped;
         await setAutomationTriggerSweepCursor(deps.appId, cursor);
+        return triggerId;
       }
-      const outcomes = await Promise.allSettled(
-        batch.map((triggerId) =>
-          startTriggerDrain(triggerId, {
-            maxEvents: 1,
-            skipExisting: true,
-            expireStaleMailEvents: true,
-            deadline,
-            onStaleEventExpired: () => {
-              reclaimedExpiredCount += 1;
-            },
-          }),
-        ),
-      );
-      const failures = outcomes.flatMap((outcome) =>
-        outcome.status === "rejected" ? [outcome.reason] : [],
-      );
-      if (failures.length === 1) throw failures[0];
-      if (failures.length > 1) {
-        throw new AggregateError(
-          failures,
-          "Failed to drain queued automation trigger events.",
+
+      scanCursor = ready.at(-1) ?? scanCursor;
+      if (ready.length < DURABLE_TRIGGER_READY_PAGE_SIZE) {
+        if (!scanWrapped && cycleStart !== null) {
+          scanWrapped = true;
+          scanCursor = null;
+          continue;
+        }
+        if (madeProgress) {
+          cycleStart = await getAutomationTriggerSweepCursor(deps.appId);
+          cursor = cycleStart;
+          wrapped = false;
+          madeProgress = false;
+          scanCursor = cursor;
+          scanWrapped = false;
+          continue;
+        }
+        return null;
+      }
+    }
+
+    return null;
+  };
+
+  const settleOneDrain = async () => {
+    const outcome = await Promise.race(activeDrains.values());
+    activeDrains.delete(outcome.triggerId);
+    if (outcome.ok) {
+      madeProgress ||= outcome.value;
+    } else {
+      failures.push(outcome.error);
+    }
+  };
+
+  try {
+    while (hasDrainBudget() || activeDrains.size > 0) {
+      let exhaustedReadyTriggers = false;
+      while (
+        failures.length === 0 &&
+        activeDrains.size < DURABLE_TRIGGER_DRAIN_CONCURRENCY &&
+        hasDrainBudget()
+      ) {
+        const triggerId = await findNextReadyTriggerId();
+        if (triggerId === null) {
+          exhaustedReadyTriggers = true;
+          break;
+        }
+        if (!hasDrainBudget()) {
+          exhaustedReadyTriggers = true;
+          break;
+        }
+
+        const drain = startTriggerDrain(triggerId, {
+          maxEvents: 1,
+          skipExisting: true,
+          expireStaleMailEvents: true,
+          deadline,
+          onStaleEventExpired: () => {
+            reclaimedExpiredCount += 1;
+          },
+        });
+        activeDrains.set(
+          triggerId,
+          drain.then(
+            (value) => ({ triggerId, ok: true as const, value }),
+            (error: unknown) => ({ triggerId, ok: false as const, error }),
+          ),
         );
       }
-      madeProgress ||= outcomes.some(
-        (outcome) => outcome.status === "fulfilled" && outcome.value,
-      );
+
+      if (activeDrains.size === 0) break;
+      if (
+        failures.length > 0 ||
+        exhaustedReadyTriggers ||
+        activeDrains.size === DURABLE_TRIGGER_DRAIN_CONCURRENCY ||
+        !hasDrainBudget()
+      ) {
+        await settleOneDrain();
+      }
     }
+  } catch (error) {
+    failures.push(error);
   } finally {
+    while (activeDrains.size > 0) await settleOneDrain();
     if (reclaimedExpiredCount > 0) {
       console.info(
         `[triggers] Expired ${reclaimedExpiredCount} stale ${MAIL_RECEIVED_EVENT} events from reclaimed claims.`,
       );
     }
+  }
+
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      "Failed to drain queued automation trigger events.",
+    );
   }
 
   if (Date.now() + DB_QUERY_TIMEOUT_MS * 3 < deadline) {

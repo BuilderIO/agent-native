@@ -4,7 +4,15 @@ import { emit as emitBusEvent } from "../event-bus/bus.js";
 import { registerEvent } from "../event-bus/registry.js";
 import type { EventDefinition } from "../event-bus/types.js";
 import { truncate } from "../shared/truncate.js";
-import { insertNotification, updateDeliveredChannels } from "./store.js";
+import {
+  addDeliveredChannel,
+  claimNotificationDelivery,
+  completeNotificationDelivery,
+  insertNotification,
+  listCompletedNotificationChannels,
+  notificationIdForIdempotencyKey,
+  releaseNotificationDelivery,
+} from "./store.js";
 import {
   NOTIFICATION_SEVERITIES,
   type NotificationChannel,
@@ -101,7 +109,6 @@ export async function notifyWithDelivery(
   const storedMetadata = scrubStoredMetadata(input.metadata);
 
   const runInbox = !input.channels || input.channels.includes("inbox");
-  const delivered: string[] = [];
   let stored: Notification | undefined;
 
   if (runInbox) {
@@ -116,7 +123,6 @@ export async function notifyWithDelivery(
         deliveredChannels: ["inbox"],
         idempotencyKey: input.idempotencyKey,
       });
-      delivered.push("inbox");
     } catch (err) {
       if (signal?.aborted) signal.throwIfAborted();
       console.error("[notifications] inbox persist failed:", err);
@@ -125,17 +131,84 @@ export async function notifyWithDelivery(
 
   // DbExec cannot cancel an in-flight INSERT, so stop before fan-out and event emission.
   signal?.throwIfAborted();
+
+  const deliveryId = input.idempotencyKey
+    ? notificationIdForIdempotencyKey(meta.owner, input.idempotencyKey)
+    : undefined;
+  const previouslyDelivered = new Set<string>([
+    ...(stored?.deliveredChannels ?? []),
+    ...(deliveryId ? await listCompletedNotificationChannels(deliveryId) : []),
+  ]);
+  if (stored) previouslyDelivered.add("inbox");
+  const delivered = Array.from(previouslyDelivered);
+
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
       signal?.throwIfAborted();
-      const delivered = signal
-        ? await channel.deliver(input, meta, { signal })
-        : await channel.deliver(input, meta);
-      if (delivered === false) return null;
-      return channel.name;
+      if (previouslyDelivered.has(channel.name)) return null;
+
+      const claimToken = deliveryId
+        ? await claimNotificationDelivery(deliveryId, channel.name)
+        : undefined;
+      if (deliveryId && !claimToken) return null;
+
+      let deliveryCompleted = false;
+      try {
+        signal?.throwIfAborted();
+        const result = signal
+          ? await channel.deliver(input, meta, { signal })
+          : await channel.deliver(input, meta);
+        if (result === false) {
+          if (claimToken) {
+            await releaseNotificationDelivery(
+              deliveryId!,
+              channel.name,
+              claimToken,
+            );
+          }
+          return null;
+        }
+
+        // Persist each successful side effect before observing a later abort.
+        // A sweep retry can then skip this channel even if the run itself aborts.
+        deliveryCompleted = true;
+        if (claimToken) {
+          await completeNotificationDelivery(
+            deliveryId!,
+            channel.name,
+            claimToken,
+          );
+        }
+        if (stored) {
+          try {
+            await addDeliveredChannel(stored.id, channel.name);
+          } catch (err) {
+            console.error(
+              "[notifications] delivered-channel update failed:",
+              err,
+            );
+          }
+        }
+        return channel.name;
+      } catch (err) {
+        if (claimToken && !deliveryCompleted) {
+          try {
+            await releaseNotificationDelivery(
+              deliveryId!,
+              channel.name,
+              claimToken,
+            );
+          } catch (releaseErr) {
+            console.error(
+              `[notifications] channel "${channel.name}" claim release failed:`,
+              releaseErr,
+            );
+          }
+        }
+        throw err;
+      }
     }),
   );
-  signal?.throwIfAborted();
   results.forEach((r, i) => {
     if (r.status === "fulfilled") {
       if (r.value) delivered.push(r.value);
@@ -147,35 +220,63 @@ export async function notifyWithDelivery(
     }
   });
 
-  const hasExtraChannel = delivered.some((c) => c !== "inbox");
-  if (stored && hasExtraChannel) {
+  if (deliveryId) {
+    for (const channel of await listCompletedNotificationChannels(deliveryId)) {
+      if (!delivered.includes(channel)) delivered.push(channel);
+    }
+  }
+  if (stored) stored = { ...stored, deliveredChannels: delivered };
+
+  if (delivered.length > 0) {
+    const eventClaim = deliveryId
+      ? await claimNotificationDelivery(
+          deliveryId,
+          "notification.sent",
+          "event",
+        )
+      : undefined;
     try {
-      signal?.throwIfAborted();
-      await updateDeliveredChannels(stored.id, delivered);
-      stored = { ...stored, deliveredChannels: delivered };
-    } catch (err) {
-      console.error("[notifications] delivered-channel update failed:", err);
+      if (!deliveryId || eventClaim) {
+        emitBusEvent(
+          "notification.sent",
+          {
+            notificationId: stored?.id,
+            severity: input.severity,
+            title: input.title,
+            body: input.body,
+            deliveredChannels: delivered,
+          },
+          { owner: meta.owner },
+        );
+        if (deliveryId && eventClaim) {
+          await completeNotificationDelivery(
+            deliveryId,
+            "notification.sent",
+            eventClaim,
+            "event",
+          );
+        }
+      }
+    } catch {
+      if (deliveryId && eventClaim) {
+        try {
+          await releaseNotificationDelivery(
+            deliveryId,
+            "notification.sent",
+            eventClaim,
+            "event",
+          );
+        } catch {
+          // best-effort
+        }
+      }
+      // Event delivery is best-effort.
     }
   }
 
-  if (delivered.length > 0) {
-    signal?.throwIfAborted();
-    try {
-      emitBusEvent(
-        "notification.sent",
-        {
-          notificationId: stored?.id,
-          severity: input.severity,
-          title: input.title,
-          body: input.body,
-          deliveredChannels: delivered,
-        },
-        { owner: meta.owner },
-      );
-    } catch {
-      // best-effort
-    }
-  }
+  // The channel completion and event receipt are durable before cancellation
+  // escapes to the sweep runner.
+  signal?.throwIfAborted();
 
   return { notification: stored, deliveredChannels: delivered };
 }
