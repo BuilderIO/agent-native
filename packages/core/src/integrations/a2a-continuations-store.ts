@@ -5,9 +5,9 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
-let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
@@ -47,84 +47,98 @@ function buildCreateSql(): string {
 `;
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      const createSql = buildCreateSql();
-      await ensureTableExists("integration_a2a_continuations", createSql);
-      await ensureIndexExists(
-        "idx_a2a_continuations_status_next",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_integration_task",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_remote_task",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "a2a_auth_token",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "dedupe_key",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "progress_ref",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "progress_ref_claimed",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "verified_artifact_checkpoint",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_delivery_kind",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_delivery_confirmed_at",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
-      );
-      await ensureColumnExists(
-        "integration_a2a_continuations",
-        "terminal_history_payload",
-        `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
-      );
-      await backfillLegacyCompletedDeliveries(client);
-      await backfillProgressRefOwners(client);
-      await ensureIndexExists(
-        "idx_a2a_continuations_dedupe_key",
-        `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
-      );
-      await ensureIndexExists(
-        "idx_a2a_continuations_one_progress_owner",
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export const a2aContinuationsStore = defineStore({
+  id: "a2a_continuations",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = buildCreateSql();
+        await ensureTableExists("integration_a2a_continuations", createSql);
+        await ensureIndexExists(
+          "idx_a2a_continuations_status_next",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_integration_task",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_remote_task",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "a2a_auth_token",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "dedupe_key",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref_claimed",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed BIGINT NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "verified_artifact_checkpoint",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS verified_artifact_checkpoint TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_delivery_kind",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_kind TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_delivery_confirmed_at",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_delivery_confirmed_at BIGINT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "terminal_history_payload",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS terminal_history_payload TEXT`,
+        );
+      },
+    },
+    {
+      name: "backfill-legacy-completed-deliveries",
+      run: backfillLegacyCompletedDeliveries,
+    },
+    {
+      name: "backfill-progress-ref-owners",
+      run: backfillProgressRefOwners,
+    },
+    {
+      name: "indexes-after-backfill",
+      run: async () => {
+        await ensureIndexExists(
+          "idx_a2a_continuations_dedupe_key",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_one_progress_owner",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return a2aContinuationsStore.ready();
 }
 
-export async function ensureA2AContinuationsTable(): Promise<void> {
-  await ensureTable();
+export function ensureA2AContinuationsTable(): Promise<void> {
+  return a2aContinuationsStore.ready();
 }
 
 async function backfillProgressRefOwners(

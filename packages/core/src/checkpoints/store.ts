@@ -1,12 +1,14 @@
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureCheckpointTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const checkpointsStore = defineStore({
+  id: "checkpoints",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
         CREATE TABLE IF NOT EXISTS agent_checkpoints (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -16,21 +18,22 @@ export async function ensureCheckpointTable(): Promise<void> {
           created_at BIGINT NOT NULL
         )
       `;
-      const threadIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_thread_created_idx ON agent_checkpoints (thread_id, created_at)`;
-      const runIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_run_idx ON agent_checkpoints (run_id)`;
+        const threadIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_thread_created_idx ON agent_checkpoints (thread_id, created_at)`;
+        const runIdxSql = `CREATE INDEX IF NOT EXISTS agent_checkpoints_run_idx ON agent_checkpoints (run_id)`;
 
-      await ensureTableExists("agent_checkpoints", createSql);
-      await ensureIndexExists(
-        "agent_checkpoints_thread_created_idx",
-        threadIdxSql,
-      );
-      await ensureIndexExists("agent_checkpoints_run_idx", runIdxSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("agent_checkpoints", createSql);
+        await ensureIndexExists(
+          "agent_checkpoints_thread_created_idx",
+          threadIdxSql,
+        );
+        await ensureIndexExists("agent_checkpoints_run_idx", runIdxSql);
+      },
+    },
+  ],
+});
+
+export function ensureCheckpointTable(): Promise<void> {
+  return checkpointsStore.ready();
 }
 
 export async function insertCheckpoint(

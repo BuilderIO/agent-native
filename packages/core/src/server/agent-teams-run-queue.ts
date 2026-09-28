@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
@@ -37,12 +38,13 @@ export interface AgentTeamRunQueueRow {
   updatedAt: number;
 }
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `
+export const agentTeamRunQueueStore = defineStore({
+  id: "agent_team_run_queue",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
           CREATE TABLE IF NOT EXISTS agent_team_run_queue (
             task_id TEXT PRIMARY KEY,
             thread_id TEXT NOT NULL,
@@ -57,16 +59,17 @@ export async function ensureTable(): Promise<void> {
             updated_at BIGINT NOT NULL
           )
         `;
-      const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
+        const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
 
-      await ensureTableExists("agent_team_run_queue", createSql);
-      await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("agent_team_run_queue", createSql);
+        await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return agentTeamRunQueueStore.ready();
 }
 
 function getAffectedRowCount(result: unknown): number {
@@ -257,7 +260,7 @@ export async function getAgentTeamRunDispatchState(
 
 export const _agentTeamRunQueueForTests = {
   resetInit() {
-    _initPromise = undefined;
+    agentTeamRunQueueStore.reset();
   },
   getAffectedRowCount,
 };

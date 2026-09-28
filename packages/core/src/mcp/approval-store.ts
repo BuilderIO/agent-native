@@ -1,30 +1,31 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let initPromise: Promise<void> | undefined;
-
-export async function ensureApprovalTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS mcp_action_approvals (
-          nonce TEXT PRIMARY KEY,
-          caller_key TEXT NOT NULL,
-          action_name TEXT NOT NULL,
-          arguments_hash TEXT NOT NULL,
-          expires_at BIGINT NOT NULL,
-          consumed_at BIGINT
-        )
-      `;
-      {
+export const mcpApprovalsStore = defineStore({
+  id: "mcp_approvals",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS mcp_action_approvals (
+            nonce TEXT PRIMARY KEY,
+            caller_key TEXT NOT NULL,
+            action_name TEXT NOT NULL,
+            arguments_hash TEXT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            consumed_at BIGINT
+          )
+        `;
         await ensureTableExists("mcp_action_approvals", createSql);
-      }
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureApprovalTable(): Promise<void> {
+  return mcpApprovalsStore.ready();
 }
 
 export interface McpApprovalGrant {

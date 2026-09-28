@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
 const _executedSql: string[] = [];
+const _int4Columns = new Map<string, string[]>();
 
 vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
@@ -12,6 +13,13 @@ vi.mock("../db/client.js", () => ({
       const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
       _executedSql.push(rawSql);
 
+      if (/information_schema\.columns/i.test(rawSql)) {
+        const columns = _int4Columns.get(args[0] as string) ?? [];
+        return {
+          rows: columns.map((column_name) => ({ column_name })),
+          rowsAffected: 0,
+        };
+      }
       if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
       if (/CREATE INDEX/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
 
@@ -211,6 +219,7 @@ import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
   _executedSql.length = 0;
+  _int4Columns.clear();
 });
 
 function makeExecutor(_appId = "testapp") {
@@ -335,6 +344,8 @@ describe("staged dataset DDL", () => {
   });
 
   it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
+    _int4Columns.set("staged_datasets", ["created_at"]);
+    _int4Columns.set("staged_dataset_rows", ["row_index"]);
     await upsertStagedDataset({
       id: "ds_postgres_ddl",
       appId: "analytics",
@@ -364,6 +375,11 @@ describe("staged dataset DDL", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_datasets ALTER COLUMN row_count/i.test(sql),
+      ),
+    ).toBe(false);
   });
 });
 

@@ -17,6 +17,7 @@ import {
   ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -135,6 +136,64 @@ function syncEventsDisabled(): boolean {
     (process.env.VITEST === "true" &&
       process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS !== "1")
   );
+}
+
+async function ensureSyncEventsSchema(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  const createSql = `
+        CREATE TABLE IF NOT EXISTS sync_events (
+          id TEXT PRIMARY KEY,
+          version BIGINT NOT NULL,
+          event_json TEXT NOT NULL,
+          source TEXT NOT NULL,
+          type TEXT NOT NULL,
+          event_key TEXT,
+          owner TEXT,
+          org_id TEXT,
+          resource_type TEXT,
+          resource_id TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+  const guardOptions = { injectedClient: client };
+  await ensureTableExists("sync_events", createSql, guardOptions);
+  await ensureIndexExists(
+    "sync_events_version_idx",
+    "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+    guardOptions,
+  );
+  await ensureIndexExists(
+    "sync_events_owner_version_idx",
+    "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+    guardOptions,
+  );
+  await ensureIndexExists(
+    "sync_events_org_version_idx",
+    "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+    guardOptions,
+  );
+  await ensureIndexExistsConcurrently(
+    "sync_events_created_at_id_idx",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
+    guardOptions,
+  );
+  if (dbAssignedVersions) {
+    await ensureTableExists(
+      "sync_version",
+      "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+      guardOptions,
+    );
+  }
+}
+
+async function seedSyncVersion(
+  client: DbExec,
+  dbAssignedVersions: boolean,
+): Promise<void> {
+  if (dbAssignedVersions) await client.execute(SEED_SYNC_VERSION_SQL);
 }
 
 async function readMaxUpdatedAtRaw(
@@ -449,52 +508,12 @@ export class AppSyncState {
     if (syncEventsDisabled()) return false;
     if (!this.syncEventsInitPromise) {
       this.syncEventsInitPromise = (async () => {
-        const client = this.getDb();
-        const createSql = `
-        CREATE TABLE IF NOT EXISTS sync_events (
-          id TEXT PRIMARY KEY,
-          version BIGINT NOT NULL,
-          event_json TEXT NOT NULL,
-          source TEXT NOT NULL,
-          type TEXT NOT NULL,
-          event_key TEXT,
-          owner TEXT,
-          org_id TEXT,
-          resource_type TEXT,
-          resource_id TEXT,
-          created_at BIGINT NOT NULL
-        )
-      `;
-
-        const guardOptions = { injectedClient: client };
-        await ensureTableExists("sync_events", createSql, guardOptions);
-        await ensureIndexExists(
-          "sync_events_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-          guardOptions,
-        );
-        await ensureIndexExists(
-          "sync_events_owner_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-          guardOptions,
-        );
-        await ensureIndexExists(
-          "sync_events_org_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-          guardOptions,
-        );
-        await ensureIndexExistsConcurrently(
-          "sync_events_created_at_id_idx",
-          "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
-          guardOptions,
-        );
-        if (this.dbAssignedVersions) {
-          await ensureTableExists(
-            "sync_version",
-            "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-            guardOptions,
-          );
-          await client.execute(SEED_SYNC_VERSION_SQL);
+        if (this === _defaultState) {
+          await syncEventsStore.ready();
+        } else {
+          const client = this.getDb();
+          await ensureSyncEventsSchema(client, this.dbAssignedVersions);
+          await seedSyncVersion(client, this.dbAssignedVersions);
         }
         return true;
       })().catch(() => {
@@ -1701,6 +1720,22 @@ export function getDefaultAppSyncState(): AppSyncState {
   }
   return _defaultState;
 }
+
+export const syncEventsStore = defineStore({
+  id: "sync_events",
+  migrations: [
+    {
+      name: "baseline",
+      // sync_version is created regardless of the transport flag: the release
+      // step's environment may not match the functions'.
+      run: (exec) => ensureSyncEventsSchema(exec, true),
+    },
+    {
+      name: "seed-sync-version",
+      run: (exec) => seedSyncVersion(exec, true),
+    },
+  ],
+});
 
 export function getVersion(): number {
   return getDefaultAppSyncState().getVersion();

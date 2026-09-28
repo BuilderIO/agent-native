@@ -17,6 +17,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -319,8 +320,6 @@ export interface WorkspaceConnectionProviderCatalogForApp {
   };
 }
 
-let _initPromise: Promise<void> | undefined;
-
 function workspaceConnectionsTable(): string {
   return "public.workspace_connections";
 }
@@ -329,13 +328,16 @@ function workspaceConnectionGrantsTable(): string {
   return "public.workspace_connection_grants";
 }
 
-export async function ensureWorkspaceConnectionsTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const table = workspaceConnectionsTable();
-      const grantsTable = workspaceConnectionGrantsTable();
+export const workspaceConnectionsStore = defineStore({
+  id: "workspace_connections",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const table = workspaceConnectionsTable();
+        const grantsTable = workspaceConnectionGrantsTable();
 
-      const createConnectionsSql = `
+        const createConnectionsSql = `
           CREATE TABLE IF NOT EXISTS ${table} (
             id TEXT PRIMARY KEY,
             provider TEXT NOT NULL DEFAULT '',
@@ -358,7 +360,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
             last_error TEXT
           )
         `;
-      const createGrantsSql = `
+        const createGrantsSql = `
           CREATE TABLE IF NOT EXISTS ${grantsTable} (
             id TEXT PRIMARY KEY,
             connection_id TEXT NOT NULL DEFAULT '',
@@ -376,7 +378,6 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           )
         `;
 
-      {
         await ensureTableExists("workspace_connections", createConnectionsSql);
         await ensureColumnExists(
           "workspace_connections",
@@ -550,14 +551,13 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
           "idx_workspace_connection_grants_updated_at",
           `CREATE INDEX IF NOT EXISTS idx_workspace_connection_grants_updated_at ON ${grantsTable} (updated_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureWorkspaceConnectionsTable(): Promise<void> {
+  return workspaceConnectionsStore.ready();
 }
 
 function requireWorkspaceConnectionScope(): {

@@ -1,13 +1,15 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
-
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const nowDefault = "NOW()::text";
-      const createSql = `
+export const collabDocsStore = defineStore({
+  id: "collab_docs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const nowDefault = "NOW()::text";
+        const createSql = `
         CREATE TABLE IF NOT EXISTS _collab_docs (
           doc_id TEXT PRIMARY KEY,
           yjs_state TEXT NOT NULL,
@@ -17,18 +19,19 @@ export async function ensureTable(): Promise<void> {
         )
       `;
 
-      await ensureTableExists("_collab_docs", createSql);
-      await ensureColumnExists(
-        "_collab_docs",
-        "version",
-        `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists("_collab_docs", createSql);
+        await ensureColumnExists(
+          "_collab_docs",
+          "version",
+          `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+        );
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return collabDocsStore.ready();
 }
 
 export interface YDocStateRecord {

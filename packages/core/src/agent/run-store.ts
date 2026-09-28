@@ -9,6 +9,7 @@ import {
 import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -17,8 +18,6 @@ import {
 } from "./engine/credential-errors.js";
 import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, ContinuationReason } from "./types.js";
-
-let _initPromise: Promise<void> | undefined;
 
 export const RUN_STALE_MS = 15_000;
 
@@ -205,10 +204,13 @@ export class AgentTurnInitiatorUnavailableError extends Error {
   }
 }
 
-export async function ensureRunTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const agentRunsCreateSql = `
+export const agentRunsStore = defineStore({
+  id: "agent_runs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const agentRunsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_runs (
           id TEXT PRIMARY KEY,
           thread_id TEXT NOT NULL,
@@ -229,7 +231,7 @@ export async function ensureRunTables(): Promise<void> {
           continuation_order BIGINT
         )
       `;
-      const agentRunEventsCreateSql = `
+        const agentRunEventsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_events (
           run_id TEXT NOT NULL,
           seq BIGINT NOT NULL,
@@ -238,7 +240,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (run_id, seq)
         )
       `;
-      const agentRunOutcomeDailyCreateSql = `
+        const agentRunOutcomeDailyCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_run_outcome_daily (
           day TEXT NOT NULL,
           status TEXT NOT NULL,
@@ -247,7 +249,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (day, status, terminal_reason)
         )
       `;
-      const agentToolLedgerCreateSql = `
+        const agentToolLedgerCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_tool_ledger (
           thread_id TEXT NOT NULL,
           tool_key TEXT NOT NULL,
@@ -259,7 +261,7 @@ export async function ensureRunTables(): Promise<void> {
           PRIMARY KEY (thread_id, tool_key)
         )
       `;
-      const agentTurnInitiatorsCreateSql = `
+        const agentTurnInitiatorsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_turn_initiators (
           thread_id TEXT NOT NULL,
           turn_id TEXT NOT NULL,
@@ -274,76 +276,81 @@ export async function ensureRunTables(): Promise<void> {
         )
       `;
 
-      await ensureTableExists("agent_runs", agentRunsCreateSql);
-      for (const [col, colType] of [
-        ["heartbeat_at", "BIGINT"],
-        ["abort_reason", "TEXT"],
-        ["last_progress_at", "BIGINT"],
-        ["turn_id", "TEXT"],
-        ["error_code", "TEXT"],
-        ["error_detail", "TEXT"],
-        ["terminal_reason", "TEXT"],
-        ["dispatch_mode", "TEXT"],
-        ["diag_stage", "TEXT"],
-        ["worker_stage", "TEXT"],
-        ["peak_rss_mb", "BIGINT"],
-        ["dispatch_payload", "TEXT"],
-        ["in_flight_since", "BIGINT"],
-        ["continuation_order", "BIGINT"],
-      ] as const) {
-        await ensureColumnExists(
-          "agent_runs",
-          col,
-          `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
+        await ensureTableExists("agent_runs", agentRunsCreateSql);
+        for (const [col, colType] of [
+          ["heartbeat_at", "BIGINT"],
+          ["abort_reason", "TEXT"],
+          ["last_progress_at", "BIGINT"],
+          ["turn_id", "TEXT"],
+          ["error_code", "TEXT"],
+          ["error_detail", "TEXT"],
+          ["terminal_reason", "TEXT"],
+          ["dispatch_mode", "TEXT"],
+          ["diag_stage", "TEXT"],
+          ["worker_stage", "TEXT"],
+          ["peak_rss_mb", "BIGINT"],
+          ["dispatch_payload", "TEXT"],
+          ["in_flight_since", "BIGINT"],
+          ["continuation_order", "BIGINT"],
+        ] as const) {
+          await ensureColumnExists(
+            "agent_runs",
+            col,
+            `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS ${col} ${colType}`,
+          );
+        }
+        await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
+        await ensureTableExists(
+          "agent_turn_initiators",
+          agentTurnInitiatorsCreateSql,
         );
-      }
-      await ensureTableExists("agent_run_events", agentRunEventsCreateSql);
-      await ensureTableExists(
-        "agent_turn_initiators",
-        agentTurnInitiatorsCreateSql,
-      );
-      await ensureColumnExists(
-        "agent_run_events",
-        "event_at",
-        `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
-      );
-      await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "artifacts_json",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
-      );
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "chat_ui_result_json",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
-      );
-      await ensureColumnExists(
-        "agent_tool_ledger",
-        "result_is_string",
-        `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
-      );
-      await ensureTableExists(
-        "agent_run_outcome_daily",
-        agentRunOutcomeDailyCreateSql,
-      );
-      await widenIntColumnsToBigInt("agent_runs", [
-        "started_at",
-        "completed_at",
-        "heartbeat_at",
-        "last_progress_at",
-        "in_flight_since",
-        "continuation_order",
-      ]);
-      await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
-      await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
-      return;
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureColumnExists(
+          "agent_run_events",
+          "event_at",
+          `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at BIGINT`,
+        );
+        await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "artifacts_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS artifacts_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "chat_ui_result_json",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS chat_ui_result_json TEXT`,
+        );
+        await ensureColumnExists(
+          "agent_tool_ledger",
+          "result_is_string",
+          `ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS result_is_string BOOLEAN`,
+        );
+        await ensureTableExists(
+          "agent_run_outcome_daily",
+          agentRunOutcomeDailyCreateSql,
+        );
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("agent_runs", [
+          "started_at",
+          "completed_at",
+          "heartbeat_at",
+          "last_progress_at",
+          "in_flight_since",
+          "continuation_order",
+        ]);
+        await widenIntColumnsToBigInt("agent_run_events", ["event_at"]);
+        await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
+      },
+    },
+  ],
+});
+
+export function ensureRunTables(): Promise<void> {
+  return agentRunsStore.ready();
 }
 
 const LEDGER_RESULT_MAX_CHARS = 8_000;

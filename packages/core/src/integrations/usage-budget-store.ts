@@ -1,5 +1,6 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   getIntegrationScope,
   integrationScopeSubjectKey,
@@ -7,7 +8,6 @@ import {
   type IntegrationScopeKey,
 } from "./scope-store.js";
 
-let initPromise: Promise<void> | undefined;
 let transactionTail: Promise<void> = Promise.resolve();
 
 export const INTEGRATION_BUDGET_COST_UNIT = "currency_micros" as const;
@@ -84,11 +84,13 @@ interface ReservationRow {
   status: IntegrationReservationStatus;
 }
 
-export async function ensureTables(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const db = getDbExec();
-      const budgetsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budgets (
+export const usageBudgetsStore = defineStore({
+  id: "usage_budgets",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const budgetsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budgets (
         id TEXT PRIMARY KEY,
         partition_key TEXT NOT NULL,
         subject_type TEXT NOT NULL,
@@ -101,7 +103,7 @@ export async function ensureTables(): Promise<void> {
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       )`;
-      const windowsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_windows (
+        const windowsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_windows (
         budget_id TEXT NOT NULL,
         window_start BIGINT NOT NULL,
         used_micros BIGINT NOT NULL DEFAULT 0,
@@ -109,7 +111,7 @@ export async function ensureTables(): Promise<void> {
         updated_at BIGINT NOT NULL,
         PRIMARY KEY (budget_id, window_start)
       )`;
-      const reservationsSql = `CREATE TABLE IF NOT EXISTS integration_usage_reservations (
+        const reservationsSql = `CREATE TABLE IF NOT EXISTS integration_usage_reservations (
         id TEXT PRIMARY KEY,
         reservation_key TEXT NOT NULL,
         budget_id TEXT NOT NULL,
@@ -120,7 +122,7 @@ export async function ensureTables(): Promise<void> {
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       )`;
-      const eventsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_events (
+        const eventsSql = `CREATE TABLE IF NOT EXISTS integration_usage_budget_events (
         id TEXT PRIMARY KEY,
         budget_id TEXT NOT NULL,
         window_start BIGINT NOT NULL,
@@ -128,30 +130,29 @@ export async function ensureTables(): Promise<void> {
         observed_micros BIGINT NOT NULL,
         created_at BIGINT NOT NULL
       )`;
-      const indexes = [
-        {
-          name: "idx_integration_budget_subject",
-          sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_budget_subject ON integration_usage_budgets(partition_key, subject_type, subject_id, period)",
-        },
-        {
-          name: "idx_integration_budget_owner",
-          sql: "CREATE INDEX IF NOT EXISTS idx_integration_budget_owner ON integration_usage_budgets(owner_email, subject_type)",
-        },
-        {
-          name: "idx_integration_budget_org",
-          sql: "CREATE INDEX IF NOT EXISTS idx_integration_budget_org ON integration_usage_budgets(org_id, subject_type)",
-        },
-        {
-          name: "idx_integration_reservation_budget",
-          sql: "CREATE INDEX IF NOT EXISTS idx_integration_reservation_budget ON integration_usage_reservations(budget_id, window_start, status)",
-        },
-        {
-          name: "idx_integration_budget_event_window",
-          sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_budget_event_window ON integration_usage_budget_events(budget_id, window_start, threshold_bps)",
-        },
-      ];
+        const indexes = [
+          {
+            name: "idx_integration_budget_subject",
+            sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_budget_subject ON integration_usage_budgets(partition_key, subject_type, subject_id, period)",
+          },
+          {
+            name: "idx_integration_budget_owner",
+            sql: "CREATE INDEX IF NOT EXISTS idx_integration_budget_owner ON integration_usage_budgets(owner_email, subject_type)",
+          },
+          {
+            name: "idx_integration_budget_org",
+            sql: "CREATE INDEX IF NOT EXISTS idx_integration_budget_org ON integration_usage_budgets(org_id, subject_type)",
+          },
+          {
+            name: "idx_integration_reservation_budget",
+            sql: "CREATE INDEX IF NOT EXISTS idx_integration_reservation_budget ON integration_usage_reservations(budget_id, window_start, status)",
+          },
+          {
+            name: "idx_integration_budget_event_window",
+            sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_budget_event_window ON integration_usage_budget_events(budget_id, window_start, threshold_bps)",
+          },
+        ];
 
-      {
         await ensureTableExists("integration_usage_budgets", budgetsSql);
         await ensureTableExists("integration_usage_budget_windows", windowsSql);
         await ensureTableExists(
@@ -162,20 +163,13 @@ export async function ensureTables(): Promise<void> {
         for (const index of indexes) {
           await ensureIndexExists(index.name, index.sql);
         }
-        return;
-      }
+      },
+    },
+  ],
+});
 
-      await db.execute(budgetsSql);
-      await db.execute(windowsSql);
-      await db.execute(reservationsSql);
-      await db.execute(eventsSql);
-      for (const index of indexes) await db.execute(index.sql);
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+export function ensureTables(): Promise<void> {
+  return usageBudgetsStore.ready();
 }
 
 function requiredString(value: unknown, name: string, maxLength = 512): string {
@@ -892,6 +886,6 @@ export async function listIntegrationBudgetThresholdEvents(
 }
 
 export function _resetIntegrationUsageBudgetStoreForTests(): void {
-  initPromise = undefined;
+  usageBudgetsStore.reset();
   transactionTail = Promise.resolve();
 }

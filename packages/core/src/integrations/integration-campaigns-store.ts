@@ -1,7 +1,6 @@
 import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
-
-let initPromise: Promise<void> | undefined;
+import { defineStore } from "../db/store-registry.js";
 
 const MAX_PROGRESS_REF_CHARS = 1_024;
 const MAX_CHECKPOINT_CHARS = 8_192;
@@ -61,12 +60,13 @@ function buildCreateSql(): string {
   )`;
 }
 
-async function ensureTable(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const createSql = buildCreateSql();
-      {
-        await ensureTableExists("integration_campaigns", createSql);
+export const integrationCampaignsStore = defineStore({
+  id: "integration_campaigns",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        await ensureTableExists("integration_campaigns", buildCreateSql());
         await ensureIndexExists(
           "idx_integration_campaigns_due",
           "CREATE INDEX IF NOT EXISTS idx_integration_campaigns_due ON integration_campaigns(status, next_run_at)",
@@ -75,27 +75,17 @@ async function ensureTable(): Promise<void> {
           "idx_integration_campaigns_lease",
           "CREATE INDEX IF NOT EXISTS idx_integration_campaigns_lease ON integration_campaigns(status, lease_expires_at)",
         );
-        return;
-      }
+      },
+    },
+  ],
+});
 
-      const client = getDbExec();
-      await client.execute(createSql);
-      await client.execute(
-        "CREATE INDEX IF NOT EXISTS idx_integration_campaigns_due ON integration_campaigns(status, next_run_at)",
-      );
-      await client.execute(
-        "CREATE INDEX IF NOT EXISTS idx_integration_campaigns_lease ON integration_campaigns(status, lease_expires_at)",
-      );
-    })().catch((error) => {
-      initPromise = undefined;
-      throw error;
-    });
-  }
-  return initPromise;
+function ensureTable(): Promise<void> {
+  return integrationCampaignsStore.ready();
 }
 
-export async function ensureIntegrationCampaignsTable(): Promise<void> {
-  await ensureTable();
+export function ensureIntegrationCampaignsTable(): Promise<void> {
+  return integrationCampaignsStore.ready();
 }
 
 function boundedOpaqueValue(

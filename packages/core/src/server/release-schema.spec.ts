@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { withMigrationRuntime } from "../db/migration-runtime.js";
 import {
   frameworkSchemaEnsureNames,
-  runFrameworkSchemaEnsures,
+  runFrameworkSchemaEnsures as runUnwrapped,
 } from "./release-schema.js";
 
+const runFrameworkSchemaEnsures = (...args: Parameters<typeof runUnwrapped>) =>
+  withMigrationRuntime(() => runUnwrapped(...args));
+
 describe("frameworkSchemaEnsureNames", () => {
-  it.each(["Settings", "ApplicationState", "AppSecrets", "Resources"])(
+  it.each(["settings", "application_state", "app_secrets", "resources"])(
     "covers %s, which a request path can never create in production",
     (name) => {
       expect(frameworkSchemaEnsureNames()).toContain(name);
@@ -22,6 +26,15 @@ describe("frameworkSchemaEnsureNames", () => {
 });
 
 describe("runFrameworkSchemaEnsures", () => {
+  it("refuses to run without migration duty", async () => {
+    const run = vi.fn(async () => {});
+
+    await expect(runUnwrapped([["settings", run]])).rejects.toThrow(
+      /withMigrationRuntime/,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("runs sequentially, in list order", async () => {
     const order: string[] = [];
     const record = (name: string) => async () => {

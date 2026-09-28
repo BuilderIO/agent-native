@@ -1,4 +1,5 @@
 import { getDbExec, type DbExec } from "./client.js";
+import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -43,7 +44,9 @@ export async function widenIntColumnsToBigInt(
       args: [table],
     });
     int4Columns = new Set(rows.map((r) => String(r.column_name)));
-  } catch {
+  } catch (err) {
+    // At release the store ledger records success, so a skipped widen must fail.
+    if (isMigrationAuthorizedRuntime()) throw err;
     return;
   }
   for (const col of columns) {
@@ -52,7 +55,8 @@ export async function widenIntColumnsToBigInt(
       await client.execute(
         `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE BIGINT`,
       );
-    } catch {
+    } catch (err) {
+      if (isMigrationAuthorizedRuntime()) throw err;
       // A concurrent boot already widened it, or the role lacks ALTER — both
       // are safe to ignore; a later boot retries if still needed.
     }

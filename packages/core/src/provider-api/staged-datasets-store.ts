@@ -1,74 +1,74 @@
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 export const MAX_ROWS_PER_APP = 200_000;
 export const MAX_BYTES_PER_APP = 50 * 1024 * 1024;
 
-let _initPromise: Promise<void> | undefined;
+export const stagedDatasetsStore = defineStore({
+  id: "staged_datasets",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const createDatasetsSql = `
+          CREATE TABLE IF NOT EXISTS staged_datasets (
+            id TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            owner_email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            columns TEXT NOT NULL,
+            row_count ${integerType} NOT NULL DEFAULT 0,
+            byte_size ${integerType} NOT NULL DEFAULT 0,
+            created_at ${integerType} NOT NULL,
+            updated_at ${integerType} NOT NULL,
+            PRIMARY KEY (id)
+          )
+        `;
+        const createRowsSql = `
+          CREATE TABLE IF NOT EXISTS staged_dataset_rows (
+            dataset_id TEXT NOT NULL,
+            row_index ${integerType} NOT NULL,
+            row_data TEXT NOT NULL,
+            PRIMARY KEY (dataset_id, row_index)
+          )
+        `;
+        await ensureTableExists("staged_datasets", createDatasetsSql);
+        await ensureTableExists("staged_dataset_rows", createRowsSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("staged_datasets", [
+          "row_count",
+          "byte_size",
+          "created_at",
+          "updated_at",
+        ]);
+        await widenIntColumnsToBigInt("staged_dataset_rows", ["row_index"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "staged_datasets_scope_idx",
+          `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
+        );
+        await ensureIndexExists(
+          "staged_dataset_rows_dataset_idx",
+          `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureTables(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const db = getDbExec();
-      const integerType = "BIGINT";
-      const createDatasetsSql = `
-        CREATE TABLE IF NOT EXISTS staged_datasets (
-          id TEXT NOT NULL,
-          app_id TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          name TEXT NOT NULL,
-          columns TEXT NOT NULL,
-          row_count ${integerType} NOT NULL DEFAULT 0,
-          byte_size ${integerType} NOT NULL DEFAULT 0,
-          created_at ${integerType} NOT NULL,
-          updated_at ${integerType} NOT NULL,
-          PRIMARY KEY (id)
-        )
-      `;
-      const createRowsSql = `
-        CREATE TABLE IF NOT EXISTS staged_dataset_rows (
-          dataset_id TEXT NOT NULL,
-          row_index ${integerType} NOT NULL,
-          row_data TEXT NOT NULL,
-          PRIMARY KEY (dataset_id, row_index)
-        )
-      `;
-      await ensureTableExists("staged_datasets", createDatasetsSql);
-      await ensureTableExists("staged_dataset_rows", createRowsSql);
-      await widenPostgresIntegerColumns(db);
-      await ensureIndexExists(
-        "staged_datasets_scope_idx",
-        `CREATE INDEX IF NOT EXISTS staged_datasets_scope_idx ON staged_datasets (app_id, owner_email)`,
-      );
-      await ensureIndexExists(
-        "staged_dataset_rows_dataset_idx",
-        `CREATE INDEX IF NOT EXISTS staged_dataset_rows_dataset_idx ON staged_dataset_rows (dataset_id)`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
-}
-
-async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
-  const statements = [
-    `ALTER TABLE staged_datasets ALTER COLUMN row_count TYPE BIGINT USING row_count::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN byte_size TYPE BIGINT USING byte_size::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN created_at TYPE BIGINT USING created_at::bigint`,
-    `ALTER TABLE staged_datasets ALTER COLUMN updated_at TYPE BIGINT USING updated_at::bigint`,
-    `ALTER TABLE staged_dataset_rows ALTER COLUMN row_index TYPE BIGINT USING row_index::bigint`,
-  ];
-  for (const sql of statements) {
-    try {
-      await db.execute(sql);
-    } catch {
-      // Best-effort compatibility for older deployments. Widening is
-      // non-destructive; if a database role cannot ALTER, the later write will
-      // still surface the real DB error.
-    }
-  }
+export function ensureTables(): Promise<void> {
+  return stagedDatasetsStore.ready();
 }
 
 export interface StagedDatasetMeta {
@@ -343,5 +343,5 @@ async function withDbTransaction<T>(
 }
 
 export function _resetInitPromiseForTests(): void {
-  _initPromise = undefined;
+  stagedDatasetsStore.reset();
 }

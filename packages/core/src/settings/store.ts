@@ -2,12 +2,11 @@ import type { EventEmitter } from "node:events";
 
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
-
-let _initPromise: Promise<void> | undefined;
 
 const _requestSettingsCache = new WeakMap<object, Map<string, string | null>>();
 
@@ -49,34 +48,47 @@ function settingsTable(): string {
   return "public.settings";
 }
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const table = settingsTable();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS ${table} (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `;
+export const settingsStore = defineStore({
+  id: "settings",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${settingsTable()} (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        await ensureTableExists("settings", createSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("settings", ["updated_at"]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        const table = settingsTable();
+        await ensureIndexExists(
+          "settings_updated_at_idx",
+          `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
+        );
+        await ensureIndexExists(
+          "settings_key_segment_idx",
+          `CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON ${table} ((${SETTINGS_KEY_SEGMENT}))`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("settings", createSql);
-      await widenIntColumnsToBigInt("settings", ["updated_at"]);
-      await ensureIndexExists(
-        "settings_updated_at_idx",
-        `CREATE INDEX IF NOT EXISTS settings_updated_at_idx ON ${table} (updated_at)`,
-      );
-      await ensureIndexExists(
-        "settings_key_segment_idx",
-        `CREATE INDEX IF NOT EXISTS settings_key_segment_idx ON ${table} ((${SETTINGS_KEY_SEGMENT}))`,
-      );
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return settingsStore.ready();
 }
 
 export interface StoreReadOptions {

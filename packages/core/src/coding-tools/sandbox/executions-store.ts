@@ -46,6 +46,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../../db/ddl-guard.js";
+import { defineStore } from "../../db/store-registry.js";
 
 export type SandboxExecutionStatus =
   | "queued"
@@ -110,75 +111,73 @@ export const SANDBOX_EXECUTION_MAX_STORED_OUTPUT_CHARS = 200_000;
 
 const TABLE = "sandbox_executions";
 
-let _initPromise: Promise<void> | undefined;
+export const sandboxExecutionsStore = defineStore({
+  id: "sandbox_executions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS ${TABLE} (
+            id TEXT PRIMARY KEY,
+            owner TEXT NOT NULL,
+            org_id TEXT,
+            thread_id TEXT,
+            runtime TEXT NOT NULL DEFAULT 'node',
+            code TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            timeout_ms BIGINT NOT NULL,
+            max_output_chars BIGINT NOT NULL,
+            attempt_count BIGINT NOT NULL DEFAULT 0,
+            max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
+            claim_token TEXT,
+            lease_expires_at BIGINT,
+            stdout TEXT NOT NULL DEFAULT '',
+            stderr TEXT NOT NULL DEFAULT '',
+            stdout_truncated BIGINT NOT NULL DEFAULT 0,
+            stderr_truncated BIGINT NOT NULL DEFAULT 0,
+            exit_code BIGINT,
+            timed_out BIGINT NOT NULL DEFAULT 0,
+            error TEXT,
+            bridge_tools_used TEXT,
+            allowed_action_names TEXT,
+            created_at BIGINT NOT NULL,
+            started_at BIGINT,
+            finished_at BIGINT,
+            updated_at BIGINT NOT NULL
+          )
+        `;
+        const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
+        const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = _doEnsureTable().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+        await ensureTableExists(TABLE, createSql);
+        const pgColumns: Array<[string, string]> = [
+          ["bridge_tools_used", "TEXT"],
+          ["allowed_action_names", "TEXT"],
+        ];
+        for (const [col, def] of pgColumns) {
+          await ensureColumnExists(
+            TABLE,
+            col,
+            `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+          );
+        }
+        await ensureIndexExists(
+          "sandbox_executions_owner_created_idx",
+          ownerIdxSql,
+        );
+        await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return sandboxExecutionsStore.ready();
 }
 
 export function resetSandboxExecutionsStoreForTests(): void {
-  _initPromise = undefined;
-}
-
-async function _doEnsureTable(): Promise<void> {
-  const createSql = `
-    CREATE TABLE IF NOT EXISTS ${TABLE} (
-      id TEXT PRIMARY KEY,
-      owner TEXT NOT NULL,
-      org_id TEXT,
-      thread_id TEXT,
-      runtime TEXT NOT NULL DEFAULT 'node',
-      code TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      timeout_ms BIGINT NOT NULL,
-      max_output_chars BIGINT NOT NULL,
-      attempt_count BIGINT NOT NULL DEFAULT 0,
-      max_attempts BIGINT NOT NULL DEFAULT ${SANDBOX_EXECUTION_DEFAULT_MAX_ATTEMPTS},
-      claim_token TEXT,
-      lease_expires_at BIGINT,
-      stdout TEXT NOT NULL DEFAULT '',
-      stderr TEXT NOT NULL DEFAULT '',
-      stdout_truncated BIGINT NOT NULL DEFAULT 0,
-      stderr_truncated BIGINT NOT NULL DEFAULT 0,
-      exit_code BIGINT,
-      timed_out BIGINT NOT NULL DEFAULT 0,
-      error TEXT,
-      bridge_tools_used TEXT,
-      allowed_action_names TEXT,
-      created_at BIGINT NOT NULL,
-      started_at BIGINT,
-      finished_at BIGINT,
-      updated_at BIGINT NOT NULL
-    )
-  `;
-  const ownerIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_owner_created_idx ON ${TABLE} (owner, created_at)`;
-  const dueIdxSql = `CREATE INDEX IF NOT EXISTS sandbox_executions_due_idx ON ${TABLE} (status, lease_expires_at)`;
-
-  {
-    await ensureTableExists(TABLE, createSql);
-    const pgColumns: Array<[string, string]> = [
-      ["bridge_tools_used", "TEXT"],
-      ["allowed_action_names", "TEXT"],
-    ];
-    for (const [col, def] of pgColumns) {
-      await ensureColumnExists(
-        TABLE,
-        col,
-        `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS ${col} ${def}`,
-      );
-    }
-    await ensureIndexExists(
-      "sandbox_executions_owner_created_idx",
-      ownerIdxSql,
-    );
-    await ensureIndexExists("sandbox_executions_due_idx", dueIdxSql);
-  }
+  sandboxExecutionsStore.reset();
 }
 
 function capOutput(
