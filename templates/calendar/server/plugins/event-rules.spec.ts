@@ -193,6 +193,44 @@ describe("calendar event rules sweep", () => {
     expect(mocks.rsvpEvent).not.toHaveBeenCalled();
   });
 
+  it("aborts a pending event lookup before applying its RSVP", async () => {
+    configureOwnerSweep();
+    let finishEventLookup!: (event: { responseStatus: string }) => void;
+    mocks.getEvent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishEventLookup = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const sweep = runCalendarEventRulesOnce(controller.signal);
+
+    await vi.waitFor(() => expect(mocks.getEvent).toHaveBeenCalledTimes(1));
+    const mutationCount = mocks.mutateUserSetting.mock.calls.length;
+    expect(mocks.getEvent.mock.calls[0]?.[2]).toEqual({
+      signal: controller.signal,
+    });
+    controller.abort();
+    finishEventLookup({ responseStatus: "needsAction" });
+
+    await expect(sweep).rejects.toMatchObject({ name: "AbortError" });
+    expect(mocks.mutateUserSetting).toHaveBeenCalledTimes(mutationCount);
+    expect(mocks.rsvpEvent).not.toHaveBeenCalled();
+  });
+
+  it("passes the sweep signal to Google Calendar reads and RSVP writes", async () => {
+    configureOwnerSweep();
+    const controller = new AbortController();
+
+    await runCalendarEventRulesOnce(controller.signal);
+
+    expect(mocks.calendarListEvents.mock.calls[0]?.[3]).toBe(controller.signal);
+    expect(mocks.getEvent.mock.calls[0]?.[2]).toEqual({
+      signal: controller.signal,
+    });
+    expect(mocks.rsvpEvent.mock.calls[0]?.[6]).toBe(controller.signal);
+  });
+
   it("does not clear the previous error after the sweep is aborted", async () => {
     configureOwnerSweep({ rules: {}, runtime: { lastError: "previous" } });
     let continueMutation!: () => void;
@@ -354,6 +392,7 @@ describe("calendar event rules sweep", () => {
       "healthy",
       "primary",
       expect.objectContaining({ showDeleted: true }),
+      undefined,
     );
     expect(failure).toMatchObject({ name: "AggregateError" });
     const ownerFailure = (failure as Error & { errors: Error[] }).errors[0];
@@ -589,6 +628,10 @@ describe("calendar event rules sweep", () => {
       "event-1",
       "accepted",
       expect.any(Object),
+      "single",
+      undefined,
+      undefined,
+      undefined,
     );
     expect(
       settingsByOwner[owner]["calendar-event-rules-runtime"],

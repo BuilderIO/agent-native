@@ -359,10 +359,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
     signal?.throwIfAborted();
     if (!claimToken) continue;
     try {
-      const event = await googleCalendar.getEvent(pending.eventId, {
-        ownerEmail: owner,
-        accountEmail: pending.accountEmail,
-      });
+      const event = await googleCalendar.getEvent(
+        pending.eventId,
+        {
+          ownerEmail: owner,
+          accountEmail: pending.accountEmail,
+        },
+        { signal },
+      );
       signal?.throwIfAborted();
       if (eventResponseStatus(event, pending.accountEmail) === pending.action) {
         signal?.throwIfAborted();
@@ -436,6 +440,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
             maxResults: 250,
             pageToken,
           },
+          signal,
         );
         signal?.throwIfAborted();
         events.push(...(result.items ?? []));
@@ -457,6 +462,7 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
           account.accessToken,
           "primary",
           { timeMin: initial, showDeleted: true, maxResults: 250, pageToken },
+          signal,
         );
         signal?.throwIfAborted();
         events.push(...(result.items ?? []));
@@ -524,10 +530,14 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
         if (claim === "claimed") {
           let currentEvent;
           try {
-            currentEvent = await googleCalendar.getEvent(event.id, {
-              ownerEmail: owner,
-              accountEmail: account.email,
-            });
+            currentEvent = await googleCalendar.getEvent(
+              event.id,
+              {
+                ownerEmail: owner,
+                accountEmail: account.email,
+              },
+              { signal },
+            );
           } catch (error) {
             signal?.throwIfAborted();
             await releaseRsvpClaim(identity, releasedRsvpClaims.get(identity)!);
@@ -554,10 +564,18 @@ async function syncOwner(owner: string, signal?: AbortSignal) {
             actions.has(responseAction === "accepted" ? "accept" : "decline")
           ) {
             signal?.throwIfAborted();
-            await googleCalendar.rsvpEvent(event.id, responseAction, {
-              ownerEmail: owner,
-              accountEmail: account.email,
-            });
+            await googleCalendar.rsvpEvent(
+              event.id,
+              responseAction,
+              {
+                ownerEmail: owner,
+                accountEmail: account.email,
+              },
+              "single",
+              undefined,
+              undefined,
+              signal,
+            );
             signal?.throwIfAborted();
             activity.push(entry);
           } else {
