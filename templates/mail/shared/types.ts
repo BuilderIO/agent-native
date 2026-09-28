@@ -175,6 +175,7 @@ export type Alias = {
 
 export type AutomationAction =
   | { type: "label"; labelName: string }
+  | { type: "notify" }
   | { type: "archive" }
   | { type: "mark_read" }
   | { type: "star" }

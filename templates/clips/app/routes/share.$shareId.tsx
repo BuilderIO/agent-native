@@ -18,6 +18,7 @@ import {
   EnvironmentBadge,
 } from "@agent-native/core/client/ui";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { isDefaultTitle } from "@shared/title-source";
 import {
   IconAlertTriangle,
   IconDeviceDesktop,
@@ -108,7 +109,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -251,9 +251,11 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       verifyScopedAgentAccessToken,
     },
     { resolveAccess },
+    { getRecordingAccessTokenResourceId },
   ] = await Promise.all([
     import("@agent-native/core/server"),
     import("@agent-native/core/sharing"),
+    import("../../server/lib/share-password.js"),
   ]);
 
   const db = getDb();
@@ -265,6 +267,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       updatedAt: schema.recordings.updatedAt,
+      sharePasswordVersion: schema.recordings.sharePasswordVersion,
       visibility: schema.recordings.visibility,
       status: schema.recordings.status,
       ownerEmail: schema.recordings.ownerEmail,
@@ -282,14 +285,18 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
 
   const agentAccessToken = url.searchParams.get(CLIPS_AGENT_ACCESS_PARAM) ?? "";
   const hasAgentAccessToken = Boolean(agentAccessToken);
+  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
+
   const tokenGrantsAgentAccess = agentAccessToken
     ? verifyScopedAgentAccessToken(agentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
-        resourceId: id,
+        resourceId: getRecordingAccessTokenResourceId(
+          id,
+          rec.password,
+          rec.sharePasswordVersion,
+        ),
       }).ok
     : false;
-
-  if (!rec) return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
 
   if (isRecordingExpired(rec.expiresAt)) {
     return shareLoaderData(emptyLoaderData(url), hasAgentAccessToken);
@@ -1928,7 +1935,7 @@ function ShareReactionPicker({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          className="h-8 gap-1.5 px-2 text-xs"
+          className="gap-1.5 px-2 text-xs"
         >
           <IconMoodSmile className="size-4" />
           {t("recordingPage.react")}
@@ -1941,8 +1948,8 @@ function ShareReactionPicker({
               key={emoji}
               type="button"
               variant="ghost"
-              size="icon"
-              className="size-8 rounded-full text-lg"
+              size="icon-sm"
+              className="rounded-full text-lg"
               aria-label={`${t("recordingPage.react")} ${REACTION_NAMES[emoji]}`}
               onClick={() => {
                 setOpen(false);

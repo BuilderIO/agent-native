@@ -47,7 +47,10 @@ export default defineAction({
   requiresAuth: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
-  run: async ({ id, fileId, includeFileContent, reviewPreview }, ctx) => {
+  run: async (
+    { id, fileId, includeFileContent, reviewPreview, reviewOrgId },
+    ctx,
+  ) => {
     const db = getDb();
     let access;
     if (reviewPreview) {
@@ -59,19 +62,37 @@ export default defineAction({
         );
       }
       const isSuperOrgAdmin = getAppConfig().observability.superOrgId === orgId;
-      const [resource] = await db
-        .select()
+      const targetOrgId = isSuperOrgAdmin ? reviewOrgId : orgId;
+      if (!targetOrgId) {
+        fail("A customer organization is required for this design preview.", {
+          statusCode: 400,
+        });
+      }
+      const [scope] = await db
+        .select({
+          ownerEmail: schema.designs.ownerEmail,
+          orgId: schema.designs.orgId,
+        })
         .from(schema.designs)
         .where(
-          isSuperOrgAdmin
-            ? eq(schema.designs.id, id)
-            : and(eq(schema.designs.id, id), eq(schema.designs.orgId, orgId)),
+          and(eq(schema.designs.id, id), eq(schema.designs.orgId, targetOrgId)),
         )
         .limit(1);
-      if (!resource) fail("Design not found.", { statusCode: 404 });
+      if (!scope) fail("Design not found.", { statusCode: 404 });
       const directAccess =
-        resource.orgId === orgId ? await resolveAccess("design", id) : null;
-      access = directAccess ?? { role: "viewer" as const, resource };
+        targetOrgId === orgId ? await resolveAccess("design", id) : null;
+      if (directAccess?.resource.orgId === targetOrgId) {
+        access = directAccess;
+      } else {
+        const scopedAccess = await resolveAccess("design", id, {
+          userEmail: scope.ownerEmail,
+          orgId: targetOrgId,
+        });
+        if (!scopedAccess || scopedAccess.resource.orgId !== targetOrgId) {
+          fail("Design not found.", { statusCode: 404 });
+        }
+        access = { role: "viewer" as const, resource: scopedAccess.resource };
+      }
     } else {
       access = await resolveAccess("design", id);
     }

@@ -16,10 +16,7 @@ import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
-import {
-  getThemeInitScript,
-  RequireSession,
-} from "@agent-native/core/client/ui";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -44,6 +41,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { DeckProvider } from "@/context/DeckContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+import "@/lib/register-chat-renderers";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -61,10 +59,6 @@ configureTracking({
 
 const BARE_ROUTES = new Set(["/slide"]);
 const BARE_PREFIXES = ["/share/", "/p/"];
-
-export function isShareableContentPath(pathname: string): boolean {
-  return isBareContentPath(pathname) || pathname.startsWith("/deck/");
-}
 
 export function isBareContentPath(pathname: string): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "");
@@ -333,7 +327,7 @@ function AppContent() {
     </>
   );
 
-  return isDeckEditor ? <RequireSession>{content}</RequireSession> : content;
+  return content;
 }
 
 export default function Root() {
@@ -351,7 +345,8 @@ export default function Root() {
         skeletonLayout="prompt-library"
         defaultTheme="dark"
         i18n={{ catalog: i18nCatalog }}
-        sessionBypass={isShareableContentPath(location.pathname)}
+        sessionBypass={isBareContentPath(location.pathname)}
+        skipFirstRunOnboarding={isDeckEditorPath(location.pathname)}
       >
         <AppContent />
       </AppProviders>

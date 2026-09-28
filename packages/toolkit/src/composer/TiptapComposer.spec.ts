@@ -39,6 +39,7 @@ import {
   formatVoiceTranscriptForComposer,
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
+  mentionItemMatchesQuery,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
@@ -535,6 +536,79 @@ describe("createTiptapComposerExtensions", () => {
 
     expect(runs).toHaveLength(2);
     expect(runs[1]?.at(-1)?.content).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("clears the submitted draft after a scope switch without clearing the new draft", async () => {
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSubmit = resolve;
+        }),
+    );
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness({ scope }: { scope: string }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            onSubmit,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { scope: "submitted-thread" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("submitted prompt"));
+    await act(async () => {
+      container
+        .querySelector<HTMLElement>(".agent-composer-prosemirror")!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(
+      localStorage.getItem(getComposerDraftKey("submitted-thread")),
+    ).toContain("submitted prompt");
+
+    await act(async () => {
+      root.render(React.createElement(Harness, { scope: "new-thread" }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => focusRef.current?.setText("new prompt"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    await act(async () => {
+      resolveSubmit?.();
+      await Promise.resolve();
+    });
+
+    expect(
+      localStorage.getItem(getComposerDraftKey("submitted-thread")),
+    ).toBeNull();
+    expect(localStorage.getItem(getComposerDraftKey("new-thread"))).toContain(
+      "new prompt",
+    );
   });
 
   it("clears the persisted draft even when the host unmounts the composer before onSubmit resolves", async () => {
@@ -2020,6 +2094,29 @@ describe("TiptapComposer slash commands", () => {
         duration: 1800,
       }),
     );
+  });
+});
+
+describe("mentionItemMatchesQuery", () => {
+  const sonnet = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("matches every host item while the query is empty", () => {
+    expect(mentionItemMatchesQuery(sonnet, "")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "  ")).toBe(true);
+  });
+
+  it("matches label, alias, and description text case-insensitively", () => {
+    expect(mentionItemMatchesQuery(sonnet, "sonn")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "Claude S")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "anthropic")).toBe(true);
+    expect(mentionItemMatchesQuery(sonnet, "opus")).toBe(false);
   });
 });
 

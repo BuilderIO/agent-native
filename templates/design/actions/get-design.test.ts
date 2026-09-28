@@ -41,9 +41,7 @@ const mocks = vi.hoisted(() => {
     const orgCondition = conditions.find(
       (condition) => condition.left === "designs.orgId",
     );
-    return scopedToId &&
-      (!orgCondition || orgCondition.right === state.orgId) &&
-      (!orgCondition || state.reviewResource?.orgId === state.orgId)
+    return scopedToId && orgCondition?.right === state.reviewResource?.orgId
       ? [state.reviewResource]
       : [];
   });
@@ -98,7 +96,11 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../server/db/index.js", () => ({
   getDb: mocks.getDb,
   schema: {
-    designs: { id: "designs.id", orgId: "designs.orgId" },
+    designs: {
+      id: "designs.id",
+      ownerEmail: "designs.ownerEmail",
+      orgId: "designs.orgId",
+    },
     designFiles: {
       id: "designFiles.id",
       designId: "designFiles.designId",
@@ -128,6 +130,7 @@ describe("get-design", () => {
     mocks.state.superOrgId = undefined;
     mocks.state.reviewResource = {
       id: "design_123",
+      ownerEmail: "alice@example.com",
       title: "Org design",
       description: "Same org preview",
       projectType: "prototype",
@@ -146,30 +149,33 @@ describe("get-design", () => {
     mocks.asc.mockClear();
     mocks.and.mockClear();
     mocks.eq.mockClear();
-    mocks.resolveAccess.mockResolvedValue({
-      role: "viewer",
-      resource: {
-        id: "design_123",
-        title: "Public checkout",
-        description: "Shared preview",
-        projectType: "prototype",
-        designSystemId: null,
-        data: JSON.stringify({
-          canvasFrames: [],
-          screenMetadata: {
-            file_123: {
-              sourceType: "localhost",
-              bridgeUrl: "http://127.0.0.1:7331",
-              previewToken: "example-read-only-preview-token",
-              bridgeToken: "example-private-bridge-token",
+    mocks.resolveAccess.mockImplementation(
+      async (_resource: string, _id: string, options?: { orgId?: string }) => ({
+        role: "viewer",
+        resource: {
+          id: "design_123",
+          title: "Public checkout",
+          description: "Shared preview",
+          projectType: "prototype",
+          designSystemId: null,
+          data: JSON.stringify({
+            canvasFrames: [],
+            screenMetadata: {
+              file_123: {
+                sourceType: "localhost",
+                bridgeUrl: "http://127.0.0.1:7331",
+                previewToken: "example-read-only-preview-token",
+                bridgeToken: "example-private-bridge-token",
+              },
             },
-          },
-        }),
-        visibility: "public",
-        createdAt: "2026-06-29T00:00:00.000Z",
-        updatedAt: "2026-06-29T00:00:00.000Z",
-      },
-    });
+          }),
+          visibility: "public",
+          orgId: options?.orgId ?? "org-a",
+          createdAt: "2026-06-29T00:00:00.000Z",
+          updatedAt: "2026-06-29T00:00:00.000Z",
+        },
+      }),
+    );
     mocks.selectChain.orderBy.mockResolvedValue([
       {
         id: "file_123",
@@ -274,19 +280,44 @@ describe("get-design", () => {
     mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
     mocks.track.mockClear();
 
-    const result = await action.run({ id: "design_123", reviewPreview: true });
+    const result = await action.run({
+      id: "design_123",
+      reviewPreview: true,
+      reviewOrgId: "customer-org",
+    });
 
     expect(mocks.getAppConfig).toHaveBeenCalled();
     expect(mocks.currentRequestUserIsOrgAdmin).toHaveBeenCalledWith(
       "builder-org",
     );
     expect(mocks.selectChain.where).toHaveBeenCalledWith({
-      left: "designs.id",
-      right: "design_123",
+      conditions: [
+        { left: "designs.id", right: "design_123" },
+        { left: "designs.orgId", right: "customer-org" },
+      ],
+    });
+    expect(mocks.resolveAccess).toHaveBeenCalledWith("design", "design_123", {
+      userEmail: "alice@example.com",
+      orgId: "customer-org",
     });
     expect(result).toMatchObject({ id: "design_123", accessRole: "viewer" });
     expect(result.files[0].content).toBe("<main>Hello</main>");
     expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("hides another customer's design from a super-org preview scope", async () => {
+    mocks.state.orgId = "builder-org";
+    mocks.state.superOrgId = "builder-org";
+    mocks.state.reviewResource!.orgId = "other-customer";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+
+    await expect(
+      action.run({
+        id: "design_123",
+        reviewPreview: true,
+        reviewOrgId: "customer-org",
+      }),
+    ).rejects.toMatchObject({ message: "Design not found.", statusCode: 404 });
   });
 
   it("includes readable linked design-system context", async () => {

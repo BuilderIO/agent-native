@@ -40,7 +40,6 @@ const messages = {
     brand: "स्लाइड",
     decks: "डेक",
     designSystems: "डिज़ाइन सिस्टम",
-    team: "टीम",
   },
   settings: {
     agentObservability: "एजेंट अवलोकन",
@@ -53,6 +52,12 @@ const messages = {
     emailNotificationsDescription:
       "जब कोई आपके डेक पर टिप्पणी करे या किसी थ्रेड में जवाब दे तो ईमेल पाएँ।",
     saveFailed: "सहेजने में विफल",
+    notificationsEmail: "ईमेल",
+    commentsAndReplies: "टिप्पणियाँ और जवाब",
+    commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
+    retry: "फिर कोशिश करें",
+    mcpAbout:
+      "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     languageTitle: "भाषा",
     languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
     languageLabel: "इंटरफ़ेस भाषा",
@@ -183,8 +188,6 @@ const messages = {
     slideUnavailable: "Slide indisponível",
     couldNotLoadSlide: "Não foi possível carregar o slide.",
     openInApp: "ऐप में खोलें",
-    teamDescription:
-      "Configure uma equipe para compartilhar apresentações com colegas.",
   },
 
   designSystems: {
@@ -576,6 +579,7 @@ const messages = {
     generating: "स्लाइड जनरेट हो रही हैं...",
     generate: "स्लाइड जनरेट करें",
   },
+  deckResult: { saved: "सहेजा गया" },
   history: {
     unknownTime: "अज्ञात समय",
     justNow: "अभी-अभी",
@@ -641,6 +645,20 @@ const messages = {
     enterFullscreen: "फ़ुलस्क्रीन में जाएं",
     clickToEnterFullscreen: "फ़ुलस्क्रीन में जाने के लिए क्लिक करें",
   },
+  deckAccessPage: {
+    errorCode: "त्रुटि 403",
+    noAccessTitle: "आपके पास एक्सेस नहीं है",
+    noAccessDescription: "डेक के मालिक से एक्सेस मांगें, या सही खाते पर स्विच करें।",
+    noteLabel: "मालिक के लिए एक नोट जोड़ें (वैकल्पिक)",
+    notePlaceholder: "मैं इस डेक की समीक्षा कर रहा/रही हूं",
+    requesting: "अनुरोध भेजा जा रहा है",
+    requestFailed: "आपका अनुरोध नहीं भेजा गया। कृपया फिर से कोशिश करें।",
+    requestSentDescription:
+      "जैसे ही मालिक आपके अनुरोध को मंज़ूरी देगा, हम आपको ईमेल करेंगे।",
+    goHome: "होम पर जाएं",
+    signedInAs: "इस रूप में साइन इन हैं",
+    switchAccount: "खाता बदलें",
+  },
   deckEditor: {
     lookingForDeck: "यह डेक खोजा जा रहा है",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
@@ -686,6 +704,9 @@ const messages = {
     accessApprovalTitle: "एक्सेस दे दी गई",
     accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
     accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalRequesterEmailed: "हमने उन्हें ईमेल करके बता दिया है।",
+    accessApprovalRequesterEmailFailed:
+      "हम {{email}} को ईमेल नहीं भेज सके। उन्हें बताएं कि वे अब डेक खोल सकते हैं।",
     accessApprovalAlreadyMessage: "{{email}} के पास इस डेक की एक्सेस पहले से है।",
     accessApprovalErrorTitle: "एक्सेस नहीं दी जा सकी",
     accessApprovalInvalid: "यह एक्सेस अनुरोध अमान्य या समाप्त हो चुका है।",
@@ -820,6 +841,7 @@ const messages = {
       networkFailed:
         "आयात अनुरोध का समय समाप्त हो गया या नेटवर्क कनेक्शन टूट गया। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
       notStarted: "ज़रूरी साइन इन पूरा करें, फिर आयात दोबारा आज़माएँ।",
+      unsupportedFileType: "यह फ़ाइल प्रकार समर्थित नहीं है। समर्थित फ़ाइल चुनें।",
       uploadLimitExceeded:
         "अपलोड की अनुमति सीमा पार हो गई है। फ़ाइल का आकार कम करें या कम फ़ाइलें चुनें, फिर दोबारा कोशिश करें।",
     },
@@ -860,6 +882,8 @@ const messages = {
       notReady:
         "संदर्भ लोड हो रहा है या उपलब्ध नहीं है। भेजने से पहले फिर कोशिश करें या उसे हटाएं।",
       emptySource: "इस स्रोत से उपयोगी संदर्भ नहीं मिला।",
+      websiteReadFailed:
+        "इस वेबसाइट को अपने-आप नहीं पढ़ा जा सका। इसके बजाय संबंधित टेक्स्ट कॉपी करके पेस्ट करें।",
       figmaReadFailed:
         "Design यह Figma संदर्भ नहीं पढ़ सका। Design में सेव किया गया Figma access token और यह जाँचें कि उससे जुड़ा खाता फ़ाइल खोल सकता है, फिर दोबारा कोशिश करें।",
       tooMany: "अधिकतम 20 संदर्भ चुनें।",
@@ -1013,6 +1037,11 @@ const messages = {
     emptyTitle: "अभी कोई डेक नहीं",
     createFirstDeck: "अपना पहला डेक बनाएं",
     emptyDescription: "AI-संचालित जनरेशन के साथ सुंदर प्रेज़ेंटेशन बनाएं।",
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "AI कनेक्शन की जाँच नहीं हो सकी।",
+    },
   },
 };
 

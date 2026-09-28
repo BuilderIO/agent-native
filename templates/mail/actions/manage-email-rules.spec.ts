@@ -89,6 +89,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
       "rule-1",
     ]);
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       id: "rule-1",
       mode: "tag",
@@ -99,7 +100,36 @@ describe("manage-email-rules chat action", () => {
       backfillRunId: "run-1",
       backfillStatus: "queued",
       settingsHref: "/settings?section=ai-filter",
+      change: {
+        verb: "created",
+        kind: "mail-rule",
+        title: "Newsletters",
+        detail: "from newsletters",
+        url: "/settings?section=ai-filter",
+      },
     });
+    expect(action.chatUI?.when?.({ action: "create" }, result)).toBe(true);
+    expect(
+      action.chatUI?.projectResult?.({ action: "create" }, result),
+    ).toEqual({ change: result.change });
+    expect(mocks.buildDeepLink).toHaveBeenCalledWith({
+      app: "mail",
+      view: "settings",
+      to: "/settings?section=ai-filter",
+    });
+  });
+
+  it("routes a non-agent AI rule through shared rule creation", async () => {
+    await createManageEmailRulesAction(false).run({
+      action: "create",
+      mode: "important",
+      sentence: "Messages from my team lead",
+    });
+
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({ kind: "ai-filter" }),
+    );
   });
 
   it("lists rule names and action effects with their mode classification", async () => {
@@ -124,7 +154,8 @@ describe("manage-email-rules chat action", () => {
       },
     ]);
 
-    const result = await createManageEmailRulesAction(true).run({
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
       action: "list",
     });
 
@@ -146,14 +177,34 @@ describe("manage-email-rules chat action", () => {
         },
       ],
     });
+    expect(result).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "list" }, result)).toBe(false);
   });
 
-  it("returns per-rule counts when the backfill has started", async () => {
-    mocks.readMailAiFilterBackfill.mockResolvedValue({
-      runId: "run-1",
-      status: "running",
-      perRule: [{ ruleId: "rule-1", name: "Newsletters", appliedCount: 2 }],
+  it("returns the queued start result without reading status again", async () => {
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      name: "Newsletters",
+      condition: "from newsletters",
+      actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
     });
+
+    expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
+      "rule-1",
+    ]);
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      appliedCounts: null,
+      backfillRunId: "run-1",
+      backfillStatus: "queued",
+    });
+  });
+
+  it("keeps a failed AI-rule backfill as an ordinary tool result", async () => {
+    mocks.startMailAiFilterBackfill.mockRejectedValueOnce(
+      new Error("backfill unavailable"),
+    );
 
     const action = createManageEmailRulesAction(true);
     const result = await action.run({
@@ -164,12 +215,12 @@ describe("manage-email-rules chat action", () => {
     });
 
     expect(result).toMatchObject({
-      appliedCounts: [
-        { ruleId: "rule-1", name: "Newsletters", appliedCount: 2 },
-      ],
-      backfillRunId: "run-1",
-      backfillStatus: "running",
+      operation: "create",
+      backfillStatus: "failed",
+      backfillError:
+        "The rule was saved, but its recent-mail backfill could not start.",
     });
+    expect(action.chatUI?.when?.({ action: "create" }, result)).toBe(false);
   });
 
   it("updates label/archive rules through shared CRUD and starts a new backfill", async () => {
@@ -185,6 +236,7 @@ describe("manage-email-rules chat action", () => {
       id: "rule-1",
       domain: "mail",
       kind: "ai-filter",
+      name: "Archive team mail",
       condition: "from the team",
       actions: [{ type: "archive" }],
       enabled: true,
@@ -209,6 +261,14 @@ describe("manage-email-rules chat action", () => {
       "rule-1",
     ]);
     expect(result).toMatchObject({ mode: "archive", operation: "update" });
+    expect(result.change).toEqual({
+      verb: "updated",
+      kind: "mail-rule",
+      title: "Archive team mail",
+      detail: "from the team",
+      url: "/settings?section=ai-filter",
+    });
+    expect(action.chatUI?.when?.({ action: "update" }, result)).toBe(true);
   });
 
   it("reports a queued backfill for an updated AI rule", async () => {
@@ -226,6 +286,7 @@ describe("manage-email-rules chat action", () => {
       id: "rule-1",
       domain: "mail",
       kind: "ai-filter",
+      name: "AI archive: planning",
       condition: "from the team about planning",
       actions: [{ type: "archive" }],
       enabled: true,
@@ -239,10 +300,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.startMailAiFilterBackfill).toHaveBeenCalledWith(ownerEmail, [
       "rule-1",
     ]);
-    expect(mocks.readMailAiFilterBackfill).toHaveBeenCalledWith(
-      ownerEmail,
-      "run-1",
-    );
+    expect(mocks.readMailAiFilterBackfill).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       operation: "update",
       backfillRunId: "run-1",
@@ -299,6 +357,8 @@ describe("manage-email-rules chat action", () => {
       enabled: false,
       deleted: true,
     });
+    expect(result).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "delete" }, result)).toBe(false);
   });
 
   it("creates an Important rule from a mode and one sentence", async () => {
@@ -325,6 +385,33 @@ describe("manage-email-rules chat action", () => {
       appliedCounts: null,
       backfillRunId: "run-1",
       settingsHref: "/settings?section=ai-filter",
+    });
+  });
+
+  it("creates a Notify rule that highlights matches and queues backfill", async () => {
+    const action = createManageEmailRulesAction(true);
+    const result = await action.run({
+      action: "create",
+      mode: "notify",
+      sentence: "Messages from my child's school",
+    });
+
+    expect(mocks.createAutomationRule).toHaveBeenCalledWith(
+      ownerEmail,
+      expect.objectContaining({
+        name: "AI notify: Messages from my child's school",
+        condition: "Messages from my child's school",
+        actions: [
+          { type: "label", labelName: "agent-native-important" },
+          { type: "notify" },
+        ],
+        kind: "ai-filter",
+      }),
+    );
+    expect(result).toMatchObject({
+      mode: "notify",
+      sentence: "Messages from my child's school",
+      backfillStatus: "queued",
     });
   });
 
@@ -420,5 +507,98 @@ describe("manage-email-rules chat action", () => {
       }),
     );
     expect(result).toMatchObject({ mode: "tag", tagName: "Receipts" });
+  });
+
+  it("shows successful enable and disable transitions as rule changes", async () => {
+    const disabledRule = {
+      id: "rule-1",
+      domain: "mail",
+      kind: "automation",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: [{ type: "star" }],
+      enabled: false,
+    };
+    const enabledRule = { ...disabledRule, enabled: true };
+    mocks.listAutomationRules
+      .mockResolvedValueOnce([disabledRule])
+      .mockResolvedValueOnce([enabledRule]);
+    mocks.updateAutomationRule
+      .mockResolvedValueOnce(enabledRule)
+      .mockResolvedValueOnce(disabledRule);
+
+    const action = createManageEmailRulesAction(true);
+    const enabled = await action.run({ action: "enable", id: "rule-1" });
+    const disabled = await action.run({ action: "disable", id: "rule-1" });
+
+    expect(enabled.change).toEqual({
+      verb: "enabled",
+      kind: "mail-rule",
+      title: "Star my manager",
+      detail: "from my manager",
+      url: "/settings?section=automations",
+    });
+    expect(disabled.change).toEqual({
+      verb: "disabled",
+      kind: "mail-rule",
+      title: "Star my manager",
+      detail: "from my manager",
+      url: "/settings?section=automations",
+    });
+    expect(action.chatUI?.when?.({ action: "enable" }, enabled)).toBe(true);
+    expect(action.chatUI?.when?.({ action: "disable" }, disabled)).toBe(true);
+  });
+
+  it("leaves no-op updates and enables as ordinary tool rows", async () => {
+    const rule = {
+      id: "rule-1",
+      domain: "mail",
+      kind: "automation",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: [{ type: "star" }],
+      enabled: true,
+    };
+    mocks.listAutomationRules.mockResolvedValue([rule]);
+    mocks.updateAutomationRule.mockResolvedValue(rule);
+
+    const action = createManageEmailRulesAction(true);
+    const update = await action.run({
+      action: "update",
+      id: "rule-1",
+      name: "Star my manager",
+    });
+    const enable = await action.run({ action: "enable", id: "rule-1" });
+
+    expect(update).not.toHaveProperty("change");
+    expect(enable).not.toHaveProperty("change");
+    expect(action.chatUI?.when?.({ action: "update" }, update)).toBe(false);
+    expect(action.chatUI?.when?.({ action: "enable" }, enable)).toBe(false);
+  });
+
+  it("does not add a change when a rule mutation fails", async () => {
+    mocks.createAutomationRule.mockRejectedValueOnce(new Error("write failed"));
+
+    await expect(
+      createManageEmailRulesAction(true).run({
+        action: "create",
+        name: "Newsletters",
+        condition: "from newsletters",
+        actions: JSON.stringify([{ type: "label", labelName: "Newsletters" }]),
+      }),
+    ).rejects.toThrow("write failed");
+  });
+
+  it("keeps the legacy recurring-automation action on plain results", async () => {
+    const action = createManageEmailRulesAction(false);
+    const result = await action.run({
+      action: "create",
+      name: "Star my manager",
+      condition: "from my manager",
+      actions: JSON.stringify([{ type: "star" }]),
+    });
+
+    expect(result).not.toHaveProperty("change");
+    expect(action.chatUI).toBeUndefined();
   });
 });

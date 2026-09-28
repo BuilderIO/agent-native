@@ -932,12 +932,29 @@ function parseMemoryIndex(
   return entries;
 }
 
+const memoryWordSegmenter = new Intl.Segmenter(undefined, {
+  granularity: "word",
+});
+
 function memoryRelevanceScore(request: string, text: string): number {
   const searchable = text.toLowerCase();
-  const terms = new Set(request.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+  const terms = new Set(
+    Array.from(memoryWordSegmenter.segment(request))
+      .filter(({ isWordLike }) => isWordLike)
+      .map(({ segment }) => segment.toLowerCase())
+      .filter(
+        (term) =>
+          term.length >= 3 ||
+          (term.length >= 2 &&
+            /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+              term,
+            )),
+      ),
+  );
   let score = 0;
   for (const term of terms) {
-    if (searchable.includes(term)) score += Math.min(term.length, 8);
+    if (searchable.includes(term))
+      score += Math.min(Math.max(term.length, 3), 8);
   }
   return score;
 }
@@ -1017,7 +1034,8 @@ async function collectJevMemoryPromptCandidates(input: {
         content: "",
       };
     });
-    const fallback = memories.find((memory) => memory.score >= 5);
+    // ponytail: lexical recall catches indexed terms without a Jev call; use embeddings or a reranker when semantic misses justify the added cost.
+    const fallback = memories.find((memory) => memory.score >= 3);
     const fallbackIndex = fallback ? memories.indexOf(fallback) : -1;
     return {
       candidates,
@@ -1205,35 +1223,33 @@ export async function preloadJevContextForPrompt(options: {
     candidates: JevPromptCandidate[];
     fallbackIds: string[];
   } = { candidates: [], fallbackIds: [] };
-  if (hasJev) {
-    try {
-      const collection = await withinPromptBudget(
-        (signal) =>
-          Promise.all([
-            collectJevPromptCandidates(signal),
-            collectJevMemoryPromptCandidates({
-              owner: options.owner,
-              orgId: options.orgId,
-              request,
-              signal,
-            }),
-          ]),
-        deadlineAt,
-      );
-      if (collection.status === "completed") {
-        runtimeCandidates = collection.value[0];
-        memoryContext = collection.value[1];
-      } else {
-        console.warn(
-          "[agent] Jev context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
-        );
-      }
-    } catch (error) {
+  try {
+    const collection = await withinPromptBudget(
+      (signal) =>
+        Promise.all([
+          hasJev ? collectJevPromptCandidates(signal) : Promise.resolve([]),
+          collectJevMemoryPromptCandidates({
+            owner: options.owner,
+            orgId: options.orgId,
+            request,
+            signal,
+          }),
+        ]),
+      deadlineAt,
+    );
+    if (collection.status === "completed") {
+      runtimeCandidates = collection.value[0];
+      memoryContext = collection.value[1];
+    } else {
       console.warn(
-        "[agent] Jev context candidates unavailable; keeping Analytics retrieval fallback.",
-        error instanceof Error ? error.message : "unknown error",
+        "[agent] Prompt context candidates exceeded the preload budget; keeping Analytics retrieval fallback.",
       );
     }
+  } catch (error) {
+    console.warn(
+      "[agent] Prompt context candidates unavailable; keeping Analytics retrieval fallback.",
+      error instanceof Error ? error.message : "unknown error",
+    );
   }
   const candidates = [
     ...runtimeCandidates,
@@ -1353,8 +1369,7 @@ export async function preloadJevContextForPrompt(options: {
   }
   const memoryRanking = rankings.get("memory");
   if (
-    hasJev &&
-    (!memoryRanking || memoryRanking.status === "unavailable") &&
+    (!hasJev || !memoryRanking || memoryRanking.status === "unavailable") &&
     memoryContext.fallbackIds.length > 0
   ) {
     for (const id of memoryContext.fallbackIds) selected.add(id);
@@ -1646,6 +1661,34 @@ export async function loadResourcesForPrompt(
       ),
       "user",
     );
+
+    let memoryInstructions: Awaited<ReturnType<typeof resourceGetByPath>>;
+    try {
+      memoryInstructions = await resourceGetByPath(
+        owner,
+        "memory/INSTRUCTIONS.md",
+        { orgId },
+      );
+    } catch (error) {
+      throw new Error(
+        `Unable to read personal memory instructions for ${owner}. The run cannot safely continue without them.`,
+        { cause: error },
+      );
+    }
+    if (memoryInstructions?.content.trim()) {
+      addSection(
+        promptResourceBlock({
+          name: "memory/INSTRUCTIONS.md",
+          scope: "personal",
+          path: "memory/INSTRUCTIONS.md",
+          content: memoryInstructions.content,
+          maxChars: promptResourceMaxChars,
+          readHint:
+            'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.',
+        }),
+        "required",
+      );
+    }
   }
 
   const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);

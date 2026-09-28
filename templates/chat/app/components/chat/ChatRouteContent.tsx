@@ -3,6 +3,8 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit";
 import {
+  AgentMessageView,
+  AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
 } from "@agent-native/agentkit/react/components";
@@ -10,8 +12,13 @@ import {
   useAgentKit,
   useAgentKitControl,
   useAgentThread,
+  type AgentRunFailureRenderProps,
   type AgentKitRenderProps,
 } from "@agent-native/agentkit/react/context";
+import {
+  BuilderSetupCard,
+  isMissingLlmProviderRunError,
+} from "@agent-native/core/client/agent-chat";
 import { CoreAgentKitRoot } from "@agent-native/core/client/agentkit-chat";
 import { CoreComposerRuntimeProvider } from "@agent-native/core/client/agentkit-chat/composer";
 import {
@@ -120,7 +127,9 @@ function ChatThreadRouteContent({
             labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
             slots={{
               emptyState: ChatEmptyState,
+              message: ChatMessage,
               messageSupplement: ChatMcpConnectionSuggestion,
+              runFailure: ChatRunFailure,
               connectionRequest: ChatMcpConnectionRequest,
               footer: ChatAgentFooter,
             }}
@@ -151,6 +160,109 @@ function ChatThreadRouteContent({
       </aside>
     </div>
   );
+}
+
+function ChatMessage({ value, threadId }: AgentKitRenderProps<AgentMessage>) {
+  const metadata = value.metadata as
+    | { custom?: { agentNativeRecoveryAction?: unknown } }
+    | undefined;
+  const recoveryAction = metadata?.custom?.agentNativeRecoveryAction;
+  if (
+    value.role === "user" &&
+    (recoveryAction === "continue" || recoveryAction === "retry")
+  ) {
+    return null;
+  }
+  return <AgentMessageView value={value} threadId={threadId} />;
+}
+
+type ChatRetryError = {
+  code: "attachment_id_unavailable";
+  runId: string;
+};
+
+function ChatRunFailure({
+  error,
+  runId,
+  threadId,
+}: AgentRunFailureRenderProps) {
+  const thread = useAgentThread(threadId);
+  const { controller } = useAgentKit();
+  const t = useT();
+  const [retryError, setRetryError] = useState<ChatRetryError | null>(null);
+  const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
+    (
+      message.metadata as
+        | {
+            custom?: {
+              agentNativeRecoveryAction?: unknown;
+              agentNativeRecoveryOfRunId?: unknown;
+            };
+          }
+        | undefined
+    )?.custom;
+  const userRequests = thread.messages.filter((message) => {
+    if (message.role !== "user") return false;
+    const action = recoveryMetadata(message)?.agentNativeRecoveryAction;
+    return action !== "continue" && action !== "retry";
+  });
+  const originalRequest = userRequests[0];
+  const hasRetryForThisRun = thread.messages.some(
+    (message) =>
+      recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
+      recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
+  );
+  const retryFirstMessage = useCallback(() => {
+    const attachments =
+      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
+    if (attachments.some((part) => part.fileId && !part.url)) {
+      setRetryError({ code: "attachment_id_unavailable", runId });
+      return;
+    }
+    setRetryError(null);
+    const prompt =
+      originalRequest?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n") ?? "";
+    void controller.sendMessage({
+      threadId,
+      text: prompt || t("chat.retryPreviousRequest"),
+      ...(attachments.length ? { attachments } : {}),
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: runId,
+        },
+      },
+    });
+  }, [controller, originalRequest, runId, t, threadId]);
+  const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
+  if (
+    isFirstMessage &&
+    isMissingLlmProviderRunError({
+      message: error.message,
+      details: typeof error.details === "string" ? error.details : undefined,
+      errorCode: error.code,
+    })
+  ) {
+    return (
+      <>
+        <BuilderSetupCard
+          fullWidth
+          layout="sidebar"
+          onRetry={retryFirstMessage}
+        />
+        {retryError?.runId === runId &&
+        retryError.code === "attachment_id_unavailable" ? (
+          <p role="alert" className="mt-2 px-3 text-sm text-destructive">
+            {t("chat.retryAttachmentUnavailable")}
+          </p>
+        ) : null}
+      </>
+    );
+  }
+  return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
 
 function ChatLifecycleTracking({ threadId }: { threadId: string }) {
@@ -380,7 +492,6 @@ function ChatEmptyState() {
   return (
     <div className="agentkit-chat-empty-copy">
       <h1>{t("chat.heroTitle")}</h1>
-      <p>{t("chat.heroDescription")}</p>
     </div>
   );
 }
@@ -406,12 +517,11 @@ function ChatCanvas({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           data-agent-page-workspace-toggle=""
           aria-label={t("settings.workspaceTitle")}
           aria-expanded={workspaceOpen}
           onClick={() => setWorkspaceOpen((open) => !open)}
-          className="size-8"
         >
           <IconLayoutSidebarRight className="size-4" />
         </Button>

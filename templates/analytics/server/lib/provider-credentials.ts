@@ -162,6 +162,9 @@ async function resolveViaCoreHelper({
       connectionId: normalizedConnectionId,
       userEmail: ctx.userEmail,
       orgId: ctx.orgId,
+      ...(ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     });
     const credential = normalizeCoreCredentialResult(result, {
       provider,

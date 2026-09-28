@@ -41,6 +41,8 @@ export interface TraceSummary {
   model: string;
   createdAt: number;
   runCount?: number;
+  reviewGroupLabel?: string;
+  reviewGroupRunIds?: string[];
 }
 
 export type FeedbackType = "thumbs_up" | "thumbs_down" | "category" | "text";
@@ -86,6 +88,7 @@ export interface OutputReviewListRow {
   inlineAppTitle?: string;
   threadTitle: string;
   summary: HumanReviewSummaryPayload | null;
+  summaryUpdatedAt?: number;
   artifacts: HumanReviewArtifactRef[];
   runs: OutputReviewRun[];
   runCount: number;
@@ -100,8 +103,10 @@ export interface OutputReviewListRow {
 
 export interface OutputReviewRun {
   runId: string;
+  threadId?: string | null;
   model: string;
   createdAt: number;
+  summaryUpdatedAt?: number;
 }
 
 export interface HumanReviewArtifactRef {
@@ -151,6 +156,11 @@ export interface ObservabilityReviewThreadScope {
   threadId: string;
 }
 
+export interface ObservabilityReviewRunScope {
+  orgId: string;
+  runId: string;
+}
+
 export function observabilityReviewThreadKey(
   orgId: string,
   threadId: string,
@@ -197,6 +207,16 @@ export interface EvalDataset {
   entries: EvalTestCase[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Owner of the dataset. Null on legacy rows from before per-user
+   * isolation; scoped reads pass `userId` the same way traces do.
+   */
+  userId?: string | null;
+  /**
+   * Per-owner identity of a trace promotion. Null on datasets that were
+   * not promoted from a run. A unique index makes repeat promotion upsert.
+   */
+  idempotencyKey?: string | null;
 }
 
 export interface EvalTestCase {

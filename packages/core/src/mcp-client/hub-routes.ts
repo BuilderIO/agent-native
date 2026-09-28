@@ -39,7 +39,7 @@ import {
 } from "h3";
 
 import { getH3App } from "../server/framework-request-handler.js";
-import { getAllSettings } from "../settings/store.js";
+import { listSettingsByKeySegments } from "../settings/store.js";
 import type { StoredRemoteMcpServer } from "./remote-store.js";
 
 const TOKEN_ENV = "AGENT_NATIVE_MCP_HUB_TOKEN";
@@ -74,10 +74,10 @@ export function isHubConsumeEnabled(): boolean {
 }
 
 export async function listHubServers(): Promise<HubServerRecord[]> {
-  const all = await getAllSettings().catch(() => ({}));
+  const settings = await listSettingsByKeySegments(["mcp-servers-remote"]);
   const out: HubServerRecord[] = [];
   const seenOrgs = new Set<string>();
-  for (const [fullKey, value] of Object.entries(all)) {
+  for (const { key: fullKey, value } of settings) {
     const m = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
     if (!m) continue;
     const orgId = m[1];

@@ -6587,13 +6587,13 @@ it(
         width: 100px;
         height: 60px;
         border-top-left-radius: 20px;
-        background: #6366f1;
+        background: transparent;
       }
     </style>
   </head>
   <body>
     <div class="rotated-parent" data-agent-native-node-id="parent">
-      <div id="target" data-agent-native-node-id="target"></div>
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle"></div>
     </div>
   </body>
 </html>`);
@@ -6622,21 +6622,333 @@ it(
         handleBox.y + handleBox.height / 2,
         { steps: 4 },
       );
+      const preview = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        return {
+          background: getComputedStyle(target).backgroundColor,
+          radius: target.style.borderRadius,
+          corners: [
+            getComputedStyle(target).borderTopLeftRadius,
+            getComputedStyle(target).borderTopRightRadius,
+            getComputedStyle(target).borderBottomRightRadius,
+            getComputedStyle(target).borderBottomLeftRadius,
+          ],
+        };
+      });
+      expect(preview.background).toBe("rgba(0, 0, 0, 0)");
+      expect(preview.radius).toBe("20px 14px");
+      expect(preview.corners).toEqual(["20px", "14px", "20px", "14px"]);
       await page.mouse.up();
-      const radius = await page.evaluate(
-        () =>
-          document.querySelector<HTMLElement>("#target")!.style
-            .borderTopLeftRadius,
-      );
       const messages = await readBridgeMessages(page);
       const styleChange = messages.find(
         (message) => message.type === "visual-style-change",
       );
-      expect(radius).toBe("20px 14px");
       expect(styleChange).toMatchObject({
-        styles: { borderTopLeftRadius: "20px 14px" },
+        styles: { borderRadius: "20px 14px" },
       });
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "shows radius handles only on rectangles and does not require a fill",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html>
+<html><body>
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+  <div id="frame" data-an-primitive="frame" style="position:absolute;left:200px;top:40px;width:100px;height:60px;background:transparent"></div>
+  <div id="text" data-an-primitive="text" style="position:absolute;left:360px;top:40px;width:80px;height:40px">Text</div>
+  <div id="unknown" style="position:absolute;left:520px;top:40px;width:60px;height:30px"></div>
+  <div id="ellipse" data-an-primitive="ellipse" style="position:absolute;left:40px;top:180px;width:120px;height:80px;background:#ddd"></div>
+  <div id="line" data-an-primitive="line" style="position:absolute;left:200px;top:180px;width:100px;height:4px;background:#222"></div>
+  <div id="arrow" data-an-primitive="arrow" style="position:absolute;left:360px;top:180px;width:100px;height:4px;background:#222"></div>
+  <svg id="malformed-vector" data-an-primitive="polygon" data-an-pen-nodes="invalid-json" viewBox="0 0 100 100" style="position:absolute;left:520px;top:180px;width:100px;height:100px"><path d="M 50 0 L 100 100 L 0 100 Z"></path></svg>
+</body></html>`);
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      for (const id of [
+        "rectangle",
+        "frame",
+        "text",
+        "unknown",
+        "ellipse",
+        "line",
+        "arrow",
+        "malformed-vector",
+      ]) {
+        await selectElementDirect(page, `#${id}`);
+        const visible = await page.evaluate(() =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-agent-native-radius-handle]",
+            ),
+          )
+            .filter(
+              (handle) => getComputedStyle(handle).visibility === "visible",
+            )
+            .map((handle) =>
+              handle.getAttribute("data-agent-native-radius-handle"),
+            ),
+        );
+        expect(visible, id).toEqual([]);
+        if (id === "rectangle") {
+          await page.mouse.move(44, 44);
+          const visibleAtCorner = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            )
+              .filter(
+                (handle) => getComputedStyle(handle).visibility === "visible",
+              )
+              .map((handle) =>
+                handle.getAttribute("data-agent-native-radius-handle"),
+              ),
+          );
+          expect(visibleAtCorner).toEqual(["nw"]);
+          const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+          const before = await handle.boundingBox();
+          if (!before)
+            throw new Error("rectangle radius handle is not visible");
+          await page.mouse.move(
+            before.x + before.width / 2,
+            before.y + before.height / 2,
+          );
+          await page.keyboard.down("Alt");
+          await page.mouse.down();
+          await page.mouse.move(
+            before.x + before.width / 2 + 10,
+            before.y + before.height / 2 + 10,
+            { steps: 4 },
+          );
+          const after = await handle.boundingBox();
+          const radius = await page.evaluate(() => [
+            getComputedStyle(document.querySelector<HTMLElement>("#rectangle")!)
+              .borderTopLeftRadius,
+            getComputedStyle(document.querySelector<HTMLElement>("#rectangle")!)
+              .borderTopRightRadius,
+            getComputedStyle(document.querySelector<HTMLElement>("#rectangle")!)
+              .borderBottomRightRadius,
+            getComputedStyle(document.querySelector<HTMLElement>("#rectangle")!)
+              .borderBottomLeftRadius,
+          ]);
+          expect(after).not.toBeNull();
+          expect(
+            Math.hypot(after!.x - before.x, after!.y - before.y),
+          ).toBeGreaterThan(1);
+          expect(after!.x).toBeGreaterThan(before.x);
+          expect(after!.y).toBeGreaterThan(before.y);
+          expect(radius).toEqual(["10px", "0px", "0px", "0px"]);
+          await page.mouse.up();
+          await page.keyboard.up("Alt");
+          const afterSingleCorner = await handle.boundingBox();
+          if (!afterSingleCorner)
+            throw new Error("individual corner handle is not visible");
+          await page.mouse.move(
+            afterSingleCorner.x + afterSingleCorner.width / 2,
+            afterSingleCorner.y + afterSingleCorner.height / 2,
+          );
+          await page.mouse.down();
+          await page.mouse.move(
+            afterSingleCorner.x + afterSingleCorner.width / 2 + 10,
+            afterSingleCorner.y + afterSingleCorner.height / 2 + 10,
+            { steps: 4 },
+          );
+          const allCornersRadius = await page.evaluate(() => {
+            const target = document.querySelector<HTMLElement>("#rectangle")!;
+            return {
+              shorthand: target.style.borderRadius,
+              corners: [
+                getComputedStyle(target).borderTopLeftRadius,
+                getComputedStyle(target).borderTopRightRadius,
+                getComputedStyle(target).borderBottomRightRadius,
+                getComputedStyle(target).borderBottomLeftRadius,
+              ],
+            };
+          });
+          expect(allCornersRadius.shorthand).not.toBe("");
+          expect(allCornersRadius.corners).toEqual([
+            "20px",
+            "20px",
+            "20px",
+            "20px",
+          ]);
+          await page.mouse.up();
+          await page.mouse.move(100, 80);
+          const visibleAfterLeaving = await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll<HTMLElement>(
+                "[data-agent-native-radius-handle]",
+              ),
+            ).some(
+              (handle) => getComputedStyle(handle).visibility === "visible",
+            ),
+          );
+          expect(visibleAfterLeaving).toBe(false);
+        }
+      }
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each(["polygon", "star"] as const)(
+  "rounds %s geometry and moves its radius handle during the drag",
+  { timeout: 30_000 },
+  async (kind) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const points =
+        kind === "polygon"
+          ? [
+              [50, 0],
+              [93.3, 75],
+              [6.7, 75],
+            ]
+          : Array.from({ length: 10 }, (_, index) => {
+              const angle = -Math.PI / 2 + (index * Math.PI) / 5;
+              const radius = index % 2 === 0 ? 50 : 22.5;
+              return [
+                Math.round((50 + Math.cos(angle) * radius) * 10) / 10,
+                Math.round((50 + Math.sin(angle) * radius) * 10) / 10,
+              ];
+            });
+      const serializedNodes = JSON.stringify([
+        1,
+        ...points.map(([x, y]) => [x, y, null, null, null, null, null]),
+      ]);
+      const originalD = `M ${points.map(([x, y]) => `${x} ${y}`).join(" L ")} L ${points[0]![0]} ${points[0]![1]} Z`;
+      const browserPage = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      const pageErrors: string[] = [];
+      browserPage.on("pageerror", (error) => pageErrors.push(error.message));
+      await browserPage.setContent(`<!doctype html><html><body>
+  <svg id="shape" data-agent-native-node-id="shape" data-an-primitive="${kind}" data-an-pen-nodes='${serializedNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="${originalD}" fill="#d9d9d9" stroke="none"></path></svg>
+</body></html>`);
+      await browserPage.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await browserPage.waitForSelector(
+        '[data-agent-native-edit-overlay="shield"]',
+      );
+      await collectBridgeMessages(browserPage);
+      await selectElementDirect(browserPage, "#shape");
+
+      const hiddenHandle = await browserPage.evaluate(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="vertex-0"]',
+        );
+        return {
+          found: !!handle,
+          visibility: handle ? getComputedStyle(handle).visibility : null,
+          rect: handle?.getBoundingClientRect().toJSON(),
+        };
+      });
+      expect(hiddenHandle).toMatchObject({
+        found: true,
+        visibility: "hidden",
+      });
+      await browserPage.mouse.move(
+        hiddenHandle.rect.x + hiddenHandle.rect.width / 2,
+        hiddenHandle.rect.y + hiddenHandle.rect.height / 2,
+      );
+      const handle = browserPage.locator(
+        '[data-agent-native-radius-handle="vertex-0"]',
+      );
+      const initialHandleVisibility = await browserPage.evaluate(
+        () =>
+          getComputedStyle(
+            document.querySelector<HTMLElement>(
+              '[data-agent-native-radius-handle="vertex-0"]',
+            )!,
+          ).visibility,
+      );
+      expect(initialHandleVisibility).toBe("visible");
+      expect(pageErrors).toEqual([]);
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("vector radius handle is not visible");
+      const move = await browserPage.evaluate(() => {
+        const svg = document.querySelector<SVGSVGElement>("#shape")!;
+        const parsed = JSON.parse(svg.getAttribute("data-an-pen-nodes")!);
+        const points = parsed.slice(1).map((tuple: number[]) => ({
+          x: tuple[0]!,
+          y: tuple[1]!,
+        }));
+        const point = points[0]!;
+        const previous = points[points.length - 1]!;
+        const next = points[1]!;
+        const unit = (candidate: { x: number; y: number }) => {
+          const dx = candidate.x - point.x;
+          const dy = candidate.y - point.y;
+          const length = Math.hypot(dx, dy);
+          return { x: dx / length, y: dy / length };
+        };
+        const incoming = unit(previous);
+        const outgoing = unit(next);
+        const bisector = {
+          x: incoming.x + outgoing.x,
+          y: incoming.y + outgoing.y,
+        };
+        const bisectorLength = Math.hypot(bisector.x, bisector.y);
+        return {
+          dx: (bisector.x / bisectorLength) * 16,
+          dy: (bisector.y / bisectorLength) * 16,
+          sinHalfAngle: Math.sin(
+            Math.acos(incoming.x * outgoing.x + incoming.y * outgoing.y) / 2,
+          ),
+        };
+      });
+      await browserPage.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await browserPage.mouse.down();
+      await browserPage.mouse.move(
+        handleBox.x + handleBox.width / 2 + move.dx,
+        handleBox.y + handleBox.height / 2 + move.dy,
+        { steps: 4 },
+      );
+      const preview = await browserPage.evaluate(() => ({
+        radius: document
+          .querySelector("#shape")!
+          .getAttribute("data-an-corner-radius"),
+        d: document.querySelector("#shape > path")!.getAttribute("d"),
+      }));
+      const movedHandleBox = await handle.boundingBox();
+      expect(Number(preview.radius)).toBeGreaterThan(0);
+      expect(preview.d).toContain(" A ");
+      expect(movedHandleBox).not.toBeNull();
+      expect(
+        Math.hypot(
+          movedHandleBox!.x - handleBox.x,
+          movedHandleBox!.y - handleBox.y,
+        ),
+      ).toBeGreaterThan(1);
+      expect(movedHandleBox!.y).toBeGreaterThan(handleBox.y);
+      await browserPage.mouse.up();
+      const messages = await readBridgeMessages(browserPage);
+      expect(
+        messages.find((message) => message.type === "visual-style-change"),
+      ).toMatchObject({
+        styles: { borderRadius: `${preview.radius}px` },
+      });
     } finally {
       await browser.close();
     }
@@ -9441,9 +9753,61 @@ it(
   },
 );
 
-it("editor chrome bridge converts a body flow slot to an absolute board-root drop", () => {
+it("editor chrome bridge appends cross-parent drops into plain frames but keeps layout slots", () => {
   const body = { parentElement: null } as unknown as Element;
-  const frame = {
+  const container = {
+    parentElement: body,
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 320, bottom: 220 }),
+  } as unknown as Element;
+  const existing = { parentElement: container } as unknown as Element;
+  const sourceOutside = { parentElement: body } as unknown as Element;
+  const sourceInside = { parentElement: container } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  let autoLayout = false;
+  const slot = {
+    anchor: existing,
+    placement: "before",
+    axis: "y",
+    dropMode: "flow-insert",
+  };
+  const reorderTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("reorderTargetForPoint", "flowMoveTargetForPoint", {
+    document,
+    window: {
+      getComputedStyle: () => ({ display: "block", gridTemplateColumns: "" }),
+    },
+    elementFromEditorPoint: () => container,
+    isOverlayElement: () => false,
+    isTemplateCloneElement: () => false,
+    isAutoLayoutElement: (element: Element) =>
+      element === container && autoLayout,
+    isContainerDropTarget: (element: Element) => element === container,
+    isTextBearingLeaf: () => false,
+    edgePlacementForRect: () => null,
+    nearestChildInsertionTarget: () => slot,
+    parentFlowAxis: () => "y",
+    isAbsolutePrimitiveContainer: () => true,
+    isFreeformRelativeContainer: () => false,
+  });
+
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toMatchObject({
+    anchor: container,
+    placement: "inside",
+    dropMode: "absolute-container",
+  });
+  expect(reorderTargetForPoint(sourceInside, 20, 70)).toBe(slot);
+
+  autoLayout = true;
+  expect(reorderTargetForPoint(sourceOutside, 20, 70)).toBe(slot);
+});
+
+it("editor chrome bridge promotes an empty body drop through clipped frames to the board root", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const outer = {
     parentElement: body,
     getBoundingClientRect: () => ({
       left: 100,
@@ -9452,8 +9816,17 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
       bottom: 300,
     }),
   } as unknown as Element;
+  const inner = {
+    parentElement: outer,
+    getBoundingClientRect: () => ({
+      left: 120,
+      top: 120,
+      right: 260,
+      bottom: 260,
+    }),
+  } as unknown as Element;
   const rootSibling = { parentElement: body } as unknown as Element;
-  const el = { parentElement: frame } as unknown as Element;
+  const el = { parentElement: inner } as unknown as Element;
   const document = {
     body,
     documentElement: { parentElement: null },
@@ -9463,6 +9836,8 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
     placement: "after",
     dropMode: "flow-insert",
   };
+  let bodyAutoLayout = false;
+  let unnestCalls = 0;
   const flowMoveTargetForPoint = compileBridgeFunction<
     (el: Element, x: number, y: number) => Record<string, unknown>
   >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
@@ -9472,19 +9847,122 @@ it("editor chrome bridge converts a body flow slot to an absolute board-root dro
         ? dropTarget.anchor
         : dropTarget.anchor.parentElement,
     elementFromEditorPoint: () => body,
-    isAutoLayoutElement: () => false,
+    isAutoLayoutElement: (element: Element) =>
+      element === body && bodyAutoLayout,
+    screenRootFlowInsertionTargetForPoint: () => target,
     reorderTargetForPoint: () => target,
     isContainerDropTarget: () => false,
     parentFlowAxis: () => "y",
-    unnestAbsoluteToScreenRoot: () => null,
+    unnestAbsoluteToScreenRoot: () => {
+      unnestCalls += 1;
+      return {
+        anchor: outer,
+        placement: "after",
+        dropMode: "absolute-container",
+      };
+    },
     nearestChildInsertionTarget: () => null,
     isEmptyDropContainer: () => false,
   });
 
   expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
-    anchor: frame,
+    anchor: outer,
     placement: "after",
     dropMode: "absolute-container",
+  });
+  expect(unnestCalls).toBe(1);
+
+  bodyAutoLayout = true;
+  expect(flowMoveTargetForPoint(el, 500, 500)).toBe(target);
+  expect(unnestCalls).toBe(1);
+});
+
+it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a promoted board-root drop", () => {
+  const body = { parentElement: null } as unknown as Element;
+  const receiver = {
+    parentElement: body,
+    getBoundingClientRect: () => ({
+      left: 20,
+      top: 20,
+      right: 220,
+      bottom: 220,
+    }),
+  } as unknown as Element;
+  const exitedFrame = {
+    parentElement: receiver,
+    getBoundingClientRect: () => ({
+      left: 100,
+      top: 100,
+      right: 200,
+      bottom: 200,
+    }),
+  } as unknown as Element;
+  const child = { parentElement: exitedFrame } as unknown as Element;
+  const document = {
+    body,
+    documentElement: { parentElement: null },
+  } as unknown as Document;
+  let pointHit: Element = receiver;
+  let receiverIsAutoLayout = false;
+  let target: Record<string, unknown> = {
+    anchor: receiver,
+    placement: "inside",
+    dropMode: "flow-insert",
+  };
+  const flowMoveTargetForPoint = compileBridgeFunction<
+    (el: Element, x: number, y: number) => Record<string, unknown>
+  >("flowMoveTargetForPoint", "clipsOverflow", {
+    document,
+    window: {
+      getComputedStyle: () => ({ display: "block" }),
+    },
+    elementFromEditorPoint: () => pointHit,
+    reorderTargetForPoint: () => target,
+    nearestChildInsertionTarget: () => target,
+    dropContainerForTarget: (dropTarget: Record<string, unknown>) => {
+      const anchor = dropTarget.anchor as Element;
+      return dropTarget.placement === "inside" ? anchor : anchor.parentElement;
+    },
+    isAutoLayoutElement: (element: Element) =>
+      receiverIsAutoLayout && element === receiver,
+    isContainerDropTarget: (element: Element) =>
+      element === receiver || element === exitedFrame,
+    parentFlowAxis: () => "y",
+    isEmptyDropContainer: () => false,
+  });
+
+  expect(flowMoveTargetForPoint(child, 240, 150)).toMatchObject({
+    anchor: exitedFrame,
+    placement: "after",
+    dropMode: "flow-insert",
+  });
+
+  pointHit = body;
+  target = {
+    anchor: exitedFrame,
+    placement: "inside",
+    dropMode: "flow-insert",
+  };
+  expect(flowMoveTargetForPoint(child, 240, 250)).toMatchObject({
+    anchor: receiver,
+    placement: "after",
+    dropMode: "absolute-container",
+  });
+
+  const pointerSlotSibling = {
+    parentElement: receiver,
+  } as unknown as Element;
+  pointHit = receiver;
+  receiverIsAutoLayout = true;
+  target = {
+    anchor: pointerSlotSibling,
+    placement: "after",
+    dropMode: "flow-insert",
+  };
+  expect(flowMoveTargetForPoint(child, 240, 250)).toMatchObject({
+    anchor: pointerSlotSibling,
+    placement: "after",
+    dropMode: "flow-insert",
   });
 });
 

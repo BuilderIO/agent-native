@@ -1,3 +1,21 @@
+## 0.164.13
+
+### Patch Changes
+
+- 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
+
+## 0.164.12
+
+### Patch Changes
+
+- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
+
+## 0.164.11
+
+### Patch Changes
+
+- ae91302: Make shared user-share writes conflict-aware when a resource enforces normalized principal uniqueness.
+
 ## 0.164.10
 
 ### Patch Changes

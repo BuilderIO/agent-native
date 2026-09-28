@@ -60,6 +60,10 @@ import {
 } from "../server/lib/preset-skeleton.js";
 import { getObject } from "../server/lib/storage.js";
 import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
+import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
   IMAGE_CATEGORIES,
@@ -132,6 +136,11 @@ const imageGenerationAgentInputSchema = z.object({
 export default defineAction({
   description:
     "Generate one brand-consistent image from a brand kit/library. This is synchronous for images and returns a compact asset summary with preview/download/embed URLs; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. Use generate-image-batch for multiple independent slots; do not poll image runs after this action returns.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     libraryId: z
       .string()

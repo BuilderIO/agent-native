@@ -91,11 +91,14 @@ export function LanguagePicker({
   className,
   includeSystem = true,
   label,
+  size = "default",
   variant = "select",
 }: {
   className?: string;
   includeSystem?: boolean;
   label?: string;
+  /** The `select` trigger's height, matching `SelectTrigger`'s sizes. */
+  size?: "sm" | "default";
   variant?: "select" | "icon" | "ghost-icon";
 }) {
   const {
@@ -173,7 +176,10 @@ export function LanguagePicker({
               variant === "icon"
                 ? "flex h-8 w-8 items-center justify-center"
                 : variant === "select"
-                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
+                  ? cn(
+                      "flex w-full items-center justify-between gap-2 px-3 text-start text-sm",
+                      size === "sm" ? "h-8" : "h-9",
+                    )
                   : null,
             )}
           >

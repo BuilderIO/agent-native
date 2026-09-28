@@ -2,7 +2,6 @@ import { getCurrentAdapter } from "better-auth";
 
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec } from "../db/client.js";
-import { invalidateSessionEmailCache } from "../server/session-email-cache.js";
 
 export type RequiredAuthProvider = "google" | `sso:${string}` | null;
 export type ResolvedRequiredAuthProvider = RequiredAuthProvider | "conflict";
@@ -230,7 +229,6 @@ export async function setRequiredAuthProvider(
   } catch (error) {
     if (!isMissingLegacySessionTable(error)) throw error;
   }
-  invalidateSessionEmailCache();
 
   return {
     revokedBetterAuthSessions: Number(betterAuthResult.rowsAffected ?? 0),

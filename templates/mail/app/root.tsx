@@ -37,6 +37,7 @@ import {
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import "@/components/onboarding/register-first-run";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
@@ -48,9 +49,6 @@ import {
 } from "@/lib/integration-status";
 import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
-import "@/lib/register-chat-renderers";
-import "@/lib/mail-gmail-filter-confirmation";
-import "@/lib/register-mail-draft-card";
 
 import { i18nCatalog } from "./i18n";
 

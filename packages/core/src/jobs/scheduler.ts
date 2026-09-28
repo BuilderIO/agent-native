@@ -421,6 +421,7 @@ async function recoverStaleAutomationHistory(
       run.id,
       "error",
       "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.",
+      "background_automation_interrupted",
     );
   } catch (error) {
     console.warn(

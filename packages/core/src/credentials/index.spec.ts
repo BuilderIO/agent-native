@@ -5,7 +5,8 @@ const readAppSecret = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({ readAppSecret }));
 
-vi.mock("../settings/store.js", () => ({
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
   getSetting: async (key: string) => store.get(key) ?? null,
   putSetting: async (key: string, value: { value: unknown }) => {
     store.set(key, value);
@@ -97,6 +98,64 @@ describe("credentials encryption at rest", () => {
         scopeId: "org-1",
       },
     ]);
+  });
+
+  it("uses only the target org's credentials for org-scoped reads", async () => {
+    store.set("u:admin@example.test:credential:TOKEN", {
+      value: "personal-token",
+    });
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "org" && ref.scopeId === "customer-org"
+        ? { value: "customer-token", last4: "oken", updatedAt: 1 }
+        : ref.scope === "user"
+          ? { value: "personal-app-secret", last4: "cret", updatedAt: 1 }
+          : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("TOKEN", {
+        userEmail: "admin@example.test",
+        orgId: "customer-org",
+        credentialScope: "org",
+      }),
+    ).resolves.toBe("customer-token");
+    expect(readAppSecret.mock.calls.map(([ref]) => ref.scope)).toEqual(["org"]);
+
+    readAppSecret.mockClear();
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "workspace" && ref.scopeId === "solo:admin@example.test"
+        ? { value: "solo-personal-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    await expect(
+      resolveCredential("TOKEN", {
+        userEmail: "admin@example.test",
+        orgId: "customer-org",
+        credentialScope: "org",
+      }),
+    ).resolves.toBeUndefined();
+    expect(readAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      { key: "TOKEN", scope: "org", scopeId: "customer-org" },
+      { key: "TOKEN", scope: "workspace", scopeId: "customer-org" },
+    ]);
+  });
+
+  it("fails closed when org-only credential scope has no target org", async () => {
+    readAppSecret.mockResolvedValue({
+      value: "personal-app-secret",
+      last4: "cret",
+      updatedAt: 1,
+    });
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("TOKEN", {
+        userEmail: "admin@example.test",
+        credentialScope: "org",
+      }),
+    ).resolves.toBeUndefined();
+    expect(readAppSecret).not.toHaveBeenCalled();
   });
 
   it("retains credential scope and blocks shared credentials from user endpoints", async () => {

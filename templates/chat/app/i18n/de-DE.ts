@@ -34,6 +34,10 @@ const messages = {
     pinChat: "Chat anheften",
     pinned: "Angepinnt",
     recents: "Kürzlich",
+    retryPreviousRequest:
+      "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
+    retryAttachmentUnavailable:
+      "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",
     renameFailed: "Umbenennen fehlgeschlagen",
     renameThread: "Thread umbenennen",

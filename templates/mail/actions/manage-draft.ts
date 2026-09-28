@@ -34,6 +34,22 @@ function composeDeepLink(draft: Record<string, string>): string {
   });
 }
 
+function draftChange(
+  verb: "created" | "updated",
+  draft: Record<string, string>,
+  url: string,
+) {
+  const subject = draft.subject.trim();
+  const recipient = draft.to.trim();
+  return {
+    verb,
+    kind: "email-draft",
+    title: (subject || recipient || draft.id).slice(0, 180),
+    ...(subject && recipient ? { detail: recipient.slice(0, 500) } : {}),
+    url,
+  };
+}
+
 function sanitizeDraftId(id: string): string | null {
   return /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : null;
 }
@@ -145,28 +161,6 @@ export default defineAction({
     "delete before a matching create - to draft a reply, first call with " +
     "action=create, mode=reply, replyToId, to, subject, body.",
   schema: manageDraftSchema,
-  chatUI: {
-    renderer: "mail.draft-created",
-    when: (args, result) => {
-      if (args.action !== "create" || !result || typeof result !== "object") {
-        return false;
-      }
-      const record = result as Record<string, unknown>;
-      return (
-        typeof record.deepLink === "string" &&
-        Boolean(record.draft) &&
-        typeof record.draft === "object"
-      );
-    },
-    projectResult: (_args, result) => {
-      const record = result as Record<string, unknown>;
-      const draft = record.draft as Record<string, unknown>;
-      return {
-        draft: { subject: draft.subject, to: draft.to },
-        deepLink: record.deepLink,
-      };
-    },
-  },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
@@ -321,11 +315,13 @@ export default defineAction({
         },
         ctx,
       );
+      const deepLink = composeDeepLink(draft);
       return {
         id,
         draft,
-        deepLink: composeDeepLink(draft),
+        deepLink,
         message: `Created draft ${id}`,
+        change: draftChange("created", draft, deepLink),
       };
     }
 
@@ -451,11 +447,13 @@ export default defineAction({
         draft.accountEmail = savedGmailDraft.accountEmail;
       }
       await writeAppState(`compose-${safeId}`, draft);
+      const deepLink = composeDeepLink(draft);
       return {
         id: safeId,
         draft,
-        deepLink: composeDeepLink(draft as Record<string, string>),
+        deepLink,
         message: `Updated draft ${safeId}`,
+        change: draftChange("updated", draft, deepLink),
       };
     }
 

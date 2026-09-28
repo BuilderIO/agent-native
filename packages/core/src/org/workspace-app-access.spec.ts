@@ -370,6 +370,103 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
   });
 
+  it("registers a configured workspace app when its organization owner opens it", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          description: "Account workspace",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ org_id: "org-1" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.execute).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+        args: [
+          "account-expert",
+          "Account Expert",
+          "Account workspace",
+          "/account-expert/",
+          expect.any(Number),
+          expect.any(Number),
+        ],
+      }),
+    );
+  });
+
+  it("does not register a configured workspace app for a regular member", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not register an app missing from the workspace manifest", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ role: "owner" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("unregistered", {
+        email: "owner@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(mocks.execute).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("INSERT INTO workspace_apps"),
+      }),
+    );
+  });
+
   it("uses the authoritative Dispatch registry when configured", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-vercel-bypass");

@@ -2,6 +2,7 @@ import { defineAction, embedApp, fail } from "@agent-native/core";
 import {
   buildDeepLink,
   currentRequestUserIsOrgAdmin,
+  getAppConfig,
 } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -35,7 +36,11 @@ import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
 
-async function readDeck(deckId: string, reviewPreview = false) {
+async function readDeck(
+  deckId: string,
+  reviewPreview = false,
+  reviewOrgId?: string,
+) {
   let row;
   if (reviewPreview) {
     const orgId = getRequestOrgId();
@@ -44,12 +49,32 @@ async function readDeck(deckId: string, reviewPreview = false) {
         statusCode: 403,
       });
     }
-    [row] = await getDb()
-      .select()
+    const isSuperOrg = getAppConfig().observability.superOrgId === orgId;
+    const targetOrgId = isSuperOrg ? reviewOrgId : orgId;
+    if (!targetOrgId) {
+      fail("A customer organization is required for this deck preview.", {
+        statusCode: 400,
+      });
+    }
+    const [scope] = await getDb()
+      .select({
+        ownerEmail: schema.decks.ownerEmail,
+        orgId: schema.decks.orgId,
+      })
       .from(schema.decks)
-      .where(and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, orgId)))
+      .where(
+        and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, targetOrgId)),
+      )
       .limit(1);
-    if (!row) fail("Deck not found.", { statusCode: 404 });
+    if (!scope) fail("Deck not found.", { statusCode: 404 });
+    const access = await resolveAccess("deck", deckId, {
+      userEmail: scope.ownerEmail,
+      orgId: targetOrgId,
+    });
+    if (!access || access.resource.orgId !== targetOrgId) {
+      fail("Deck not found.", { statusCode: 404 });
+    }
+    row = access.resource;
   } else {
     const access = await resolveAccess("deck", deckId);
     if (!access) {
@@ -67,9 +92,13 @@ async function readDeck(deckId: string, reviewPreview = false) {
 async function loadDeckWithUniqueSlideIds(
   deckId: string,
   reviewPreview = false,
+  reviewOrgId?: string,
 ) {
   if (reviewPreview) {
-    return { ...(await readDeck(deckId, true)), repaired: false };
+    return {
+      ...(await readDeck(deckId, true, reviewOrgId)),
+      repaired: false,
+    };
   }
 
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
@@ -370,8 +399,13 @@ export default defineAction({
         .boolean()
         .optional()
         .describe(
-          "Human Review only: read a deck in the current organization. Requires an organization owner or admin.",
+          "Human Review only: read a saved deck for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
         ),
+      reviewOrgId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("The customer organization shown in this Human Review row."),
     })
     .superRefine((args, context) => {
       if (args.slideId !== undefined && args.slideIds !== undefined) {
@@ -414,6 +448,7 @@ export default defineAction({
     const { row, data, slides } = await loadDeckWithUniqueSlideIds(
       deckId,
       args.reviewPreview,
+      args.reviewOrgId,
     );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);

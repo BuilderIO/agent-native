@@ -45,6 +45,7 @@ export default createAuthPlugin({
   // bearer credential because a local MCP caller cannot attach the browser's
   // session cookie to the subsequent raw-byte PUT.
   publicPaths: [
+    "/api/_agent-native-background/mail-ai-filter-backfill-worker",
     "/api/gmail/push",
     "/api/gmail/watch/renew",
     "/api/tracking",

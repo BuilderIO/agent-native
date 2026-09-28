@@ -2919,6 +2919,51 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("keeps the projected chat UI result on the completed tool message", async () => {
+    const rawResult = JSON.stringify({
+      sent: true,
+      providerResponse: "internal",
+    });
+    const chatUIResult = {
+      messageId: "message-1",
+      recipient: "ana@example.test",
+    };
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "send-1",
+            tool: "send-email",
+            input: { to: "ana@example.test" },
+          },
+          {
+            type: "tool_done",
+            id: "send-1",
+            tool: "send-email",
+            result: rawResult,
+            chatUI: { renderer: "mail.email-sent" },
+            chatUIResult,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-chat-ui-result",
+      ),
+    );
+
+    expect(results.at(-1)?.content).toContainEqual(
+      expect.objectContaining({
+        type: "tool-call",
+        toolCallId: "send-1",
+        result: rawResult,
+        chatUI: { renderer: "mail.email-sent" },
+        chatUIResult,
+      }),
+    );
+  });
+
   it("preserves an activity call id across repeated progress and tool completion", async () => {
     const results = await drain(
       readSSEStream(
@@ -3509,6 +3554,57 @@ describe("SSE event processor error classification", () => {
       ],
     });
     expect(last.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
+  it("treats a connect-required result as final after an earlier assistant reply", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "I need access to Builder.io to continue." },
+          {
+            type: "tool_start",
+            tool: "create-workspace-app",
+            id: "call-connect",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "create-workspace-app",
+            id: "call-connect",
+            result: JSON.stringify({
+              connectRequired: {
+                provider: "builder",
+                providerLabel: "Builder.io",
+                reason: "Builder.io is not connected for this workspace.",
+                message:
+                  "Builder.io is not connected. Connect Builder.io to continue.",
+              },
+            }),
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-connect-required",
+      ),
+    );
+
+    const final = results.at(-1) as any;
+    expect(final.metadata?.custom?.runWarning).toBeUndefined();
+    expect(final.content).toEqual([
+      { type: "text", text: "I need access to Builder.io to continue." },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "create-workspace-app",
+        result: expect.stringContaining('"connectRequired"'),
+      }),
+    ]);
+    expect(
+      final.content.some(
+        (part: { type: string; text?: string }) =>
+          part.type === "text" && part.text?.includes("final message"),
+      ),
+    ).toBe(false);
   });
 
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {

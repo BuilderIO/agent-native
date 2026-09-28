@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GmailQuotaCooldownError,
+  createOAuth2Client,
   gmailBatchGetMessages,
+  gmailListHistory,
   googleFetch,
 } from "./google-api.js";
 
@@ -61,6 +63,39 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("aborts an in-flight Gmail read when its sweep signal is aborted", async () => {
+    let markStarted = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const fetchMock = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            throw new Error("Expected an AbortSignal in the Gmail request.");
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          markStarted();
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const request = gmailListHistory(
+      "sweep-abort-token",
+      { startHistoryId: "history-1" },
+      controller.signal,
+    );
+    await requestStarted;
+    controller.abort();
+
+    await expect(request).rejects.toBe(controller.signal.reason);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("preserves the final 503 error body after read retries are exhausted", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
@@ -81,6 +116,43 @@ describe("googleFetch quota handling", () => {
 
     await rejection;
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("preserves the HTTP status when OAuth refresh returns a non-JSON error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("upstream unavailable", {
+          status: 503,
+          statusText: "Service Unavailable",
+        }),
+      ),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: Service Unavailable",
+      status: 503,
+    });
+  });
+
+  it("preserves the HTTP status and OAuth code for permanent refresh failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(400, { error: "invalid_scope" })),
+    );
+
+    await expect(
+      createOAuth2Client("client-id", "client-secret", "").refreshToken(
+        "refresh-token",
+      ),
+    ).rejects.toMatchObject({
+      message: "OAuth token refresh failed: invalid_scope",
+      status: 400,
+    });
   });
 
   it("trips cooldown on the first quota response instead of retrying inside the exhausted window", async () => {
@@ -144,6 +216,7 @@ describe("googleFetch quota handling", () => {
     expect(caught).toBeInstanceOf(GmailQuotaCooldownError);
     expect((caught as GmailQuotaCooldownError).retryAfterMs).toBe(90_000);
     expect((caught as Error).message).toMatch(/about 90s/);
+    expect((caught as Error).message).not.toContain("Ask the user");
     expect(caught).toMatchObject({
       statusCode: 429,
       errorCode: "gmail_quota_cooldown",

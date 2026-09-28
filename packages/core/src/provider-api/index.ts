@@ -3269,6 +3269,9 @@ export async function defaultProviderApiCredentialResolver(
       connectionId: options.connectionId,
       userEmail: options.ctx.userEmail,
       orgId: options.ctx.orgId,
+      ...(options.ctx.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
     });
     if (result.available && result.value) {
       return {
@@ -5101,31 +5104,64 @@ async function refreshGoogleOAuthToken(
   } | null = null;
   let lastStatusText = "refresh failed";
   for (const credentials of credentialCandidates) {
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: refreshToken,
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        grant_type: "refresh_token",
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          refresh_token: refreshToken,
+          client_id: credentials.clientId,
+          client_secret: credentials.clientSecret,
+          grant_type: "refresh_token",
+        }),
+      });
+    } catch (error) {
+      const isRetryableTransportError =
+        error instanceof TypeError ||
+        (typeof error === "object" &&
+          error !== null &&
+          "name" in error &&
+          error.name === "AbortError");
+      if (!isRetryableTransportError) throw error;
+      const retryableError = new Error(
+        `Google OAuth refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+      Object.assign(retryableError, { retryable: true });
+      throw retryableError;
+    }
     lastStatusText = res.statusText;
-    data = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-      token_type?: string;
-      scope?: string;
-      error?: string;
-      error_description?: string;
-    };
-    if (res.ok && data.access_token) break;
-    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+    try {
+      data = (await res.json()) as {
+        access_token?: string;
+        expires_in?: number;
+        token_type?: string;
+        scope?: string;
+        error?: string;
+        error_description?: string;
+      };
+    } catch (error) {
+      if (res.ok) throw error;
+      data = null;
+    }
+    const retryable =
+      res.status === 408 || res.status === 429 || res.status >= 500;
+    if (res.ok && data?.access_token) break;
+    if (
+      !retryable &&
+      data?.error &&
+      PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)
+    ) {
       continue;
     }
-    const detail = data.error_description ?? data.error ?? lastStatusText;
-    throw new Error(`Google OAuth refresh failed: ${detail}`);
+    const detail = data?.error_description ?? data?.error ?? lastStatusText;
+    const error = new Error(`Google OAuth refresh failed: ${detail}`);
+    Object.assign(error, {
+      status: res.status,
+      ...(retryable ? { retryable: true } : {}),
+    });
+    throw error;
   }
 
   if (!data?.access_token) {

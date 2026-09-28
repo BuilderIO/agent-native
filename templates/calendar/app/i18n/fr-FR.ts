@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "Connecter",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "Impossible de charger l'événement",
     noEventId: "Aucun ID d'événement fourni. Ajoutez ?id=<eventId> à l'URL.",
     openCalendar: "Ouvrir le calendrier",
-  },
-  eventCreation: {
-    created: "Événement créé",
-    zoomNotAdded: "L’événement a été créé, mais Zoom n’a pas pu être ajouté.",
-    openInCalendar: "Ouvrir l’événement dans Calendar",
   },
   agentSidebar: {
     emptyState: "Demandez-moi n’importe quoi sur votre calendrier",
@@ -269,6 +266,8 @@ export default {
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",
     eventRules: "Règles d’invitation",
+    eventRulesAutomationLink:
+      "Pour d’autres actions, créez une automatisation.",
     eventRulesConnectJev:
       "Connectez Jev pour appliquer les règles d’invitation",
     eventRulesFreeBuilderOrApiKey:
@@ -308,6 +307,40 @@ export default {
       "Une invitation a été ignorée car les règles d’acceptation et de refus correspondaient.",
     eventRulesUnregistered:
       "L’automatisation Calendar n’est pas enregistrée sur ce serveur.",
+  },
+  calendarSettings: {
+    calendarsTab: "Calendriers",
+    bookingTab: "Réservation",
+    eventsGroup: "Événements",
+    appearanceGroup: "Apparence",
+    colorTheme: "Thème de couleur",
+    timezone: "Fuseau horaire du calendrier",
+    timezoneDescription:
+      "Sert à afficher les événements et à en créer de nouveaux.",
+    defaultDuration: "Durée par défaut des événements",
+    defaultDurationDescription:
+      "En minutes. Les liens de réservation peuvent définir la leur.",
+    durationInvalid: "Saisissez une durée de 5 à 480 minutes.",
+    zoom: "Zoom",
+    connectedAs: "Connecté en tant que {{accounts}}",
+    setUp: "Configurer",
+    disconnectGoogleTitle: "Déconnecter Google Calendar ?",
+    disconnectGoogleDescription:
+      "Calendar cesse d'afficher et de synchroniser les événements de vos comptes Google.",
+    disconnectZoomTitle: "Déconnecter Zoom ?",
+    disconnectZoomDescription:
+      "Les nouveaux événements et réservations ne peuvent pas recevoir de lien de réunion Zoom tant que vous ne vous reconnectez pas.",
+    manage: "Gérer",
+    edit: "Modifier",
+    cancel: "Annuler",
+    save: "Enregistrer",
+    fallbackBookingPage: "Page de réservation par défaut",
+    fallbackBookingPageDescription:
+      "Utilisée lorsqu'un lien de réservation n'a ni titre ni description.",
+    fallbackTitle: "Titre",
+    fallbackDescription: "Description",
+    bookingLinksDescription:
+      "Créez des liens de réservation et copiez leurs URL publiques.",
   },
   eventDialog: {
     eventUpdated: "Événement mis à jour",
@@ -1058,7 +1091,7 @@ export default {
     year: "an",
     zoom: "Zoom",
     zoomAdded: "Zoom ajouté",
-    zoomAddFailed: "Échec de l'ajout du Zoom",
+    zoomAddFailed: zoomAddFailedMessages["fr-FR"],
     zoomConnectFailed: "Impossible de connecter le Zoom",
     zoomConnectionOpened: "Connexion Zoom ouverte",
     zoomNotConfigured: "Zoom OAuth n’est pas configuré.",

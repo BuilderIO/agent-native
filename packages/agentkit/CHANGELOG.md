@@ -1,5 +1,53 @@
 # @agent-native/agentkit
 
+## 0.5.0
+
+### Minor Changes
+
+- 108074a: Standardize full-page AgentKit chat homes and restore the Dispatch workspace app launcher.
+
+### Patch Changes
+
+- 7af9d3f: Refine AgentKit activity labels, approval details, and shared action cards.
+- Release all public npm packages with a patch version bump.
+- 230c5f0: Use the shared dropdown menu for message actions, matching chat menu styling and keyboard behavior.
+- Updated dependencies
+- Updated dependencies [a20f0b4]
+  - @agent-native/toolkit@0.23.0
+
+## 0.4.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [880740b]
+- Updated dependencies [55c9666]
+- Updated dependencies [55c9666]
+- Updated dependencies
+  - @agent-native/toolkit@0.22.3
+
+## 0.4.0
+
+### Minor Changes
+
+- d462819: Move framework chat surfaces to AgentKit while preserving chat history, recovery, context, attachments, model selection, runs, and message actions. This removes the old assistant-ui transcript and stream owners, the `AssistantChat.createAdapter` prop, the public `AssistantMessageActionBar` export, and the adapter APIs `createAgentChatAdapter`, `createCodeAgentChatAdapter`, `createAgentChatRuntimeAdapter`, `codeAgentTranscriptEventsToContent`, and `codeAgentTranscriptHasPendingApproval`, plus their adapter-only options and event types. Use AgentKit `runtime` or `createTransport` for custom chat implementations.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ed3801e: Remove nonessential source comments.
+- Updated dependencies [d462819]
+- Updated dependencies [797b3e2]
+- Updated dependencies [e76947b]
+- Updated dependencies
+- Updated dependencies [adc7497]
+- Updated dependencies [797b3e2]
+- Updated dependencies [ed3801e]
+- Updated dependencies [e7b6fcc]
+- Updated dependencies [e76947b]
+- Updated dependencies [2397f94]
+  - @agent-native/toolkit@0.22.2
+
 ## 0.3.1
 
 ### Patch Changes

@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 import { describe, expect, it } from "vitest";
 
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
+
 import * as schema from "../db/schema";
+import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
 /**
  * Regression guard, mirroring templates/analytics/server/plugins/db.spec.ts.
@@ -122,6 +128,96 @@ describe("recording viewer identity migration", () => {
     expect(dbTsSource).toMatch(
       /CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers \(recording_id, viewer_key\)/,
     );
+  });
+});
+
+describe("recording share password version migration", () => {
+  it("preserves existing passwordless token scopes and defaults new rows", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*77,\s*name:\s*"recording-share-password-version"/,
+    );
+    expect(dbTsSource).toMatch(
+      /ALTER TABLE recordings ADD COLUMN IF NOT EXISTS share_password_version TEXT/,
+    );
+    expect(dbTsSource).toContain(
+      "SET share_password_version = ''''legacy:'''' || updated_at",
+    );
+    expect(dbTsSource).toContain(
+      "ALTER COLUMN share_password_version SET DEFAULT ''''initial''''",
+    );
+    expect(dbTsSource).toContain(
+      "CREATE OR REPLACE FUNCTION public.clips_recordings_rotate_share_password_version()",
+    );
+    expect(dbTsSource).toContain(
+      "BEFORE UPDATE OF password ON public.recordings",
+    );
+  });
+
+  it("rotates the legacy scope when an older writer changes a password", async () => {
+    const migrationSql = dbTsSource.match(
+      /version:\s*77,\s*name:\s*"recording-share-password-version"[\s\S]*?sql:\s*`([\s\S]*?)`/,
+    )?.[1];
+    expect(migrationSql).toBeTruthy();
+    expect(migrationSql?.trim()).toMatch(/^DO 'BEGIN[\s\S]*END';?$/);
+
+    const db = await PGlite.create("memory://");
+    try {
+      await db.exec(`
+        CREATE TABLE public.recordings (
+          id TEXT PRIMARY KEY,
+          password TEXT,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO public.recordings (id, password, updated_at)
+        VALUES ('rec-1', NULL, '2026-01-01T00:00:00.000Z');
+        ${migrationSql}
+      `);
+
+      const before = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-1'",
+      );
+      expect(before.rows[0]?.share_password_version).toBe(
+        "legacy:2026-01-01T00:00:00.000Z",
+      );
+      expect(
+        getRecordingAccessTokenResourceId(
+          "rec-1",
+          null,
+          String(before.rows[0]?.share_password_version),
+        ),
+      ).toBe("rec-1");
+
+      await db.query(
+        "INSERT INTO public.recordings (id, password, updated_at) VALUES ('rec-2', NULL, '2026-01-01T00:00:00.000Z')",
+      );
+      const newRecording = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-2'",
+      );
+      expect(newRecording.rows[0]?.share_password_version).toBe("initial");
+
+      await db.query(
+        "UPDATE public.recordings SET password = 'old-writer-password', updated_at = '2026-01-02T00:00:00.000Z' WHERE id = 'rec-1'",
+      );
+      await db.query(
+        "UPDATE public.recordings SET password = NULL, updated_at = '2026-01-03T00:00:00.000Z' WHERE id = 'rec-1'",
+      );
+
+      const after = await db.query(
+        "SELECT share_password_version FROM public.recordings WHERE id = 'rec-1'",
+      );
+      expect(String(after.rows[0]?.share_password_version)).not.toMatch(
+        /^legacy:/,
+      );
+      expect(
+        getRecordingAccessTokenResourceId(
+          "rec-1",
+          null,
+          String(after.rows[0]?.share_password_version),
+        ),
+      ).not.toBe("rec-1");
+    } finally {
+      await db.close();
+    }
   });
 });
 

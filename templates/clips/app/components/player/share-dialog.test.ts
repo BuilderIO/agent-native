@@ -30,7 +30,7 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("h-8 w-full justify-start");
     expect(shareDialogSource).toContain("<ViewerSwitch");
     expect(shareUiSource).toContain("flex h-8 min-w-0 flex-1");
-    expect(shareUiSource).toContain('className="size-8 shrink-0"');
+    expect(shareUiSource).toContain('size="icon-sm"');
   });
 
   it("keeps human and agent actions in separate tab panels", () => {
@@ -47,6 +47,30 @@ describe("recording share popover", () => {
     expect(shareDialogSource).not.toContain(
       "value={shareUrl}\n          readOnly",
     );
+  });
+
+  it("keeps Agents available to unprotected viewer reshares without loading share details", () => {
+    const source = readSource("./share-dialog.tsx");
+    const mainView = source.slice(
+      source.indexOf('{view === "main" ? ('),
+      source.indexOf(') : view === "social" ? ('),
+    );
+    const peopleStart = source.indexOf("function PeopleTab(");
+    const agentStart = source.indexOf("function AgentTab(", peopleStart);
+    const peopleTab = source.slice(peopleStart, agentStart);
+    const viewerOnlyStart = peopleTab.indexOf("if (viewerReshareOnly) {");
+    const viewerOnlyEnd = peopleTab.indexOf("\n\n  return (", viewerOnlyStart);
+    const viewerPeople = peopleTab.slice(viewerOnlyStart, viewerOnlyEnd);
+
+    expect(source).toContain("{ enabled: !viewerReshareOnly }");
+    expect(mainView).toMatch(
+      /viewerReshareOnly && passwordProtected \?\s*\(\s*peopleTab\s*\)\s*:\s*\(\s*<ShareModeTabs/,
+    );
+    expect(mainView).toContain("<ShareModeTabs");
+    expect(mainView).toContain("<AgentTab");
+    expect(viewerPeople).toContain('label={t("shareDialog.social")}');
+    expect(viewerPeople).toContain('label={t("shareDialog.embed")}');
+    expect(viewerPeople).not.toContain("<PeopleAccessSection");
   });
 
   it("keeps the joined Share and Copy link toolbar action", () => {

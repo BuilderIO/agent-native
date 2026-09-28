@@ -3,14 +3,54 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-28
+
+### Improved
+
+- Starter prompts now sit below the chat composer
+- The deck list search and import controls stay legible on narrow screens.
+
+### Fixed
+
+- The model picker shows available models when AI is configured.
+- Reference attachments stay available when a new deck prompt starts a chat.
+- Template menus stay available when you hover over a card.
+
+## 2026-09-27
+
+### Improved
+
+- Created decks appear in chat as compact cards with a direct link to Slides.
+- Deck results no longer show a nested card frame.
+- Generated decks show slide previews in chat
+- The Connect AI setup card now has even spacing above and below the composer.
+
+### Fixed
+
+- Deck creation returns to the prompt when chat delivery fails and offers a retry when generation does not start.
+- Personalized presentation suggestions work when responses include extra text
+- Fixed deck edits that could be overwritten during unload
+- Pagehide saves include queued edits and stay within the keepalive budget
+- Text edits are preserved when leaving or reloading a deck, and link drops no longer navigate away.
+- Text selection and bullet edits stay in their intended line and row
+- The deck list stays available when a deck preview cannot be generated.
+
 ## 2026-09-26
 
 ### Added
 
+- Requesters now get an email when a deck owner approves their access request.
 - Twelve new hand-designed deck templates — from a Swiss-grid pitch and data-dense quarterly review to a launch keynote, research report, lesson, roadmap, and portfolio — with the original starters still available below them.
 
 ### Improved
 
+- Builder.io super-organization admins can preview customer slide decks in Human Review.
+- Connect storage only when you choose to upload a file
+- Slides accepts HTML references, identifies files in upload errors, and clarifies Figma access issues.
+- Keep Slides deck setup drafts across template navigation and retry failed storage checks before importing references.
+- Loading screens now reflect the app's home layout.
+- Saved slide decks can be previewed directly in Human Review.
+- Slides chat labels the selected slide by number so the agent knows which slide to edit.
 - Home headers keep search and controls aligned at intermediate widths
 - Browse every presentation template from the home page, with a responsive header and sticky Templates and Recent tabs.
 - The Slides home header aligns with Design, and starter suggestions reflect the role selected during onboarding.
@@ -18,6 +58,16 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Clicking or double-clicking slide text near a box's edge now puts the caret or selection where you clicked, and pressing Enter in a styled bullet keeps its color and weight on the new bullet
+- Reverted text edits no longer change slide spacing
+- Slides keep their fit while text is edited and avoid saving changes that are erased.
+- Exports and Present are disabled when a deck has no slides
+- File uploads ask for storage only when requested, and chat stays disabled until an AI provider is connected.
+- Home suggestions and file imports handle provider failures more clearly.
+- Mobile chat now waits for slide edits to save before restoring an earlier deck version.
+- Search remains available before you create a presentation
+- Slides stops retrying imports when a file path is outside your uploads.
+- The presentation prompt appears immediately without a loading placeholder
 - Slides home suggestions start new presentations when personalized suggestions are unavailable, and template thumbnails load their declared fonts.
 - The home search shortcut leaves commands for open menus and dialogs.
 - Double-clicking slide text selects the word under the pointer.
@@ -38,6 +88,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Ask the agent to turn comment and reply emails on or off
 - Open an editable presentation from a template in one click, or inspect every slide in a large modal preview without AI generation.
 - Slides home quick actions now adapt to your onboarding role and appear only when an AI provider is ready.
 - Org admins can review agent runs from Settings
@@ -45,6 +96,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Image generation without Assets tries the provider your organization picks for it first
+- Settings now opens from your name at the bottom of the sidebar, or with ⌘,.
 - Attach Figma frames and websites from focused dialogs while keeping prompt drafts and uploaded design.md files intact.
 - Recent decks now use the same consistent library card layout as templates.
 - Import PDF and PowerPoint files directly from the toolbar, paste Google Slides links in a compact popover, and find design and presentation references together under Design.
@@ -59,6 +112,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Choosing references now keeps Continue disabled until a Figma or website link is a valid URL, or a Google Slides link is a valid URL or picker file ID
+- Opening a deck you can't access now shows an access denied page where you can request access with a note for the owner or switch accounts, instead of an endless loading screen.
 - Pressing Enter in a flex-anchored text box no longer adds extra blank lines when you leave editing, and Arabic text stays joined while you type
 - Slides generation recovers from long pauses and lets you continue from the saved deck
 - Slides guides users to connect AI before continuing deck questions.
@@ -80,6 +135,10 @@ time from the command menu (Cmd+K → "What's new").
 - Word document imports now complete successfully.
 
 ## 2026-09-24
+
+### Added
+
+- The Slides agent can check every slide's text color contrast against accessibility guidelines and fix what fails.
 
 ### Improved
 

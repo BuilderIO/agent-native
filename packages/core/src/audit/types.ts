@@ -2,7 +2,15 @@ export type AuditStatus = "success" | "error" | "denied";
 
 export type AuditActorKind = "agent" | "human" | "system";
 
-export type AuditVisibility = "private" | "org" | "public";
+/**
+ * Who can read an event besides its owner.
+ * - `private` — the owner only (the default; personal content stays here).
+ * - `org` — every member of `org_id`.
+ * - `admins` — owners and admins of `org_id`: organization settings and admin
+ *   actions. Members still see their own rows through `owner_email`.
+ * - `public` — reserved; reads never widen on it.
+ */
+export type AuditVisibility = "private" | "org" | "admins" | "public";
 
 export interface AuditTarget {
   type?: string;
@@ -59,6 +67,9 @@ export interface AuditEvent {
   networkProtocol?: string | null;
   networkId?: string | null;
   networkPeer?: string | null;
+  /** App that recorded the event (`app.id`, else `app.name`). Null on rows
+   *  written before the column existed or by an app with no identity. */
+  app?: string | null;
 }
 
 export interface AuditQueryFilters {
@@ -73,7 +84,12 @@ export interface AuditQueryFilters {
   taskId?: string;
   runId?: string;
   sourcePlatform?: string;
+  /** Only rows recorded by this app. */
+  app?: string;
+  /** Only rows at or after this Unix epoch (ms). */
   sinceMs?: number;
+  /** Only rows strictly before this Unix epoch (ms). */
+  beforeMs?: number;
   limit?: number;
   offset?: number;
 }

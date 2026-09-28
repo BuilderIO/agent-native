@@ -1,16 +1,29 @@
 import { defineAction } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { emit } from "@agent-native/core/event-bus";
+import {
+  DEFAULT_LOCALE,
+  type LocaleCode,
+} from "@agent-native/core/localization";
 import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import {
   prepareZoomMeetingPatch,
   shouldAutoAddGoogleMeet,
 } from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  isCalendarTimezone,
+  timezoneShortName,
+} from "../shared/timezone.js";
+import { zoomAddFailedMessages } from "../shared/zoom-add-failed-messages.js";
+import { resolveCalendarActionLocale } from "./action-chat-ui.js";
 import {
   availabilityInput,
   autoDeclineModeInput,
@@ -19,6 +32,7 @@ import {
   buildReminderOverrides,
   buildStatusEventFields,
   cliBoolean,
+  extractVideoLink,
   eventTypeInput,
   googleColorIdInput,
   ensureOrganizerInAttendees,
@@ -33,6 +47,174 @@ import {
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ACTION_CHANGE_TITLE_LIMIT = 180;
+
+function eventTimezone(
+  value: string | undefined,
+  input: string,
+  fallback?: string,
+): string | null {
+  if (isCalendarTimezone(value)) return value;
+  const inputOffset = input.match(/(?:Z|[+-]\d{2}:\d{2})$/i)?.[0];
+  if (inputOffset) {
+    return inputOffset.toUpperCase() === "Z" ? "UTC" : inputOffset;
+  }
+  return isCalendarTimezone(fallback) ? fallback : null;
+}
+
+function eventDate(value: string, timezone: string | null): string | undefined {
+  if (DATE_ONLY_PATTERN.test(value)) return value;
+  const instant = new Date(value);
+  return timezone && !Number.isNaN(instant.getTime())
+    ? dateKeyInTimezone(instant, timezone)
+    : undefined;
+}
+
+function eventTime(
+  value: string,
+  timezone: string,
+  locale: string,
+): string | undefined {
+  const instant = new Date(value);
+  return Number.isNaN(instant.getTime())
+    ? undefined
+    : new Intl.DateTimeFormat(locale, {
+        timeZone: timezone,
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(instant);
+}
+
+function eventTimezoneLabel(timezone: string, locale: string): string {
+  return /^[+-]\d{2}:\d{2}$/.test(timezone)
+    ? `UTC${timezone}`
+    : timezoneShortName(timezone, locale);
+}
+
+function localizedDate(value: string, locale: string): string | undefined {
+  if (!DATE_ONLY_PATTERN.test(value)) return undefined;
+  const instant = new Date(`${value}T12:00:00.000Z`);
+  return Number.isNaN(instant.getTime())
+    ? undefined
+    : new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeZone: "UTC",
+      }).format(instant);
+}
+
+function getZoomFailureMessage(locale: LocaleCode): string {
+  return (
+    zoomAddFailedMessages[locale as keyof typeof zoomAddFailedMessages] ??
+    zoomAddFailedMessages[DEFAULT_LOCALE]
+  );
+}
+
+function eventChangeTitle(event: CalendarEvent): string {
+  const location = event.workingLocationProperties;
+  let fallback = "Event";
+  if (location?.type === "homeOffice") fallback = "Home";
+  if (location?.type === "officeLocation") {
+    fallback = location.officeLocation?.label || "Office";
+  }
+  if (location?.type === "customLocation") {
+    fallback = location.customLocation?.label || "Working location";
+  }
+  return (event.title.trim() || fallback.trim() || "Event").slice(
+    0,
+    ACTION_CHANGE_TITLE_LIMIT,
+  );
+}
+
+function eventChangeDetail(
+  event: CalendarEvent,
+  args: { eventType?: string; fullDay?: boolean; start: string; end: string },
+  locale: string,
+  additions: Array<string | undefined> = [],
+  timezoneFallback?: string,
+): string | undefined {
+  const startTimezone = eventTimezone(
+    event.startTimeZone,
+    args.start,
+    timezoneFallback,
+  );
+  const endTimezone = eventTimezone(
+    event.endTimeZone ?? event.startTimeZone,
+    args.end,
+    startTimezone ?? timezoneFallback,
+  );
+  const fullDayOutOfOffice =
+    args.eventType === "outOfOffice" && args.fullDay === true;
+  let when: string | undefined;
+
+  if (
+    fullDayOutOfOffice &&
+    DATE_ONLY_PATTERN.test(args.start) &&
+    DATE_ONLY_PATTERN.test(args.end)
+  ) {
+    const start = localizedDate(args.start, locale);
+    const end = localizedDate(args.end, locale);
+    if (start && end && startTimezone) {
+      when = `${start}${start === end ? "" : `–${end}`} ${eventTimezoneLabel(startTimezone, locale)}`;
+    }
+  } else if (
+    event.allDay ||
+    (DATE_ONLY_PATTERN.test(event.start) && DATE_ONLY_PATTERN.test(event.end))
+  ) {
+    const start = eventDate(event.start, startTimezone);
+    const endExclusive = eventDate(event.end, endTimezone);
+    if (start && endExclusive) {
+      const end = addDaysToDateKey(endExclusive, -1);
+      const localizedStart = localizedDate(start, locale);
+      const localizedEnd = localizedDate(end, locale);
+      if (localizedStart && localizedEnd) {
+        when =
+          start === end ? localizedStart : `${localizedStart}–${localizedEnd}`;
+      }
+    }
+  } else if (startTimezone && endTimezone) {
+    const startDate = eventDate(event.start, startTimezone);
+    const endDate = eventDate(event.end, endTimezone);
+    const startTime = eventTime(event.start, startTimezone, locale);
+    const endTime = eventTime(event.end, endTimezone, locale);
+    if (startDate && endDate && startTime && endTime) {
+      const localizedStart = localizedDate(startDate, locale);
+      const localizedEnd = localizedDate(endDate, locale);
+      if (localizedStart && localizedEnd) {
+        when =
+          startDate === endDate && startTimezone === endTimezone
+            ? `${localizedStart} · ${startTime}–${endTime} ${eventTimezoneLabel(startTimezone, locale)}`
+            : `${localizedStart} ${startTime} ${eventTimezoneLabel(startTimezone, locale)}–${localizedEnd} ${endTime} ${eventTimezoneLabel(endTimezone, locale)}`;
+      }
+    }
+  }
+
+  const detail = [when, ...additions, event.location?.trim()]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ")
+    .slice(0, 500);
+  return detail || undefined;
+}
+
+function eventDeepLink(
+  event: Pick<CalendarEvent, "id" | "start" | "startTimeZone">,
+  timezoneFallback?: string | null,
+): string | undefined {
+  if (!event.id) return undefined;
+  const timezone =
+    timezoneFallback === undefined
+      ? eventTimezone(event.startTimeZone, event.start)
+      : timezoneFallback;
+  return buildDeepLink({
+    app: "calendar",
+    view: "calendar",
+    params: {
+      eventId: event.id,
+      date: eventDate(event.start, timezone),
+    },
+  });
+}
 
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
@@ -148,26 +330,6 @@ export default defineAction({
         "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
       ),
   }),
-  chatUI: {
-    renderer: "calendar.event-created",
-    projectResult: (_args, result) => {
-      const event = result as Record<string, unknown>;
-      return {
-        id: event.id,
-        title: event.title,
-        start: event.start,
-        end: event.end,
-        startTimeZone: event.startTimeZone,
-        endTimeZone: event.endTimeZone,
-        allDay: event.allDay,
-        location: event.location,
-        hangoutLink: event.hangoutLink,
-        meetingLink: event.meetingLink,
-        conferenceData: event.conferenceData,
-        videoConferenceError: event.videoConferenceError,
-      };
-    },
-  },
   run: async (args, actionContext?: ActionRunContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
@@ -194,6 +356,10 @@ export default defineAction({
     const attendees = ensureOrganizerInAttendees(
       normalizeAttendees(args.attendees),
       acctEmail,
+    );
+    const locale = await resolveCalendarActionLocale(
+      email,
+      actionContext?.requestHeaders,
     );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
@@ -239,6 +405,7 @@ export default defineAction({
 
     let zoomMeetingLink: string | undefined;
     let videoConferenceError: CalendarEvent["videoConferenceError"];
+    let videoConferenceWarning: string | undefined;
     if (args.addZoom) {
       try {
         const zoom = await prepareZoomMeetingPatch(email, calEvent);
@@ -246,6 +413,7 @@ export default defineAction({
         Object.assign(calEvent, zoom.patch);
       } catch (error) {
         videoConferenceError = "zoom";
+        videoConferenceWarning = getZoomFailureMessage(locale);
         console.error("[create-event] Zoom meeting provisioning failed", error);
       }
     }
@@ -268,6 +436,19 @@ export default defineAction({
     if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
     if (videoConferenceError)
       calEvent.videoConferenceError = videoConferenceError;
+
+    let timezoneFallback: string | undefined;
+    if (
+      !calEvent.startTimeZone &&
+      !/(?:Z|[+-]\d{2}:\d{2})$/i.test(args.start) &&
+      !DATE_ONLY_PATTERN.test(args.start)
+    ) {
+      try {
+        timezoneFallback = await getCalendarTimezone(email);
+      } catch {
+        // coercion-ok: this timezone only formats the result card after event creation.
+      }
+    }
 
     try {
       emit(
@@ -304,22 +485,55 @@ export default defineAction({
       actionContext,
     );
 
-    return calEvent;
+    const startTimezone = eventTimezone(
+      calEvent.startTimeZone,
+      args.start,
+      timezoneFallback,
+    );
+    const url = eventDeepLink(calEvent, startTimezone);
+    const conferenceLink = calEvent.meetingLink ?? extractVideoLink(calEvent);
+    const detail = eventChangeDetail(
+      calEvent,
+      args,
+      locale,
+      [
+        conferenceLink && !calEvent.location?.includes(conferenceLink)
+          ? conferenceLink
+          : undefined,
+        videoConferenceWarning,
+      ],
+      timezoneFallback,
+    );
+    return {
+      ...calEvent,
+      change: {
+        verb: "created",
+        kind: "calendar-event",
+        title: eventChangeTitle(calEvent),
+        ...(detail ? { detail } : {}),
+        ...(url ? { url } : {}),
+      },
+    };
   },
   link: ({ result }) => {
     if (!result || typeof result !== "object") return null;
-    const evt = result as { id?: string; start?: string };
-    if (!evt.id) return null;
-    const date =
-      typeof evt.start === "string" && evt.start
-        ? evt.start.slice(0, 10)
-        : undefined;
+    const evt = result as {
+      id?: string;
+      start?: string;
+      startTimeZone?: string;
+      change?: { url?: string };
+    };
+    if (!evt.id || !evt.start) return null;
+    const url =
+      evt.change?.url ??
+      eventDeepLink({
+        id: evt.id,
+        start: evt.start,
+        startTimeZone: evt.startTimeZone,
+      });
+    if (!url) return null;
     return {
-      url: buildDeepLink({
-        app: "calendar",
-        view: "calendar",
-        params: { eventId: evt.id, date },
-      }),
+      url,
       label: "Open event in Calendar",
       view: "calendar",
     };

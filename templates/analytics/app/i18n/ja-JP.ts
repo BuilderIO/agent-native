@@ -175,6 +175,9 @@ export default {
     bellSoundDescription:
       "エージェントが実行を完了したときにサウンドを再生します。デフォルトでオフです。",
     bellSoundSaveFailed: "サウンド設定を保存できませんでした。",
+    notificationsTitle: "通知",
+    notificationsEmailGroup: "メール",
+    notificationsSoundGroup: "サウンド",
     replayStorage: "セッションリプレイのストレージ",
     replayStorageDescription:
       "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを接続するか、独自の S3 互換バケットをご利用ください。",
@@ -961,6 +964,10 @@ export default {
     revenueOverTime: "経時的な収益",
     recentSales: "最近の売上",
     recentSalesDescription: "今月は 265 件の売上がありました。",
+  },
+  analysisResult: {
+    title: "分析結果",
+    comparisonContext: "{{period}}：{{previous}} と比較して {{current}}",
   },
   routeTitles: {
     notFound: "見つかりません - Analytics",

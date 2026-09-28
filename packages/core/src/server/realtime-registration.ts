@@ -44,8 +44,8 @@ import { resolveDeploymentBaseUrl } from "./self-dispatch.js";
  * `app_secrets` — that store scopes every row to a user, org or workspace, and
  * a realtime channel belongs to none of them. The row holds an HMAC secret, so
  * treat it like one: the secret is stored ENCRYPTED (see `StoredRegistration`),
- * it is never returned by an app route, and the two `getAllSettings` consumers
- * both filter to `mcp-servers-remote` keys.
+ * it is never returned by an app route. MCP config enumeration is limited to
+ * the relevant settings key segments.
  *
  * The key is declared in its own module because `poll.ts` skips it when wiring
  * the settings emitter into the sync log and cannot import this one.

@@ -18,7 +18,6 @@ import {
   normalizeHostedHarnessRuntimes,
   type HostedHarnessRuntime,
 } from "../agent/harness/hosted.js";
-import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
@@ -41,8 +40,11 @@ import {
   SIDEBAR_STATE_CHANGE_EVENT,
   type AgentSidebarStateChangeDetail,
 } from "./agent-sidebar-state.js";
-import { ScreenRefreshBoundary, URLSync } from "./agent-sidebar-url-sync.js";
-import { agentNativePath } from "./api-path.js";
+import {
+  ScreenRefreshBoundary,
+  SettingsReturnPathRecorder,
+  URLSync,
+} from "./agent-sidebar-url-sync.js";
 import {
   APP_CHAT_SIDEBAR_STATE_EVENT,
   APP_CHAT_SIDEBAR_STATE_REQUEST_MESSAGE,
@@ -52,7 +54,7 @@ import {
   usePerAppChatState,
 } from "./app-chat-sidebar.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
-import type { AssistantChatProps } from "./AssistantChat.js";
+import { writeClientAppState } from "./application-state.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import { shouldParentFrameOwnAgentPanel } from "./builder-frame.js";
 import {
@@ -60,6 +62,8 @@ import {
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
 } from "./chat-view-transition.js";
+import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
+import type { AssistantChatProps } from "./chat/surface-types.js";
 import {
   getFramePostMessageTargetOrigin,
   isTrustedFrameMessage,
@@ -248,6 +252,7 @@ function AgentSidebarPanelSkeleton() {
 export interface AgentSidebarProps {
   children: React.ReactNode;
   enabled?: boolean;
+  screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
   suggestions?: AssistantChatProps["suggestions"];
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
@@ -289,6 +294,7 @@ export interface AgentSidebarProps {
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
   suppressInlineOpenApp?: AssistantChatProps["suppressInlineOpenApp"];
   composerPlaceholder?: AssistantChatProps["composerPlaceholder"];
+  showMissingApiKeySetup?: AssistantChatProps["showMissingApiKeySetup"];
   openOnChatRunning?: boolean;
   onFullscreenRequest?: () => void;
   onOpenSettings?: (section?: string) => void;
@@ -321,6 +327,7 @@ interface HostedHarnessStatus {
 export function AgentSidebar({
   children,
   enabled = true,
+  screenRefreshOnlyWhenPanelActive = false,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -359,6 +366,7 @@ export function AgentSidebar({
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
+  showMissingApiKeySetup,
   openOnChatRunning = false,
   onFullscreenRequest,
   onOpenSettings,
@@ -448,7 +456,9 @@ export function AgentSidebar({
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
-      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey),
+      getInitialAgentSidebarOpen(effectiveDefaultOpen, sidebarOpenStorageKey, {
+        ignoreUrlOverride: !enabled,
+      }),
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
@@ -509,13 +519,14 @@ export function AgentSidebar({
 
   const setOpenPersisted = useCallback(
     (next: boolean | ((prev: boolean) => boolean)) => {
+      if (!enabled) return;
       setOpen((prev) => {
         const value = typeof next === "function" ? next(prev) : next;
         setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
         return value;
       });
     },
-    [sidebarOpenStorageKey],
+    [enabled, sidebarOpenStorageKey],
   );
 
   useEffect(() => {
@@ -556,13 +567,14 @@ export function AgentSidebar({
   }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     applyUrlOpenOverride();
     return subscribeAgentSidebarUrlChanges(applyUrlOpenOverride);
-  }, [applyUrlOpenOverride]);
+  }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
-    if (openOnChatRunning && !isPerAppChatHosted) setOpen(true);
-  }, [isPerAppChatHosted, openOnChatRunning]);
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) setOpen(true);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning]);
 
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
@@ -647,6 +659,7 @@ export function AgentSidebar({
   ]);
 
   useEffect(() => {
+    if (!enabled) return;
     const preparePanel = () => setBackgroundPanelActive(true);
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -682,9 +695,10 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_PANEL_PREPARE_EVENT, preparePanel);
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
-  }, [isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
+  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const replayAfterMount = (type: string, event: Event) => {
       if (shouldMountPanelRef.current) return;
 
@@ -719,9 +733,10 @@ export function AgentSidebar({
         handleOpenSettings,
       );
     };
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const toggleHandler = (event: Event) => {
       if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       const focusOnOpen =
@@ -796,6 +811,7 @@ export function AgentSidebar({
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    enabled,
     isPerAppChatHosted,
     open,
     perAppChatState.open,
@@ -804,7 +820,7 @@ export function AgentSidebar({
   ]);
 
   useEffect(() => {
-    if (window.parent === window) return;
+    if (!enabled || window.parent === window) return;
 
     function handleMessage(event: MessageEvent) {
       if (event.data?.type !== "agentNative.sidebarMode") return;
@@ -862,9 +878,10 @@ export function AgentSidebar({
     }
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [setOpenPersisted]);
+  }, [enabled, setOpenPersisted]);
 
   useEffect(() => {
+    if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         (e.metaKey || e.ctrlKey) &&
@@ -888,19 +905,10 @@ export function AgentSidebar({
           // coercion-ok: selection capture is optional; the shortcut still opens chat.
         }
         if (selectionText) {
-          fetch(
-            agentNativePath(
-              "/_agent-native/application-state/pending-selection-context",
-            ),
-            {
-              method: "PUT",
-              keepalive: true,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: selectionText,
-                capturedAt: Date.now(),
-              }),
-            },
+          void writeClientAppState(
+            "pending-selection-context",
+            { text: selectionText, capturedAt: Date.now() },
+            { keepalive: true },
           ).catch(() => {});
           window.dispatchEvent(
             new CustomEvent("agent-panel:selection-attached", {
@@ -913,7 +921,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut]);
+  }, [disableChatShortcut, enabled]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1083,7 +1091,7 @@ export function AgentSidebar({
       "--agent-sidebar-width": `${width}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
       "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+        "var(--agent-native-raised-surface, hsl(var(--background)))",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
@@ -1180,6 +1188,7 @@ export function AgentSidebar({
                 showTabBar={effectiveShowTabBar}
                 suppressInlineOpenApp={suppressInlineOpenApp}
                 composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
                 missingApiKeySetupLayout="sidebar"
                 defaultMode={defaultMode}
                 onCollapse={() => setOpenPersisted(false)}
@@ -1271,6 +1280,7 @@ export function AgentSidebar({
         {/* URLSync writes the current URL to application-state so the agent
           sees what page/filters the user is on, and applies URL-update
           commands the agent writes via `set-search-params` / `set-url`. */}
+        <SettingsReturnPathRecorder />
         {shouldMountPanel ? (
           <URLSync browserTabId={resolvedBrowserTabId} />
         ) : null}
@@ -1290,7 +1300,11 @@ export function AgentSidebar({
           {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
-          <ScreenRefreshBoundary>{children}</ScreenRefreshBoundary>
+          <ScreenRefreshBoundary
+            active={!screenRefreshOnlyWhenPanelActive || shouldMountPanel}
+          >
+            {children}
+          </ScreenRefreshBoundary>
         </div>
         {!isLeft && !presentationMode ? drawerPlaceholder : null}
         {!isLeft && !presentationMode ? sidebar : null}

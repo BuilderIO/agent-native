@@ -1,3 +1,5 @@
+import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js";
+
 export default {
   common: {
     connect: "連線",
@@ -46,11 +48,6 @@ export default {
     couldNotLoadEvent: "無法載入事件",
     noEventId: "未提供事件 ID。請在 URL 中新增 ?id=<eventId>。",
     openCalendar: "開啟行事曆",
-  },
-  eventCreation: {
-    created: "活動已建立",
-    zoomNotAdded: "活動已建立，但無法新增 Zoom。",
-    openInCalendar: "在 Calendar 中開啟活動",
   },
   agentSidebar: {
     emptyState: "問我任何關於你的行事曆的問題",
@@ -243,6 +240,7 @@ export default {
     weekStartSunday: "週日 - 週六",
     weekStartMonday: "週一 - 週日",
     eventRules: "邀請規則",
+    eventRulesAutomationLink: "如需執行其他操作，請建立自動化。",
     eventRulesConnectJev: "連接 Jev 以執行邀請規則",
     eventRulesFreeBuilderOrApiKey:
       "透過 Builder.io 免費使用，或新增 API 金鑰。",
@@ -273,6 +271,36 @@ export default {
     eventRulesChecking: "正在檢查自動化狀態…",
     eventRulesConflict: "接受與拒絕規則同時符合，因此已略過該邀請。",
     eventRulesUnregistered: "此伺服器未註冊 Calendar 自動化。",
+  },
+  calendarSettings: {
+    calendarsTab: "行事曆",
+    bookingTab: "預約",
+    eventsGroup: "活動",
+    appearanceGroup: "外觀",
+    colorTheme: "顏色主題",
+    timezone: "行事曆時區",
+    timezoneDescription: "用於顯示活動和建立新活動。",
+    defaultDuration: "預設活動時長",
+    defaultDurationDescription: "以分鐘為單位。預約連結可以單獨設定。",
+    durationInvalid: "請輸入 5 到 480 分鐘之間的時長。",
+    zoom: "Zoom",
+    connectedAs: "已連線為 {{accounts}}",
+    setUp: "設定",
+    disconnectGoogleTitle: "要中斷 Google 行事曆的連線嗎？",
+    disconnectGoogleDescription:
+      "行事曆將停止顯示和同步你的 Google 帳戶中的活動。",
+    disconnectZoomTitle: "要中斷 Zoom 的連線嗎？",
+    disconnectZoomDescription:
+      "在你重新連線之前，新活動和預約無法取得 Zoom 會議連結。",
+    manage: "管理",
+    edit: "編輯",
+    cancel: "取消",
+    save: "儲存",
+    fallbackBookingPage: "備用預約頁面",
+    fallbackBookingPageDescription: "當預約連結沒有自己的標題或說明時使用。",
+    fallbackTitle: "標題",
+    fallbackDescription: "說明",
+    bookingLinksDescription: "建立預約連結並複製其公開網址。",
   },
   eventDialog: {
     eventUpdated: "事件已更新",
@@ -963,7 +991,7 @@ export default {
     yearly: "每年",
     zoom: "Zoom",
     zoomAdded: "新增Zoom",
-    zoomAddFailed: "新增Zoom失敗",
+    zoomAddFailed: zoomAddFailedMessages["zh-TW"],
     zoomConnectFailed: "無法連線Zoom",
     zoomConnectionOpened: "Zoom 連線已開啟",
     zoomNotConfigured: "Zoom OAuth 未設定。",

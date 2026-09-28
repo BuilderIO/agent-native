@@ -18,6 +18,16 @@ import type { TiptapComposerHandle } from "./TiptapComposer.js";
 let container: HTMLDivElement;
 let root: Root;
 
+function KeyedStaleIndexBoundary({
+  resetKey,
+  children,
+}: {
+  resetKey: string;
+  children: React.ReactNode;
+}) {
+  return <React.Fragment key={resetKey}>{children}</React.Fragment>;
+}
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
@@ -32,6 +42,44 @@ afterEach(() => {
 });
 
 describe("controlled composer context", () => {
+  it("keeps the editor mounted while the host echoes each edit as initial text", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onSubmit = vi.fn();
+    const EchoingPrompt = () => {
+      const [text, setText] = React.useState("");
+      return (
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            agentChat: {
+              StaleIndexBoundary: KeyedStaleIndexBoundary,
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onSubmit={onSubmit}
+            initialText={text}
+            initialTextKey="stable-while-typing"
+            onTextChange={setText}
+            showModelSelector={false}
+            modelStatusChecksEnabled={false}
+            includeDefaultSlashSkills={false}
+            voiceEnabled={false}
+          />
+        </ComposerRuntimeAdaptersProvider>
+      );
+    };
+
+    await act(async () => root.render(<EchoingPrompt />));
+    const editor = container.querySelector<HTMLElement>(".ProseMirror")!;
+    expect(editor).not.toBeNull();
+
+    await act(async () => composerRef.current!.setText("typed at the end"));
+
+    expect(container.querySelector(".ProseMirror")).toBe(editor);
+    expect(editor.textContent).toBe("typed at the end");
+  });
+
   it("uses the shared upload menu without host entries and retains the explicit hidden mode", async () => {
     await mount();
     const trigger = container.querySelector<HTMLButtonElement>(
@@ -55,6 +103,54 @@ describe("controlled composer context", () => {
     expect(
       container.querySelector('button[aria-label="Add context"]'),
     ).toBeNull();
+  });
+  it("requests storage setup only after choosing Upload File", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      plusMenuMode: "full",
+      onAttachmentRequest,
+    });
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[data-agent-composer-slot="plus-button"]',
+        )!
+        .click();
+    });
+    const uploadFile = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Upload File"));
+    expect(uploadFile).toBeDefined();
+    await act(async () => uploadFile!.click());
+
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+  });
+
+  it("requests storage setup from the upload-only button", async () => {
+    const onAttachmentRequest = vi.fn();
+    await mount({
+      attachmentsEnabled: false,
+      onAttachmentRequest,
+      plusMenuMode: "upload-only",
+    });
+
+    expect(onAttachmentRequest).not.toHaveBeenCalled();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Add context"]',
+    )!;
+    await act(async () =>
+      trigger.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      ),
+    );
+    const uploadFile = document.querySelector<HTMLElement>('[role="menuitem"]');
+    expect(uploadFile).toBeDefined();
+    expect(uploadFile?.textContent).toContain("Upload File");
+    await act(async () => uploadFile!.click());
+    expect(onAttachmentRequest).toHaveBeenCalledOnce();
   });
   async function mount(props: Partial<PromptComposerProps> = {}) {
     const composerRef = React.createRef<TiptapComposerHandle>();

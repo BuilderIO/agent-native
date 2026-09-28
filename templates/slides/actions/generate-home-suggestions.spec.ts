@@ -104,12 +104,22 @@ describe("generate-home-suggestions", () => {
 
   it("parses a valid JSON array wrapped in model prose", async () => {
     mocks.completeText.mockResolvedValue({
-      text: `Here are three ideas:\n${JSON.stringify(suggestions)}\nLet me know what you think.`,
+      text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
     });
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
     ).resolves.toEqual({ suggestions });
+  });
+
+  it("rejects a JSON object containing a nested suggestions array", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify({ suggestions }),
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toThrow("invalid shape");
   });
 
   it("keeps rejecting invalid JSON instead of hiding a model failure", async () => {

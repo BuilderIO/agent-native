@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   getAgentEngineEntry: vi.fn(() => null),
   isAgentEngineSettingConfigured: vi.fn(() => false),
   isStoredEngineUsable: vi.fn(() => false),
+  readDefaultAgentEngineSetting: (...args: any[]) => mocks.getSetting(...args),
   registerBuiltinEngines: () => mocks.registerBuiltinEngines(),
 }));
 

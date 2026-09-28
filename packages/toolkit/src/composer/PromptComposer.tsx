@@ -54,12 +54,15 @@ import {
   isLocalRuntimeEngine,
   TiptapComposer,
   type ComposerAgentOption,
+  type ComposerTextSelection,
+  type ComposerImageModelMenu,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
 import type {
   AgentComposerLayoutVariant,
+  MentionItem,
   Reference,
   SkillResult,
   SlashCommand,
@@ -67,6 +70,11 @@ import type {
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 
+/**
+ * Files the user attached via the "+" button in PromptComposer. The host owns
+ * what to do with them — typically POST to a per-app upload endpoint and pass
+ * the resulting URLs/paths into the prompt that gets sent to the agent.
+ */
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
@@ -84,83 +92,174 @@ export interface PromptComposerProps {
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
   contextMenuItems?: readonly ComposerContextMenuItem[];
+  /** Called when the user submits the composer. */
   onSubmit: (
     text: string,
     files: PromptComposerFile[],
     references: Reference[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  /** Return false to stop a submit before it reaches the host runtime. */
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /** Handle file paste/drop errors in the host chat surface. */
+  onAttachmentError?: (message: string) => void;
+  /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
+  interceptBuildRequestsForBuilder?: boolean;
   placeholder?: string;
+  /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
   disabled?: boolean;
+  /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
+  /** Present the primary action as queueing instead of immediate send. */
   willQueue?: boolean;
+  /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
+  /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
+  /** Label used in the visible document attachment limit error. */
   documentAttachmentLimitLabel?: string;
   autoFocus?: boolean;
   className?: string;
   style?: CSSProperties;
   rootClassName?: string;
   rootStyle?: CSSProperties;
+  /** Forwarded to TiptapComposer for draft persistence. */
   draftScope?: string;
+  /** Keep the submitted prompt in the editor. Default: false. */
   preserveDraftOnSubmit?: boolean;
+  /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
   modelSelectorOpen?: boolean;
+  /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
+  /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
+  /** Opens host-owned storage setup when the user chooses an upload action. */
   onAttachmentRequest?: () => void;
+  /** Hide the Add context tooltip while the host storage popover is open. */
+  contextButtonTooltipDisabled?: boolean;
+  /** Host-owned file acceptance and staging; the shared composer still owns picker and chips. */
   attachmentAdapter?: AttachmentAdapter;
+  /** Let hosts extract ordinary uploaded text without also inlining it. */
   inlineTextAttachments?: boolean;
+  /**
+   * Controls the shared "+" affordance. Defaults to upload-only for standalone
+   * prompt forms; chat surfaces can opt into the full sidebar menu.
+   */
   plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
+  /**
+   * Include extension creation in the full "+" menu. Defaults to false.
+   */
   extensionTools?: boolean;
+  /** Programmatically seed the composer with plain text. */
   initialText?: string;
+  /** Stable key used to re-apply `initialText` when the host picks a preset. */
   initialTextKey?: string | number;
+  /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
+  /** Current agent execution mode shown in the shared composer toolbar. */
   execMode?: "build" | "plan";
+  /** Called when the user switches between acting and read-only planning. */
   onExecModeChange?: (mode: "build" | "plan") => void;
+  /** Disable Plan mode while leaving Act mode available. */
+  planModeDisabled?: boolean;
+  /** Explanation shown next to the disabled Plan option. */
+  planModeDisabledReason?: string;
+  /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
+  /** Custom attachment button to render instead of the default "+" affordance. */
   attachButton?: ReactNode;
+  /** Custom action button to render instead of the default send button. */
   actionButton?: ReactNode;
+  /** Extra button rendered alongside the default send button. */
   extraActionButton?: ReactNode;
+  /** Optional stop control shown while the host runtime is active. */
+  stopButton?: ReactNode;
+  /** Shared sizing/layout variant for host surfaces. Default keeps sidebar behavior. */
   layoutVariant?: AgentComposerLayoutVariant;
+  /** Additional slash commands surfaced in the shared / menu. */
   slashCommands?: SlashCommand[];
+  /** Additional slash skills surfaced in the shared / menu. */
   slashSkills?: SkillResult[];
+  /** Include built-in sidebar slash commands when onSlashCommand is provided. */
   includeDefaultSlashCommands?: boolean;
+  /** Include app-discovered skills from the default agent endpoint. Default true. */
   includeDefaultSlashSkills?: boolean;
+  /** Called when a slash command from the shared / menu is executed. */
   onSlashCommand?: (command: string) => void;
+  /** External model list for hosts that already resolve models outside the app. */
   availableModels?: EngineModelGroup[];
+  /** Whether the external model list is still being resolved. */
   modelListLoading?: boolean;
   selectedModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
   onModelChange?: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
+  /** Local or hosted agent runtimes shown above the model list. */
   availableAgents?: ComposerAgentOption[];
+  /** Selected agent runtime identifier. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
   agentOnly?: boolean;
+  /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
   onModelSelectorOpenChange?: (open: boolean) => void;
+  /** Enable server-backed model/provider status checks. Defaults on, except for a selected local runtime. */
   modelStatusChecksEnabled?: boolean;
+  requireAgentEngine?: boolean;
+  /** Called whenever the plain editor text changes. */
   onTextChange?: (text: string) => void;
+  mentionItems?: MentionItem[];
+  mentionPopoverDensity?: "default" | "stacked";
+  includeDefaultMentionSearch?: boolean;
+  onReferencesChange?: (references: Reference[]) => void;
+  onEscape?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSelectionChange?: (selection: ComposerTextSelection) => void;
+  /** Called whenever attached files change, before the composer is submitted. */
   onAttachmentsChange?: (files: PromptComposerFile[]) => void;
+  /** Called whenever the composer resolves a model, engine, or effort choice. */
   onModelSelectionChange?: (
     selection: Pick<PromptComposerSubmitOptions, "model" | "engine" | "effort">,
   ) => void;
+  /**
+   * Override the Builder.io connect action in the model picker. When provided,
+   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * Used by the Electron desktop app to route through the native IPC handler.
+   */
   onConnectProvider?: () => void;
+  /** Called when a local runtime needs its native sign-in/setup flow. */
   onConnectLocalRuntime?: (engine: string) => void;
+  imageModelMenu?: ComposerImageModelMenu;
+  /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
 
+// Minimal pass-through adapter. PromptComposer always submits through
+// onSubmitOverride, so the runtime never actually calls this — but
+// `useLocalRuntime` needs *something* shaped like a ChatModelAdapter.
 const NOOP_ADAPTER: ChatModelAdapter = {
   async *run() {
     yield* [];
   },
 };
 
+/**
+ * Local binary document adapter so reference PDFs, decks, and docs can be
+ * attached without dragging the whole assistant chat module into bundles that
+ * just want a prompt popover.
+ */
 class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
   public accept = PROMPT_DOCUMENT_ATTACHMENT_ACCEPT;
 
@@ -223,12 +322,17 @@ function formatInlineTextFile(name: string, text: string): string {
     .join("\n");
 }
 
+/** Chat stays closed until the provider check confirms it can run. */
 export function shouldGateComposerForEngine(
   state: ComposerAgentEngineState,
 ): boolean {
   return state !== "configured";
 }
 
+/**
+ * Show setup treatment only for a confirmed-missing engine with a setup
+ * component. Unresolved status uses the retry treatment instead.
+ */
 export function shouldGateComposerForMissingEngine(input: {
   state: string;
   hasSetupComponent: boolean;
@@ -286,6 +390,11 @@ export async function buildPromptComposerSubmission(options: {
             // Keep the upload path fallback below.
           }
         }
+        // Note: images are NOT inlined into the prompt text even when small.
+        // Inlining a base64 data-URL into a text string consumes an enormous
+        // number of tokens (≈ 700 K per MB) and most hosts handle images via
+        // proper attachment channels. The `files` array below carries the image
+        // for the host to process through a dedicated attachment pipeline.
         files.push(file);
       }
     }
@@ -507,6 +616,7 @@ function PromptComposerInner({
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   onAttachmentRequest,
+  contextButtonTooltipDisabled = false,
   inlineTextAttachments = true,
   plusMenuMode,
   terminalModeControl,
@@ -516,10 +626,13 @@ function PromptComposerInner({
   modeControl,
   execMode,
   onExecModeChange,
+  planModeDisabled,
+  planModeDisabledReason,
   toolbarSlot,
   attachButton,
   actionButton,
   extraActionButton,
+  stopButton,
   layoutVariant,
   slashCommands,
   slashSkills,
@@ -539,12 +652,25 @@ function PromptComposerInner({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine = true,
   onTextChange,
+  mentionItems,
+  mentionPopoverDensity,
+  includeDefaultMentionSearch,
+  onReferencesChange,
+  onEscape,
+  onFocus,
+  onBlur,
+  onSelectionChange,
   onAttachmentsChange,
   onModelSelectionChange,
   onConnectProvider,
   onConnectLocalRuntime,
+  imageModelMenu,
   composerRef,
+  onBeforeSubmit,
+  onAttachmentError,
+  interceptBuildRequestsForBuilder,
 }: PromptComposerProps) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate!;
@@ -617,15 +743,16 @@ function PromptComposerInner({
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
   const agentEngineConfigured = modelsAdapter.useAgentEngineConfigured!(
-    resolvedModelStatusChecksEnabled,
+    requireAgentEngine && resolvedModelStatusChecksEnabled,
   );
-  const engineState = resolvedModelStatusChecksEnabled
+  const engineStatusChecksEnabled =
+    requireAgentEngine && resolvedModelStatusChecksEnabled;
+  const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
-  const missingApiKey =
-    resolvedModelStatusChecksEnabled && engineState === "missing";
+  const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
   const engineStatusUnresolved =
-    resolvedModelStatusChecksEnabled &&
+    engineStatusChecksEnabled &&
     (engineState === "unknown" || engineState === "unavailable");
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
@@ -665,6 +792,12 @@ function PromptComposerInner({
       attachments?: ReadonlyArray<unknown>,
       submitOptions?: TiptapComposerSubmitOptions,
     ) => {
+      // PromptComposer hosts (NewWorkspaceAppFlow, create-extension, create-deck,
+      // …) submit a single string prompt — they don't run the assistant-ui
+      // attachment send pipeline. TiptapComposer auto-converts large pastes
+      // into a "Pasted text" chip, which would otherwise disappear into an
+      // unprocessed File. Inline the chip body back into the prompt text so
+      // newlines and full content survive the round-trip.
       const { text: finalText, files } = await buildPromptComposerSubmission({
         text,
         attachments,
@@ -759,6 +892,7 @@ function PromptComposerInner({
           onRetryContextItem={onRetryContextItem}
           attachmentsEnabled={attachmentsEnabled}
           onAttachmentRequest={onAttachmentRequest}
+          contextButtonTooltipDisabled={contextButtonTooltipDisabled}
           ariaLabel={ariaLabel}
           focusRef={handleRef}
           disabled={disabled || gateComposer}
@@ -779,6 +913,9 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onBeforeSubmit={onBeforeSubmit}
+          onAttachmentError={onAttachmentError}
+          interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             gateComposer
@@ -798,9 +935,12 @@ function PromptComposerInner({
           modeControl={modeControl}
           execMode={execMode}
           onExecModeChange={onExecModeChange}
+          planModeDisabled={planModeDisabled}
+          planModeDisabledReason={planModeDisabledReason}
           toolbarSlot={toolbarSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}
+          stopButton={stopButton}
           layoutVariant={layoutVariant}
           slashCommands={slashCommands}
           slashSkills={slashSkills}
@@ -809,6 +949,14 @@ function PromptComposerInner({
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
           onTextChange={onTextChange}
+          mentionItems={mentionItems}
+          mentionPopoverDensity={mentionPopoverDensity}
+          includeDefaultMentionSearch={includeDefaultMentionSearch}
+          onReferencesChange={onReferencesChange}
+          onEscape={onEscape}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSelectionChange={onSelectionChange}
           draftScope={draftScope}
           selectedModel={composerModel}
           selectedEngine={composerEngine}
@@ -827,12 +975,24 @@ function PromptComposerInner({
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
+          imageModelMenu={imageModelMenu}
         />
       </AgentComposerFrame>
     </>
   );
 }
 
+/**
+ * Standalone composer that mirrors the agent sidebar's input experience —
+ * voice dictation, file upload, model selector, submit-on-Enter — for use in
+ * popovers and inline prompt forms (create tool, create deck, create dashboard,
+ * the Dispatch new-app flow, etc.).
+ *
+ * The host owns submission: when the user presses Enter or clicks submit,
+ * `onSubmit(text, files, references, options)` is called. PromptComposer runs
+ * its own minimal assistant-ui runtime so it can be dropped into any subtree
+ * without needing the outer chat to be mounted.
+ */
 function PromptComposerRuntime(props: PromptComposerProps) {
   const StaleIndexBoundary =
     useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
@@ -849,11 +1009,9 @@ function PromptComposerRuntime(props: PromptComposerProps) {
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },
   });
-  const resetKey = [
-    props.draftScope ?? "",
-    props.initialTextKey ?? "",
-    props.initialText ?? "",
-  ].join(":");
+  const resetKey = [props.draftScope ?? "", props.initialTextKey ?? ""].join(
+    ":",
+  );
 
   return (
     <TooltipProvider delayDuration={200}>

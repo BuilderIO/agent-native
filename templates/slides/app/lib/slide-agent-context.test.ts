@@ -29,7 +29,7 @@ describe("hasCurrentSlideSelection", () => {
 });
 
 describe("getSlidesAgentScopeLabel", () => {
-  it("labels the current slide by number and keeps selected targets distinct", () => {
+  it("labels selected targets with the current slide number", () => {
     expect(
       getSlidesAgentScopeLabel(
         { deckId: "deck-1", slideId: "slide-5", slideNumber: 5, items: [] },
@@ -46,7 +46,7 @@ describe("getSlidesAgentScopeLabel", () => {
         },
         "deck-1",
       ),
-    ).toEqual({ key: "agent.currentSelection" });
+    ).toEqual({ key: "agent.slideNumber", number: 5 });
   });
 
   it("does not use a slide number from another deck or invalid state", () => {

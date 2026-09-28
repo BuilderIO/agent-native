@@ -11,7 +11,10 @@ import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
 } from "@/components/design/multi-screen/frame-geometry";
-import type { FrameGeometry } from "@/components/design/multi-screen/types";
+import type {
+  DuplicateMode,
+  FrameGeometry,
+} from "@/components/design/multi-screen/types";
 import {
   nextDuplicatedFilename,
   normalizedDesignFileType,
@@ -38,6 +41,7 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
+const CMD_D_DUPLICATE_SCREEN_GAP = 40;
 
 interface DuplicateBatchState {
   sourceIds: Set<string>;
@@ -147,15 +151,17 @@ function rebaseDispatchedCanvasGeometry(
 export function getDuplicateScreenGeometry(
   sourceGeometry: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
+  gap = DUPLICATE_SCREEN_GAP,
 ): FrameGeometry {
   return {
     ...getFirstFreeDuplicateGeometry(
       {
         ...sourceGeometry,
-        x: sourceGeometry.x + sourceGeometry.width + DUPLICATE_SCREEN_GAP,
+        x: sourceGeometry.x + sourceGeometry.width + gap,
         y: sourceGeometry.y,
       },
       occupiedGeometries,
+      gap,
     ),
     z: (sourceGeometry.z ?? 0) + 1,
   };
@@ -164,16 +170,17 @@ export function getDuplicateScreenGeometry(
 function getFirstFreeDuplicateGeometry(
   candidate: FrameGeometry,
   occupiedGeometries: readonly FrameGeometry[],
+  gap = DUPLICATE_SCREEN_GAP,
 ): FrameGeometry {
   let free = { ...candidate };
   while (true) {
     const overlap = occupiedGeometries
-      .filter((geometry) => duplicateGeometriesOverlap(free, geometry))
+      .filter((geometry) => duplicateGeometriesOverlap(free, geometry, gap))
       .sort((left, right) => left.x - right.x)[0];
     if (!overlap) return free;
     free = {
       ...free,
-      x: overlap.x + overlap.width + DUPLICATE_SCREEN_GAP,
+      x: overlap.x + overlap.width + gap,
     };
   }
 }
@@ -199,6 +206,7 @@ function reserveDuplicateGeometry(
   pendingGeometries: ReadonlyMap<string, FrameGeometry>, // i18n-ignore: type syntax is not rendered copy
   preserveRequestedPosition: boolean,
   sameBatchFilenames?: ReadonlySet<string>,
+  gap = DUPLICATE_SCREEN_GAP,
 ): FrameGeometry {
   const existingReservation = pendingGeometries.get(filename);
   const otherPending = [...pendingGeometries.entries()]
@@ -213,22 +221,23 @@ function reserveDuplicateGeometry(
   const existingReservationIsFree =
     existingReservation !== undefined &&
     !occupiedGeometries.some((geometry) =>
-      duplicateGeometriesOverlap(existingReservation, geometry),
+      duplicateGeometriesOverlap(existingReservation, geometry, gap),
     ) &&
     !otherPending.some((geometry) =>
-      duplicateGeometriesOverlap(existingReservation, geometry),
+      duplicateGeometriesOverlap(existingReservation, geometry, gap),
     );
   const reserved = existingReservationIsFree
     ? { ...existingReservation }
     : preserveRequestedPosition &&
         !otherPending.some((geometry) =>
-          duplicateGeometriesOverlap(candidate, geometry),
+          duplicateGeometriesOverlap(candidate, geometry, gap),
         )
       ? { ...candidate }
-      : getFirstFreeDuplicateGeometry(candidate, [
-          ...occupiedGeometries,
-          ...otherPending,
-        ]);
+      : getFirstFreeDuplicateGeometry(
+          candidate,
+          [...occupiedGeometries, ...otherPending],
+          gap,
+        );
   if (existingReservation) {
     reserved.z = existingReservation.z;
   } else if (reserved.x === candidate.x && reserved.y === candidate.y) {
@@ -247,7 +256,7 @@ function reserveDuplicateGeometry(
 }
 
 function duplicateStackGeometry(args: {
-  mode?: "alt-click" | "alt-drag";
+  mode?: DuplicateMode;
   screenId: string;
   screens: OverviewScreen[];
   geometryById: CanvasFrameGeometryById;
@@ -397,7 +406,7 @@ export function runDuplicateScreen(
   }: DuplicateScreenArgs,
   screenId: string,
   request?: {
-    mode?: "alt-click" | "alt-drag";
+    mode?: DuplicateMode;
     duplicateStackSourceIds?: string[];
     canvasPosition?: { x: number; y: number };
     canvasFrameGeometryById?: CanvasFrameGeometryById;
@@ -558,9 +567,14 @@ export function runDuplicateScreen(
     .filter(([frameId]) => frameId !== screenId)
     .map(([, geometry]) => geometry)
     .filter(isCompleteFrameGeometry);
+  const placementGap =
+    request?.mode === "cmd-d"
+      ? CMD_D_DUPLICATE_SCREEN_GAP
+      : DUPLICATE_SCREEN_GAP;
   const adjacentGeometry = getDuplicateScreenGeometry(
     sourceGeometry,
     occupiedGeometries,
+    placementGap,
   );
   const explicitDropPosition =
     request?.mode === "alt-drag" ? request.canvasPosition : undefined;
@@ -584,12 +598,13 @@ export function runDuplicateScreen(
       pendingDuplicateGeometriesRef.current,
       preserveExplicitDropPosition,
       duplicateBatch?.pendingFilenames,
+      placementGap,
     );
   const initialStackZ = duplicateStack.copyZBySourceId.get(screenId);
   let createdGeometry = {
     ...initiallyReservedGeometry,
     z:
-      request?.mode === "alt-click"
+      request?.mode === "alt-click" || request?.mode === "cmd-d"
         ? (initialStackZ ?? initiallyReservedGeometry.z ?? 0)
         : Math.max(
             initialStackZ ?? requestedGeometry.z ?? 0,
@@ -803,6 +818,7 @@ export function runDuplicateScreen(
       const latestAdjacentGeometry = getDuplicateScreenGeometry(
         latestSourceGeometry,
         latestOccupiedGeometries,
+        placementGap,
       );
       const latestRequestedGeometry: FrameGeometry =
         recoveryState?.geometry ??
@@ -823,12 +839,13 @@ export function runDuplicateScreen(
           pendingDuplicateGeometriesRef.current,
           preserveExplicitDropPosition,
           duplicateBatch?.pendingFilenames,
+          placementGap,
         );
       const landingStackZ = landingStack.copyZBySourceId.get(screenId);
       createdGeometry = {
         ...reservedGeometry,
         z:
-          request?.mode === "alt-click"
+          request?.mode === "alt-click" || request?.mode === "cmd-d"
             ? (landingStackZ ?? reservedGeometry.z ?? 0)
             : Math.max(
                 landingStackZ ?? latestRequestedGeometry.z ?? 0,

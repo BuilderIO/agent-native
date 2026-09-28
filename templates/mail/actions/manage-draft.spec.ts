@@ -495,22 +495,8 @@ describe("manage-draft call-shape guidance", () => {
     expect(action.schema.safeParse({ action: "create" }).success).toBe(true);
   });
 
-  it("keeps deletes out of the draft-created chat widget", () => {
-    expect(
-      action.chatUI?.when?.(
-        { action: "delete" },
-        { message: "Deleted draft draft-1" },
-      ),
-    ).toBe(false);
-    expect(
-      action.chatUI?.when?.(
-        { action: "create" },
-        {
-          draft: { id: "draft-1" },
-          deepLink: "/_agent-native/open?app=mail&view=inbox",
-        },
-      ),
-    ).toBe(true);
+  it("does not register a Mail-specific chat renderer", () => {
+    expect(action.chatUI).toBeUndefined();
   });
 });
 
@@ -530,6 +516,13 @@ describe("manage-draft create-then-reply flow", () => {
       mode: "reply",
       replyToId: "msg-123",
     });
+    expect(created.change).toEqual({
+      verb: "created",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
 
     const updated = await action.run({
       action: "update",
@@ -539,5 +532,13 @@ describe("manage-draft create-then-reply flow", () => {
 
     expect(updated.id).toBe(created.id);
     expect(updated.draft.body).toContain("Quick follow-up");
+    expect(updated.change).toEqual({
+      verb: "updated",
+      kind: "email-draft",
+      title: "Re: Event Registration",
+      detail: "attendee@example.com",
+      url: "/mail",
+    });
+    expect(JSON.stringify(updated.change)).not.toContain("Quick follow-up");
   });
 });

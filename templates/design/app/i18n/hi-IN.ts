@@ -171,6 +171,8 @@ export default {
       "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     labTweaks: "डिज़ाइन ट्वीक",
     labTweaksDescription: "AI-संचालित डिज़ाइन ट्वीक आज़माएँ।",
+    mcpAbout:
+      "Design को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Design में काम कर सकता है: डिज़ाइन बनाना और उन्हें संपादित करना। वह केवल वही देखता है जो आप देख सकते हैं।",
   },
   pages: {
     presentEmpty: "प्रस्तुत करने के लिए कोई सामग्री नहीं",
@@ -179,8 +181,6 @@ export default {
     notFoundDescription: "आप जिस पृष्ठ को ढूँढ रहे हैं वह मौजूद नहीं है।",
     notFoundSignIn: "साइन इन करें",
     notFoundBackToDesigns: "डिज़ाइन पर वापस जाएँ",
-    teamCreateOrgDescription:
-      "डिज़ाइन को अपने सहयोगियों के साथ साझा करने के लिए टीम सेट करें।",
   },
   onboarding: {
     fileStorage: {
@@ -1460,6 +1460,18 @@ export default {
         "कई कोशिशों के बाद भी लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की।",
       connectionNotConfirmed:
         "लाइव एडिटर ब्रिज ने कनेक्शन की पुष्टि नहीं की। क्या लोकल डेवलपमेंट सर्वर अभी भी चल रहा है?",
+      permissionPromptTitle: "अपनी लोकल स्क्रीन कनेक्ट करें",
+      permissionPromptDescription:
+        "लाइव एडिटिंग चालू करने के लिए Chrome के प्रॉम्प्ट में “अनुमति दें” चुनें।",
+      permissionPromptNoPrompt: "Chrome का प्रॉम्प्ट नहीं दिख रहा?",
+      permissionPromptSettingsInstructions:
+        "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर अपने डिवाइस पर ऐप्स को ऐक्सेस करने की अनुमति दें।",
+      permissionCloseTitle: "सेटअप बंद करें?",
+      permissionCloseDescription:
+        "Chrome में एक्सेस की अनुमति देने तक लाइव एडिटिंग काम नहीं करेगी।",
+      permissionCloseStay: "सेटअप खुला रखें",
+      permissionCloseAnyway: "फिर भी बंद करें",
+      permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {

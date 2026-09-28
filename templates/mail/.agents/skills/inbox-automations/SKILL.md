@@ -24,24 +24,44 @@ custom label is Gmail's provider-controlled Spam system label.
 ## Automation rules
 
 `manage-email-rules` rules match new inbound mail against a natural-language
-`condition` using AI. Label/archive-only rules use the canonical
+`condition` using AI. Label/archive/notify rules use the canonical
 `kind=ai-filter` path shared with Mail AI filter settings; mark-read, star, and
 trash rules keep legacy automation behavior. Mixed action sets remain legacy
 rules for compatibility.
 
 For a new AI rule, call `manage-email-rules` with `action: "create"`, one
-plain-language `sentence`, and `mode: "tag" | "important" | "filter" |
-"archive"`; tag mode also takes `tagName`. The shared create path stores the
+plain-language `sentence`, and `mode: "tag" | "important" | "notify" |
+"filter" | "archive"`; tag mode also takes `tagName`. The shared create path stores the
 AI rule, pins tag labels as inbox tabs, and queues bounded recent-mail
 application. Inspect existing rules and update a matching rule before creating
 a duplicate. Update a rule with its `id`, revised `sentence`, and `mode` (and
 `tagName` for a tag). The inbox-tab cog lists AI tags first; unchecking a tag
 only hides its tab and never deletes its rule.
 
+For a direct request to add or change one rule, make one `manage-email-rules`
+create/update call and report its structured result. It saves the rule and
+queues recent-mail application before returning; model availability and
+matching run in the background. Do not call the backfill/status action or
+`trigger-automations` to finish the same request. A queued result is a saved
+rule with work continuing in the background, not a reason to retry the rule
+mutation.
+
 For an AI rule that marks matching mail important, use the
 `agent-native-important` label without archiving. For unwanted mail, pair the
 `agent-native-filtered` label with archive; a plain archive request can use the
 archive action alone.
+
+Use `notify` mode to add the `agent-native-important` label and send a core
+notification for each matching new message. Recent-mail backfill applies the
+highlighting label only; it never sends notifications for historical matches.
+Mail's notification bell polls saved notifications while Mail is open and can
+show browser system popups after permission is enabled. This isn't offline web
+push. Mobile app notifications are coming soon.
+
+For other prompt-driven actions such as auto-replies, use an event-triggered
+automation on `mail.message.received`. Its payload includes `accountEmail` and
+`messageId`; pass both to `get-email` to read the exact message. Mail's existing
+send approval setting continues to gate automated sends.
 
 Creating or updating an enabled AI-filter rule queues a backfill over recent
 mail (at most 200 inbox threads from the last 14 days). A queued result has

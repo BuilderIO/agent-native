@@ -669,6 +669,41 @@ describe("scopedAnalyticsSql", () => {
     ]);
   });
 
+  it("keeps org-scoped reads off personal and legacy owner rows", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM (SELECT * FROM analytics_events WHERE org_id = $1",
+    );
+    expect(scoped.sql).not.toContain("org_id IS NULL");
+    expect(scoped.sql).not.toContain("owner_email");
+    expect(scoped.args).toEqual(["customer-org", "2026-07-01"]);
+  });
+
+  it("returns no rows for org-scoped reads without an org", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",
+      {
+        userEmail: "admin@example.com",
+        orgId: null,
+        credentialScope: "org",
+      },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain("WHERE 1 = 0");
+    expect(scoped.sql).not.toContain("owner_email");
+    expect(scoped.args).toEqual([]);
+  });
+
   it("adds freshness guards around session recording reads", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT COUNT(*) AS recordings FROM session_recordings",
@@ -697,6 +732,34 @@ describe("scopedAnalyticsSql", () => {
       "user:alice@example.com",
       "2026-07-01",
     ]);
+  });
+
+  it("keeps org-scoped rollups on the organization tenant only", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT event_date, event_name FROM analytics_event_daily_rollups",
+      {
+        userEmail: "admin@example.com",
+        orgId: "customer-org",
+        credentialScope: "org",
+      },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain("tenant_key = $1");
+    expect(scoped.sql).not.toContain("user:admin@example.com");
+    expect(scoped.args).toEqual(["org:customer-org", "2026-07-01"]);
+
+    const missingOrg = scopedAnalyticsSql(
+      "SELECT event_date, event_name FROM analytics_event_daily_rollups",
+      {
+        userEmail: "admin@example.com",
+        orgId: null,
+        credentialScope: "org",
+      },
+      "2026-07-01",
+    );
+    expect(missingOrg.sql).toContain("WHERE 1 = 0");
+    expect(missingOrg.args).toEqual([]);
   });
 
   it("uses the personal tenant key for user-day rollups without an org", () => {
@@ -776,6 +839,24 @@ describe("queryFirstPartyAnalytics", () => {
         timeoutMs: 45_000,
         maxAttempts: 1,
       }),
+    );
+  });
+
+  it("marks capped Postgres reads as truncated", async () => {
+    execute.mockResolvedValue({
+      rows: Array.from({ length: 5_001 }, (_, index) => ({ events: index })),
+      rowsAffected: 0,
+    });
+
+    const result = await queryFirstPartyAnalytics(
+      "SELECT events FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+    );
+
+    expect(result.rows).toHaveLength(5_000);
+    expect(result.truncated).toBe(true);
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: expect.stringContaining("LIMIT 5001") }),
     );
   });
 

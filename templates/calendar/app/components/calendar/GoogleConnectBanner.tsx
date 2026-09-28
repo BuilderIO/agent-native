@@ -385,7 +385,7 @@ export function GoogleConnectBanner({
           <Button
             size="sm"
             variant="outline"
-            className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
+            className="mt-6 gap-2 px-4 text-[13px] font-medium"
             onClick={() => void googleStatus.refetch()}
             disabled={googleStatus.isFetching}
           >
@@ -394,7 +394,7 @@ export function GoogleConnectBanner({
         ) : googleConfigured || canOfferOAuthSetup ? (
           <Button
             size="sm"
-            className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
+            className="mt-6 gap-2 px-4 text-[13px] font-medium"
             onClick={handleConnect}
             disabled={
               authUrl.isLoading ||
@@ -684,7 +684,7 @@ function GoogleAuthIssuePanel({
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                className="h-8 gap-1.5 px-3 text-xs font-medium"
+                className="gap-1.5 text-xs font-medium"
                 onClick={onSignOut}
               >
                 <IconLogout className="h-3.5 w-3.5 rtl:-scale-x-100" />
@@ -693,7 +693,7 @@ function GoogleAuthIssuePanel({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onDismiss}
               >
                 {t("googleConnect.dismiss")}

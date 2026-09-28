@@ -71,6 +71,7 @@ import {
   useObservabilityOverview,
   useTraces,
   useTraceDetail,
+  usePromoteTraceEval,
   useFeedbackList,
   useFeedbackStats,
   useEvalStats,
@@ -156,6 +157,23 @@ function reviewThreadHref(threadId: string): string {
   return isBrowser ? url.toString() : `${url.pathname}${url.search}${url.hash}`;
 }
 
+function ReviewTooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 const REVIEW_ARTIFACT_APPS = {
   design: { host: "design.agent-native.com", port: 8099 },
   slides: { host: "slides.agent-native.com", port: 8086 },
@@ -194,7 +212,8 @@ function canRenderReviewArtifactInParent(
     artifact.appId === "analytics" &&
     renderAnalyticsDashboardPreview &&
     currentReviewArtifactAppId() === "analytics" &&
-    artifact.path === `/dashboards/${artifact.artifactId}`
+    (artifact.path === `/dashboards/${artifact.artifactId}` ||
+      artifact.path === `/analyses/${artifact.artifactId}`)
   ) {
     return true;
   }
@@ -475,6 +494,7 @@ function ConversationsTab({ days }: { days: number }) {
   if (selectedRunId) {
     return (
       <TraceDetailView
+        key={selectedRunId}
         runId={selectedRunId}
         onBack={() => setSelectedRunId(null)}
       />
@@ -564,16 +584,78 @@ function TraceDetailView({
   const t = useT();
   const { data, isLoading } = useTraceDetail(runId);
   const [expandedSpanId, setExpandedSpanId] = useState<string | null>(null);
+  const promote = usePromoteTraceEval();
+  const [mustContain, setMustContain] = useState("");
+  const needle = mustContain.trim();
+  const needsNeedle = !!data && data.summary.successfulTools === 0;
+  const canPromote =
+    !!data && !promote.isPending && (!needsNeedle || needle.length > 0);
 
   return (
     <div>
-      <button
-        onClick={onBack}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
-      >
-        <IconArrowLeft size={14} />
-        {t("observability.backToList")}
-      </button>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <IconArrowLeft size={14} />
+          {t("observability.backToList")}
+        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <input
+            type="text"
+            value={mustContain}
+            onChange={(event) => setMustContain(event.target.value)}
+            disabled={promote.isPending || !data}
+            placeholder={t("observability.promoteMustContain", {
+              defaultValue: needsNeedle
+                ? "Reply must contain…"
+                : "Reply must contain (optional)",
+            })}
+            aria-label={t("observability.promoteMustContainLabel", {
+              defaultValue: "Text the promoted eval reply must contain",
+            })}
+            className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
+          />
+          <button
+            type="button"
+            disabled={!canPromote}
+            onClick={() =>
+              promote.mutate({
+                runId,
+                ...(needle ? { mustContain: needle } : {}),
+              })
+            }
+            className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {promote.isPending
+              ? t("observability.promotingToEval")
+              : t("observability.promoteToEval")}
+          </button>
+        </div>
+      </div>
+      {needsNeedle && needle.length === 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promoteNeedsContains", {
+            defaultValue:
+              "This run has no successful tool call. Enter text the reply must contain before promoting.",
+          })}
+        </p>
+      )}
+
+      {promote.isSuccess && promote.data && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {t("observability.promotedEval", { id: promote.data.dataset.id })}{" "}
+          {t("observability.promotedEvalHint", { runId })}
+        </p>
+      )}
+      {promote.isError && (
+        <p className="mb-3 text-xs text-destructive">
+          {promote.error instanceof Error
+            ? promote.error.message
+            : t("observability.promoteEvalFailed")}
+        </p>
+      )}
 
       {isLoading && <LoadingState />}
 
@@ -1065,6 +1147,7 @@ function ReviewTab({
   renderArtifactPreview?: (
     artifact: OutputReviewListRow["artifacts"][number],
     compact: boolean,
+    reviewOrgId: string,
   ) => ReactNode;
 }) {
   const t = useT();
@@ -1104,12 +1187,15 @@ function ReviewTab({
   const [pendingNotes, setPendingNotes] = useState<Record<string, boolean>>({});
   const [noteErrors, setNoteErrors] = useState<Record<string, boolean>>({});
   const [summaryStatus, setSummaryStatus] = useState<
-    "sending" | "sent" | "failed" | null
+    "sending" | "queued" | "failed" | "expired" | null
   >(null);
   const [summaryRequests, setSummaryRequests] = useState<
     Record<string, ObservabilityReviewSummaryStatus>
   >({});
   const summaryRetryTimers = useRef(new Map<string, number>());
+  const summaryBaselineRef = useRef(new Map<string, number | null>());
+  const summaryBatchRunIds = useRef<string[]>([]);
+  const summaryBatchRetryTimer = useRef<number | null>(null);
   const summaryRequestMounted = useRef(false);
   const [openPopover, setOpenPopover] = useState<{
     runId: string;
@@ -1133,6 +1219,9 @@ function ReviewTab({
         window.clearTimeout(timer);
       }
       summaryRetryTimers.current.clear();
+      if (summaryBatchRetryTimer.current !== null) {
+        window.clearTimeout(summaryBatchRetryTimer.current);
+      }
     };
   }, []);
   const updateSummaryRequests = (
@@ -1142,17 +1231,34 @@ function ReviewTab({
     if (!summaryRequestMounted.current) return;
     const uniqueRunIds = [...new Set(runIds)];
     for (const runId of uniqueRunIds) {
+      if (status === "sending") {
+        const review = reviews?.find(
+          (candidate) =>
+            candidate.runId === runId ||
+            candidate.runs?.some((run) => run.runId === runId),
+        );
+        const runSummaryUpdatedAt = review?.runs?.find(
+          (run) => run.runId === runId,
+        )?.summaryUpdatedAt;
+        summaryBaselineRef.current.set(
+          runId,
+          runSummaryUpdatedAt ??
+            (review?.runId === runId
+              ? (review.summaryUpdatedAt ?? null)
+              : null),
+        );
+      } else if (status === null || status === "failed") {
+        summaryBaselineRef.current.delete(runId);
+      }
       const timer = summaryRetryTimers.current.get(runId);
       if (timer !== undefined) window.clearTimeout(timer);
       summaryRetryTimers.current.delete(runId);
-      if (status === "sent") {
+      if (status === "queued") {
         const retryTimer = window.setTimeout(() => {
           if (!summaryRequestMounted.current) return;
           setSummaryRequests((current) => {
-            if (current[runId] !== "sent") return current;
-            const next = { ...current };
-            delete next[runId];
-            return next;
+            if (current[runId] !== "queued") return current;
+            return { ...current, [runId]: "expired" };
           });
           summaryRetryTimers.current.delete(runId);
         }, SUMMARY_RETRY_AFTER_MS);
@@ -1175,6 +1281,70 @@ function ReviewTab({
         Boolean(review.threadId?.trim()) &&
         Boolean(review.summary || review.threadTitle.trim()),
     ) ?? [];
+  useEffect(() => {
+    if (!reviews) return;
+    const summarizedRunIds = new Map<string, number>();
+    for (const review of reviews) {
+      if (typeof review.summaryUpdatedAt === "number")
+        summarizedRunIds.set(review.runId, review.summaryUpdatedAt);
+      for (const run of review.runs ?? []) {
+        if (typeof run.summaryUpdatedAt === "number") {
+          summarizedRunIds.set(run.runId, run.summaryUpdatedAt);
+        }
+      }
+    }
+
+    const completedRunIds = Object.entries(summaryRequests)
+      .filter(([runId, status]) => {
+        const updatedAt = summarizedRunIds.get(runId);
+        if (
+          (status !== "queued" && status !== "expired") ||
+          updatedAt === undefined
+        ) {
+          return false;
+        }
+        const baseline = summaryBaselineRef.current.get(runId);
+        return baseline == null || updatedAt > baseline;
+      })
+      .map(([runId]) => runId);
+    if (completedRunIds.length > 0) {
+      for (const runId of completedRunIds) {
+        const timer = summaryRetryTimers.current.get(runId);
+        if (timer !== undefined) window.clearTimeout(timer);
+        summaryRetryTimers.current.delete(runId);
+        summaryBaselineRef.current.delete(runId);
+      }
+      setSummaryRequests((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const runId of completedRunIds) {
+          if (next[runId] !== "queued" && next[runId] !== "expired") continue;
+          delete next[runId];
+          changed = true;
+        }
+        return changed ? next : current;
+      });
+    }
+
+    const batchRunIds = summaryBatchRunIds.current;
+    if (
+      (summaryStatus === "queued" || summaryStatus === "expired") &&
+      batchRunIds.length > 0 &&
+      batchRunIds.every((runId) => {
+        const updatedAt = summarizedRunIds.get(runId);
+        if (updatedAt === undefined) return false;
+        const baseline = summaryBaselineRef.current.get(runId);
+        return baseline == null || updatedAt > baseline;
+      })
+    ) {
+      if (summaryBatchRetryTimer.current !== null) {
+        window.clearTimeout(summaryBatchRetryTimer.current);
+        summaryBatchRetryTimer.current = null;
+      }
+      summaryBatchRunIds.current = [];
+      setSummaryStatus(null);
+    }
+  }, [reviews, summaryRequests, summaryStatus]);
   useEffect(() => {
     if (!reviews) return;
     setOptimisticVotes((current) => {
@@ -1209,12 +1379,18 @@ function ReviewTab({
       latestReviewVote(review, review.runId)?.feedbackType;
     const search = reviewSearch.trim().toLocaleLowerCase();
     const searchable = [
+      review.ask,
+      review.answer,
       review.summary?.ask,
       review.summary?.outcome,
       review.threadTitle,
       review.authorName,
+      review.authorEmail,
       review.model,
       ...review.artifacts.map((artifact) => artifact.title),
+      ...review.feedback
+        .filter((entry) => entry.feedbackType === "text")
+        .map((entry) => entry.value),
     ]
       .filter(Boolean)
       .join(" ")
@@ -1240,6 +1416,7 @@ function ReviewTab({
     selectedRun?.runId ??
     selectedReview?.runs?.[0]?.runId ??
     selectedReview?.runId;
+  const activeThreadId = selectedRun?.threadId ?? selectedReview?.threadId;
   const reviewDetailQuery = useOutputReviewDetail(
     activeRunId ?? null,
     selectedReview?.orgId,
@@ -1286,7 +1463,7 @@ function ReviewTab({
         selectedArtifact.artifactId,
         selectedArtifact.path,
         {
-          threadId: selectedReview?.threadId,
+          threadId: activeThreadId,
           readOnly: selectedReview?.readOnly,
         },
       )
@@ -1462,7 +1639,7 @@ function ReviewTab({
         !review.summary &&
         !review.readOnly &&
         summaryRequests[review.runId] !== "sending" &&
-        summaryRequests[review.runId] !== "sent"
+        summaryRequests[review.runId] !== "queued"
       );
     }) ?? [];
   const feedbackToImprove = (visibleReviews ?? []).flatMap((review) => {
@@ -1497,6 +1674,10 @@ function ReviewTab({
   });
   const summarizeVisible = () => {
     if (summaryStatus === "sending" || unsummarizedReviews.length === 0) return;
+    if (summaryBatchRetryTimer.current !== null) {
+      window.clearTimeout(summaryBatchRetryTimer.current);
+      summaryBatchRetryTimer.current = null;
+    }
     const batches = [];
     for (let offset = 0; offset < unsummarizedReviews.length; offset += 25) {
       batches.push(unsummarizedReviews.slice(offset, offset + 25));
@@ -1504,6 +1685,7 @@ function ReviewTab({
     const batchRunIds = batches.map((batch) =>
       batch.map((review) => review.runId),
     );
+    summaryBatchRunIds.current = batchRunIds.flat();
     setSummaryStatus("sending");
     updateSummaryRequests(batchRunIds.flat(), "sending");
     const requests = batches.map(async (batch, index) => {
@@ -1531,7 +1713,7 @@ function ReviewTab({
           chatTarget: "local",
           usageLabel: "observability:human-review-summary",
         });
-        status = result.delivered ? "sent" : "failed";
+        status = result.delivered ? "queued" : "failed";
       } catch {
         status = "failed";
       }
@@ -1540,9 +1722,19 @@ function ReviewTab({
     });
     void Promise.all(requests).then((results) => {
       if (!summaryRequestMounted.current) return;
-      setSummaryStatus(
-        results.every((result) => result.status === "sent") ? "sent" : "failed",
-      );
+      if (results.every((result) => result.status === "queued")) {
+        setSummaryStatus("queued");
+        summaryBatchRetryTimer.current = window.setTimeout(() => {
+          summaryBatchRetryTimer.current = null;
+          if (!summaryRequestMounted.current) return;
+          setSummaryStatus((current) =>
+            current === "queued" ? "expired" : current,
+          );
+        }, SUMMARY_RETRY_AFTER_MS);
+      } else {
+        summaryBatchRunIds.current = [];
+        setSummaryStatus("failed");
+      }
     });
   };
 
@@ -1720,14 +1912,19 @@ function ReviewTab({
             {t(
               summaryStatus === "sending"
                 ? "observability.summarySending"
-                : summaryStatus === "sent"
-                  ? "observability.summarySent"
-                  : "observability.summaryFailed",
+                : summaryStatus === "queued"
+                  ? "observability.summaryQueued"
+                  : summaryStatus === "expired"
+                    ? "observability.summaryExpired"
+                    : "observability.summaryFailed",
             )}
           </span>
         )}
       </div>
-      <div className="space-y-2" data-review-list>
+      <div
+        className="divide-y divide-border border-y border-border"
+        data-review-list
+      >
         {visibleReviews.length === 0 ? (
           <EmptyState message={t("observability.noData")} />
         ) : (
@@ -1773,12 +1970,12 @@ function ReviewTab({
             return (
               <div
                 key={review.runId}
-                className="group min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground"
+                className="group min-w-0 overflow-hidden"
                 data-review-row={review.runId}
               >
                 <div
                   className={cn(
-                    "flex min-w-0 items-center gap-3 px-3 py-3 sm:px-4",
+                    "flex min-h-[74px] min-w-0 items-center gap-3 px-3 py-0.5 text-card-foreground transition-colors hover:bg-muted/20 sm:px-4",
                     expanded && "bg-muted/30",
                   )}
                 >
@@ -1789,8 +1986,15 @@ function ReviewTab({
                         artifactPreviewUrl={artifactHref}
                         artifactPreviewContent={
                           artifact?.appId === "analytics" &&
-                          artifact.path === `/dashboards/${artifact.artifactId}`
-                            ? renderArtifactPreview?.(artifact, true)
+                          (artifact.path ===
+                            `/dashboards/${artifact.artifactId}` ||
+                            artifact.path ===
+                              `/analyses/${artifact.artifactId}`)
+                            ? renderArtifactPreview?.(
+                                artifact,
+                                true,
+                                review.orgId,
+                              )
                             : undefined
                         }
                         artifactPreviewIsImage={Boolean(
@@ -1804,6 +2008,7 @@ function ReviewTab({
                             : undefined
                         }
                         artifactPreviewId={artifact?.artifactId}
+                        reviewOrgId={review.orgId}
                         artifactOnly
                         previewLabel={t("observability.reviewPreview")}
                         compact
@@ -1923,38 +2128,42 @@ function ReviewTab({
                             {t("agentChat.common.saveFailed")}
                           </span>
                         )}
-                        <button
-                          type="button"
-                          aria-label={t("observability.thumbsUp")}
-                          aria-pressed={voteType === "thumbs_up"}
-                          title={t("observability.thumbsUp")}
-                          data-review-vote="up"
-                          onClick={() => rateFromList(review, "thumbs_up")}
-                          disabled={pendingVotes[review.runId] === true}
-                          className={cn(
-                            "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
-                            voteType === "thumbs_up" &&
-                              "bg-emerald-500/10 text-emerald-600 opacity-100",
-                          )}
-                        >
-                          <IconThumbUp size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={t("observability.thumbsDown")}
-                          aria-pressed={voteType === "thumbs_down"}
-                          title={t("observability.thumbsDown")}
-                          data-review-vote="down"
-                          onClick={() => rateFromList(review, "thumbs_down")}
-                          disabled={pendingVotes[review.runId] === true}
-                          className={cn(
-                            "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
-                            voteType === "thumbs_down" &&
-                              "bg-rose-500/10 text-rose-600 opacity-100",
-                          )}
-                        >
-                          <IconThumbDown size={15} />
-                        </button>
+                        <ReviewTooltip label={t("observability.thumbsUp")}>
+                          <button
+                            type="button"
+                            aria-label={t("observability.thumbsUp")}
+                            aria-pressed={voteType === "thumbs_up"}
+                            title={t("observability.thumbsUp")}
+                            data-review-vote="up"
+                            onClick={() => rateFromList(review, "thumbs_up")}
+                            disabled={pendingVotes[review.runId] === true}
+                            className={cn(
+                              "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
+                              voteType === "thumbs_up" &&
+                                "bg-emerald-500/10 text-emerald-600 opacity-100",
+                            )}
+                          >
+                            <IconThumbUp size={15} />
+                          </button>
+                        </ReviewTooltip>
+                        <ReviewTooltip label={t("observability.thumbsDown")}>
+                          <button
+                            type="button"
+                            aria-label={t("observability.thumbsDown")}
+                            aria-pressed={voteType === "thumbs_down"}
+                            title={t("observability.thumbsDown")}
+                            data-review-vote="down"
+                            onClick={() => rateFromList(review, "thumbs_down")}
+                            disabled={pendingVotes[review.runId] === true}
+                            className={cn(
+                              "rounded-md p-1.5 text-muted-foreground opacity-100 transition-[opacity,color,background-color] hover:bg-muted hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0 disabled:opacity-50",
+                              voteType === "thumbs_down" &&
+                                "bg-rose-500/10 text-rose-600 opacity-100",
+                            )}
+                          >
+                            <IconThumbDown size={15} />
+                          </button>
+                        </ReviewTooltip>
                       </>
                     )}
                     {!review.summary && !review.readOnly && (
@@ -1971,34 +2180,42 @@ function ReviewTab({
                         />
                       </span>
                     )}
-                    <button
-                      type="button"
-                      data-review-chevron
-                      aria-label={t(
+                    <ReviewTooltip
+                      label={t(
                         expanded
                           ? "observability.hideReviewDetails"
                           : "observability.showReviewDetails",
                       )}
-                      title={t(
-                        expanded
-                          ? "observability.hideReviewDetails"
-                          : "observability.showReviewDetails",
-                      )}
-                      aria-expanded={expanded}
-                      aria-controls={detailId}
-                      onClick={() => toggleReview(review.runId)}
-                      className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <IconChevronRight
-                        size={16}
-                        className={cn(
-                          "shrink-0 transition-transform",
+                      <button
+                        type="button"
+                        data-review-chevron
+                        aria-label={t(
                           expanded
-                            ? "rotate-90"
-                            : "group-hover:translate-x-0.5",
+                            ? "observability.hideReviewDetails"
+                            : "observability.showReviewDetails",
                         )}
-                      />
-                    </button>
+                        title={t(
+                          expanded
+                            ? "observability.hideReviewDetails"
+                            : "observability.showReviewDetails",
+                        )}
+                        aria-expanded={expanded}
+                        aria-controls={detailId}
+                        onClick={() => toggleReview(review.runId)}
+                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <IconChevronRight
+                          size={16}
+                          className={cn(
+                            "shrink-0 transition-transform",
+                            expanded
+                              ? "rotate-90"
+                              : "group-hover:translate-x-0.5",
+                          )}
+                        />
+                      </button>
+                    </ReviewTooltip>
                   </div>
                 </div>
 
@@ -2079,7 +2296,7 @@ function ReviewTab({
                             className="min-w-0 p-3 sm:p-4"
                             aria-label={t("observability.reviewPreview")}
                           >
-                            <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-hidden">
+                            <div className="relative max-h-[min(38rem,65dvh)] min-h-64 overflow-auto">
                               <OutputPreview
                                 answer={selectedAnswer ?? ""}
                                 artifactPreviewUrl={
@@ -2089,11 +2306,14 @@ function ReviewTab({
                                 }
                                 artifactPreviewContent={
                                   selectedArtifact?.appId === "analytics" &&
-                                  selectedArtifact.path ===
-                                    `/dashboards/${selectedArtifact.artifactId}`
+                                  (selectedArtifact.path ===
+                                    `/dashboards/${selectedArtifact.artifactId}` ||
+                                    selectedArtifact.path ===
+                                      `/analyses/${selectedArtifact.artifactId}`)
                                     ? renderArtifactPreview?.(
                                         selectedArtifact,
                                         false,
+                                        selectedReview.orgId,
                                       )
                                     : undefined
                                 }
@@ -2110,21 +2330,26 @@ function ReviewTab({
                                     : undefined
                                 }
                                 artifactPreviewId={selectedArtifact?.artifactId}
+                                reviewOrgId={selectedReview.orgId}
                                 artifactOnly
                                 inlineApp={activeDetail?.app ?? undefined}
                                 maxAppHeight={420}
                                 previewLabel={t("observability.reviewPreview")}
                               />
-                              <button
-                                type="button"
-                                data-review-lightbox-trigger
-                                aria-label={t("observability.reviewPreview")}
-                                title={t("observability.reviewPreview")}
-                                onClick={() => setPreviewExpanded(true)}
-                                className="absolute right-2 top-2 rounded-md border border-border bg-background/95 p-2 text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              <ReviewTooltip
+                                label={t("observability.reviewPreview")}
                               >
-                                <IconArrowsMaximize size={16} />
-                              </button>
+                                <button
+                                  type="button"
+                                  data-review-lightbox-trigger
+                                  aria-label={t("observability.reviewPreview")}
+                                  title={t("observability.reviewPreview")}
+                                  onClick={() => setPreviewExpanded(true)}
+                                  className="absolute right-2 top-2 rounded-md border border-border bg-background/95 p-2 text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <IconArrowsMaximize size={16} />
+                                </button>
+                              </ReviewTooltip>
                             </div>
                           </section>
                         )}
@@ -2162,8 +2387,7 @@ function ReviewTab({
                                 </select>
                               )}
                             </div>
-                            {(selectedArtifactOpenHref ||
-                              selectedReview.threadId) && (
+                            {(selectedArtifactOpenHref || activeThreadId) && (
                               <div className="flex items-center gap-1">
                                 {selectedArtifactOpenHref &&
                                   selectedArtifact && (
@@ -2187,14 +2411,14 @@ function ReviewTab({
                                       </Tooltip>
                                     </TooltipProvider>
                                   )}
-                                {selectedReview.threadId &&
+                                {activeThreadId &&
                                   selectedReview.orgId === activeOrg?.orgId && (
                                     <TooltipProvider delayDuration={200}>
                                       <Tooltip>
                                         <TooltipTrigger asChild>
                                           <a
                                             href={reviewThreadHref(
-                                              selectedReview.threadId,
+                                              activeThreadId,
                                             )}
                                             target="_blank"
                                             rel="noreferrer"
@@ -2321,7 +2545,6 @@ function ReviewTab({
                                   status,
                                 )
                               }
-                              compact
                               refresh={Boolean(selectedSummary)}
                             />
                             <div
@@ -2351,66 +2574,78 @@ function ReviewTab({
                                   {t("agentChat.common.saveFailed")}
                                 </span>
                               )}
-                              <button
-                                type="button"
-                                aria-label={t("observability.thumbsUp")}
-                                aria-pressed={selectedVoteType === "thumbs_up"}
-                                title={t("observability.thumbsUp")}
-                                disabled={Boolean(
-                                  activeRunId && pendingVotes[activeRunId],
-                                )}
-                                onClick={() =>
-                                  saveFeedback(
-                                    activeRunId ?? selectedReview.runId,
-                                    "thumbs_up",
-                                  )
-                                }
-                                className={cn(
-                                  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                                  selectedVoteType === "thumbs_up" &&
-                                    "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-                                )}
+                              <ReviewTooltip
+                                label={t("observability.thumbsUp")}
                               >
-                                <IconThumbUp size={16} />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={t("observability.thumbsDown")}
-                                aria-pressed={
-                                  selectedVoteType === "thumbs_down"
-                                }
-                                title={t("observability.thumbsDown")}
-                                disabled={Boolean(
-                                  activeRunId && pendingVotes[activeRunId],
-                                )}
-                                onClick={() => {
-                                  saveFeedback(
-                                    activeRunId ?? selectedReview.runId,
-                                    "thumbs_down",
-                                  );
-                                  setFeedbackNote((current) =>
-                                    current?.runId ===
-                                    (activeRunId ?? selectedReview.runId)
-                                      ? current
-                                      : {
-                                          runId:
-                                            activeRunId ?? selectedReview.runId,
-                                          value: "",
-                                        },
-                                  );
-                                  setOpenPopover({
-                                    runId: activeRunId ?? selectedReview.runId,
-                                    kind: "feedback",
-                                  });
-                                }}
-                                className={cn(
-                                  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
-                                  selectedVoteType === "thumbs_down" &&
-                                    "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-                                )}
+                                <button
+                                  type="button"
+                                  aria-label={t("observability.thumbsUp")}
+                                  aria-pressed={
+                                    selectedVoteType === "thumbs_up"
+                                  }
+                                  title={t("observability.thumbsUp")}
+                                  disabled={Boolean(
+                                    activeRunId && pendingVotes[activeRunId],
+                                  )}
+                                  onClick={() =>
+                                    saveFeedback(
+                                      activeRunId ?? selectedReview.runId,
+                                      "thumbs_up",
+                                    )
+                                  }
+                                  className={cn(
+                                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                                    selectedVoteType === "thumbs_up" &&
+                                      "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                                  )}
+                                >
+                                  <IconThumbUp size={16} />
+                                </button>
+                              </ReviewTooltip>
+                              <ReviewTooltip
+                                label={t("observability.thumbsDown")}
                               >
-                                <IconThumbDown size={16} />
-                              </button>
+                                <button
+                                  type="button"
+                                  aria-label={t("observability.thumbsDown")}
+                                  aria-pressed={
+                                    selectedVoteType === "thumbs_down"
+                                  }
+                                  title={t("observability.thumbsDown")}
+                                  disabled={Boolean(
+                                    activeRunId && pendingVotes[activeRunId],
+                                  )}
+                                  onClick={() => {
+                                    saveFeedback(
+                                      activeRunId ?? selectedReview.runId,
+                                      "thumbs_down",
+                                    );
+                                    setFeedbackNote((current) =>
+                                      current?.runId ===
+                                      (activeRunId ?? selectedReview.runId)
+                                        ? current
+                                        : {
+                                            runId:
+                                              activeRunId ??
+                                              selectedReview.runId,
+                                            value: "",
+                                          },
+                                    );
+                                    setOpenPopover({
+                                      runId:
+                                        activeRunId ?? selectedReview.runId,
+                                      kind: "feedback",
+                                    });
+                                  }}
+                                  className={cn(
+                                    "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50",
+                                    selectedVoteType === "thumbs_down" &&
+                                      "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+                                  )}
+                                >
+                                  <IconThumbDown size={16} />
+                                </button>
+                              </ReviewTooltip>
                             </div>
                             <Popover
                               open={feedbackOpen}
@@ -2657,7 +2892,7 @@ function ReviewTab({
                                   onClick={() =>
                                     saveInstruction(
                                       activeRunId ?? selectedReview.runId,
-                                      selectedReview.threadId,
+                                      activeThreadId ?? null,
                                     )
                                   }
                                   title={t("observability.saveUpdate")}
@@ -2718,9 +2953,15 @@ function ReviewTab({
                 }
                 artifactPreviewContent={
                   selectedArtifact?.appId === "analytics" &&
-                  selectedArtifact.path ===
-                    `/dashboards/${selectedArtifact.artifactId}`
-                    ? renderArtifactPreview?.(selectedArtifact, false)
+                  (selectedArtifact.path ===
+                    `/dashboards/${selectedArtifact.artifactId}` ||
+                    selectedArtifact.path ===
+                      `/analyses/${selectedArtifact.artifactId}`)
+                    ? renderArtifactPreview?.(
+                        selectedArtifact,
+                        false,
+                        selectedReview.orgId,
+                      )
                     : undefined
                 }
                 artifactPreviewIsImage={Boolean(
@@ -2734,6 +2975,7 @@ function ReviewTab({
                     : undefined
                 }
                 artifactPreviewId={selectedArtifact?.artifactId}
+                reviewOrgId={selectedReview.orgId}
                 artifactOnly
                 inlineApp={activeDetail?.app ?? undefined}
                 maxAppHeight={720}
@@ -2928,6 +3170,7 @@ export interface ObservabilityDashboardProps {
   renderArtifactPreview?: (
     artifact: OutputReviewListRow["artifacts"][number],
     compact: boolean,
+    reviewOrgId: string,
   ) => ReactNode;
 }
 

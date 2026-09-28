@@ -26,8 +26,12 @@ export type WorkspaceAppAccessOutcome =
 
 type WorkspaceAppRegistryEntry = {
   id: string;
+  isDispatch?: unknown;
   orgEnabled?: unknown;
   org_enabled?: unknown;
+  name?: unknown;
+  description?: unknown;
+  path?: unknown;
 };
 
 type WorkspaceAppRegistryResult =
@@ -64,44 +68,10 @@ function normalizedEmail(email: string): string {
 function workspaceManifestDispatchState(
   appsJson: string | undefined,
 ): "missing" | "dispatch" | "no-dispatch" {
-  if (appsJson === undefined) return "missing";
-  if (!appsJson.trim()) {
-    throw new Error("AGENT_NATIVE_WORKSPACE_APPS_JSON must not be empty.");
-  }
+  const apps = workspaceAppsFromManifest(appsJson);
+  if (!apps) return "missing";
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(appsJson);
-  } catch (error) {
-    throw new Error(
-      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
-      { cause: error },
-    );
-  }
-
-  const apps = Array.isArray(parsed)
-    ? parsed
-    : parsed && typeof parsed === "object" && "apps" in parsed
-      ? (parsed as { apps?: unknown }).apps
-      : null;
-  if (
-    !Array.isArray(apps) ||
-    apps.length === 0 ||
-    apps.some(
-      (app) =>
-        !app ||
-        typeof app !== "object" ||
-        typeof (app as { id?: unknown }).id !== "string" ||
-        !(app as { id: string }).id.trim(),
-    )
-  ) {
-    throw new Error(
-      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
-    );
-  }
-
-  const hasDispatch = apps.some((app) => {
-    const entry = app as { id: string; isDispatch?: unknown };
+  const hasDispatch = apps.some((entry) => {
     return (
       entry.id.trim().toLowerCase() === "dispatch" || entry.isDispatch === true
     );
@@ -193,9 +163,72 @@ function workspaceAppsFromResponse(
   return apps as WorkspaceAppRegistryEntry[];
 }
 
+function workspaceAppsFromManifest(
+  appsJson: string | undefined,
+): WorkspaceAppRegistryEntry[] | null {
+  if (appsJson === undefined) return null;
+  if (!appsJson.trim()) {
+    throw new Error("AGENT_NATIVE_WORKSPACE_APPS_JSON must not be empty.");
+  }
+
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(appsJson);
+  } catch (error) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain valid JSON.",
+      { cause: error },
+    );
+  }
+
+  const apps = workspaceAppsFromResponse(manifest);
+  if (!apps || apps.length === 0 || apps.some((app) => !app.id.trim())) {
+    throw new Error(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON must contain apps with non-empty string ids.",
+    );
+  }
+  return apps;
+}
+
 function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {
   const value = app.orgEnabled ?? app.org_enabled;
   return value === false || value === 0 || value === "false" || value === "0";
+}
+
+function configuredWorkspaceApp(appId: string): {
+  name: string;
+  description: string | null;
+  path: string;
+} | null {
+  const app = workspaceAppsFromManifest(
+    getAppConfig().workspace.appsJson,
+  )?.find((entry) => entry.id.trim() === appId);
+  if (!app) return null;
+  if (
+    typeof app.name !== "string" ||
+    !app.name.trim() ||
+    typeof app.path !== "string" ||
+    !app.path.startsWith("/") ||
+    app.path.startsWith("//")
+  ) {
+    throw new Error(`Workspace app ${appId} has invalid manifest metadata.`);
+  }
+
+  const path = new URL(app.path, "https://workspace-app.invalid");
+  if (
+    path.origin !== "https://workspace-app.invalid" ||
+    path.pathname !== app.path ||
+    path.search ||
+    path.hash
+  ) {
+    throw new Error(`Workspace app ${appId} has an invalid manifest path.`);
+  }
+
+  return {
+    name: app.name.trim(),
+    description: typeof app.description === "string" ? app.description : null,
+    path: app.path,
+  };
 }
 
 async function hostedWorkspaceAppAccess(
@@ -522,6 +555,24 @@ async function claimWorkspaceAppOrganization(
   if (member.role !== "owner" && member.role !== "admin") {
     return false;
   }
+  const configuredApp = configuredWorkspaceApp(appId);
+  if (configuredApp) {
+    const now = Date.now();
+    await db.execute({
+      sql: `INSERT INTO workspace_apps
+              (id, owner_email, org_id, visibility, name, description, path, created_at, updated_at)
+            VALUES (?, '', NULL, 'org', ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO NOTHING`,
+      args: [
+        appId,
+        configuredApp.name,
+        configuredApp.description,
+        configuredApp.path,
+        now,
+        now,
+      ],
+    });
+  }
   const claim = await db.execute({
     sql: `UPDATE workspace_apps SET org_id = ?
           WHERE id = ? AND org_id IS NULL
@@ -630,7 +681,18 @@ export async function isWorkspaceAppAccessAllowed(
           org_enabled?: unknown;
         }
       | undefined;
-    if (!app) return false;
+    if (!app) {
+      const orgId = context.orgId?.trim() || null;
+      if (!orgId) return false;
+      const member = await loadWorkspaceOrgMember(db, orgId, email);
+      if (
+        !member ||
+        !(await isActiveWorkspaceOrgMember(member, orgId, email))
+      ) {
+        return false;
+      }
+      return claimWorkspaceAppOrganization(db, normalizedAppId, orgId, member);
+    }
 
     const ownerEmail = normalizedEmail(
       typeof app.owner_email === "string" ? app.owner_email : "",

@@ -31,78 +31,14 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import type { DashboardFilter, FilterType } from "./types";
+import { resolveDefault, resolveFilterVars } from "./filter-vars";
+import type { DashboardFilter } from "./types";
+
+export { resolveFilterVars } from "./filter-vars";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
-function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
-const ALL_TIME_START = "1970-01-01";
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
-  "date",
-  "date-range",
-  "toggle-date",
-]);
-
-function resolveDefault(raw: string | undefined, type: FilterType): string {
-  if (!raw) return "";
-  if (DATE_FILTER_TYPES.has(type)) {
-    const m = /^(\d+)d$/.exec(raw);
-    if (m) return daysAgo(parseInt(m[1], 10));
-    if (raw === "today") return daysAgo(0);
-  }
-  return raw;
-}
-
-function resolveDateValue(
-  raw: string | undefined,
-  allTimeValue: string,
-): string {
-  const value = raw?.trim();
-  if (!value) return "";
-  if (value.toLowerCase() === "all") return allTimeValue;
-
-  const resolved = resolveDefault(value, "date");
-  return ISO_DATE_RE.test(resolved) ? resolved : "";
-}
-
-export function resolveFilterVars(
-  filters: DashboardFilter[],
-  getParam: (key: string) => string,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const f of filters) {
-    if (f.type === "date-range") {
-      const startKey = `${f.id}Start`;
-      const endKey = `${f.id}End`;
-      out[startKey] =
-        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
-        resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START);
-      out[endKey] =
-        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
-    } else if (f.type === "toggle" || f.type === "toggle-date") {
-      out[f.id] =
-        f.type === "toggle-date"
-          ? resolveDateValue(getParam(f.id), ALL_TIME_START)
-          : getParam(f.id);
-    } else {
-      const v = getParam(f.id);
-      out[f.id] =
-        f.type === "date"
-          ? resolveDateValue(v, ALL_TIME_START) ||
-            resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START)
-          : v || resolveDefault(f.default, f.type);
-    }
-  }
-  return out;
-}
-
+/** Check if any filter param in the URL differs from the defaults */
 function hasActiveFilters(
   filters: DashboardFilter[],
   searchParams: URLSearchParams,
@@ -395,7 +331,10 @@ function FilterControl({
           value={current}
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
-          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+          <SelectTrigger
+            size="sm"
+            className="w-[140px] justify-start gap-2 text-xs"
+          >
             <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
@@ -420,7 +359,7 @@ function FilterControl({
         <Button
           variant={active ? "default" : "outline"}
           size="sm"
-          className="text-xs h-8 px-3"
+          className="text-xs"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
           {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
@@ -441,7 +380,7 @@ function FilterControl({
           <Button
             variant={active ? "default" : "outline"}
             size="sm"
-            className="text-xs h-8 px-3"
+            className="text-xs"
             onClick={() =>
               setValue({
                 [filter.id]: active
@@ -474,9 +413,10 @@ function FilterControl({
         {filter.label}
       </label>
       <Input
+        size="sm"
         value={vars[filter.id] || ""}
         onChange={(e) => setValue({ [filter.id]: e.target.value })}
-        className="h-8 w-[160px] text-xs"
+        className="w-[160px] text-xs"
       />
     </div>
   );

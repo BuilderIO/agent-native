@@ -115,6 +115,7 @@ import { Input } from "@/components/ui/input";
 import { ReviewCanvasPins } from "@/components/visual-editor/ReviewCanvasPins";
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
+import { updateCanvasPolygonSvgGeometry } from "@/pages/design-editor/canvas-primitive-insert";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import { CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS } from "@/pages/design-editor/commands/cross-screen-insert-timeout";
 
@@ -525,15 +526,14 @@ function applyDraftPrimitiveToDom(
     }
   } else if (draft.kind === "polygon" || draft.kind === "star") {
     const svgEl = element.querySelector("svg");
-    const polygonEl = element.querySelector("polygon");
-    svgEl?.setAttribute(
-      "viewBox",
-      `0 0 ${Math.max(1, geometry.width)} ${Math.max(1, geometry.height)}`,
-    );
-    polygonEl?.setAttribute(
-      "points",
-      polygonPointsForBox(draft.kind, geometry.width, geometry.height),
-    );
+    if (svgEl) {
+      updateCanvasPolygonSvgGeometry(
+        svgEl,
+        draft.kind,
+        geometry.width,
+        geometry.height,
+      );
+    }
   }
 }
 
@@ -9317,7 +9317,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         duplicateResults.push(
           onDuplicate(targetId, {
-            mode: "alt-click",
+            mode: "cmd-d",
             screen,
             canvasPosition,
             canvasFrameGeometryById: frameGeometryRef.current,
@@ -12198,7 +12198,7 @@ const Screen = memo(function Screen({
   const labelInfoMaxWidth = Math.min(
     frameScreenWidth,
     Math.max(
-      64,
+      0,
       frameScreenWidth -
         (compactFullView
           ? FRAME_HEADER_COMPACT_BUTTON_RESERVE
@@ -12341,7 +12341,7 @@ const Screen = memo(function Screen({
           data-frame-full-view
           data-compact={compactFullView || undefined}
           className={cn(
-            "absolute left-1/2 top-1/2 z-40 flex h-5 shrink-0 -translate-x-1/2 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             fullViewVisible && "opacity-100",
@@ -12349,8 +12349,8 @@ const Screen = memo(function Screen({
           style={{
             display: focusedInteract ? "none" : undefined,
             maxWidth: fullViewMaxWidth,
-            transform: `translate(-50%, -50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-            transformOrigin: "center center",
+            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+            transformOrigin: "right center",
             transition: getChromeLabelTransition(
               chromeSettling && fullViewVisible,
             ),

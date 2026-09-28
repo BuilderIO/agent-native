@@ -38,7 +38,7 @@ function isActionTimeout(error: unknown): boolean {
 }
 
 function isRetryableActionStatus(status: number): boolean {
-  return status === 429 || status === 502 || status === 503 || status === 504;
+  return status === 429 || status === 502 || status === 503;
 }
 
 function actionErrorStatus(error: unknown): number | undefined {
@@ -802,11 +802,14 @@ export function tryCallActionKeepalive<
 >(
   actionName: TName,
   params?: ActionParams<TName>,
-  options: Omit<ClientActionCallOptions, "method"> = {},
+  options: Omit<ClientActionCallOptions, "method"> & {
+    method?: "POST" | "PUT";
+  } = {},
 ): KeepaliveActionCallResult<
   TResult extends undefined ? ActionResult<TName> : TResult
 > {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  const method = options.method ?? "POST";
   const serializedBody = JSON.stringify(params ?? {});
   const bodyBytes = utf8ByteLength(serializedBody);
 
@@ -841,7 +844,7 @@ export function tryCallActionKeepalive<
   }
 
   reservedKeepaliveBodyBytes += bodyBytes;
-  const completion = actionFetch<R>(actionName, "POST", params, {
+  const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     keepalive: true,

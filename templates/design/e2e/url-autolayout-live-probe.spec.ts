@@ -11,6 +11,8 @@ import {
 import { expect, test } from "@playwright/test";
 import type { APIRequestContext } from "@playwright/test";
 
+import { installBridge, waitForBridge } from "./helpers";
+
 async function listen(server: Server): Promise<number> {
   return await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -37,6 +39,7 @@ test.describe("URL-backed live auto-layout probe", () => {
   let targetUrl = "";
   let baseURL = "";
   let designId = "";
+  let focusDesignId = "";
 
   async function postAction(
     request: APIRequestContext,
@@ -65,10 +68,14 @@ test.describe("URL-backed live auto-layout probe", () => {
       #group-grid{display:grid;grid-template-columns:repeat(4,80px);grid-template-rows:repeat(3,60px);gap:10px;border:2px solid #7c3aed;padding:10px;width:360px;margin-top:24px}
       [data-group-card]{background:#ddd6fe;border:2px solid #6d28d9;box-sizing:border-box}
       #group-occupied{grid-column:3 / 5;grid-row:2;background:#fed7aa;border-color:#c2410c}
+      #settings-search{position:absolute;left:760px;top:56px}
     </style></head><body><main>
+      <input id="startup-search" type="search" aria-label="Startup search" style="position:absolute;left:760px;top:24px">
+      <input id="settings-search" type="search" aria-label="Settings search">
       <div id="flow" data-source-id="flow-root" data-agent-native-node-id="flow-root" data-agent-native-layer-name="Flow root" data-source-file="index.html" data-source-line="1" data-source-column="1"><div id="v1" data-source-id="v1" data-agent-native-node-id="v1" data-agent-native-layer-name="V1" data-source-file="index.html" data-source-line="1" data-source-column="2" data-card>V1</div><div id="v2" data-source-id="v2" data-agent-native-node-id="v2" data-agent-native-layer-name="V2" data-source-file="index.html" data-source-line="1" data-source-column="3" data-card>V2</div><div id="v3" data-source-id="v3" data-agent-native-node-id="v3" data-agent-native-layer-name="V3" data-source-file="index.html" data-source-line="1" data-source-column="4" data-card>V3</div></div>
       <div id="group-grid" data-source-id="group-grid" data-agent-native-node-id="group-grid" data-source-file="index.html" data-source-line="1" data-source-column="5"><div id="group-occupied" data-source-id="group-occupied" data-agent-native-node-id="group-occupied" data-agent-native-layer-name="Occupied" data-source-file="index.html" data-source-line="1" data-source-column="8" data-group-card style="grid-column:3 / 5;grid-row:2">Occupied</div><div id="group-a" data-source-id="group-a" data-agent-native-node-id="group-a" data-agent-native-layer-name="Group A" data-source-file="index.html" data-source-line="1" data-source-column="6" data-group-card style="grid-column:1;grid-row:1">A</div><div id="group-b" data-source-id="group-b" data-agent-native-node-id="group-b" data-agent-native-layer-name="Group B" data-source-file="index.html" data-source-line="1" data-source-column="7" data-group-card style="grid-column:2;grid-row:1">B</div></div>
       <button type="button">Keep focus in app</button>
+      <script>window.__runStartupFocus = () => { const input = document.querySelector("#startup-search"); window.parent.postMessage({ type: "fixture-autofocus-started" }, "*"); requestAnimationFrame(() => { input?.focus({ preventScroll: true }); const focused = document.activeElement === input; document.body.dataset.autofocusReady = "true"; window.parent.postMessage({ type: "fixture-autofocus-complete", focused }, "*"); }); }; setTimeout(() => window.__runStartupFocus?.(), location.pathname === "/settings" ? 8500 : 250);</script>
     </main></body></html>`;
     fs.writeFileSync(path.join(rootPath, "index.html"), source);
     devServer = http.createServer((_req, res) => {
@@ -96,6 +103,24 @@ test.describe("URL-backed live auto-layout probe", () => {
       publicReadOnly: false,
     });
     designId = opened.designId;
+    const focusDesign = await postAction(request, "open-visual-edit", {
+      title: "URL multi-screen autofocus probe",
+      devServerUrl: manifest.devServerUrl,
+      bridgeUrl: manifest.bridgeUrl,
+      connectionId: opened.connectionId,
+      bridgeToken: opened.bridgeToken,
+      rootPath,
+      paths: ["/", "/settings"],
+      navigate: false,
+      publicReadOnly: false,
+    });
+    focusDesignId = focusDesign.designId;
+    if (
+      focusDesign.connectionId !== opened.connectionId ||
+      focusDesign.bridgeToken !== opened.bridgeToken
+    ) {
+      throw new Error("multi-screen focus probe did not reuse its bridge");
+    }
     bridge = await startDesignConnectBridge(manifest, {
       bridgeToken: opened.bridgeToken,
       previewToken: opened.previewToken,
@@ -108,14 +133,568 @@ test.describe("URL-backed live auto-layout probe", () => {
       await postAction(request, "delete-design", { id: designId }).catch(
         () => undefined,
       );
+    if (focusDesignId)
+      await postAction(request, "delete-design", { id: focusDesignId }).catch(
+        () => undefined,
+      );
     await closeServer(bridge?.server ?? null);
     await closeServer(devServer);
     if (rootPath) fs.rmSync(rootPath, { recursive: true, force: true });
   });
 
-  test("returns keyboard focus to the host when a live iframe becomes ready", async ({
+  test("reclaims canvas focus after delayed autofocus so space-pan works", async ({
     page,
   }) => {
+    await page.addInitScript(() => {
+      type FocusReport = {
+        type: string;
+        sourceIndex: number;
+        focusSafe?: boolean;
+      };
+      const reports: FocusReport[] = [];
+      Object.defineProperty(window, "__canvasFocusReports", {
+        value: reports,
+        configurable: false,
+      });
+      const keys: Array<{ code: string; target: string }> = [];
+      Object.defineProperty(window, "__canvasKeyReports", {
+        value: keys,
+        configurable: false,
+      });
+      const focusEvents: Array<{
+        type: string;
+        active: string;
+        activeFrameIndex: number;
+      }> = [];
+      Object.defineProperty(window, "__canvasWindowFocusEvents", {
+        value: focusEvents,
+        configurable: false,
+      });
+      const recordFocus = (type: string) => {
+        const active = document.activeElement;
+        focusEvents.push({
+          type,
+          active:
+            active instanceof HTMLElement
+              ? `${active.tagName}#${active.id}`
+              : (active?.nodeName ?? "none"),
+          activeFrameIndex:
+            active instanceof HTMLIFrameElement
+              ? Array.from(
+                  document.querySelectorAll<HTMLIFrameElement>(
+                    "iframe[data-design-preview-iframe]",
+                  ),
+                ).indexOf(active)
+              : -1,
+        });
+      };
+      window.addEventListener("blur", () => recordFocus("blur"));
+      document.addEventListener("focusin", () => recordFocus("focusin"));
+      window.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.code === "Space") {
+            const target = event.target;
+            keys.push({
+              code: event.code,
+              target:
+                target instanceof HTMLElement
+                  ? `${target.tagName}#${target.id}`
+                  : target instanceof Node
+                    ? target.nodeName
+                    : "none",
+            });
+          }
+        },
+        false,
+      );
+      window.addEventListener("message", (event) => {
+        const data = event.data as {
+          type?: unknown;
+          focusSafe?: unknown;
+          focused?: unknown;
+        } | null;
+        if (
+          typeof data?.type !== "string" ||
+          (data.type !== "agent-native:canvas-focus-state" &&
+            data.type !== "agent-native:editor-chrome-ready" &&
+            data.type !== "agent-native:canvas-tab-navigation" &&
+            data.type !== "fixture-autofocus-started" &&
+            data.type !== "fixture-autofocus-complete")
+        ) {
+          return;
+        }
+        const sourceIndex = Array.from(
+          document.querySelectorAll<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          ),
+        ).findIndex((iframe) => iframe.contentWindow === event.source);
+        reports.push({
+          type: data.type,
+          sourceIndex,
+          ...(typeof data.focusSafe === "boolean"
+            ? { focusSafe: data.focusSafe }
+            : {}),
+          ...(typeof data.focused === "boolean"
+            ? { focused: data.focused }
+            : {}),
+        });
+      });
+    });
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(
+      `${baseURL}/visual-edit/${focusDesignId}?editorView=overview&embedChrome=1`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const liveFrames = page.locator("iframe[data-design-preview-iframe]");
+    await expect(liveFrames).toHaveCount(2);
+    const getFramePaths = () =>
+      Promise.all(
+        [0, 1].map((index) =>
+          liveFrames
+            .nth(index)
+            .contentFrame()
+            .locator("body")
+            .evaluate(() => window.location.pathname),
+        ),
+      );
+    await expect
+      .poll(async () => [...(await getFramePaths())].sort())
+      .toEqual(["/", "/settings"]);
+    const framePaths = await getFramePaths();
+    const settingsFrameIndex = framePaths.indexOf("/settings");
+    const iframe = liveFrames.nth(1 - settingsFrameIndex);
+    const frame = iframe.contentFrame();
+    const settingsFrame = liveFrames.nth(settingsFrameIndex).contentFrame();
+    const settingsBody = settingsFrame.locator("body");
+    await expect
+      .poll(() => settingsBody.evaluate(() => window.location.pathname))
+      .toBe("/settings");
+    await expect(
+      frame.locator('[data-agent-native-node-id="flow-root"]'),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      frame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 15_000 });
+    await expect(settingsFrame.locator("#startup-search")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(
+      settingsFrame.locator('[data-agent-native-edit-overlay="shield"]'),
+    ).toBeAttached({ timeout: 15_000 });
+    const emptyPoint = await page.evaluate(() => {
+      const surface = document
+        .querySelector("[data-multi-screen-canvas-surface]")
+        ?.getBoundingClientRect();
+      const frames = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-screen-shell]"),
+      ).map((element) => element.getBoundingClientRect());
+      const previewFrames = Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      ).map((element) => element.getBoundingClientRect());
+      if (!surface) return null;
+      for (let y = surface.bottom - 24; y > surface.top + 24; y -= 24) {
+        for (let x = surface.right - 24; x > surface.left + 24; x -= 24) {
+          const outside = (frame: DOMRect) =>
+            x < frame.left ||
+            x > frame.right ||
+            y < frame.top ||
+            y > frame.bottom;
+          if (frames.every(outside) && previewFrames.every(outside)) {
+            const target = document.elementFromPoint(x, y);
+            if (
+              target?.closest("[data-multi-screen-canvas-surface]") &&
+              !target.closest("iframe[data-design-preview-iframe]")
+            ) {
+              return { x, y };
+            }
+          }
+        }
+      }
+      return null;
+    });
+    if (!emptyPoint) throw new Error("no empty point on the canvas surface");
+    const expectCanvasFocus = (timeout = 15_000) =>
+      expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const active = document.activeElement;
+              const canvas = document.querySelector(
+                "[data-multi-screen-canvas-surface]",
+              );
+              return (
+                active instanceof HTMLElement &&
+                canvas?.contains(active) &&
+                active.tagName !== "IFRAME" &&
+                active.tabIndex === -1
+              );
+            }),
+          { timeout },
+        )
+        .toBe(true);
+    await expectCanvasFocus();
+    await expect(settingsBody).toHaveAttribute("data-autofocus-ready", "true");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (settingsFrameIndex) =>
+            (
+              window as Window & {
+                __canvasWindowFocusEvents?: Array<{
+                  type: string;
+                  activeFrameIndex: number;
+                }>;
+              }
+            ).__canvasWindowFocusEvents?.some(
+              (event) =>
+                event.type === "blur" &&
+                event.activeFrameIndex === settingsFrameIndex,
+            ),
+          settingsFrameIndex,
+        ),
+      )
+      .toBe(true);
+    const autofocusResultIndex = () =>
+      page.evaluate((settingsFrameIndex) => {
+        const reports = (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              type: string;
+              sourceIndex: number;
+              focused?: boolean;
+            }>;
+          }
+        ).__canvasFocusReports;
+        return (
+          reports?.findIndex(
+            (report) =>
+              report.type === "fixture-autofocus-complete" &&
+              report.sourceIndex === settingsFrameIndex &&
+              report.focused === true,
+          ) ?? -1
+        );
+      }, settingsFrameIndex);
+    const latestSettingsFocusSafety = () =>
+      page.evaluate((settingsFrameIndex) => {
+        const reports = (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              type: string;
+              sourceIndex: number;
+              focusSafe?: boolean;
+            }>;
+          }
+        ).__canvasFocusReports?.filter(
+          (report) =>
+            report.type === "agent-native:canvas-focus-state" &&
+            report.sourceIndex === settingsFrameIndex,
+        );
+        return reports?.[reports.length - 1]?.focusSafe ?? null;
+      }, settingsFrameIndex);
+    await expect.poll(autofocusResultIndex).toBeGreaterThanOrEqual(0);
+    const getAutofocusMarkerIndex = () =>
+      page.evaluate((settingsFrameIndex) => {
+        const reports = (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              type: string;
+              sourceIndex: number;
+              focusSafe?: boolean;
+            }>;
+          }
+        ).__canvasFocusReports;
+        return (
+          reports?.findIndex(
+            (report) =>
+              report.type === "fixture-autofocus-started" &&
+              report.sourceIndex === settingsFrameIndex,
+          ) ?? -1
+        );
+      }, settingsFrameIndex);
+    await expect.poll(getAutofocusMarkerIndex).toBeGreaterThanOrEqual(0);
+    const autofocusMarkerIndex = await getAutofocusMarkerIndex();
+    expect(autofocusMarkerIndex).toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ markerIndex, settingsFrameIndex }) => {
+            const reports = (
+              window as Window & {
+                __canvasFocusReports?: Array<{
+                  type: string;
+                  sourceIndex: number;
+                  focusSafe?: boolean;
+                }>;
+              }
+            ).__canvasFocusReports;
+            return reports
+              ?.slice(markerIndex + 1)
+              .some(
+                (report) =>
+                  report.type === "agent-native:canvas-focus-state" &&
+                  report.sourceIndex === settingsFrameIndex &&
+                  report.focusSafe === true,
+              );
+          },
+          { markerIndex: autofocusMarkerIndex, settingsFrameIndex },
+        ),
+      )
+      .toBe(true);
+    await expectCanvasFocus();
+    await expect.poll(latestSettingsFocusSafety).toBe(true);
+    await page.mouse.move(emptyPoint.x, emptyPoint.y);
+    const panFrame = page.locator("[data-screen-shell]").first();
+    const canvasSurface = page.locator("[data-multi-screen-canvas-surface]");
+    const beforePan = await panFrame.boundingBox();
+    if (!beforePan) throw new Error("overview frame has no bounding box");
+    await page.keyboard.down("Space");
+    const panDebug = await page.evaluate(() => ({
+      cursor: getComputedStyle(
+        document.querySelector("[data-multi-screen-canvas-surface]")!,
+      ).cursor,
+      active:
+        document.activeElement instanceof HTMLElement
+          ? `${document.activeElement.tagName}#${document.activeElement.id}`
+          : (document.activeElement?.nodeName ?? "none"),
+      keys: (
+        window as Window & {
+          __canvasKeyReports?: Array<{ code: string; target: string }>;
+        }
+      ).__canvasKeyReports,
+      reports: (
+        window as Window & {
+          __canvasFocusReports?: Array<{
+            sourceIndex: number;
+            focusSafe: boolean;
+          }>;
+        }
+      ).__canvasFocusReports?.slice(-12),
+      blurEvents: (
+        window as Window & {
+          __canvasWindowFocusEvents?: Array<{
+            type: string;
+            active: string;
+          }>;
+        }
+      ).__canvasWindowFocusEvents,
+    }));
+    await expect(canvasSurface, JSON.stringify(panDebug)).toHaveCSS(
+      "cursor",
+      "grab",
+    );
+    await page.mouse.down();
+    await expect(canvasSurface).toHaveCSS("cursor", "grabbing");
+    await page.mouse.move(emptyPoint.x - 72, emptyPoint.y - 48, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up("Space");
+    await expect
+      .poll(async () => {
+        const after = await panFrame.boundingBox();
+        return after
+          ? Math.abs(after.x - beforePan.x) + Math.abs(after.y - beforePan.y)
+          : 0;
+      })
+      .toBeGreaterThan(30);
+
+    const focusFrame = frame;
+    const readOrder = async () => {
+      const currentFrame = page
+        .frames()
+        .find(
+          (candidate) =>
+            candidate !== page.mainFrame() &&
+            new URL(candidate.url()).pathname === "/",
+        );
+      if (!currentFrame) return [];
+      try {
+        return await currentFrame
+          .locator(
+            '[data-agent-native-node-id="flow-root"] > [data-agent-native-node-id]',
+          )
+          .evaluateAll((elements) =>
+            elements.map((element) =>
+              element.getAttribute("data-agent-native-node-id"),
+            ),
+          );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Frame was detached")
+        ) {
+          return [];
+        }
+        throw error;
+      }
+    };
+    const source = focusFrame.locator('[data-agent-native-node-id="v1"]');
+    const target = focusFrame.locator('[data-agent-native-node-id="v3"]');
+    const primaryModifier = process.platform === "darwin" ? "Meta" : "Control";
+    const initialSourceBounds = await source.boundingBox();
+    if (!initialSourceBounds) {
+      throw new Error("live focus probe source has no bounds");
+    }
+    expect(await source.getAttribute("data-agent-native-node-id")).toBe("v1");
+    await installBridge(page);
+    await page.evaluate(() => ((window as any).__bridge = []));
+    await page.mouse.click(
+      initialSourceBounds.x + initialSourceBounds.width / 2,
+      initialSourceBounds.y + initialSourceBounds.height / 2,
+    );
+    const selection = await waitForBridge(page, "element-select");
+    expect((selection.payload ?? selection).sourceId).toBe("v1");
+    await expect
+      .poll(() =>
+        focusFrame
+          .locator('[data-agent-native-edit-overlay="selection"]')
+          .evaluate((element) => getComputedStyle(element).display !== "none"),
+      )
+      .toBe(true);
+    const sourceBounds = await source.boundingBox();
+    const targetBounds = await target.boundingBox();
+    if (!sourceBounds || !targetBounds) {
+      throw new Error("selected live focus probe source has no bounds");
+    }
+    await page.mouse.move(
+      sourceBounds.x + sourceBounds.width / 2,
+      sourceBounds.y + sourceBounds.height / 2,
+    );
+    await expectCanvasFocus();
+    await page.mouse.down();
+    await page.mouse.move(
+      sourceBounds.x + sourceBounds.width / 2 + 10,
+      sourceBounds.y + sourceBounds.height / 2 + 6,
+      { steps: 6 },
+    );
+    await page.mouse.move(
+      targetBounds.x + targetBounds.width / 2,
+      targetBounds.y + targetBounds.height * 0.85,
+      { steps: 20 },
+    );
+    await page.mouse.up();
+    await expect
+      .poll(readOrder, { timeout: 5_000 })
+      .toEqual(["v2", "v3", "v1"]);
+    await expect(
+      page.locator("[data-design-pending-visual-style-toolbar]"),
+    ).toBeVisible();
+    await expectCanvasFocus();
+    await page.keyboard.down(primaryModifier);
+    await expectCanvasFocus(1_000);
+    await page.keyboard.press("z");
+    await page.keyboard.up(primaryModifier);
+    await expect
+      .poll(readOrder, { timeout: 5_000 })
+      .toEqual(["v1", "v2", "v3"]);
+  });
+
+  test("keeps a user-focused live input in Interact mode", async ({ page }) => {
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(`${baseURL}/visual-edit/${designId}?editorView=overview`, {
+      waitUntil: "domcontentloaded",
+    });
+    const shell = page.locator("[data-screen-shell]").first();
+    const interact = shell.locator("[data-frame-full-view]");
+    await expect(interact).toBeVisible({ timeout: 90_000 });
+    const interactBounds = await interact.boundingBox();
+    if (!interactBounds) throw new Error("Interact button has no bounds");
+    await page.mouse.click(
+      interactBounds.x + Math.min(8, interactBounds.width / 2),
+      interactBounds.y + interactBounds.height / 2,
+    );
+    await expect(shell).toHaveAttribute("data-screen-interact-mode", "true");
+
+    const frame = page.locator("iframe[data-design-preview-iframe]").first();
+    const liveDocument = frame.contentFrame();
+    const shield = liveDocument.locator(
+      '[data-agent-native-edit-overlay="shield"]',
+    );
+    await expect(shield).toHaveCSS("pointer-events", "none", {
+      timeout: 5_000,
+    });
+    const input = liveDocument.locator("#startup-search");
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    const bounds = await input.boundingBox();
+    if (!bounds) throw new Error("Interact input has no bounding box");
+    await page.mouse.click(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            document.activeElement ===
+            document.querySelector("iframe[data-design-preview-iframe]"),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        input.evaluate(
+          (element) => element.ownerDocument.activeElement === element,
+        ),
+      )
+      .toBe(true);
+    await page.keyboard.type("interact-focus");
+    await expect(input).toHaveValue("interact-focus");
+  });
+
+  test("preserves a live input reached with Tab in Edit mode", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      type FocusReport = {
+        type: string;
+        sourceIndex: number;
+        focusSafe?: boolean;
+      };
+      const reports: FocusReport[] = [];
+      Object.defineProperty(window, "__canvasFocusReports", {
+        value: reports,
+        configurable: false,
+      });
+      window.addEventListener("message", (event) => {
+        const data = event.data as {
+          type?: unknown;
+          focusSafe?: unknown;
+        } | null;
+        if (
+          data?.type !== "agent-native:canvas-focus-state" &&
+          data?.type !== "agent-native:canvas-tab-navigation"
+        ) {
+          return;
+        }
+        const sourceIndex = Array.from(
+          document.querySelectorAll<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          ),
+        ).findIndex((iframe) => iframe.contentWindow === event.source);
+        reports.push({
+          type: data.type,
+          sourceIndex,
+          ...(typeof data.focusSafe === "boolean"
+            ? { focusSafe: data.focusSafe }
+            : {}),
+        });
+      });
+    });
     const localNetworkCdp = await page.context().newCDPSession(page);
     await localNetworkCdp.send("Browser.grantPermissions", {
       origin: new URL(baseURL).origin,
@@ -129,181 +708,418 @@ test.describe("URL-backed live auto-layout probe", () => {
       page.getByRole("button", { name: "Move", exact: true }),
     ).toBeVisible({ timeout: 90_000 });
 
-    const iframe = page.locator("iframe[data-design-preview-iframe]").first();
-    const frame = iframe.contentFrame();
-    await expect(
-      frame.locator('[data-agent-native-node-id="flow-root"]'),
-    ).toBeVisible({ timeout: 30_000 });
-    await expect(
-      frame.locator('[data-agent-native-edit-overlay="shield"]'),
-    ).toBeAttached({ timeout: 15_000 });
+    const liveFrames = page.locator("iframe[data-design-preview-iframe]");
+    const firstInput = liveFrames
+      .first()
+      .contentFrame()
+      .locator("#startup-search");
+    await expect(firstInput).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(() =>
         page.evaluate(() => {
           const active = document.activeElement;
-          const liveFrame = document.querySelector(
-            "iframe[data-design-preview-iframe]",
+          const canvas = document.querySelector(
+            "[data-multi-screen-canvas-surface]",
+          );
+          return (
+            active instanceof HTMLElement &&
+            Boolean(canvas?.contains(active)) &&
+            active.tagName !== "IFRAME" &&
+            active.tabIndex === -1
+          );
+        }),
+      )
+      .toBe(true);
+
+    let tabbedFrameIndex = -1;
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      tabbedFrameIndex = await liveFrames.evaluateAll((frames) =>
+        frames.indexOf(document.activeElement as HTMLIFrameElement),
+      );
+      if (tabbedFrameIndex >= 0) break;
+    }
+    expect(
+      tabbedFrameIndex,
+      "Tab should move focus into the live preview",
+    ).toBeGreaterThanOrEqual(0);
+    await page.waitForTimeout(200);
+    const tabFocusState = await page.evaluate(() => {
+      const frames = Array.from(
+        document.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ),
+      );
+      const active = document.activeElement;
+      return {
+        active:
+          active instanceof HTMLElement
+            ? `${active.tagName}#${active.id}`
+            : (active?.nodeName ?? "none"),
+        activeFrameIndex:
+          active instanceof HTMLIFrameElement ? frames.indexOf(active) : -1,
+        reports: (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              type: string;
+              sourceIndex: number;
+              focusSafe?: boolean;
+            }>;
+          }
+        ).__canvasFocusReports?.slice(-12),
+      };
+    });
+    expect(
+      tabFocusState.activeFrameIndex,
+      `the live preview should retain focus after Tab enters it: ${JSON.stringify(tabFocusState)}`,
+    ).toBe(tabbedFrameIndex);
+    const frame = liveFrames.nth(tabbedFrameIndex).contentFrame();
+    const input = frame.locator("#startup-search");
+    await expect(input).toBeFocused();
+    await page.waitForTimeout(200);
+    await expect(input).toBeFocused();
+    await page.keyboard.type("tab-focused");
+    await expect(input).toHaveValue("tab-focused");
+    await expect(input).toBeFocused();
+    const latestFocusSafety = () =>
+      page.evaluate((sourceIndex) => {
+        const reports = (
+          window as Window & {
+            __canvasFocusReports?: Array<{
+              sourceIndex: number;
+              focusSafe: boolean;
+            }>;
+          }
+        ).__canvasFocusReports;
+        const matchingReports = reports?.filter(
+          (report) => report.sourceIndex === sourceIndex,
+        );
+        return matchingReports?.[matchingReports.length - 1]?.focusSafe;
+      }, tabbedFrameIndex);
+    const requestFocusSafety = () =>
+      liveFrames.evaluateAll((frames, sourceIndex) => {
+        const frame = frames[sourceIndex] as HTMLIFrameElement | undefined;
+        frame?.contentWindow?.postMessage(
+          { type: "agent-native:canvas-focus-state-probe" },
+          "*",
+        );
+      }, tabbedFrameIndex);
+    await requestFocusSafety();
+    await expect.poll(latestFocusSafety).toBe(false);
+    const settingsInput = frame.locator("#settings-search");
+    await page.keyboard.press("Tab");
+    await expect(settingsInput).toBeFocused();
+    await requestFocusSafety();
+    await expect.poll(latestFocusSafety).toBe(false);
+
+    const expectCanvasFocus = () =>
+      expect
+        .poll(() =>
+          page.evaluate(() => {
+            const active = document.activeElement;
+            const canvas = document.querySelector(
+              "[data-multi-screen-canvas-surface]",
+            );
+            return (
+              active instanceof HTMLElement &&
+              active.tagName !== "IFRAME" &&
+              active.tabIndex === -1 &&
+              Boolean(canvas?.contains(active))
+            );
+          }),
+        )
+        .toBe(true);
+    const iframeSrcBeforeRouteChange = await liveFrames
+      .nth(tabbedFrameIndex)
+      .getAttribute("src");
+    const frameBody = frame.locator("body");
+    await frameBody.evaluate(() => {
+      history.pushState({}, "", "?focus-route-change");
+    });
+    await expect
+      .poll(() => frameBody.evaluate(() => window.location.search))
+      .toBe("?focus-route-change");
+    await expect(liveFrames.nth(tabbedFrameIndex)).toHaveAttribute(
+      "src",
+      iframeSrcBeforeRouteChange ?? "",
+    );
+    await expect(settingsInput).toBeFocused();
+
+    await frame.locator("body").evaluate(() => window.location.reload());
+    await expect(input).toBeVisible({ timeout: 30_000 });
+    await expectCanvasFocus();
+
+    let focusedFrameIndex = -1;
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      focusedFrameIndex = await liveFrames.evaluateAll((frames) =>
+        frames.indexOf(document.activeElement as HTMLIFrameElement),
+      );
+      if (focusedFrameIndex >= 0) break;
+    }
+    expect(
+      focusedFrameIndex,
+      "Tab should enter the live preview",
+    ).toBeGreaterThanOrEqual(0);
+    const focusedFrameBounds = await liveFrames
+      .nth(focusedFrameIndex)
+      .boundingBox();
+    if (!focusedFrameBounds) throw new Error("focused preview has no bounds");
+    await page.mouse.move(
+      focusedFrameBounds.x + focusedFrameBounds.width / 2,
+      focusedFrameBounds.y + focusedFrameBounds.height / 2,
+    );
+    await expectCanvasFocus();
+  });
+
+  test("keeps Tab focus when a sibling preview reports safe", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const reports: Array<{
+        type: string;
+        sourceIndex: number;
+        focusSafe?: boolean;
+      }> = [];
+      Object.defineProperty(window, "__canvasFocusReports", {
+        value: reports,
+      });
+      window.addEventListener("message", (event) => {
+        const data = event.data as {
+          type?: unknown;
+          focusSafe?: unknown;
+        } | null;
+        if (
+          typeof data?.type === "string" &&
+          (data.type === "agent-native:canvas-tab-navigation" ||
+            data.type === "agent-native:canvas-focus-state" ||
+            data.type === "agent-native:editor-chrome-ready")
+        ) {
+          const sourceIndex = Array.from(
+            document.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-design-preview-iframe]",
+            ),
+          ).findIndex((iframe) => iframe.contentWindow === event.source);
+          reports.push({
+            type: data.type,
+            sourceIndex,
+            ...(typeof data.focusSafe === "boolean"
+              ? { focusSafe: data.focusSafe }
+              : {}),
+          });
+        }
+      });
+    });
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(
+      `${baseURL}/visual-edit/${focusDesignId}?editorView=overview&embedChrome=1`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const liveFrames = page.locator("iframe[data-design-preview-iframe]");
+    await expect(liveFrames).toHaveCount(2);
+    for (const liveFrame of await liveFrames.all()) {
+      await expect(liveFrame.contentFrame().locator("body")).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(
+        liveFrame.contentFrame().locator("#startup-search"),
+      ).toBeVisible({ timeout: 30_000 });
+    }
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const canvasFocused =
+            active instanceof HTMLElement &&
+            Boolean(
+              document
+                .querySelector("[data-multi-screen-canvas-surface]")
+                ?.contains(active),
+            ) &&
+            active.tagName !== "IFRAME" &&
+            active.tabIndex === -1;
+          const frames = Array.from(
+            document.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-design-preview-iframe]",
+            ),
+          );
+          const reports = (
+            window as Window & {
+              __canvasFocusReports?: Array<{
+                type: string;
+                sourceIndex: number;
+                focusSafe?: boolean;
+              }>;
+            }
+          ).__canvasFocusReports;
+          return canvasFocused
+            ? "canvas"
+            : JSON.stringify({
+                active:
+                  active instanceof HTMLElement
+                    ? `${active.tagName}#${active.id}`
+                    : active?.nodeName,
+                activeFrameIndex:
+                  active instanceof HTMLIFrameElement
+                    ? frames.indexOf(active)
+                    : -1,
+                focusReports: reports?.slice(-8),
+              });
+        }),
+      )
+      .toBe("canvas");
+
+    let firstFrameIndex = -1;
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      firstFrameIndex = await liveFrames.evaluateAll((frames) =>
+        frames.indexOf(document.activeElement as HTMLIFrameElement),
+      );
+      if (firstFrameIndex >= 0) break;
+    }
+    expect(
+      firstFrameIndex,
+      "Tab should enter a live preview",
+    ).toBeGreaterThanOrEqual(0);
+
+    const siblingFrameIndex = 1 - firstFrameIndex;
+    const previousReportCount = await page.evaluate(
+      () =>
+        (
+          window as Window & {
+            __canvasFocusReports?: Array<unknown>;
+          }
+        ).__canvasFocusReports?.length ?? 0,
+    );
+    await liveFrames
+      .nth(siblingFrameIndex)
+      .contentFrame()
+      .locator("body")
+      .evaluate(() => {
+        window.parent.postMessage(
+          { type: "agent-native:canvas-focus-state", focusSafe: true },
+          "*",
+        );
+      });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ previousReportCount, siblingFrameIndex }) => {
+            const reports = (
+              window as Window & {
+                __canvasFocusReports?: Array<{
+                  type: string;
+                  sourceIndex: number;
+                  focusSafe?: boolean;
+                }>;
+              }
+            ).__canvasFocusReports;
+            return Boolean(
+              reports
+                ?.slice(previousReportCount)
+                .some(
+                  (report) =>
+                    report.type === "agent-native:canvas-focus-state" &&
+                    report.sourceIndex === siblingFrameIndex &&
+                    report.focusSafe === true,
+                ),
+            );
+          },
+          { previousReportCount, siblingFrameIndex },
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        liveFrames.evaluateAll((frames) =>
+          frames.indexOf(document.activeElement as HTMLIFrameElement),
+        ),
+      )
+      .toBe(firstFrameIndex);
+
+    const firstInput = liveFrames
+      .nth(firstFrameIndex)
+      .contentFrame()
+      .locator("#startup-search");
+    const firstSettingsInput = liveFrames
+      .nth(firstFrameIndex)
+      .contentFrame()
+      .locator("#settings-search");
+    const firstButton = liveFrames
+      .nth(firstFrameIndex)
+      .contentFrame()
+      .getByRole("button", { name: "Keep focus in app" });
+    await firstInput.focus();
+    await page.keyboard.press("Tab");
+    await expect(firstSettingsInput).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(firstButton).toBeFocused();
+    let tabbedToSibling = false;
+    for (let index = 0; index < 80; index += 1) {
+      await page.keyboard.press("Tab");
+      const activeFrameIndex = await liveFrames.evaluateAll((frames) =>
+        frames.indexOf(document.activeElement as HTMLIFrameElement),
+      );
+      if (activeFrameIndex === siblingFrameIndex) {
+        tabbedToSibling = true;
+        break;
+      }
+    }
+    expect(
+      tabbedToSibling,
+      "Tab should move from one live preview into its sibling preview",
+    ).toBe(true);
+    await liveFrames
+      .nth(siblingFrameIndex)
+      .contentFrame()
+      .locator("body")
+      .evaluate(() => {
+        window.parent.postMessage(
+          { type: "agent-native:canvas-focus-state-probe" },
+          "*",
+        );
+      });
+    await expect
+      .poll(() =>
+        liveFrames.evaluateAll((frames) =>
+          frames.indexOf(document.activeElement as HTMLIFrameElement),
+        ),
+      )
+      .toBe(siblingFrameIndex);
+
+    const siblingBody = liveFrames
+      .nth(siblingFrameIndex)
+      .contentFrame()
+      .locator("body");
+    await siblingBody.evaluate(() => {
+      history.pushState({}, "", "?focus-safe-route-change");
+    });
+    await expect
+      .poll(() => siblingBody.evaluate(() => window.location.search))
+      .toBe("?focus-safe-route-change");
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const canvas = document.querySelector(
+            "[data-multi-screen-canvas-surface]",
           );
           return (
             active instanceof HTMLElement &&
             active.tabIndex === -1 &&
-            Boolean(liveFrame && active.contains(liveFrame))
+            active.tagName !== "IFRAME" &&
+            Boolean(canvas?.contains(active))
           );
         }),
-      )
-      .toBe(true);
-
-    await frame.getByRole("button", { name: "Keep focus in app" }).focus();
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame
-          .locator("body")
-          .evaluate((body) => body.ownerDocument.activeElement?.tagName),
-      )
-      .toBe("BUTTON");
-
-    await frame.locator("body").evaluate(() => {
-      const host = document.createElement("e2e-focus-host");
-      host.id = "open-shadow-focus-host";
-      const shadow = host.attachShadow({ mode: "open" });
-      const input = document.createElement("input");
-      input.setAttribute("aria-label", "Shadow input");
-      shadow.append(input);
-      document.body.append(host);
-      input.focus();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame.locator("body").evaluate((body) => {
-          const host = body.ownerDocument.querySelector(
-            "#open-shadow-focus-host",
-          );
-          return (
-            body.ownerDocument.activeElement === host &&
-            host?.shadowRoot?.activeElement?.getAttribute("aria-label") ===
-              "Shadow input"
-          );
-        }),
-      )
-      .toBe(true);
-
-    await frame.locator("body").evaluate(() => {
-      const host = document.createElement("div");
-      host.id = "closed-shadow-focus-host";
-      const shadow = host.attachShadow({ mode: "closed" });
-      const input = document.createElement("input");
-      shadow.append(input);
-      document.body.append(host);
-      input.focus();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame.locator("body").evaluate((body) => {
-          const host = body.ownerDocument.querySelector(
-            "#closed-shadow-focus-host",
-          );
-          return (
-            body.ownerDocument.activeElement === host &&
-            host instanceof HTMLElement &&
-            host.matches(":focus-within")
-          );
-        }),
-      )
-      .toBe(true);
-
-    for (const tagName of ["audio", "video"] as const) {
-      await frame.locator("body").evaluate((body, tag) => {
-        const media = body.ownerDocument.createElement(tag);
-        media.id = `focus-${tag}`;
-        media.controls = true;
-        body.append(media);
-        media.focus();
-      }, tagName);
-      await expect
-        .poll(() =>
-          page.evaluate(
-            () =>
-              document.activeElement ===
-              document.querySelector("iframe[data-design-preview-iframe]"),
-          ),
-        )
-        .toBe(true);
-      await expect
-        .poll(() =>
-          frame
-            .locator("body")
-            .evaluate(
-              (body, tag) =>
-                body.ownerDocument.activeElement ===
-                body.ownerDocument.querySelector(`#focus-${tag}`),
-              tagName,
-            ),
-        )
-        .toBe(true);
-    }
-
-    await frame.locator("body").evaluate(() => {
-      const nested = document.createElement("iframe");
-      nested.id = "nested-focus-frame";
-      nested.srcdoc = '<input aria-label="Nested frame input">';
-      document.body.append(nested);
-    });
-    const nestedFrame = await frame
-      .locator("#nested-focus-frame")
-      .contentFrame();
-    await nestedFrame.locator("input").focus();
-    await expect
-      .poll(() =>
-        nestedFrame
-          .locator("input")
-          .evaluate((input) => input.ownerDocument.activeElement === input),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        frame
-          .locator("body")
-          .evaluate(
-            (body) =>
-              body.ownerDocument.activeElement ===
-              body.ownerDocument.querySelector("#nested-focus-frame"),
-          ),
-      )
-      .toBe(true);
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            document.activeElement ===
-            document.querySelector("iframe[data-design-preview-iframe]"),
-        ),
       )
       .toBe(true);
   });
@@ -540,6 +1356,13 @@ test.describe("URL-backed live auto-layout probe", () => {
       sourceBox.y + sourceBox.height / 2,
     );
     await page.keyboard.up(primaryModifier);
+    await expect
+      .poll(() =>
+        frame
+          .locator('[data-agent-native-edit-overlay="selection"]')
+          .evaluate((element) => getComputedStyle(element).display !== "none"),
+      )
+      .toBe(true);
     await page.mouse.move(
       sourceBox.x + sourceBox.width / 2,
       sourceBox.y + sourceBox.height / 2,
@@ -555,27 +1378,39 @@ test.describe("URL-backed live auto-layout probe", () => {
       targetBox.y + targetBox.height * 0.85,
       { steps: 20 },
     );
-    const heldGuides = await frame
-      .locator("[data-agent-native-insertion-guide]")
-      .evaluateAll((els) =>
-        els.map((el) => {
-          const rect = el.getBoundingClientRect();
-          return {
-            display: getComputedStyle(el).display,
-            width: rect.width,
-            height: rect.height,
-            borderTop: getComputedStyle(el).borderTopWidth,
-          };
-        }),
-      );
-    console.log("URL probe held insertion guides", JSON.stringify(heldGuides));
-    expect(
-      heldGuides.some(
-        (guide) =>
-          guide.width > 0 && guide.height > 0 && guide.display !== "none",
-      ),
-    ).toBe(true);
+    await expect
+      .poll(() =>
+        frame
+          .locator("[data-agent-native-insertion-guide]")
+          .evaluateAll((guides) =>
+            guides.some((guide) => {
+              const rect = guide.getBoundingClientRect();
+              return (
+                rect.width > 0 &&
+                rect.height > 0 &&
+                getComputedStyle(guide).display !== "none"
+              );
+            }),
+          ),
+      )
+      .toBe(true);
     await page.mouse.up();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const active = document.activeElement;
+          const canvas = document.querySelector(
+            "[data-multi-screen-canvas-surface]",
+          );
+          return (
+            active instanceof HTMLElement &&
+            active.tagName !== "IFRAME" &&
+            active.tabIndex === -1 &&
+            Boolean(canvas?.contains(active))
+          );
+        }),
+      )
+      .toBe(true);
     console.log(
       "URL probe structure messages",
       JSON.stringify(

@@ -109,11 +109,6 @@ const dbMock = vi.hoisted(() => {
   };
 });
 
-const jevMocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
-  isJevEnabled: vi.fn(),
-}));
-
 const settingsMocks = vi.hoisted(() => {
   const values = new Map<string, unknown>();
   const getUserSetting = vi.fn(async (_owner: string, key: string) =>
@@ -135,10 +130,12 @@ const settingsMocks = vi.hoisted(() => {
 
 const providerMocks = vi.hoisted(() => ({
   getClientsWithErrors: vi.fn(),
+  isConnected: vi.fn(),
   readCachedLabels: vi.fn(),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("drizzle-orm")>()),
   and: (...conditions: unknown[]) => ({ op: "and", conditions }),
   eq: (column: unknown, value: unknown) => ({ op: "eq", column, value }),
   inArray: (column: unknown, values: unknown[]) => ({
@@ -159,11 +156,6 @@ vi.mock("@agent-native/core/action", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: jevMocks.getJevContextCredentials,
-  isJevEnabled: jevMocks.isJevEnabled,
-}));
-
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: settingsMocks.getUserSetting,
   mutateUserSetting: settingsMocks.mutateUserSetting,
@@ -176,6 +168,7 @@ vi.mock("./automation-actions.js", () => ({
 
 vi.mock("./google-auth.js", () => ({
   getClientsWithErrors: providerMocks.getClientsWithErrors,
+  isConnected: providerMocks.isConnected,
 }));
 
 vi.mock("./inbox-store.js", () => ({
@@ -250,20 +243,28 @@ beforeEach(() => {
   settingsMocks.values.clear();
   settingsMocks.getUserSetting.mockClear();
   settingsMocks.mutateUserSetting.mockClear();
-  jevMocks.getJevContextCredentials.mockClear();
-  jevMocks.isJevEnabled.mockClear();
-  jevMocks.getJevContextCredentials.mockResolvedValue({
-    ownerEmail: "owner@example.test",
-  });
-  jevMocks.isJevEnabled.mockResolvedValue(true);
   providerMocks.getClientsWithErrors.mockResolvedValue({
     clients: [],
     errors: [],
   });
+  providerMocks.isConnected.mockResolvedValue(false);
   providerMocks.readCachedLabels.mockResolvedValue({ labels: [] });
 });
 
 describe("createAutomationRule AI tags", () => {
+  it("saves an AI rule without synchronously resolving its model", async () => {
+    const created = await createAutomationRule("owner@example.test", {
+      name: "AI important: team lead",
+      condition: "Messages from my team lead",
+      actions: [{ type: "label", labelName: "agent-native-important" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(created.enabled).toBe(true);
+    expect(dbMock.calls.insertValues).toHaveLength(1);
+  });
+
   it("pins one shared AI tag label in the default tab order", async () => {
     const input = {
       name: "AI tag: receipts",
@@ -284,6 +285,149 @@ describe("createAutomationRule AI tags", () => {
       pinnedLabels: ["receipts"],
     });
     expect(dbMock.calls.insertValues).toHaveLength(2);
+  });
+
+  it("pins Filtered with its first rule and keeps the shortcut after deletion", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: ["important"] });
+    dbMock.calls.rootRows = [];
+    const filteredRule = {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter" as const,
+    };
+
+    const created = await createAutomationRule(
+      "owner@example.test",
+      filteredRule,
+    );
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important", "agent-native-filtered"],
+    });
+
+    await deleteAutomationRule("owner@example.test", created.id);
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important", "agent-native-filtered"],
+    });
+  });
+
+  it("preserves Gmail's default Important pin when adding the first Filtered rule", async () => {
+    dbMock.calls.rootRows = [];
+    providerMocks.isConnected.mockResolvedValue(true);
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["important", "agent-native-filtered"],
+    });
+  });
+
+  it("migrates duplicate provider Filtered pins to one canonical system view", async () => {
+    dbMock.calls.rootRows = [];
+    settingsMocks.values.set("mail-settings", {
+      pinnedLabels: ["Label_123", "agent-native-filtered"],
+    });
+    providerMocks.isConnected.mockResolvedValue(true);
+    providerMocks.readCachedLabels.mockResolvedValue({
+      labels: [
+        { id: "Label_123", name: "agent-native-filtered", type: "user" },
+      ],
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages from senders I have not replied to",
+      actions: [
+        { type: "label" as const, labelName: "agent-native-filtered" },
+        { type: "archive" as const },
+      ],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["agent-native-filtered"],
+    });
+  });
+
+  it("does not repin a manually hidden Filtered view when another Filtered rule is added", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
+    dbMock.calls.rootRows.push({
+      id: "filtered-rule",
+      ownerEmail: "owner@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages",
+      actions: JSON.stringify([
+        { type: "label", labelName: "agent-native-filtered" },
+        { type: "archive" },
+      ]),
+      enabled: 1,
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_000,
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI filter: other cold sales",
+      condition: "A second cold sales rule",
+      actions: [
+        { type: "label", labelName: "agent-native-filtered" },
+        { type: "archive" },
+      ],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: [],
+    });
+  });
+
+  it("does not repin a manually hidden Filtered view when another tag is added", async () => {
+    settingsMocks.values.set("mail-settings", { pinnedLabels: [] });
+    dbMock.calls.rootRows.push({
+      id: "filtered-rule",
+      ownerEmail: "owner@example.test",
+      domain: "mail",
+      kind: "ai-filter",
+      name: "AI filter: cold sales",
+      condition: "Cold sales messages",
+      actions: JSON.stringify([
+        { type: "label", labelName: "agent-native-filtered" },
+        { type: "archive" },
+      ]),
+      enabled: 1,
+      createdAt: 1_700_000_000,
+      updatedAt: 1_700_000_000,
+    });
+
+    await createAutomationRule("owner@example.test", {
+      name: "AI tag: receipts",
+      condition: "Receipts",
+      actions: [{ type: "label", labelName: "Receipts" }],
+      domain: "mail",
+      kind: "ai-filter",
+    });
+
+    expect(settingsMocks.values.get("mail-settings")).toMatchObject({
+      pinnedLabels: ["receipts"],
+    });
   });
 
   it("keeps an existing hidden AI tag unpinned when rules are added or retagged to it", async () => {
@@ -470,59 +614,23 @@ describe("consolidateAutomationRules", () => {
     },
   );
 
-  it("requires Jev to edit an AI-filter rule", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
-    await expect(
-      updateAutomationRule("owner@example.test", "keep", {
-        condition: "Changed prompt",
-      }),
-    ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
-
-    expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-  });
-
-  it.each([
-    ["kind", { kind: "automation" as const, condition: "Changed prompt" }],
-    ["domain", { domain: "calendar", condition: "Changed prompt" }],
-  ])(
-    "requires Jev before downgrading an AI-filter rule by %s",
-    async (_field, patch) => {
-      jevMocks.isJevEnabled.mockResolvedValue(false);
-
-      await expect(
-        updateAutomationRule("owner@example.test", "keep", patch),
-      ).rejects.toMatchObject({
-        errorCode: "jev_not_enabled",
-        statusCode: 403,
-      });
-
-      expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-    },
-  );
-
-  it("allows disabling an AI-filter rule when Jev is unavailable", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
+  it("updates an AI-filter rule without synchronously resolving its model", async () => {
     await updateAutomationRule("owner@example.test", "keep", {
-      enabled: false,
+      condition: "Changed prompt",
     });
 
-    expect(jevMocks.isJevEnabled).not.toHaveBeenCalled();
-    expect(dbMock.calls.rootUpdateValues).toEqual([
-      { enabled: 0, updatedAt: expect.any(Number) },
-    ]);
+    expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
+      condition: "Changed prompt",
+    });
   });
 
-  it("does not require Jev to edit a regular automation", async () => {
+  it("does not require a Mail AI model to edit a regular automation", async () => {
     dbMock.calls.rootRows[0].kind = "automation";
-    jevMocks.isJevEnabled.mockResolvedValue(false);
 
     await updateAutomationRule("owner@example.test", "keep", {
       condition: "Changed prompt",
     });
 
-    expect(jevMocks.isJevEnabled).not.toHaveBeenCalled();
     expect(dbMock.calls.rootUpdateValues[0]).toMatchObject({
       condition: "Changed prompt",
     });
@@ -555,22 +663,5 @@ describe("consolidateAutomationRules", () => {
     });
 
     expect(dbMock.calls.rootUpdateWhere).toHaveLength(0);
-  });
-
-  it("requires Jev before consolidating AI-filter rules", async () => {
-    jevMocks.isJevEnabled.mockResolvedValue(false);
-
-    await expect(
-      consolidateAutomationRules("owner@example.test", {
-        id: "keep",
-        duplicateIds: ["duplicate"],
-        expectedRules: expectedRules(),
-        name: "Updated",
-        condition: "Updated prompt",
-        actions: [{ type: "label", labelName: "agent-native-important" }],
-      }),
-    ).rejects.toMatchObject({ errorCode: "jev_not_enabled", statusCode: 403 });
-
-    expect(dbMock.db.transaction).not.toHaveBeenCalled();
   });
 });

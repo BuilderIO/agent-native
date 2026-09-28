@@ -7,6 +7,7 @@ import type {
   RemoteAgentAuth,
   RemoteAgentKind,
 } from "../resources/metadata.js";
+import { HIDDEN_FIRST_PARTY_AGENT_IDS } from "../shared/first-party-agents.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -76,21 +77,6 @@ const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   devPort: template.devPort,
   color: template.color,
 }));
-
-const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set([
-  ...TEMPLATES.filter(
-    (template) => template.hidden && !template.defaultAgent && template.prodUrl,
-  ).map((template) => template.name),
-  "calls",
-  "code",
-  "issues",
-  "meeting-notes",
-  "migration",
-  "recruiting",
-  "scheduling",
-  "voice",
-  "workbench",
-]);
 
 export function normalizeAgentId(id: string): string {
   const normalized = id.trim().toLowerCase();

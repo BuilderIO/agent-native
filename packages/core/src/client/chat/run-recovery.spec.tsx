@@ -26,6 +26,17 @@ const deferredUiModuleLoads = vi.hoisted(() => ({
   builderConnectPopover: false,
 }));
 
+const featureFlagMock = vi.hoisted(() => ({
+  state: { status: "ready", enabled: false } as {
+    status: "loading" | "ready" | "unavailable";
+    enabled: boolean;
+  },
+}));
+
+vi.mock("../feature-flags/use-feature-flag.js", () => ({
+  useFeatureFlagState: () => featureFlagMock.state,
+}));
+
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
@@ -235,6 +246,9 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toMatch(/error/i);
     expect(container.firstElementChild?.className).toContain("bg-card");
     expect(container.firstElementChild?.className).not.toContain("amber");
+    const creditsLayout = container.firstElementChild?.firstElementChild;
+    expect(creditsLayout?.className).toContain("flex-col");
+    expect(creditsLayout?.className).toContain("@md:flex-row");
     expect(upgradeLink?.textContent).toContain("Add credits in Builder");
     expect(upgradeLink?.target).toBe("_blank");
     expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
@@ -519,7 +533,11 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain(
       "The agent stopped before finishing",
     );
-    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '.agent-builder-setup-card__copy button[aria-label="Retry"]',
+      ),
+    ).toBeTruthy();
     expect(container.querySelector('button[aria-label="New chat"]')).toBeNull();
     expect(
       container.querySelector('button[aria-label="Copy debug info"]'),
@@ -606,6 +624,31 @@ describe("run recovery surfaces", () => {
     expect(container.querySelector('input[type="password"]')).toBeNull();
   });
 
+  it("links custom keys to the Model page with the settings redesign on", async () => {
+    featureFlagMock.state = { status: "ready", enabled: true };
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <BuilderSetupContent />
+          </AgentNativeI18nProvider>,
+        );
+      });
+
+      const customKeysLink = Array.from(container.querySelectorAll("a")).find(
+        (link) => link.textContent?.includes("Custom keys"),
+      );
+      expect(customKeysLink?.getAttribute("href")).toBe("/settings/model");
+      expect(container.querySelector('input[type="password"]')).toBeNull();
+    } finally {
+      featureFlagMock.state = { status: "ready", enabled: false };
+    }
+  });
+
   it("keeps sidebar provider actions in a horizontal row", async () => {
     await act(async () => {
       root.render(
@@ -642,10 +685,16 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__panel"),
+    ).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__copy"),
+    ).toBeTruthy();
 
     await act(async () => {
       retryButton?.click();
@@ -681,6 +730,41 @@ describe("run recovery surfaces", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the Max iterations setting by its section, not the URL hash", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const sections: unknown[] = [];
+    const listener = (event: Event) =>
+      sections.push((event as CustomEvent<{ section?: string }>).detail);
+    window.addEventListener("agent-panel:open-settings", listener);
+    const hashBefore = window.location.hash;
+    try {
+      await act(async () => {
+        root.render(
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <LoopLimitContinueCard
+              info={{ maxIterations: 40 }}
+              onContinue={vi.fn()}
+            />
+          </AgentNativeI18nProvider>,
+        );
+      });
+      const settingsButton = Array.from(
+        container.querySelectorAll("button"),
+      ).find((button) => /settings/i.test(button.textContent ?? ""));
+      await act(async () => {
+        settingsButton?.click();
+      });
+      expect(sections).toEqual([{ section: "limits" }]);
+      expect(window.location.hash).toBe(hashBefore);
+    } finally {
+      window.removeEventListener("agent-panel:open-settings", listener);
+    }
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
@@ -712,7 +796,7 @@ describe("run recovery surfaces", () => {
   // once a 401 started fingerprinting and skipping that credential, so the
   // setup flow and a retry now ship together.
   //
-  // The setup state keeps the retry action available below the card.
+  // The setup state keeps retry inside the card so attached spacing stays intact.
   it("shows the AI setup flow AND a retry button for a rejected provider key", async () => {
     const onRetry = vi.fn();
     await act(async () => {
@@ -739,10 +823,13 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
+    expect(
+      retryButton?.closest(".agent-builder-setup-card__panel"),
+    ).toBeTruthy();
     await act(async () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -772,8 +859,8 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     expect(retryButton).toBeTruthy();
 
@@ -823,11 +910,11 @@ describe("run recovery surfaces", () => {
     );
     expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
-    expect(container.textContent).toContain("Retry");
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeTruthy();
     expect(onRetry).not.toHaveBeenCalled();
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "Retry",
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
     );
     await act(async () => {
       retryButton?.click();

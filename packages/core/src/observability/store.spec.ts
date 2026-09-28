@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 interface ExecCall {
   sql: string;
   args: any[];
@@ -10,6 +12,9 @@ let selectedRows: Record<string, unknown>[] = [];
 const mockEnsureIndexExists = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
+const executeResults: Array<{ rows: any[]; rowsAffected: number }> = [];
+const ensuredColumns = vi.hoisted(() => [] as string[]);
+const ensuredIndexes = vi.hoisted(() => [] as string[]);
 
 function createCapturingDb() {
   return {
@@ -17,10 +22,12 @@ function createCapturingDb() {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args ?? []);
       execCalls.push({ sql: rawSql, args });
-      return {
-        rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
-        rowsAffected: 0,
-      };
+      return (
+        executeResults.shift() ?? {
+          rows: /^\s*SELECT\b/i.test(rawSql) ? selectedRows : [],
+          rowsAffected: 0,
+        }
+      );
     }),
   };
 }
@@ -33,8 +40,15 @@ vi.mock("../db/client.js", () => ({
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
-  ensureColumnExists: vi.fn().mockResolvedValue(undefined),
-  ensureIndexExists: mockEnsureIndexExists,
+  ensureColumnExists: vi.fn(
+    async (table: string, column: string, sql: string) => {
+      ensuredColumns.push(`${table}.${column}:${sql}`);
+    },
+  ),
+  ensureIndexExists: vi.fn(async (name: string, sql: string) => {
+    ensuredIndexes.push(`${name}:${sql}`);
+    return mockEnsureIndexExists(name, sql);
+  }),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -48,7 +62,7 @@ const {
   getOrgScopedThreadData,
   getOrgScopedThreadTitles,
   getOrgScopedReviewThreads,
-  getRecentReviewRunsForThreads,
+  getRecentReviewRunsForReviewGroups,
   getHumanReviewSummaries,
   getHumanReviewSummariesForThreads,
   getFeedback,
@@ -61,6 +75,10 @@ const {
   insertTraceSpan,
   insertEvalResult,
   insertFeedback,
+  insertEvalDataset,
+  getEvalDatasetByName,
+  findPromotedEvalDataset,
+  savePromotedEvalDataset,
   upsertTraceSummary,
   upsertHumanReviewSummary,
   upsertSatisfactionScore,
@@ -76,6 +94,7 @@ describe("observability store: per-user isolation", () => {
   beforeEach(() => {
     execCalls.length = 0;
     selectedRows = [];
+    executeResults.length = 0;
     vi.clearAllMocks();
   });
 
@@ -169,6 +188,239 @@ describe("observability store: per-user isolation", () => {
         "org-a",
         20,
       ]);
+    });
+
+    it("rolls recurring automation runs up by resource without crossing orgs", async () => {
+      const pg = await createTestPglite();
+      try {
+        await pg.exec(`
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT,
+            total_spans BIGINT DEFAULT 0, llm_calls BIGINT DEFAULT 0,
+            tool_calls BIGINT DEFAULT 0, successful_tools BIGINT DEFAULT 0,
+            failed_tools BIGINT DEFAULT 0, total_duration_ms BIGINT DEFAULT 0,
+            total_cost_cents_x100 BIGINT DEFAULT 0,
+            total_input_tokens BIGINT DEFAULT 0,
+            total_output_tokens BIGINT DEFAULT 0, model TEXT DEFAULT '',
+            created_at BIGINT NOT NULL
+          );
+          CREATE TABLE agent_trace_spans (
+            id TEXT PRIMARY KEY, run_id TEXT NOT NULL, org_id TEXT,
+            span_type TEXT NOT NULL, name TEXT NOT NULL, metadata TEXT,
+            created_at BIGINT
+          );
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT, title TEXT
+          );
+          CREATE TABLE agent_human_review_summaries (
+            run_id TEXT, org_id TEXT
+          );
+        `);
+        const runs = [
+          {
+            runId: "a-old",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-a1",
+            createdAt: 1,
+            automationId: "resource-a",
+          },
+          {
+            runId: "a-new",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-a2",
+            createdAt: 3,
+            automationId: "resource-a",
+          },
+          {
+            runId: "b-only",
+            orgId: "org-b",
+            userId: "alice@example.com",
+            threadId: "thread-b1",
+            createdAt: 2,
+            automationId: "resource-a",
+          },
+          {
+            runId: "c-only",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-c1",
+            createdAt: 4,
+            automationId: "resource-b",
+          },
+          {
+            runId: "d-only",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-d1",
+            createdAt: 5,
+          },
+          {
+            runId: "e-personal-alice",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-e1",
+            createdAt: 6,
+            automationId: "personal-resource",
+            scope: "personal",
+          },
+          {
+            runId: "f-personal-bob",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-f1",
+            createdAt: 7,
+            automationId: "personal-resource",
+            scope: "personal",
+          },
+          {
+            runId: "g-legacy-org-one",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-g1",
+            createdAt: 8,
+            legacyAutomationName: "nightly-cleanup",
+          },
+          {
+            runId: "h-legacy-org-two",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            threadId: "thread-h1",
+            createdAt: 9,
+            legacyAutomationName: "nightly-cleanup",
+          },
+          {
+            runId: "i-legacy-personal-one",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-i1",
+            createdAt: 10,
+            legacyAutomationName: "personal-cleanup",
+            scope: "personal",
+          },
+          {
+            runId: "j-legacy-personal-two",
+            orgId: "org-a",
+            userId: "alice@example.com",
+            threadId: "thread-j1",
+            createdAt: 11,
+            legacyAutomationName: "personal-cleanup",
+            scope: "personal",
+          },
+        ] as const;
+        for (const run of runs) {
+          await pg.query(
+            `INSERT INTO agent_trace_summaries
+              (run_id, thread_id, user_id, org_id, created_at)
+              VALUES ($1, $2, $3, $4, $5)`,
+            [run.runId, run.threadId, run.userId, run.orgId, run.createdAt],
+          );
+          await pg.query(
+            `INSERT INTO chat_threads (id, org_id, owner_email, title)
+              VALUES ($1, $2, $3, $4)`,
+            [run.threadId, run.orgId, run.userId, "A real thread"],
+          );
+          if (run.automationId || run.legacyAutomationName) {
+            await pg.query(
+              `INSERT INTO agent_trace_spans
+                (id, run_id, org_id, span_type, name, metadata, created_at)
+                VALUES ($1, $2, $3, 'agent_run', $4, $5, $6)`,
+              [
+                `span-${run.runId}`,
+                run.runId,
+                run.orgId,
+                `background_automation_run:${run.legacyAutomationName ?? "daily-digest"}`,
+                JSON.stringify({
+                  ...(run.automationId
+                    ? { automationId: run.automationId }
+                    : {}),
+                  automation: run.legacyAutomationName ?? "daily-digest",
+                  scope: run.scope ?? "organization",
+                }),
+                run.createdAt,
+              ],
+            );
+          }
+        }
+        vi.mocked(mockDb.execute).mockImplementationOnce(async (input) => {
+          if (typeof input === "string") {
+            const result = await pg.query(input);
+            return { rows: result.rows, rowsAffected: 0 };
+          }
+          const result = await pg.query(input.sql, input.args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+
+        const summaries = await getTraceSummaries({
+          sinceMs: 0,
+          limit: 20,
+          excludeSpanName: "agent_run:observability:human-review-summary",
+          requireReviewContext: true,
+        });
+
+        expect(mockDb.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sql: expect.stringContaining(
+              "ROWS BETWEEN CURRENT ROW AND 5 FOLLOWING",
+            ),
+          }),
+        );
+        expect(summaries).toHaveLength(10);
+        expect(summaries).toContainEqual(
+          expect.objectContaining({
+            runId: "a-new",
+            orgId: "org-a",
+            userId: "bob@example.com",
+            runCount: 2,
+            reviewGroupLabel: "daily-digest",
+            reviewGroupRunIds: ["a-new", "a-old"],
+          }),
+        );
+        expect(
+          summaries.filter(
+            (summary) => summary.reviewGroupLabel === "daily-digest",
+          ),
+        ).toHaveLength(5);
+        expect(
+          summaries.filter((summary) =>
+            summary.reviewGroupLabel?.endsWith("cleanup"),
+          ),
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ runId: "g-legacy-org-one", runCount: 1 }),
+            expect.objectContaining({ runId: "h-legacy-org-two", runCount: 1 }),
+            expect.objectContaining({
+              runId: "i-legacy-personal-one",
+              runCount: 1,
+            }),
+            expect.objectContaining({
+              runId: "j-legacy-personal-two",
+              runCount: 1,
+            }),
+          ]),
+        );
+        expect(
+          summaries.filter(
+            (summary) =>
+              summary.runId.startsWith("e-personal-") ||
+              summary.runId.startsWith("f-personal-"),
+          ),
+        ).toEqual([
+          expect.objectContaining({
+            runId: "f-personal-bob",
+            userId: "bob@example.com",
+            runCount: 1,
+          }),
+          expect.objectContaining({
+            runId: "e-personal-alice",
+            userId: "alice@example.com",
+            runCount: 1,
+          }),
+        ]);
+      } finally {
+        await pg.close();
+      }
     });
 
     it("excludes other-org and legacy NULL-org threads before reading thread data", async () => {
@@ -275,36 +527,98 @@ describe("observability store: per-user isolation", () => {
       });
     });
 
-    it("loads recent review runs only through org-owned thread rows", async () => {
-      await getRecentReviewRunsForThreads({
-        threadScopes: [
-          { orgId: "org-a", threadId: "thread-a" },
-          { orgId: "org-b", threadId: "thread-a" },
+    it("loads only explicitly grouped runs through org-owned thread rows", async () => {
+      await getRecentReviewRunsForReviewGroups({
+        runScopes: [
+          { orgId: "org-a", runId: "run-a" },
+          { orgId: "org-b", runId: "run-a" },
         ],
         sinceMs: 100,
-        perThreadLimit: 6,
       });
       const call = lastSelect();
       expect(call.sql).toMatch(
         /INNER JOIN chat_threads thread\s+ON thread\.id = summary\.thread_id AND thread\.org_id = summary\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(summary\.user_id\)/,
       );
-      expect(call.sql).toContain(
-        "(summary.org_id = ? AND summary.thread_id = ?)",
-      );
-      expect(call.sql).toContain(
-        "name = 'agent_run:observability:human-review-summary'",
-      );
-      expect(call.sql).toContain(
-        "PARTITION BY summary.org_id, summary.thread_id",
-      );
-      expect(call.args).toEqual([
-        100,
-        "org-a",
-        "thread-a",
-        "org-b",
-        "thread-a",
-        6,
-      ]);
+      expect(call.sql).toContain("(summary.org_id = ? AND summary.run_id = ?)");
+      expect(call.sql).toContain("AS is_human_review_summary_run");
+      expect(call.args).toEqual([100, "org-a", "run-a", "org-b", "run-a"]);
+    });
+
+    it("keeps scoped threads from summary runs without exposing those runs", async () => {
+      const pg = await createTestPglite();
+      try {
+        await pg.exec(`
+          CREATE TABLE agent_trace_summaries (
+            run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT,
+            created_at BIGINT NOT NULL
+          );
+          CREATE TABLE agent_trace_spans (
+            run_id TEXT NOT NULL, org_id TEXT, span_type TEXT NOT NULL, name TEXT NOT NULL
+          );
+          CREATE TABLE chat_threads (
+            id TEXT, org_id TEXT, owner_email TEXT
+          );
+        `);
+        for (const run of [
+          {
+            runId: "summary-run",
+            threadId: "summary-thread",
+            createdAt: 200,
+          },
+          { runId: "normal-run", threadId: "normal-thread", createdAt: 100 },
+          { runId: "other-org-run", threadId: "other-thread", createdAt: 150 },
+        ]) {
+          const orgId = run.runId === "other-org-run" ? "org-b" : "org-a";
+          await pg.query(
+            `INSERT INTO agent_trace_summaries
+              (run_id, thread_id, user_id, org_id, created_at)
+              VALUES ($1, $2, 'alice@example.com', $3, $4)`,
+            [run.runId, run.threadId, orgId, run.createdAt],
+          );
+          await pg.query(
+            `INSERT INTO chat_threads (id, org_id, owner_email)
+              VALUES ($1, $2, 'alice@example.com')`,
+            [run.threadId, orgId],
+          );
+        }
+        await pg.query(
+          `INSERT INTO agent_trace_spans (run_id, org_id, span_type, name)
+            VALUES ('summary-run', 'org-a', 'agent_run',
+              'agent_run:observability:human-review-summary')`,
+        );
+        vi.mocked(mockDb.execute).mockImplementationOnce(async (input) => {
+          const result =
+            typeof input === "string"
+              ? await pg.query(input)
+              : await pg.query(input.sql, input.args ?? []);
+          return { rows: result.rows, rowsAffected: 0 };
+        });
+
+        const result = await getRecentReviewRunsForReviewGroups({
+          runScopes: [
+            { orgId: "org-a", runId: "summary-run" },
+            { orgId: "org-a", runId: "normal-run" },
+            { orgId: "org-a", runId: "other-org-run" },
+          ],
+          sinceMs: 0,
+        });
+
+        expect(result.runs.map((run) => run.runId)).toEqual(["normal-run"]);
+        expect(result.runThreadScopes).toEqual([
+          {
+            orgId: "org-a",
+            runId: "summary-run",
+            threadId: "summary-thread",
+          },
+          {
+            orgId: "org-a",
+            runId: "normal-run",
+            threadId: "normal-thread",
+          },
+        ]);
+      } finally {
+        await pg.close();
+      }
     });
 
     it("bounds successful tool span and metadata reads in SQL", async () => {
@@ -383,27 +697,39 @@ describe("observability store: per-user isolation", () => {
         },
       ];
       await expect(
-        getHumanReviewSummariesForThreads([
-          { orgId: "org-a", threadId: "thread-a" },
-          { orgId: "org-b", threadId: "thread-a" },
-        ]),
+        getHumanReviewSummariesForThreads(
+          [
+            { orgId: "org-a", threadId: "thread-a" },
+            { orgId: "org-b", threadId: "thread-a" },
+          ],
+          [{ orgId: "org-a", runId: "run-old" }],
+        ),
       ).resolves.toMatchObject(
         new Map([
           [
             JSON.stringify(["org-a", "thread-a"]),
-            {
-              runId: "run-newest",
-              ask: "Current ask",
-              outcome: "Current outcome",
-            },
+            [
+              {
+                runId: "run-newest",
+                ask: "Current ask",
+                outcome: "Current outcome",
+              },
+              {
+                runId: "run-old",
+                ask: "Old ask",
+                outcome: "Old outcome",
+              },
+            ],
           ],
           [
             JSON.stringify(["org-b", "thread-a"]),
-            {
-              runId: "run-other-org",
-              ask: "Other org ask",
-              outcome: "Other org outcome",
-            },
+            [
+              {
+                runId: "run-other-org",
+                ask: "Other org ask",
+                outcome: "Other org outcome",
+              },
+            ],
           ],
         ]),
       );
@@ -415,12 +741,67 @@ describe("observability store: per-user isolation", () => {
         /INNER JOIN chat_threads thread\s+ON thread\.id = trace\.thread_id AND thread\.org_id = trace\.org_id\s+AND LOWER\(thread\.owner_email\) = LOWER\(trace\.user_id\)/,
       );
       expect(call.sql).toMatch(
-        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\)\)/,
+        /WHERE \(\(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.thread_id = \?\) OR \(review\.org_id = \? AND trace\.run_id = \?\)\)/,
       );
       expect(call.sql).toMatch(
         /ORDER BY review\.updated_at DESC, review\.run_id DESC/,
       );
-      expect(call.args).toEqual(["org-a", "thread-a", "org-b", "thread-a"]);
+      expect(call.args).toEqual([
+        "org-a",
+        "thread-a",
+        "org-b",
+        "thread-a",
+        "org-a",
+        "run-old",
+        "org-a",
+        "run-old",
+      ]);
+    });
+
+    it("loads explicitly requested summaries from older grouped threads", async () => {
+      selectedRows = [
+        {
+          run_id: "run-old",
+          org_id: "org-a",
+          ask: "Earlier ask",
+          outcome: "Earlier outcome",
+          artifacts: "[]",
+          created_by: "alice@example.com",
+          created_at: 1,
+          updated_at: 2,
+          review_thread_id: "thread-old",
+        },
+      ];
+      await expect(
+        getHumanReviewSummariesForThreads(
+          [{ orgId: "org-a", threadId: "thread-latest" }],
+          [{ orgId: "org-a", runId: "run-old" }],
+        ),
+      ).resolves.toMatchObject(
+        new Map([
+          [
+            JSON.stringify(["org-a", "thread-old"]),
+            [
+              {
+                runId: "run-old",
+                ask: "Earlier ask",
+                outcome: "Earlier outcome",
+              },
+            ],
+          ],
+        ]),
+      );
+      expect(lastSelect().sql).toContain(
+        "(review.org_id = ? AND trace.run_id = ?)",
+      );
+      expect(lastSelect().args).toEqual([
+        "org-a",
+        "thread-latest",
+        "org-a",
+        "run-old",
+        "org-a",
+        "run-old",
+      ]);
     });
 
     it("parses valid persisted summary artifacts", async () => {
@@ -694,6 +1075,47 @@ describe("observability store: per-user isolation", () => {
       ]);
     });
 
+    it("reads feedback only for the explicit org/run pairs in review groups", async () => {
+      await getFeedback({
+        runScopes: [
+          { orgId: "org-a", runId: "shared-run" },
+          { orgId: "org-b", runId: "shared-run" },
+        ],
+        perThreadLimit: 6,
+      });
+
+      const call = lastSelect();
+      expect(call.sql).toContain(
+        "(org_id = ? AND run_id = ?) OR (org_id = ? AND run_id = ?)",
+      );
+      expect(call.sql).toContain(
+        "PARTITION BY org_id,\n              CASE WHEN run_id IS NULL THEN 'thread:' || COALESCE(thread_id, '')",
+      );
+      expect(call.args).toEqual([
+        "org-a",
+        "shared-run",
+        "org-b",
+        "shared-run",
+        6,
+      ]);
+    });
+
+    it("retains the full bounded set of grouped feedback thread scopes", async () => {
+      await getFeedback({
+        threadScopes: Array.from({ length: 600 }, (_, index) => ({
+          orgId: "org-a",
+          threadId: `thread-${index}`,
+        })),
+      });
+
+      const call = lastSelect();
+      expect(
+        call.sql.match(/\(org_id = \? AND thread_id = \?\)/g),
+      ).toHaveLength(600);
+      expect(call.args).toHaveLength(1201);
+      expect(call.args).toContain("thread-599");
+    });
+
     it("defaults review rollups to six feedback rows per thread and caps overrides", async () => {
       await getFeedback({
         threadIds: ["thread-a", "thread-b"],
@@ -730,6 +1152,21 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE run_id = \? AND user_id = \?/);
       expect(call.args).toEqual(["run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName scopes by user_id (prevents IDOR by name)", async () => {
+      await getEvalDatasetByName("from-trace:run-x", { userId: "alice" });
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \? AND user_id = \?/);
+      expect(call.args).toEqual(["from-trace:run-x", "alice"]);
+    });
+
+    it("getEvalDatasetByName omits user_id filter when userId is undefined", async () => {
+      await getEvalDatasetByName("from-trace:run-x");
+      const call = lastSelect();
+      expect(call.sql).toMatch(/WHERE name = \?/);
+      expect(call.sql).not.toMatch(/user_id/);
+      expect(call.args).toEqual(["from-trace:run-x"]);
     });
 
     it("getEvalStats applies user_id to BOTH sub-queries", async () => {
@@ -843,6 +1280,24 @@ describe("observability store: per-user isolation", () => {
       );
     });
 
+    it("insertEvalDataset persists user_id", async () => {
+      await insertEvalDataset({
+        id: "ds1",
+        name: "from-trace:run-1",
+        description: "Promoted from production run run-1",
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      const call = execCalls.find((c) =>
+        /INSERT INTO agent_eval_datasets/.test(c.sql),
+      );
+      expect(call).toBeDefined();
+      expect(call!.sql).toMatch(/\buser_id\b/);
+      expect(call!.args).toContain("alice");
+    });
+
     it("insertEvalResult persists user_id", async () => {
       await insertEvalResult({
         id: "e1",
@@ -880,6 +1335,133 @@ describe("observability store: per-user isolation", () => {
       expect(call).toBeDefined();
       expect(call!.sql).toMatch(/\buser_id\b/);
       expect(call!.args).toContain("alice");
+    });
+
+    it("claims one dataset per owner and source run", async () => {
+      await getEvalDatasetByName("warmup");
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.idempotency_key:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+      );
+      expect(ensuredIndexes).toContain(
+        "idx_eval_datasets_idempotency:CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_datasets_idempotency ON agent_eval_datasets (idempotency_key)",
+      );
+
+      const key = "from-trace:alice%40example.com:run-1";
+      const description = "Promoted from production run run-1";
+      execCalls.length = 0;
+      const found = await findPromotedEvalDataset({
+        idempotencyKey: key,
+        description,
+        userId: "alice@example.com",
+      });
+      expect(found).toBeNull();
+      const lookup = execCalls.find((call) =>
+        /FROM agent_eval_datasets/i.test(call.sql),
+      );
+      expect(lookup?.sql).toMatch(/user_id = \?/);
+      expect(lookup?.sql).toMatch(/idempotency_key = \?/);
+      expect(lookup?.args).toEqual([
+        "alice@example.com",
+        "alice@example.com",
+        key,
+        description,
+        key,
+      ]);
+
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const saved = await savePromotedEvalDataset({
+        id: "ds-new",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello", tags: ["from-trace", "run-1"] }],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(saved.id).toBe("ds-new");
+      const insert = execCalls.find((call) =>
+        /INSERT INTO agent_eval_datasets/.test(call.sql),
+      );
+      expect(insert?.sql).toMatch(/ON CONFLICT \(idempotency_key\) DO NOTHING/);
+      expect(insert?.args).toContain(key);
+      expect(insert?.args).toContain("alice@example.com");
+
+      const legacy = {
+        id: "ds-legacy",
+        name: "from-trace:run-1",
+        description,
+        entries: JSON.stringify([
+          { input: "hello", tags: ["from-trace", "run-1"] },
+        ]),
+        created_at: 1,
+        updated_at: 2,
+        user_id: "alice@example.com",
+        idempotency_key: null,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [legacy], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 1 });
+      const claimed = await savePromotedEvalDataset({
+        id: "ds-retry",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 3,
+        updatedAt: 3,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(claimed.id).toBe("ds-legacy");
+      expect(claimed.idempotencyKey).toBe(key);
+      expect(
+        execCalls.some((call) =>
+          /INSERT INTO agent_eval_datasets/.test(call.sql),
+        ),
+      ).toBe(false);
+      const claim = execCalls.find((call) =>
+        /UPDATE agent_eval_datasets/i.test(call.sql),
+      );
+      expect(claim?.sql).toMatch(/SET idempotency_key = \?/);
+      expect(claim?.args?.[0]).toBe(key);
+
+      const winner = {
+        ...legacy,
+        id: "ds-winner",
+        idempotency_key: key,
+      };
+      execCalls.length = 0;
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [], rowsAffected: 0 });
+      executeResults.push({ rows: [winner], rowsAffected: 0 });
+      const raced = await savePromotedEvalDataset({
+        id: "ds-loser",
+        name: "from-trace:run-1",
+        description,
+        entries: [{ input: "hello" }],
+        createdAt: 4,
+        updatedAt: 4,
+        userId: "alice@example.com",
+        idempotencyKey: key,
+      });
+      expect(raced.id).toBe("ds-winner");
+    });
+
+    it("adds user_id to an existing agent_eval_datasets table before insert", async () => {
+      await insertEvalDataset({
+        id: "ds-migrate",
+        name: "from-trace:run-migrate",
+        description: "",
+        entries: [],
+        createdAt: 1,
+        updatedAt: 1,
+        userId: "alice",
+      });
+      expect(ensuredColumns).toContain(
+        "agent_eval_datasets.user_id:ALTER TABLE agent_eval_datasets ADD COLUMN IF NOT EXISTS user_id TEXT",
+      );
     });
 
     it("insertFeedback persists user_id and dedupes idempotency keys", async () => {

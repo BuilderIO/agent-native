@@ -917,6 +917,9 @@ function ToolCallDisplayGeneric({
     resultJson: parsedResult,
     isRunning,
     isActiveTail,
+    ...(typeof toolCallId === "string"
+      ? { widgetId: `${toolCallId}:chat-ui` }
+      : {}),
     chatUI,
   };
   const skipRegistryRenderer =

@@ -1,3 +1,22 @@
+## 0.4.8
+
+### Patch Changes
+
+- ffad302: Allow command dialogs to configure the underlying command root for custom ranking and controlled selection.
+- ffad302: Ease in the backdrop blur for instant command dialogs while keeping the command surface immediately responsive.
+
+## 0.4.7
+
+### Patch Changes
+
+- 38ca6fa: Motion polish across shared UI: overlay primitives (tooltip, popover, select, context/menubar menus) now scale from their trigger, exit with ease-out, and respect prefers-reduced-motion; new shared easing tokens (--ease-drawer, --ease-collapse, --ease-out-strong); press feedback on the shared Button and composer send button; GPU-friendly progress fills; chat tool cells (files-changed/edit/write) animate open/closed like other disclosures.
+
+## 0.4.6
+
+### Patch Changes
+
+- f43d34c: Release the updated skill guidance and portable drawer component types.
+
 ## 0.4.5
 
 ### Patch Changes

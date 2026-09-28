@@ -33,6 +33,21 @@ const FIXTURE = `<!doctype html><html><body style="margin:0">
        style="position:absolute;left:190px;top:300px;width:120px;height:80px;background:#ec4899"></div>
 </body></html>`;
 
+const DEEP_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="screen-root" data-agent-native-layer-name="Screen"
+       data-an-primitive="frame"
+       style="position:absolute;left:0;top:0;width:520px;height:420px;background:#111827">
+    <div data-agent-native-node-id="outer-frame" data-agent-native-layer-name="Outer"
+         style="position:absolute;left:40px;top:40px;width:320px;height:280px;background:#1f2937">
+      <div data-agent-native-node-id="middle-frame" data-agent-native-layer-name="Middle"
+           style="position:absolute;left:20px;top:20px;width:260px;height:220px;background:#374151">
+        <div data-agent-native-node-id="grandchild" data-agent-native-layer-name="Grandchild"
+             style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+      </div>
+    </div>
+  </div>
+</body></html>`;
+
 describe("container-first click selection", () => {
   it("clicking a child nested inside Card selects Card, not the child", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -61,6 +76,46 @@ describe("container-first click selection", () => {
 
       expect(selected[selected.length - 1]).toBe("card");
       expect(selected).not.toContain("kid-a");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("clicking a grandchild selects its direct child under the screen root", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DEEP_SELECTION_FIXTURE);
+      expect(
+        await page.evaluate(() =>
+          document
+            .elementFromPoint(100, 100)
+            ?.getAttribute("data-agent-native-node-id"),
+        ),
+      ).toBe("grandchild");
+      const selected: string[] = [];
+      await page.exposeFunction("__pushSelected", (id: string) =>
+        selected.push(id),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (e: MessageEvent) => {
+          const data = e.data as {
+            type?: string;
+            payload?: { sourceId?: string };
+          };
+          if (data?.type === "element-select") {
+            (window as any).__pushSelected(data.payload?.sourceId ?? "");
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      await page.mouse.click(100, 100);
+      await vi.waitFor(() => expect(selected.length).toBeGreaterThan(0));
+
+      expect(selected[selected.length - 1]).toBe("outer-frame");
+      expect(selected).not.toContain("middle-frame");
+      expect(selected).not.toContain("grandchild");
     } finally {
       await browser.close();
     }

@@ -1117,6 +1117,67 @@ describe("integrations plugin routes", () => {
     expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { attempts: 2, retryable: true },
+    { attempts: 3, retryable: false },
+  ])(
+    "counts webhook automation failures against the task retry limit on attempt $attempts",
+    async ({ attempts, retryable }) => {
+      process.env.NODE_ENV = "development";
+      const task = {
+        id: "automation-webhook-failed-task",
+        platform: "automation-webhook",
+        externalThreadId: "owner+qa@example.com:jobs/webhook.md",
+        payload: JSON.stringify({
+          kind: "automation-webhook",
+          automationId: "automation-1",
+          owner: "owner+qa@example.com",
+          path: "jobs/webhook.md",
+          eventId: "event-1",
+          payload: { ok: true },
+        }),
+        ownerEmail: "owner+qa@example.com",
+        orgId: null,
+        status: "processing",
+        attempts,
+        errorMessage: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        completedAt: null,
+      };
+      claimPendingTaskMock.mockResolvedValueOnce(task);
+      dispatchAutomationWebhookTaskMock.mockRejectedValueOnce(
+        new Error("temporary agent failure"),
+      );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        { taskId: task.id },
+      );
+
+      expect(result.status).toBe(500);
+      if (retryable) {
+        expect(markTaskRetryableMock).toHaveBeenCalledWith(
+          task.id,
+          "temporary agent failure",
+        );
+        expect(markTaskRetryableMock.mock.calls[0]).toHaveLength(2);
+        expect(markTaskFailedMock).not.toHaveBeenCalled();
+      } else {
+        expect(markTaskFailedMock).toHaveBeenCalledWith(
+          task.id,
+          "temporary agent failure",
+        );
+        expect(markTaskRetryableMock).not.toHaveBeenCalled();
+      }
+      expect(markTaskCompletedMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("finishes a checkpointed campaign delivery without rerunning the agent", async () => {
     process.env.NODE_ENV = "development";
     process.env.NETLIFY = "true";

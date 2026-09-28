@@ -4,11 +4,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  AGENT_SIDEBAR_QUERY_PARAM,
-  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
-  docsUrl,
-} from "@agent-native/core/shared";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconArchive,
   IconCalendar,
@@ -496,7 +492,7 @@ export function ClipsCommandMenu({
               onSelect={() =>
                 void navigate(
                   withQuery(`/r/${context.recordingId}`, {
-                    [AGENT_SIDEBAR_QUERY_PARAM]: AGENT_SIDEBAR_QUERY_VALUE_OPEN,
+                    panel: "agent",
                   }),
                 )
               }
