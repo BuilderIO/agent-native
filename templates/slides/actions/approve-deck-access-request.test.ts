@@ -82,6 +82,7 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+import { accessRequestEventId } from "../server/lib/deck-access-requests.js";
 import approveDeckAccessRequest from "./approve-deck-access-request.js";
 
 function createDb(
@@ -182,6 +183,29 @@ describe("approve-deck-access-request", () => {
     });
     expect(db.insert).toHaveBeenCalledOnce();
     expect(db.update).toHaveBeenCalledOnce();
+    const requestLookup = db.select.mock.results[1].value;
+    expect(requestLookup.where).toHaveBeenCalledWith({
+      type: "eq",
+      left: "deck_events.id",
+      right: accessRequestEventId("deck-1", "viewer@example.com"),
+    });
+  });
+
+  it("rejects approval when the recorded request cannot be read", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [{ id: "request-1", payload: "not json" }],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it("emails the requester once access is granted", async () => {

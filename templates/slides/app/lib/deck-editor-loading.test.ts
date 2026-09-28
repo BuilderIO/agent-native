@@ -197,23 +197,31 @@ describe("deck editor loading state", () => {
 
   it("derives the access request state from this page or the record", () => {
     const idle = { isPending: false, isError: false };
+    const state = (
+      mutation: Partial<Parameters<typeof deckAccessRequestStateFor>[0]>,
+      recorded: { notifiedOwner: boolean } | null = null,
+    ) => deckAccessRequestStateFor({ ...idle, ...mutation }, recorded).status;
 
-    expect(deckAccessRequestStateFor(idle, null)).toEqual({ status: "idle" });
-    expect(
-      deckAccessRequestStateFor({ ...idle, isPending: true }, null),
-    ).toEqual({ status: "pending" });
-    expect(deckAccessRequestStateFor({ ...idle, isError: true }, null)).toEqual(
-      { status: "failed" },
+    expect(state({})).toBe("idle");
+    expect(state({ isPending: true }, { notifiedOwner: false })).toBe(
+      "pending",
     );
+    expect(state({ isError: true }, { notifiedOwner: true })).toBe("failed");
+    expect(state({ data: { notifiedOwner: true } })).toBe("sent");
+    expect(state({}, { notifiedOwner: true })).toBe("sent");
+  });
+
+  it("keeps a request retryable when the owner was not notified", () => {
+    const idle = { isPending: false, isError: false };
+
+    expect(deckAccessRequestStateFor(idle, { notifiedOwner: false })).toEqual({
+      status: "failed",
+    });
     expect(
       deckAccessRequestStateFor(
         { ...idle, data: { notifiedOwner: false } },
         { notifiedOwner: true },
       ),
-    ).toEqual({ status: "sent", ownerNotified: false });
-    expect(deckAccessRequestStateFor(idle, { notifiedOwner: true })).toEqual({
-      status: "sent",
-      ownerNotified: true,
-    });
+    ).toEqual({ status: "failed" });
   });
 });

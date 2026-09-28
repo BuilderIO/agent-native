@@ -89,7 +89,7 @@ describe("DeckAccessDeniedPage", () => {
 
   it("confirms a sent request", () => {
     renderPage({
-      request: { status: "sent", ownerNotified: true },
+      request: { status: "sent" },
       savedNote: "Launch review",
     });
 

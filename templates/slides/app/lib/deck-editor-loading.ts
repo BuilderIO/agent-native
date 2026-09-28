@@ -65,13 +65,15 @@ export function shouldShowDeckEditorSkeleton({
   return orgLoading || checkedAccessKey !== accessCheckKey;
 }
 
-export type DeckAccessRequestState =
-  | { status: "idle" | "pending" | "failed" }
-  | { status: "sent"; ownerNotified: boolean };
+export type DeckAccessRequestState = {
+  status: "idle" | "pending" | "sent" | "failed";
+};
 
 /**
  * The viewer's access request as the access denied page shows it: a request
- * sent from this page, else one already on record from an earlier visit.
+ * sent from this page, else one already on record from an earlier visit. A
+ * request whose owner notification failed stays retryable, because submitting
+ * again is what retries the notification.
  */
 export function deckAccessRequestStateFor(
   mutation: {
@@ -81,9 +83,9 @@ export function deckAccessRequestStateFor(
   },
   recordedRequest: { notifiedOwner: boolean } | null | undefined,
 ): DeckAccessRequestState {
-  const sent = mutation.data ?? recordedRequest;
-  if (sent) return { status: "sent", ownerNotified: sent.notifiedOwner };
   if (mutation.isPending) return { status: "pending" };
-  if (mutation.isError) return { status: "failed" };
+  const latest = mutation.data ?? (mutation.isError ? null : recordedRequest);
+  if (latest?.notifiedOwner) return { status: "sent" };
+  if (latest || mutation.isError) return { status: "failed" };
   return { status: "idle" };
 }

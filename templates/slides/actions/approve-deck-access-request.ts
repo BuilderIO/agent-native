@@ -129,7 +129,7 @@ export default defineAction({
     const requesterEmail = normalizeEmail(token.viewerEmail);
     const request = await findDeckAccessRequest(db, deckId, requesterEmail);
     if (
-      !request ||
+      !request?.parsed ||
       request.parsed.approvalTokenHash !== approvalTokenHash(approvalToken)
     ) {
       throw httpError("This access request is invalid or expired.", 404);

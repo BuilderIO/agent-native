@@ -118,7 +118,9 @@ async function findPendingAccessRequest(
   viewerEmail: string,
 ): Promise<DeckAccessStatus["pendingAccessRequest"]> {
   const request = await findDeckAccessRequest(getDb(), deckId, viewerEmail);
-  if (!request || isGrantedAccessRequest(request.parsed)) return undefined;
+  if (!request?.parsed || isGrantedAccessRequest(request.parsed)) {
+    return undefined;
+  }
   return {
     note: request.parsed.note ?? null,
     notifiedOwner: request.parsed.notifiedOwner === true,

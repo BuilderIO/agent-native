@@ -177,6 +177,14 @@ describe("get-deck-access-status", () => {
     expect(result).not.toHaveProperty("pendingAccessRequest");
   });
 
+  it("lets the viewer request again when the recorded request cannot be read", async () => {
+    state.accessRequests = [{ id: "access-request-viewer", payload: "{" }];
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).not.toHaveProperty("pendingAccessRequest");
+  });
+
   it("does not look up requests for anonymous viewers", async () => {
     state.viewerEmail = null;
     state.accessRequests = [

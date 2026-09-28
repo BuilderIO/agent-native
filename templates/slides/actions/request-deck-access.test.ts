@@ -572,6 +572,24 @@ describe("request-deck-access", () => {
     expect(sendEmail).toHaveBeenCalledOnce();
   });
 
+  it("repairs a recorded request whose payload cannot be read", async () => {
+    state.previousRequests = [
+      { id: "access-request-existing", payload: "not json" },
+    ];
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      notifiedOwner: true,
+      requestId: "access-request-existing",
+    });
+    expect(state.insertedRows).toHaveLength(0);
+    expect(
+      JSON.parse(state.previousRequests[0].payload as string),
+    ).toMatchObject({ requesterEmail: "requester@example.com" });
+    expect(notifyWithDelivery).toHaveBeenCalledOnce();
+  });
+
   it("does not duplicate a request already recorded for this requester", async () => {
     state.previousRequests = [
       {

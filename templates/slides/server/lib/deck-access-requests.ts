@@ -67,13 +67,17 @@ export function isGrantedAccessRequest(
   return Boolean(payload?.accessGrantedAt);
 }
 
-/** The recorded access request `requesterEmail` made for a deck. */
+/**
+ * The recorded access request `requesterEmail` made for a deck. A row whose
+ * payload cannot be read comes back with `parsed: null` rather than as absent,
+ * because it still holds the request id and must be repaired, not skipped.
+ */
 export async function findDeckAccessRequest(
   db: ReturnType<typeof getDb>,
   deckId: string,
   requesterEmail: string,
 ): Promise<
-  | { id: string; payload: string | null; parsed: AccessRequestPayload }
+  | { id: string; payload: string | null; parsed: AccessRequestPayload | null }
   | undefined
 > {
   const email = normalizeEmail(requesterEmail);
@@ -86,8 +90,9 @@ export async function findDeckAccessRequest(
     .where(eq(schema.deckEvents.id, accessRequestEventId(deckId, email)));
   for (const row of rows) {
     const parsed = parseAccessRequestPayload(row.payload);
+    if (!parsed) return { ...row, parsed: null };
     if (
-      typeof parsed?.requesterEmail === "string" &&
+      typeof parsed.requesterEmail === "string" &&
       normalizeEmail(parsed.requesterEmail) === email
     ) {
       return { ...row, parsed };

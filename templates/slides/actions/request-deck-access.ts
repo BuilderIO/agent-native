@@ -534,13 +534,16 @@ export default defineAction({
       findDeckAccessRequest(db, deckId, requesterEmail),
     ]);
     // The viewer has no access (checked above), so reopen a granted request
-    // as a fresh one instead of reporting it as still with the owner.
+    // as a fresh one instead of reporting it as still with the owner. An
+    // unreadable row is rewritten the same way.
     const reopenedRequest =
-      previousRequest && isGrantedAccessRequest(previousRequest.parsed)
+      previousRequest &&
+      (!previousRequest.parsed ||
+        isGrantedAccessRequest(previousRequest.parsed))
         ? previousRequest
         : undefined;
 
-    if (previousRequest && !reopenedRequest) {
+    if (previousRequest?.parsed && !reopenedRequest) {
       const previousRequestId = previousRequest.id;
       const previousPayload = previousRequest.parsed;
 

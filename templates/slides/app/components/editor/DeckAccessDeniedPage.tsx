@@ -29,7 +29,7 @@ export function DeckAccessDeniedPage({
 }: {
   canRequestAccess: boolean;
   request: DeckAccessRequestState;
-  /** The note on a request already on record, shown read-only. */
+  /** The note on a request already on record. */
   savedNote: string | null;
   viewerEmail: string | null;
   onNoteChange: () => void;
@@ -38,17 +38,14 @@ export function DeckAccessDeniedPage({
   onGoHome: () => void;
 }) {
   const t = useT();
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(savedNote ?? "");
   const { status } = request;
   const locked = status === "pending" || status === "sent";
-  const description =
-    request.status === "sent"
-      ? t(
-          request.ownerNotified
-            ? "deckAccessPage.requestSentDescription"
-            : "deckEditor.accessRequestRecordedDescription",
-        )
-      : t("deckAccessPage.noAccessDescription");
+  const description = t(
+    status === "sent"
+      ? "deckAccessPage.requestSentDescription"
+      : "deckAccessPage.noAccessDescription",
+  );
 
   const submitRequest = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -98,7 +95,7 @@ export function DeckAccessDeniedPage({
                   </Label>
                   <Textarea
                     id="deck-access-request-note"
-                    value={savedNote ?? note}
+                    value={note}
                     onChange={(event) => {
                       setNote(event.target.value);
                       onNoteChange();
