@@ -21,7 +21,6 @@ import {
   IconPresentation,
   IconSelector,
   IconSettings,
-  IconUser,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import {
@@ -269,6 +268,18 @@ export function OrgSwitcher({
       ?.focus();
   }, [view]);
 
+  // Accounts that picked the retired "Personal" choice have `orgId: null`
+  // stored while still holding memberships, which strands them outside the
+  // org-scoped Builder.io connection and vault credentials. Move them back once.
+  const personalRecoveryRef = useRef(false);
+  const firstMembershipId = org?.orgs?.[0]?.orgId ?? null;
+  useEffect(() => {
+    if (org?.orgId || !firstMembershipId) return;
+    if (personalRecoveryRef.current || switchOrg.isPending) return;
+    personalRecoveryRef.current = true;
+    switchOrg.mutate(firstMembershipId);
+  }, [org?.orgId, firstMembershipId, switchOrg]);
+
   const showView = (next: MenuView) => {
     viewChangedRef.current = true;
     setView(next);
@@ -431,16 +442,14 @@ export function OrgSwitcher({
     </button>
   );
 
-  const selectOrg = (orgId: string | null) => {
-    if (orgId === (org.orgId ?? null)) {
+  const selectOrg = (orgId: string) => {
+    if (orgId === org.orgId) {
       setOpen(false);
       return;
     }
-    // `null` switches to Personal, which the server stores as an explicit
-    // choice rather than falling back to the first membership.
     switchOrg.mutate(orgId, { onSuccess: () => setOpen(false) });
   };
-  const isSwitchingTo = (orgId: string | null) =>
+  const isSwitchingTo = (orgId: string) =>
     switchOrg.isPending && switchOrg.variables === orgId;
 
   const mainItems = (
@@ -510,25 +519,6 @@ export function OrgSwitcher({
             </DropdownMenuItem>
           );
         })}
-        <DropdownMenuItem
-          className={ITEM_CLASS}
-          disabled={switchOrg.isPending && inOrg}
-          onSelect={(event) => {
-            if (!inOrg) return;
-            event.preventDefault();
-            selectOrg(null);
-          }}
-        >
-          <IconUser className={ITEM_ICON_CLASS} />
-          <span className="min-w-0 flex-1 truncate">
-            {t("agentChat.accountMenu.personal")}
-          </span>
-          {isSwitchingTo(null) ? (
-            <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
-          ) : !inOrg ? (
-            <IconCheck className={ITEM_ICON_CLASS} />
-          ) : null}
-        </DropdownMenuItem>
       </DropdownMenuGroup>
 
       {pendingInvitations.length > 0 && (
