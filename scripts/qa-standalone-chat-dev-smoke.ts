@@ -2491,10 +2491,15 @@ async function assertAgentKitChatAcceptance(
     () => provider.markdownChunks >= 2,
     30_000,
   );
-  await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Hello, AgentKit Browser!" })
-    .waitFor({ state: "visible" });
+  const restoredHelloReplies = page
+    .locator('.agentkit-message[data-role="assistant"]')
+    .filter({ hasText: "Hello, AgentKit Browser!" });
+  await restoredHelloReplies.first().waitFor({ state: "visible" });
+  assert.equal(
+    await restoredHelloReplies.count(),
+    1,
+    "a plain assistant reply must restore exactly once",
+  );
   const suggestion = page.getByRole("button", {
     name: "Summarize this release",
   });
@@ -2567,6 +2572,22 @@ async function assertAgentKitChatAcceptance(
           message.getAttribute("aria-busy") === "false",
       ),
     suggestionReplyText,
+  );
+  await page
+    .locator('[data-agent-composer-slot="stop-button"]')
+    .waitFor({ state: "hidden" });
+  await waitForLoopbackState(
+    "terminal thread snapshot refresh before forking",
+    () =>
+      !Array.from(network.inFlightRequests).some((request) => {
+        const url = new URL(request.url());
+        return (
+          request.method() === "GET" &&
+          url.origin === new URL(page.url()).origin &&
+          url.pathname ===
+            `/_agent-native/agent-chat/threads/${encodeURIComponent(activeThreadId)}`
+        );
+      }),
   );
   await assertComposerFocused(page);
 
@@ -2739,11 +2760,104 @@ async function assertAgentKitChatAcceptance(
   await assertViewportContract(page, "narrow dark action widget", {
     dark: true,
   });
-  await page
-    .getByText("Queued follow-up completed through the production queue.", {
-      exact: true,
-    })
-    .waitFor({ state: "visible" });
+  try {
+    await page
+      .getByText("Queued follow-up completed through the production queue.", {
+        exact: true,
+      })
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    const queueDiagnostics = await page.evaluate(async (activeThreadId) => {
+      const activeRun = await fetch(
+        `/_agent-native/agent-chat/runs/active?threadId=${encodeURIComponent(activeThreadId)}`,
+        { cache: "no-store" },
+      ).then(async (response) => ({
+        status: response.status,
+        body: await response.text(),
+      }));
+      const persistedThread = await fetch(
+        `/_agent-native/agent-chat/threads/${encodeURIComponent(activeThreadId)}`,
+        { cache: "no-store" },
+      ).then(async (response) => {
+        const body = await response.text();
+        try {
+          const stored = JSON.parse(body) as {
+            threadData?: unknown;
+          };
+          const repository =
+            typeof stored.threadData === "string"
+              ? (JSON.parse(stored.threadData) as Record<string, unknown>)
+              : {};
+          const text = (parts: unknown) =>
+            Array.isArray(parts)
+              ? parts
+                  .flatMap((part) =>
+                    part && typeof part === "object" && "text" in part
+                      ? [String(part.text)]
+                      : [],
+                  )
+                  .join("")
+              : "";
+          const durableMessages = Array.isArray(repository.messages)
+            ? repository.messages.map((entry) => {
+                const record =
+                  entry && typeof entry === "object" && "message" in entry
+                    ? (entry.message as Record<string, unknown>)
+                    : (entry as Record<string, unknown>);
+                return {
+                  id: record.id,
+                  role: record.role,
+                  text: text(record.content),
+                };
+              })
+            : [];
+          const agentKit =
+            repository.agentKit && typeof repository.agentKit === "object"
+              ? (repository.agentKit as Record<string, unknown>)
+              : {};
+          const agentKitMessages = Array.isArray(agentKit.messages)
+            ? agentKit.messages.map((entry) => {
+                const record = entry as Record<string, unknown>;
+                return {
+                  id: record.id,
+                  role: record.role,
+                  text: text(record.parts),
+                };
+              })
+            : [];
+          return {
+            status: response.status,
+            durableMessages,
+            agentKitMessages,
+            queuedMessages: Array.isArray(repository.queuedMessages)
+              ? repository.queuedMessages.length
+              : null,
+          };
+        } catch (error) {
+          return {
+            status: response.status,
+            parseError: String(error),
+            body: body.slice(0, 1_000),
+          };
+        }
+      });
+      return {
+        activeRun,
+        persistedThread,
+        queue: document.querySelector('[aria-label="Queued messages"]')
+          ?.textContent,
+        messages: Array.from(
+          document.querySelectorAll('.agentkit-message[data-role="assistant"]'),
+        ).map((message) => ({
+          id: message.getAttribute("data-message-id"),
+          busy: message.getAttribute("aria-busy"),
+          text: message.textContent?.slice(0, 400),
+        })),
+      };
+    }, threadId);
+    console.error("Queued follow-up render diagnostics:", queueDiagnostics);
+    throw error;
+  }
   await queue.waitFor({ state: "hidden" });
   await assertComposerFocused(page);
   await waitForLoopbackState(

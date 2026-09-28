@@ -1847,17 +1847,20 @@ export class AgentKitClient implements AgentKitController {
             (terminalEvent.type === "run.status" &&
               terminalEvent.status === "completed")
           ) {
-            if (
+            const queuedWorkKnown =
+              this.getThread(threadId).queuedMessages.length > 0;
+            if (queuedWorkKnown) this.scheduleQueuePromotion(threadId);
+            const shouldRefreshProjection =
               !this.threadLoads.has(threadId) &&
-              (this.transport.getThreadSnapshot || this.transport.getThread)
-            ) {
+              (this.transport.getThreadSnapshot || this.transport.getThread);
+            if (shouldRefreshProjection) {
               await this.loadThreadProjection(
                 threadId,
                 this.createRequestContext(),
                 true,
               );
             }
-            this.scheduleQueuePromotion(threadId);
+            if (!queuedWorkKnown) this.scheduleQueuePromotion(threadId);
           }
           const persistenceError = await snapshotPersistence;
           if (persistenceError) {

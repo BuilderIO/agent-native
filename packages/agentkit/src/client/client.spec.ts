@@ -283,6 +283,58 @@ describe("AgentKitClient", () => {
     await run.completed;
   });
 
+  it("promotes preloaded queued work while the terminal snapshot read is stalled", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Follow up",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const terminal = Promise.withResolvers<void>();
+    const stalledSnapshot = Promise.withResolvers<AgentThreadSnapshot>();
+    let snapshotReads = 0;
+    const promoted = vi.fn(async () => undefined);
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        await terminal.promise;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot({ threadId }) {
+        snapshotReads += 1;
+        if (snapshotReads > 1) return stalledSnapshot.promise;
+        return {
+          id: threadId,
+          createdAt: queued.createdAt,
+          updatedAt: queued.createdAt,
+          messages: [],
+          queuedMessages: [queued],
+        };
+      },
+      steerQueuedMessage: promoted,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    terminal.resolve();
+    await vi.waitFor(() => expect(snapshotReads).toBe(2));
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+
+    expect(promoted).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await client.dispose();
+    await run.completed;
+  });
+
   it("keeps a missing durable thread as an empty new-chat projection", async () => {
     const getThreadSnapshot = vi.fn(async () => null);
     const getThread = vi.fn(async () => {
