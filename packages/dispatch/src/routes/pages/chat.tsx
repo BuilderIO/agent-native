@@ -323,7 +323,7 @@ export default function ChatRoute() {
         dynamicSuggestions={false}
         suppressInlineOpenApp={suppressInlineOpenApp}
         suggestions={
-          agent
+          agent || routeThreadId || prompt?.message
             ? []
             : [
                 t("dispatch.pages.suggestionWorkspaceHealth"),

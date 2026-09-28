@@ -229,6 +229,7 @@ describe("Dispatch ChatRoute", () => {
       "suppressInlineOpenApp",
       true,
     );
+    expect(clientState.surfaceProps?.suggestions).toEqual([]);
     expect(container.textContent).not.toContain("What should we do?");
   });
 
@@ -284,6 +285,8 @@ describe("Dispatch ChatRoute", () => {
         </MemoryRouter>,
       );
     });
+
+    expect(clientState.surfaceProps?.suggestions).toEqual([]);
 
     const button = Array.from(container.querySelectorAll("button")).find((el) =>
       el.textContent?.includes("Copy request ID"),
