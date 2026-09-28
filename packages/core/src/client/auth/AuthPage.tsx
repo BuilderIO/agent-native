@@ -78,7 +78,7 @@ export interface AuthPageProps {
   organizationSsoEnabled?: boolean;
   identitySsoEnabled?: boolean;
   googleViaIdentitySso?: boolean;
-  /** @deprecated Automatic browser SSO handoff was removed. */
+  /** Whether canonical browser auth should attempt a silent identity handoff. */
   identitySsoAuto?: boolean;
   signupLegalNotice?: AuthLegalNotice;
   signupLocalModeNote?: { text: string; command: string };
@@ -2574,7 +2574,7 @@ export function AuthPage(props: AuthPageProps) {
       >
         {upgradeVisible ? t("upgradeCopy") : null}
       </p>
-      {identitySsoEnabled && !googleOnly ? (
+      {identitySsoEnabled && !identitySsoAuto && !googleOnly ? (
         <div className="identity-sso-entry" id="identity-sso-entry">
           <a
             className="btn-primary btn-identity-sso"
