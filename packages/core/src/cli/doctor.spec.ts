@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "../package-lifecycle/index.js";
 import {
   ALL_GUARD_NAMES,
   checkDisk,
@@ -17,6 +16,11 @@ import {
   shouldFailBuild,
   type DoctorIo,
 } from "./doctor.js";
+
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
 
 const tmpRoots: string[] = [];
 

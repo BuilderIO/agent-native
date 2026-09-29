@@ -18,11 +18,23 @@ import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
   AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
-  resolveRemovedExportMigrationGuide,
   scanDeprecatedImports,
   type MigrationManifest,
 } from "../package-lifecycle/index.js";
 import { formatBytes, scanCleanTargets } from "./clean.js";
+
+const AGENTKIT_CHAT_MIGRATION_GUIDE_URL = new URL(
+  "../../docs/migrations/agentkit-chat.md",
+  import.meta.url,
+).href;
+const AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL =
+  "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md";
+
+function resolveRemovedExportMigrationGuide(guide?: string): string {
+  return !guide || guide === AGENTKIT_CHAT_MIGRATION_GUIDE_SOURCE_URL
+    ? AGENTKIT_CHAT_MIGRATION_GUIDE_URL
+    : guide;
+}
 
 export type GuardName =
   | "no-drizzle-push"
