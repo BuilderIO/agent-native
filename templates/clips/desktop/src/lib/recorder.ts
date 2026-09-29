@@ -1603,12 +1603,19 @@ async function createServerRecording(
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
   const recordingId = options?.id ?? crypto.randomUUID();
   let cancellationRequested = false;
-  const abortCreatedRecording = (reason: string, failureCode: string) => {
-    void abortRecordingUpload(serverUrl, recordingId, reason, failureCode);
-  };
+  const abortCreatedRecording = (reason: string, failureCode: string) =>
+    abortRecordingUpload(
+      serverUrl,
+      recordingId,
+      reason,
+      failureCode,
+      undefined,
+      undefined,
+      options?.authToken,
+    );
   const cancelCreatedRecording = () => {
     cancellationRequested = true;
-    abortCreatedRecording(
+    void abortCreatedRecording(
       "Recording cancelled during startup",
       "user_cancelled",
     );
@@ -1668,7 +1675,7 @@ async function createServerRecording(
         result.uploadMode === "streaming" ? "streaming" : "buffered";
       return { id: result.id, uploadMode };
     } catch (err) {
-      abortCreatedRecording(
+      await abortCreatedRecording(
         cancellationRequested
           ? "Recording cancelled during startup"
           : "Recording creation failed before the server returned its ID",
@@ -1681,11 +1688,12 @@ async function createServerRecording(
     signal: options?.signal,
     timeoutMs: null,
     onCancel: cancelCreatedRecording,
-    onLateResolve: () =>
-      abortCreatedRecording(
+    onLateResolve: () => {
+      void abortCreatedRecording(
         "Recording cancelled during startup",
         "user_cancelled",
-      ),
+      );
+    },
   });
 }
 
@@ -1986,19 +1994,37 @@ async function abortRecordingUpload(
   failureCode = "upload_failed",
   failureStage?: string,
   httpStatus?: number,
+  authToken?: string,
 ): Promise<void> {
-  try {
-    await fetch(
-      `${serverUrl.replace(/\/+$/, "")}/api/uploads/${recordingId}/abort`,
-      {
+  const url = `${serverUrl.replace(/\/+$/, "")}/api/uploads/${recordingId}/abort`;
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildRetryHeaders("application/json", authToken),
         credentials: "include",
         body: JSON.stringify({ reason, failureCode, failureStage, httpStatus }),
-      },
-    );
-  } catch (err) {
-    console.warn("[clips-recorder] abort upload failed:", err);
+      });
+      const responseText = await res.text().catch(() => "");
+      if (res.ok) return;
+      if (
+        (res.status !== 404 && res.status < 500) ||
+        attempt === CHUNK_UPLOAD_MAX_ATTEMPTS
+      ) {
+        console.warn(
+          "[clips-recorder] abort upload failed:",
+          res.status,
+          responseText,
+        );
+        return;
+      }
+    } catch (err) {
+      if (attempt === CHUNK_UPLOAD_MAX_ATTEMPTS) {
+        console.warn("[clips-recorder] abort upload failed:", err);
+        return;
+      }
+    }
+    await wait(CHUNK_UPLOAD_RETRY_BASE_MS * 2 ** (attempt - 1));
   }
 }
 
@@ -2077,13 +2103,14 @@ async function interruptRecordingUpload(
 async function trashRecording(
   serverUrl: string,
   recordingId: string,
+  authToken?: string,
 ): Promise<void> {
   try {
     const res = await fetch(
       `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/trash-recording`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildRetryHeaders("application/json", authToken),
         credentials: "include",
         body: JSON.stringify({ id: recordingId }),
       },
@@ -2103,14 +2130,18 @@ async function trashRecording(
 async function cleanupCancelledRemoteRecording(
   serverUrl: string,
   recordingId: string,
+  authToken?: string,
 ): Promise<void> {
   await abortRecordingUpload(
     serverUrl,
     recordingId,
     "Recording cancelled by user",
     "user_cancelled",
+    undefined,
+    undefined,
+    authToken,
   );
-  await trashRecording(serverUrl, recordingId);
+  await trashRecording(serverUrl, recordingId, authToken);
 }
 
 class CountdownCancelledError extends Error {
@@ -2595,6 +2626,7 @@ function abortCreatedRecordingOnCountdownCancel(
   err: unknown,
   recordingPromise: Promise<{ id: string }>,
   serverUrl: string,
+  authToken?: string,
 ) {
   if (!isCountdownCancelledError(err)) return;
   void recordingPromise
@@ -2604,6 +2636,9 @@ function abortCreatedRecordingOnCountdownCancel(
         recording.id,
         "Recording cancelled during countdown",
         "user_cancelled",
+        undefined,
+        undefined,
+        authToken,
       ),
     )
     .catch(() => {});
@@ -2841,11 +2876,10 @@ async function tryStartRewindFullscreenRecording(
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
-        await guardRecordingStart(
-          invoke<RewindClipBackendStatus>("rewind_clip_start"),
-          { signal: params.signal },
-        );
+        const startPromise =
+          invoke<RewindClipBackendStatus>("rewind_clip_start");
         params.onCaptureStartRequested?.(preparedRecording.id || null);
+        await guardRecordingStart(startPromise, { signal: params.signal });
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );
@@ -2882,6 +2916,7 @@ async function tryStartRewindFullscreenRecording(
         err,
         recordingPromise,
         params.serverUrl,
+        params.authToken,
       );
     }
     if (!localOnly && id && !isCountdownCancelledError(err)) {
@@ -2893,6 +2928,7 @@ async function tryStartRewindFullscreenRecording(
         diagnostics.failureCode,
         diagnostics.failureStage,
         diagnostics.httpStatus,
+        params.authToken,
       );
     }
     throw err;
@@ -2957,14 +2993,16 @@ async function tryStartRewindFullscreenRecording(
     }
     if (!localOnly && id) {
       forgetRewindClipOrigin(id);
-      void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-        (err) => {
-          console.warn(
-            "[clips-recorder] cancelled recording cleanup failed:",
-            err,
-          );
-        },
-      );
+      void cleanupCancelledRemoteRecording(
+        params.serverUrl,
+        id,
+        params.authToken,
+      ).catch((err) => {
+        console.warn(
+          "[clips-recorder] cancelled recording cleanup failed:",
+          err,
+        );
+      });
     }
     return {
       displayStream: null,
@@ -3471,6 +3509,7 @@ async function startNativeFullscreenRecording(
         diagnostics.failureCode,
         diagnostics.failureStage,
         diagnostics.httpStatus,
+        params.authToken,
       );
     }
     throw err;
@@ -3596,14 +3635,16 @@ async function startNativeFullscreenRecording(
       await endSession();
     }
     if (!localOnly && id) {
-      void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-        (err) => {
-          console.warn(
-            "[clips-recorder] cancelled recording cleanup failed:",
-            err,
-          );
-        },
-      );
+      void cleanupCancelledRemoteRecording(
+        params.serverUrl,
+        id,
+        params.authToken,
+      ).catch((err) => {
+        console.warn(
+          "[clips-recorder] cancelled recording cleanup failed:",
+          err,
+        );
+      });
     }
     return {
       displayStream: null,
@@ -5034,6 +5075,9 @@ async function startRecordingInner(
               ? err.message
               : String(err),
           cancelled ? "user_cancelled" : "upload_failed",
+          undefined,
+          undefined,
+          params.authToken,
         );
       }
       throw err;
@@ -5411,11 +5455,13 @@ async function startRecordingInner(
       inflight.clear();
       await invoke("hide_recording_chrome").catch(() => {});
       if (id) {
-        void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-          (err) => {
-            console.warn("[clips-recorder] abort failed (non-fatal):", err);
-          },
-        );
+        void cleanupCancelledRemoteRecording(
+          params.serverUrl,
+          id,
+          params.authToken,
+        ).catch((err) => {
+          console.warn("[clips-recorder] abort failed (non-fatal):", err);
+        });
       }
       await deleteBrowserRecordingBackup(id).catch((err) => {
         console.warn("[clips-recorder] local backup cleanup failed:", err);

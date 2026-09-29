@@ -410,6 +410,31 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
+  it("marks Rewind capture as requested before its start IPC resolves", async () => {
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      onCaptureStartRequested,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(createdRecordingId());
+
+    rewindStart.resolve();
+    const handle = await pending;
+    await handle.cancel();
+  });
+
   it("fails cleanly when native countdown presentation stalls", async () => {
     const overlay = deferred<number>();
     nativeCommands.set("show_countdown", () => overlay.promise);
@@ -499,21 +524,49 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
-  it("aborts the known recording ID when the create response is lost", async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError("network unavailable"));
-    const pending = startRecording(params);
+  it("retries a raced abort and forwards the desktop auth token", async () => {
+    let abortAttempts = 0;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/create-recording")) {
+        throw new TypeError("network unavailable");
+      }
+      if (url.endsWith("/abort")) {
+        abortAttempts += 1;
+        return new Response("{}", { status: abortAttempts === 1 ? 404 : 200 });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    const pending = startRecording({ ...params, authToken: "desktop-token" });
     const failed = expect(pending).rejects.toThrow("SERVER_UNAVAILABLE");
 
     await flush();
+    const id = createdRecordingId();
+    const abortCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes(`/api/uploads/${id}/abort`),
+    );
+    expect(abortCalls).toHaveLength(1);
+    const firstAbort = abortCalls.at(0);
+    if (!firstAbort) throw new Error("expected initial abort request");
+    const requestOptions = firstAbort[1];
+    if (!requestOptions || !(requestOptions.headers instanceof Headers)) {
+      throw new Error("expected abort request headers");
+    }
+    expect(requestOptions.headers.get("Authorization")).toBe(
+      "Bearer desktop-token",
+    );
+
+    await vi.advanceTimersByTimeAsync(250);
     await failed;
 
-    const id = createdRecordingId();
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining(`/api/uploads/${id}/abort`),
-      expect.objectContaining({
-        body: expect.stringContaining('"failureCode":"upload_failed"'),
-      }),
+    const retriedAbortCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes(`/api/uploads/${id}/abort`),
     );
+    expect(retriedAbortCalls).toHaveLength(2);
+    expect(
+      retriedAbortCalls.every(([, options]) =>
+        String(options?.body).includes('"failureCode":"upload_failed"'),
+      ),
+    ).toBe(true);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
   });
 
