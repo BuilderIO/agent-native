@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "나에게 보내는 메모",
     },
     inbox: {
+      atLeastCount: "최소 {{count}}",
       syncing: "받은편지함 동기화 중…",
     },
     sort: {

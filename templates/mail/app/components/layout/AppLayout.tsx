@@ -115,6 +115,7 @@ import {
   mergeOptimisticInboxTabCounts,
   resolveInboxTabId,
   useInboxOverview,
+  useInboxSyncPoller,
   useInboxThreads,
 } from "@/hooks/use-inbox-threads";
 import {
@@ -626,6 +627,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const resolvedInboxTab = resolveInboxTabId(searchParams);
   const inboxAccountEmails =
     activeAccounts.size > 0 ? [...activeAccounts] : undefined;
+  useInboxSyncPoller(inboxAccountEmails);
   const inboxThreadInput = {
     tab: resolvedInboxTab,
     accountEmails: inboxAccountEmails,
@@ -706,6 +708,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     color?: string;
     tooltip?: string;
     total?: number;
+    totalIsLowerBound?: boolean;
     unread?: number;
     isSystemView: boolean;
   };
@@ -748,6 +751,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         color: label?.color,
         tooltip: tab.query,
         total: tab.total,
+        totalIsLowerBound: tab.totalIsLowerBound,
         unread: tab.unread,
         isSystemView: false,
       };
@@ -755,8 +759,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   }, [aiTagDisplayNames, inboxTabs, activeInboxTabId, labels, t, view]);
 
   const topBarTabs = useMemo<RenderedTab[]>(
-    () => [...systemViewTabs, ...dataTabs],
-    [systemViewTabs, dataTabs],
+    () => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])],
+    [systemViewTabs, dataTabs, view],
   );
 
   const hiddenViews = useMemo(
@@ -826,15 +830,32 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     triageLabels: pinnedTriageLabels(pinnedLabels),
     searchQuery: shellSearchQuery,
   });
+  const useInboxThreadsForActionTargets =
+    view === "inbox" &&
+    hasAccounts &&
+    activeSearchQuery === null &&
+    activeSavedFilterQuery === undefined &&
+    activeLabel === null;
   const {
-    data: currentViewEmails = [],
-    isPlaceholderData: currentViewEmailsArePlaceholder,
+    data: legacyCurrentViewEmails = [],
+    isPlaceholderData: legacyCurrentViewEmailsArePlaceholder,
   } = useEmails(
     isMailboxView ? shellQueryScope.emailView : "inbox",
     shellSearchQuery,
     shellQueryScope.effectiveLabel,
-    { enabled: isMailboxView },
+    {
+      enabled:
+        isMailboxView &&
+        (view !== "inbox" ||
+          (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady)),
+    },
   );
+  const currentViewEmails = useInboxThreadsForActionTargets
+    ? (inboxThreads.data?.items ?? [])
+    : legacyCurrentViewEmails;
+  const currentViewEmailsArePlaceholder = useInboxThreadsForActionTargets
+    ? inboxThreads.isPlaceholderData
+    : legacyCurrentViewEmailsArePlaceholder;
   const actionTargetTab =
     view === "inbox" &&
     !combineInbox &&
@@ -1633,6 +1654,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       {tab.label}
                       {count !== undefined && count > 0 && (
                         <span
+                          aria-label={
+                            tab.totalIsLowerBound
+                              ? t("mail.inbox.atLeastCount", { count })
+                              : undefined
+                          }
                           className={cn(
                             "text-[11px] tabular-nums",
                             tab.isActive
@@ -1640,7 +1666,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                               : "text-muted-foreground/70",
                           )}
                         >
-                          {count}
+                          {tab.totalIsLowerBound ? `${count}+` : count}
                         </span>
                       )}
                     </RouterSidebarLink>

@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "给自己的备注",
     },
     inbox: {
+      atLeastCount: "至少 {{count}}",
       syncing: "收件箱同步中…",
     },
     sort: {
