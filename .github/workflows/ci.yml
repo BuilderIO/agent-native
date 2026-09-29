@@ -838,12 +838,12 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, toolkit, core, and creative context
+      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Build Content template (Cloudflare Workers preset)
@@ -900,9 +900,9 @@ jobs:
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
-          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
       - name: Test unbounded read guards
