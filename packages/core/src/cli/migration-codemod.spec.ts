@@ -183,6 +183,38 @@ describe("runMigrationCodemods", () => {
     expect(result.changes.map((change) => change.file)).toContain(stylesheet);
   });
 
+  it("rewrites portable extension helpers from Core host to Toolkit", () => {
+    const { root, source, packageFile } = fixture();
+    fs.writeFileSync(
+      source,
+      [
+        'import { buildAgentNativeExtensionHtml, normalizeAgentNativeExtensionSandbox } from "@agent-native/core/client/host";',
+        "void buildAgentNativeExtensionHtml; void normalizeAgentNativeExtensionSandbox;",
+        "",
+      ].join("\n"),
+    );
+    const coreManifest = readMigrationManifest(
+      bundledCoreMigrationManifestPath(),
+    );
+    if (!coreManifest) throw new Error("Core migration manifest is missing");
+
+    const result = runMigrationCodemods({
+      root,
+      manifests: [coreManifest],
+      apply: true,
+      targetExists: () => true,
+    });
+
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/app/extensions/portable-extension"',
+    );
+    expect(
+      JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,
+    ).toMatchObject({ "@agent-native/toolkit": toolkitRange });
+    expect(result.changes.map((change) => change.file)).toContain(source);
+    expect(result.changes.map((change) => change.file)).toContain(packageFile);
+  });
+
   it("previews split imports, symbol renames, exports, and dependencies", () => {
     const { root, source, packageFile } = fixture();
     const before = fs.readFileSync(source, "utf-8");

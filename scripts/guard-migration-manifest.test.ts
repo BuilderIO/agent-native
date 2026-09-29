@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { checkMigrationManifest } from "./guard-migration-manifest";
+import {
+  checkMigrationManifest,
+  checkPackageMigrationManifest,
+} from "./guard-migration-manifest";
 
 const manifest = {
   name: "@agent-native/core",
@@ -62,6 +65,41 @@ describe("migration manifest guard", () => {
         },
       ),
       [],
+    );
+  });
+
+  it("requires historical Core stylesheet moves when the export snapshot omits them", () => {
+    const core = {
+      name: "@agent-native/core",
+      exports: { ".": "./dist/index.js" },
+    };
+    const toolkit = {
+      name: "@agent-native/toolkit",
+      exports: {
+        "./styles.css": "./dist/styles.css",
+        "./app/*": "./dist/app/*",
+      },
+    };
+    const violations = checkPackageMigrationManifest(
+      core,
+      { exports: {} },
+      {
+        moves: {
+          "@agent-native/core/styles/agent-conversation.css": {
+            to: "@agent-native/toolkit/app/styles/agent-conversation.css",
+          },
+          "@agent-native/core/styles/agent-native.css": {
+            to: "@agent-native/toolkit/styles.css",
+          },
+        },
+      },
+      { "@agent-native/core": core, "@agent-native/toolkit": toolkit },
+    );
+
+    assert.equal(violations.length, 1);
+    assert.match(
+      violations[0]?.message ?? "",
+      /@agent-native\/core\/styles\/chat-history-list\.css/,
     );
   });
 
