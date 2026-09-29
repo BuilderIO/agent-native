@@ -159,6 +159,9 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </div>
     );
   },
+}));
+
+vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
   useEagerFileUploads: () => {
     const [uploading, setUploading] = useState(false);
     const uploadFiles = useCallback(async (files: File[]) => {

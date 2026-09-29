@@ -7,12 +7,12 @@ import {
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-  useEagerFileUploads,
 } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
 import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
 import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
 import { useOrg } from "@agent-native/core/client/org";
+import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {
   IconApps,
   IconArtboard,
