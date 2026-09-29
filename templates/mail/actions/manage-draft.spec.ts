@@ -479,10 +479,12 @@ describe("manage-draft call-shape guidance", () => {
   it("describes the required action field and the create-before-update contract", () => {
     expect(action.description).toContain("action");
     expect(action.description).toContain(
-      "Revise a draft created earlier in this conversation with update and its returned id; do not create another draft.",
+      "Revise an existing draft with update and its id, whether it comes from current compose state (`compose-{id}`) or an earlier create result; do not create another draft.",
     );
     expect(action.description).toMatch(/create.*update.*delete/i);
-    expect(action.description).toContain("id returned by a prior create");
+    expect(action.description).toContain(
+      "id from current compose state or a prior create call",
+    );
   });
 
   it("rejects a call with no action at all", () => {

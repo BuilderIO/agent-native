@@ -90,7 +90,9 @@ const manageDraftSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("update").describe("Update an existing draft"),
-    id: draftId,
+    id: draftId.describe(
+      "Existing draft ID from current compose state (`compose-{id}`) or a prior create result",
+    ),
     ...draftFields,
   }),
   z.object({
@@ -154,11 +156,13 @@ async function readConfiguredSignature(): Promise<string | undefined> {
 
 export default defineAction({
   description:
-    "Create, update, or delete a compose draft. Revise a draft created " +
-    "earlier in this conversation with update and its returned id; do not " +
-    "create another draft. Always pass action " +
+    "Create, update, or delete a compose draft. Revise an existing draft " +
+    "with update and its id, whether it comes from current compose state " +
+    "(`compose-{id}`) or an earlier create result; do not create another " +
+    "draft. Always pass action " +
     "(create, update, delete, delete-saved, or delete-all). update and " +
-    "delete require the id returned by a prior create call on this draft; " +
+    "delete require the id from current compose state or a prior create " +
+    "call on this draft; " +
     "delete-saved requires savedDraftId instead. Never call update or " +
     "delete before a matching create - to draft a reply, first call with " +
     "action=create, mode=reply, replyToId, to, subject, body.",
