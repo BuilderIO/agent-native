@@ -8,15 +8,10 @@ import { saveDocumentWithRebase } from "./document-save-rebase";
 const original = "Writers inspect changes.\nReaders retain context.";
 const accepted = "Writers review changes.\nReaders retain context.";
 const draft = `${accepted} Peer suffix.`;
-const base = {
-  content: original,
-  updatedAt: "2026-09-09T00:00:01.000Z",
-  revision: "R30",
-};
+const base = { content: original, updatedAt: "2026-09-09T00:00:01.000Z" };
 const winner = {
   content: accepted,
   updatedAt: "2026-09-09T00:00:02.000Z",
-  revision: "R31",
 } as Document;
 
 describe("document save ownership after a rejected CAS", () => {
@@ -84,7 +79,6 @@ describe("document save ownership after a rejected CAS", () => {
       ...winner,
       content: draft,
       updatedAt: "2026-09-09T00:00:03.000Z",
-      revision: "R32",
     };
     const persist = vi
       .fn()
@@ -99,18 +93,11 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenNthCalledWith(2, draft, {
       content: accepted,
       updatedAt: winner.updatedAt,
-      revision: winner.revision,
     });
     expect(result).toEqual({
       status: "saved",
       document: persisted,
       content: draft,
-      base: {
-        content: accepted,
-        updatedAt: winner.updatedAt,
-        revision: winner.revision,
-      },
-      writeCommitted: true,
     });
   });
 
@@ -142,17 +129,10 @@ describe("document save ownership after a rejected CAS", () => {
       status: "saved",
       document: saved,
       content: localDraft,
-      base: {
-        content: winner.content,
-        updatedAt: winner.updatedAt,
-        revision: winner.revision,
-      },
-      writeCommitted: true,
     });
     expect(persist).toHaveBeenNthCalledWith(2, localDraft, {
       content: winner.content,
       updatedAt: winner.updatedAt,
-      revision: winner.revision,
     });
   });
 
@@ -220,17 +200,10 @@ describe("document save ownership after a rejected CAS", () => {
       status: "saved",
       document: persisted,
       content: merged,
-      base: {
-        content: peerWinner.content,
-        updatedAt: peerWinner.updatedAt,
-        revision: peerWinner.revision,
-      },
-      writeCommitted: true,
     });
     expect(persist).toHaveBeenNthCalledWith(2, merged, {
       content: peerWinner.content,
       updatedAt: peerWinner.updatedAt,
-      revision: peerWinner.revision,
     });
     expect(confirm).toHaveBeenCalledWith(merged);
     expect(merged.match(/Writers review changes\./g)).toHaveLength(1);
@@ -249,12 +222,6 @@ describe("document save ownership after a rejected CAS", () => {
       status: "saved",
       document: { ...winner, content: merged },
       content: merged,
-      base: {
-        content: winner.content,
-        updatedAt: winner.updatedAt,
-        revision: winner.revision,
-      },
-      writeCommitted: true,
     });
     expect(persist).toHaveBeenCalledTimes(2);
   });
@@ -273,17 +240,7 @@ describe("document save ownership after a rejected CAS", () => {
         persist,
         confirmsWrite: (current) => current.title === "New title",
       }),
-    ).resolves.toEqual({
-      status: "saved",
-      document: saved,
-      content: draft,
-      base: {
-        content: draft,
-        updatedAt: winner.updatedAt,
-        revision: winner.revision,
-      },
-      writeCommitted: true,
-    });
+    ).resolves.toEqual({ status: "saved", document: saved, content: draft });
     expect(persist).toHaveBeenCalledTimes(2);
   });
 
@@ -292,13 +249,7 @@ describe("document save ownership after a rejected CAS", () => {
     const persist = vi.fn().mockResolvedValue({ conflict: true, document });
     await expect(
       saveDocumentWithRebase({ base, content: draft, persist }),
-    ).resolves.toEqual({
-      status: "saved",
-      document,
-      content: draft,
-      base,
-      writeCommitted: false,
-    });
+    ).resolves.toEqual({ status: "saved", document, content: draft });
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
@@ -362,7 +313,6 @@ describe("document save ownership after a rejected CAS", () => {
     expect(persist).toHaveBeenNthCalledWith(2, merged, {
       content: peerWinner.content,
       updatedAt: peerWinner.updatedAt,
-      revision: peerWinner.revision,
     });
   });
 

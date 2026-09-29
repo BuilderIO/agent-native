@@ -3211,7 +3211,6 @@ function PageEditorSessionBody({
       }
 
       let saved: Document | DocumentUpdateResult;
-      let ownContentSaveBaseRevision: string | undefined;
       if (
         updates.content !== undefined &&
         !isLinkedLocalSourceDocument &&
@@ -3335,9 +3334,6 @@ function PageEditorSessionBody({
           saved = result.document;
           content = result.content;
           updates.content = content;
-          if (result.writeCommitted) {
-            ownContentSaveBaseRevision = result.base.revision;
-          }
         }
       } else {
         saved = await persistDocumentUpdates(updates, options);
@@ -3362,11 +3358,11 @@ function PageEditorSessionBody({
       if (
         updates.content !== undefined &&
         saved.revision &&
-        ownContentSaveBaseRevision &&
+        contentBase.revision &&
         saved.content === options.editorSnapshotContent
       ) {
         recordOwnContentSave(ownContentSaveLineageRef.current, saved.revision, {
-          baseRevision: ownContentSaveBaseRevision,
+          baseRevision: contentBase.revision,
           editGeneration: editorEditGeneration,
         });
       }
