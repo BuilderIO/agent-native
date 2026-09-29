@@ -604,6 +604,7 @@ export default {
     fieldRequired: "{{label}} आवश्यक है",
     linkDisabled: "{{title}} अक्षम",
     linkEnabled: "{{title}} सक्षम",
+    advanced: "उन्नत",
     linkVisibility: "लिंक दृश्यता",
     linkVisibilityDescription: "सार्वजनिक पृष्ठ को अक्षम करने के लिए इसे बंद करें।",
     loadingMeetingTypes: "मीटिंग प्रकार लोड हो रहे हैं",

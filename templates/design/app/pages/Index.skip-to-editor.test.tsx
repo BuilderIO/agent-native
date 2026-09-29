@@ -545,6 +545,9 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain(
       "agentChat.setup.checkingProvider",
     );
+    expect(
+      container.querySelector('[role="status"][aria-label="common.loading"]'),
+    ).not.toBeNull();
     expect(mocks.promptProps?.disabled).not.toBe(true);
     expect(mocks.promptProps).toMatchObject({
       onBeforeSubmit: expect.any(Function),

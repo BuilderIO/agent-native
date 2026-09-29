@@ -26,6 +26,7 @@ const messages = {
       noteToSelf: "Nota para mim",
     },
     inbox: {
+      atLeastCount: "Pelo menos {{count}}",
       syncing: "Sincronizando caixa de entrada…",
     },
     sort: {
@@ -338,14 +339,14 @@ const messages = {
     sendLater: {
       cancelScheduledSend: "Cancelar envio agendado",
       deliveryUnknownWarning:
-        "Status da entrega desconhecido; confira a pasta Enviados do Gmail antes de resolver.",
+        "Status da entrega desconhecido; confira a visualização Enviados do Mail antes de resolver.",
       markSentAfterChecking: "Conferi Enviados; marcar como enviada",
       sendNewCopy: "Enviar uma nova cópia",
       sendingStatus:
         "O envio agendado está em processamento. As ações estão temporariamente indisponíveis.",
       confirmSendNewCopyTitle: "Enviar outra cópia?",
       confirmSendNewCopyDescription:
-        "A original talvez já tenha sido entregue. Confira primeiro a pasta Enviados do Gmail. Enviar outra cópia pode gerar uma mensagem duplicada.",
+        "A original talvez já tenha sido entregue. Confira primeiro a visualização Enviados do Mail. Enviar outra cópia pode gerar uma mensagem duplicada.",
       dateInput: "Data e hora",
       noDateMatch: "Nenhum horário futuro correspondente",
       inputPlaceholder: "Tente: 8h, 3 dias, 7 de ago.",

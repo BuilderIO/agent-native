@@ -1,8 +1,8 @@
 import { lazy } from "react";
 
 // Lazy so importing `@agent-native/core/client/settings` (every template's
-// settings route does) doesn't ship the shell to viewers who don't have the
-// `settings-redesign` flag. Render it inside `<Suspense>`.
+// settings route does) doesn't ship the shell to surfaces that opt out with
+// `redesign={false}`. Render it inside `<Suspense>`.
 export const SettingsShell = lazy(() =>
   import("./SettingsShell.js").then((module) => ({
     default: module.SettingsShell,

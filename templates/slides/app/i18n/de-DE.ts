@@ -20,6 +20,9 @@ const messages = {
     slidePosition: "Folie {{current}} von {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["de-DE"],
+  common: {
+    loading: "Wird geladen...",
+  },
   root: {
     commandPresentations: "Präsentationen",
     searchDecks: "Decks suchen",

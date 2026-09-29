@@ -393,7 +393,7 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     expect(replace).toHaveBeenCalledWith(
-      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
   });
 

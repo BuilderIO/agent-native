@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "Diapositiva {{current}} de {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["es-ES"],
+  common: {
+    loading: "Cargando...",
+  },
   root: {
     commandPresentations: "Presentaciones",
     searchDecks: "Buscar decks",

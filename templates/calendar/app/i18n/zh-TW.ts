@@ -580,6 +580,7 @@ export default {
     fieldRequired: "{{label}} 為必填項",
     linkDisabled: "{{title}} 停用",
     linkEnabled: "{{title}}已啟用",
+    advanced: "進階",
     linkVisibility: "連結可見性",
     linkVisibilityDescription: "關閉此功能可停用公開頁面。",
     loadingMeetingTypes: "正在載入會議型別",

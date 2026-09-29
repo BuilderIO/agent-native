@@ -34,10 +34,10 @@ describe("useFeatureFlagState", () => {
     vi.clearAllMocks();
   });
 
-  async function probe(): Promise<FeatureFlagState[]> {
+  async function probe(key = "example-flag"): Promise<FeatureFlagState[]> {
     const states: FeatureFlagState[] = [];
     function Probe() {
-      states.push(useFeatureFlagState("settings-redesign"));
+      states.push(useFeatureFlagState(key));
       return null;
     }
     const container = document.createElement("div");
@@ -61,6 +61,19 @@ describe("useFeatureFlagState", () => {
     return states;
   }
 
+  it("answers on for a retired flag, so older generated apps take its shipped path", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: "boom" }, 500));
+    vi.stubGlobal("fetch", fetchMock);
+    for (const status of ["loading", "unauthenticated", "authenticated"]) {
+      sessionMocks.useSession.mockReturnValue({ status });
+      const states = await probe("settings-redesign");
+      expect(states.every((state) => state.status === "ready")).toBe(true);
+      expect(states.at(-1)).toEqual({ status: "ready", enabled: true });
+    }
+  });
+
   it("reports loading while the session resolves", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });
     vi.stubGlobal("fetch", vi.fn());
@@ -72,7 +85,7 @@ describe("useFeatureFlagState", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ "settings-redesign": true })),
+      vi.fn().mockResolvedValue(jsonResponse({ "example-flag": true })),
     );
     const states = await probe();
     expect(states[0]).toEqual({ status: "loading", enabled: false });
@@ -83,7 +96,7 @@ describe("useFeatureFlagState", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ "settings-redesign": false })),
+      vi.fn().mockResolvedValue(jsonResponse({ "example-flag": false })),
     );
     const states = await probe();
     expect(states.at(-1)).toEqual({ status: "ready", enabled: false });

@@ -627,6 +627,7 @@ export default {
     fieldRequired: "{{label}} مطلوب",
     linkDisabled: "تم تعطيل {{title}}",
     linkEnabled: "تم تمكين {{title}}",
+    advanced: "إعدادات متقدمة",
     linkVisibility: "رؤية الارتباط",
     linkVisibilityDescription: "قم بإيقاف تشغيل هذا لتعطيل الصفحة العامة.",
     loadingMeetingTypes: "جارٍ تحميل أنواع الاجتماعات",

@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "الشريحة {{current}} من {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ar-SA"],
+  common: {
+    loading: "جارٍ التحميل...",
+  },
   root: {
     commandPresentations: "العروض التقديمية",
     searchDecks: "البحث في العروض",

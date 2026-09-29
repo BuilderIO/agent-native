@@ -370,6 +370,10 @@ const SCHEDULED_JOB_MUTATION_ACTIONS = new Set([
 export function createMailSyncEventHandler(qc: QueryClient) {
   let refreshSignalInvalidationScheduled = false;
   let actionQueryInvalidationScheduled = false;
+  let settingsInvalidationScheduled = false;
+  const pendingSettingsInvalidations = new Set<
+    "settings" | "mail-inbox" | "agent-engines"
+  >();
 
   return (data: MailSyncEvent) => {
     const isOwnEvent = data.requestSource === TAB_ID;
@@ -422,11 +426,38 @@ export function createMailSyncEventHandler(qc: QueryClient) {
       }
     } else if (data.source === "settings") {
       if (!isOwnEvent) {
-        void qc.invalidateQueries({ queryKey: ["settings"] });
-        void qc.invalidateQueries({ queryKey: ["aliases"] });
-        void qc.invalidateQueries({ queryKey: ["emails"] });
-        void qc.invalidateQueries({ queryKey: ["email"] });
-        invalidateSettingsSurfaces();
+        const key = data.key ?? "";
+        if (!key || key === "*") pendingSettingsInvalidations.add("settings");
+        if (key === "agent-engine" || key.endsWith(":agent-engine")) {
+          pendingSettingsInvalidations.add("agent-engines");
+        }
+        if (key === "mail-settings" || key.endsWith(":mail-settings")) {
+          pendingSettingsInvalidations.add("settings");
+          pendingSettingsInvalidations.add("mail-inbox");
+        }
+        if (
+          pendingSettingsInvalidations.size > 0 &&
+          !settingsInvalidationScheduled
+        ) {
+          settingsInvalidationScheduled = true;
+          queueMicrotask(() => {
+            settingsInvalidationScheduled = false;
+            const invalidations = [...pendingSettingsInvalidations];
+            pendingSettingsInvalidations.clear();
+            if (invalidations.includes("settings")) {
+              void qc.invalidateQueries({ queryKey: ["settings"] });
+            }
+            if (invalidations.includes("mail-inbox")) {
+              void qc.invalidateQueries({
+                queryKey: ["action", "list-inbox-threads"],
+              });
+              void qc.invalidateQueries({ queryKey: ["mail-inbox-overview"] });
+            }
+            if (invalidations.includes("agent-engines")) {
+              void qc.invalidateQueries({ queryKey: ["agent-engines"] });
+            }
+          });
+        }
       }
     } else if (data.source === "action") {
       if (!data.key || !MAIL_QUERY_MUTATION_ACTIONS.has(data.key)) return;

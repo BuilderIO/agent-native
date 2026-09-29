@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("shouldGateComposerForEngine", () => {
-  it("blocks typing until provider status confirms the engine is configured", () => {
+  it("blocks submissions until provider status confirms the engine is configured", () => {
     for (const state of ["unknown", "unavailable", "missing"] as const) {
       expect(shouldGateComposerForEngine(state)).toBe(true);
     }

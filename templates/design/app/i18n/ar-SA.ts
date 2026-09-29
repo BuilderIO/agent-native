@@ -222,6 +222,7 @@ export default {
     },
   },
   common: {
+    loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
   },
   editPanel: {
@@ -319,6 +320,8 @@ export default {
       bottomLeft: "أسفل يسار",
       bottomRight: "أسفل يمين",
       blend: "مزج",
+      blendMode: "وضع المزج",
+      removeBlendMode: "إزالة وضع المزج",
       border: "حد",
       outline: "مخطط",
       inside: "داخلي",

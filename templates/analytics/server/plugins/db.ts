@@ -6,6 +6,7 @@ import {
   getDatabaseUrl,
   MIGRATION_DEFERRED,
   runMigrations,
+  withMigrationExecutionRuntime,
   withMigrationRuntime,
 } from "@agent-native/core/db";
 import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
@@ -1041,6 +1042,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 115,
       name: "uptime-monitors-timeout-10s",
+      // guard:allow-unscoped — migration normalizes every existing monitor timeout independent of tenant ownership
       sql: {
         postgres: `
         ALTER TABLE monitors ALTER COLUMN timeout_ms SET DEFAULT 10000;
@@ -1502,48 +1504,40 @@ export default async (nitroApp: any): Promise<void> => {
     );
     return;
   }
-  const isNetlifyServerlessRuntime =
-    isProductionServerlessRuntime() ||
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.NETLIFY_FUNCTION_NAME) ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.LAMBDA_TASK_ROOT);
-  if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {
+  const isProductionServerless = isProductionServerlessRuntime();
+  if (isProductionServerless && !isScheduledRollupRuntime) {
     console.info(
       "[db] Skipping Analytics migrations in production serverless runtime",
     );
     return;
   }
-  // The schema must exist before the first query. Measured cost on this
-  // database (180 tables): ~5.5s for the version check alone, which is why the
-  // serverless runtime never runs it on cold starts. The scheduled worker is
-  // the one serverless exception and claims migration duty explicitly.
-  // guard:allow-boot-data-work — schema must exist before the first query
-  if (isScheduledRollupRuntime) {
-    // guard:allow-boot-data-work — scheduled worker owns the release migration
-    await withMigrationRuntime(async () => {
-      // guard:allow-boot-data-work — scheduled worker owns the release migration
-      await runAnalyticsMigrations(nitroApp);
-    });
-  } else {
-    // guard:allow-boot-data-work — long-lived local runtime owns the migration
+  const runSchemaWork = async () => {
+    // guard:allow-boot-data-work — local servers and the scheduled rollup worker own schema setup
     await runAnalyticsMigrations(nitroApp);
-  }
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
       console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
+  };
+  if (isProductionServerless) {
+    // guard:allow-boot-data-work — the scheduled rollup may be the first post-deploy schema caller
+    await withMigrationRuntime(() =>
+      withMigrationExecutionRuntime(runSchemaWork),
     );
+  } else {
+    await runSchemaWork();
   }
 };

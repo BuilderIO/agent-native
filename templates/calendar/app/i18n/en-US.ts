@@ -613,6 +613,7 @@ export default {
     fieldRequired: "{{label}} is required",
     linkDisabled: "{{title}} disabled",
     linkEnabled: "{{title}} enabled",
+    advanced: "Advanced",
     linkVisibility: "Link visibility",
     linkVisibilityDescription: "Turn this off to disable the public page.",
     loadingMeetingTypes: "Loading meeting types",

@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "슬라이드 {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["ko-KR"],
+  common: {
+    loading: "불러오는 중...",
+  },
   root: {
     commandPresentations: "프레젠테이션",
     searchDecks: "덱 검색",
