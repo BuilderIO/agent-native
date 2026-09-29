@@ -9272,12 +9272,73 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!color || color === "none" || color === "transparent") return false;
     var parsed = parseCssRgb(color);
     if (parsed) return parsed.a > 0;
+    if (/^#[\da-f]{4}$/.test(color)) {
+      return parseInt(color.slice(-1).repeat(2), 16) > 0;
+    }
+    if (/^#[\da-f]{8}$/.test(color)) {
+      return parseInt(color.slice(-2), 16) > 0;
+    }
+    var legacyHsl = /^hsla?\(([^)]+)\)$/.exec(color);
+    if (legacyHsl && legacyHsl[1].includes(",")) {
+      var components = legacyHsl[1].split(",");
+      if (components.length >= 4) return parseFloat(components[3]) > 0;
+    }
     var alpha = /\/\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))%?\s*\)$/.exec(color);
     return !alpha || Number(alpha[1]) > 0;
   }
 
-  function cornerRadiusHasVisiblePaint(el) {
-    var cursor = el;
+  function cornerRadiusSplitCssList(value) {
+    var parts = [];
+    var depth = 0;
+    var start = 0;
+    for (var index = 0; index < value.length; index += 1) {
+      if (value[index] === "(") depth += 1;
+      else if (value[index] === ")") depth -= 1;
+      else if (value[index] === "," && depth === 0) {
+        parts.push(value.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    parts.push(value.slice(start).trim());
+    return parts;
+  }
+
+  function cornerRadiusGradientHasVisiblePaint(value) {
+    var gradient =
+      /^(?:repeating-)?(?:linear|radial|conic)-gradient\((.*)\)$/i.exec(value);
+    if (!gradient) return true;
+    var stops = cornerRadiusSplitCssList(gradient[1]);
+    for (var index = 0; index < stops.length; index += 1) {
+      var stop = stops[index];
+      if (/^[+-]?(?:\d+\.?\d*|\.\d+)%$/.test(stop)) continue;
+      if (
+        index === 0 &&
+        /^(?:to\b|from\b|in\b|at\b|[-+]?(?:\d+\.?\d*|\.\d+)(?:deg|grad|rad|turn)\b|(?:circle|ellipse|closest|farthest)\b)/i.test(
+          stop,
+        )
+      ) {
+        continue;
+      }
+      var color =
+        /^(?:transparent\b|rgba?\([^)]*\)|hsla?\([^)]*\)|#[\da-f]{3,8}|color\([^)]*\)|color-mix\([^)]*\)|[a-z]+)/i.exec(
+          stop,
+        );
+      if (!color || cornerRadiusColorIsVisible(color[0])) return true;
+    }
+    return false;
+  }
+
+  function cornerRadiusBackgroundImageHasVisiblePaint(value) {
+    if (!value || value === "none") return false;
+    var layers = cornerRadiusSplitCssList(value);
+    for (var index = 0; index < layers.length; index += 1) {
+      if (cornerRadiusGradientHasVisiblePaint(layers[index])) return true;
+    }
+    return false;
+  }
+
+  function cornerRadiusNodeAndAncestorsAreVisible(node, stopAt) {
+    var cursor = node;
     while (cursor) {
       var style = window.getComputedStyle(cursor);
       if (
@@ -9287,11 +9348,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return false;
       }
+      if (cursor === stopAt) return true;
       cursor = cursor.parentElement;
     }
+    return !stopAt;
+  }
+
+  function cornerRadiusHasVisiblePaint(el) {
+    if (!cornerRadiusNodeAndAncestorsAreVisible(el, null)) return false;
     var style = window.getComputedStyle(el);
     if (
-      style.backgroundImage !== "none" ||
+      cornerRadiusBackgroundImageHasVisiblePaint(style.backgroundImage) ||
       cornerRadiusColorIsVisible(style.backgroundColor)
     ) {
       return true;
@@ -9312,9 +9379,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     if (el.tagName.toLowerCase() !== "svg") return false;
     var paintTarget = vectorPaintTarget(el);
-    if (!paintTarget) return false;
+    if (
+      !paintTarget ||
+      !cornerRadiusNodeAndAncestorsAreVisible(paintTarget, el)
+    ) {
+      return false;
+    }
     var paintStyle = window.getComputedStyle(paintTarget);
-    if (Number(paintStyle.opacity) === 0) return false;
     return (
       (paintStyle.fill !== "none" &&
         Number(paintStyle.fillOpacity) > 0 &&
