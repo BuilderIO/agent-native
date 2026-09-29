@@ -246,6 +246,9 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("pendingAccountActionRef");
     expect(route).toContain("disabled={Boolean(session) && !viewerCanComment}");
     expect(route).toContain("onReact={reactToRecording}");
+    expect(route).toMatch(
+      /portalContainer={\s*isPlayerFullscreen \? playerRef\.current\?\.container : undefined\s*}/,
+    );
   });
 
   it("keeps public comments in flow and consolidates recording insights", () => {
