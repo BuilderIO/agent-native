@@ -6701,6 +6701,84 @@ it(
 );
 
 it(
+  "refreshes radius-handle hover when the selected element resizes under a stationary pointer",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:transparent"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(196, 44);
+      await selectElementDirect(page, "#rectangle");
+
+      const handle = page.locator('[data-agent-native-radius-handle="ne"]');
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("hidden");
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>("#rectangle")!.style.width =
+          "160px";
+        window.postMessage(
+          { type: "set-editor-chrome-scale", scaleX: 1, scaleY: 1 },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return overlay?.style.width === "160px";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("visible");
+
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>("#rectangle")!.style.width =
+          "220px";
+        window.postMessage(
+          { type: "set-editor-chrome-scale", scaleX: 1, scaleY: 1 },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => {
+          const overlay = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="selection"]',
+          );
+          return overlay?.style.width === "220px";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      expect(
+        await handle.evaluate(
+          (element) => getComputedStyle(element).visibility,
+        ),
+      ).toBe("hidden");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "clears radius-handle hover when the pointer exits before selection changes",
   { timeout: 30_000 },
   async () => {

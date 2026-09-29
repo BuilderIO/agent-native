@@ -9622,12 +9622,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       selectionOverlay.removeAttribute(
         "data-agent-native-suppress-handle-transition",
       );
-      if (lastHoverClientPoint) {
-        updateRadiusHandleHover({
-          clientX: lastHoverClientPoint.x,
-          clientY: lastHoverClientPoint.y,
-        });
-      }
+    }
+    if (lastHoverClientPoint) {
+      updateRadiusHandleHover({
+        clientX: lastHoverClientPoint.x,
+        clientY: lastHoverClientPoint.y,
+      });
     }
   }
 

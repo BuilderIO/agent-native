@@ -7800,12 +7800,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectionOverlay.removeAttribute(
           "data-agent-native-suppress-handle-transition"
         );
-        if (lastHoverClientPoint) {
-          updateRadiusHandleHover({
-            clientX: lastHoverClientPoint.x,
-            clientY: lastHoverClientPoint.y
-          });
-        }
+      }
+      if (lastHoverClientPoint) {
+        updateRadiusHandleHover({
+          clientX: lastHoverClientPoint.x,
+          clientY: lastHoverClientPoint.y
+        });
       }
     }
     function updateRadiusHandleHover(e) {
