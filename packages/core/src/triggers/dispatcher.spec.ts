@@ -871,7 +871,7 @@ Respond to the event.`,
     info.mockRestore();
   });
 
-  it("drains stale mail events inline while fresh triggers run in the same sweep", async () => {
+  it("reserves fresh-trigger time while expiring stale mail in slow batches", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "mail.message.received";
     resourceListAllOwnersMock.mockResolvedValue([
@@ -931,9 +931,25 @@ Respond to the event.`,
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
-    await sweep?.({ deadlineAt: now + 90_000 });
+    const expireImplementation =
+      triggerQueueMocks.expire.getMockImplementation();
+    if (!expireImplementation) {
+      throw new Error("Expected a stale-event expiry implementation.");
+    }
+    let simulatedNow = now;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => simulatedNow);
+    triggerQueueMocks.expire.mockImplementation(async (input) => {
+      simulatedNow += 15_000;
+      return expireImplementation(input);
+    });
+    try {
+      await sweep?.({ deadlineAt: now + 90_000 });
+    } finally {
+      nowSpy.mockRestore();
+      triggerQueueMocks.expire.mockImplementation(expireImplementation);
+    }
 
-    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(3);
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(2);
     expect(
       triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
     ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);

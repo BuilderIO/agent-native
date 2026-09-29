@@ -281,13 +281,20 @@ async function drainReadyTriggerQueue(
       DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
       MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
       deadline;
+  const hasStaleMailExpiryBudget = () =>
+    !context.signal?.aborted &&
+    Date.now() +
+      DB_QUERY_TIMEOUT_MS +
+      DURABLE_TRIGGER_RUN_CLEANUP_RESERVE_MS +
+      MIN_DURABLE_TRIGGER_SWEEP_RUN_MS <
+      deadline;
 
   const expireStaleMailEventBatches = async () => {
     if (deps.appId !== "mail") return;
     const emittedBefore = new Date(
       Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS,
     ).toISOString();
-    while (hasDrainBudget()) {
+    while (hasStaleMailExpiryBudget()) {
       const expired = await expireStaleAutomationTriggerEvents({
         appId: deps.appId,
         eventName: MAIL_RECEIVED_EVENT,
