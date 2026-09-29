@@ -3571,6 +3571,7 @@ export function createCoreRoutesPlugin(
           grants: {},
           canConnect: { org: false, personal: false },
         };
+        let activationOffered = false;
         // Every response names which connection is in effect for this caller
         // (`effective`) alongside the grants that exist, so the UI can show
         // the organization and personal connections as separate rows.
@@ -3590,14 +3591,8 @@ export function createCoreRoutesPlugin(
           if (!userEmail) return withConnections;
           return {
             ...withConnections,
-            // Activation is refused once the org is connected (see
-            // builderConnectReplacesOrgConnection), so it isn't offered then.
             agentNativeProvisioningEnabled:
-              status.agentNativeProvisioningEnabled &&
-              Boolean(provisioningToken) &&
-              connections.grants !== null &&
-              !connections.grants.org &&
-              effective !== "workspace",
+              status.agentNativeProvisioningEnabled && activationOffered,
             agentNativeProvisioningToken: provisioningToken,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           };
@@ -3625,6 +3620,21 @@ export function createCoreRoutesPlugin(
           orgId,
           role: orgRole,
         });
+        // Activation is refused once the org's members share a connection (see
+        // builderConnectReplacesOrgConnection), so it isn't offered then. The
+        // workspace pair is read on its own: a member's personal connection
+        // would hide it from the effective source.
+        activationOffered =
+          Boolean(provisioningToken) &&
+          connections.grants !== null &&
+          !connections.grants.org;
+        if (activationOffered && orgId) {
+          activationOffered = !(await hasWorkspaceBuilderKeyConnection(
+            orgId,
+          ).catch(
+            () => true, // coercion-ok: an unreadable store offers no activation, never one that could replace a connection
+          ));
+        }
 
         return runWithRequestContext(
           { userEmail, orgId: orgId ?? undefined },
