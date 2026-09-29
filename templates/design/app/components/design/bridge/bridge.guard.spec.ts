@@ -6896,6 +6896,236 @@ it.each([
 );
 
 it(
+  "maps radius handles through a complete nested 3D transform chain",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body>
+  <div id="root" style="position:absolute;left:320px;top:100px;width:300px;height:300px;transform:rotateY(35deg);transform-style:preserve-3d;transform-origin:0 0">
+    <div id="parent" style="position:absolute;left:20px;top:15px;width:200px;height:180px;transform:rotateX(25deg);transform-style:preserve-3d;transform-origin:0 0">
+      <div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:10px;top:15px;width:100px;height:60px;transform:rotateZ(17deg);transform-origin:0 0;border-top-left-radius:20px;background:transparent"></div>
+    </div>
+  </div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "select-element", selector: "#target" },
+          "*",
+        );
+      });
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).display === "block";
+      });
+      const handleCenter = await handle.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      });
+      const expected = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const elements = ["#target", "#parent", "#root"].map(
+          (selector) => document.querySelector<HTMLElement>(selector)!,
+        );
+        const transform = elements.reduce((combined, element) => {
+          const value = getComputedStyle(element).transform;
+          const local =
+            value === "none"
+              ? new DOMMatrixReadOnly()
+              : new DOMMatrixReadOnly(value);
+          return local.multiply(combined);
+        }, new DOMMatrixReadOnly());
+        const scale = transform.m44;
+        const matrix = {
+          a: transform.m11 / scale,
+          b: transform.m12 / scale,
+          c: transform.m21 / scale,
+          d: transform.m22 / scale,
+        };
+        const width = target.offsetWidth;
+        const height = target.offsetHeight;
+        const rect = target.getBoundingClientRect();
+        const horizontal = matrix.a * width;
+        const vertical = matrix.b * width;
+        const horizontalFromY = matrix.c * height;
+        const verticalFromY = matrix.d * height;
+        const originX =
+          rect.left -
+          Math.min(
+            0,
+            horizontal,
+            horizontalFromY,
+            horizontal + horizontalFromY,
+          );
+        const originY =
+          rect.top -
+          Math.min(0, vertical, verticalFromY, vertical + verticalFromY);
+        const xLength = Math.hypot(matrix.a, matrix.b);
+        const yLength = Math.hypot(matrix.c, matrix.d);
+        const line =
+          parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue(
+              "--agent-native-editor-chrome-line-scale",
+            ),
+          ) || 1;
+        return {
+          x:
+            originX +
+            matrix.a * 20 +
+            matrix.c * 20 +
+            4 * line * (matrix.a / xLength + matrix.c / yLength),
+          y:
+            originY +
+            matrix.b * 20 +
+            matrix.d * 20 +
+            4 * line * (matrix.b / xLength + matrix.d / yLength),
+          matrix,
+        };
+      });
+      const startX = handleCenter.x;
+      const startY = handleCenter.y;
+      expect(Math.abs(startX - expected.x)).toBeLessThan(1.5);
+      expect(Math.abs(startY - expected.y)).toBeLessThan(1.5);
+
+      await page.mouse.move(startX, startY);
+      await page.waitForFunction(() => {
+        const entry = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        );
+        return entry && getComputedStyle(entry).visibility === "visible";
+      });
+      await page.mouse.down();
+      await page.mouse.move(startX + 9, startY + 6);
+      const movedHandleBox = await handle.boundingBox();
+      if (!movedHandleBox) throw new Error("nw radius handle disappeared");
+      expect(
+        Math.abs(movedHandleBox.x + movedHandleBox.width / 2 - startX - 9),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(movedHandleBox.y + movedHandleBox.height / 2 - startY - 6),
+      ).toBeLessThanOrEqual(1);
+      const actualRadius = await page.locator("#target").evaluate((element) =>
+        getComputedStyle(element)
+          .borderTopLeftRadius.split(/\s+/)
+          .map((part) => parseFloat(part)),
+      );
+      const { a, b, c, d } = expected.matrix;
+      const determinant = a * d - b * c;
+      const expectedRadius = [
+        20 + (d * 9 - c * 6) / determinant,
+        20 + (-b * 9 + a * 6) / determinant,
+      ];
+      expect(actualRadius[0]).toBeCloseTo(expectedRadius[0], 1);
+      expect(actualRadius[1]).toBeCloseTo(expectedRadius[1], 1);
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    name: "the perspective property",
+    parentStyle:
+      "perspective:600px;transform-style:preserve-3d;transform-origin:0 0",
+  },
+  {
+    name: "a perspective transform",
+    parentStyle:
+      "transform:perspective(600px) rotateX(30deg);transform-style:preserve-3d;transform-origin:0 0",
+  },
+])(
+  "hides radius handles when %s makes the viewport mapping projective",
+  { timeout: 30_000 },
+  async ({ parentStyle }) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body>
+  <div style="${parentStyle};position:absolute;left:180px;top:100px;width:320px;height:220px"><div id="target" data-agent-native-node-id="target" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:120px;height:80px;border-radius:16px;background:transparent"></div></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, "#target");
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      const before = await page.evaluate(() => {
+        const target = document.querySelector<HTMLElement>("#target")!;
+        const handles = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-agent-native-radius-handle]",
+          ),
+        );
+        return {
+          radius: target.style.borderRadius,
+          displays: handles.map((handle) => getComputedStyle(handle).display),
+        };
+      });
+      await page.evaluate(() => {
+        const handle = document.querySelector<HTMLElement>(
+          '[data-agent-native-radius-handle="nw"]',
+        )!;
+        handle.dispatchEvent(
+          new MouseEvent("mousedown", {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientX: 240,
+            clientY: 140,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: 250,
+            clientY: 150,
+          }),
+        );
+        document.dispatchEvent(
+          new MouseEvent("mouseup", { bubbles: true, button: 0 }),
+        );
+      });
+      const messages = await readBridgeMessages(page);
+      const afterRadius = await page
+        .locator("#target")
+        .evaluate((element) => (element as HTMLElement).style.borderRadius);
+      expect(before.displays).toEqual(Array(4).fill("none"));
+      expect(afterRadius).toBe(before.radius);
+      expect(
+        messages.filter((message) => message.type === "visual-style-change"),
+      ).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "shows rectangle radius handles without a fill and hides unsupported shapes",
   { timeout: 30_000 },
   async () => {

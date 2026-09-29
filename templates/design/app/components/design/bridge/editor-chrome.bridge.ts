@@ -9591,7 +9591,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             handle.style.display = "none";
             return;
           }
-          if (radiusTransformDeterminant(screenMatrix) === null) {
+          if (!radiusTransformInverse(screenMatrix)) {
             handle.style.display = "none";
             return;
           }
@@ -9633,10 +9633,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           box.width,
           box.height,
         );
-        var targetDeterminant = radiusTransformDeterminant(
-          targetGeometry.matrix,
-        );
-        if (targetDeterminant === null) {
+        if (!targetGeometry || !radiusTransformInverse(targetGeometry.matrix)) {
           handle.style.display = "none";
           return;
         }
@@ -12757,14 +12754,56 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return { width: width, height: height };
   }
 
+  function radiusMatrix4FromDomMatrix(matrix) {
+    return [
+      matrix.m11,
+      matrix.m21,
+      matrix.m31,
+      matrix.m41,
+      matrix.m12,
+      matrix.m22,
+      matrix.m32,
+      matrix.m42,
+      matrix.m13,
+      matrix.m23,
+      matrix.m33,
+      matrix.m43,
+      matrix.m14,
+      matrix.m24,
+      matrix.m34,
+      matrix.m44,
+    ];
+  }
+
+  function identityRadiusMatrix4() {
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  }
+
+  function composeRadiusTransformMatrices(parent, child) {
+    var result = new Array(16);
+    for (var row = 0; row < 4; row++) {
+      for (var column = 0; column < 4; column++) {
+        var value = 0;
+        for (var index = 0; index < 4; index++) {
+          value += parent[row * 4 + index] * child[index * 4 + column];
+        }
+        result[row * 4 + column] = value;
+      }
+    }
+    return result;
+  }
+
   function radiusLinearTransformForStyle(cs) {
-    var transform = { a: 1, b: 0, c: 0, d: 1 };
-    if (cs.transform && cs.transform !== "none" && window.DOMMatrixReadOnly) {
+    if (!window.DOMMatrixReadOnly) return null;
+    var transform = identityRadiusMatrix4();
+    if (cs.transform && cs.transform !== "none") {
       try {
-        var matrix = new DOMMatrixReadOnly(cs.transform);
-        transform = { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+        transform = radiusMatrix4FromDomMatrix(
+          new DOMMatrixReadOnly(cs.transform),
+        );
       } catch (err) {
         void err;
+        return null;
       }
     }
     var scaleParts = (cs.scale || cs.getPropertyValue("scale") || "none")
@@ -12775,24 +12814,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     var scaleX = Number.isFinite(scaleParts[0]) ? scaleParts[0] : 1;
     var scaleY = Number.isFinite(scaleParts[1]) ? scaleParts[1] : scaleX;
+    var scaleZ = Number.isFinite(scaleParts[2]) ? scaleParts[2] : 1;
+    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
+    if (Number.isFinite(zoom)) {
+      scaleX *= zoom;
+      scaleY *= zoom;
+      scaleZ *= zoom;
+    }
     var rotation = radiusRotationMatrix(cs.rotate || "");
     if (!rotation) {
-      return { a: NaN, b: NaN, c: NaN, d: NaN };
+      return null;
     }
-    var result = composeRadiusLinearTransform(
-      transform,
-      scaleX,
-      scaleY,
+    var scale = [scaleX, 0, 0, 0, 0, scaleY, 0, 0, 0, 0, scaleZ, 0, 0, 0, 0, 1];
+    return composeRadiusTransformMatrices(
       rotation,
+      composeRadiusTransformMatrices(scale, transform),
     );
-    var zoom = parseFloat(cs.zoom || cs.getPropertyValue("zoom"));
-    if (Number.isFinite(zoom) && zoom > 0) {
-      result.a *= zoom;
-      result.b *= zoom;
-      result.c *= zoom;
-      result.d *= zoom;
-    }
-    return result;
   }
 
   function radiusLinearTransform(el) {
@@ -12802,7 +12839,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function radiusRotationMatrix(rotate) {
     var value = String(rotate || "").trim();
     if (!value || value === "none") {
-      return { a: 1, b: 0, c: 0, d: 1 };
+      return identityRadiusMatrix4();
     }
     var parts = value.split(/\s+/);
     var angle = parts.pop();
@@ -12824,54 +12861,53 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return null;
     }
     try {
-      var matrix = new DOMMatrixReadOnly(
-        "rotate3d(" + axis.join(",") + "," + angle + ")",
+      return radiusMatrix4FromDomMatrix(
+        new DOMMatrixReadOnly("rotate3d(" + axis.join(",") + "," + angle + ")"),
       );
-      return { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
     } catch (err) {
       void err;
       return null;
     }
   }
 
-  function composeRadiusLinearTransform(transform, scaleX, scaleY, rotation) {
-    var independent = {
-      a: rotation.a * scaleX,
-      b: rotation.b * scaleX,
-      c: rotation.c * scaleY,
-      d: rotation.d * scaleY,
-    };
-    return {
-      a: independent.a * transform.a + independent.c * transform.b,
-      b: independent.b * transform.a + independent.d * transform.b,
-      c: independent.a * transform.c + independent.c * transform.d,
-      d: independent.b * transform.c + independent.d * transform.d,
-    };
-  }
-
-  function multiplyRadiusLinear(parent, child) {
-    return {
-      a: parent.a * child.a + parent.c * child.b,
-      b: parent.b * child.a + parent.d * child.b,
-      c: parent.a * child.c + parent.c * child.d,
-      d: parent.b * child.c + parent.d * child.d,
-    };
-  }
-
   function radiusViewportLinearTransform(el) {
-    var total = { a: 1, b: 0, c: 0, d: 1 };
+    var total = identityRadiusMatrix4();
     for (
       var current = el;
       current && current.nodeType === 1;
       current = current.parentElement
     ) {
-      total = multiplyRadiusLinear(radiusLinearTransform(current), total);
+      var cs = window.getComputedStyle(current);
+      if (current !== el && cs.perspective && cs.perspective !== "none") {
+        return null;
+      }
+      var local = radiusLinearTransformForStyle(cs);
+      if (!local) return null;
+      total = composeRadiusTransformMatrices(local, total);
     }
-    return total;
+    var perspectiveX = total[12];
+    var perspectiveY = total[13];
+    var homogeneousScale = total[15];
+    if (
+      !total.every(Number.isFinite) ||
+      !Number.isFinite(homogeneousScale) ||
+      homogeneousScale === 0 ||
+      perspectiveX !== 0 ||
+      perspectiveY !== 0
+    ) {
+      return null;
+    }
+    return {
+      a: total[0] / homogeneousScale,
+      b: total[4] / homogeneousScale,
+      c: total[1] / homogeneousScale,
+      d: total[5] / homogeneousScale,
+    };
   }
 
   function radiusViewportBoxGeometry(el, width, height) {
     var matrix = radiusViewportLinearTransform(el);
+    if (!matrix) return null;
     var x = matrix.a * width;
     var y = matrix.b * width;
     var z = matrix.c * height;
@@ -12884,11 +12920,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function radiusTransformDeterminant(matrix) {
-    var determinant = matrix.a * matrix.d - matrix.b * matrix.c;
-    return Number.isFinite(determinant) && Math.abs(determinant) >= 0.0001
-      ? determinant
-      : null;
+  function radiusTransformInverse(matrix) {
+    if (!matrix) return null;
+    var scale = Math.max(
+      Math.abs(matrix.a),
+      Math.abs(matrix.b),
+      Math.abs(matrix.c),
+      Math.abs(matrix.d),
+    );
+    if (!Number.isFinite(scale) || scale === 0) return null;
+    var normalized = {
+      a: matrix.a / scale,
+      b: matrix.b / scale,
+      c: matrix.c / scale,
+      d: matrix.d / scale,
+    };
+    var determinant = normalized.a * normalized.d - normalized.b * normalized.c;
+    var trace =
+      normalized.a * normalized.a +
+      normalized.b * normalized.b +
+      normalized.c * normalized.c +
+      normalized.d * normalized.d;
+    var discriminant = Math.sqrt(
+      Math.max(0, trace * trace - 4 * determinant * determinant),
+    );
+    var largestSingularValueSquared = (trace + discriminant) / 2;
+    var singularValueRatio =
+      largestSingularValueSquared > 0
+        ? Math.abs(determinant) / largestSingularValueSquared
+        : 0;
+    if (
+      !Number.isFinite(determinant) ||
+      !Number.isFinite(singularValueRatio) ||
+      singularValueRatio < 0.0001
+    ) {
+      return null;
+    }
+    return {
+      ...normalized,
+      determinant: determinant,
+      scale: scale,
+    };
   }
 
   function radiusLocalBoxPointToViewport(geometry, x, y) {
@@ -12900,23 +12972,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function radiusViewportPointToLocalBox(geometry, x, y) {
+    if (!geometry) return null;
     var matrix = geometry.matrix;
-    var determinant = radiusTransformDeterminant(matrix);
+    var inverse = radiusTransformInverse(matrix);
     var dx = x - geometry.originX;
     var dy = y - geometry.originY;
-    if (determinant === null) return null;
+    if (!inverse) return null;
+    dx /= inverse.scale;
+    dy /= inverse.scale;
     return {
-      x: (matrix.d * dx - matrix.c * dy) / determinant,
-      y: (-matrix.b * dx + matrix.a * dy) / determinant,
+      x: (inverse.d * dx - inverse.c * dy) / inverse.determinant,
+      y: (-inverse.b * dx + inverse.a * dy) / inverse.determinant,
     };
   }
 
   function radiusInverseLinearDelta(matrix, screenDx, screenDy) {
-    var determinant = radiusTransformDeterminant(matrix);
-    if (determinant === null) return null;
+    var inverse = radiusTransformInverse(matrix);
+    if (!inverse) return null;
+    screenDx /= inverse.scale;
+    screenDy /= inverse.scale;
     return {
-      x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
-      y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
+      x: (inverse.d * screenDx - inverse.c * screenDy) / inverse.determinant,
+      y: (-inverse.b * screenDx + inverse.a * screenDy) / inverse.determinant,
     };
   }
 
@@ -22852,10 +22929,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
     var radiusEl = selectedEl;
-    if (
-      radiusTransformDeterminant(radiusViewportLinearTransform(radiusEl)) ===
-      null
-    ) {
+    if (!radiusTransformInverse(radiusViewportLinearTransform(radiusEl))) {
       return;
     }
     if (String(corner).indexOf("vertex-") === 0) {
