@@ -7,7 +7,6 @@ export default {
     connecting: "جارٍ الاتصال...",
     clipboardUnavailable: "الوصول إلى الحافظة غير متاح",
     disconnect: "قطع الاتصال",
-    notConnected: "غير متصل",
     loadFailed: "تعذر تحميل هذه البيانات.",
     retry: "إعادة المحاولة",
     saving: "جارٍ الحفظ...",
@@ -212,10 +211,6 @@ export default {
   },
   settings: {
     title: "الإعدادات",
-    description: "اضبط التقويم والتكاملات.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة واجهة Calendar.",
-    languageLabel: "لغة الواجهة",
     agentTitle: "إدارة الوكيل",
     agentDescription:
       "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
@@ -229,13 +224,8 @@ export default {
     zoomConnectFailed: "تعذر الاتصال بـ Zoom",
     zoomDisconnected: "تم قطع اتصال Zoom",
     zoomDisconnectFailed: "فشل قطع اتصال Zoom",
-    general: "عام",
-    generalDescription: "إعدادات التقويم الافتراضية ونصوص الحجز البديلة.",
-    timezone: "المنطقة الزمنية",
-    saveSettings: "حفظ الإعدادات",
     saved: "تم حفظ الإعدادات",
     saveFailed: "فشل حفظ الإعدادات",
-    appearance: "المظهر",
     appearanceDescription: "اختر سمة ألوان لمساحة العمل أو اسأل الوكيل.",
     desktopNotifications: "إشعارات سطح المكتب",
     desktopNotificationsDescription:
@@ -247,19 +237,9 @@ export default {
     connectGoogleCalendar: "الاتصال بتقويم Google",
     connectGoogleDescription: "زامن أحداثك وأدر كل شيء في مكان واحد.",
     zoomDescription: "اربط Zoom لإنشاء روابط اجتماعات لأحداث التقويم والحجوزات.",
-    zoomNotConfigured: "غير مكوّن",
     zoomCredentialsPrompt: "أضف بيانات اعتماد Zoom OAuth لتفعيل الاتصال.",
-    bookingTitleLabel: "عنوان صفحة الحجز الاحتياطي",
     bookingTitlePlaceholder: "احجز اجتماعًا",
-    bookingTitleHelp:
-      "يُستخدم فقط عندما لا يحتوي رابط الحجز على عنوان. أنشئ وافتح وانسخ عناوين URL العامة من روابط الحجز.",
-    bookingDescriptionLabel: "وصف صفحة الحجز الاحتياطي",
     bookingDescriptionPlaceholder: "اختر وقتًا يناسبك.",
-    bookingDescriptionHelp:
-      "يُستخدم فقط عندما لا يحتوي رابط الحجز على وصف خاص به.",
-    defaultDurationLabel: "مدة الحدث الافتراضية (بالدقائق)",
-    defaultDurationHelp:
-      "المدة الافتراضية لأحداث التقويم الجديدة وفتحات الحجز. يمكن لروابط الحجز تجاوزها لكل رابط.",
     weekStartLabel: "يبدأ الأسبوع يوم",
     weekStartSunday: "الأحد - السبت",
     weekStartMonday: "الاثنين - الأحد",

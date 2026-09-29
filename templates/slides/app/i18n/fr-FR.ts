@@ -44,15 +44,11 @@ const messages = {
   settings: {
     agentObservability: "Observabilité de l’agent",
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
     labs: "Labs",
     labsIntro:
       "Essayez les fonctionnalités expérimentales avant leur lancement.",
     labLayoutOverflowWarningDescription:
       "Afficher l’avertissement de débordement de la mise en page dans l’éditeur.",
-    emailNotifications: "Notifications par e-mail",
-    emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente votre deck ou répond dans un fil.",
     saveFailed: "Échec de l’enregistrement",
     notificationsEmail: "E-mail",
     commentsAndReplies: "Commentaires et réponses",
@@ -61,10 +57,6 @@ const messages = {
     retry: "Réessayer",
     mcpAbout:
       "Connectez Slides à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Slides pour vous : créer des decks, ajouter des diapositives et exporter vers PowerPoint. Elle ne voit que ce que vous pouvez voir.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",

@@ -44,14 +44,10 @@ const messages = {
   settings: {
     agentObservability: "Agent Observability",
     title: "Settings",
-    description: "Language and workspace preferences for this app.",
     labs: "Labs",
     labsIntro: "Preview experimental features before they ship.",
     labLayoutOverflowWarningDescription:
       "Show the layout overflow warning in the editor.",
-    emailNotifications: "Email notifications",
-    emailNotificationsDescription:
-      "Get an email when someone comments on or replies in your deck.",
     saveFailed: "Failed to save",
     notificationsEmail: "Email",
     commentsAndReplies: "Comments and replies",
@@ -60,10 +56,6 @@ const messages = {
     retry: "Retry",
     mcpAbout:
       "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team members, organization access, and shared workspace preferences.",

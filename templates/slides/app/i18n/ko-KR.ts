@@ -44,14 +44,10 @@ const messages = {
   settings: {
     agentObservability: "에이전트 관찰성",
     title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
     labs: "Labs",
     labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
     labLayoutOverflowWarningDescription:
       "편집기에서 레이아웃 오버플로 경고를 표시합니다.",
-    emailNotifications: "이메일 알림",
-    emailNotificationsDescription:
-      "누군가 내 덱에 댓글을 달거나 답글을 남기면 이메일을 받습니다.",
     saveFailed: "저장 실패",
     notificationsEmail: "이메일",
     commentsAndReplies: "댓글 및 답글",
@@ -60,10 +56,6 @@ const messages = {
     retry: "다시 시도",
     mcpAbout:
       "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",

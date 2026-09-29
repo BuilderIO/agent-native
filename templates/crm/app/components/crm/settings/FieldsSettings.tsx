@@ -89,11 +89,6 @@ import {
   type CrmAttributeListResult,
   type UpdateAttributeInput,
 } from "./settings-admin";
-import {
-  CrmSettingsPanelHeader,
-  crmSettingsPanelClassName,
-  type CrmSettingsPanelProps,
-} from "./SettingsPanelHeader";
 
 interface CrmConnectionSummary {
   id: string;
@@ -120,7 +115,7 @@ interface FieldsTarget {
   group: string;
 }
 
-export function FieldsSettings({ embedded }: CrmSettingsPanelProps = {}) {
+export function FieldsSettings() {
   const t = useT();
   const queryClient = useQueryClient();
   const connectionsQuery = useActionQuery<{
@@ -195,27 +190,21 @@ export function FieldsSettings({ embedded }: CrmSettingsPanelProps = {}) {
 
   return (
     <TooltipProvider>
-      <div className={crmSettingsPanelClassName(embedded, "max-w-4xl")}>
-        <CrmSettingsPanelHeader
-          embedded={embedded}
-          title={t("fields.title")}
-          description={t("fields.description")}
-          descriptionClassName="max-w-2xl"
-          action={
-            activeTarget ? (
-              <CreateAttributeDialog
-                target={activeTarget}
-                onCreated={() =>
-                  void queryClient.invalidateQueries({
-                    queryKey: ["action", "list-crm-attributes"],
-                  })
-                }
-              />
-            ) : null
-          }
-        />
+      <div className="w-full">
+        {activeTarget ? (
+          <div className="flex justify-end">
+            <CreateAttributeDialog
+              target={activeTarget}
+              onCreated={() =>
+                void queryClient.invalidateQueries({
+                  queryKey: ["action", "list-crm-attributes"],
+                })
+              }
+            />
+          </div>
+        ) : null}
 
-        <AuthorityLegend first={embedded && !activeTarget} />
+        <AuthorityLegend first={!activeTarget} />
 
         {loadFailed ? (
           <div className="mt-6 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">

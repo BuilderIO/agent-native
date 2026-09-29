@@ -7,7 +7,6 @@ export default {
     connecting: "연결 중...",
     clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
     disconnect: "연결 해제",
-    notConnected: "연결되지 않음",
     loadFailed: "이 데이터를 불러올 수 없습니다.",
     retry: "다시 시도",
     saving: "저장 중...",
@@ -196,10 +195,6 @@ export default {
   },
   settings: {
     title: "설정",
-    description: "캘린더와 통합을 구성합니다.",
-    languageTitle: "언어",
-    languageDescription: "Calendar의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
     agentTitle: "에이전트 관리",
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
@@ -213,13 +208,8 @@ export default {
     zoomConnectFailed: "Zoom을 연결할 수 없음",
     zoomDisconnected: "Zoom 연결 해제됨",
     zoomDisconnectFailed: "Zoom 연결 해제 실패",
-    general: "일반",
-    generalDescription: "캘린더 기본값과 예약 복사 문구.",
-    timezone: "시간대",
-    saveSettings: "설정 저장",
     saved: "설정 저장됨",
     saveFailed: "설정 저장 실패",
-    appearance: "모양",
     appearanceDescription:
       "워크스페이스 색상 테마를 선택하거나 에이전트에게 요청하세요.",
     desktopNotifications: "데스크톱 알림",
@@ -233,18 +223,9 @@ export default {
     connectGoogleDescription: "이벤트를 동기화하고 한곳에서 관리하세요.",
     zoomDescription:
       "Zoom을 연결해 캘린더 이벤트와 예약용 회의 링크를 만듭니다.",
-    zoomNotConfigured: "구성되지 않음",
     zoomCredentialsPrompt: "연결하려면 Zoom OAuth 자격 증명을 추가하세요.",
-    bookingTitleLabel: "대체 예약 페이지 제목",
     bookingTitlePlaceholder: "회의 예약",
-    bookingTitleHelp:
-      "예약 링크에 제목이 없을 때만 사용됩니다. 예약 링크에서 공개 URL을 만들고 열고 복사하세요.",
-    bookingDescriptionLabel: "대체 예약 페이지 설명",
     bookingDescriptionPlaceholder: "가능한 시간을 선택하세요.",
-    bookingDescriptionHelp: "예약 링크에 자체 설명이 없을 때만 사용됩니다.",
-    defaultDurationLabel: "기본 이벤트 시간(분)",
-    defaultDurationHelp:
-      "새 캘린더 이벤트와 예약 슬롯의 기본 길이입니다. 예약 링크별로 재정의할 수 있습니다.",
     weekStartLabel: "주 시작일",
     weekStartSunday: "일요일 - 토요일",
     weekStartMonday: "월요일 - 일요일",

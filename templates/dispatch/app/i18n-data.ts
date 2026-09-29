@@ -20,11 +20,6 @@ const enUS = {
   },
   settings: {
     title: "Settings",
-    description: "Language, workspace, resource, and agent preferences.",
-    languageTitle: "Language",
-    languageDescription:
-      "Choose the interface language. This preference is saved for your account.",
-    languageLabel: "Interface language",
     workspaceTitle: "Workspace",
     workspaceDescription:
       "Manage team access and shared workspace resources for Dispatch.",
@@ -43,8 +38,6 @@ const enUS = {
     chatFirstDescription:
       "Keep chats at the center and open workspace apps in a contextual pane beside them. This preference only changes your local Dispatch shell.",
     chatFirstAriaLabel: "Use chat-first navigation",
-    chatFirstSessionWatchDescription:
-      "Session watch and follow-up messaging work in this browser pane too. Local CLI subscription detection stays in the Electron app; Dispatch uses workspace/provider credentials.",
     chatFirstStorageUnavailable:
       "This browser is not allowing local preferences, so Chat-first mode cannot be persisted.",
     chatFirstStorageBlocked:
@@ -991,10 +984,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "设置",
-        description: "语言、工作区、资源和代理偏好设置。",
-        languageTitle: "语言",
-        languageDescription: "选择界面语言。此偏好会保存到你的账户。",
-        languageLabel: "界面语言",
         workspaceTitle: "工作区",
         workspaceDescription: "管理 Dispatch 的团队访问权限和共享工作区资源。",
         openTeamSettings: "打开团队设置",
@@ -1010,8 +999,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "让聊天保持中心位置，并在旁边的上下文面板中打开工作区应用。此偏好只会更改你在 Dispatch 中的本地界面。",
         chatFirstAriaLabel: "使用聊天优先导航",
-        chatFirstSessionWatchDescription:
-          "会话监看和后续消息也可在此浏览器面板中使用。本地 CLI 订阅检测保留在 Electron 应用中；Dispatch 使用工作区/提供商凭据。",
         chatFirstStorageUnavailable:
           "此浏览器不允许使用本地偏好设置，因此无法保存聊天优先模式。",
         chatFirstStorageBlocked:
@@ -1420,12 +1407,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "Ajustes",
-        description:
-          "Preferencias de idioma, espacio de trabajo, recursos y agente.",
-        languageTitle: "Idioma",
-        languageDescription:
-          "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-        languageLabel: "Idioma de la interfaz",
         workspaceTitle: "Espacio de trabajo",
         workspaceDescription:
           "Gestiona el acceso del equipo y los recursos compartidos de Dispatch.",
@@ -1444,8 +1425,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "Deja los chats en el centro y abre las apps del espacio de trabajo en un panel contextual junto a ellos. Esta preferencia solo cambia tu shell local de Dispatch.",
         chatFirstAriaLabel: "Usar navegación centrada en el chat",
-        chatFirstSessionWatchDescription:
-          "Puedes observar sesiones y enviar mensajes de seguimiento desde este panel del navegador. La detección de suscripciones CLI locales permanece en la app de Electron; Dispatch usa credenciales del espacio de trabajo/proveedor.",
         chatFirstStorageUnavailable:
           "Este navegador no permite las preferencias locales, por lo que el modo centrado en el chat no se puede guardar.",
         chatFirstStorageBlocked:
@@ -1894,12 +1873,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "Paramètres",
-        description:
-          "Préférences de langue, d’espace de travail, de ressources et d’agent.",
-        languageTitle: "Langue",
-        languageDescription:
-          "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-        languageLabel: "Langue de l’interface",
         workspaceTitle: "Espace de travail",
         workspaceDescription:
           "Gérez l’accès de l’équipe et les ressources partagées de Dispatch.",
@@ -1918,8 +1891,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "Gardez les chats au centre et ouvrez les apps de l’espace de travail dans un panneau contextuel à côté. Cette préférence ne modifie que votre interface locale Dispatch.",
         chatFirstAriaLabel: "Utiliser la navigation axée sur le chat",
-        chatFirstSessionWatchDescription:
-          "Le suivi des sessions et les messages de suivi fonctionnent aussi dans ce panneau du navigateur. La détection des abonnements CLI locaux reste dans l’app Electron ; Dispatch utilise les identifiants de l’espace de travail/fournisseur.",
         chatFirstStorageUnavailable:
           "Ce navigateur n’autorise pas les préférences locales ; le mode axé sur le chat ne peut donc pas être conservé.",
         chatFirstStorageBlocked:
@@ -2369,12 +2340,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "Einstellungen",
-        description:
-          "Sprach-, Arbeitsbereichs-, Ressourcen- und Agent-Einstellungen.",
-        languageTitle: "Sprache",
-        languageDescription:
-          "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-        languageLabel: "Oberflächensprache",
         workspaceTitle: "Arbeitsbereich",
         workspaceDescription:
           "Verwalte Teamzugriff und gemeinsam genutzte Dispatch-Ressourcen.",
@@ -2393,8 +2358,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "Chats bleiben im Mittelpunkt, während Workspace-Apps in einem kontextbezogenen Bereich daneben geöffnet werden. Diese Einstellung ändert nur deine lokale Dispatch-Oberfläche.",
         chatFirstAriaLabel: "Chat-zentrierte Navigation verwenden",
-        chatFirstSessionWatchDescription:
-          "Sessions können auch in diesem Browserbereich beobachtet und mit Folgemeldungen versehen werden. Die Erkennung lokaler CLI-Abos bleibt in der Electron-App; Dispatch verwendet Workspace-/Anbieter-Anmeldedaten.",
         chatFirstStorageUnavailable:
           "Dieser Browser lässt lokale Einstellungen nicht zu. Der chat-zentrierte Modus kann daher nicht gespeichert werden.",
         chatFirstStorageBlocked:
@@ -2829,11 +2792,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "設定",
-        description: "言語、ワークスペース、リソース、エージェント設定。",
-        languageTitle: "言語",
-        languageDescription:
-          "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-        languageLabel: "インターフェース言語",
         workspaceTitle: "ワークスペース",
         workspaceDescription:
           "Dispatch のチームアクセスと共有ワークスペースリソースを管理します。",
@@ -2852,8 +2810,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "チャットを中心に保ち、ワークスペースアプリを隣のコンテキストパネルで開きます。この設定で変わるのはローカルの Dispatch シェルだけです。",
         chatFirstAriaLabel: "チャット中心のナビゲーションを使用",
-        chatFirstSessionWatchDescription:
-          "このブラウザパネルでもセッションの監視とフォローアップメッセージを利用できます。ローカル CLI サブスクリプションの検出は Electron アプリに残り、Dispatch はワークスペース/プロバイダーの認証情報を使用します。",
         chatFirstStorageUnavailable:
           "このブラウザではローカル設定が許可されないため、チャット中心モードを保存できません。",
         chatFirstStorageBlocked:
@@ -3283,11 +3239,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "설정",
-        description: "언어, 워크스페이스, 리소스 및 에이전트 환경설정입니다.",
-        languageTitle: "언어",
-        languageDescription:
-          "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-        languageLabel: "인터페이스 언어",
         workspaceTitle: "워크스페이스",
         workspaceDescription:
           "Dispatch의 팀 접근 권한과 공유 워크스페이스 리소스를 관리합니다.",
@@ -3306,8 +3257,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "채팅을 중심에 두고 작업공간 앱을 옆의 컨텍스트 패널에서 엽니다. 이 설정은 로컬 Dispatch 셸만 변경합니다.",
         chatFirstAriaLabel: "채팅 중심 탐색 사용",
-        chatFirstSessionWatchDescription:
-          "이 브라우저 패널에서도 세션을 지켜보고 후속 메시지를 보낼 수 있습니다. 로컬 CLI 구독 감지는 Electron 앱에 남아 있으며, Dispatch는 작업공간/공급자 자격 증명을 사용합니다.",
         chatFirstStorageUnavailable:
           "이 브라우저에서는 로컬 환경설정을 허용하지 않아 채팅 중심 모드를 저장할 수 없습니다.",
         chatFirstStorageBlocked:
@@ -3730,12 +3679,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "Configurações",
-        description:
-          "Preferências de idioma, espaço de trabalho, recursos e agente.",
-        languageTitle: "Idioma",
-        languageDescription:
-          "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-        languageLabel: "Idioma da interface",
         workspaceTitle: "Espaço de trabalho",
         workspaceDescription:
           "Gerencie acesso da equipe e recursos compartilhados do Dispatch.",
@@ -3754,8 +3697,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "Mantenha os chats no centro e abra os apps do workspace em um painel contextual ao lado. Esta preferência altera apenas o shell local do Dispatch.",
         chatFirstAriaLabel: "Usar navegação com foco no chat",
-        chatFirstSessionWatchDescription:
-          "O acompanhamento de sessões e as mensagens de acompanhamento também funcionam neste painel do navegador. A detecção de assinaturas CLI locais continua no app Electron; o Dispatch usa credenciais do workspace/provedor.",
         chatFirstStorageUnavailable:
           "Este navegador não permite preferências locais, então o modo com foco no chat não pode ser salvo.",
         chatFirstStorageBlocked:
@@ -4199,10 +4140,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "सेटिंग्स",
-        description: "भाषा, कार्यस्थान, संसाधन और एजेंट प्राथमिकताएं।",
-        languageTitle: "भाषा",
-        languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
-        languageLabel: "इंटरफ़ेस भाषा",
         workspaceTitle: "कार्यस्थान",
         workspaceDescription:
           "Dispatch के लिए टीम पहुंच और साझा कार्यस्थान संसाधनों को प्रबंधित करें।",
@@ -4220,8 +4157,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "चैट को केंद्र में रखें और कार्यक्षेत्र ऐप्स को बगल के संदर्भ पैनल में खोलें। यह प्राथमिकता केवल आपके स्थानीय Dispatch शेल को बदलती है।",
         chatFirstAriaLabel: "चैट-केंद्रित नेविगेशन का उपयोग करें",
-        chatFirstSessionWatchDescription:
-          "इस ब्राउज़र पैनल में भी सत्र देखना और फ़ॉलो-अप संदेश भेजना काम करता है। स्थानीय CLI सदस्यता पहचान Electron ऐप में रहती है; Dispatch कार्यक्षेत्र/प्रदाता क्रेडेंशियल का उपयोग करता है।",
         chatFirstStorageUnavailable:
           "यह ब्राउज़र स्थानीय प्राथमिकताओं की अनुमति नहीं देता, इसलिए चैट-केंद्रित मोड सहेजा नहीं जा सकता।",
         chatFirstStorageBlocked:
@@ -4638,10 +4573,6 @@ export const messagesByLocale = {
       },
       settings: {
         title: "الإعدادات",
-        description: "تفضيلات اللغة ومساحة العمل والموارد والوكيل.",
-        languageTitle: "اللغة",
-        languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-        languageLabel: "لغة الواجهة",
         workspaceTitle: "مساحة العمل",
         workspaceDescription:
           "إدارة وصول الفريق وموارد مساحة العمل المشتركة في Dispatch.",
@@ -4660,8 +4591,6 @@ export const messagesByLocale = {
         chatFirstDescription:
           "أبقِ الدردشات في المركز وافتح تطبيقات مساحة العمل في لوحة سياقية بجانبها. يغيّر هذا التفضيل واجهة Dispatch المحلية فقط.",
         chatFirstAriaLabel: "استخدام التنقل المتمحور حول الدردشة",
-        chatFirstSessionWatchDescription:
-          "تعمل مراقبة الجلسات وإرسال رسائل المتابعة أيضًا في لوحة المتصفح هذه. يبقى اكتشاف اشتراكات CLI المحلية في تطبيق Electron؛ ويستخدم Dispatch بيانات اعتماد مساحة العمل/الموفر.",
         chatFirstStorageUnavailable:
           "لا يسمح هذا المتصفح بالتفضيلات المحلية، لذلك لا يمكن حفظ وضع التركيز على الدردشة.",
         chatFirstStorageBlocked:

@@ -565,9 +565,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -787,7 +784,6 @@ const messages = {
     peoplePlural: "{{count}}명",
     deleteAliasDescription:
       "별칭 “{{name}}”을 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
-    aliasesDescription: "이메일 작성 시 사용할 수 있는 주소 그룹입니다.",
     newAlias: "새 별칭",
     noAliases: "아직 별칭이 없습니다. 하나 만들어 시작하세요.",
     applyLabel: "라벨 적용",
@@ -806,15 +802,6 @@ const messages = {
     actions: "작업",
     editRule: "규칙 편집",
     deleteRule: "규칙 삭제",
-    noEventAutomations: "아직 메일 이벤트 기반 자동화가 없습니다.",
-    eventAutomationsPrompt:
-      "에이전트에게 “상사에게서 이메일을 받으면 별표를 달고 알려줘” 같은 자동화를 만들어 달라고 요청하세요.",
-    disabled: "비활성화됨",
-    on: "대상",
-    when: "조건",
-    lastRun: "마지막 실행:",
-    automationsDescription:
-      "AI로 새 받은편지함 이메일을 자동 처리하는 규칙입니다.",
     allowAutomationSends: "자동화가 이메일을 자동으로 보내도록 허용",
     allowAutomationSendsDescription:
       "기본값은 꺼짐입니다. 자동화가 매번 승인을 묻지 않고 이메일을 보내도록 하려면 켜세요.",
@@ -825,16 +812,11 @@ const messages = {
     noAutomationRules: "아직 자동화 규칙이 없습니다.",
     noAutomationRulesDescription:
       "이메일 자동 라벨 지정, 뉴스레터 보관, 중요 메시지 별표 표시 등을 위한 규칙을 만드세요. AI 에이전트에게 설정을 요청할 수도 있습니다.",
-    eventTriggers: "이벤트 트리거",
-    eventTriggersDescription:
-      "메일 이벤트(예: 새 이메일 수신)가 발생할 때 실행되는 자동화입니다. 에이전트가 관리합니다.",
     importedSignature: "{{account}}에서 서명을 가져왔습니다.",
     noGmailSignature: "{{account}}의 Gmail 서명을 찾을 수 없습니다.",
     importSignatureFailed: "Gmail 서명을 가져오지 못했습니다.",
     draftingSettingsSaved: "작성 설정이 저장되었습니다.",
     draftingSettingsSaveFailed: "작성 설정 저장에 실패했습니다.",
-    draftingDescription:
-      "이메일 초안을 작성하고 생성할 때 사용하는 기본 설정입니다.",
     signature: "서명",
     importFromGmail: "Gmail에서 가져오기",
     signatureHelp:
@@ -849,42 +831,14 @@ const messages = {
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",
     saveDraftingSettings: "작성 설정 저장",
     reset: "재설정",
-    trackingDescription:
-      "수신자가 보낸 이메일을 열거나 링크를 클릭한 시점을 확인합니다. 통계는 각 보낸 메시지 아래에 표시됩니다.",
     trackEmailOpens: "이메일 열람 추적",
     trackEmailOpensDescription:
       "발신 이메일에 1×1 픽셀을 삽입해 수신자가 연 시점을 확인합니다.",
     trackLinkClicks: "링크 클릭 추적",
     trackLinkClicksDescription:
       "발신 이메일의 외부 링크를 재작성해 클릭 시점을 집계합니다.",
-    slackLoadFailed: "Slack 상태를 로드하지 못했습니다",
-    slackUpdateFailed: "Slack 수신 설정을 업데이트하지 못했습니다",
-    slackConfigured: "Slack 자격 증명이 구성되었습니다.",
-    slackNeedsCredentials:
-      "레거시 사용자 지정 수신에는 SLACK_BOT_TOKEN 및 SLACK_SIGNING_SECRET이 필요합니다. 새 Slack 메시징 자동화는 설정 > 메시징에서 워크스페이스를 연결하세요.",
-    slackIntake: "Slack 수신(레거시)",
-    slackDescription:
-      "조직 구성원이 Slack에서 이메일 초안을 대기열에 추가할 수 있는 레거시 사용자 지정 통합입니다.",
-    enabled: "활성화됨",
-    disable: "비활성화",
-    enable: "활성화",
-    slackPostEndpoint: "Slack POST 엔드포인트",
-    slackPostEndpointHelp:
-      "Slack Event Subscriptions에서 사용하세요. 브라우저 GET은 Not Found를 표시할 수 있습니다.",
-    title: "설정",
-    general: "일반",
-    generalDescription: "Mail의 언어 및 계정 수준 기본 설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "이 계정의 인터페이스 언어를 선택하세요. Mail은 기기 간에 이 설정을 기억합니다.",
-    languageLabel: "인터페이스 언어",
-    whatsNew: "새 소식",
-    whatsNewDescription:
-      "Agent-Native Mail의 최근 사용자 대상 변경 사항입니다.",
     drafting: "작성",
     snippets: "스니펫",
-    snippetsDescription:
-      "/ 와 스니펫 이름을 입력해 작성 중인 초안에 삽입할 수 있는 저장된 답변입니다.",
     newSnippet: "새 스니펫",
     noSnippets: "아직 스니펫이 없습니다. 시작하려면 하나를 만드세요.",
     snippetName: "스니펫 이름",
@@ -895,7 +849,6 @@ const messages = {
     deleteSnippet: "스니펫 삭제",
     deleteSnippetDescription:
       '스니펫 "{{name}}"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.',
-    automations: "자동화",
     rules: "규칙",
     rulesModel: "규칙 모델",
     rulesModelDescription: "받은 메일을 규칙과 비교합니다.",
@@ -908,7 +861,6 @@ const messages = {
     gmailFilters: "Gmail 필터",
     aliases: "별칭",
     tracking: "추적",
-    slack: "Slack",
     deleteAlias: "별칭 삭제",
     editAlias: "별칭 편집",
   },

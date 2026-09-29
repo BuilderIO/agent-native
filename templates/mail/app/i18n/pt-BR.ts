@@ -576,9 +576,6 @@ const messages = {
       deleteGmailFilter: "Eliminar filtro de Gmail",
       deleteGmailFilterDescription:
         "¿Eliminar este filtro de {{account}}? Esto cambia Gmail directamente.",
-      title: "Filtros de Gmail",
-      description:
-        "Reglas de Gmail del servidor para patrones simples de remitente, asunto y búsqueda.",
       newFilter: "Nuevo filtro",
       noFilters: "Aún no hay filtros de Gmail.",
     },
@@ -812,8 +809,6 @@ const messages = {
     peoplePlural: "{{count}} pessoas",
     deleteAliasDescription:
       'Excluir o alias "{{name}}"? Esta ação não pode ser desfeita.',
-    aliasesDescription:
-      "Grupos de endereços que você pode usar ao escrever emails.",
     newAlias: "Novo alias",
     noAliases: "Ainda não há aliases. Crie um para começar.",
     applyLabel: "Aplicar marcador",
@@ -832,16 +827,6 @@ const messages = {
     actions: "Ações",
     editRule: "Editar regra",
     deleteRule: "Excluir regra",
-    noEventAutomations:
-      "Ainda não há automações acionadas por eventos de email.",
-    eventAutomationsPrompt:
-      'Peça ao agente para criar uma automação como "quando eu receber um email do meu chefe, marque com estrela e me avise".',
-    disabled: "desativado",
-    on: "em",
-    when: "quando",
-    lastRun: "Última execução:",
-    automationsDescription:
-      "Regras que processam automaticamente novos emails da caixa de entrada usando IA.",
     allowAutomationSends:
       "Permitir que as automações enviem emails automaticamente",
     allowAutomationSendsDescription:
@@ -853,17 +838,12 @@ const messages = {
     noAutomationRules: "Ainda não há regras de automação.",
     noAutomationRulesDescription:
       "Crie regras para marcar emails automaticamente, arquivar newsletters, favoritar mensagens importantes e muito mais. Você também pode pedir ao agente de IA para configurar isso.",
-    eventTriggers: "Gatilhos de eventos",
-    eventTriggersDescription:
-      "Automações disparadas quando eventos de email ocorrem (ex.: novo email recebido). Gerenciadas pelo agente.",
     importedSignature: "Assinatura importada de {{account}}.",
     noGmailSignature:
       "Nenhuma assinatura do Gmail encontrada para {{account}}.",
     importSignatureFailed: "Falha ao importar assinatura do Gmail.",
     draftingSettingsSaved: "Configurações de rascunho salvas.",
     draftingSettingsSaveFailed: "Falha ao salvar configurações de rascunho.",
-    draftingDescription:
-      "Preferências usadas ao escrever e gerar rascunhos de email.",
     signature: "Assinatura",
     importFromGmail: "Importar do Gmail",
     signatureHelp:
@@ -879,42 +859,14 @@ const messages = {
       "Curto, específico e acolhedor. Evite formalidades vazias.",
     saveDraftingSettings: "Salvar configurações de rascunho",
     reset: "Redefinir",
-    trackingDescription:
-      "Saiba quando destinatários abrem seus emails enviados e clicam em links. As estatísticas aparecem abaixo de cada mensagem enviada.",
     trackEmailOpens: "Rastrear aberturas de email",
     trackEmailOpensDescription:
       "Insere um pixel 1×1 em emails enviados para ver quando os destinatários abrem.",
     trackLinkClicks: "Rastrear cliques em links",
     trackLinkClicksDescription:
       "Reescreve links externos em emails enviados para contar quando destinatários clicam.",
-    slackLoadFailed: "Falha ao carregar status do Slack",
-    slackUpdateFailed: "Falha ao atualizar entrada do Slack",
-    slackConfigured: "As credenciais do Slack estão configuradas.",
-    slackNeedsCredentials:
-      "A entrada personalizada legada requer SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET. Para novas automações de mensagens do Slack, conecte um workspace em Configurações > Mensagens.",
-    slackIntake: "Entrada do Slack (legada)",
-    slackDescription:
-      "Integração personalizada legada que permite colocar rascunhos de email na fila pelo Slack.",
-    enabled: "Ativado",
-    disable: "Desativar",
-    enable: "Ativar",
-    slackPostEndpoint: "Endpoint POST do Slack",
-    slackPostEndpointHelp:
-      "Use em Slack Event Subscriptions. Um GET do navegador pode mostrar Not Found.",
-    title: "Configuracoes",
-    general: "Geral",
-    generalDescription: "Idioma e preferencias de nivel de conta para Mail.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface para esta conta. O Mail lembra em todos os dispositivos.",
-    languageLabel: "Idioma da interface",
-    whatsNew: "Novidades",
-    whatsNewDescription:
-      "Mudancas recentes voltadas a usuarios no Agent-Native Mail.",
     drafting: "Rascunhos",
     snippets: "Trechos",
-    snippetsDescription:
-      "Respostas salvas que voce pode inserir em um rascunho digitando / e o nome do trecho.",
     newSnippet: "Novo trecho",
     noSnippets: "Nenhum trecho ainda. Crie um para comecar.",
     snippetName: "Nome do trecho",
@@ -925,7 +877,6 @@ const messages = {
     deleteSnippet: "Excluir trecho",
     deleteSnippetDescription:
       'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
-    automations: "Automacoes",
     rules: "Regras",
     rulesModel: "Modelo das regras",
     rulesModelDescription: "Compara os e-mails recebidos com suas regras.",
@@ -938,7 +889,6 @@ const messages = {
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",
     tracking: "Rastreamento",
-    slack: "Slack",
     deleteAlias: "Excluir alias",
     editAlias: "Editar alias",
   },

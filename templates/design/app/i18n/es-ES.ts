@@ -166,12 +166,6 @@ export default {
     agentDescription:
       "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
     openAgentSettings: "Gestionar agente",
-    languageTitle: "Idioma",
-    languageDescription: "Elige el idioma de la interfaz de Design.",
-    languageLabel: "Idioma de la interfaz",
-    labs: "Labs",
-    labsIntro:
-      "Estas funciones son nuevas e inestables, y pueden tener errores. Valoramos tus comentarios.",
     labTweaks: "Ajustes de diseño",
     labTweaksDescription: "Prueba los ajustes de diseño con IA.",
     mcpAbout:

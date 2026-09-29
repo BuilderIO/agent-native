@@ -44,13 +44,9 @@ const messages = {
   settings: {
     agentObservability: "代理可觀測性",
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
     labLayoutOverflowWarningDescription: "在編輯器中顯示版面溢位警告。",
-    emailNotifications: "郵件通知",
-    emailNotificationsDescription:
-      "當有人評論你的簡報或在討論串中回覆時，收到郵件通知。",
     saveFailed: "儲存失敗",
     notificationsEmail: "電子郵件",
     commentsAndReplies: "留言和回覆",
@@ -58,9 +54,6 @@ const messages = {
     retry: "重試",
     mcpAbout:
       "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
