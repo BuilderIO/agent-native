@@ -285,6 +285,9 @@ production deployment:
 | `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                               |
 | `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                    |
 | `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
+| `CORE_SHARD`                  | Vitest `--shard` value (`index/total`) a Core fast-test matrix job runs.                                                                                                                |
+| `CORE_TEST_MODE`              | Core fast-test lane mode from the targeted-lane planner; `changed` runs only the files in `CORE_TEST_FILES`.                                                                            |
+| `CORE_TEST_FILES`             | JSON array of changed Core test files emitted by the targeted-lane planner.                                                                                                             |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
 
 ### Clips Chrome Web Store release
