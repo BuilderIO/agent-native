@@ -34,6 +34,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
 import { getDbExec } from "../db/client.js";
 import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
+import { renderTransactionalEmail } from "../email-catalog/templates.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { offboardMember } from "../identity/offboard.js";
@@ -42,7 +43,6 @@ import {
   isTrustedSelfHostedRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/credential-provider.js";
-import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveDeploymentSignInMethods } from "../server/social-sign-in-providers.js";
@@ -784,12 +784,15 @@ async function inviteOne(
   let emailError: string | undefined;
   if (await isEmailConfigured()) {
     try {
-      const { subject, html, text } = renderInviteEmail({
-        invitee: email,
-        orgName: ctx.orgName || "your team",
-        acceptUrl: getInviteAppUrl(event),
-        inviter: ctx.email,
-      });
+      const { subject, html, text } = await renderTransactionalEmail(
+        CORE_INVITE_EMAIL_ID,
+        {
+          invitee: email,
+          orgName: ctx.orgName || "your team",
+          acceptUrl: getInviteAppUrl(event),
+          inviter: ctx.email,
+        },
+      );
       await sendEmail({
         to: email,
         subject,
