@@ -797,20 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn a_success_clears_the_rejection_count() {
-        let state = MeetingsWatcherState::default();
-        let now = Instant::now();
-        let creds = (Some("cookie".to_string()), None);
-        let base = Duration::from_secs(10);
-
-        state.note_unauthorized(Poller::Meetings, creds.clone(), base, now);
-        state.note_unauthorized(Poller::Meetings, creds.clone(), base, now);
-        state.note_authorized(Poller::Meetings);
-        assert!(!state.note_unauthorized(Poller::Meetings, creds, base, now));
-    }
-
-    #[test]
-    fn an_authorized_adhoc_lookup_clears_the_rejection_count() {
+    fn a_successful_adhoc_create_clears_the_rejection_count() {
         let state = MeetingsWatcherState::default();
         let now = Instant::now();
         let creds = (Some("cookie".to_string()), None);
@@ -821,6 +808,20 @@ mod tests {
         state.note_authorized(Poller::AdhocMeetings);
 
         assert!(!state.note_unauthorized(Poller::AdhocMeetings, creds, base, now));
+    }
+
+    #[test]
+    fn a_successful_feature_flags_refresh_clears_the_rejection_count() {
+        let state = MeetingsWatcherState::default();
+        let now = Instant::now();
+        let creds = (Some("cookie".to_string()), None);
+        let base = Duration::from_secs(10);
+
+        state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
+        state.note_unauthorized(Poller::FeatureFlags, creds.clone(), base, now);
+        state.note_authorized(Poller::FeatureFlags);
+
+        assert!(!state.note_unauthorized(Poller::FeatureFlags, creds, base, now));
     }
 
     #[test]

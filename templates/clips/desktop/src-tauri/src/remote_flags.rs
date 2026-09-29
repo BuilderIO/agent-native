@@ -8,8 +8,9 @@
 //! watcher's tick, though it reuses the same session credentials via
 //! `MeetingsWatcherState::session_snapshot()` rather than tracking its own);
 //! recording start also kicks off a best-effort (non-blocking) refresh so the
-//! cache stays warm without ever delaying a recording start. A fetch failure
-//! (offline, no session yet, 401) just leaves the last-known-good value in
+//! cache stays warm without ever delaying a recording start. Both paths share
+//! the same rejection budget. A fetch failure (offline, no session yet, 401)
+//! just leaves the last-known-good value in
 //! place — the cache never resets to defaults once a real value has been
 //! fetched.
 //!
@@ -124,16 +125,21 @@ pub(crate) async fn refresh(
     Ok(())
 }
 
-pub(crate) fn spawn_refresh(
-    app: AppHandle,
-    server_url: Option<String>,
-    cookie: Option<String>,
-    auth_token: Option<String>,
-) {
-    let Some(server_url) = server_url.filter(|s| !s.trim().is_empty()) else {
-        return;
-    };
+pub(crate) fn spawn_refresh(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let Some(state) = app.try_state::<MeetingsWatcherState>() else {
+            return;
+        };
+        let snapshot = state.session_snapshot();
+        let Some(server_url) = snapshot.server_url.filter(|s| !s.trim().is_empty()) else {
+            return;
+        };
+        let credentials: SessionCredentials =
+            (snapshot.session_cookie.clone(), snapshot.auth_token.clone());
+        let now = Instant::now();
+        if !state.should_poll(Poller::FeatureFlags, &credentials, now) {
+            return;
+        }
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
@@ -144,18 +150,26 @@ pub(crate) fn spawn_refresh(
                 return;
             }
         };
-        if let Err(err) = refresh(
+        match refresh(
             &client,
             &server_url,
-            cookie.as_deref(),
-            auth_token.as_deref(),
+            snapshot.session_cookie.as_deref(),
+            snapshot.auth_token.as_deref(),
         )
         .await
         {
-            if matches!(&err, RefreshError::Unauthorized) {
+            Ok(()) => state.note_authorized(Poller::FeatureFlags),
+            Err(RefreshError::Unauthorized) => {
                 let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+                state.note_unauthorized(
+                    Poller::FeatureFlags,
+                    credentials,
+                    Duration::from_secs(REMOTE_FLAGS_FAST_POLL_SECS),
+                    now,
+                );
+                eprintln!("[feature-flags] refresh failed: unauthorized");
             }
-            eprintln!("[feature-flags] refresh failed: {err}");
+            Err(err) => eprintln!("[feature-flags] refresh failed: {err}"),
         }
     });
 }

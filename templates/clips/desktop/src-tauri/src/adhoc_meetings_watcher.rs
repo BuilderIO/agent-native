@@ -117,12 +117,6 @@ fn is_auth_rejection(status: reqwest::StatusCode) -> bool {
     status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
 }
 
-fn note_adhoc_lookup_authorized(app: &AppHandle) {
-    if let Some(state) = app.try_state::<MeetingsWatcherState>() {
-        state.note_authorized(Poller::AdhocMeetings);
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CallState {
     Live,
@@ -1764,7 +1758,6 @@ async fn fetch_agenda_page(
             response.status()
         )));
     }
-    note_adhoc_lookup_authorized(app);
     let body: serde_json::Value = response
         .json()
         .await
@@ -1855,7 +1848,6 @@ async fn find_calendar_meeting(
             response.status()
         )));
     }
-    note_adhoc_lookup_authorized(app);
     let body: serde_json::Value = response
         .json()
         .await
