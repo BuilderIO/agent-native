@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "接続を解除しています…",
   },
   settings: {
+    backHome: "ホームに戻る",
+    title: "設定",
+    description: "アプリと言語の設定を管理します。",
+    languageTitle: "インターフェースの言語",
+    languageDescription: "このアプリで使用する言語を選択します。",
+    languageLabel: "言語",
     agentTitle: "エージェント設定",
     agentDescription:
       "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
@@ -647,8 +653,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "リストに戻る",
     promoteMustContain: "返信に含めるテキスト…",
-    promoteMustContainOptional: "返信に含めるテキスト（任意）",
-    promoteMustContainLabel: "昇格した評価の返信に含めるテキスト",
+    promoteMustContainOptional: "返信で確認する任意のテキスト…",
+    promoteMustContainLabel: "昇格した評価の返信で確認するテキスト",
     promoteNeedsContains:
       "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",

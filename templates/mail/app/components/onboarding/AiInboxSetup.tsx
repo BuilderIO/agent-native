@@ -1,12 +1,12 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding";
+import { OnboardingStepLayout } from "@agent-native/toolkit/app/onboarding";
 import {
   ONBOARDING_PRIMARY_BUTTON_CLASS,
-  OnboardingStepLayout,
   useFirstRunOnboardingGateOwnsSurface,
-  useOnboardingPreviewMode,
-} from "@agent-native/core/client/onboarding";
+} from "@agent-native/toolkit/app/onboarding";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import type { AiFilterBackfillStatus } from "@shared/ai-filter-backfill";
 import {

@@ -1,7 +1,7 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { getConfiguredAppBasePath } from "@agent-native/core/server";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { isImageRecording } from "@shared/recording-kind";
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";

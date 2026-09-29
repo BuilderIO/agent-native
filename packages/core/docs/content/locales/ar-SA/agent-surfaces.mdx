@@ -100,7 +100,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 أبسط محادثة على صفحة كاملة:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -113,9 +113,8 @@ export default function ChatRoute() {
 أن تحوّل المحادثة الكاملة إلى الشريط الجانبي مع الحفاظ على الخيط النشط:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -151,7 +150,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 أبسط محادثة مضمّنة مع إطارك الخاص:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -262,7 +261,7 @@ createAgentChatPlugin({
 لا تثبّته القوالب الرسمية: تغطي الإعدادات الجوانب نفسها (Agent › Model وInstructions وMemory وSkills وFiles وSub-agents، إضافة إلى صفحتي Automations وMCP server الخاصتين بالتطبيق)، ويعيد `/agent` التوجيه إلى الإعدادات، ويفتح `agentPageHref="/settings/agent"` في `AgentSidebar` صفحة Settings › Agent › Model. ثبّت `AgentTabsPage` على مسار خاص به عندما يريد التطبيق عرض واجهة الوكيل كاملة في صفحة واحدة.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -553,10 +552,8 @@ GITHUB_REPOSITORY=owner/repo pnpm agent "Read README.md and suggest the next act
 وسجل النسخ واستدعاءات الأدوات والموافقات والعناصر الأصلية وتخطيط التطبيق.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

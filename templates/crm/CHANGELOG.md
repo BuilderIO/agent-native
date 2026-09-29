@@ -1,9 +1,17 @@
 # CRM changelog
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
 ## 2026-09-28
 
 ### Improved
 
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
 - Ask CRM now starts with a focused title.
 
 ## 2026-09-27

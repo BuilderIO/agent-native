@@ -85,6 +85,24 @@ describe("shared UI singleton guard", () => {
     );
   });
 
+  it("requires shared workspace dependencies to use the same workspace range", () => {
+    assert.deepEqual(
+      checkSharedDependencyCatalogUsage(
+        { dependencies: { "@agent-native/agentkit": "workspace:^" } },
+        { dependencies: { "@agent-native/agentkit": "workspace:^" } },
+      ).errors,
+      [],
+    );
+
+    assert.match(
+      checkSharedDependencyCatalogUsage(
+        { dependencies: { "@agent-native/agentkit": "workspace:^" } },
+        { dependencies: { "@agent-native/agentkit": "catalog:" } },
+      ).errors[0] ?? "",
+      /must use the same workspace: specifier/,
+    );
+  });
+
   it("uses pnpm's resolved locators instead of declared ranges", () => {
     const result = checkSharedUiSingletonResolutions(lockfile());
 

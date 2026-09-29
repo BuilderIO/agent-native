@@ -43,7 +43,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   useChatModels: clientState.useChatModels,
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptBar: ({ children }: { children?: React.ReactNode }) => (
     <div data-prompt-bar="inline">{children}</div>
   ),

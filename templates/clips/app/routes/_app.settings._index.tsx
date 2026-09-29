@@ -1,9 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { CLIPS_LABS } from "@shared/labs";
 import { useMemo } from "react";
 

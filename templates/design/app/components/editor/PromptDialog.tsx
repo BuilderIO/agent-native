@@ -1,5 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { useOrg } from "@agent-native/core/client/org";
 import {
   type AgentChatContextItem,
   type ComposerContextMenuItem,
@@ -7,11 +9,9 @@ import {
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
-import { useOrg } from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/chat/composer/index";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {
   IconApps,
@@ -95,7 +95,7 @@ const IMAGE_COMPRESSION_PASSES = [
 ];
 
 const loadPromptComposer = () =>
-  import("@agent-native/core/client/composer").then(({ PromptComposer }) => ({
+  import("@agent-native/toolkit/composer").then(({ PromptComposer }) => ({
     default: PromptComposer,
   }));
 const LazyPromptComposer = lazy(loadPromptComposer);

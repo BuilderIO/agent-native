@@ -1,12 +1,10 @@
-import {
-  AgentChatHome,
-  useAgentChatContext,
-} from "@agent-native/core/client/agent-chat";
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
 } from "@agent-native/creative-context/client";
+import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect, useMemo } from "react";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";

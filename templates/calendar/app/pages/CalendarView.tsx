@@ -1,8 +1,8 @@
-import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import type {
   CalendarEvent,
   CalendarEventDraft,

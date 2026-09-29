@@ -333,6 +333,10 @@ describe("sendToAgentChat", () => {
               displayOnly: true,
               text: "outline",
             },
+            {
+              type: "file",
+              name: "pasted-text-2.txt",
+            },
           ],
         },
       },
@@ -351,6 +355,11 @@ describe("sendToAgentChat", () => {
         contentType: "text/plain",
         displayOnly: true,
         text: "outline",
+      },
+      {
+        type: "file",
+        name: "pasted-text-2.txt",
+        displayOnly: true,
       },
     ]);
   });

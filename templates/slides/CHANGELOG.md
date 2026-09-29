@@ -3,15 +3,34 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-09-29
+
+### Improved
+
+- Settings pages now share the account layout, with dated updates that load in batches.
+
 ## 2026-09-28
 
 ### Improved
 
+- The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
+- Center the home search field and keep prompt submission responsive while AI readiness is checked.
+- Rotation controls are smaller and easier to see.
+- Settings now opens in the new layout, with Account, Connections, Agent, Organization, and app sections.
+- Slides now batch short deck creation and explain when layout measurements are not available.
 - Starter prompts now sit below the chat composer
 - The deck list search and import controls stay legible on narrow screens.
 
 ### Fixed
 
+- Canceling reference selection restores the prompt and its attachments.
+- Deck editor waits for sign-in before loading its workspace shell.
+- Existing decks open to Recent, and the home prompt stays interactive while AI readiness is checked.
+- Preserve home prompt state across imports and clarify upload, website, and template search results.
+- Slides preserves backward text selections when editing starts
+- Slides text editing keeps the caret steady through focus changes and input-method composition
+- The home import control no longer clips its label
+- Typing in Slides agent chat keeps every character in order
 - The model picker shows available models when AI is configured.
 - Reference attachments stay available when a new deck prompt starts a chat.
 - Template menus stay available when you hover over a card.

@@ -6,7 +6,7 @@
  *
  *   // app/global.css
  *   @import "tailwindcss";
- *   @import "@agent-native/core/styles/agent-native.css";
+ *   @import "@agent-native/toolkit/styles.css";
  *
  * No `tailwind.config.ts` or `postcss.config.js` is needed. The
  * `@tailwindcss/vite` plugin is auto-injected by `defineConfig()`.

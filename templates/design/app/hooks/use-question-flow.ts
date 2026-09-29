@@ -2,8 +2,8 @@ import {
   formatGuidedAnswersForAgent,
   useGuidedQuestionFlow,
   type GuidedQuestionAnswers,
-} from "@agent-native/core/client/agent-chat";
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";

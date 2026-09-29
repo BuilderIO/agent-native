@@ -47,7 +47,7 @@ const clientState = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/client/chat-first", () => ({
+vi.mock("@agent-native/toolkit/app/chat/chat-first", () => ({
   CHAT_FIRST_DEFAULT_APP_IDS: [
     "content",
     "design",

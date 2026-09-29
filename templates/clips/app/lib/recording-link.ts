@@ -1,5 +1,5 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   buildRecordingShareUrl,
   recordingSharePath,

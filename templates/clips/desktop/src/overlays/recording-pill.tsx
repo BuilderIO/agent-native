@@ -1,9 +1,9 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentKitAssistantChat,
-  generateTabId,
   type AssistantChatHandle,
-} from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat";
 import {
   IconCheck,
   IconChevronDown,

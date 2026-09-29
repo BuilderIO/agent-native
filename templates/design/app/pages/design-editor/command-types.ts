@@ -1,4 +1,4 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";

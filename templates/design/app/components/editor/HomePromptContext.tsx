@@ -1,13 +1,4 @@
 import {
-  snapshotComposerContextItems,
-  type ComposerContextSnapshot,
-  type AgentChatContextItem,
-  type ComposerContextMenuItem,
-  type ComposerContextPickerConfig,
-  type ComposerContextPickerItem,
-  type ComposerContextPickerRequest,
-} from "@agent-native/core/client/composer";
-import {
   actionErrorMessage,
   callAction,
   useChangeVersions,
@@ -19,6 +10,15 @@ import {
   composerSourceReferenceSchema,
   type ComposerSourceRequest,
 } from "@agent-native/core/shared";
+import {
+  snapshotComposerContextItems,
+  type ComposerContextSnapshot,
+  type AgentChatContextItem,
+  type ComposerContextMenuItem,
+  type ComposerContextPickerConfig,
+  type ComposerContextPickerItem,
+  type ComposerContextPickerRequest,
+} from "@agent-native/toolkit/app/chat/composer/index";
 import { parseFigmaFileKey } from "@shared/figma-url";
 import {
   IconComponents,

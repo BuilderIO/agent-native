@@ -14,6 +14,7 @@ import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -167,6 +168,26 @@ function ContactPanel({
       threadId={email?.threadId}
       focusedEmailId={email?.id ?? emailId}
     />
+  );
+}
+
+function ContactPanelSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col">
+      <div className="space-y-1.5 px-4 pt-4 pb-3">
+        <Skeleton className="h-4 w-8" />
+        <Skeleton className="h-3 w-40 max-w-full" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+      <div className="flex items-center gap-2 px-4 py-2">
+        <Skeleton className="size-5 rounded-md" />
+        <Skeleton className="h-3 w-14" />
+      </div>
+      <div className="mx-4 h-px bg-border/30" />
+      <div className="px-4 py-2">
+        <Skeleton className="h-3 w-20" />
+      </div>
+    </div>
   );
 }
 
@@ -1091,7 +1112,6 @@ export function InboxPage() {
             onNavigateThread={handleOptimisticThreadNavigation}
             isLoading={emailListLoading}
             isFetching={isFetching}
-            isSyncing={isInboxView && inboxMetadata?.syncing === true}
             emailsError={emailsError}
             accountErrors={accountErrors}
             labels={
@@ -1116,17 +1136,20 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel — hidden during initial load or when maximized */}
-      {!emailListLoading && !(hasThread && isMaximized) && (
+      {!(hasThread && isMaximized) && (
         <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
-          <ContactPanel
-            emailId={contactEmailId}
-            contactEmail={sidebarContactEmail}
-            emails={emails}
-            allowEmailSearch={
-              !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
-            }
-          />
+          {emailListLoading ? (
+            <ContactPanelSkeleton />
+          ) : (
+            <ContactPanel
+              emailId={contactEmailId}
+              contactEmail={sidebarContactEmail}
+              emails={emails}
+              allowEmailSearch={
+                !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
+              }
+            />
+          )}
         </div>
       )}
     </div>

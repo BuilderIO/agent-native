@@ -3,11 +3,11 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
+} from "@agent-native/toolkit/app/settings";
 import {
   buildCodeLayerProjection,
   type CodeLayerNode,
