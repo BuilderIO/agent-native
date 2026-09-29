@@ -41,7 +41,6 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
-const CMD_D_DUPLICATE_SCREEN_GAP = 40;
 
 interface DuplicateBatchState {
   sourceIds: Set<string>;
@@ -567,10 +566,7 @@ export function runDuplicateScreen(
     .filter(([frameId]) => frameId !== screenId)
     .map(([, geometry]) => geometry)
     .filter(isCompleteFrameGeometry);
-  const placementGap =
-    request?.mode === "cmd-d"
-      ? CMD_D_DUPLICATE_SCREEN_GAP
-      : DUPLICATE_SCREEN_GAP;
+  const placementGap = DUPLICATE_SCREEN_GAP;
   const adjacentGeometry = getDuplicateScreenGeometry(
     sourceGeometry,
     occupiedGeometries,

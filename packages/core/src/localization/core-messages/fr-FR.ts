@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Impossible de charger le contexte.",
   "composer.contextLinkRequired": "Saisissez un lien.",
   "composer.submitFailed": "Envoi impossible. Réessayez.",
+  "composer.attachmentsRemainAfterSubmit":
+    "Le message a été envoyé, mais certaines pièces jointes restent. Supprimez-les avant de renvoyer.",
   "composer.addContext": "Ajouter du contexte",
   "composer.contextActionFailed": "Impossible d’ajouter le contexte.",
   "composer.contextBack": "Retour",
@@ -77,6 +79,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
+  "observability.promoteMustContain": "La réponse doit contenir…",
+  "observability.promoteMustContainOptional":
+    "La réponse doit contenir (facultatif)",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation promue doit contenir",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir.",
   "observability.viewDetails": "Afficher les détails",
   "observability.hideDetails": "Masquer les détails",
   "observability.input": "Entrée",
@@ -86,13 +95,6 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Non capturé",
   "observability.openFullConversation": "Ouvrir la conversation complète",
   "observability.learnAboutTab": "En savoir plus sur cet onglet",
-  "observability.promoteMustContain": "La réponse doit contenir…",
-  "observability.promoteMustContainLabel":
-    "Texte que la réponse de l’évaluation promue doit contenir",
-  "observability.promoteMustContainOptional":
-    "La réponse doit contenir (facultatif)",
-  "observability.promoteNeedsContains":
-    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir l’évaluation.",
   "observability.summarizeWithAgent": "Résumer avec l’agent",
   "observability.regenerateSummary": "Régénérer le résumé",
   "observability.summarizeWithAgentHelp":
@@ -1388,6 +1390,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Nouvelle adresse e-mail",
   "settings.emailNewPlaceholder": "Saisissez une nouvelle adresse e-mail",
   "usage.builderCredits": "Crédits Builder",
+  "featureFlags.builderCreditReferrals.name": "Parrainages de crédits Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Afficher les détails de parrainage de l’espace de travail Builder connecté dans Utilisation.",
   "usage.inviteFriends": "Inviter des amis",
   "usage.inviteCredits":
     "Gagnez {{amount}} crédits Builder lorsqu’un ami s’abonne.",

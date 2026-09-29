@@ -164,12 +164,6 @@ export default {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     openAgentSettings: "에이전트 관리",
-    languageTitle: "언어",
-    languageDescription: "Design의 인터페이스 언어를 선택하세요.",
-    languageLabel: "인터페이스 언어",
-    labs: "Labs",
-    labsIntro:
-      "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labTweaks: "디자인 트윅",
     labTweaksDescription: "AI 기반 디자인 트윅을 사용해 보세요.",
     mcpAbout:
@@ -224,6 +218,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {
@@ -321,6 +316,8 @@ export default {
       bottomLeft: "왼쪽 아래",
       bottomRight: "오른쪽 아래",
       blend: "혼합",
+      blendMode: "혼합 모드",
+      removeBlendMode: "혼합 모드 제거",
       border: "테두리",
       outline: "윤곽선",
       inside: "안쪽",
@@ -1475,11 +1472,6 @@ export default {
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
       permissionPromptSettingsInstructions:
         "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
-      permissionCloseTitle: "설정을 닫을까요?",
-      permissionCloseDescription:
-        "Chrome에서 액세스를 허용해야 실시간 편집을 사용할 수 있습니다.",
-      permissionCloseStay: "설정을 계속 열어 두기",
-      permissionCloseAnyway: "그래도 닫기",
       permissionPromptRetry: "연결 재시도",
     },
   },

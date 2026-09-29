@@ -64,21 +64,11 @@ const messages = {
     showHelp: "このヘルプを表示",
   },
   settings: {
-    title: "CRM の設定",
-    description:
-      "ネイティブ SQL は CRM 所有のレコードを Postgres に保持します。HubSpot と Salesforce はワークスペース接続を使用し、そのミラーには許可された項目、範囲を限定したメタデータ、制限付きの証拠参照だけが保存されます。",
-    languageTitle: "言語",
-    languageDescription:
-      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
-    languageLabel: "インターフェース言語",
     mcpAbout:
       "CRM を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって CRM で作業できます。レコードの検索、フィールドの更新、タスクの管理などです。アプリが見られるのは、あなたが見られるものだけです。",
   },
   connection: {
     tab: "接続",
-    title: "CRM の接続",
-    description:
-      "この CRM のレコードがどこから来て、各レコードのどこまでを CRM が所有するかを示します。",
     modesTitle: "利用できるモード",
     modeNative: "ネイティブ SQL",
     modeNativeHelp:
@@ -108,9 +98,6 @@ const messages = {
   },
   fields: {
     tab: "項目",
-    title: "項目",
-    description:
-      "すべてのレコードとリストを支える型付き属性です。項目の API スラッグと型は作成時に確定し、それ以外は後から変更できます。",
     target: "オブジェクトまたはリスト",
     targetPlaceholder: "オブジェクト種別かリストを選択",
     listsGroup: "リスト",
@@ -252,8 +239,6 @@ const messages = {
   },
   advanced: {
     tab: "詳細設定",
-    title: "詳細設定",
-    description: "再構成とデータ保持の挙動です。",
     reconfigure: "CRM を再構成",
     reconfigureHelp:
       "ネイティブ SQL と HubSpot / Salesforce 併用の切り替え、または初回同期の再実行を行います。",
@@ -570,9 +555,6 @@ const messages = {
   },
   intelligence: {
     tab: "インテリジェンス",
-    title: "インテリジェンス",
-    description:
-      "制限された通話証拠の中で CRM が注目すべき場面を選択します。スマートトラッカーは Ask CRM を通じて評価され、この設定画面で直接実行されることはありません。",
     loading: "トラッカーを読み込んでいます…",
     kindKeyword: "キーワード",
     kindSmart: "スマート",

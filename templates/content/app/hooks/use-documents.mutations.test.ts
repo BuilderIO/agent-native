@@ -10,7 +10,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
-  useQueryClient: () => ({ invalidateQueries }),
+  useQueryClient: () => ({
+    invalidateQueries,
+    getQueryCache: () => ({ findAll: () => [] }),
+    getQueriesData: () => [],
+  }),
 }));
 
 import {
@@ -57,11 +61,24 @@ describe("useCreateDocument", () => {
       }),
     );
     const options = useActionMutation.mock.calls[0]?.[1];
-    options.onSuccess();
-    expect(invalidateQueries).toHaveBeenCalledWith(
-      expect.objectContaining({
-        queryKey: ["action", "query-content-database-items"],
-      }),
+    options.onSuccess({ id: "new-page", parentId: "parent", spaceId: "space" });
+    const { predicate } = invalidateQueries.mock.calls[0]![0];
+    const query = (queryKey: unknown[]) => ({ queryKey, state: {} });
+    const branch = (parentId: string | null) =>
+      query([
+        "action",
+        "query-content-database-items",
+        { databaseId: "files", navigation: { parentId } },
+      ]);
+    expect(predicate(branch("parent"))).toBe(true);
+    expect(predicate(branch("other"))).toBe(false);
+    expect(
+      predicate(
+        query(["action", "get-content-navigation-context", { id: "new-page" }]),
+      ),
+    ).toBe(true);
+    expect(predicate(query(["action", "list-documents", undefined]))).toBe(
+      false,
     );
   });
 });

@@ -53,6 +53,7 @@ vi.mock("../use-action.js", async (importOriginal) => ({
 }));
 
 vi.mock("./useObservability.js", () => ({
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useObservabilityOverview: () => ({
     data: {
       totalRuns: 1,
@@ -70,18 +71,16 @@ vi.mock("./useObservability.js", () => ({
     mutate: vi.fn(),
     isPending: false,
     isSuccess: false,
-    isError: false,
     data: undefined,
+    isError: false,
     error: null,
   }),
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useEvalStats: vi.fn(),
-  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useExperiments: () => ({ data: [], isLoading: false }),
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
-  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useOutputReviews: () => mockOutputReviews(),
   useOutputReviewDetail: (runId: string | null) =>
     mockOutputReviewDetail(runId),
@@ -99,6 +98,10 @@ vi.mock("./useObservability.js", () => ({
   useSaveReviewFeedback: () => ({
     mutate: mockSubmitFeedback,
     mutateAsync: mockSubmitFeedback,
+    isPending: false,
+  }),
+  usePromoteTraceEval: () => ({
+    mutate: mockPromoteTraceEval,
     isPending: false,
   }),
 }));

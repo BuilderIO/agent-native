@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "संदर्भ लोड नहीं हो सका।",
   "composer.contextLinkRequired": "लिंक दर्ज करें।",
   "composer.submitFailed": "भेजा नहीं जा सका। फिर से प्रयास करें।",
+  "composer.attachmentsRemainAfterSubmit":
+    "संदेश भेज दिया गया, लेकिन कुछ अटैचमेंट अभी भी मौजूद हैं। दोबारा भेजने से पहले उन्हें हटाएँ।",
   "composer.addContext": "संदर्भ जोड़ें",
   "composer.contextActionFailed": "संदर्भ नहीं जोड़ा जा सका।",
   "composer.contextBack": "वापस",
@@ -73,6 +75,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "फ़ाइलों, एजेंटों या संसाधनों का उल्लेख करें",
   "commands.new": "/clear के समान",
   "commands.plan": "केवल-पढ़ने योग्य योजना मोड पर जाएँ",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteMustContainLabel":
+    "प्रमोट किए गए मूल्यांकन के जवाब में होना चाहिए यह टेक्स्ट",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
   "observability.hideDetails": "विवरण छिपाएँ",
   "observability.input": "इनपुट",
@@ -82,12 +90,6 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "कैप्चर नहीं किया गया",
   "observability.openFullConversation": "पूरी बातचीत खोलें",
   "observability.learnAboutTab": "इस टैब के बारे में जानें",
-  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
-  "observability.promoteMustContainLabel":
-    "प्रमोट किए गए मूल्यांकन के जवाब में शामिल किया जाने वाला टेक्स्ट",
-  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
-  "observability.promoteNeedsContains":
-    "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.summarizeWithAgent": "एजेंट से सारांश बनवाएँ",
   "observability.regenerateSummary": "सारांश फिर से बनाएँ",
   "observability.summarizeWithAgentHelp":
@@ -1294,6 +1296,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "नया ईमेल",
   "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
   "usage.builderCredits": "Builder क्रेडिट",
+  "featureFlags.builderCreditReferrals.name": "Builder क्रेडिट रेफ़रल",
+  "featureFlags.builderCreditReferrals.description":
+    "उपयोग में कनेक्टेड Builder वर्कस्पेस के रेफ़रल विवरण दिखाएँ।",
   "usage.inviteFriends": "दोस्तों को आमंत्रित करें",
   "usage.inviteCredits": "दोस्त के सदस्यता लेने पर {{amount}} Builder क्रेडिट पाएं।",
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",

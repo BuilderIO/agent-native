@@ -199,6 +199,12 @@ export function CommentItem({
                 if (error) setError(null);
               }}
               onKeyDown={(event) => {
+                if (
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                ) {
+                  return;
+                }
                 if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                   event.preventDefault();
                   void save();
@@ -367,6 +373,8 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+            return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onCancel();
         }}
@@ -455,6 +463,8 @@ export function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+            return;
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
           if (e.key === "Escape") onDone();
         }}

@@ -13,6 +13,11 @@ import { captureCliOutput } from "../../server/cli-capture.js";
 
 const mocks = vi.hoisted(() => ({
   loadAgentsBundle: vi.fn<() => Promise<AgentsBundle>>(),
+  getUserLabs: vi.fn(),
+}));
+
+vi.mock("../../labs/store.js", () => ({
+  getUserLabs: (...args: unknown[]) => mocks.getUserLabs(...args),
 }));
 
 vi.mock("../../server/agents-bundle.js", async () => {
@@ -26,7 +31,7 @@ vi.mock("../../server/agents-bundle.js", async () => {
   };
 });
 
-import docsSearchScript from "./search.js";
+import docsSearchScript, { loadAllDocs } from "./search.js";
 
 function runDocsSearch(args: string[]): Promise<string> {
   return captureCliOutput(() => docsSearchScript(args));
@@ -94,5 +99,67 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
     const slugs = listing.map((d) => d.slug);
     expect(slugs).toContain("skill-recap-tools");
     expect(slugs).toContain("skill-recap-tools--references-canvas");
+  });
+
+  it("hides Lab-gated skills from docs-search for disabled users", async () => {
+    const gatedSkillDir = path.join(
+      tplDir,
+      ".agents",
+      "skills",
+      "creative-context",
+    );
+    fs.mkdirSync(gatedSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(gatedSkillDir, "SKILL.md"),
+      [
+        "---",
+        "name: creative-context",
+        "description: Reuse Creative Context packs",
+        "scope: both",
+        "requires-lab: content.creative-context",
+        "---",
+        "CREATIVE_CONTEXT_SKILL_BODY",
+      ].join("\n"),
+    );
+    mocks.loadAgentsBundle.mockResolvedValue(readAgentsBundleFromFs(tplDir));
+    mocks.getUserLabs.mockImplementation(async (email: string) =>
+      email === "enabled@example.test"
+        ? { "content.creative-context": true }
+        : { "content.creative-context": false },
+    );
+
+    const disabledDocs = await loadAllDocs("disabled@example.test");
+    const enabledDocs = await loadAllDocs("enabled@example.test");
+
+    expect(disabledDocs.map((doc) => doc.slug)).not.toContain(
+      "skill-creative-context",
+    );
+    expect(enabledDocs.map((doc) => doc.slug)).toContain(
+      "skill-creative-context",
+    );
+    expect(mocks.getUserLabs.mock.calls.map(([email]) => email)).toEqual([
+      "disabled@example.test",
+      "enabled@example.test",
+    ]);
+  });
+
+  it("surfaces unreadable Labs state instead of treating it as disabled", async () => {
+    const gatedSkillDir = path.join(
+      tplDir,
+      ".agents",
+      "skills",
+      "creative-context",
+    );
+    fs.mkdirSync(gatedSkillDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(gatedSkillDir, "SKILL.md"),
+      "---\nname: creative-context\nrequires-lab: content.creative-context\n---\nbody",
+    );
+    mocks.loadAgentsBundle.mockResolvedValue(readAgentsBundleFromFs(tplDir));
+    mocks.getUserLabs.mockRejectedValue(new Error("Labs settings unavailable"));
+
+    await expect(loadAllDocs("user@example.test")).rejects.toThrow(
+      "Labs settings unavailable",
+    );
   });
 });

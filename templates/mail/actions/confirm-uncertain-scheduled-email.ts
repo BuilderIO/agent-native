@@ -7,14 +7,16 @@ import { confirmUncertainScheduledJobSentForOwner } from "../server/lib/jobs.js"
 export default defineAction({
   uiOnly: true,
   description:
-    "Resolve an uncertain scheduled email after the owner confirms they found it in Gmail Sent.",
+    "Resolve an uncertain scheduled email after the owner confirms they found it in Mail's Sent view.",
   schema: z.object({
     id: z
       .string()
       .describe("Scheduled job ID. For synthetic emails, remove scheduled-."),
     verifiedInSent: z
       .literal(true)
-      .describe("Set true only after checking the Gmail Sent folder."),
+      .describe(
+        "Set true only after checking Mail's Sent view for the message.",
+      ),
   }),
   run: async ({ id }) => {
     const ownerEmail = getRequestUserEmail();
@@ -31,6 +33,6 @@ export default defineAction({
         "Uncertain scheduled email was not found or was resolved",
       );
     }
-    return `Marked scheduled email ${jobId} as sent after Gmail Sent confirmation.`;
+    return `Marked scheduled email ${jobId} as sent after confirmation in Mail's Sent view.`;
   },
 });

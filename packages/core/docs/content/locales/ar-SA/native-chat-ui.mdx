@@ -92,7 +92,7 @@ description: "برامج عرض الدردشة الأصلية المعلنة ع�
 
 يجب على الخادم actions استيراد المخططات والمساعدات الآمنة للخادم من
 `@agent-native/core/data-widgets`; client code can import the same types from
-`@agent-native/core/client/chat` أو `@agent-native/core/client`.
+`@agent-native/core/client/widgets` أو `@agent-native/core/client`.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -226,7 +226,7 @@ export default defineAction({
 في الإجراء:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/chat";
+import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -360,7 +360,7 @@ when: (args, result) => {
 
 </Diagram>
 
-يتم تصدير كافة الموصلات من `@agent-native/core/client/chat` (والجذر
+يتم تصدير كافة الموصلات من `@agent-native/core/client/agent-chat` (والجذر
 إدخال `@agent-native/core/client`). استخدم وقت التشغيل HTTP العام عندما يكون وكيلك
 يمكن أن يعرض نقطة نهاية POST التي تُرجع أحداث وقت التشغيل SSE أو NDJSON:
 
@@ -368,7 +368,7 @@ when: (args, result) => {
 import {
   AssistantChat,
   createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",
@@ -394,7 +394,7 @@ import {
   createOpenAIAgentsChatRuntime,
   createOpenAIResponsesChatRuntime,
   createVercelAiChatRuntime,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 
 const openAiAgentsRuntime = createOpenAIAgentsChatRuntime({
   endpoint: "/api/openai-agents/chat",
@@ -437,7 +437,7 @@ data: {"type":"done","reason":"complete"}
 عندما تريد نقل Agent-Native المدمج ككائن وقت التشغيل، استخدم:
 
 ```ts
-import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
+import { createAgentNativeChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createAgentNativeChatRuntime({
   threadId: "forms-chat",
@@ -446,6 +446,8 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 استخدم `<AssistantChat createTransport={...} />` لنقل AgentKit مخصص، أو مرّر `runtime` عندما يدير المضيف تنفيذ الأدوار. يجب نقل تطبيقات `assistant-ui ChatModelAdapter` الحالية إلى `AgentTransport` أو `AgentChatRuntime` لاستخدام سجل محادثات AgentKit ومؤلفه. استخدم `PromptComposer` بمفرده عندما يمتلك منتجك السجل الخارجي بالكامل ويريد حقل Agent-Native فقط.
+
+لخريطة واجهات API القديمة والجديدة وخطوات النقل، راجع [دليل نقل دردشة AgentKit](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md).
 
 يمكن لتدفقات OpenAI وAG-UI وClaude Agent SDK وVercel AI SDK استخدام المعيار
 مساعدو الموصل. يظل ACP قابلية التشغيل التفاعلي لعامل الترميز/المحرر، وليس

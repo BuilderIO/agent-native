@@ -64,21 +64,11 @@ const messages = {
     showHelp: "Mostrar esta ayuda",
   },
   settings: {
-    title: "Ajustes de CRM",
-    description:
-      "Native SQL mantiene los registros propios de CRM en Postgres. HubSpot y Salesforce usan conexiones del espacio de trabajo; sus espejos solo guardan campos permitidos, metadatos con alcance limitado y referencias acotadas a la evidencia.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     mcpAbout:
       "Conecta CRM con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en CRM por ti: buscar registros, actualizar campos y gestionar tareas. Solo ve lo que tú puedes ver.",
   },
   connection: {
     tab: "Conexión",
-    title: "Conexión de CRM",
-    description:
-      "De dónde vienen los registros de este CRM y cuánto posee de cada registro.",
     modesTitle: "Modos disponibles",
     modeNative: "SQL nativo",
     modeNativeHelp:
@@ -107,9 +97,6 @@ const messages = {
   },
   fields: {
     tab: "Campos",
-    title: "Campos",
-    description:
-      "Los atributos tipados detrás de cada registro y cada lista. El slug de API y el tipo de un campo quedan fijos al crearlo; todo lo demás puede cambiar.",
     target: "Objeto o lista",
     targetPlaceholder: "Selecciona un tipo de objeto o una lista",
     listsGroup: "Listas",
@@ -256,9 +243,6 @@ const messages = {
   },
   advanced: {
     tab: "Avanzado",
-    title: "Avanzado",
-    description:
-      "Comportamiento de reconfiguración y de conservación de datos.",
     reconfigure: "Reconfigurar CRM",
     reconfigureHelp:
       "Cambia entre SQL nativo y un acompañante de HubSpot o Salesforce, o vuelve a ejecutar la sincronización inicial.",
@@ -572,9 +556,6 @@ const messages = {
   },
   intelligence: {
     tab: "Inteligencia",
-    title: "Inteligencia",
-    description:
-      "Elige los momentos que CRM debe detectar en evidencia de llamadas limitada. Los rastreadores inteligentes se evalúan mediante Ask CRM, nunca directamente en esta pantalla.",
     loading: "Cargando rastreadores…",
     kindKeyword: "Palabra clave",
     kindSmart: "Inteligente",

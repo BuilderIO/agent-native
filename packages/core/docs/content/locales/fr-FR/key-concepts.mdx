@@ -359,23 +359,26 @@ Chaque consommateur appelle la même fonction sous-jacente, il n'y a donc qu'une
 
 ## Synchronisation en direct {#polling-sync}
 
-Lorsque l'agent modifie des données, l'UI doit le refléter sans actualisation manuelle. C'est `useDbSync()` qui rend cela automatique. Sur un hôte de longue durée, les écritures dans le même processus sont diffusées via `/_agent-native/events` ; `/_agent-native/poll` reste la solution de repli inter-processus. Lorsque l'agent écrit dans la base de données (état de l'application, settings ou données de domaine), un compteur de version s'incrémente et le client invalide les caches React Query pertinents.
+Le flux d'exécution du chat invalide les requêtes d'action et compteurs de source concernés après chaque outil avec effet de bord, puis à nouveau à la fin. Les modifications d'un agent seul n'ont donc pas besoin d'interrogation en arrière-plan. La synchronisation `useDbSync()` est réservée aux changements qui surviennent sans action de l'utilisateur, comme la modification d'un enregistrement partagé par un collègue ou l'arrivée d'un nouveau mail. Sur un hôte de longue durée, ces changements passent par `/_agent-native/events` ; `/_agent-native/poll` est le secours.
 
-Le SSE couvre le cas courant à la place des WebSockets car il offre aux écritures dans le même processus un chemin immédiat vers le navigateur en HTTP simple, tandis que l'interrogation par compteur de version reste une solution de repli qui fonctionne dans tout environnement de déploiement. Sur un hôte serverless de production (Netlify, Lambda, Vercel), le flux `/_agent-native/events` propre à l'app n'est pas une voie plus lente — il est désactivé. Garder ce flux ouvert monopoliserait une instance de fonction qui ne sert qu'une requête à la fois (elle ne pourrait de toute façon jamais voir l'écriture d'une autre invocation) jusqu'à ce que la plateforme la tue, recyclant le conteneur ; le serveur répond à la place immédiatement par un 204, et `/_agent-native/poll` assure toute la synchronisation, au même rythme, sauf si l'app a activé la [passerelle de synchronisation temps réel hébergée](/docs/real-time-collaboration#hosted-gateway), qui diffuse depuis son propre processus de longue durée.
+Chaque page qui active `useDbSync()` doit fournir une courte raison. Un transport est partagé par onglet ; les onglets visibles abonnés interrogent après 1, puis 2, puis 5 minutes d'inactivité. L'activité de l'utilisateur ou une mutation locale réinitialise l'intervalle. Les onglets masqués sont mis en pause. Gardez cette synchronisation désactivée sur les pages publiques ou SSR, Docs, paramètres, formulaires et listes rarement modifiées ; actualisez-les au retour du focus ou à la navigation. Yjs conserve son propre canal.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-Appelez-le une fois, près de la racine de l'application. Cela abonne toute l'application aux événements de changement, si bien que tout composant utilisant `useActionQuery` ou un `useQuery` versionné par source se rafraîchit automatiquement lorsque les données qu'il lit changent.
+Appelez ce hook uniquement depuis une route privée dont les données peuvent changer sans action de l'utilisateur actuel et où celui-ci doit voir la mise à jour avant de recharger. Un abonné en arrière-plan ajoute une interrogation par onglet ouvert et par intervalle.
 
-Le flux est :
+Le flux d'un changement externe est :
 
-1. L'agent exécute une action qui écrit dans la base de données
+1. Une autre personne ou une tâche en arrière-plan modifie un enregistrement partagé
 2. Le serveur émet un événement de changement avec une source telle que `"action"` ou `"settings"`
-3. `useDbSync` le reçoit via SSE ou la solution de repli d'interrogation
+3. Une page `useDbSync` activée reçoit l'événement par SSE ou interrogation ; les exécutions locales de l'agent utilisent le flux du chat
 4. Les hooks `useActionQuery` et les hooks `useQuery` versionnés par source se rafraîchissent
 5. Les composants affichent les nouvelles données sans rechargement de page
 

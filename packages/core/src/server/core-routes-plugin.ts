@@ -74,7 +74,6 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   BUILDER_CREDIT_USAGE_REPORTING_FLAG,
   registerFeatureFlags,
-  SETTINGS_REDESIGN_FLAG,
 } from "../feature-flags/registry.js";
 import { uploadFile } from "../file-upload/index.js";
 import { listFileUploadProviderStatusesForRequest } from "../file-upload/registry.js";
@@ -2522,10 +2521,7 @@ export function createCoreRoutesPlugin(
     options.googleOAuthManagedConnection ?? "unknown";
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "core-routes");
-    registerFeatureFlags([
-      BUILDER_CREDIT_USAGE_REPORTING_FLAG,
-      SETTINGS_REDESIGN_FLAG,
-    ]);
+    registerFeatureFlags([BUILDER_CREDIT_USAGE_REPORTING_FLAG]);
     registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
     // No-op when called from inside the bootstrap (auto-mount path).
     // Otherwise wait so other default plugins finish mounting first.
@@ -3439,9 +3435,8 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "cache-control", "no-store");
           const session = await getSession(event).catch(() => null);
           const productionLike =
-            process.env.NODE_ENV === "production" ||
-            process.env.NETLIFY === "true" ||
-            process.env.VERCEL === "1";
+            process.env.NODE_ENV?.trim() === "production" ||
+            isProductionServerlessFunctionRuntime();
           if (!session?.email && productionLike) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };

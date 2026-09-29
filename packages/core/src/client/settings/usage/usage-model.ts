@@ -84,7 +84,6 @@ export type UsageToolCallMetrics =
   | { status: "unavailable" };
 
 export interface UsageMetricsData {
-  builderCreditUsageEnabled: boolean;
   billing: UsageBilling;
   appScope: "all" | "app";
   appKey: string | null;

@@ -26,17 +26,6 @@ const deferredUiModuleLoads = vi.hoisted(() => ({
   builderConnectPopover: false,
 }));
 
-const featureFlagMock = vi.hoisted(() => ({
-  state: { status: "ready", enabled: false } as {
-    status: "loading" | "ready" | "unavailable";
-    enabled: boolean;
-  },
-}));
-
-vi.mock("../feature-flags/use-feature-flag.js", () => ({
-  useFeatureFlagState: () => featureFlagMock.state,
-}));
-
 vi.mock("../clipboard.js", () => ({
   writeClipboardText: clipboardMock.writeClipboardText,
 }));
@@ -374,7 +363,7 @@ describe("run recovery surfaces", () => {
       expect(deferredUiModuleLoads.builderConnectPopover).toBe(true);
     });
     expect(
-      container.querySelector('a[href="/settings/keys"]')?.textContent,
+      container.querySelector('a[href="/settings/model"]')?.textContent,
     ).toBe("Custom keys");
   });
 
@@ -587,7 +576,7 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect Builder.io");
 
     const customKeysLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/settings/keys"]',
+      'a[href="/settings/model"]',
     );
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
@@ -618,35 +607,10 @@ describe("run recovery surfaces", () => {
     });
 
     const customKeysLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/dispatch/settings/keys"]',
+      'a[href="/dispatch/settings/model"]',
     );
     expect(customKeysLink?.textContent).toBe("Custom keys");
     expect(container.querySelector('input[type="password"]')).toBeNull();
-  });
-
-  it("links custom keys to the Model page with the settings redesign on", async () => {
-    featureFlagMock.state = { status: "ready", enabled: true };
-    try {
-      await act(async () => {
-        root.render(
-          <AgentNativeI18nProvider
-            initialLocale="en-US"
-            initialPreference="en-US"
-            persistPreference={false}
-          >
-            <BuilderSetupContent />
-          </AgentNativeI18nProvider>,
-        );
-      });
-
-      const customKeysLink = Array.from(container.querySelectorAll("a")).find(
-        (link) => link.textContent?.includes("Custom keys"),
-      );
-      expect(customKeysLink?.getAttribute("href")).toBe("/settings/model");
-      expect(container.querySelector('input[type="password"]')).toBeNull();
-    } finally {
-      featureFlagMock.state = { status: "ready", enabled: false };
-    }
   });
 
   it("keeps sidebar provider actions in a horizontal row", async () => {
@@ -908,7 +872,7 @@ describe("run recovery surfaces", () => {
     const customKeysLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.includes("Custom keys"),
     );
-    expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
+    expect(customKeysLink?.getAttribute("href")).toBe("/settings/model");
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(container.querySelector('button[aria-label="Retry"]')).toBeTruthy();
     expect(onRetry).not.toHaveBeenCalled();
@@ -1006,7 +970,7 @@ describe("run recovery surfaces", () => {
     const customKeysLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.includes("Custom keys"),
     );
-    expect(customKeysLink?.getAttribute("href")).toBe("/settings/keys");
+    expect(customKeysLink?.getAttribute("href")).toBe("/settings/model");
     expect(container.querySelector('input[type="password"]')).toBeNull();
     expect(
       agentEngineKeyMock.saveAgentEngineProviderSettings,

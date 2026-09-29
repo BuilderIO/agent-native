@@ -579,7 +579,7 @@ describe("SettingsTabsPage", () => {
     ]);
   });
 
-  it("shows the app-group props as today's tabs, so a migrated template works with the flag off", () => {
+  it("keeps shell-only app groups out of the tabbed page", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -613,7 +613,8 @@ describe("SettingsTabsPage", () => {
       "Recordings",
       "Labs",
     ]);
-    expect(container.textContent).toContain("App groups");
+    // `generalGroups` may call useSettingsShell(), which throws here.
+    expect(container.textContent).not.toContain("App groups");
   });
 
   it("visually separates app, agent, and workspace tabs", () => {

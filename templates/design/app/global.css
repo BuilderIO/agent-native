@@ -46,7 +46,7 @@
 .design-home-header {
   display: grid;
   height: 3.5rem;
-  grid-template-columns: auto minmax(150px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 1fr) minmax(0, 1fr);
   grid-template-rows: 3.5rem;
   column-gap: 0.75rem;
   border-bottom: 0;
@@ -61,7 +61,7 @@
   max-width: 30rem;
   align-items: center;
   align-self: center;
-  justify-self: start;
+  justify-self: center;
 }
 
 .design-home-header h1 {
@@ -98,21 +98,7 @@
   .design-home-header-search {
     grid-column: 1 / -1;
     grid-row: 2;
-  }
-}
-
-@container design-home-toolbar (max-width: 52rem) {
-  .design-home-header .design-home-import-label {
-    display: none;
-  }
-
-  .design-home-header .design-home-import-button {
-    width: 2rem;
-    padding-inline: 0;
-  }
-
-  .design-home-header .design-home-import-chevron {
-    display: none;
+    justify-self: center;
   }
 }
 

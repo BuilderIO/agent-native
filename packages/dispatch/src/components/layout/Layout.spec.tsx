@@ -9,9 +9,10 @@ import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
   CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
+  dispatchNavLinkTarget,
   formatThreadAge,
   isElectronEmbeddedSearch,
-  isRedesignedSettingsPath,
+  isSettingsShellPath,
   NavContent,
   renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
@@ -23,6 +24,7 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
+  basePath: "",
   createEmbedSessionMutateAsync: vi
     .fn()
     .mockResolvedValue({ startUrl: "about:blank" }),
@@ -53,10 +55,13 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
-  appBasePath: () => "",
+  appBasePath: () => clientState.basePath,
   appMountPath: () => "",
   appMountedPath: (path: string) => path,
-  appPath: (path: string) => path,
+  appPath: (path: string) =>
+    clientState.basePath && path.startsWith("/")
+      ? `${clientState.basePath}${path}`
+      : path,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -72,7 +77,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/feature-flags", () => ({
   useFeatureFlag: () => false,
-  useFeatureFlagState: () => ({ status: "ready", enabled: false }),
 }));
 
 vi.mock("next-themes", () => ({
@@ -130,6 +134,22 @@ function LocationProbe({ onChange }: { onChange: (path: string) => void }) {
   return null;
 }
 
+describe("Dispatch navigation paths", () => {
+  afterEach(() => {
+    clientState.basePath = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps router-prefixed paths local and applies the mount prefix otherwise", () => {
+    clientState.basePath = "/dispatch";
+    vi.stubGlobal("window", { location: { pathname: "/dispatch/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/apps");
+
+    vi.stubGlobal("window", { location: { pathname: "/chat" } });
+    expect(dispatchNavLinkTarget("/apps")).toBe("/dispatch/apps");
+  });
+});
+
 describe("formatThreadAge", () => {
   const now = 2_000_000_000_000;
 
@@ -184,27 +204,16 @@ describe("Dispatch workspace app sidebar", () => {
   );
 });
 
-describe("Dispatch redesigned Settings frame", () => {
-  const on = { status: "ready", enabled: true } as const;
-  const off = { status: "ready", enabled: false } as const;
-  const loading = { status: "loading", enabled: false } as const;
-
-  it("drops the Dispatch chrome on Settings while the flag is on or loading", () => {
-    expect(isRedesignedSettingsPath("/settings", on)).toBe(true);
-    expect(isRedesignedSettingsPath("/settings/members", on)).toBe(true);
-    expect(isRedesignedSettingsPath("/settings/app", loading)).toBe(true);
+describe("Dispatch Settings frame", () => {
+  it("drops the Dispatch chrome on Settings", () => {
+    expect(isSettingsShellPath("/settings")).toBe(true);
+    expect(isSettingsShellPath("/settings/members")).toBe(true);
+    expect(isSettingsShellPath("/settings/app")).toBe(true);
   });
 
-  it("keeps the Dispatch chrome with the flag off and off Settings", () => {
-    expect(isRedesignedSettingsPath("/settings/members", off)).toBe(false);
-    expect(
-      isRedesignedSettingsPath("/settings", {
-        status: "unavailable",
-        enabled: false,
-      }),
-    ).toBe(false);
-    expect(isRedesignedSettingsPath("/admin", on)).toBe(false);
-    expect(isRedesignedSettingsPath("/apps/mail/settings", on)).toBe(false);
+  it("keeps the Dispatch chrome off Settings", () => {
+    expect(isSettingsShellPath("/admin")).toBe(false);
+    expect(isSettingsShellPath("/apps/mail/settings")).toBe(false);
   });
 });
 

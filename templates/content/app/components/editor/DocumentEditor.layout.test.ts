@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { mergeDocumentBodyIntents } from "@shared/document-intent-merge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,13 +23,17 @@ import {
   isSuggestionConflictActionError,
   lifecycleKeepaliveDisposition,
   metadataUpdatesWithPendingTitle,
+  type OwnContentSaveLineage,
+  ownConfirmedContentBase,
   pendingCommentTargetMatches,
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
+  recordOwnContentSave,
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
   suggestionPresentation,
+  titleRenamedByAnotherWriter,
   suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
@@ -1358,6 +1363,137 @@ describe("document editor layout", () => {
         lastSaved,
       }),
     ).toBe(lastSaved);
+  });
+
+  it("rebases an edit made during this editor's in-flight save onto that save", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31:b", {
+      baseRevision: "body:30:a",
+      editGeneration: 2,
+    });
+    const latest = {
+      content: "Intro\n<empty-block/>",
+      updatedAt: "2026-09-28T15:35:54.963Z",
+      revision: "body:31:b",
+    };
+    const captured = {
+      content: "Intro",
+      updatedAt: "2026-09-28T15:35:32.985Z",
+      revision: "body:30:a",
+    };
+
+    const rebased = ownConfirmedContentBase({
+      captured,
+      latest,
+      lineage,
+      editGeneration: 3,
+    });
+    expect(rebased).toBe(latest);
+
+    const incoming = {
+      writerId: "browser:alice:session",
+      operationId: "session:3",
+      generation: 3,
+    };
+    const ownSave = {
+      writerId: "browser:alice:session",
+      operationId: "session:2",
+      generation: 2,
+      authoredBaseRevision: 30,
+      committedRevision: 31,
+      affectedBlockIndexes: [],
+      canonicalChanged: true,
+    };
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: captured.content,
+        authoredCandidateContent: "Intro\ntmp2",
+        currentContent: latest.content,
+        currentRevision: 31,
+        incoming: { ...incoming, authoredBaseRevision: 30 },
+        priorIntents: [ownSave],
+      }),
+    ).toMatchObject({ status: "resolved", content: "Intro\ntmp2" });
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: rebased!.content,
+        authoredCandidateContent: "Intro\ntmp2",
+        currentContent: latest.content,
+        currentRevision: 31,
+        incoming: { ...incoming, authoredBaseRevision: 31 },
+        priorIntents: [ownSave],
+      }),
+    ).toMatchObject({ status: "resolved", content: "Intro\ntmp2" });
+  });
+
+  it("rebases across a chain of this editor's earlier saves", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31", {
+      baseRevision: "body:30",
+      editGeneration: 2,
+    });
+    recordOwnContentSave(lineage, "body:32", {
+      baseRevision: "body:31",
+      editGeneration: 3,
+    });
+    const latest = { content: "c", updatedAt: null, revision: "body:32" };
+
+    expect(
+      ownConfirmedContentBase({
+        captured: { content: "a", updatedAt: null, revision: "body:30" },
+        latest,
+        lineage,
+        editGeneration: 4,
+      }),
+    ).toBe(latest);
+  });
+
+  it("keeps the captured base across revisions this editor did not author first", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    recordOwnContentSave(lineage, "body:31", {
+      baseRevision: "body:30",
+      editGeneration: 5,
+    });
+    const captured = { content: "a", updatedAt: null, revision: "body:30" };
+
+    expect(
+      ownConfirmedContentBase({
+        captured,
+        latest: { content: "agent", updatedAt: null, revision: "body:32" },
+        lineage,
+        editGeneration: 6,
+      }),
+    ).toBeNull();
+    expect(
+      ownConfirmedContentBase({
+        captured,
+        latest: { content: "later", updatedAt: null, revision: "body:31" },
+        lineage,
+        editGeneration: 5,
+      }),
+    ).toBeNull();
+    expect(
+      ownConfirmedContentBase({
+        captured: { content: "b", updatedAt: null, revision: "body:29" },
+        latest: { content: "later", updatedAt: null, revision: "body:31" },
+        lineage,
+        editGeneration: 6,
+      }),
+    ).toBeNull();
+  });
+
+  it("bounds this editor's save lineage", () => {
+    const lineage: OwnContentSaveLineage = new Map();
+    for (let revision = 1; revision <= 40; revision++) {
+      recordOwnContentSave(lineage, `body:${revision}`, {
+        baseRevision: `body:${revision - 1}`,
+        editGeneration: revision,
+      });
+    }
+
+    expect(lineage.size).toBe(32);
+    expect(lineage.has("body:8")).toBe(false);
+    expect(lineage.has("body:40")).toBe(true);
   });
 
   it("flushes a pending title with an icon update", () => {
@@ -2718,5 +2854,30 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("updatedAt: sqlUpdatedAt ?? persisted.updatedAt");
     expect(source).toContain("updatedAt: document.updatedAt");
+  });
+
+  it("saves a new page after its own title edit instead of parking it in a draft", () => {
+    // A new page: the query already holds the typed title, the save base is "".
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Fourth",
+        titleBase: "",
+        title: "Fourth",
+      }),
+    ).toBe(false);
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Renamed elsewhere",
+        titleBase: "",
+        title: "Fourth",
+      }),
+    ).toBe(true);
+    expect(
+      titleRenamedByAnotherWriter({
+        documentTitle: "Anything",
+        titleBase: undefined,
+        title: "Fourth",
+      }),
+    ).toBe(false);
   });
 });
