@@ -713,6 +713,10 @@ const PR_REVIEW_GATE_PRECONDITION_RE = new RegExp(
 );
 const PR_REVIEW_GATE_NOUN_PRECONDITION_RE =
   /\b(?:after|once|when|unless|provided(?:\s+that)?)\b(?:(?!\bmerge\b)[^.!?;]){0,80}\b(?:approvals?|reviews?|sign[-\s]+offs?)\b/i;
+const PR_REVIEW_GATE_BASE_FRESHNESS_RE =
+  /\b(?:after|once|when|unless|provided(?:\s+that)?|if)\b(?:(?!\bmerge\b)[^.!?]){0,80}\b(?:up[-\s]+to[-\s]+date|current|fresh|updated)\b[^.!?]{0,40}\b(?:with|against)\s+(?:the\s+)?(?:main|base|target)(?:\s+branch)?\b/i;
+const PR_REVIEW_GATE_NEGATIVE_STATE_RE =
+  /\bmerge(?:\s+(?:it|the\s+PR))?(?:\s+only)?\s+(?:after|once|when|unless|if)\b[^.!?;]{0,80}\b(?:no\s+(?:unresolved|outstanding|open)\s+review\s+threads?|no\s+(?:(?:failed|failing|pending)\s+(?:required\s+)?checks?|(?:required\s+)?checks?\s+(?:are\s+)?(?:failed|failing|pending))|no\s+(?:merge\s+)?conflicts?)\b/i;
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
   /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
@@ -729,6 +733,13 @@ const PR_REVIEW_GATE_WITH_PASSING_CHECKS_RE = new RegExp(
 );
 
 function hasActivePrReviewMergeGate(sentence) {
+  if (
+    PR_REVIEW_GATE_BASE_FRESHNESS_RE.test(sentence) ||
+    PR_REVIEW_GATE_NEGATIVE_STATE_RE.test(sentence)
+  ) {
+    return true;
+  }
+
   const greenChecks =
     PR_REVIEW_GATE_WITH_GREEN_CHECKS_RE.exec(sentence) ??
     PR_REVIEW_GATE_WITH_PASSING_CHECKS_RE.exec(sentence);
@@ -1093,6 +1104,16 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     false,
     "If no changes are needed, merge once all required conversations are resolved.",
   ],
+  [
+    false,
+    "If no changes are needed, merge only after the branch is up to date with main.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge if there are no unresolved review threads.",
+  ],
+  [false, "If no changes are needed, merge if there are no failing checks."],
+  [false, "If no changes are needed, merge only when there are no conflicts."],
   [false, "If no changes are needed, after security approval, merge it."],
   [false, "If no changes are needed, after security review, merge it."],
   [false, "If no changes are needed, after review sign-off, merge it."],
@@ -1106,6 +1127,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   ],
   [true, "If no changes are needed, merge the merge-queue fix."],
   [true, "If no changes are needed, merge the conversation-resolution fix."],
+  [true, "If no changes are needed, merge the up-to-date fix."],
+  [true, "If no changes are needed, merge the no-conflicts fix."],
   [true, "If no changes are needed, merge the security-review fix."],
   [true, "If no changes are needed, merge the approval-workflow fix."],
   [
