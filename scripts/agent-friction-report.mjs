@@ -674,17 +674,41 @@ const PR_REVIEW_HANDOFF_MISS_ACTIONS = [
   String.raw`(?:forgot|failed)\s+to\s+(?:say|state|report|mention|include|note|ask(?:\s+for)?|request|draft|write|prepare|provide)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
   String.raw`(?:left out|left off|omitted|(?:was|is|were|are)\s+missing)\s+(?:${PR_REVIEW_HANDOFF_DETAILS})`,
 ].join("|");
-const PR_REVIEW_MERGE_GATES = String.raw`(?:required|approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|green|complete(?:d)?)|builds?\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|green|complete(?:d)?)|reviewers?\s+(?:(?:has|have)\s+)?(?:sign(?:s|ed)?[-\s]+off|approve(?:s|d)?)|security[-\s]team\s+(?:(?:has|have)\s+)?(?:sign(?:s|ed)?[-\s]+off|approve(?:s|d)?))`;
-const PR_REVIEW_MERGE_AFTER = String.raw`(?:with|subject to|contingent upon|only after|after|upon|once|when|unless|until|if)`;
-const PR_REVIEW_GATE_WAIVER = String.raw`(?:don't|do not|never|stop)\s+wait(?:ing)?\s+for\b[^.!?]{0,50}`;
-const PR_REVIEW_AFTER_MERGE_GATES = String.raw`(?:${PR_REVIEW_MERGE_GATES}|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))`;
+const PR_REVIEW_MERGE_GATE_RE =
+  /\b(?:approval|approve(?:s|d)?|decision|checks?|ci|green|(?:test\s+suites?|tests?|builds?)|reviewers?|security[-\s]team(?:['’]s)?|(?:it|they)\s+(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?))\b/gi;
+const PR_REVIEW_GATE_REQUIRED_RE =
+  /\b(?:required|wait(?:ing)?\s+for|subject\s+to|contingent\s+upon|(?:only\s+)?after|upon|once|when|until|unless|if)\b(?:\s+(?:the|a|an|all|any|required|another|security|team|reviewer|approval|check|ci|test|suite|build)){0,5}\s*$/i;
+const PR_REVIEW_GATE_WAIVER_RE =
+  /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than)\s+wait(?:ing)?\s+for)\b(?:\s+(?:the|a|an|required|another|security|team|reviewer|approval|check|ci|to|approve(?:s|d)?)){0,5}\s*$/i;
+const PR_REVIEW_GATE_CONDITION_AFTER_RE =
+  /^\s*(?:(?:pass(?:es|ed)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?)\b|(?:is|are|has\s+been|have\s+been)\s+required|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)|(?:(?:has|have)\s+)?sign(?:s|ed)?[-\s]+off\b[^.!?]{0,30}\bbefore\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)/i;
+const PR_REVIEW_READY_MERGE_RE =
+  /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
+const PR_REVIEW_MERGE_PROHIBITION_RE = /\b(?:don't|do\s+not|never)\s+merge\b/i;
+
+function hasActivePrReviewMergeGate(sentence) {
+  for (const match of sentence.matchAll(PR_REVIEW_MERGE_GATE_RE)) {
+    const before = sentence.slice(Math.max(0, match.index - 70), match.index);
+    const after = sentence.slice(
+      match.index + match[0].length,
+      match.index + match[0].length + 60,
+    );
+    if (PR_REVIEW_GATE_WAIVER_RE.test(before)) continue;
+    if (
+      PR_REVIEW_GATE_REQUIRED_RE.test(before) ||
+      PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 const PR_REVIEW_HANDOFF_RE = new RegExp(
   [
     String.raw`\b(?:you|we|${PR_REVIEW_HANDOFF_SUBJECTS})\b[^.!?]{0,80}\b(?:${PR_REVIEW_HANDOFF_MISS_ACTIONS})\b`,
     String.raw`\b(?:you|we)\s+missed\s*:\s*(?:\r?\n\s*[-*]\s*)+(?:${PR_REVIEW_HANDOFF_DETAILS})\b`,
     String.raw`\b(?:you|we)\s+(?:marked|called|classified)\s+(?:it|the\s+PR|the\s+pull\s+request)\s+(?:as\s+)?ready\b[^.!?]{0,80}\b(?:despite|although|without|ignoring)\b[^.!?]{0,40}\b(?:unresolved|active)\s+(?:human\s+)?(?:review|feedback|comments?|change requests?)\b`,
-    String.raw`\b(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b(?![^.!?]{0,80}\b(?:don't|do not|never)\s+merge\b)(?![^.!?]{0,100}(?<!\b${PR_REVIEW_GATE_WAIVER})\b${PR_REVIEW_MERGE_GATES}\b[^.!?]{0,100}\bmerge\b)(?![^.!?]{0,100}\bmerge\b[^.!?]{0,80}\b${PR_REVIEW_MERGE_AFTER}\b[^.!?]{0,80}\b${PR_REVIEW_AFTER_MERGE_GATES}\b)[^.!?]{0,100}\bmerge\b`,
-    String.raw`\bif\s+we(?:\s+are|['’]re)\s+happy\b(?![^.!?]{0,80}(?<!\b${PR_REVIEW_GATE_WAIVER})\b${PR_REVIEW_MERGE_GATES}\b[^.!?]{0,80}\bwe\s+merge\b)[^.!?]{0,40}\bwe\s+merge\b(?![^.!?]{0,80}\b${PR_REVIEW_MERGE_AFTER}\b[^.!?]{0,80}\b${PR_REVIEW_AFTER_MERGE_GATES}\b)`,
     String.raw`\b(?:stop\s+saying|no\s+saying|don't\s+say|do\s+not\s+say|never\s+say)\s+["'“‘]?(?:someone else|another maintainer|another reviewer)\b[^.!?]{0,40}\b(?:needs?\s+to\s+approve|needs?\s+approval|must\s+approve|approval\s+is\s+required)\b`,
     String.raw`\b(?:you|we)\s+(?:sent|posted|drafted|added|left)\s+another\s+(?:author[- ]facing\s+)?(?:comment|reply|follow[- ]?up)[^.!?]{0,120}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)[^.!?]{0,80}(?:unanswered|unaddressed|still\s+outstanding|has(?:n['’]?t|\s+not)\s+been\s+addressed)`,
     String.raw`\b(?:you|we)\s+(?:commented|replied|followed\s+up)\s+again[^.!?]{0,120}(?:unanswered|unaddressed|still\s+outstanding)[^.!?]{0,80}(?:prior|previous|earlier|last)\s+(?:Steve\s+)?(?:request|comment|ask)`,
@@ -696,6 +720,18 @@ const PR_REVIEW_HANDOFF_RE = new RegExp(
   ].join("|"),
   "i",
 );
+const PR_REVIEW_HANDOFF_MATCHER = {
+  test(text) {
+    return (
+      PR_REVIEW_HANDOFF_RE.test(text) ||
+      [...text.matchAll(PR_REVIEW_READY_MERGE_RE)].some(
+        ([sentence]) =>
+          !PR_REVIEW_MERGE_PROHIBITION_RE.test(sentence) &&
+          !hasActivePrReviewMergeGate(sentence),
+      )
+    );
+  },
+};
 
 const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
@@ -724,6 +760,7 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
     "If no changes are needed, don't wait for the required approval; merge.",
   ],
   [true, "If no changes are needed, do not wait for CI to finish; merge."],
+  [true, "If no changes are needed, merge the CI fix."],
   [true, "Stop saying someone else needs to approve when the PR is ready."],
   [
     true,
@@ -742,6 +779,16 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "If no changes are needed, merge only after the security team signs off.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge only after the security team's sign-off.",
+  ],
+  [false, "If no changes are needed, the test suite completes; then merge."],
+  [false, "If no changes are needed, the build completes; then merge."],
+  [
+    false,
+    "If no changes are needed, don't wait for the required approval; merge after the security team signs off.",
   ],
   [false, "If no changes are needed, merge when the build succeeds."],
   [
@@ -1384,7 +1431,8 @@ if (process.argv.includes("--self-test")) {
   );
   failures.push(
     ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
-      ([expected, message]) => PR_REVIEW_HANDOFF_RE.test(message) !== expected,
+      ([expected, message]) =>
+        PR_REVIEW_HANDOFF_MATCHER.test(message) !== expected,
     ),
   );
   failures.push(
@@ -1607,7 +1655,7 @@ const PATTERNS = [
     label: "Had to correct PR merge handoffs or repeated external follow-ups",
     fixedBy:
       ".agents/skills/review-prs (ready-PR merge action and external reply gate)",
-    re: PR_REVIEW_HANDOFF_RE,
+    re: PR_REVIEW_HANDOFF_MATCHER,
   },
   {
     key: "feedback-eyes-missed",
