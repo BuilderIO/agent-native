@@ -1942,6 +1942,7 @@ export function DesignCanvas({
   const bridgeRegistrationRetryAttemptRef = useRef(0);
   const bridgeRegistrationRetryTimerRef = useRef<number | undefined>(undefined);
   const bridgeRegistrationAttemptGenerationRef = useRef(0);
+  const bridgeRegistrationControllerRef = useRef<AbortController | null>(null);
   const previewTokenRefreshAttemptRef = useRef<string | null>(null);
   const [bridgeRegistrationRetryNonce, setBridgeRegistrationRetryNonce] =
     useState(0);
@@ -2285,7 +2286,9 @@ export function DesignCanvas({
   }, [externalPreviewUrl, runtimeVerificationRequest]);
   const waitingForEditableExternalSnapshot = false;
   const waitingForLiveEditBridge =
-    usesLiveEditInjectedBridge && !liveEditBridgeRegistered;
+    registerRuntimeBridge &&
+    usesLiveEditInjectedBridge &&
+    !liveEditBridgeRegistered;
   const showProactiveLocalNetworkAccessPrompt =
     allowLocalNetworkAccessPrompt &&
     usesLiveEditInjectedBridge &&
@@ -2417,6 +2420,8 @@ export function DesignCanvas({
   useEffect(
     () => () => {
       bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
     },
     [],
   );
@@ -2433,6 +2438,7 @@ export function DesignCanvas({
   const attemptBridgeRegistration =
     useCallback(async (): Promise<BridgeRegistrationAttemptResult> => {
       if (
+        !registerRuntimeBridge ||
         !usesLiveEditInjectedBridge ||
         !bridgeUrl ||
         !effectivePreviewToken ||
@@ -2445,9 +2451,11 @@ export function DesignCanvas({
       const generation = ++bridgeRegistrationAttemptGenerationRef.current;
       const isCurrent = () =>
         bridgeRegistrationAttemptGenerationRef.current === generation;
+      bridgeRegistrationControllerRef.current?.abort();
       setBridgeConnectionLostError(null);
       const endpoint = new URL("/live-edit-bridge", bridgeUrl).toString();
       const controller = new AbortController();
+      bridgeRegistrationControllerRef.current = controller;
       let registrationTimedOut = false;
       try {
         let timeoutId: number | undefined;
@@ -2616,6 +2624,10 @@ export function DesignCanvas({
           });
         }
         return registrationTimedOut ? "registration-timeout" : false;
+      } finally {
+        if (bridgeRegistrationControllerRef.current === controller) {
+          bridgeRegistrationControllerRef.current = null;
+        }
       }
     }, [
       bridgeUrl,
@@ -2633,8 +2645,20 @@ export function DesignCanvas({
       connectionId,
       publicVisualEdit,
       screenId,
+      registerRuntimeBridge,
     ]);
   useEffect(() => {
+    if (!registerRuntimeBridge) {
+      bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
+      if (bridgeRegistrationRetryTimerRef.current !== undefined) {
+        window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
+        bridgeRegistrationRetryTimerRef.current = undefined;
+      }
+      setConnectingLocalNetworkAccess(false);
+      return;
+    }
     if (
       !usesLiveEditInjectedBridge ||
       !bridgeUrl ||
@@ -2642,6 +2666,8 @@ export function DesignCanvas({
       !(effectiveLiveEditRegistrationCapability ?? effectiveLiveEditCapability)
     ) {
       bridgeRegistrationAttemptGenerationRef.current += 1;
+      bridgeRegistrationControllerRef.current?.abort();
+      bridgeRegistrationControllerRef.current = null;
       bridgeRegistrationRetryAttemptRef.current = 0;
       liveEditRestartAttemptRef.current = 0;
       liveEditSameInstanceElapsedMsRef.current = 0;
@@ -2662,11 +2688,18 @@ export function DesignCanvas({
       current === liveEditBridgeKey ? current : null,
     );
     let cancelled = false;
-    void attemptBridgeRegistration().then((result) => {
+    const registrationAttempt = attemptBridgeRegistration();
+    const generation = bridgeRegistrationAttemptGenerationRef.current;
+    void registrationAttempt.then((result) => {
       if (result === false && !cancelled) scheduleBridgeRegistrationRetry();
     });
     return () => {
       cancelled = true;
+      if (bridgeRegistrationAttemptGenerationRef.current === generation) {
+        bridgeRegistrationAttemptGenerationRef.current += 1;
+        bridgeRegistrationControllerRef.current?.abort();
+        bridgeRegistrationControllerRef.current = null;
+      }
       if (bridgeRegistrationRetryTimerRef.current !== undefined) {
         window.clearTimeout(bridgeRegistrationRetryTimerRef.current);
         bridgeRegistrationRetryTimerRef.current = undefined;
@@ -2678,6 +2711,7 @@ export function DesignCanvas({
     bridgeUrl,
     liveEditBridgeKey,
     effectivePreviewToken,
+    registerRuntimeBridge,
     scheduleBridgeRegistrationRetry,
     usesLiveEditInjectedBridge,
   ]);

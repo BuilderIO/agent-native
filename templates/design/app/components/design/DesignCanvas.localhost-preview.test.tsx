@@ -187,12 +187,12 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       externalPreview,
       "getLocalNetworkAccessPermissionState",
     ).mockResolvedValue("prompt");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<Response>(() => {})),
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL) => new Promise<Response>(() => {}),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
-    const canvas = (screenId: string, allowPrompt: boolean) => (
+    const canvas = (screenId: string, active: boolean) => (
       <DesignCanvas
         content="http://localhost:5173/account"
         contentKey={screenId}
@@ -205,7 +205,8 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         deviceFrame="none"
         editMode
         interactMode={false}
-        allowLocalNetworkAccessPrompt={allowPrompt}
+        allowLocalNetworkAccessPrompt={active}
+        registerRuntimeBridge={active}
         onElementSelect={() => {}}
         onElementHover={() => {}}
         tweakValues={{}}
@@ -227,6 +228,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         document.querySelectorAll('[role="dialog"][data-state="open"]'),
       ).toHaveLength(1);
       expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          requestInfoUrl(input).endsWith("/live-edit-bridge"),
+        ),
+      ).toHaveLength(1);
+      expect(
         document.querySelectorAll('[role="dialog"] button[aria-label="Close"]'),
       ).toHaveLength(1);
 
@@ -236,6 +242,65 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("aborts bridge registration when an overview screen deactivates or unmounts", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error("registration signal is required");
+          signals.push(signal);
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const canvas = (active: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/account"
+        contentKey="screen-account"
+        screenId="screen-account"
+        sourceType="localhost"
+        bridgeUrl="http://127.0.0.1:7331"
+        previewToken="preview-token"
+        liveEditCapability="test-live-edit-capability"
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        registerRuntimeBridge={active}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => {
+      root.render(canvas(true));
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(canvas(false));
+    });
+    expect(signals[0]?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      root.render(canvas(true));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      root.render(null);
+    });
+    expect(signals[1]?.aborted).toBe(true);
   });
 
   it("renders the shared snapshot without contacting or embedding the owner's localhost", async () => {
