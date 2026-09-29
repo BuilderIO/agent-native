@@ -319,6 +319,8 @@ export default {
       bottomLeft: "أسفل يسار",
       bottomRight: "أسفل يمين",
       blend: "مزج",
+      blendMode: "وضع المزج",
+      removeBlendMode: "إزالة وضع المزج",
       border: "حد",
       outline: "مخطط",
       inside: "داخلي",
