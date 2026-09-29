@@ -36,6 +36,8 @@ declaração por símbolo, preservando aliases e imports somente de tipos. Tamb�
 reescreve caminhos simples de CSS @import e adiciona uma dependência ausente
 quando uma reescrita resolvida cruza o limite de um pacote.
 
+O diagnóstico também detecta formas CommonJS com `require()` e formas de `import()` dinâmico, mas o codemod não reescreve essas expressões de chamada. Substitua-as usando o novo destino indicado no relatório e execute novamente o Vite ou `agent-native doctor`. Caminhos CSS `@import url(...)` são modificados pelo codemod com ou sem aspas.
+
 Ele não altera os pontos de chamada nem move seus arquivos. Movimentos não
 resolvidos ou planejados permanecem sem alteração e geram avisos. Ele não pode
 dividir imports ou exports default, namespace, side-effect ou star; não divide imports CSS por símbolo. Revise esses casos

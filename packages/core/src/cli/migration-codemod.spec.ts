@@ -81,6 +81,7 @@ describe("runMigrationCodemods", () => {
       stylesheet,
       [
         "@import '@agent-native/core/styles/agent-native.css';",
+        "@import url(@agent-native/core/styles/agent-native.css);",
         '@import "@agent-native/core/styles/agent-conversation.css";',
         "@import url('@agent-native/core/styles/chat-history-list.css');",
         '@import url("@agent-native/agentkit/react/styles.css");',
@@ -116,6 +117,7 @@ describe("runMigrationCodemods", () => {
     expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
       [
         "@import '@agent-native/toolkit/styles.css';",
+        "@import url(@agent-native/toolkit/styles.css);",
         '@import "@agent-native/toolkit/app/styles/agent-conversation.css";',
         "@import url('@agent-native/toolkit/app/styles/chat-history-list.css');",
         '@import url("@agent-native/toolkit/app/agentkit/react/styles.css");',

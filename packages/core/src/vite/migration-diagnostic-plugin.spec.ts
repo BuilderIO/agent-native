@@ -94,6 +94,7 @@ describe("Agent-Native migration Vite diagnostic", () => {
       path.join(root, "src/global.css"),
       [
         "@import '@agent-native/core/styles/agent-native.css';",
+        "@import url(@agent-native/core/styles/agent-native.css);",
         '@import "@agent-native/core/styles/agent-conversation.css";',
         "@import url('@agent-native/core/styles/chat-history-list.css');",
         '@import url("@agent-native/agentkit/react/styles.css");',
@@ -171,6 +172,72 @@ describe("Agent-Native migration Vite diagnostic", () => {
     expect(devMessage).toContain(AGENT_NATIVE_MIGRATION_GUIDE_URL);
   });
 
+  it("fails dev startup and builds with actionable dynamic and CommonJS diagnostics", async () => {
+    const { root } = createProject(
+      [
+        'const { AgentSidebar } = await import("@agent-native/core/client");',
+        'const { AppProvidersProps } = require("@agent-native/core/client/hooks");',
+        "void AgentSidebar;",
+        "void AppProvidersProps;",
+        "",
+      ].join("\n"),
+    );
+
+    const buildError = await build({
+      configFile: false,
+      root,
+      plugins: [migrationDiagnosticPlugin()],
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(buildError).toBeInstanceOf(Error);
+    const message = (buildError as Error).message;
+    expect(message).toContain(
+      "Old import: @agent-native/core/client (AgentSidebar)",
+    );
+    expect(message).toContain(
+      "New home: AgentSidebar → @agent-native/toolkit/app/chat",
+    );
+    expect(message).toContain(
+      "Old import: @agent-native/core/client/hooks (AppProvidersProps)",
+    );
+    expect(message).toContain(
+      "New home: AppProvidersProps → @agent-native/toolkit/app/providers",
+    );
+    expect(message).toContain(AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND);
+    expect(message).toContain(AGENT_NATIVE_MIGRATION_GUIDE_URL);
+
+    const devError = await createServer({
+      configFile: false,
+      root,
+      plugins: [migrationDiagnosticPlugin()],
+      optimizeDeps: { noDiscovery: true, include: [] },
+      server: { middlewareMode: true, ws: false },
+    }).then(
+      (server) => server.close().then(() => null),
+      (error: unknown) => error,
+    );
+
+    expect(devError).toBeInstanceOf(Error);
+    const devMessage = (devError as Error).message;
+    expect(devMessage).toContain(
+      "Old import: @agent-native/core/client (AgentSidebar)",
+    );
+    expect(devMessage).toContain(
+      "New home: AgentSidebar → @agent-native/toolkit/app/chat",
+    );
+    expect(devMessage).toContain(
+      "Old import: @agent-native/core/client/hooks (AppProvidersProps)",
+    );
+    expect(devMessage).toContain(
+      "New home: AppProvidersProps → @agent-native/toolkit/app/providers",
+    );
+    expect(devMessage).toContain(AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND);
+    expect(devMessage).toContain(AGENT_NATIVE_MIGRATION_GUIDE_URL);
+  });
+
   it("fails builds for composer symbols imported from the Core client barrel", async () => {
     const { root } = createProject(
       [
@@ -193,13 +260,13 @@ describe("Agent-Native migration Vite diagnostic", () => {
 
     expect(buildError).toBeInstanceOf(Error);
     expect((buildError as Error).message).toContain(
-      'Old import: import { PromptComposer } from "@agent-native/core/client"',
+      "Old import: @agent-native/core/client (PromptComposer)",
     );
     expect((buildError as Error).message).toContain(
       "New home: PromptComposer → @agent-native/toolkit/app/chat",
     );
     expect((buildError as Error).message).toContain(
-      'Old import: import { RegistryBlockDataProvider } from "@agent-native/core/client/editor"',
+      "Old import: @agent-native/core/client/editor (RegistryBlockDataProvider)",
     );
     expect((buildError as Error).message).toContain(
       "New home: RegistryBlockDataProvider → @agent-native/toolkit/app/blocks",
