@@ -174,9 +174,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     await sendSnapshot(40, "<body>Before ready</body>");
     expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
-    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
 
     await sendBridgeMessage({
       type: "agent-native:editor-chrome-ready",
@@ -221,26 +222,41 @@ describe("DesignCanvas one-shot bridge queue", () => {
       readinessRequestId,
     });
     expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
+    await sendSnapshot(
+      40,
+      "<body>Uncorrelated current iframe</body>",
+      undefined,
+      {
+        readinessRequestId: readinessRequestId + 1,
+      },
+    );
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-unchanged",
       payload: { requestId: 40, documentId },
     });
-    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-unchanged",
       payload: { requestId: 40, documentId, readinessRequestId },
     });
-    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith({
+      status: "ready",
+      documentId,
+    });
     await sendSnapshot(40, "<body>Current iframe</body>", undefined, {
       readinessRequestId,
     });
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
     await requestReservation(41);
     await requestReservation(42);
     expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
@@ -254,9 +270,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
     );
 
     await expectImmediateSnapshot(41, "<body>First</body>");
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
     await expectImmediateSnapshot(42, "<body>Second</body>");
     expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
 
@@ -308,9 +325,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
       reservationToken: "reservation-for-43",
     });
     await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      false,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+    });
     await sendBridgeMessage({
       type: "agent-native:editor-chrome-ready",
       documentId,
@@ -336,12 +353,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
         readinessRequestId: postReloadReadinessRequestId + 1,
       },
     });
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      false,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "loading",
+      documentId,
+    });
     const readyCallCountBeforeMatchingError =
       onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
-        ([ready]) => ready === true,
+        ([readiness]) => readiness.status === "ready",
       ).length;
     await sendBridgeMessage({
       type: "agent-native:runtime-layer-snapshot-error",
@@ -350,12 +368,13 @@ describe("DesignCanvas one-shot bridge queue", () => {
         readinessRequestId: postReloadReadinessRequestId,
       },
     });
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      false,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "error",
+      documentId,
+    });
     expect(
       onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
-        ([ready]) => ready === true,
+        ([readiness]) => readiness.status === "ready",
       ),
     ).toHaveLength(readyCallCountBeforeMatchingError);
     await sendSnapshot(43, "<body>Current iframe after recovery</body>");

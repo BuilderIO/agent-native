@@ -182,9 +182,14 @@ test.describe.serial("public visual edit", () => {
         readyAt: null as number | null,
         loadAt: null as number | null,
       };
+      const sourceWarningState = { visibleWhilePreparing: false };
       Object.defineProperty(window, "__visualEditFrameTiming", {
         configurable: false,
         value: timing,
+      });
+      Object.defineProperty(window, "__visualEditSourceWarningState", {
+        configurable: false,
+        value: sourceWarningState,
       });
       const mountTimes = new WeakMap<HTMLIFrameElement, number>();
       const watchedFrames = new WeakSet<HTMLIFrameElement>();
@@ -209,6 +214,27 @@ test.describe.serial("public visual edit", () => {
           .querySelectorAll("iframe[data-design-preview-iframe]")
           .forEach(watchFrame);
       };
+      const checkSourceWarning = () => {
+        const frame = document.querySelector<HTMLIFrameElement>(
+          'iframe[data-design-preview-iframe][src*="slow"]',
+        );
+        const wrapper = frame?.closest(".design-canvas-iframe-wrapper");
+        const isPreparing = /preparing (?:the )?live editor/i.test(
+          wrapper?.textContent ?? "",
+        );
+        const warningIsVisible = [
+          ...document.querySelectorAll('[role="status"]'),
+        ].some(
+          (element) =>
+            element.textContent?.trim() ===
+              "No source locations available for this app." &&
+            element.getClientRects().length > 0 &&
+            getComputedStyle(element).visibility !== "hidden",
+        );
+        if (isPreparing && warningIsVisible) {
+          sourceWarningState.visibleWhilePreparing = true;
+        }
+      };
       new MutationObserver((records) => {
         for (const record of records) {
           record.addedNodes.forEach(scan);
@@ -219,12 +245,15 @@ test.describe.serial("public visual edit", () => {
             watchFrame(record.target);
           }
         }
+        checkSourceWarning();
       }).observe(document, {
         attributes: true,
         attributeFilter: ["src"],
         childList: true,
         subtree: true,
+        characterData: true,
       });
+      checkSourceWarning();
       window.addEventListener("message", (event) => {
         if (
           event.data?.type !== "agent-native:editor-chrome-ready" ||
@@ -297,7 +326,18 @@ test.describe.serial("public visual edit", () => {
           .locator("#delayed-image")
           .evaluate((image) => !(image as HTMLImageElement).complete),
       ).toBe(true);
-      await expect(page.getByText(/prepar.*live editor/i)).toBeHidden();
+      expect(
+        await page.evaluate(
+          () =>
+            (
+              window as Window & {
+                __visualEditSourceWarningState?: {
+                  visibleWhilePreparing: boolean;
+                };
+              }
+            ).__visualEditSourceWarningState?.visibleWhilePreparing,
+        ),
+      ).toBe(false);
 
       const screenshotPath = path.resolve(
         import.meta.dirname,

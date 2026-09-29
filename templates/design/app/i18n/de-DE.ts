@@ -1442,6 +1442,8 @@ export default {
         "Diese Ebene lässt sich im Quellcode nicht finden. Versuche es erneut, sobald die App vollständig geladen ist, oder lass die Änderung vom Agenten vornehmen.",
       reactSourceAnchorsUnavailable:
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
+      sourceLocationSnapshotFailed:
+        "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
       screenSourceUpdated: "Screen-Quelle aktualisiert",
       screenSourceUpdateFailed:
         "Screen-Quelle konnte nicht aktualisiert werden",

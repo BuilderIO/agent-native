@@ -507,6 +507,10 @@ export type EditorDragStateChange = {
   };
 };
 
+export type RuntimeLayerSnapshotReadiness =
+  | { status: "loading"; documentId?: string }
+  | { status: "ready" | "error"; documentId: string };
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -552,7 +556,9 @@ interface DesignCanvasProps {
     documentId?: string;
     reservationToken?: string;
   }) => void;
-  onRuntimeLayerSnapshotReadinessChange?: (ready: boolean) => void;
+  onRuntimeLayerSnapshotReadinessChange?: (
+    readiness: RuntimeLayerSnapshotReadiness,
+  ) => void;
   onReserveVisualEditSnapshot?: (screenId?: string) => Promise<{
     reservationToken: string;
   }>;
@@ -1643,7 +1649,12 @@ export function DesignCanvas({
       ++runtimeLayerSnapshotReadinessRequestIdRef.current;
     expectedRuntimeLayerSnapshotReadinessRequestIdRef.current =
       readinessRequestId;
-    onRuntimeLayerSnapshotReadinessChange(false);
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
     requestRuntimeLayerSnapshot(readinessRequestId);
   }, [onRuntimeLayerSnapshotReadinessChange, requestRuntimeLayerSnapshot]);
   const sharedSnapshotRequestTimerRef = useRef<number | undefined>(undefined);
@@ -3576,9 +3587,12 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
-          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
+          (e.data.type === "agent-native:runtime-layer-snapshot-error" ||
+            e.data.type ===
+              "agent-native:runtime-layer-snapshot-unchanged") &&
           editorChromeReadyRef.current &&
           onRuntimeLayerSnapshotReadinessChange &&
+          typeof documentId === "string" &&
           documentId === readyRuntimeLayerDocumentIdRef.current &&
           documentId === runtimeLayerSnapshotDocumentIdRef.current &&
           Number.isSafeInteger(e.data.payload?.readinessRequestId) &&
@@ -3586,7 +3600,13 @@ export function DesignCanvas({
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current
         ) {
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-          onRuntimeLayerSnapshotReadinessChange(true);
+          onRuntimeLayerSnapshotReadinessChange({
+            status:
+              e.data.type === "agent-native:runtime-layer-snapshot-error"
+                ? "error"
+                : "ready",
+            documentId,
+          });
         }
         if (
           e.data.type === "agent-native:runtime-layer-snapshot-error" &&
@@ -3759,7 +3779,7 @@ export function DesignCanvas({
           readyRuntimeLayerDocumentIdRef.current = null;
           runtimeLayerSnapshotDocumentIdRef.current = null;
           expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-          onRuntimeLayerSnapshotReadinessChange?.(false);
+          onRuntimeLayerSnapshotReadinessChange?.({ status: "loading" });
           liveRoutePathRef.current = null;
           onBootStart?.();
           liveEditHealthProbeGenerationRef.current += 1;
@@ -3893,7 +3913,10 @@ export function DesignCanvas({
                   null))
           ) {
             expectedRuntimeLayerSnapshotReadinessRequestIdRef.current = null;
-            onRuntimeLayerSnapshotReadinessChange(true);
+            onRuntimeLayerSnapshotReadinessChange({
+              status: "ready",
+              documentId,
+            });
           }
           if (
             reservationToken &&
@@ -5274,7 +5297,12 @@ export function DesignCanvas({
       refreshRuntimeLayerSnapshotAfterReady();
       return;
     }
-    onRuntimeLayerSnapshotReadinessChange(false);
+    onRuntimeLayerSnapshotReadinessChange({
+      status: "loading",
+      ...(readyRuntimeLayerDocumentIdRef.current
+        ? { documentId: readyRuntimeLayerDocumentIdRef.current }
+        : {}),
+    });
   }, [
     iframeDocumentIdentity,
     onRuntimeLayerSnapshotReadinessChange,
