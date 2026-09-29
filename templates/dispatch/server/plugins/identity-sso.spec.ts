@@ -1107,12 +1107,11 @@ describe("silent browser bootstrap", () => {
     );
     expect(activationWithoutBinding.status).toBe(400);
 
-    const activation = await bootstrapActivationHandler(
-      event(
-        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
-        { cookies: { ...continuationEvent.cookies } },
-      ),
+    const activationEvent = event(
+      `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
+      { cookies: { ...continuationEvent.cookies } },
     );
+    const activation = await bootstrapActivationHandler(activationEvent);
     expect(activation.status).toBe(302);
     expect(activation.headers.get("Location")).toBe(
       "https://mail.agent-native.com/after#compose",
@@ -1130,6 +1129,7 @@ describe("silent browser bootstrap", () => {
       "user@example.test",
       "org-1",
       "cross-app bootstrap organization context",
+      activationEvent,
     );
   });
 

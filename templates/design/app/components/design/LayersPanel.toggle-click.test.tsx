@@ -483,12 +483,12 @@ describe("LayersPanel row hierarchy", () => {
             {
               id: "root",
               name: "Root",
-              type: "frame",
+              type: "component",
               children: [
                 {
                   id: "child",
                   name: "Child",
-                  type: "group",
+                  type: "component",
                   children: [{ id: "leaf", name: "Leaf", type: "element" }],
                 },
               ],
@@ -543,6 +543,24 @@ describe("LayersPanel row hierarchy", () => {
       "descendant",
       "descendant",
     ]);
+    expect(
+      rows[0]?.classList.contains("bg-[var(--design-editor-selection-color)]"),
+    ).toBe(true);
+    expect(
+      rows[0]?.classList.contains(
+        "bg-[var(--design-editor-component-selection-color)]",
+      ),
+    ).toBe(false);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-selected-subtree-color)]",
+      ),
+    ).toBe(true);
+    expect(
+      rows[1]?.classList.contains(
+        "bg-[var(--design-editor-component-selected-subtree-color)]",
+      ),
+    ).toBe(false);
     expect(rows[0]?.classList.contains("rounded-t-[4px]")).toBe(true);
     expect(rows[1]?.classList.contains("rounded-t-[4px]")).toBe(false);
     expect(rows[1]?.classList.contains("rounded-b-[4px]")).toBe(false);
@@ -552,14 +570,9 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      nestedIndents[0]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(false);
-    expect(
-      nestedIndents[1]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(true);
-    expect(
-      nestedIndents[2]?.classList.contains("mr-[var(--design-baseline-unit)]"),
-    ).toBe(true);
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-3")),
+    ).toEqual([true, true, false]);
+    expect(nestedIndents[2]?.classList.contains("w-5")).toBe(true);
 
     expect(
       Array.from(
@@ -569,5 +582,56 @@ describe("LayersPanel row hierarchy", () => {
 
     root.unmount();
     host.remove();
+  });
+});
+
+describe("LayersPanel row selection", () => {
+  it("selects a layer when clicking the row background outside its name button", async () => {
+    const onSelectionChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            layers={[
+              { id: "first", name: "First", type: "element" },
+              { id: "second", name: "Second", type: "element" },
+            ]}
+            selectedIds={["first"]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={onSelectionChange}
+          />,
+        );
+      });
+
+      const secondRow = Array.from(
+        host.querySelectorAll<HTMLElement>("[data-layer-row-content]"),
+      ).find(
+        (row) =>
+          row
+            .querySelector("[data-layer-row-button]")
+            ?.getAttribute("data-layer-node-id") === "second",
+      );
+      expect(secondRow).toBeTruthy();
+      await act(async () => {
+        secondRow!.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, detail: 1 }),
+        );
+      });
+
+      expect(onSelectionChange).toHaveBeenCalledWith(
+        ["second"],
+        expect.objectContaining({ id: "second", source: "pointer" }),
+      );
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });

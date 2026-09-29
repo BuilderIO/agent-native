@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "agent-native dev --inspect",
-    "build": "agent-native build",
+    "build": "agent-native build && tsx scripts/check-client-process.ts",
     "start": "agent-native start",
     "test": "vitest --run",
     "format.fix": "oxfmt --write .",
