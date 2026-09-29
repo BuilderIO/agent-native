@@ -656,6 +656,7 @@ const messages = {
       ruleBackfillMatches: "تطابقت {{count}} رسالة حديثة",
       ruleBackfillNoMatches: "لا توجد رسائل حديثة تطابق هذه القاعدة.",
       ruleBackfillFailed: "تعذّر تطبيق هذه القاعدة على البريد الحديث.",
+      backfillStatusLoadFailed: "تعذّر تحميل الحالة الحديثة للقواعد.",
       ruleBackfillPartialFailure: "تعذّر تحديث {{count}} رسالة.",
       ruleBackfillUndoing: "جارٍ استعادة البريد الحديث…",
       ruleBackfillUndoComplete: "تمت استعادة {{count}} رسالة",
