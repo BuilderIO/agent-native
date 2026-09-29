@@ -205,6 +205,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("modal={!isPinnedSidebarVisible}");
     expect(source).toContain("<DialogTrigger asChild>");
     expect(source).toContain(
+      "if (isPinnedSidebarVisible) event.preventDefault();",
+    );
+    expect(source).toContain(
       'overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}',
     );
     expect(source).toContain("<DialogContent");

@@ -1407,6 +1407,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               hideClose
               aria-describedby={undefined}
               aria-modal={!isPinnedSidebarVisible}
+              onOpenAutoFocus={(event) => {
+                if (isPinnedSidebarVisible) event.preventDefault();
+              }}
               overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}
               className={cn(
                 "inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0",
