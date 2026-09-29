@@ -84,6 +84,40 @@ export function getSsrBetaRedirectScriptBody(
     return probePath;
   }
 
+  // One session read per page: reuse the read the session bootstrap started,
+  // or publish this one in the same shape so the app reuses it. A probe that
+  // targets a different workspace mount than the app reads stays separate.
+  // Resolves to the session body, null when signed out (401/403), or undefined
+  // when the answer is unreadable.
+  function readSessionForProbe(url) {
+    var probePath = sessionProbePathFor(url);
+    var sharesAppRead = probePath === ${safeJsonForHtml(sessionPath)};
+    var read = sharesAppRead ? window.__agentNativeSessionBootstrap : undefined;
+    if (!read) {
+      read = window.fetch(probePath, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json' }
+      }).then(function (response) {
+        if (!response) return { state: 'unavailable' };
+        if (!response.ok) return { state: 'unavailable', status: response.status };
+        return response.json().then(function (value) {
+          return { state: 'available', value: value };
+        }, function () {
+          return { state: 'unavailable', status: response.status };
+        });
+      }, function () {
+        return { state: 'unavailable' };
+      });
+      if (sharesAppRead) window.__agentNativeSessionBootstrap = read;
+    }
+    return read.then(function (result) {
+      if (result && result.state === 'available') return result.value;
+      if (result && (result.status === 401 || result.status === 403)) return null;
+      return undefined;
+    });
+  }
+
   if (betaHost === hostname) {
     // Older automatic arrivals carry this marker; beta must never send them back to production.
     if (currentUrl.searchParams.has(${JSON.stringify(BETA_LANE_REDIRECT_QUERY_PARAM)})) {
@@ -188,21 +222,12 @@ export function getSsrBetaRedirectScriptBody(
 
   if (typeof window.fetch !== 'function') return;
 
-  window.fetch(sessionProbePathFor(currentUrl), {
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: { 'Accept': 'application/json' }
-  }).then(function (response) {
-    if (!response || !response.ok) {
-      if (response && (response.status === 401 || response.status === 403)) {
-        clearRedirectMarker();
-        return null;
-      }
-      return undefined;
-    }
-    return response.json();
-  }).then(function (session) {
+  readSessionForProbe(currentUrl).then(function (session) {
     if (session === undefined) return;
+    if (session === null) {
+      clearRedirectMarker();
+      return;
+    }
     var sessionError = session && typeof session.error === 'string'
       ? session.error.trim()
       : '';
