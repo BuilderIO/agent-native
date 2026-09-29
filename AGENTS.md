@@ -71,6 +71,10 @@ contract.
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
   checkout.
+- Never push to someone else's PR unless the user explicitly authorizes a push
+  to that exact PR. A general ship request or PR link is not authorization;
+  verify the live PR author and target before every authorized push. See `ship`
+  and `babysit-pr` for the full gate; `unauthorized-pr-push` tracks corrections.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.

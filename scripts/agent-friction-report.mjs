@@ -58,6 +58,9 @@ const RESOURCE_CLEANUP_REGEX_CASES = [
 const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
+const UNAUTHORIZED_PR_PUSH_RE =
+  /\b(?:never|don['’]?t|do not|must not)\b[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?)\b[^.!?\n]{0,60}\b(?:PR|pull request)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?)\b[^.!?\n]{0,60}\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed)?)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PR|pull request)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed)?)\b/i;
+
 const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
   [
@@ -839,6 +842,14 @@ const SHIPPING_CHURN_REGEX_CASES = [
   [true, "Do not push commits routinely."],
 ];
 
+const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
+  [true, "Never push to someone else's PR unless explicitly told to."],
+  [true, "Don't push to another person's pull request without authorization."],
+  [true, "Pushed to a PR from someone else without explicit permission."],
+  [false, "Please push these fixes to the PR I opened."],
+  [false, "I explicitly authorized pushing to Alice's PR."],
+];
+
 const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
   [
     true,
@@ -1258,6 +1269,12 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...UNAUTHORIZED_PR_PUSH_REGEX_CASES.filter(
+      ([expected, message]) =>
+        UNAUTHORIZED_PR_PUSH_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.filter(
       ([expected, message]) =>
         BETA_PUBLISHER_RUN_INTERFERENCE_RE.test(message) !== expected,
@@ -1332,7 +1349,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -1351,6 +1368,13 @@ const PATTERNS = [
     label: "Had to stop routine ship commits or main merges",
     fixedBy: ".agents/skills/ship + .agents/skills/babysit-pr (2026-08-27)",
     re: SHIPPING_CHURN_RE,
+  },
+  {
+    key: "unauthorized-pr-push",
+    label: "Had to prohibit pushes to someone else's PR",
+    fixedBy:
+      "AGENTS.md + ship + babysit-pr + review-latest-feedback (exact-PR authorization, 2026-09-28)",
+    re: UNAUTHORIZED_PR_PUSH_RE,
   },
   {
     key: "babysit-lease-blocks-work",

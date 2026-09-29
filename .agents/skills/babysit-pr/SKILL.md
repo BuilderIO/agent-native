@@ -15,6 +15,13 @@ CI and no new feedback. When invoked by `/ship`, honor its inherited
 `ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
 foreground-only; do not create or resume a durable watcher or use PR leases.
 
+A request to monitor or fix a PR does not authorize pushing to a PR authored by
+someone else. Push to that PR only when the user explicitly authorizes a push to
+that exact PR in the current request. A linked PR or inherited general ship
+authorization is insufficient. Before an authorized push, verify the live PR
+author, head repository, branch, head OID, and base; recheck the head before
+every normal fast-forward push.
+
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
 to the shared checkout or require that an agent publish from the root checkout.

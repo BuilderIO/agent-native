@@ -531,11 +531,14 @@ Use this worktree's branch. Batch fixes with one
 `origin/main` only for GitHub conflicts; prefer normal merges on shared
 branches. Behind/pending never justify syncing.
 
-With shipping authority — an explicit request, or a caller that already
-granted it — continue straight into `ship` in the same worktree without asking
-again. Without it, prepare the ready-to-ship handoff and say shipping is
-pending authorization. Carry each channel's start cursor, grouped reports,
-evidence, owning seam, sibling results, and dispositions into the PR body.
+An explicit ship request authorizes publishing these fixes as a new PR. If they
+belong on an existing PR authored by someone else, require explicit
+authorization to push to that exact PR in the current request; a linked PR or
+inherited general ship authorization is insufficient. With authorization for
+the target, continue straight into `ship` in the same worktree without asking
+again. Otherwise prepare the ready-to-ship handoff and say publishing is pending
+authorization. Carry each channel's start cursor, grouped reports, evidence,
+owning seam, sibling results, and dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 If a tracker was supplied, carry its exact row ids and the reproduction ledger
