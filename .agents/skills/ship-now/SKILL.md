@@ -52,6 +52,18 @@ settings, provider callback registration, deployed auth configuration, or
 serverless session behavior; AuthPage copy or layout changes alone do not
 trigger it.
 
+## Existing PR authorization
+
+Before pushing to or merging an existing PR, resolve the active GitHub login
+with `gh api user --jq .login` and query the live PR including `author`,
+`headRepository`, `headRefName`, `headRefOid`, `baseRefName`, and `state`.
+Compare `author.login` with the active login. A push to another person's PR
+requires the current request to explicitly authorize a push to that exact PR;
+a PR link, branch match, or generic `/ship-now` request is not authorization.
+Merging another person's PR requires separate authorization to merge that exact
+PR. Repeat the live checks immediately before each push and merge, and push only
+to the verified head repository and branch with a normal fast-forward.
+
 ## Fast-path contract
 
 `/ship-now` publishes one complete, coherent nonignored current-branch
@@ -93,7 +105,7 @@ isolated safely, preserve all state and report the exact paths or commits.
    git status --short
    git log --oneline -5
    git branch --show-current
-   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url
+   gh pr list --head "$(git branch --show-current)" --state open --json number,title,url,author
    ```
 
    Stay on the current branch until its PR is merged. Do not reset, rebase,
