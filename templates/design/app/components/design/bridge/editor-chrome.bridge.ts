@@ -22824,8 +22824,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       stopNativeInteraction(ev);
       cancelRadiusDrag();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusEl) return;
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
@@ -22957,8 +22959,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       applySelectionHandleHitGeometry(radiusEl);
       refreshOverlays();
     }
-    function onUp() {
+    function onUp(ev) {
       cleanupVectorRadiusDrag();
+      lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+      updateRadiusHandleHover(ev);
       if (!radiusMoved) {
         releaseLiveVisualEditOriginalStyles(radiusEl);
         return;

@@ -17890,8 +17890,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         stopNativeInteraction(ev);
         cancelRadiusDrag();
       }
-      function onUp() {
+      function onUp(ev) {
         cleanupRadiusDrag();
+        lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+        updateRadiusHandleHover(ev);
         if (!radiusEl) return;
         if (!radiusMoved) {
           releaseLiveVisualEditOriginalStyles(radiusEl);
@@ -18015,8 +18017,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();
       }
-      function onUp() {
+      function onUp(ev) {
         cleanupVectorRadiusDrag();
+        lastHoverClientPoint = { x: ev.clientX, y: ev.clientY };
+        updateRadiusHandleHover(ev);
         if (!radiusMoved) {
           releaseLiveVisualEditOriginalStyles(radiusEl);
           return;

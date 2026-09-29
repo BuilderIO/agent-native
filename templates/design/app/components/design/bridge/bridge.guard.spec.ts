@@ -6834,6 +6834,80 @@ it(
   },
 );
 
+it.each(["rectangle", "polygon"] as const)(
+  "clears %s radius-handle hover when a captured drag ends on the shield",
+  { timeout: 30_000 },
+  async (kind) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const isRectangle = kind === "rectangle";
+      const id = isRectangle ? "rectangle" : "polygon";
+      const handleName = isRectangle ? "nw" : "vertex-0";
+      const handleSelector = `[data-agent-native-radius-handle="${handleName}"]`;
+      const polygonPoints = [
+        [50, 0],
+        [93.3, 75],
+        [6.7, 75],
+      ];
+      const polygonNodes = JSON.stringify([
+        1,
+        ...polygonPoints.map(([x, y]) => [x, y, null, null, null, null, null]),
+      ]);
+      const shapeMarkup = isRectangle
+        ? '<div id="rectangle" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:120px;height:80px"></div>'
+        : `<svg id="polygon" data-an-primitive="polygon" data-an-pen-nodes='${polygonNodes}' viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;left:80px;top:80px;width:100px;height:100px"><path d="M 50 0 L 93.3 75 L 6.7 75 Z" fill="#d9d9d9" stroke="none"></path></svg>`;
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(
+        `<!doctype html><html><body style="margin:0">${shapeMarkup}</body></html>`,
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await selectElementDirect(page, `#${id}`);
+
+      const handle = page.locator(handleSelector);
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error(`${kind} radius handle is unavailable`);
+      await page.mouse.move(
+        initialBox.x + initialBox.width / 2,
+        initialBox.y + initialBox.height / 2,
+      );
+      await page.waitForFunction(
+        (selector) =>
+          getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+            .visibility === "visible",
+        handleSelector,
+      );
+      const box = await handle.boundingBox();
+      if (!box) throw new Error(`${kind} radius handle is not visible`);
+      const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      await page.mouse.move(center.x, center.y);
+      await page.mouse.down();
+      await page.mouse.move(250, 250, { steps: 4 });
+      await page.mouse.up();
+
+      await page.waitForFunction(
+        (selector) =>
+          getComputedStyle(document.querySelector<HTMLElement>(selector)!)
+            .visibility === "hidden",
+        handleSelector,
+      );
+      const radius = await page
+        .locator(`#${id}`)
+        .evaluate((element) =>
+          element instanceof SVGElement
+            ? Number(element.getAttribute("data-an-corner-radius"))
+            : parseFloat(getComputedStyle(element).borderTopLeftRadius),
+        );
+      expect(radius).toBeGreaterThan(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "shows radius handles only on supported shapes and does not require a fill",
   { timeout: 30_000 },
