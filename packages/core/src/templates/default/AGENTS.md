@@ -110,9 +110,10 @@ action query invalidation to reflect agent writes without a manual refresh.
 
 ## Documentation lookup
 
-Version-matched docs and source examples ship with `@agent-native/core`. Use
-`pnpm action docs-search --query "<topic>"` and
-`pnpm action source-search --query "<pattern>"`; read the relevant skill
+Version-matched docs ship with `@agent-native/core`. Source-search includes
+template examples when the optional `@agent-native/core-corpus` package is
+installed at the same version. Use `pnpm action docs-search --query "<topic>"`
+and `pnpm action source-search --query "<pattern>"`; read the relevant skill
 before relying on a framework API. Never edit `node_modules` or deep-import
 package internals.
 

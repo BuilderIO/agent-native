@@ -3971,7 +3971,17 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+  const publishedRange = getOwnPackageDependencyVersion(
+    "@agent-native/toolkit",
+  );
+  if (publishedRange !== "latest") return publishedRange;
+
+  // Changesets publishes Toolkit at Core's version from the fixed release group.
+  const coreVersion = getCorePackageVersion();
+  if (coreVersion) return `^${coreVersion}`;
+  throw new Error(
+    "Cannot determine a compatible @agent-native/toolkit version from @agent-native/core.",
+  );
 }
 
 function getAgentKitDependencyVersion(): string {

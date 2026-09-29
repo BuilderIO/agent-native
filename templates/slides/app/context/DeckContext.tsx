@@ -449,6 +449,7 @@ const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
 const deckSaveRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
+const staleContentConflicts = new Map<string, Set<string> | null>();
 const saveStateListeners = new Set<() => void>();
 const MAX_DECK_SAVE_RETRIES = 2;
 const DECK_SAVE_RETRY_BASE_MS = 250;
@@ -532,7 +533,8 @@ function recomputeSnapshot() {
     inFlightSaves.size > 0 ||
     inFlightKeepaliveSaves.size > 0 ||
     pendingOpsQueue.size > 0;
-  const hasUnsavedChanges = saving || failedSaveDecks.size > 0;
+  const hasUnsavedChanges =
+    saving || failedSaveDecks.size > 0 || staleContentConflicts.size > 0;
   if (
     saving !== cachedSnapshot.saving ||
     hasUnsavedChanges !== cachedSnapshot.hasUnsavedChanges
@@ -569,12 +571,18 @@ export function hasUnsavedDeckChanges(deckId: string): boolean {
     inFlightSaves.has(deckId) ||
     inFlightKeepaliveSaves.has(deckId) ||
     pendingOpsQueue.has(deckId) ||
-    failedSaveDecks.has(deckId)
+    failedSaveDecks.has(deckId) ||
+    staleContentConflicts.has(deckId)
   );
 }
 
 export function hasFailedDeckSave(deckId: string): boolean {
-  return failedSaveDecks.has(deckId);
+  return failedSaveDecks.has(deckId) || staleContentConflicts.has(deckId);
+}
+
+function hasStaleContentConflict(deckId: string, slideId: string): boolean {
+  const conflicts = staleContentConflicts.get(deckId);
+  return conflicts === null || conflicts?.has(slideId) === true;
 }
 
 export function getSaveSnapshot(): SaveStateSnapshot {
@@ -939,13 +947,109 @@ function drainPendingDeckOps(
       if (!isCurrentGeneration()) return;
       console.error(`Failed to save deck ${deckId}:`, err);
       const pending = pendingOpsQueue.get(deckId) ?? [];
+      const pendingHandlers = pendingPersistedResultHandlers.get(deckId) ?? [];
+      if (
+        err &&
+        typeof err === "object" &&
+        "errorCode" in err &&
+        err.errorCode === "slide_content_stale"
+      ) {
+        if (pending[0]?.op === "full-replace") {
+          pendingOpsQueue.set(deckId, pending);
+          if (pendingHandlers.length > 0) {
+            pendingPersistedResultHandlers.set(deckId, pendingHandlers);
+          } else {
+            pendingPersistedResultHandlers.delete(deckId);
+          }
+        } else if (replayedByKeepalive) {
+          if (pending.length > 0) pendingOpsQueue.set(deckId, pending);
+          else pendingOpsQueue.delete(deckId);
+          if (pendingHandlers.length > 0) {
+            pendingPersistedResultHandlers.set(deckId, pendingHandlers);
+          } else {
+            pendingPersistedResultHandlers.delete(deckId);
+          }
+          failedSaveDecks.delete(deckId);
+        } else {
+          const details =
+            "details" in err && err.details && typeof err.details === "object"
+              ? (err.details as Record<string, unknown>)
+              : undefined;
+          const conflictedSlideIds = new Set(
+            ops.flatMap((op) =>
+              op.op === "patch-slide" && typeof op.fields.content === "string"
+                ? [op.slideId]
+                : [],
+            ),
+          );
+          if (typeof details?.slideId === "string") {
+            conflictedSlideIds.add(details.slideId);
+          }
+          const previousConflicts = staleContentConflicts.get(deckId);
+          const conflicts =
+            previousConflicts === null
+              ? null
+              : new Set([...(previousConflicts ?? []), ...conflictedSlideIds]);
+          staleContentConflicts.set(
+            deckId,
+            conflicts && conflicts.size > 0 ? conflicts : null,
+          );
+          const isConflictedContent = (op: GranularOp) =>
+            op.op === "patch-slide" &&
+            typeof op.fields.content === "string" &&
+            (conflicts === null || conflicts.has(op.slideId));
+          const retryableOps = ops.filter((op) => !isConflictedContent(op));
+          const retryablePending = pending.filter(
+            (op) => !isConflictedContent(op),
+          );
+          const retryable = [...retryableOps, ...retryablePending];
+          if (retryable.length > 0) pendingOpsQueue.set(deckId, retryable);
+          else pendingOpsQueue.delete(deckId);
+
+          const keepSafeHandlers = (entries: PendingPersistedResultHandler[]) =>
+            entries.flatMap(({ handler, slideWriteSequences }) => {
+              const safeSequences = new Map(
+                [...slideWriteSequences].filter(
+                  ([slideId]) => conflicts !== null && !conflicts.has(slideId),
+                ),
+              );
+              return safeSequences.size > 0
+                ? [{ handler, slideWriteSequences: safeSequences }]
+                : [];
+            });
+          const handlers = [
+            ...(retryableOps.length > 0
+              ? keepSafeHandlers(persistedResultHandlers)
+              : []),
+            ...keepSafeHandlers(pendingHandlers),
+          ];
+          if (handlers.length > 0) {
+            pendingPersistedResultHandlers.set(deckId, handlers);
+          } else {
+            pendingPersistedResultHandlers.delete(deckId);
+          }
+          failedSaveDecks.delete(deckId);
+        }
+        deckSaveRetryAttempts.delete(deckId);
+        if (pendingOpsQueue.has(deckId)) {
+          if (!pendingSaves.has(deckId)) {
+            immediateFlushRequests.set(
+              deckId,
+              immediateFlushRequests.get(deckId) ?? false,
+            );
+          }
+        } else {
+          immediateFlushRequests.delete(deckId);
+        }
+        return;
+      }
+
       if (!replayedByKeepalive) {
         pendingOpsQueue.set(
           deckId,
           pending[0]?.op === "full-replace" ? pending : [...ops, ...pending],
         );
       }
-      const pendingHandlers = pendingPersistedResultHandlers.get(deckId) ?? [];
       const handlers =
         pending[0]?.op === "full-replace" || replayedByKeepalive
           ? pendingHandlers
@@ -954,17 +1058,6 @@ function drainPendingDeckOps(
         pendingPersistedResultHandlers.set(deckId, handlers);
       } else {
         pendingPersistedResultHandlers.delete(deckId);
-      }
-      if (
-        err &&
-        typeof err === "object" &&
-        "errorCode" in err &&
-        err.errorCode === "slide_content_stale"
-      ) {
-        deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
-        failedSaveDecks.add(deckId);
-        immediateFlushRequests.delete(deckId);
-        return;
       }
 
       const attempt = (deckSaveRetryAttempts.get(deckId) ?? 0) + 1;
@@ -1026,14 +1119,14 @@ async function flushDeckSave(deckId: string): Promise<void> {
       await keepaliveSave;
       continue;
     }
-    if (failedSaveDecks.has(deckId)) {
-      throw new Error(
-        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
-      );
-    }
     if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       continue;
+    }
+    if (failedSaveDecks.has(deckId) || staleContentConflicts.has(deckId)) {
+      throw new Error(
+        `Failed to save deck ${deckId} after ${MAX_DECK_SAVE_RETRIES} attempts`,
+      );
     }
     return;
   }
@@ -1069,9 +1162,19 @@ function enqueueDeckOp(
     failedSaveDecks.delete(deckId);
   }
 
+  if (
+    op.op === "patch-slide" &&
+    typeof op.fields.content === "string" &&
+    hasStaleContentConflict(deckId, op.slideId)
+  ) {
+    notifySaveListeners();
+    return;
+  }
+
   if (op.op === "full-replace") {
     deckSaveRetryAttempts.delete(deckId);
     failedSaveDecks.delete(deckId);
+    staleContentConflicts.delete(deckId);
     const queuedOp = options?.onSaveSuccess
       ? { ...op, onSaveSuccess: options.onSaveSuccess }
       : op;
@@ -1194,6 +1297,7 @@ function discardPendingDeckOps(deckId: string) {
   pendingPersistedResultHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
   failedSaveDecks.delete(deckId);
+  staleContentConflicts.delete(deckId);
   immediateFlushRequests.delete(deckId);
   notifySaveListeners();
 }
@@ -1377,6 +1481,47 @@ export function applyUndoOpToDecks(decks: Deck[], op: DeckUndoOp): Deck[] {
       return next;
     }
   }
+}
+
+function undoOpsWithoutRemoteContentConflicts(
+  ops: DeckUndoOp[],
+  oppositeOps: DeckUndoOp[],
+  decks: Deck[],
+): DeckUndoOp[] {
+  const expectedContent = new Map<string, Map<string, string>>();
+  for (const op of oppositeOps) {
+    if (op.op !== "patch-slide" || typeof op.fields.content !== "string") {
+      continue;
+    }
+    const slides = expectedContent.get(op.deckId) ?? new Map<string, string>();
+    slides.set(op.slideId, op.fields.content);
+    expectedContent.set(op.deckId, slides);
+  }
+
+  const conflictedSlides = new Set<string>();
+  for (const [deckId, slides] of expectedContent) {
+    const deck = decks.find((entry) => entry.id === deckId);
+    for (const [slideId, content] of slides) {
+      if (
+        deck?.slides.find((slide) => slide.id === slideId)?.content !== content
+      ) {
+        conflictedSlides.add(JSON.stringify([deckId, slideId]));
+      }
+    }
+  }
+
+  return ops.flatMap((op) => {
+    if (
+      op.op !== "patch-slide" ||
+      typeof op.fields.content !== "string" ||
+      !conflictedSlides.has(JSON.stringify([op.deckId, op.slideId]))
+    ) {
+      return [op];
+    }
+    const fields = { ...op.fields };
+    delete fields.content;
+    return Object.keys(fields).length > 0 ? [{ ...op, fields }] : [];
+  });
 }
 
 export function deckContentSignature(deck: Deck): string {
@@ -1740,6 +1885,7 @@ function opTargetsSlide(op: GranularOp, slideId: string): boolean {
  * committed to any op) also counts as a pending write.
  */
 function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
+  if (hasStaleContentConflict(deckId, slideId)) return true;
   if (activeInlineEditSlides.get(deckId)?.has(slideId)) return true;
   const inFlightOps = inFlightOpSlides.get(deckId);
   if (inFlightOps?.some((op) => opTargetsSlide(op, slideId))) return true;
@@ -2219,16 +2365,22 @@ export function DeckProvider({
       if (existing) return existing;
 
       const controller = createLocalOpUndoController<DeckUndoOp>({
-        apply: (ops) => {
+        apply: (ops, direction, entry) => {
+          const startingDecks = decksRef.current;
+          const applicableOps = undoOpsWithoutRemoteContentConflicts(
+            ops,
+            direction === "undo" ? entry.redo : entry.undo,
+            startingDecks,
+          );
           setDecks((prev) => {
             let next = prev;
-            for (const op of ops) {
+            for (const op of applicableOps) {
               next = applyUndoOpToDecks(next, op);
             }
             return next;
           });
-          let currentDecks = decksRef.current;
-          for (const op of ops) {
+          let currentDecks = startingDecks;
+          for (const op of applicableOps) {
             markDeckDirty(op.deckId);
             if (op.op === "delete-deck") {
               discardPendingDeckOps(op.deckId);
@@ -2373,6 +2525,19 @@ export function DeckProvider({
         discardPendingDeckOps(updated.id);
         dirtyDeckIdsRef.current.delete(updated.id);
         clearDeckDeleteTombstones(updated.id);
+      }
+      const sentContent = sentSlideContent.get(updated.id);
+      if (sentContent) {
+        const slideIds = new Set(updated.slides.map((slide) => slide.id));
+        for (const slideId of sentContent.keys()) {
+          if (
+            !slideIds.has(slideId) ||
+            !hasPendingWriteForSlide(updated.id, slideId)
+          ) {
+            sentContent.delete(slideId);
+          }
+        }
+        if (sentContent.size === 0) sentSlideContent.delete(updated.id);
       }
       setDecks((prev) => {
         const idx = prev.findIndex((d) => d.id === updated.id);
@@ -2684,6 +2849,7 @@ export function DeckProvider({
       ...pendingOpsQueue.keys(),
       ...inFlightSaves,
       ...failedSaveDecks,
+      ...staleContentConflicts.keys(),
       ...activeInlineEditSlides.keys(),
     ]);
     for (const deckId of scopedDeckIds) {
@@ -3523,12 +3689,17 @@ export function DeckProvider({
       const localUpdates = optimisticSlideFitChange
         ? { ...normalizedUpdates, layoutFitRevision: createLayoutFitRevision() }
         : normalizedUpdates;
+      const sentContent = sentSlideContent.get(deckId)?.get(slideId)?.content;
       const op: PatchDeckOp = {
         op: "patch-slide",
         slideId,
         fields: normalizedUpdates,
         ...(typeof normalizedUpdates.content === "string" && previousSlide
-          ? { baseContentHash: hashSlideContent(previousSlide.content) }
+          ? {
+              baseContentHash: hashSlideContent(
+                sentContent ?? previousSlide.content,
+              ),
+            }
           : {}),
       };
       if (options?.preserveLocalState && previousSlide) {

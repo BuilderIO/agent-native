@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishActionChangeFastPath } from "../action-change-fast-path.js";
 
 const mockExecute = vi.hoisted(() => vi.fn());
+const mockIsProductionServerlessFunctionRuntime = vi.hoisted(() =>
+  vi.fn(() => false),
+);
+const mockAppMigratesAtRelease = vi.hoisted(() => vi.fn(() => false));
 const mockGetSession = vi.hoisted(() =>
   vi.fn(
     async (): Promise<{ email: string; orgId?: string }> => ({
@@ -19,6 +23,12 @@ vi.mock("h3", () => ({
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: mockExecute }),
+  isProductionServerlessFunctionRuntime:
+    mockIsProductionServerlessFunctionRuntime,
+}));
+
+vi.mock("../db/migration-policy.js", () => ({
+  appMigratesAtRelease: mockAppMigratesAtRelease,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -55,6 +65,8 @@ describe("poll handler", () => {
     process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE = "1";
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
     mockExecute.mockReset();
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(false);
+    mockAppMigratesAtRelease.mockReturnValue(false);
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue({ email: "test@example.com" });
   });
@@ -201,6 +213,87 @@ describe("poll handler", () => {
     );
     expect(queries).toHaveLength(1);
     expect(queries[0]).toContain("FROM sync_events WHERE version > ?");
+  });
+
+  it("keeps a cold release-owned serverless poll on the durable cursor query", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mockAppMigratesAtRelease.mockReturnValue(true);
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql === "SELECT MAX(version) as max_version FROM sync_events") {
+        return { rows: [{ max_version: 4_200 }] };
+      }
+      if (sql.includes("FROM sync_events WHERE version > ?")) {
+        return {
+          rows: [
+            {
+              id: "next-event",
+              version: 4_201,
+              event_json: JSON.stringify({
+                source: "action",
+                type: "change",
+                key: "update-record",
+                owner: "test@example.com",
+              }),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const initial = await handler({ query: { since: "0" } });
+    expect(initial).toEqual({ version: 4_200, events: [] });
+    expect(executedSql()).toBe(
+      "SELECT MAX(version) as max_version FROM sync_events",
+    );
+
+    const next = await handler({ query: { since: String(initial.version) } });
+    expect(next.version).toBe(4_201);
+    expect(next.events).toEqual([
+      expect.objectContaining({
+        cursorId: "next-event",
+        version: 4_201,
+        source: "action",
+        key: "update-record",
+      }),
+    ]);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).not.toMatch(
+      /information_schema|MAX\(updated_at\)|FROM settings/i,
+    );
+  });
+
+  it("surfaces a missing durable table in release-owned serverless polling", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    mockIsProductionServerlessFunctionRuntime.mockReturnValue(true);
+    mockAppMigratesAtRelease.mockReturnValue(true);
+    mockExecute.mockRejectedValue(
+      Object.assign(new Error("missing relation"), { code: "42P01" }),
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    try {
+      await expect(handler({ query: { since: "0" } })).rejects.toThrow(
+        "Durable sync events are unavailable until their table exists.",
+      );
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(executedSql()).toBe(
+        "SELECT MAX(version) as max_version FROM sync_events",
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("seeds cold watermarks before reading the initial durable cursor", async () => {

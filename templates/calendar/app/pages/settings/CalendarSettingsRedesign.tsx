@@ -1,15 +1,13 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { type AppearancePresetId } from "@agent-native/core/client/ui";
 import {
   SettingsGroup,
   SettingsRow,
   type SettingsAppArea,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
-import {
-  AppearancePicker,
-  type AppearancePresetId,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/settings";
+import { AppearancePicker } from "@agent-native/toolkit/app/shared";
 import type { Settings } from "@shared/api";
 import { isCalendarWeekStart } from "@shared/calendar-week";
 import {

@@ -7,7 +7,7 @@ import {
   SettingsGroup,
   SettingsRow,
   type SettingsAppArea,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustments,
   IconLock,

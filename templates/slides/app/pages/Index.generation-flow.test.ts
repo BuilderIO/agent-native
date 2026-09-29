@@ -114,7 +114,13 @@ describe("new deck generation flow", () => {
     );
 
     expect(recovery).toContain('settlePendingDeckAttachments("commit")');
-    expect(promptSubmit.indexOf("setNewDeckPromptOpen(false")).toBeLessThan(
+    const directGenerationIndex = promptSubmit.indexOf(
+      "options?.slidesContext &&",
+    );
+    expect(directGenerationIndex).toBeGreaterThan(-1);
+    const promptCloseIndex = promptSubmit.indexOf("setNewDeckPromptOpen(false");
+    expect(promptCloseIndex).toBeLessThan(directGenerationIndex);
+    expect(promptCloseIndex).toBeLessThan(
       promptSubmit.indexOf("const promptReferenceDeckId ="),
     );
     expect(referenceStep).toContain('settlePendingDeckAttachments("commit")');

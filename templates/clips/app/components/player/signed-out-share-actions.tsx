@@ -1,7 +1,7 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { IconCheck, IconLink } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 

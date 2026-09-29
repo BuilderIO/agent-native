@@ -8,6 +8,7 @@ const STORAGE_SETUP_FAILURE_RE =
 export type NativeRecordingVisibility = "private" | "org" | "public";
 
 export interface NativeRecordingRequestOptions {
+  id?: string;
   mimeType?: string;
   requestStreaming?: boolean;
   streamingUploadClient?: "desktop-native";
@@ -37,6 +38,7 @@ export function buildCreateRecordingRequestBody(
   options?: NativeRecordingRequestOptions,
 ): Record<string, unknown> {
   return {
+    ...(options?.id ? { id: options.id } : {}),
     hasCamera,
     hasAudio,
     spaceIds: [],

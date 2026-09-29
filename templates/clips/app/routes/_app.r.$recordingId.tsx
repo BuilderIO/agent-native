@@ -1,4 +1,3 @@
-import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
@@ -23,6 +22,7 @@ import {
   AGENT_SIDEBAR_QUERY_VALUE_OPEN,
 } from "@agent-native/core/shared";
 import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { AgentPanel } from "@agent-native/toolkit/app/chat";
 import type {
   ClipsAiRequestKind,
   ClipsAiRequestStatus,

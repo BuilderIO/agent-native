@@ -488,7 +488,11 @@ export function applyOperation(
         if (sourceContentHash !== op.baseContentHash) {
           fail(
             "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
-            { errorCode: "slide_content_stale", statusCode: 409 },
+            {
+              errorCode: "slide_content_stale",
+              statusCode: 409,
+              details: { slideId: op.slideId },
+            },
           );
         }
       }

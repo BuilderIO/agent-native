@@ -323,6 +323,7 @@ function setupFetch(options?: {
               JSON.stringify({
                 error: "Slide content changed since it was read",
                 errorCode: "slide_content_stale",
+                details: { slideId: "slide-1" },
               }),
               { status: 409 },
             ),
@@ -863,6 +864,67 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe(true);
   });
 
+  it("hashes successive inline drafts from the last persisted draft", async () => {
+    window.history.pushState({}, "", "/deck/inline-draft-hash-deck");
+    const { fetchMock, setAccessibleDeck, getPatchAttempts } = setupFetch({
+      staleContentConflicts: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "inline-draft-hash-deck",
+      title: "Inline draft hash deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft one" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    setAccessibleDeck({
+      ...initial,
+      slides: [{ ...initial.slides[0]!, content: "Draft one" }],
+    });
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Draft two" },
+        { preserveLocalState: true, persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(initial.id)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        baseContentHash: hashSlideContent("Draft one"),
+      },
+    ]);
+    expect(hasFailedDeckSave(initial.id)).toBe(false);
+  });
+
   it("surfaces a same-slide conflict instead of replaying stale content", async () => {
     window.history.pushState({}, "", "/deck/concurrent-patch-deck");
     const {
@@ -939,6 +1001,92 @@ describe("DeckContext deck creation persistence", () => {
     expect(getPatchAttempts(initial.id)).toBe(2);
     expect(hasFailedDeckSave(initial.id)).toBe(true);
     expect(hasUnsavedDeckChanges(initial.id)).toBe(true);
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-2",
+        { notes: "Independent edit" },
+        { persistence: "immediate" },
+      );
+    });
+    await waitFor(() => expect(getPatchAttempts(initial.id)).toBe(3));
+
+    const retryablePatch = fetchMock.mock.calls
+      .filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      )
+      .at(-1);
+    expect(actionCallBody(retryablePatch?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-2",
+        fields: { notes: "Independent edit" },
+      },
+    ]);
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Local edit",
+    );
+    expect(hasFailedDeckSave(initial.id)).toBe(true);
+  });
+
+  it("does not undo local content over a newer remote slide edit", async () => {
+    window.history.pushState({}, "", "/deck/undo-conflict-deck");
+    const { fetchMock, setAccessibleDeck } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "undo-conflict-deck",
+      title: "Undo conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await act(async () => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local edit" },
+        { persistence: "immediate" },
+      );
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: "2026-05-12T00:01:00.000Z",
+      slides: [{ ...initial.slides[0]!, content: "Remote edit" }],
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(initial.id, {
+        clearPendingWrites: true,
+      });
+    });
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Remote edit",
+    );
+
+    const patchCallsBeforeUndo = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    ).length;
+    act(() => result.current.undo(initial.id));
+
+    expect(result.current.getDeck(initial.id)?.slides[0]?.content).toBe(
+      "Remote edit",
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/patch-deck"),
+      ),
+    ).toHaveLength(patchCallsBeforeUndo);
   });
 
   it("merges server layout-fit revisions into optimistic slide writes", async () => {

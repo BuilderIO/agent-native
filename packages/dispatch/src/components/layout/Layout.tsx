@@ -1,14 +1,9 @@
 import {
   CHAT_FIRST_MODE_CHANGED_EVENT,
-  AgentChatSurface,
-  AgentToggleButton,
   chatFirstSurfaceTabId,
-  AgentSidebar,
-  ChatFirstSurfacePanelToggle,
   closeChatFirstSessionWatch,
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
-  focusAgentChat,
   navigateWithAgentChatViewTransition,
   readChatFirstAppLayout,
   readChatFirstMode,
@@ -40,6 +35,20 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/application-state";
 import {
+  useFeatureFlagState,
+  type FeatureFlagState,
+} from "@agent-native/core/client/feature-flags";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registry";
+import {
+  AgentChatSurface,
+  AgentToggleButton,
+  AgentSidebar,
+  focusAgentChat,
+} from "@agent-native/toolkit/app/chat";
+import { ChatFirstSurfacePanelToggle } from "@agent-native/toolkit/app/chat/chat-first";
+import {
   ChatFirstAgentsPane,
   ChatFirstAppPane,
   ChatFirstAppsRail,
@@ -56,23 +65,21 @@ import {
   type ChatFirstCopy,
   type ChatFirstEmbedTarget,
   type ChatFirstPrimaryTab,
-} from "@agent-native/core/client/chat-first";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
-import { RunsTray } from "@agent-native/core/client/progress";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/chat/chat-first";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { RunsTray } from "@agent-native/toolkit/app/progress";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import {
   AppSidebarFooter,
   AppSidebarHeader,
-  FeedbackButton,
-} from "@agent-native/core/client/ui";
+  openCommandMenu,
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconApps,
   IconBrandSlack,
@@ -361,11 +368,18 @@ export function shouldQueryChatFirstApps(
 }
 
 /**
- * Settings brings its own navigation, header, and agent toggle, so it renders
- * full width.
+ * The redesigned Settings brings its own navigation, header, and agent
+ * toggle, so it renders full width. While the flag loads it shows the
+ * shell's skeleton, which needs the same frame.
  */
-export function isSettingsShellPath(pathname: string): boolean {
-  return isSettingsPathname(localDispatchPath(pathname));
+export function isRedesignedSettingsPath(
+  pathname: string,
+  settingsRedesign: FeatureFlagState,
+): boolean {
+  return (
+    isSettingsPathname(localDispatchPath(pathname)) &&
+    (settingsRedesign.enabled || settingsRedesign.status === "loading")
+  );
 }
 
 function chatFirstPrimaryTabForPath(
@@ -1391,7 +1405,10 @@ export function Layout({
   );
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
-  const isSettingsShellRoute = isSettingsShellPath(location.pathname);
+  const isRedesignedSettingsRoute = isRedesignedSettingsPath(
+    location.pathname,
+    useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key),
+  );
   const chatFirstSurfaceScope = threadIdFromPath(localPathname) ?? "new";
   const isWorkspaceAppRoute = shouldAutoCollapseDispatchSidebar(
     location.pathname,
@@ -2349,7 +2366,9 @@ export function Layout({
   }
 
   const showAgentControls =
-    !isChatRoute && !isSettingsShellRoute && !pageOwnsToolbar(localPathname);
+    !isChatRoute &&
+    !isRedesignedSettingsRoute &&
+    !pageOwnsToolbar(localPathname);
   function openAskAgentFullscreen() {
     focusAgentChat();
     navigateWithAgentChatViewTransition(
@@ -2572,7 +2591,7 @@ export function Layout({
       <DispatchWorkspaceAppLauncherContext.Provider value={chatHomeAppLauncher}>
         <HeaderActionsProvider>
           <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-            {isSettingsShellRoute ? null : (
+            {isRedesignedSettingsRoute ? null : (
               <aside
                 data-collapsed={sidebarCollapsed ? "true" : "false"}
                 className={cn(

@@ -1,10 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
-} from "@agent-native/core/client/composer";
-import { useT } from "@agent-native/core/client/i18n";
+} from "@agent-native/toolkit/app/chat/composer/index";
 import {
   IconArrowLeft,
   IconBrandGoogle,

@@ -19,7 +19,8 @@ import {
   validateContentProductDocs,
 } from "./validate-content-product-docs.ts";
 
-const PRODUCT_ROOT = "templates/content/docs/product";
+const CONTENT_ROOT = "templates/content";
+const PRODUCT_ROOT = `${CONTENT_ROOT}/docs/product`;
 const CONTENT_PRODUCT_SKILL_ROOT =
   "templates/content/.agents/skills/content-product-development";
 const CHECKER_ROOT = path.resolve(
@@ -263,10 +264,63 @@ const CONTENT_ROOT_EXCLUSIONS = new Set([
   "templates/content/DEVELOPING.md",
   "templates/content/README.md",
   "templates/content/_gitignore",
+  "templates/content/vitest.config.ts",
 ]);
 
-export function directContentEvidence(file: string): string | undefined {
+// E2E, parity, and conformance suites are the proof a Feature or Capability
+// relies on, wherever they sit under Content.
+function isContentProofSuite(normalized: string): boolean {
+  return (
+    normalized.startsWith(`${CONTENT_ROOT}/`) &&
+    (/\/(?:e2e|parity)\/|\.e2e\./.test(normalized) ||
+      /parity|conformance/i.test(normalized))
+  );
+}
+
+// Unit tests change no product behavior unless a product record cites them.
+function isContentUnitTest(normalized: string): boolean {
+  return (
+    normalized.startsWith(`${CONTENT_ROOT}/`) &&
+    (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
+      normalized.includes("/__tests__/"))
+  );
+}
+
+export function citedEvidencePaths(catalog: ProductCatalog): Set<string> {
+  const cited = new Set<string>();
+  for (const record of catalog.records) {
+    const evidence = record.data.evidence;
+    if (!Array.isArray(evidence)) continue;
+    const recordDirectory = path.posix.join(
+      PRODUCT_ROOT,
+      path
+        .relative(catalog.root, path.dirname(record.file))
+        .split(path.sep)
+        .join("/"),
+    );
+    for (const entry of evidence) {
+      if (typeof entry !== "string") continue;
+      // Records cite proof relative to the record, the Content root, or the
+      // repository root, and the spelling does not say which. Matching is
+      // exact, so keeping every reading can only keep a file as evidence.
+      const citation = entry.replaceAll("\\", "/");
+      for (const base of [recordDirectory, CONTENT_ROOT, ""]) {
+        cited.add(path.posix.normalize(path.posix.join(base, citation)));
+      }
+    }
+  }
+  return cited;
+}
+
+export function directContentEvidence(
+  file: string,
+  citedEvidence: ReadonlySet<string> = new Set(),
+): string | undefined {
   const normalized = file.replaceAll("\\", "/");
+  if (citedEvidence.has(normalized) || isContentProofSuite(normalized)) {
+    return normalized;
+  }
+  if (isContentUnitTest(normalized)) return undefined;
   const prefixes = [
     "templates/content/actions/",
     "templates/content/app/",
@@ -289,14 +343,6 @@ export function directContentEvidence(file: string): string | undefined {
   if (
     /^templates\/content\/[^/]+$/.test(normalized) &&
     !CONTENT_ROOT_EXCLUSIONS.has(normalized)
-  ) {
-    return normalized;
-  }
-  if (
-    normalized.startsWith("templates/content/") &&
-    /(?:content.*parity|parity.*content|content.*conformance|conformance.*content)/i.test(
-      normalized,
-    )
   ) {
     return normalized;
   }
@@ -350,8 +396,12 @@ export function analyzeContentProductImpact(
   input: ImpactAnalysisInput,
 ): ImpactAnalysis {
   const declaration = parseContentImpactDeclaration(input.body);
+  const citedEvidence = new Set([
+    ...citedEvidencePaths(input.baseCatalog),
+    ...citedEvidencePaths(input.headCatalog),
+  ]);
   const direct = input.changedFiles
-    .map(directContentEvidence)
+    .map((file) => directContentEvidence(file, citedEvidence))
     .filter((file): file is string => file !== undefined);
   const headIntroducedCatalogFailure =
     (input.baseCatalogErrors?.length ?? 0) === 0 &&

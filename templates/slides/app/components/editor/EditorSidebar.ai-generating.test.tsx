@@ -39,12 +39,12 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/setup-connections", () => ({
+vi.mock("@agent-native/toolkit/app/setup-connections", () => ({
   FileStorageSetupPopover: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">Connect storage to upload files</div> : null,
 }));
 
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   useEagerFileUploads: () => ({
     commitFiles: vi.fn(),
     discardFiles: vi.fn(),

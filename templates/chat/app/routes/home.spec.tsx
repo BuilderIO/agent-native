@@ -53,7 +53,7 @@ const createTransport = vi.hoisted(() =>
 const markHandoff = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client/agentkit-chat/rail", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -62,24 +62,24 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 }));
 vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
 
-vi.mock("@agent-native/core/client/agentkit-chat/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
     children,
   }: {
     children: React.ReactNode;
   }) => <div data-core-composer-runtime="">{children}</div>,
 }));
-vi.mock("@agent-native/core/client/agentkit-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/index", () => ({
   CoreAgentKitRoot: (props: Record<string, unknown>) => {
     routeState.rootProps = props;
     return <>{props.children as React.ReactNode}</>;
   },
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/connections", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/connections", () => ({
   McpAgentKitConnectionRequestCard: () => null,
   McpAgentKitConnectionResume: () => null,
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/questions", () => ({
   GuidedQuestionFlow: () => null,
   useGuidedQuestionFlow: () => ({
     questions: null,
@@ -87,7 +87,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/questions", () => ({
     handleSkip: vi.fn(),
   }),
 }));
-vi.mock("@agent-native/core/client/agentkit-chat/suggestions", () => ({
+vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/suggestions", () => ({
   findMcpConnectionSuggestionIntegration: () => null,
   McpConnectionSuggestion: () => null,
 }));
@@ -95,7 +95,7 @@ vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
   createAgentNativeAgentKitTransport: createTransport,
 }));
 
-vi.mock("@agent-native/agentkit/react/components", () => ({
+vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
   AgentMessageView: ({ value }: { value: { id: string } }) => (
     <div data-testid="rendered-agent-message">{value.id}</div>
   ),
@@ -128,7 +128,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     errorCode === "missing_credentials" ||
     /No LLM provider key was found/i.test(details ?? ""),
 }));
-vi.mock("@agent-native/agentkit/react/context", () => ({
+vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
   useAgentKit: () => ({
     threadId: routeState.threadId ?? "new-thread",
     controller: {

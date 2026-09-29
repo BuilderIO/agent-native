@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "正在中斷連線…",
   },
   settings: {
+    backHome: "返回首頁",
+    title: "設定",
+    description: "管理應用程式與語言設定。",
+    languageTitle: "介面語言",
+    languageDescription: "選擇此應用程式使用的語言。",
+    languageLabel: "語言",
     agentTitle: "代理設定",
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",

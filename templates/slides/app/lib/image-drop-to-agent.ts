@@ -1,7 +1,7 @@
 import {
   estimateAttachmentBodyBytes,
   MAX_ESTIMATED_BODY_BYTES,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/toolkit/composer/attachment-accept";
 
 import { MAX_INLINE_IMAGE_BASE64_CHARS } from "../../shared/upload-types";
 

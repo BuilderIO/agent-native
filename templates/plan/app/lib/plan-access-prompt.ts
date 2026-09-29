@@ -2,7 +2,7 @@ import type {
   DomainMatchOrg,
   OrgInfo,
   OrgInvitationSummary,
-} from "@agent-native/core/client/org";
+} from "@agent-native/core/org/types";
 
 import type { PlanAccessStatusResponse } from "@/hooks/use-plans";
 

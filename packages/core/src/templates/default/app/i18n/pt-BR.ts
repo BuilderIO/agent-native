@@ -18,6 +18,12 @@ const messages = {
     disconnecting: "Desconectando…",
   },
   settings: {
+    backHome: "Voltar para o início",
+    title: "Configurações",
+    description: "Gerencie as configurações do app e do idioma.",
+    languageTitle: "Idioma da interface",
+    languageDescription: "Escolha o idioma usado neste app.",
+    languageLabel: "Idioma",
     agentTitle: "Configurações do agente",
     agentDescription:
       "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
