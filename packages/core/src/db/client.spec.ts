@@ -23,6 +23,25 @@ describe("PGlite dev reloads", () => {
     if (dataDir) rmSync(dataDir, { recursive: true, force: true });
   });
 
+  it("reports the missing PGlite peer with a typed install error", async () => {
+    const missingPeer = Object.assign(
+      new Error(
+        "Cannot find package '@electric-sql/pglite' imported from client.ts",
+      ),
+      { code: "ERR_MODULE_NOT_FOUND" },
+    );
+    vi.doMock("@electric-sql/pglite", () => {
+      throw missingPeer;
+    });
+    const { loadPglitePackage } = await import("./client.js");
+
+    await expect(loadPglitePackage()).rejects.toMatchObject({
+      code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
+      name: "OptionalPeerDependencyError",
+      packageName: "@electric-sql/pglite",
+    });
+  });
+
   it("reuses one client when a Vite reload gets a fresh global realm", async () => {
     dataDir = mkdtempSync(join(tmpdir(), "agent-native-pglite-reload-"));
     const client = { close: vi.fn(async () => {}) };

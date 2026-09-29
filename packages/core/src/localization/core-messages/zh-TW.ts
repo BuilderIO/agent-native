@@ -607,6 +607,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "推薦",
   "integrations.subtitle": "連線您的代理可以使用的工具。",
   "mcpIntegrations.menuLabel": "整合",
+  "mcpApps.optionalPeerRequired":
+    "此 MCP 應用需要 {{packageName}}。請使用 {{installCommand}} 安裝。",
   "mcpIntegrations.menuDescription": "將工具和服務連線至代理",
   "mcpIntegrations.title": "連線整合",
   "mcpIntegrations.description": "瀏覽 {{count}} 個代理整合，或新增自訂整合。",

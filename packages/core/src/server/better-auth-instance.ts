@@ -81,6 +81,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -2040,7 +2041,10 @@ async function createBetterAuthInstance(
 
   const enterprisePlugins: BetterAuthPlugin[] = [];
   if (enterpriseAuthAdaptersBuilt && access.sso.enabled) {
-    const { sso } = await import("@better-auth/sso");
+    const { sso } = await loadOptionalPeer(
+      "@better-auth/sso",
+      () => import("@better-auth/sso"),
+    );
     enterprisePlugins.push(
       sso({
         domainVerification: { enabled: true },
@@ -2077,7 +2081,10 @@ async function createBetterAuthInstance(
     );
   }
   if (enterpriseAuthAdaptersBuilt && access.scim.enabled) {
-    const { scim } = await import("@better-auth/scim");
+    const { scim } = await loadOptionalPeer(
+      "@better-auth/scim",
+      () => import("@better-auth/scim"),
+    );
     // Better Auth intentionally requires a separate 32-character HMAC secret
     // for managed SCIM credentials. Falling back to the deployment auth secret
     // keeps the opt-in feature usable for existing deployments while allowing
