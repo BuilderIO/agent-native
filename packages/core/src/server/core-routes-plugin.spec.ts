@@ -370,7 +370,6 @@ describe("shouldRunCoreRouteBootDatabaseWork", () => {
     expect(
       shouldRunCoreRouteBootDatabaseWork({
         NODE_ENV: "development",
-        NETLIFY: "true",
       }),
     ).toBe(true);
   });
