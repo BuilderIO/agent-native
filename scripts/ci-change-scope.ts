@@ -61,6 +61,8 @@ const FULL_CHECK_FILES = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "scripts/ci-change-scope.ts",
+  "scripts/ci-change-scope.test.ts",
   "tsconfig.json",
   "vitest.shared.ts",
 ]);
@@ -187,9 +189,14 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    if (!isGuardScopedScriptPath(path)) continue;
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    if (
+      !isGuardScopedScriptPath(path) &&
+      path !== "scripts/ci-change-scope.ts"
+    ) {
       continue;
     }
     const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");

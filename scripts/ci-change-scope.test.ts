@@ -480,6 +480,18 @@ test("still runs changed root script tests when the change set is full", () => {
   ]);
 });
 
+test("runs the change-scope test when the selector or its test changes", () => {
+  for (const path of [
+    "scripts/ci-change-scope.ts",
+    "scripts/ci-change-scope.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+
+    assert.equal(scope.full, true, path);
+    assert.deepEqual(scope.scriptTests, ["scripts/ci-change-scope.test.ts"]);
+  }
+});
+
 test("selects the changeset check for package, changeset, and checker changes", () => {
   assert.equal(
     classifyChangedPaths(["packages/core/src/index.ts"]).checks.changeset,
