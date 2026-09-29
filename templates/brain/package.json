@@ -22,6 +22,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
+    "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
     "@tanstack/react-query": "^5.100.10",
     "drizzle-orm": "^0.45.2",

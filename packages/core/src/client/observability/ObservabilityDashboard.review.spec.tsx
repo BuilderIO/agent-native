@@ -67,6 +67,7 @@ vi.mock("./useObservability.js", () => ({
   useFeedbackList: vi.fn(),
   useFeedbackStats: vi.fn(),
   useEvalStats: vi.fn(),
+  usePromoteTraceEval: () => ({ mutate: vi.fn(), isPending: false }),
   useExperiments: () => ({ data: [], isLoading: false }),
   useExperimentDetail: vi.fn(),
   useExperimentResults: vi.fn(),
