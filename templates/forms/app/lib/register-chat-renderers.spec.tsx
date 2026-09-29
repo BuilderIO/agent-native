@@ -16,8 +16,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "agent.draftFollowUp": "Draft a follow-up",
     })[key] ?? key,
 }));
-
-import { resolveToolRenderer } from "@agent-native/core/client/chat";
+import { resolveToolRenderer } from "@agent-native/toolkit/app/chat";
 
 import { ResponseInsightCard } from "./register-chat-renderers.js";
 

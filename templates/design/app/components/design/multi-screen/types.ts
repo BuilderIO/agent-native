@@ -1,5 +1,5 @@
-import type { ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
+import type { ReviewThread } from "@agent-native/toolkit/app/review";
 import type {
   DistanceGuideBand,
   EqualGapGuide,

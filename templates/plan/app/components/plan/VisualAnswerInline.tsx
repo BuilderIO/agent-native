@@ -1,5 +1,5 @@
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
-import { type ToolRendererProps } from "@agent-native/core/client/agent-chat";
+import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
+import { type ToolRendererProps } from "@agent-native/toolkit/app/chat/chat";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
 import { IconArrowUpRight, IconLayoutDashboard } from "@tabler/icons-react";
 

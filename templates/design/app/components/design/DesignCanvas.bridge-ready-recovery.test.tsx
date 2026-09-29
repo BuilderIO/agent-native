@@ -73,6 +73,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       resolve: (value: { reservationToken: string }) => void;
     }> = [];
     const onRuntimeLayerSnapshot = vi.fn();
+    const onRuntimeLayerSnapshotReadinessChange = vi.fn();
     const onReserveVisualEditSnapshot = vi.fn(() => {
       let resolve!: (value: { reservationToken: string }) => void;
       const promise = new Promise<{ reservationToken: string }>((done) => {
@@ -93,6 +94,9 @@ describe("DesignCanvas one-shot bridge queue", () => {
           previewToken="ready-recovery-preview-token"
           liveEditCapability="ready-recovery-live-edit-capability"
           onRuntimeLayerSnapshot={onRuntimeLayerSnapshot}
+          onRuntimeLayerSnapshotReadinessChange={
+            onRuntimeLayerSnapshotReadinessChange
+          }
           onReserveVisualEditSnapshot={onReserveVisualEditSnapshot}
           zoom={100}
           deviceFrame="none"
@@ -137,15 +141,19 @@ describe("DesignCanvas one-shot bridge queue", () => {
       requestId: number,
       html: string,
       reservationToken?: string,
+      options: { documentId?: string; readinessRequestId?: number } = {},
     ) =>
       sendBridgeMessage({
         type: "agent-native:runtime-layer-snapshot",
         payload: {
           requestId,
-          documentId,
+          documentId: options.documentId ?? documentId,
           html,
           nodeCount: 2,
           ...(reservationToken ? { reservationToken } : {}),
+          ...(options.readinessRequestId !== undefined
+            ? { readinessRequestId: options.readinessRequestId }
+            : {}),
         },
       });
     const expectImmediateSnapshot = async (requestId: number, html: string) => {
@@ -164,11 +172,75 @@ describe("DesignCanvas one-shot bridge queue", () => {
       });
     };
 
+    await sendSnapshot(40, "<body>Before ready</body>");
+    expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
+      true,
+    );
+
     await sendBridgeMessage({
       type: "agent-native:editor-chrome-ready",
       documentId,
       routePath: "/",
     });
+    expect(
+      iframePostMessage.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toBe(true);
+    const readinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const readinessRequest = readinessRequests[readinessRequests.length - 1];
+    expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
+    const readinessRequestId = readinessRequest!.readinessRequestId!;
+    const readinessChangeCount =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.length;
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(
+      iframePostMessage.mock.calls.filter(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toHaveLength(readinessRequests.length);
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenCalledTimes(
+      readinessChangeCount,
+    );
+    await sendSnapshot(40, "<body>Old iframe</body>", undefined, {
+      documentId: "runtime-document-old",
+      readinessRequestId,
+    });
+    expect(onRuntimeLayerSnapshot).not.toHaveBeenCalled();
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-unchanged",
+      payload: { requestId: 40, documentId },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
+      true,
+    );
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-unchanged",
+      payload: { requestId: 40, documentId, readinessRequestId },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).not.toHaveBeenCalledWith(
+      true,
+    );
+    await sendSnapshot(40, "<body>Current iframe</body>", undefined, {
+      readinessRequestId,
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
+    );
     await requestReservation(41);
     await requestReservation(42);
     expect(onReserveVisualEditSnapshot).toHaveBeenCalledTimes(2);
@@ -182,8 +254,11 @@ describe("DesignCanvas one-shot bridge queue", () => {
     );
 
     await expectImmediateSnapshot(41, "<body>First</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
+    );
     await expectImmediateSnapshot(42, "<body>Second</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(2);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
 
     await resolveReservation(1, "reservation-for-42");
     expect(
@@ -213,8 +288,8 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
 
     await resolveReservation(0, "reservation-for-41");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
-    expect(onRuntimeLayerSnapshot.mock.calls[2]?.[0]).toEqual({
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    expect(onRuntimeLayerSnapshot.mock.calls[3]?.[0]).toEqual({
       html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
       documentId,
@@ -223,7 +298,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     await requestReservation(43);
     await expectImmediateSnapshot(43, "<body>Third</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(5);
     await resolveReservation(2, "reservation-for-43");
     await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
@@ -232,6 +307,61 @@ describe("DesignCanvas one-shot bridge queue", () => {
       documentId,
       reservationToken: "reservation-for-43",
     });
+    await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
+    );
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    const postReloadReadinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const postReloadReadinessRequest =
+      postReloadReadinessRequests[postReloadReadinessRequests.length - 1];
+    expect(postReloadReadinessRequest?.readinessRequestId).toEqual(
+      expect.any(Number),
+    );
+    const postReloadReadinessRequestId =
+      postReloadReadinessRequest!.readinessRequestId!;
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId + 1,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
+    );
+    const readyCallCountBeforeMatchingError =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([ready]) => ready === true,
+      ).length;
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
+    );
+    expect(
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
+        ([ready]) => ready === true,
+      ),
+    ).toHaveLength(readyCallCountBeforeMatchingError);
+    await sendSnapshot(43, "<body>Current iframe after recovery</body>");
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
+    );
   });
 
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {

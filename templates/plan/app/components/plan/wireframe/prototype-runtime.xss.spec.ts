@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
-
-import { sanitizeWireframeHtml } from "@agent-native/core/blocks";
+import { sanitizeWireframeHtml } from "@agent-native/toolkit/app/blocks";
 import { describe, expect, it } from "vitest";
 
 import { mountPrototypeRuntime } from "./prototype-runtime";

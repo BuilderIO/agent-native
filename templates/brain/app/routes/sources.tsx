@@ -3,7 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconAlertTriangle,

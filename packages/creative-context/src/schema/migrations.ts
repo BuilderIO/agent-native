@@ -240,7 +240,7 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
     version: 4,
     name: "creative-context-job-deduplication",
     sql: `
-      ALTER TABLE creative_context_jobs ADD COLUMN dedupe_key TEXT;
+      ALTER TABLE creative_context_jobs ADD COLUMN IF NOT EXISTS dedupe_key TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS creative_context_jobs_dedupe_uidx
         ON creative_context_jobs (dedupe_key);
     `,
@@ -249,8 +249,8 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
     version: 5,
     name: "creative-context-tenant-job-deduplication",
     sql: `
-      ALTER TABLE creative_context_jobs ADD COLUMN dedupe_scope TEXT;
-      ALTER TABLE creative_context_jobs ADD COLUMN scoped_dedupe_key TEXT;
+      ALTER TABLE creative_context_jobs ADD COLUMN IF NOT EXISTS dedupe_scope TEXT;
+      ALTER TABLE creative_context_jobs ADD COLUMN IF NOT EXISTS scoped_dedupe_key TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS creative_context_jobs_scoped_dedupe_uidx
         ON creative_context_jobs (dedupe_scope, scoped_dedupe_key);
     `,
@@ -301,9 +301,9 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         membership_id TEXT NOT NULL, item_id TEXT NOT NULL, item_version_id TEXT NOT NULL,
         submission_id TEXT NOT NULL, created_at TEXT NOT NULL, owner_email TEXT NOT NULL, org_id TEXT
       );
-      ALTER TABLE creative_context_packs ADD COLUMN base_context_id TEXT;
-      ALTER TABLE creative_context_packs ADD COLUMN specialty_context_id TEXT;
-      ALTER TABLE creative_context_packs ADD COLUMN selection_reason TEXT;
+      ALTER TABLE creative_context_packs ADD COLUMN IF NOT EXISTS base_context_id TEXT;
+      ALTER TABLE creative_context_packs ADD COLUMN IF NOT EXISTS specialty_context_id TEXT;
+      ALTER TABLE creative_context_packs ADD COLUMN IF NOT EXISTS selection_reason TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS creative_context_membership_artifact_uidx
         ON creative_context_memberships (context_id, artifact_key);
       CREATE INDEX IF NOT EXISTS creative_context_memberships_context_status_idx
@@ -325,7 +325,7 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
     name: "creative-context-default-scope-uniqueness",
     // guard:allow-unscoped — migration derives each legacy row's stable key from its own stored owner and org columns
     sql: `
-      ALTER TABLE creative_contexts ADD COLUMN default_scope_key TEXT;
+      ALTER TABLE creative_contexts ADD COLUMN IF NOT EXISTS default_scope_key TEXT;
       UPDATE creative_contexts
       SET default_scope_key = CASE
         WHEN kind = 'default' AND org_id IS NOT NULL THEN 'org:' || org_id

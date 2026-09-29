@@ -1,7 +1,7 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import type { ClientLoaderFunction } from "react-router";
 
 async function requireConnectAppsFlag(request: Request): Promise<void> {

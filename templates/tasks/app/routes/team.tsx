@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { TeamPage } from "@agent-native/core/client/org";
+import { TeamPage } from "@agent-native/toolkit/app/org/TeamPage";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import messages from "@/i18n/en-US";

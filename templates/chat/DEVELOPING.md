@@ -62,9 +62,9 @@ conversation.
 The `/` route is the app's primary AgentKit surface. Its default integration is:
 
 - `createAgentNativeAgentKitTransport()` from
-  `@agent-native/core/client/agentkit-chat/transport` for the production Agent-Native
+  `@agent-native/toolkit/app/chat/agentkit-chat` for the production Agent-Native
   runtime.
-- `CoreAgentKitRoot` from `@agent-native/core/client/agentkit-chat` for one
+- `CoreAgentKitRoot` from `@agent-native/toolkit/app/chat/agentkit-chat` for one
   managed controller, thread context, and the default action-widget renderer.
 - `AgentKitChat` for the reference transcript, composer, queue, approvals,
   activities, and suggestions.
@@ -81,7 +81,7 @@ provides Core's `AgentKitActionWidget` in `slots.widget`; it resolves the
 declared React renderer from the stored tool input and result, then keeps the
 widget with its assistant message after activity rollup and thread reload. App
 renderers can register with `registerActionChatRenderer()` from
-`@agent-native/core/client/agentkit-chat` using the same renderer id declared by
+`@agent-native/toolkit/app/chat/agentkit-chat` using the same renderer id declared by
 the action. Built-in Core renderers need no app registration.
 
 This template is also the canonical AgentKit reference surface. Develop and
@@ -97,7 +97,7 @@ zone: bring the existing actions over, keep their names stable, and let the chat
 call them before adding extra screens. For a custom agent backend, keep the app
 shell and implement `AgentTransport`, or adapt an existing Core
 `AgentChatRuntime` with `createAgentKitProtocolAdapter()` from
-`@agent-native/core/client/chat`.
+`@agent-native/core/client/agent-chat`.
 
 ### Package and scaffold path
 

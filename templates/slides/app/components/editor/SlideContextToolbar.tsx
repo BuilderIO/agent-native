@@ -154,6 +154,7 @@ export function SlideContextToolbar({
   canComment = false,
   onComment,
   onChange,
+  onEnablePositioning,
   onBackgroundChange,
   onArrange,
   onGroup,
@@ -177,6 +178,7 @@ export function SlideContextToolbar({
   canComment?: boolean;
   onComment?: () => void;
   onChange: (patch: SlideStylePatch) => void;
+  onEnablePositioning?: () => void;
   onBackgroundChange: (background: string) => void;
   onArrange?: (target: SlideObjectZOrderTarget) => void;
   onGroup?: () => void;
@@ -755,8 +757,13 @@ export function SlideContextToolbar({
 
           <div className={TOOLBAR_DIVIDER} />
 
-          {snapshot.isAbsolute && (
-            <Popover>
+          {(snapshot.isAbsolute ||
+            (objectSelectionCount < 2 && onEnablePositioning)) && (
+            <Popover
+              onOpenChange={(open) => {
+                if (open && !snapshot.isAbsolute) onEnablePositioning?.();
+              }}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <PopoverTrigger asChild>

@@ -1,28 +1,28 @@
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { NotificationsBell } from "@agent-native/core/client/notifications";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+} from "@agent-native/toolkit/app/chat";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { NotificationsBell } from "@agent-native/toolkit/app/notifications";
 import {
   BuilderCreditNotice,
   InvitationBanner,
   OrgSwitcher,
-} from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/org";
 import {
   AgentNativeIcon,
   AppSidebarFooter,
   AppSidebarHeader,
   EnvironmentBadge,
-  FeedbackButton,
   RouterSidebarLink,
-} from "@agent-native/core/client/ui";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
+} from "@agent-native/toolkit/app/shared";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   aiFilterRuleLabelName,
@@ -40,6 +40,8 @@ import {
   IconSearch,
   IconCheck,
   IconPlus,
+  IconPin,
+  IconPinnedFilled,
   IconRefresh,
   IconLayoutSidebarLeftCollapse,
   IconX,
@@ -692,7 +694,32 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (inboxThreads.isLoading && !inboxThreads.data) ||
     (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinPreferenceLoaded, setSidebarPinPreferenceLoaded] =
+    useState(false);
+  useEffect(() => {
+    setSidebarPinned(
+      window.localStorage.getItem("mail-sidebar-pinned") === "true",
+    );
+    setSidebarPinPreferenceLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!sidebarPinPreferenceLoaded) return;
+    if (sidebarPinned)
+      window.localStorage.setItem("mail-sidebar-pinned", "true");
+    else window.localStorage.removeItem("mail-sidebar-pinned");
+  }, [sidebarPinned, sidebarPinPreferenceLoaded]);
+  const isPinnedSidebarVisible = !isMobile && sidebarPinned;
+  const closeSidebar = useCallback(() => {
+    if (!isPinnedSidebarVisible) setSidebarOpen(false);
+  }, [isPinnedSidebarVisible]);
+  const handleSidebarOpenChange = useCallback(
+    (open: boolean) => {
+      if (isPinnedSidebarVisible) return;
+      setSidebarOpen(open);
+    },
+    [isPinnedSidebarVisible],
+  );
   const feedbackButton = <FeedbackButton variant="sidebar" side="right" />;
 
   type DragItem = { group: "label" | "filter"; id: string };
@@ -1349,12 +1376,22 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       <div className="relative flex flex-1 flex-col overflow-hidden bg-background">
         {/* Top nav bar */}
         <header className="relative z-20 flex h-12 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-border/50 bg-card px-2 inbox-zero-header hide-scrollbar">
-          <Dialog open={sidebarOpen} onOpenChange={setSidebarOpen}>
+          <Dialog
+            open={sidebarOpen || isPinnedSidebarVisible}
+            modal={!isPinnedSidebarVisible}
+            onOpenChange={handleSidebarOpenChange}
+          >
             {/* Hamburger menu */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <DialogTrigger asChild>
                   <button
+                    onClick={() => {
+                      if (isPinnedSidebarVisible) {
+                        setSidebarPinned(false);
+                        setSidebarOpen(false);
+                      }
+                    }}
                     className="sticky start-0 z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors sm:h-7 sm:w-7"
                     aria-label={t("mail.toolbar.toggleMenu")}
                   >
@@ -1369,8 +1406,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             <DialogContent
               hideClose
               aria-describedby={undefined}
-              aria-modal="true"
-              className="inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0"
+              aria-modal={!isPinnedSidebarVisible}
+              onOpenAutoFocus={(event) => {
+                if (isPinnedSidebarVisible) event.preventDefault();
+              }}
+              overlayClassName={isPinnedSidebarVisible ? "hidden" : undefined}
+              className={cn(
+                "inset-y-0 start-0 left-0 right-auto flex h-dvh w-[260px] max-h-none max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-e border-border bg-sidebar p-0 shadow-none rtl:left-auto rtl:right-0",
+                isPinnedSidebarVisible && "top-12 bottom-0 h-auto",
+              )}
             >
               <DialogTitle className="sr-only">{t("mail.appName")}</DialogTitle>
               <div className="agent-layout-left-drawer flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1380,15 +1424,57 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   brandHref="/inbox"
                   collapsed={false}
                 >
-                  <DialogClose asChild>
-                    <button
-                      type="button"
-                      className="ms-auto flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                      aria-label={t("mail.toolbar.closeSidebar")}
-                    >
-                      <IconX className="h-4 w-4" />
-                    </button>
-                  </DialogClose>
+                  <div className="ms-auto flex items-center gap-1">
+                    {!isMobile && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(true);
+                                return;
+                              }
+                              setSidebarPinned(true);
+                              setSidebarOpen(false);
+                            }}
+                            className={cn(
+                              "flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                              sidebarPinned && "text-foreground bg-accent/50",
+                            )}
+                            aria-label={
+                              sidebarPinned
+                                ? t("mail.toolbar.unpinSidebar")
+                                : t("mail.toolbar.pinSidebar")
+                            }
+                          >
+                            {sidebarPinned ? (
+                              <IconPinnedFilled className="h-4 w-4" />
+                            ) : (
+                              <IconPin className="h-4 w-4" />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {sidebarPinned
+                            ? t("mail.toolbar.unpinSidebar")
+                            : t("mail.toolbar.pinSidebar")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                    {!isPinnedSidebarVisible && (
+                      <DialogClose asChild>
+                        <button
+                          type="button"
+                          className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                          aria-label={t("mail.toolbar.closeSidebar")}
+                        >
+                          <IconX className="h-4 w-4" />
+                        </button>
+                      </DialogClose>
+                    )}
+                  </div>
                 </AppSidebarHeader>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   {/* Accounts */}
@@ -2001,7 +2087,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            !isMobile && sidebarOpen && "ps-[260px]",
+            !isMobile && (sidebarOpen || sidebarPinned) && "ps-[260px]",
           )}
         >
           <InvitationBanner />

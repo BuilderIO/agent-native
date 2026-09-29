@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   bundledCoreMigrationManifestPath,
@@ -69,6 +69,8 @@ afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+beforeEach(clearUpgradeEnvironment);
 
 function makeTempProject(layout: {
   kind?: "standalone" | "workspace";
@@ -735,6 +737,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     fs.writeFileSync(
@@ -791,7 +797,7 @@ describe("runUpgrade", () => {
     expect(installDependencies).toEqual([
       expect.objectContaining({
         "@agent-native/core": "latest",
-        "@agent-native/toolkit": "latest",
+        "@agent-native/toolkit": ">=0.196.0",
       }),
     ]);
     expect(fs.readFileSync(source, "utf-8")).toContain(
@@ -845,6 +851,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     const original =
@@ -892,7 +902,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     ) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@agent-native/toolkit"]).toBe("0.5.2");
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(">=0.196.0");
   });
 
   it("reports dependency changes when installation fails before source rewrites", async () => {
@@ -902,6 +912,10 @@ describe("runUpgrade", () => {
         dependencies: { "@agent-native/core": "0.110.2" },
       },
     });
+    fs.writeFileSync(
+      path.join(root, ".env"),
+      "DATABASE_URL=postgres://db.example/test\n",
+    );
     const source = path.join(root, "src/index.tsx");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     const original =
@@ -937,10 +951,12 @@ describe("runUpgrade", () => {
       codemod: { files: string[]; diff: string };
     };
     expect(result.codemod.files).toEqual(["package.json"]);
-    expect(result.codemod.diff).toContain('"@agent-native/toolkit": "latest"');
+    expect(result.codemod.diff).toContain(
+      '"@agent-native/toolkit": ">=0.196.0"',
+    );
   });
 
-  it("reports codemods applied while dependency installation is skipped", async () => {
+  it("applies codemods by default while dependency installation is skipped", async () => {
     const root = makeTempProject({
       rootPkg: {
         name: "old-app",
@@ -960,7 +976,6 @@ describe("runUpgrade", () => {
         "--cwd",
         root,
         "--codemods",
-        "--yes",
         "--skip-install",
         "--skip-skills",
         "--skip-verify",
@@ -970,6 +985,9 @@ describe("runUpgrade", () => {
 
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("without installing dependencies");
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
   });
 
   it("prints failure guidance when install fails", async () => {

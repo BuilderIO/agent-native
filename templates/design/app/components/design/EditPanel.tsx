@@ -2336,6 +2336,9 @@ export const EditPanel = memo(function EditPanel({
     };
   }, [effectiveSelectedElements, textEditingState]);
   const selectedCount = effectiveSelectedElements.length;
+  const selectedElementsKey = JSON.stringify(
+    effectiveSelectedElements.map(elementStableKey),
+  );
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
     if (!designId || !fileId || selectedCount > 1) return undefined;
     const nodeId = inspectorElement?.sourceId;
@@ -2971,7 +2974,7 @@ export const EditPanel = memo(function EditPanel({
                     />
                   ) : null}
                   <LayoutContextProperties
-                    key={`layout-context:${inspectorElementSectionKey}`}
+                    key={`layout-context:${inspectorElementSectionKey}:${selectedElementsKey}`}
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}

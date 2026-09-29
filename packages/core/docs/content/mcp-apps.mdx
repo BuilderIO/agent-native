@@ -19,6 +19,14 @@ MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compa
 
 Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, typed results, and approval affordances. Use [Generative UI](/docs/generative-ui) when the in-app agent should create arbitrary sandboxed controls or visualizers inline. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions add launch points alongside model-invoked MCP tools. When inline MCP Apps are enabled, the shared `open_app` tool advertises a global sidebar entrypoint and a thread side-panel entrypoint. ChatGPT invokes it with `{}`; Core opens the current app's home route as an inline MCP App, so apps using the shared MCP server need no per-app registration. See OpenAI's [Plugin Extensions guide](https://developers.openai.com/plugins/build/extensions) and [MCP Extensions spec](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Buttons in embedded app routes can call `sendToAgentChat(...)` to continue the conversation. Core sends selected state with `ui/update-model-context` and `annotations.audience: ["assistant"]`, then submits the visible prompt with `ui/message`. The shared entrypoints cover global and thread launch; file viewers, composer mentions, and other specialized extensions need app-specific input contracts.
+
+On older hosts, Core can use a text fallback only when the request contains no assistant-only context and can be represented as text. If selected or structured context is present, rich content cannot be represented, or the host rejects the context update, `sendToAgentChat(...)` returns `false`.
+
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 
 For hosts that support the MCP Apps extension, an action can also advertise an inline UI resource with `mcpApp`. This is a progressive enhancement for flows where the external agent should hand the user an interactive surface instead of only text — for example reviewing an email draft, editing a calendar invite, or choosing between generated dashboard variants.

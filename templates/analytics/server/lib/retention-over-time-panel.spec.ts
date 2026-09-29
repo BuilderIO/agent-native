@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { interpolateDashboardPanelSql } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { buildPanel } from "./first-party-metric-catalog";
 
 const { PGlite } = createRequire(
@@ -188,5 +189,71 @@ describe("retention-over-time panel SQL", () => {
     );
     expect(row?.cohort_users).toBe(5);
     expect(row?.rate).toBe(1);
+  });
+
+  it("runs custom historical dates across the full range and return windows", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const start = offsetDate(today, 1_000);
+    const end = offsetDate(today, 995);
+    const returnDay3 = offsetDate(start, -3);
+    const returnDay10 = offsetDate(start, -10);
+
+    for (const userKey of ["c1", "c2", "c3", "c4", "c5"]) {
+      await seedFirstSeenEvent(client, userKey, start);
+    }
+    for (const userKey of ["c1", "c2", "c3"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay3);
+    }
+    for (const userKey of ["c4", "c5"]) {
+      await seedFirstSeenEvent(client, userKey, returnDay10);
+    }
+    for (const userKey of ["r1", "r2", "r3", "r4", "r5"]) {
+      await seedFirstSeenEvent(client, userKey, offsetDate(start, 100));
+      await seedFirstSeenEvent(client, userKey, start);
+    }
+
+    const panel = buildPanel("retention-over-time")!;
+    const sql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "custom",
+        timeRangeStart: start,
+        timeRangeEnd: end,
+        emailFilter: "",
+        appFilter: "",
+      },
+      panel,
+    );
+    expect(sql).not.toContain("__unsupported_custom_date_range__");
+
+    type RetentionRow = {
+      date: string;
+      period: string;
+      retained_users: number | null;
+      cohort_users: number;
+      rate: number | null;
+    };
+    const rows = ((await client.query(sql)) as { rows: RetentionRow[] }).rows;
+    expect([...new Set(rows.map((row) => row.date))].sort()).toEqual(
+      Array.from({ length: 6 }, (_, n) => offsetDate(start, -n)),
+    );
+
+    const startWeek = rows.find(
+      (row) => row.date === start && row.period === "1-7d return",
+    );
+    const startFortnight = rows.find(
+      (row) => row.date === start && row.period === "7-14d return",
+    );
+    expect(startWeek?.cohort_users).toBe(5);
+    expect(startWeek?.rate).toBe(0.6);
+    expect(startFortnight?.cohort_users).toBe(5);
+    expect(startFortnight?.rate).toBe(0.4);
   });
 });

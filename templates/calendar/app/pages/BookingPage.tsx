@@ -1,6 +1,10 @@
 import { useSession } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner, PoweredByBadge } from "@agent-native/core/client/ui";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  DefaultSpinner,
+  PoweredByBadge,
+} from "@agent-native/toolkit/app/shared";
+import { LanguagePicker } from "@agent-native/toolkit/app/shared";
 import type { Booking } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";

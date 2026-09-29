@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  QUERY_BUDGET_APPS,
+  SSR_BOOT_APPS,
   classifyChangedPaths,
   isDocsPath,
   isGuardScopedScriptPath,
@@ -124,6 +126,48 @@ test("runs cold-request query budgets for framework and template changes", () =>
   assert.equal(docs.checks.neon_query_budget, false);
 });
 
+test("measures only the changed templates for a template-only change", () => {
+  const scope = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+    "templates/mail/app/routes/inbox.tsx",
+  ]);
+
+  assert.equal(scope.full, false);
+  assert.equal(scope.checks.neon_query_budget, true);
+  assert.deepEqual(scope.queryBudgetApps, ["forms", "mail"]);
+});
+
+test("measures every template when shared code or the budget changes", () => {
+  const core = classifyChangedPaths([
+    "packages/core/src/db/client.ts",
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const budget = classifyChangedPaths(["scripts/neon-query-budgets.json"]);
+  const full = classifyChangedPaths(["pnpm-lock.yaml"]);
+
+  assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.equal(budget.checks.neon_query_budget, true);
+  assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.equal(full.full, true);
+  assert.deepEqual(full.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+});
+
+test("skips the query budget for a template it does not measure", () => {
+  const scope = classifyChangedPaths(["templates/videos/package.json"]);
+
+  assert.equal(scope.full, false);
+  assert.equal(scope.checks.neon_query_budget, false);
+  assert.deepEqual(scope.queryBudgetApps, []);
+});
+
+test("selects no query budget templates when the check is off", () => {
+  const docs = classifyChangedPaths(["docs/guide.md"]);
+  const tooling = classifyChangedPaths(["AGENTS.md"]);
+
+  assert.deepEqual(docs.queryBudgetApps, []);
+  assert.deepEqual(tooling.queryBudgetApps, []);
+});
+
 test("skips cold-request query budgets for full tooling and instruction changes", () => {
   const scope = classifyChangedPaths([
     "scripts/agent-friction-report.mjs",
@@ -134,6 +178,53 @@ test("skips cold-request query budgets for full tooling and instruction changes"
   assert.equal(scope.full, true);
   assert.equal(scope.checks.fast_tests, true);
   assert.equal(scope.checks.neon_query_budget, false);
+});
+
+test("runs the connection budget only for core changes", () => {
+  const core = classifyChangedPaths(["packages/core/src/db/client.ts"]);
+  const template = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const full = classifyChangedPaths(["pnpm-lock.yaml"]);
+  const tooling = classifyChangedPaths([
+    "scripts/agent-friction-report.mjs",
+    "AGENTS.md",
+  ]);
+
+  assert.equal(core.checks.neon_connection_budget, true);
+  assert.equal(template.checks.neon_query_budget, true);
+  assert.equal(template.checks.neon_connection_budget, false);
+  assert.equal(full.checks.neon_connection_budget, true);
+  assert.equal(tooling.full, true);
+  assert.equal(tooling.checks.neon_connection_budget, false);
+});
+
+test("smokes only the changed SSR templates for a template-only change", () => {
+  const scope = classifyChangedPaths([
+    "templates/clips/app/routes/index.tsx",
+    "templates/forms/actions/list-forms.ts",
+  ]);
+  const unsmoked = classifyChangedPaths([
+    "templates/forms/actions/list-forms.ts",
+  ]);
+
+  assert.equal(scope.full, false);
+  assert.equal(scope.checks.ssr_boot, true);
+  assert.deepEqual(scope.ssrBootApps, ["clips"]);
+  assert.equal(unsmoked.checks.ssr_boot, false);
+  assert.deepEqual(unsmoked.ssrBootApps, []);
+});
+
+test("smokes every SSR template when a shared package or CI changes", () => {
+  const toolkit = classifyChangedPaths([
+    "packages/toolkit/src/index.ts",
+    "templates/plan/app/root.tsx",
+  ]);
+  const full = classifyChangedPaths(["pnpm-lock.yaml"]);
+
+  assert.deepEqual(toolkit.ssrBootApps, [...SSR_BOOT_APPS]);
+  assert.equal(full.full, true);
+  assert.deepEqual(full.ssrBootApps, [...SSR_BOOT_APPS]);
 });
 
 test("keeps build dependencies while tests follow changed-package dependents", () => {

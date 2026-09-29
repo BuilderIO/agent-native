@@ -102,7 +102,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 Der einfachste ganzseitige Chat:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -115,9 +115,8 @@ Chat-Home-Handoff-Helfer im Layout. Gewöhnliche In-App-Links aus der Chat-Seite
 den vollständigen Chat in die Sidebar überblenden, während der aktive Thread beibehalten wird:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -153,7 +152,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 Der einfachste eingebettete Chat mit Ihrer eigenen Chrome-Umgebung:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -269,7 +268,7 @@ Jede Agent-Native-App braucht früher oder später einen Ort, an dem Benutzer ih
 Die First-Party-Templates binden sie nicht ein: Die Einstellungen decken dasselbe ab (Agent › Model, Instructions, Memory, Skills, Files und Sub-agents sowie die Seiten Automations und MCP server der App), `/agent` leitet in die Einstellungen weiter, und `agentPageHref="/settings/agent"` an `AgentSidebar` öffnet Settings › Agent › Model. Binden Sie `AgentTabsPage` unter einer eigenen Route ein, wenn eine App die gesamte Agent-Oberfläche auf einer Seite zeigen soll.
 
 ```tsx filename="app/routes/agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -569,10 +568,8 @@ Grenze: Ihre Runtime streamt normalisierte Events, und Agent-Native rendert den
 Eingabebereich, Transkript, Tool-Aufrufe, Genehmigungen, native Widgets und das App-Layout.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

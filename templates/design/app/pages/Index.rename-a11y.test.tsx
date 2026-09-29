@@ -39,7 +39,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentEngineConfigured: () => ({ state: "configured", missing: false }),
 }));
 
-vi.mock("@agent-native/core/client/settings", () => ({
+vi.mock("@agent-native/toolkit/app/settings", () => ({
   useBuilderConnectFlow: () => ({ connecting: false, start: vi.fn() }),
   BuilderConnectPopover: () => null,
 }));

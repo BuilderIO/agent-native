@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { SettingsGroup } from "@agent-native/core/client/settings";
+import { SettingsGroup } from "@agent-native/toolkit/app/settings";
 import { IconChevronRight } from "@tabler/icons-react";
 import { Link } from "react-router";
 

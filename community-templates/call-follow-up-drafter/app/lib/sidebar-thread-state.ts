@@ -1,4 +1,4 @@
-import type { ChatThreadSummary } from "@agent-native/core/client/agentkit-chat";
+import type { ChatThreadSummary } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 
 export function visibleChatThreads(
   threads: ChatThreadSummary[],

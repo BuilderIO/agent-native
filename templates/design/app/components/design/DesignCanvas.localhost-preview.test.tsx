@@ -97,9 +97,14 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(permissionHelp?.textContent).toContain(
       "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
     );
-    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+    expect(
+      Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>
+        image.getAttribute("src"),
+      ),
+    ).toEqual([
+      "/local-network-access-prompt.png",
       "/local-network-access-settings.png",
-    );
+    ]);
   });
 
   it("shows the Chrome permission prompt and closes from its X button", async () => {
@@ -1126,9 +1131,14 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     expect(permissionHelp?.textContent).toContain(
       "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
     );
-    expect(permissionHelp?.querySelector("img")?.getAttribute("src")).toBe(
+    expect(
+      Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>
+        image.getAttribute("src"),
+      ),
+    ).toEqual([
+      "/local-network-access-prompt.png",
       "/local-network-access-settings.png",
-    );
+    ]);
     expect(await getLocalNetworkAccessPermissionState()).toBe("prompt");
   });
 

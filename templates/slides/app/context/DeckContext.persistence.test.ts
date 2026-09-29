@@ -112,7 +112,7 @@ function setupFetch(options?: {
   let resolveDeferredPut: (() => void) | null = null;
   let rejectDeferredPut: ((error: unknown) => void) | null = null;
   let firstPutSignal: AbortSignal | undefined;
-  let resolveDeferredPatch: (() => void) | null = null;
+  let resolveDeferredPatch: ((status?: number) => void) | null = null;
   let rejectDeferredPatch: ((error: unknown) => void) | null = null;
   let resolveDeferredKeepalivePatch: (() => void) | null = null;
   let didDeferKeepalivePatch = false;
@@ -264,9 +264,14 @@ function setupFetch(options?: {
       ) {
         firstPatchSignal = init?.signal ?? undefined;
         return new Promise<Response>((resolve, reject) => {
-          resolveDeferredPatch = () =>
+          resolveDeferredPatch = (status = 200) =>
             resolve(
-              new Response(JSON.stringify({ ok: true }), { status: 200 }),
+              new Response(
+                JSON.stringify(
+                  status === 409 ? { error: "Deck changed" } : { ok: true },
+                ),
+                { status },
+              ),
             );
           rejectDeferredPatch = reject;
         });
@@ -317,7 +322,7 @@ function setupFetch(options?: {
     pendingDuplicateCount: () => pendingDuplicateRejects.length,
     getFirstPutSignal: () => firstPutSignal,
     getPutAttempts: (deckId: string) => putAttempts.get(deckId) ?? 0,
-    resolveDeferredPatch: () => resolveDeferredPatch?.(),
+    resolveDeferredPatch: (status?: number) => resolveDeferredPatch?.(status),
     rejectDeferredPatch: (error: unknown = new Error("stale deck revision")) =>
       rejectDeferredPatch?.(error),
     resolveDeferredKeepalivePatch: () => resolveDeferredKeepalivePatch?.(),
@@ -815,6 +820,73 @@ describe("DeckContext deck creation persistence", () => {
           init?.keepalive === true,
       ),
     ).toBe(true);
+  });
+
+  it("refreshes the server revision before retrying a concurrent patch conflict", async () => {
+    window.history.pushState({}, "", "/deck/concurrent-patch-deck");
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      resolveDeferredPatch,
+      getPatchAttempts,
+    } = setupFetch({ deferredPatch: true });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "concurrent-patch-deck",
+      title: "Concurrent patch deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "Before", notes: "", layout: "title" },
+        { id: "slide-2", content: "Other slide", notes: "", layout: "title" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { content: "Local edit" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+
+    const remoteRevision = "2026-05-12T00:01:00.000Z";
+    const getCallsBeforeConflict = deckFetchCalls(fetchMock).length;
+    setAccessibleDeck({
+      ...initial,
+      updatedAt: remoteRevision,
+      slides: [
+        initial.slides[0]!,
+        { ...initial.slides[1]!, content: "Remote edit" },
+      ],
+    });
+    resolveDeferredPatch(409);
+    await act(async () => {
+      await result.current.flushDeckSave(initial.id);
+    });
+
+    expect(deckFetchCalls(fetchMock)).toHaveLength(getCallsBeforeConflict + 1);
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(patchCalls).toHaveLength(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).clientWrite).toMatchObject({
+      expectedUpdatedAt: remoteRevision,
+    });
+    expect(hasUnsavedDeckChanges(initial.id)).toBe(false);
   });
 
   it("merges server layout-fit revisions into optimistic slide writes", async () => {

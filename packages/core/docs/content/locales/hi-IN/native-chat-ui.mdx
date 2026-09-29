@@ -228,7 +228,7 @@ export default defineAction({
 कार्रवाई पर:
 
 ```tsx
-import { registerActionChatRenderer } from "@agent-native/core/client/agent-chat";
+import { registerActionChatRenderer } from "@agent-native/toolkit/app/chat";
 
 registerActionChatRenderer({
   id: "crm.deal-card",
@@ -366,10 +366,8 @@ when: (args, result) => {
 एक POST एंडपॉइंट को उजागर कर सकता है जो SSE या NDJSON रनटाइम इवेंट लौटाता है:
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   id: "external:mastra",

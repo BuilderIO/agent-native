@@ -22,6 +22,8 @@ A few entry points:
 - `writing-agent-instructions` — read before editing instructions, skills, or
   tool/action descriptions.
 - `verifying-changes` — exercise the broken path before reporting a fix done.
+- `adding-tests-and-ci` — read before adding a test, CI job, or workflow
+  trigger.
 - `reporting-progress` — read during long runs and before asking for status.
 - `concurrent-agents` — read before working in a shared checkout.
 - `ship` — normal guarded ship; beta/docs deploy automatically, other

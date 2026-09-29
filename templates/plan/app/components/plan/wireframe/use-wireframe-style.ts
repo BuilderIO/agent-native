@@ -3,4 +3,4 @@ export {
   toggleWireframeStyle,
   useWireframeStyle,
   type WireframeStyle,
-} from "@agent-native/core/blocks";
+} from "@agent-native/toolkit/app/blocks";

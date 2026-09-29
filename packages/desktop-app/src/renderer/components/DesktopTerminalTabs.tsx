@@ -1,7 +1,7 @@
 import {
   AgentTerminal,
   type AgentTerminalSubmitRequest,
-} from "@agent-native/core/terminal";
+} from "@agent-native/toolkit/app/terminal";
 import { IconLoader2, IconTerminal2 } from "@tabler/icons-react";
 import { useEffect, useState, type CSSProperties } from "react";
 
