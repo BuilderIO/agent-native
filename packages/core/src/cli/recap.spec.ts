@@ -2907,6 +2907,9 @@ describe("bundled PR visual recap workflow", () => {
     const ignoredEvent = gateIf.slice(1);
     expect(ignoredEvent).toContain("vars.VISUAL_RECAP_AUTO_REFRESH == 'false'");
     expect(ignoredEvent).toContain("github.event.label.name != 'recap'");
+    expect(ignoredEvent).toContain(
+      "!contains(vars.VISUAL_RECAP_REQUIRED_LABELS, github.event.label.name)",
+    );
     expect(ignoredEvent).toContain("github.event.action == 'synchronize'");
     expect(ignoredEvent).toContain(
       "(github.event.action == 'closed' && !github.event.pull_request.merged)",
