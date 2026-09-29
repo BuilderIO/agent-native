@@ -1575,8 +1575,8 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await setActiveOrgId(email, null, "cleared active organization", event);
-    return { orgId: null, orgName: null, role: null };
+    const ctx = await getOrgContext(event);
+    return { orgId: ctx.orgId, orgName: ctx.orgName, role: ctx.role };
   }
 
   const e = await exec();
