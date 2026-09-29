@@ -34,7 +34,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: (props: {
     children: React.ReactNode;
     defaultOpen?: boolean;
-    screenRefreshOnlyWhenPanelActive?: boolean;
+    screenRefreshEnabled?: boolean;
   }) => {
     agentSidebarSpy(props);
     agentSidebarProps.push(props);
@@ -133,7 +133,7 @@ describe("RootShell tree stability", () => {
     await vi.waitFor(() => expect(agentSidebarProps).toHaveLength(1));
     expect(agentSidebarProps[0]).toMatchObject({
       defaultOpen: false,
-      screenRefreshOnlyWhenPanelActive: true,
+      screenRefreshEnabled: false,
     });
   });
 
