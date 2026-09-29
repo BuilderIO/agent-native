@@ -191,7 +191,13 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "const [sidebarOpen, setSidebarOpen] = useState(false)",
     );
-    expect(source).toContain('localStorage.getItem("mail-sidebar-pinned")');
+    expect(source).toContain(
+      "const [sidebarPinned, setSidebarPinned] = useState(false)",
+    );
+    expect(source).toContain(
+      'window.localStorage.getItem("mail-sidebar-pinned") === "true"',
+    );
+    expect(source).toContain("if (!sidebarPinPreferenceLoaded) return;");
     expect(source).toContain(
       'localStorage.setItem("mail-sidebar-pinned", "true")',
     );

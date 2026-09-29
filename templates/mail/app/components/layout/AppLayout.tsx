@@ -693,15 +693,21 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     (inboxThreads.isLoading && !inboxThreads.data) ||
     (settingsLoading && !settings);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPinned, setSidebarPinned] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("mail-sidebar-pinned") === "true";
-  });
+  const [sidebarPinned, setSidebarPinned] = useState(false);
+  const [sidebarPinPreferenceLoaded, setSidebarPinPreferenceLoaded] =
+    useState(false);
   useEffect(() => {
+    setSidebarPinned(
+      window.localStorage.getItem("mail-sidebar-pinned") === "true",
+    );
+    setSidebarPinPreferenceLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!sidebarPinPreferenceLoaded) return;
     if (sidebarPinned)
       window.localStorage.setItem("mail-sidebar-pinned", "true");
     else window.localStorage.removeItem("mail-sidebar-pinned");
-  }, [sidebarPinned]);
+  }, [sidebarPinned, sidebarPinPreferenceLoaded]);
   const isPinnedSidebarVisible = !isMobile && sidebarPinned;
   const closeSidebar = useCallback(() => {
     if (!isPinnedSidebarVisible) setSidebarOpen(false);
