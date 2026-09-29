@@ -182,6 +182,10 @@ export interface QueuedAutomationTriggerEvent {
   claimedAt: number;
 }
 
+export interface AutomationTriggerQueueQueryOptions {
+  timeoutMs?: number;
+}
+
 function rowToEvent(
   row: Record<string, unknown>,
 ): QueuedAutomationTriggerEvent {
@@ -285,6 +289,7 @@ export async function listReadyAutomationTriggerIds(
   appId?: string | null,
   limit = 100,
   cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<string[]> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
@@ -313,6 +318,9 @@ export async function listReadyAutomationTriggerIds(
           ORDER BY trigger_id ASC
           LIMIT ?`,
     args,
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   return rows.map((row) => String((row as Record<string, unknown>).trigger_id));
 }
@@ -351,11 +359,15 @@ export async function scheduleAutomationTriggerEventPurge(
 
 export async function getAutomationTriggerSweepCursor(
   appId?: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<string | null> {
   await ensureAutomationTriggerEventQueue();
   const { rows } = await getDbExec().execute({
     sql: `SELECT last_trigger_id FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
     args: [appId?.trim() ?? ""],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   const cursor = (rows[0] as Record<string, unknown> | undefined)
     ?.last_trigger_id;
@@ -365,6 +377,7 @@ export async function getAutomationTriggerSweepCursor(
 export async function setAutomationTriggerSweepCursor(
   appId: string | null | undefined,
   triggerId: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<void> {
   await ensureAutomationTriggerEventQueue();
   const scopeKey = appId?.trim() ?? "";
@@ -372,6 +385,9 @@ export async function setAutomationTriggerSweepCursor(
     await getDbExec().execute({
       sql: `DELETE FROM ${SWEEP_STATE_TABLE} WHERE scope_key = ?`,
       args: [scopeKey],
+      ...(options.timeoutMs === undefined
+        ? {}
+        : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
     });
     return;
   }
@@ -383,12 +399,16 @@ export async function setAutomationTriggerSweepCursor(
             SET last_trigger_id = excluded.last_trigger_id,
                 updated_at = excluded.updated_at`,
     args: [scopeKey, triggerId, Date.now()],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
 }
 
 export async function claimNextAutomationTriggerEvent(
   triggerId: string,
   appId?: string | null,
+  options: AutomationTriggerQueueQueryOptions = {},
 ): Promise<QueuedAutomationTriggerEvent | null> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
@@ -425,6 +445,9 @@ export async function claimNextAutomationTriggerEvent(
             claimed.event_owner, claimed.emitted_at, claimed.attempts,
             claimed.failure_attempts, claimed.claimed_at`,
     args: [now, triggerId, ...scope.args, now, cutoff, cutoff],
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs, maxAttempts: 1 }),
   });
   return rows[0] ? rowToEvent(rows[0] as Record<string, unknown>) : null;
 }
@@ -475,6 +498,7 @@ export async function expireStaleAutomationTriggerEvents(input: {
   emittedBefore: string;
   reason: string;
   limit?: number;
+  timeoutMs?: number;
 }): Promise<number> {
   await ensureAutomationTriggerEventQueue();
   const limit = Math.max(
@@ -504,6 +528,9 @@ export async function expireStaleAutomationTriggerEvents(input: {
       Date.now(),
       input.reason.slice(0, 500),
     ],
+    ...(input.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: input.timeoutMs, maxAttempts: 1 }),
   });
   return rowsAffected;
 }

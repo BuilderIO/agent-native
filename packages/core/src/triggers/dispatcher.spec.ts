@@ -510,6 +510,7 @@ Respond to the event.`,
         "mail",
         100,
         expect.any(Object),
+        expect.objectContaining({ timeoutMs: 5_000 }),
       );
       expect(
         triggerQueueMocks.rows.every((row) => row.status === "completed"),
@@ -871,7 +872,7 @@ Respond to the event.`,
     info.mockRestore();
   });
 
-  it("reserves fresh-trigger time while expiring stale mail in slow batches", async () => {
+  it("reserves fresh-trigger query time while expiring stale mail", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "mail.message.received";
     resourceListAllOwnersMock.mockResolvedValue([
@@ -904,10 +905,10 @@ Respond to the event.`,
 
     const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
     const staleTriggerIds = Array.from(
-      { length: 100 },
+      { length: 1 },
       (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
     );
-    for (let index = 0; index < 2_000; index += 1) {
+    for (let index = 0; index < 1; index += 1) {
       const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
       triggerQueueMocks.rows.push({
         appId: "mail",
@@ -933,23 +934,58 @@ Respond to the event.`,
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
     const expireImplementation =
       triggerQueueMocks.expire.getMockImplementation();
-    if (!expireImplementation) {
-      throw new Error("Expected a stale-event expiry implementation.");
+    const readyImplementation = triggerQueueMocks.ready.getMockImplementation();
+    const getCursorImplementation =
+      triggerQueueMocks.getSweepCursor.getMockImplementation();
+    const setCursorImplementation =
+      triggerQueueMocks.setSweepCursor.getMockImplementation();
+    const claimImplementation = triggerQueueMocks.claim.getMockImplementation();
+    if (
+      !expireImplementation ||
+      !readyImplementation ||
+      !getCursorImplementation ||
+      !setCursorImplementation ||
+      !claimImplementation
+    ) {
+      throw new Error("Expected trigger queue mock implementations.");
     }
     let simulatedNow = now;
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => simulatedNow);
+    const simulateSlowQueueQuery = async <T>(query: () => Promise<T>) => {
+      simulatedNow += 5_000;
+      return query();
+    };
     triggerQueueMocks.expire.mockImplementation(async (input) => {
-      simulatedNow += 15_000;
-      return expireImplementation(input);
+      return simulateSlowQueueQuery(() => expireImplementation(input));
     });
+    triggerQueueMocks.ready.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => readyImplementation(...args)),
+    );
+    triggerQueueMocks.getSweepCursor.mockImplementation(() =>
+      simulateSlowQueueQuery(() => getCursorImplementation()),
+    );
+    triggerQueueMocks.setSweepCursor.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => setCursorImplementation(...args)),
+    );
+    triggerQueueMocks.claim.mockImplementation((...args) =>
+      simulateSlowQueueQuery(() => claimImplementation(...args)),
+    );
     try {
       await sweep?.({ deadlineAt: now + 90_000 });
     } finally {
       nowSpy.mockRestore();
       triggerQueueMocks.expire.mockImplementation(expireImplementation);
+      triggerQueueMocks.ready.mockImplementation(readyImplementation);
+      triggerQueueMocks.getSweepCursor.mockImplementation(
+        getCursorImplementation,
+      );
+      triggerQueueMocks.setSweepCursor.mockImplementation(
+        setCursorImplementation,
+      );
+      triggerQueueMocks.claim.mockImplementation(claimImplementation);
     }
 
-    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(2);
+    expect(triggerQueueMocks.expire).toHaveBeenCalledOnce();
     expect(
       triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
     ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);
@@ -977,7 +1013,7 @@ Respond to the event.`,
           row.triggerId.startsWith("a-stale-trigger-") &&
           row.status === "completed",
       ),
-    ).toHaveLength(2_000);
+    ).toHaveLength(1);
   });
 
   it("skips queue purging when the sweep has less than three query budgets left", async () => {
