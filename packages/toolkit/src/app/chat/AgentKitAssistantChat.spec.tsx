@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
+import { AgentKitClient } from "@agent-native/agentkit/client";
+import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentKitClient } from "@agent-native/agentkit/client";
-import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
 
 const chatMocks = vi.hoisted(() => ({
@@ -300,8 +300,7 @@ vi.mock(
 );
 
 vi.mock("@agent-native/toolkit/agentkit", async (importOriginal) => {
-  const { PromptComposer } =
-    await import("../../composer/PromptComposer.js");
+  const { PromptComposer } = await import("../../composer/PromptComposer.js");
   return {
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/agentkit")

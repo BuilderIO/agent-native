@@ -61,6 +61,7 @@ import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -166,7 +167,6 @@ import { ExternalAgentNudge } from "./external-agent-host.js";
 import { FileStorageSetupPopover } from "./FileStorageSetupPopover.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
-import { useSession } from "@agent-native/core/client/use-session";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */

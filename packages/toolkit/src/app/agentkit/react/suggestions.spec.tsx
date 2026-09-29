@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
 
+import { AgentKitClient } from "@agent-native/agentkit/client";
 import type {
-  PromptComposerProps,
-  TiptapComposerHandle,
-} from "../../../agentkit.js";
+  AgentSuggestion,
+  AgentTransport,
+} from "@agent-native/agentkit/protocol";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentKitClient } from "@agent-native/agentkit/client";
-import type { AgentSuggestion, AgentTransport } from "@agent-native/agentkit/protocol";
+import type {
+  PromptComposerProps,
+  TiptapComposerHandle,
+} from "../../../agentkit.js";
 import { AgentKitComposer } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
@@ -19,8 +22,7 @@ const draft = vi.hoisted(() => ({
   text: "Keep the current draft",
 }));
 vi.mock("../../../agentkit.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../../agentkit.js")>();
+  const actual = await importOriginal<typeof import("../../../agentkit.js")>();
   const React = await import("react");
   return {
     ...actual,
