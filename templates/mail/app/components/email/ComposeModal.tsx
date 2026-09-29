@@ -162,14 +162,17 @@ function FromAccountSelector({
           onChange(email);
         }}
       >
-        <SelectTrigger className="h-10 min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-sm shadow-none focus:ring-0">
+        <SelectTrigger
+          data-an-block
+          className="h-10 min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-sm shadow-none focus:ring-0"
+        >
           <SelectValue className="min-w-0 flex-1">
             {selectedAccount && <AccountChip account={selectedAccount} />}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {accounts.map((acct) => (
-            <SelectItem key={acct.email} value={acct.email}>
+            <SelectItem key={acct.email} value={acct.email} data-an-block>
               <span className="flex min-w-0 flex-col">
                 <span className="truncate">{accountDisplayName(acct)}</span>
                 {accountDisplayName(acct) !== acct.email && (
@@ -829,7 +832,10 @@ export function ComposeModal({
         {/* Left side: tabs (or single title) */}
         <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
           {drafts.length <= 1 ? (
-            <span className="text-sm font-semibold text-foreground px-2 truncate">
+            <span
+              data-an-mask
+              className="text-sm font-semibold text-foreground px-2 truncate"
+            >
               {title}
             </span>
           ) : (
@@ -855,7 +861,9 @@ export function ComposeModal({
                       : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
                   )}
                 >
-                  <span className="truncate">{label}</span>
+                  <span data-an-mask className="truncate">
+                    {label}
+                  </span>
                   <span
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1355,7 +1363,10 @@ function ComposeBody({
             <IconDots className="h-4 w-4" />
           </button>
           {showQuoted && (
-            <pre className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed">
+            <pre
+              data-an-block
+              className="mt-2 whitespace-pre-wrap text-[13px] text-muted-foreground/60 font-sans leading-relaxed"
+            >
               {quotedContent.trim()}
             </pre>
           )}

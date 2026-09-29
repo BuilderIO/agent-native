@@ -7206,6 +7206,7 @@ export function DesignCanvas({
           // cost memory.
           className="pointer-events-none fixed border-0 opacity-0"
           style={{
+            // scaled-iframe-paint-ignore: verification frame stays offscreen and unpainted.
             left: -100_000,
             top: -100_000,
             width: embeddedFrame?.viewportWidth ?? previewWidthPx ?? 1280,
