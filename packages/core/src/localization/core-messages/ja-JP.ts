@@ -1327,6 +1327,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "新しいメールアドレス",
   "settings.emailNewPlaceholder": "新しいメールアドレスを入力",
   "usage.builderCredits": "Builder クレジット",
+  "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
+  "featureFlags.builderCreditReferrals.description":
+    "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
