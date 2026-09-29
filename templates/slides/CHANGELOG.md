@@ -7,12 +7,30 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Pasting a link to an accessible deck preselects it as the visual reference for a new presentation.
+- Undo and redo are available in the editor menu
 - Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Dragging an object out of a layout preserves its original space.
+- Fixed deck edits failing to save during simultaneous collaboration
+- Pasted text no longer blocks deck creation
+- Position controls are available before you manually move an object
+- Pressing Escape after editing text closes the selection outline.
+- Slides opens reference selection after sign-in when no design or reference context is selected.
+- Slide undo preserves concurrent edits from other people
+- Editing a bullet no longer changes neighboring lines, and Markdown bullets work after a line break.
+- Slides no longer overwrites a newer edit to the same slide, and Undo and Redo stay with the deck you are editing.
+- Undo keeps newer collaborator edits, and independent slide changes keep saving after a conflict
 
 ## 2026-09-28
 
 ### Improved
 
+- Connected tools appear in the AgentKit Add menu only when they’re ready to use.
+- Slides context sources are available from the same Add menu using either + or @.
+- The + and @ context launcher is searchable, grouped, and aligned above the prompt, with shared file and agent discovery.
 - The app canvas now meets the right chat sidebar without a dark seam or rounded corner.
 - Center the home search field and keep prompt submission responsive while AI readiness is checked.
 - Rotation controls are smaller and easier to see.
@@ -23,6 +41,11 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Switching between sidebar and full-page chat keeps the active conversation and drafts for follow-ups without changing initial home suggestions.
+- Find existing presentations in a searchable thumbnail gallery and add them as prompt references from the + and @ menus.
+- Chat suggestions stay hidden and prompt controls remain disabled until AI is connected and ready to use.
+- Sidebar and full-page chats share reference and integration choices, preserving each conversation's selections when switching views.
+- The context menu lists available integrations in a submenu with a clear connection setup link
 - Canceling reference selection restores the prompt and its attachments.
 - Deck editor waits for sign-in before loading its workspace shell.
 - Existing decks open to Recent, and the home prompt stays interactive while AI readiness is checked.
