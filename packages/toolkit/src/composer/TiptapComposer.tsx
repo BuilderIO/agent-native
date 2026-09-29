@@ -215,6 +215,17 @@ export function resolveContextChipBackspaceAction(options: {
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 
+function isSameComposerAttachment(
+  current: { id: string; file?: unknown },
+  submitted: { id: string; file?: unknown },
+) {
+  return (
+    current.id === submitted.id &&
+    (current === submitted ||
+      (submitted.file != null && current.file === submitted.file))
+  );
+}
+
 function composerReferenceFromMentionItem(
   item: MentionItem,
 ): AgentComposerReference {
@@ -2615,15 +2626,54 @@ export function TiptapComposer({
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const slotReferencesRef = useRef(slotReferences);
+  slotReferencesRef.current = slotReferences;
+  const updateSlotReferences = useCallback(
+    (update: React.SetStateAction<AgentComposerReference[]>) => {
+      const next =
+        typeof update === "function"
+          ? update(slotReferencesRef.current)
+          : update;
+      slotReferencesRef.current = next;
+      setSlotReferences(next);
+    },
+    [],
+  );
   const [selectedContextItemKey, setSelectedContextItemKey] = useState<
     string | null
   >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
+  const [
+    failedAttachmentCleanupSnapshots,
+    setFailedAttachmentCleanupSnapshots,
+  ] = useState<typeof composerAttachments>([]);
   const [contextSubmissionError, setContextSubmissionError] = useState<
     string | null
   >(null);
-  useEffect(() => setContextSubmissionError(null), [providedContextItems]);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length > 0) return;
+    setContextSubmissionError(null);
+  }, [failedAttachmentCleanupSnapshots.length, providedContextItems]);
+  useEffect(() => {
+    if (failedAttachmentCleanupSnapshots.length === 0) return;
+    const remainingFailedAttachments = failedAttachmentCleanupSnapshots.filter(
+      (submitted) =>
+        composerAttachments.some((current) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+    );
+    if (
+      remainingFailedAttachments.length ===
+      failedAttachmentCleanupSnapshots.length
+    ) {
+      return;
+    }
+    setFailedAttachmentCleanupSnapshots(remainingFailedAttachments);
+    if (remainingFailedAttachments.length === 0) {
+      setContextSubmissionError(null);
+    }
+  }, [composerAttachments, failedAttachmentCleanupSnapshots]);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
@@ -2631,7 +2681,12 @@ export function TiptapComposer({
       disabled ||
       submissionDisabled ||
       submitting ||
-      !areComposerContextItemsReady(contextItems),
+      !areComposerContextItemsReady(contextItems) ||
+      composerAttachments.some((current) =>
+        failedAttachmentCleanupSnapshots.some((submitted) =>
+          isSameComposerAttachment(current, submitted),
+        ),
+      ),
   });
   const primaryAction = resolveComposerPrimaryAction({
     canSubmit: canSend,
@@ -2649,6 +2704,8 @@ export function TiptapComposer({
   const composingRef = useRef(false);
   const onAttachmentErrorRef = useRef(onAttachmentError);
   onAttachmentErrorRef.current = onAttachmentError;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
   const execModeRef = useRef(execMode);
   execModeRef.current = execMode;
   const onExecModeChangeRef = useRef(onExecModeChange);
@@ -3254,7 +3311,7 @@ export function TiptapComposer({
       const ed = editor;
       if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(current, [normalized]),
         );
         ed.commands.focus("end");
@@ -3265,7 +3322,7 @@ export function TiptapComposer({
           (item: AgentComposerReference) => item.slotKey,
         )
       ) {
-        setSlotReferences((current) =>
+        updateSlotReferences((current) =>
           applySlotReferenceChanges(
             current,
             normalized.relatedReferences ?? [],
@@ -3282,7 +3339,7 @@ export function TiptapComposer({
         .run();
       setEditorHasText(true);
     },
-    [editor],
+    [editor, updateSlotReferences],
   );
 
   const insertReferenceIfEmpty = useCallback(
@@ -3418,7 +3475,7 @@ export function TiptapComposer({
       editor.commands.focus("end");
       const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
       setEditorHasText(trimmed.length > 0);
-      setSlotReferences([]);
+      updateSlotReferences([]);
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
       flushComposerDraft();
@@ -3735,15 +3792,18 @@ export function TiptapComposer({
   }, [voiceEnabled, voice]);
 
   const extractComposerPayload = useCallback(() => {
+    const currentSlotReferences = slotReferencesRef.current;
     const ed = editor;
     if (!isComposerEditorUsable(ed)) {
       return {
-        text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
-        references: slotReferences.map(referenceFromComposerReference),
+        text: currentSlotReferences
+          .map((ref) => slotReferenceTitle(ref))
+          .join(", "),
+        references: currentSlotReferences.map(referenceFromComposerReference),
       };
     }
 
-    const references: Reference[] = slotReferences.map(
+    const references: Reference[] = currentSlotReferences.map(
       referenceFromComposerReference,
     );
 
@@ -3773,7 +3833,7 @@ export function TiptapComposer({
     const rawText = textParts.join("").trim();
     const text =
       rawText ||
-      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
+      currentSlotReferences.map((ref) => slotReferenceTitle(ref)).join(", ");
 
     ed.state.doc.descendants((node: any) => {
       if (node.type.name === "fileReference") {
@@ -3815,7 +3875,7 @@ export function TiptapComposer({
     });
 
     return { text, references };
-  }, [editor, slotReferences]);
+  }, [editor]);
 
   const referencesSignatureRef = useRef("");
   useEffect(() => {
@@ -3825,7 +3885,12 @@ export function TiptapComposer({
     if (signature === referencesSignatureRef.current) return;
     referencesSignatureRef.current = signature;
     onReferencesChange(references);
-  }, [referenceRevision, extractComposerPayload, onReferencesChange]);
+  }, [
+    referenceRevision,
+    slotReferences,
+    extractComposerPayload,
+    onReferencesChange,
+  ]);
 
   const syncComposerRuntimeState = useCallback(
     (text: string, references: Reference[]) => {
@@ -3875,7 +3940,20 @@ export function TiptapComposer({
   }, [extractComposerPayload, syncComposerRuntimeState]);
 
   const clearEditorAfterSubmit = useCallback(
-    (expectedDraftSnapshot?: string | null) => {
+    (
+      expectedDraftSnapshot?: string | null,
+      submittedSlotReferences?: AgentComposerReference[],
+      clearText = true,
+    ) => {
+      const remainingSlotReferences =
+        submittedSlotReferences === undefined
+          ? []
+          : slotReferencesRef.current.filter(
+              (reference) => !submittedSlotReferences.includes(reference),
+            );
+      updateSlotReferences(remainingSlotReferences);
+      if (!clearText) return;
+
       // A caller may close/unmount the host popover as soon as submit starts
       // (before awaiting the round trip), which destroys this editor instance
       // while the submit promise is still in flight. The persisted draft has
@@ -3893,7 +3971,6 @@ export function TiptapComposer({
         ed.commands.clearContent();
         ed.commands.focus("end");
         setEditorHasText(false);
-        setSlotReferences([]);
         resetComposerRuntimeState();
       }
       closePopover();
@@ -3904,6 +3981,7 @@ export function TiptapComposer({
       draftKey,
       editor,
       resetComposerRuntimeState,
+      updateSlotReferences,
     ],
   );
 
@@ -3920,22 +3998,25 @@ export function TiptapComposer({
         !areComposerContextItemsReady(contextItemsRef.current)
       )
         return false;
-      let contextSnapshot: ComposerContextSnapshot | undefined;
-      setContextSubmissionError(null);
-      try {
-        contextSnapshot = snapshotComposerContextItems(
-          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
-        );
-      } catch (error) {
-        if (!(error instanceof ComposerContextError)) throw error;
+      if (
+        composerRuntime
+          .getState()
+          .attachments.some((current) =>
+            failedAttachmentCleanupSnapshots.some((submitted) =>
+              isSameComposerAttachment(current, submitted),
+            ),
+          )
+      ) {
         setContextSubmissionError(
-          t("agentChat.composer.contextLimitExceeded", {
+          t("agentChat.composer.attachmentsRemainAfterSubmit", {
             defaultValue:
-              "Context is too large. Remove an item or attach a smaller selection.",
+              "The message was sent, but some attachments remain. Remove them before sending again.",
           }),
         );
         return false;
       }
+      setContextSubmissionError(null);
+      let contextSnapshot: ComposerContextSnapshot | undefined;
 
       draftEditorRef.current = ed;
       flushComposerDraft();
@@ -3944,7 +4025,7 @@ export function TiptapComposer({
       // Snapshot exactly what flushComposerDraft just persisted so a
       // same-scope draft written by a later, unrelated composer instance
       // (see clearComposerDraft) is never mistaken for this submission's.
-      const submittingDraftSnapshot = submittingDraftKey
+      let submittingDraftSnapshot = submittingDraftKey
         ? (() => {
             try {
               return localStorage.getItem(submittingDraftKey);
@@ -3957,9 +4038,11 @@ export function TiptapComposer({
       const isCurrentDraftScope = () =>
         draftKeyRef.current === submittingDraftKey &&
         draftScopeGenerationRef.current === submittingDraftGeneration;
-      const { text: draftText, references } = syncComposerState();
-      const text = textOverride ?? draftText;
-      const attachments = composerRuntime.getState().attachments;
+      let { text: draftText, references } = syncComposerState();
+      let text = textOverride ?? draftText;
+      let attachments = composerRuntime.getState().attachments;
+      let submittedSlotReferences = slotReferencesRef.current;
+      let submittedEditorDocument = ed.state.doc;
       if (!text.trim() && references.length === 0 && attachments.length === 0)
         return false;
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
@@ -3985,32 +4068,91 @@ export function TiptapComposer({
       };
 
       // Intercept slash commands typed directly (e.g. "/clear" + Enter)
-      const trimmed = text.trim();
-      if (trimmed.startsWith("/") && references.length === 0) {
-        const cmdName = normalizeSlashCommandName(trimmed);
-        const matched = allSlashCommands.find((c) => c.name === cmdName);
-        if (matched) {
+      let trimmed = text.trim();
+      const handleLocalSubmission = () => {
+        if (trimmed.startsWith("/") && references.length === 0) {
+          const cmdName = normalizeSlashCommandName(trimmed);
+          const matched = allSlashCommands.find((c) => c.name === cmdName);
+          if (matched) {
+            clearEditorAfterSubmit();
+            announceSlashCommand(matched);
+            return true;
+          }
+        }
+
+        // Builder iframe delegation: when this app is mounted inside the
+        // Builder.io webview and the user typed a "build me an app/agent"
+        // prompt, hand it up to the parent Builder chat instead of sending
+        // it to this app's domain agent. Builder is the code-writing agent;
+        // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+        // apps from inside its own iframe.
+        if (
+          !composerMode &&
+          interceptBuildRequestsForBuilder &&
+          adapters.builder!.tryDelegateBuildRequest!(trimmed)
+        ) {
+          cancelActiveVoice();
           clearEditorAfterSubmit();
-          announceSlashCommand(matched);
           return true;
         }
-      }
+        return false;
+      };
 
-      // Builder iframe delegation: when this app is mounted inside the
-      // Builder.io webview and the user typed a "build me an app/agent"
-      // prompt, hand it up to the parent Builder chat instead of sending
-      // it to this app's domain agent. Builder is the code-writing agent;
-      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-      // apps from inside its own iframe.
-      if (
-        !composerMode &&
-        interceptBuildRequestsForBuilder &&
-        adapters.builder!.tryDelegateBuildRequest!(trimmed)
-      ) {
-        cancelActiveVoice();
-        clearEditorAfterSubmit();
-        return true;
-      }
+      const clearSubmittedDraft = () => {
+        if (
+          !isComposerEditorUsable(ed) ||
+          ed.state.doc.eq(submittedEditorDocument)
+        ) {
+          clearEditorAfterSubmit(
+            submittingDraftSnapshot,
+            submittedSlotReferences,
+          );
+          return true;
+        }
+
+        clearEditorAfterSubmit(
+          submittingDraftSnapshot,
+          submittedSlotReferences,
+          false,
+        );
+        const currentDocument = ed.state.doc;
+        const submittedDocumentSize = submittedEditorDocument.content.size;
+        const sameBlockCount =
+          currentDocument.content.childCount ===
+          submittedEditorDocument.content.childCount;
+        const submittedPrefixSize =
+          submittedDocumentSize - (sameBlockCount ? 1 : 0);
+        const currentText = extractComposerPayload().text;
+        if (
+          textOverride === undefined &&
+          text.length > 0 &&
+          currentText.startsWith(text) &&
+          currentText.length > text.length &&
+          isCurrentDraftScope() &&
+          submittedPrefixSize <= currentDocument.content.size &&
+          currentDocument.content
+            .cut(0, submittedPrefixSize)
+            .eq(submittedEditorDocument.content)
+        ) {
+          const followUpDocument =
+            currentDocument.content.cut(submittedPrefixSize);
+          ed.commands.setContent({
+            type: "doc",
+            content: followUpDocument.toJSON(),
+          });
+          const current = syncComposerState();
+          if (!current.text && current.references.length === 0) {
+            clearEditorAfterSubmit(submittingDraftSnapshot, [], true);
+          } else {
+            flushComposerDraft();
+          }
+          return true;
+        }
+
+        return false;
+      };
+
+      if (handleLocalSubmission()) return true;
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
@@ -4023,6 +4165,63 @@ export function TiptapComposer({
       }
       if (!isComposerEditorUsable(ed)) return false;
       if (!isCurrentDraftScope()) return false;
+
+      if (onBeforeSubmit) {
+        const current = syncComposerState();
+        if (textOverride === undefined) {
+          text = current.text;
+          submittedEditorDocument = ed.state.doc;
+        }
+        references = current.references;
+        submittedSlotReferences = slotReferencesRef.current;
+        attachments = composerRuntime.getState().attachments;
+        trimmed = text.trim();
+        if (
+          !text.trim() &&
+          references.length === 0 &&
+          attachments.length === 0
+        ) {
+          return false;
+        }
+        const currentOversizedDocumentError =
+          getOversizedDocumentAttachmentError(attachments, {
+            maxBytes: maxDocumentAttachmentBytes,
+            label: documentAttachmentLimitLabel,
+            translate: t,
+          });
+        if (currentOversizedDocumentError) {
+          onAttachmentErrorRef.current?.(currentOversizedDocumentError);
+          return false;
+        }
+        flushComposerDraft();
+        submittingDraftSnapshot = submittingDraftKey
+          ? (() => {
+              try {
+                return localStorage.getItem(submittingDraftKey);
+              } catch {
+                // coercion-ok: browser storage is optional and can be unavailable or full; treat as "nothing to compare against" like the rest of this file's draft helpers.
+                return null;
+              }
+            })()
+          : null;
+        if (textOverride === undefined && handleLocalSubmission()) return true;
+      }
+
+      try {
+        contextSnapshot = snapshotComposerContextItems(
+          contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
+        );
+      } catch (error) {
+        if (!(error instanceof ComposerContextError)) throw error;
+        if (error.code === "not-ready") return false;
+        setContextSubmissionError(
+          t("agentChat.composer.contextLimitExceeded", {
+            defaultValue:
+              "Context is too large. Remove an item or attach a smaller selection.",
+          }),
+        );
+        return false;
+      }
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -4072,64 +4271,101 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        setComposerMode(null);
-        composerModeRef.current = null;
-        cancelScheduledDraftPersist();
-        clearComposerDraft(draftKey);
-        closePopover();
+        if (clearSubmittedDraft()) {
+          setComposerMode(null);
+          composerModeRef.current = null;
+        }
         return true;
       }
 
-      if (onSubmit) {
+      const currentOnSubmit = onSubmitRef.current;
+      if (currentOnSubmit) {
         if (submitInFlightRef.current) return false;
+        const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
         try {
-          await onSubmit(text, references, attachments, {
-            intent,
-            ...(contextSnapshot === undefined
-              ? {}
-              : { contextItems: contextSnapshot }),
-          });
-        } catch (error) {
-          setContextSubmissionError(
-            formatAttachmentError(
-              error,
-              t("agentChat.composer.submitFailed", {
-                defaultValue: "Could not submit. Try again.",
-              }),
-            ),
+          setContextSubmissionError(null);
+          try {
+            await currentOnSubmit(text, references, submittedAttachments, {
+              intent,
+              ...(contextSnapshot === undefined
+                ? {}
+                : { contextItems: contextSnapshot }),
+            });
+          } catch (error) {
+            setContextSubmissionError(
+              formatAttachmentError(
+                error,
+                t("agentChat.composer.submitFailed", {
+                  defaultValue: "Could not submit. Try again.",
+                }),
+              ),
+            );
+            return false;
+          }
+          if (!isCurrentDraftScope()) {
+            clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
+            return true;
+          }
+          const clearSubmittedAttachments = attachmentCleanupRef.current.then(
+            async () => {
+              for (const attachment of submittedAttachments) {
+                const index = composerRuntime
+                  .getState()
+                  .attachments.findIndex((item) =>
+                    isSameComposerAttachment(item, attachment),
+                  );
+                if (index === -1) continue;
+                await composerRuntime.getAttachmentByIndex(index).remove();
+              }
+            },
           );
-          return false;
+          attachmentCleanupRef.current = clearSubmittedAttachments.catch(
+            (error) => {
+              console.error(
+                "Could not clear submitted composer attachments",
+                error,
+              );
+            },
+          );
+          if (clearOnSubmit) {
+            cancelActiveVoice();
+            clearSubmittedDraft();
+          }
+          try {
+            await clearSubmittedAttachments;
+          } catch {
+            const remainingAttachments = composerRuntime.getState().attachments;
+            setFailedAttachmentCleanupSnapshots((failed) => [
+              ...failed,
+              ...submittedAttachments.filter((submitted) =>
+                remainingAttachments.some((current) =>
+                  isSameComposerAttachment(current, submitted),
+                ),
+              ),
+            ]);
+            setContextSubmissionError(
+              t("agentChat.composer.attachmentsRemainAfterSubmit", {
+                defaultValue:
+                  "The message was sent, but some attachments remain. Remove them before sending again.",
+              }),
+            );
+            return true;
+          }
+          if (!clearOnSubmit) {
+            closePopover();
+            return true;
+          }
+          return true;
         } finally {
           submitInFlightRef.current = false;
         }
-        if (!isCurrentDraftScope()) {
-          clearComposerDraft(submittingDraftKey, submittingDraftSnapshot);
-          return true;
-        }
-        // Clear any pending attachments now that the host has them.
-        void composerRuntime.clearAttachments().catch(() => {});
-        if (!clearOnSubmit) {
-          closePopover();
-          return true;
-        }
-        cancelActiveVoice();
-        clearEditorAfterSubmit(submittingDraftSnapshot);
-        return true;
       } else {
         if (textOverride !== undefined) composerRuntime.setText(text);
         composerRuntime.send();
       }
       cancelActiveVoice();
-      if (isComposerEditorUsable(ed)) ed.commands.clearContent();
-      setEditorHasText(false);
-      setSlotReferences([]);
-      cancelScheduledDraftPersist();
-      clearComposerDraft(draftKey);
-      closePopover();
+      clearSubmittedDraft();
       return true;
     },
     [
@@ -4140,11 +4376,12 @@ export function TiptapComposer({
       composerRuntime,
       draftKey,
       editor,
+      failedAttachmentCleanupSnapshots,
       flushComposerDraft,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
       onBeforeSubmit,
-      onSubmit,
+      extractComposerPayload,
       syncComposerState,
       voice,
       allSlashCommands,
@@ -4177,7 +4414,7 @@ export function TiptapComposer({
       return;
     }
     if (normalized.relatedReferences?.some((reference) => reference.slotKey)) {
-      setSlotReferences((current) =>
+      updateSlotReferences((current) =>
         applySlotReferenceChanges(current, normalized.relatedReferences ?? []),
       );
     }
@@ -4386,7 +4623,7 @@ export function TiptapComposer({
       editor.commands.clearContent(false);
       initialTextKeyRef.current = undefined;
       setEditorHasText(false);
-      setSlotReferences([]);
+      updateSlotReferences([]);
       setComposerMode(null);
       composerModeRef.current = null;
       lastComposerRuntimeSyncRef.current = null;
@@ -4510,7 +4747,7 @@ export function TiptapComposer({
               <button
                 type="button"
                 onClick={() => {
-                  setSlotReferences((current) =>
+                  updateSlotReferences((current) =>
                     removeSlotReference(current, ref),
                   );
                   if (isComposerEditorUsable(editor)) {
@@ -4729,9 +4966,7 @@ export function TiptapComposer({
                     onClick={() => void submitComposer("immediate")}
                     disabled={!canSend}
                     aria-label={
-                      submitting
-                        ? t("agentChat.setup.checkingProvider")
-                        : sendButtonTooltip
+                      submitting ? t("common.loading") : sendButtonTooltip
                     }
                     aria-busy={submitting || undefined}
                     data-agent-composer-slot="send-button"
@@ -4745,9 +4980,7 @@ export function TiptapComposer({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {submitting
-                    ? t("agentChat.setup.checkingProvider")
-                    : sendButtonTooltip}
+                  {submitting ? t("common.loading") : sendButtonTooltip}
                 </TooltipContent>
               </Tooltip>
             )}

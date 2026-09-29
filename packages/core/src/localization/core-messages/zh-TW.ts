@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "無法載入內容脈絡。",
   "composer.contextLinkRequired": "請輸入連結。",
   "composer.submitFailed": "無法提交。請重試。",
+  "composer.attachmentsRemainAfterSubmit":
+    "訊息已送出，但仍有附件。請先移除附件再傳送下一則訊息。",
   "composer.addContext": "新增上下文",
   "composer.contextActionFailed": "無法新增上下文。",
   "composer.contextBack": "返回",

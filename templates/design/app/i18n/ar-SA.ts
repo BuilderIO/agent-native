@@ -222,6 +222,7 @@ export default {
     },
   },
   common: {
+    loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
   },
   editPanel: {

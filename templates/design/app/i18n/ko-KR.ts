@@ -224,6 +224,7 @@ export default {
     },
   },
   common: {
+    loading: "불러오는 중...",
     genericError: "문제가 발생했습니다.",
   },
   editPanel: {

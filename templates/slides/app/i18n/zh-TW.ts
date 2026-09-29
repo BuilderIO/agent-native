@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "第 {{current}} 頁，共 {{total}} 頁",
   },
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
+  common: {
+    loading: "載入中...",
+  },
   root: {
     commandPresentations: "簡報",
     searchDecks: "搜尋幻燈片",

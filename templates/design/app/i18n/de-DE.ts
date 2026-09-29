@@ -226,6 +226,7 @@ export default {
     },
   },
   common: {
+    loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
   },
   editPanel: {

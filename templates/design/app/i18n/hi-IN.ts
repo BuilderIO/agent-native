@@ -223,6 +223,7 @@ export default {
     },
   },
   common: {
+    loading: "लोड हो रहा है...",
     genericError: "कुछ गलत हो गया",
   },
   editPanel: {

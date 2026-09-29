@@ -19,6 +19,9 @@ const messages = {
     slidePosition: "स्लाइड {{current}} / {{total}}",
   },
   creativeContext: creativeContextMessagesByLocale["hi-IN"],
+  common: {
+    loading: "लोड हो रहा है...",
+  },
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
     searchDecks: "डेक खोजें",
