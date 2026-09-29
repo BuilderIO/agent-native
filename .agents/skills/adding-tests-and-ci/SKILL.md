@@ -69,8 +69,9 @@ nothing.
   allows 30 s; do not add a stricter per-block timeout.
 - **Give parallel workers separate databases.** A file that opens the
   database without `DATABASE_URL` gets the default directory, whose lock
-  admits one process at a time. Core's `vitest.setup.ts` gives each worker
-  slot its own; a test that asserts the default URL clears `DATABASE_URL`
+  admits one process at a time. Core's Vitest setup gives each worker slot
+  its own under a root that belongs to one run, so concurrent runs never
+  share one; a test that asserts the default URL clears `DATABASE_URL`
   itself.
 - **Keep the forks pool with isolation.** Threads ran slower and failed 79
   tests; turning isolation off gained 7% and failed 129.

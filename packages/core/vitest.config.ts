@@ -4,5 +4,10 @@ import baseConfig from "./src/vitest-config";
 
 export default mergeConfig(
   baseConfig,
-  defineConfig({ test: { setupFiles: ["./vitest.setup.ts"] } }),
+  defineConfig({
+    test: {
+      globalSetup: ["./vitest.global-setup.ts"],
+      setupFiles: ["./vitest.setup.ts"],
+    },
+  }),
 );
