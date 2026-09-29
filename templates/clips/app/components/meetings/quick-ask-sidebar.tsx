@@ -287,7 +287,7 @@ export function QuickAskSidebar({
             onChange={(e) => setDraft(e.target.value)}
             placeholder={t("quickAsk.placeholder")}
             className="min-h-[44px] max-h-32 resize-none text-sm"
-            disabled={!chatReady}
+            disabled={!chatReady && readiness !== "unknown"}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();

@@ -2729,6 +2729,7 @@ export interface AgentKitComposerProps extends Omit<
     | "voiceEnabled"
     | "autoFocus"
     | "disabled"
+    | "submissionDisabled"
     | "onDisabledClick"
     | "initialText"
     | "initialTextKey"
@@ -2811,6 +2812,7 @@ export function AgentKitComposer({
   onModeChange,
   toolbarSlot,
   disabled,
+  submissionDisabled,
   onDisabledClick,
   placeholder,
   initialText,
@@ -3264,6 +3266,7 @@ export function AgentKitComposer({
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
+        submissionDisabled={submissionDisabled}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}

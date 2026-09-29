@@ -63,6 +63,31 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   useAgentEngineConfigured: () => mocks.agentEngine,
   fetchAgentEngineConfiguredState: mocks.fetchAgentEngineConfiguredState,
 }));
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: ({
+    bouncePulse = 0,
+    onConnected,
+  }: {
+    bouncePulse?: number;
+    onConnected?: () => void;
+  }) => (
+    <div
+      data-setup-card
+      data-testid="ai-setup-card"
+      data-bounce-pulse={bouncePulse}
+    >
+      Connect AI
+      <button type="button" onClick={onConnected}>
+        Connect Builder.io
+      </button>
+      <a href="/settings/keys">Custom keys</a>
+    </div>
+  ),
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
+  PromptComposer: () => null,
+  snapshotComposerContextItems: () => [],
+}));
 vi.mock("@/components/templates/TemplatePreview", () => ({
   TemplatePreview: () => null,
 }));
@@ -524,7 +549,7 @@ describe("Index skip to editor", () => {
     );
     expect(
       container
-        .querySelector("[data-setup-card]")
+        .querySelector("[data-setup-card][data-bounce-pulse]")
         ?.getAttribute("data-bounce-pulse"),
     ).toBe("1");
 

@@ -34,6 +34,7 @@ import {
 
 afterEach(() => {
   invalidateClientStatusRequests();
+  modelCatalogMocks.load = null;
 });
 
 function clearBufferedAgentChatRequests(): void {
@@ -152,6 +153,8 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
   return {
     ...actual,
     useChatThreads: chatThreadHookMocks.useChatThreads,
+    loadChatModelCatalog: () =>
+      modelCatalogMocks.load?.() ?? actual.loadChatModelCatalog(),
   };
 });
 vi.mock("./RunStuckBanner.js", () => ({
@@ -202,6 +205,9 @@ const ANTHROPIC_ENGINES = [
 ];
 
 const actionMocks = vi.hoisted(() => ({ callAction: vi.fn(async () => null) }));
+const modelCatalogMocks = vi.hoisted(() => ({
+  load: null as null | (() => Promise<unknown>),
+}));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
   const actual =
@@ -322,6 +328,9 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
           data-composer-disabled={props.composerDisabled ? "true" : "false"}
+          data-composer-submission-disabled={
+            props.composerSubmissionDisabled ? "true" : "false"
+          }
           data-context-scope={
             props.contextScope
               ? `${props.contextScope.type}:${props.contextScope.id}`
@@ -690,7 +699,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
-  it("blocks a fresh chat until the model catalog resolves", async () => {
+  it("keeps a fresh chat editable until its model catalog resolves", async () => {
     const engines = [
       {
         name: "builder",
@@ -701,9 +710,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ];
     stubCatalog(engines, [], true);
     let resolveEngineList!: (value: unknown) => void;
-    actionMocks.callAction.mockImplementation(
-      () => new Promise((resolve) => (resolveEngineList = resolve)) as never,
-    );
+    modelCatalogMocks.load = () =>
+      new Promise((resolve) => (resolveEngineList = resolve));
 
     const el = document.createElement("div");
     document.body.appendChild(el);
@@ -716,18 +724,34 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-composer-disabled"),
+    ).toBe("false");
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-submission-disabled"),
     ).toBe("true");
 
     await act(async () => {
-      resolveEngineList({ engines });
+      resolveEngineList({
+        state: "available",
+        groups: [],
+        defaultModel: "gpt-5-6-luna",
+        loadLiveGroups: async () => null,
+      });
       await Promise.resolve();
       await Promise.resolve();
     });
+    modelCatalogMocks.load = null;
 
     expect(
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-composer-disabled"),
+    ).toBe("false");
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-composer-submission-disabled"),
     ).toBe("false");
 
     await act(async () => localRoot.unmount());

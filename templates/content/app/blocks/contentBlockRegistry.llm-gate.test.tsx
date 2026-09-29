@@ -9,12 +9,15 @@ const sendToAgentChat = vi.hoisted(() => vi.fn());
 const setupCard = vi.hoisted(() => vi.fn(() => "shared setup"));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  BuilderSetupCard: setupCard,
   sendToAgentChat,
   useAgentEngineConfigured: () => ({
     missing: agentState.state === "missing",
     state: agentState.state,
   }),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
+  BuilderSetupCard: setupCard,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -85,23 +88,38 @@ describe("Content structured-block AI prompt readiness gate", () => {
     expect(sendToAgentChat).not.toHaveBeenCalled();
   });
 
-  it.each(["unknown", "unavailable"])(
-    "keeps the field locked without showing setup while readiness is %s",
-    (state) => {
-      agentState.state = state;
+  it("keeps drafts editable while readiness is checked without allowing submission", () => {
+    const textarea = render();
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      setValue.call(textarea, "  Add a clear title  ");
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() =>
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
 
-      const textarea = render();
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.value).toBe("  Add a clear title  ");
+    expect(container.textContent).not.toContain("setup.checkingProvider");
+    expect(sendToAgentChat).not.toHaveBeenCalled();
+    expect(setupCard).not.toHaveBeenCalled();
+  });
 
-      expect(textarea.disabled).toBe(true);
-      expect(container.textContent).not.toContain("setup.checkingProvider");
-      if (state === "unavailable") {
-        expect(container.textContent).toContain(
-          "setup.providerStatusUnavailable",
-        );
-      }
-      expect(setupCard).not.toHaveBeenCalled();
-    },
-  );
+  it("locks drafts when readiness cannot be checked", () => {
+    agentState.state = "unavailable";
+
+    const textarea = render();
+
+    expect(textarea.disabled).toBe(true);
+    expect(container.textContent).toContain("setup.providerStatusUnavailable");
+    expect(setupCard).not.toHaveBeenCalled();
+  });
 
   it("submits the unchanged focused-block prompt once an LLM provider is ready", () => {
     agentState.state = "configured";

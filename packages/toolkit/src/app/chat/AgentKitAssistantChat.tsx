@@ -1698,7 +1698,7 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [isRunning]);
 
   const acquireSubmission = useCallback(async () => {
-    if (isRestoring) return null;
+    if (isRestoring || props.composerSubmissionDisabled) return null;
     if (!canChat) {
       if (setupMissing) {
         bounceSetupCard();
@@ -1721,6 +1721,7 @@ const AgentKitAssistantChatBody = forwardRef<
     canChat,
     history,
     isRestoring,
+    props.composerSubmissionDisabled,
     props.tabId,
     setupMissing,
     threadId,
@@ -2706,7 +2707,9 @@ function AgentKitEmptyState({ threadId }: { threadId: string }) {
                     }
                     type="button"
                     disabled={
-                      !surface.canChat || surface.props.composerDisabled
+                      !surface.canChat ||
+                      surface.props.composerDisabled ||
+                      surface.props.composerSubmissionDisabled
                     }
                     onClick={() => surface.submitSuggestion(prompt)}
                     className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-left text-[13px] text-muted-foreground shadow-sm transition-colors hover:border-border hover:bg-card hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -2821,6 +2824,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
         disabled={
           !surface.canChat ||
           surface.props.composerDisabled ||
+          surface.props.composerSubmissionDisabled ||
           surface.isSubmissionInFlight
         }
         onSelect={surface.submitSuggestion}
@@ -3015,6 +3019,7 @@ function renderThreadSlot(
 function composerPlaceholder({
   props,
   canChat,
+  providerStatus,
   setupMissing,
   isRunning,
   thread,
@@ -3022,6 +3027,7 @@ function composerPlaceholder({
 }: {
   props: AgentKitAssistantChatProps;
   canChat: boolean;
+  providerStatus: AgentEngineConfiguredState;
   setupMissing: boolean;
   isRunning: boolean;
   thread: ReturnType<typeof useAgentThread>;
@@ -3042,7 +3048,9 @@ function composerPlaceholder({
   }
   return (
     props.composerPlaceholder ??
-    (canChat ? "Ask the agent to explore, build, or explain…" : "")
+    (canChat || providerStatus === "unknown"
+      ? "Ask the agent to explore, build, or explain…"
+      : "")
   );
 }
 
@@ -3231,7 +3239,12 @@ function AgentKitComposerSurface({
       {showHomeSuggestions ? (
         <AgentKitSuggestedPrompts
           suggestions={suggestions}
-          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          disabled={
+            !canChat ||
+            props.composerDisabled ||
+            props.composerSubmissionDisabled ||
+            isSubmissionInFlight
+          }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
         />
@@ -3278,11 +3291,12 @@ function AgentKitComposerSurface({
         <AgentKitComposer
           threadId={threadId}
           disabled={
-            !canChat ||
+            (!canChat && providerStatus !== "unknown") ||
             props.composerDisabled ||
             isRestoring ||
             isSubmissionInFlight
           }
+          submissionDisabled={!canChat || props.composerSubmissionDisabled}
           onDisabledClick={
             props.composerDisabled || !setupMissing
               ? undefined
@@ -3325,6 +3339,7 @@ function AgentKitComposerSurface({
           placeholder={composerPlaceholder({
             props,
             canChat,
+            providerStatus,
             setupMissing,
             isRunning,
             thread,
@@ -3433,7 +3448,12 @@ function AgentKitComposerSurface({
       {showAfterComposerSuggestions ? (
         <AgentKitSuggestedPrompts
           suggestions={suggestions}
-          disabled={!canChat || props.composerDisabled || isSubmissionInFlight}
+          disabled={
+            !canChat ||
+            props.composerDisabled ||
+            props.composerSubmissionDisabled ||
+            isSubmissionInFlight
+          }
           onSelect={submitSuggestion}
           className="agentkit-home-suggestions"
         />

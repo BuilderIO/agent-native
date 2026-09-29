@@ -1765,7 +1765,7 @@ function CreateExtensionPopover({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t("designEditor.extensionsPlaceholder")}
-              disabled={!providerReady}
+              disabled={!providerReady && providerStatus !== "unknown"}
               className="min-h-24 resize-none border-border/80 bg-background/80 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
             />
             <div className="flex justify-end gap-2">

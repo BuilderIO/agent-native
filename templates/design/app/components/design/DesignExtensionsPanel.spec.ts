@@ -159,7 +159,9 @@ describe("Design extension creation — LLM readiness gate", () => {
   it("keeps prompt entry and submission behind the readiness state", () => {
     expect(source).toContain('providerStatus.state === "configured"');
     expect(source).toContain('providerStatus === "configured"');
-    expect(source).toContain("disabled={!providerReady}");
+    expect(source).toContain(
+      'disabled={!providerReady && providerStatus !== "unknown"}',
+    );
     expect(source).toMatch(
       /if \(!providerReady\) return;[\s\S]*?sendToDesignAgentChat\(/,
     );

@@ -644,6 +644,82 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
   });
 
+  it("keeps the composer editable while provider readiness is checked", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(false);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends a draft once provider readiness resolves", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        composerSubmissionDisabled: true,
+      }),
+    );
+
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(false);
+
+    await act(async () => {
+      chatMocks.readiness = {
+        canChat: true,
+        missing: false,
+        state: "configured",
+      };
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            providerStatusChecksEnabled: true,
+            composerSubmissionDisabled: false,
+          })}
+        />,
+      );
+    });
+
+    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
+    await act(async () => {
+      await chatMocks.composerProps.onSubmit(
+        "Send after discovery",
+        [],
+        [],
+        {},
+      );
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]?.text).toBe(
+      "Send after discovery",
+    );
+  });
+
+  it("keeps the composer editable when the host blocks submission", async () => {
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: false,
+        composerSubmissionDisabled: true,
+      }),
+    );
+
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
+    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(false);
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("places starter prompts between the composer and after-composer content", async () => {
     chatMocks.renderEmptyState = true;
     await mount(

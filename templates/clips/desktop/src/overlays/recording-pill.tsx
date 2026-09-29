@@ -1439,7 +1439,12 @@ export function MeetingPill() {
                   isActiveComposer
                   composerDisabled={
                     !ctx.meetingId ||
-                    (!pillDemoMode && providerStatus !== "eligible")
+                    (!pillDemoMode &&
+                      providerStatus !== "eligible" &&
+                      providerStatus !== "unknown")
+                  }
+                  composerSubmissionDisabled={
+                    !pillDemoMode && providerStatus !== "eligible"
                   }
                   onMessageCountChange={handleAskMessageCountChange}
                   plusMenuMode="hidden"

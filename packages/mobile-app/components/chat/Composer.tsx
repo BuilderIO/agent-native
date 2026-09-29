@@ -357,13 +357,13 @@ export function Composer({
 }) {
   const t = useT();
   const chatPlaceholder =
-    chatEligibility === "checking"
+    chatEligibility === "checking" || chatEligibility === "eligible"
       ? "Message the agent…  (@ to mention)"
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
   const chatAccessibilityHint =
-    chatEligibility === "checking"
+    chatEligibility === "checking" || chatEligibility === "eligible"
       ? undefined
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
@@ -860,7 +860,7 @@ export function Composer({
           }
           placeholderTextColor={mutedForeground}
           multiline
-          editable={chatReady && !isRestoring}
+          editable={(chatReady || providerStatus === "unknown") && !isRestoring}
           accessibilityHint={canChat ? undefined : chatAccessibilityHint}
           keyboardAppearance={theme}
           accessibilityLabel="Message input"

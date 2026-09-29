@@ -207,7 +207,8 @@ function ContentAiBlockAction({
         placeholder="Describe a change…"
         ariaLabel={`Describe a change to ${label.toLowerCase()}`}
         onSubmit={submitPrompt}
-        disabled={!agentReady}
+        disabled={!agentReady && agentEngine.state !== "unknown"}
+        submissionDisabled={!agentReady}
       />
     </div>
   );
@@ -218,11 +219,13 @@ function InlinePromptField({
   ariaLabel,
   onSubmit,
   disabled,
+  submissionDisabled,
 }: {
   placeholder: string;
   ariaLabel?: string;
   onSubmit: (text: string) => void;
   disabled?: boolean;
+  submissionDisabled?: boolean;
 }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement | null>(null);
@@ -236,7 +239,7 @@ function InlinePromptField({
 
   const submit = () => {
     const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!trimmed || submissionDisabled) return;
     onSubmit(trimmed);
     setValue("");
     if (ref.current) ref.current.style.height = "";

@@ -3205,9 +3205,8 @@ export function MultiTabAssistantChat({
                   // sub-agent tab would start a fresh run on that thread and kill
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
-                  composerDisabled={
-                    Boolean(parentMap[tabId]) || modelSelectionPending
-                  }
+                  composerDisabled={Boolean(parentMap[tabId])}
+                  composerSubmissionDisabled={modelSelectionPending}
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
