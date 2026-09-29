@@ -59,7 +59,7 @@ const SHIPPING_CHURN_RE =
   /\b(?:don['’]?t|do not|stop)\b(?!\s+(?:forget|remember)\b)(?=[^.!?\n]{0,220}\b(?:(?:routin\w*|generic|maintenance|chore|repeated|again|100\s+times|clean|behind|timer)\b|unless[^.!?\n]{0,60}\b(?:conflict\w*|necessary|routin\w*|chore|clear)\b))[^.!?\n]{0,220}\b(?:merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?|chore(?:\s+|[- :])?\s*(?:publish\s+branch\s+work\s+)?commits?|ship:push|(?:generic|routine|maintenance|unnecessary)\s+(?:ship|publish)?\s*(?:commits?|changes?)|(?:ship|publish)\s+(?:(?:a|the|generic|routine|maintenance)\s+)?(?:commits?|changes?)|(?:push|commit)(?:ting|ing)?\s+(?:up\s+)?(?:(?:generic|routine|maintenance|unnecessary)\s+)?(?:commits?|changes?)|(?:updat(?:e|ing|ed)|sync(?:e|ing)|refresh(?:e|ing))\b[^.!?\n]{0,80}\b(?:from|with|against)\s+`?(?:origin\/)?main`?)\b|\bonly\s+(?:push(?:\s+up)?|merg(?:e|ed|es|ing)\s+(?:the\s+)?`?(?:origin\/)?main`?)\b[^.!?\n]{0,220}\b(?:CI\s+errors?|PR\s+feedback|merge\s+conflicts?|clear\s+(?:CI|merge)|prevent(?:s|ing)?\s+merge)\b/i;
 
 const UNAUTHORIZED_PR_PUSH_RE =
-  /\b(?:never|don['’]?t|do not|must not)\b[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|don['’]?t|do not|must not)\b[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:I|we)(?:['’]ve| have)?\s+(?:own|opened|created|authored)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:I|we)(?:['’]ve| have)?\s+(?:own|opened|created|authored))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
+  /\b(?:never|don['’]?t|do not|must not)\b[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b|\b(?:never|don['’]?t|do not|must not)\b[^.!?\n]{0,100}\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,60}\b(?:I|we)(?:['’]ve| have)?\s+(?:own|opened|created|authored)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|my|our|external|third[- ]party)\b[^.!?\n]{0,60}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b|\bpush(?:ed|ing)?\b[^.!?\n]{0,100}\b(?:PRs?|pull requests?)\b[^.!?\n]{0,100}\b(?:someone\s+else(?:['’]s)?|another\s+person(?:['’]s)?|(?:I|we)(?:['’]ve| have)?\s+(?:own|opened|created|authored))\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,50}\b(?:explicit(?:ly)?|authori[sz]ation|permission|instruction|told|ask(?:ed|ing)?)\b/i;
 
 const BETA_PUBLISHER_OPERATION = String.raw`cancel(?:l?ed|l?ing|l?ations?)?|re-?dispatch(?:ed|ing)?|pin(?:ned|ning)?`;
 const BETA_PUBLISHER_RUN_INTERFERENCE_RE = new RegExp(
@@ -846,6 +846,9 @@ const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
   [true, "Never push to someone else's PR unless explicitly told to."],
   [true, "Don't push to another person's pull request without authorization."],
   [true, "Pushed to a PR from someone else without explicit permission."],
+  [true, "Never push to an external PR unless explicitly authorized."],
+  [true, "Do not push to a third-party pull request without permission."],
+  [true, "Pushed to an external PR without explicit authorization."],
   [true, "Don't push to my PR without explicit authorization."],
   [true, "Pushed to my PR without asking."],
   [true, "Don't push to a PR I own."],
@@ -862,6 +865,8 @@ const UNAUTHORIZED_PR_PUSH_REGEX_CASES = [
   [false, "Please push these fixes to a PR I’ve authored."],
   [false, "I explicitly authorized pushing to Alice's PR."],
   [false, "I explicitly authorized pushing to my PR."],
+  [false, "I explicitly authorized pushing to an external PR."],
+  [false, "Please push these fixes to the third-party PR."],
 ];
 
 const BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES = [
