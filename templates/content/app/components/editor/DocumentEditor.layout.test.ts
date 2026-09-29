@@ -19,9 +19,6 @@ import {
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
-  type HeldContentStates,
-  heldContentKey,
-  heldServerContentBase,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   lifecycleKeepaliveDisposition,
@@ -32,7 +29,6 @@ import {
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
-  recordHeldContent,
   recordOwnContentSave,
   refreshUnchangedContentSaveWatermark,
   sameAnchoredCommentPosition,
@@ -1498,174 +1494,6 @@ describe("document editor layout", () => {
     expect(lineage.size).toBe(32);
     expect(lineage.has("body:8")).toBe(false);
     expect(lineage.has("body:40")).toBe(true);
-  });
-
-  it("rebases onto a peer's revision of a body this editor already held", () => {
-    const held: HeldContentStates = new Map();
-    recordHeldContent(held, "Intro", 2);
-    recordHeldContent(held, "Intro\nMine", 4);
-    // The peer's edit arrived through collaboration before it saved.
-    recordHeldContent(held, "Intro edited\nMine", 4);
-    const captured = {
-      content: "Intro",
-      updatedAt: "2026-09-29T15:00:00.000Z",
-      revision: "body:30:a",
-    };
-    const peer = {
-      content: "Intro edited\nMine",
-      updatedAt: "2026-09-29T15:00:02.000Z",
-      revision: "body:31:b",
-    };
-
-    const rebased = heldServerContentBase({
-      base: captured,
-      server: peer,
-      held,
-      editGeneration: 5,
-    });
-    expect(rebased).toBe(peer);
-
-    const incoming = {
-      writerId: "browser:alice:session",
-      operationId: "session:5",
-      generation: 5,
-    };
-    const candidate = "Intro edited\nMine\nMore";
-    expect(
-      mergeDocumentBodyIntents({
-        authoredBaseContent: captured.content,
-        authoredCandidateContent: candidate,
-        currentContent: peer.content,
-        currentRevision: 31,
-        incoming: { ...incoming, authoredBaseRevision: 30 },
-        priorIntents: [],
-      }),
-    ).toEqual({ status: "preservation-required", reason: "structure" });
-    expect(
-      mergeDocumentBodyIntents({
-        authoredBaseContent: rebased!.content,
-        authoredCandidateContent: candidate,
-        currentContent: peer.content,
-        currentRevision: 31,
-        incoming: { ...incoming, authoredBaseRevision: 31 },
-        priorIntents: [],
-      }),
-    ).toMatchObject({ status: "resolved", content: candidate });
-  });
-
-  it("keeps the base when this editor never held the newer body first", () => {
-    const held: HeldContentStates = new Map();
-    recordHeldContent(held, "Old", 1);
-    recordHeldContent(held, "Intro", 3);
-    recordHeldContent(held, "Intro\nMine", 4);
-    recordHeldContent(held, "Intro\nPeer", 5);
-    const base = { content: "Intro", updatedAt: null, revision: "body:30:a" };
-
-    // An agent edit written only to the page never reached the editor.
-    expect(
-      heldServerContentBase({
-        base,
-        server: {
-          content: "Intro\nAgent",
-          updatedAt: null,
-          revision: "body:31:b",
-        },
-        held,
-        editGeneration: 6,
-      }),
-    ).toBeNull();
-    // The snapshot being saved was taken before the peer's body arrived.
-    expect(
-      heldServerContentBase({
-        base,
-        server: {
-          content: "Intro\nPeer",
-          updatedAt: null,
-          revision: "body:31:b",
-        },
-        held,
-        editGeneration: 5,
-      }),
-    ).toBeNull();
-    // A restore to a body held before the base doesn't build on the base.
-    expect(
-      heldServerContentBase({
-        base,
-        server: { content: "Old", updatedAt: null, revision: "body:31:b" },
-        held,
-        editGeneration: 6,
-      }),
-    ).toBeNull();
-    // A base this editor never held gives no lineage to compare against.
-    expect(
-      heldServerContentBase({
-        base: { content: "Loaded", updatedAt: null, revision: "body:30:a" },
-        server: {
-          content: "Intro\nPeer",
-          updatedAt: null,
-          revision: "body:31:b",
-        },
-        held,
-        editGeneration: 6,
-      }),
-    ).toBeNull();
-    // A stale server read never moves the base backwards.
-    expect(
-      heldServerContentBase({
-        base: {
-          content: "Intro\nMine",
-          updatedAt: null,
-          revision: "body:32:c",
-        },
-        server: {
-          content: "Intro\nPeer",
-          updatedAt: null,
-          revision: "body:31:b",
-        },
-        held,
-        editGeneration: 6,
-      }),
-    ).toBeNull();
-  });
-
-  it("bounds the bodies this editor held", () => {
-    const held: HeldContentStates = new Map();
-    for (let generation = 1; generation <= 1030; generation++) {
-      recordHeldContent(held, `body ${generation}`, generation);
-    }
-    expect(held.size).toBe(1024);
-    expect(held.has(heldContentKey("body 6"))).toBe(false);
-    expect(held.get(heldContentKey("body 7"))).toBe(7);
-    expect(held.get(heldContentKey("body 1030"))).toBe(1030);
-
-    // Holding a body again moves it to the newest generation.
-    recordHeldContent(held, "body 7", 1031);
-    recordHeldContent(held, "body 1032", 1032);
-    expect(held.get(heldContentKey("body 7"))).toBe(1031);
-    expect(held.has(heldContentKey("body 8"))).toBe(false);
-    expect(heldContentKey("Intro\nMine")).not.toBe(
-      heldContentKey("Intro\nMind"),
-    );
-  });
-
-  it("records each body the live editor holds and offers it as a save base", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      { encoding: "utf8" },
-    ).replace(/\r\n/g, "\n");
-    const callback = (name: string) => {
-      const start = source.indexOf(`const ${name} = useCallback(`);
-      return source.slice(start, source.indexOf("\n  );\n", start));
-    };
-
-    expect(callback("handleContentChange")).toContain("recordHeldContent(");
-    // A peer snapshot is recorded after any local emission already queued.
-    expect(callback("handleRemoteSnapshotChange")).toMatch(
-      /setTimeout\(\(\) => \{[\s\S]*recordHeldContent\([\s\S]*\}, 0\);/,
-    );
-    expect(callback("saveDocumentImmediately")).toContain(
-      "heldServerContentBase({",
-    );
   });
 
   it("flushes a pending title with an icon update", () => {

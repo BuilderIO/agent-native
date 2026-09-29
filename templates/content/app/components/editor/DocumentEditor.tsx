@@ -236,7 +236,7 @@ import {
   type ReconcileRecoveryDraft,
   type ReconcileSaveBase,
 } from "./useDocumentReconcileRecovery";
-import { compareDocumentBodyRevisions, VisualEditor } from "./VisualEditor";
+import { VisualEditor } from "./VisualEditor";
 import type {
   VisualEditorSuggestion,
   VisualEditorHistoryController,
@@ -677,70 +677,6 @@ export function ownConfirmedContentBase(args: {
     revision = link.baseRevision;
   }
   return null;
-}
-
-/**
- * Digests of the page bodies this editor session held, with the latest edit
- * generation at which it held each one.
- */
-export type HeldContentStates = Map<string, number>;
-
-const HELD_CONTENT_STATE_LIMIT = 1024;
-
-export function heldContentKey(content: string): string {
-  let h1 = 0xdeadbeef ^ content.length;
-  let h2 = 0x41c6ce57 ^ content.length;
-  for (let i = 0; i < content.length; i += 1) {
-    const ch = content.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return `${content.length}:${(h2 >>> 0).toString(36)}:${(h1 >>> 0).toString(36)}`;
-}
-
-export function recordHeldContent(
-  held: HeldContentStates,
-  content: string,
-  editGeneration: number,
-) {
-  const key = heldContentKey(content);
-  held.delete(key);
-  held.set(key, editGeneration);
-  while (held.size > HELD_CONTENT_STATE_LIMIT) {
-    held.delete(held.keys().next().value as string);
-  }
-}
-
-// A peer tab can commit a body this editor already holds, because the
-// peer's edits reached both editors through collaboration first. Every
-// later generation of this session descends from that body, so the peer's
-// revision is a safe base. A peer builds on the base, so this editor must
-// have held the peer's body no earlier than the base. That rules out a
-// restore that returned the page to an older body this editor once held.
-// A body this editor never held, such as an agent edit written only to the
-// page, never qualifies.
-export function heldServerContentBase(args: {
-  base: DocumentContentBase;
-  server: ContentSaveWatermark;
-  held: ReadonlyMap<string, number>;
-  editGeneration: number;
-}): ContentSaveWatermark | null {
-  const { base, server } = args;
-  if (!server.revision || !base.revision) return null;
-  const order = compareDocumentBodyRevisions(server.revision, base.revision);
-  if (order === null || order <= 0) return null;
-  const baseHeldAt = args.held.get(heldContentKey(base.content));
-  const serverHeldAt = args.held.get(heldContentKey(server.content));
-  return baseHeldAt !== undefined &&
-    serverHeldAt !== undefined &&
-    baseHeldAt <= serverHeldAt &&
-    serverHeldAt < args.editGeneration
-    ? server
-    : null;
 }
 
 function adoptConfirmedSaveWatermarks({
@@ -2306,7 +2242,6 @@ function PageEditorSessionBody({
   const editorEditGenerationRef = useRef(0);
   const authoredContentIntentRef = useRef<AuthoredContentIntent | null>(null);
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
-  const heldContentStatesRef = useRef<HeldContentStates>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
@@ -2671,7 +2606,6 @@ function PageEditorSessionBody({
     if (prevDocIdRef.current !== documentId) {
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
-      heldContentStatesRef.current = new Map();
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -3012,21 +2946,6 @@ function PageEditorSessionBody({
             for (const field of fields) {
               persistenceErrorsRef.current.set(field, error);
             }
-            // The next queued save runs before the next render. It must see
-            // the revision that refused this one to rebase onto it.
-            const current = result.document;
-            if (
-              current.updatedAt &&
-              (!documentUpdatedAtRef.current ||
-                current.updatedAt >= documentUpdatedAtRef.current)
-            ) {
-              documentUpdatedAtRef.current = current.updatedAt;
-              documentContentRef.current = current.content;
-              documentRevisionRef.current = current.revision;
-              if (current.title === lastSavedTitleRef.current.title) {
-                lastSavedTitleRef.current.updatedAt = current.updatedAt;
-              }
-            }
           } else {
             if (
               updates.content !== undefined &&
@@ -3241,48 +3160,32 @@ function PageEditorSessionBody({
         serverUpdatedAt: documentUpdatedAtRef.current,
         lastSaved: lastSavedContentRef.current,
       });
-      const serverBody = {
-        content: documentContentRef.current,
-        updatedAt: documentUpdatedAtRef.current,
-        revision: documentRevisionRef.current,
-      };
-      const advancedBase = (captured: DocumentContentBase) => {
-        const own = ownConfirmedContentBase({
+      const ownBase = (captured: DocumentContentBase) =>
+        ownConfirmedContentBase({
           captured,
           latest: lastSavedContentRef.current,
           lineage: ownContentSaveLineageRef.current,
           editGeneration: editorEditGeneration,
         });
-        return (
-          heldServerContentBase({
-            base: own ?? captured,
-            server: serverBody,
-            held: heldContentStatesRef.current,
-            editGeneration: editorEditGeneration,
-          }) ?? own
-        );
-      };
-      const advancedContentBase =
-        options.contentBase && advancedBase(options.contentBase);
+      const ownContentBase =
+        options.contentBase && ownBase(options.contentBase);
       const intent = options.authoredContentIntent;
-      const advancedIntentBase =
+      const ownIntentBase =
         intent &&
-        advancedBase({
+        ownBase({
           content: intent.baseContent,
           updatedAt: null,
           revision: intent.baseRevision,
         });
       options = {
         ...options,
-        ...(advancedContentBase
-          ? { contentBase: { ...advancedContentBase } }
-          : {}),
-        ...(intent && advancedIntentBase
+        ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
+        ...(intent && ownIntentBase
           ? {
               authoredContentIntent: {
                 ...intent,
-                baseRevision: advancedIntentBase.revision,
-                baseContent: advancedIntentBase.content,
+                baseRevision: ownIntentBase.revision,
+                baseContent: ownIntentBase.content,
               },
             }
           : {}),
@@ -5208,11 +5111,6 @@ function PageEditorSessionBody({
       if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
-      recordHeldContent(
-        heldContentStatesRef.current,
-        newContent,
-        editorEditGenerationRef.current,
-      );
       authoredContentIntentRef.current = {
         editGeneration: editorEditGenerationRef.current,
         baseRevision: lastSavedContentRef.current.revision,
@@ -5248,14 +5146,6 @@ function PageEditorSessionBody({
     (content: string) => {
       if (content === localContentRef.current) return;
       contentObservationEpochRef.current += 1;
-      // A local edit serialized before this snapshot arrived can still be
-      // waiting to be emitted. Record the snapshot after that emission, so
-      // the edit, which lacks the snapshot, never counts as built on it.
-      const held = heldContentStatesRef.current;
-      setTimeout(() => {
-        if (held !== heldContentStatesRef.current) return;
-        recordHeldContent(held, content, editorEditGenerationRef.current);
-      }, 0);
       localContentRef.current = content;
       setLocalContent(content);
       if (

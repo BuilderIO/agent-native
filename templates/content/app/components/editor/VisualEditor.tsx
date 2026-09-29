@@ -162,7 +162,7 @@ import { LinkHoverPreview } from "./LinkHoverPreview";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { TableHoverControls } from "./TableHoverControls";
 
-export function compareDocumentBodyRevisions(
+function compareDocumentBodyRevisions(
   first: string,
   second: string,
 ): number | null {
