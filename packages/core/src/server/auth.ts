@@ -86,6 +86,7 @@ type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
 import {
   MCP_LEGACY_ROUTE_PREFIX,
@@ -106,6 +107,7 @@ import type {
   ResetPasswordPageProps,
 } from "../shared/auth-page-types.js";
 import {
+  DISABLED_SSR_CACHE_HEADERS,
   resolveSsrCacheHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
@@ -192,6 +194,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { getSignInBlockingSettingKeys } from "./deploy-settings.js";
 import {
   readDesktopSso,
   writeDesktopSso,
@@ -239,6 +242,7 @@ import {
 } from "./magic-link-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
+  getDeploySettingsRequiredHtml,
   getOnboardingHtml,
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
@@ -765,11 +769,21 @@ function betterAuthCallbackURL(
   }
 }
 
-export function getConfiguredLoginHtml(event: H3Event): string | null {
+export interface ConfiguredLoginPage {
+  html: string;
+  /** 503 while the deploy is missing a setting sign-in needs. */
+  status: 200 | 503;
+}
+
+export function getConfiguredLoginHtml(
+  event: H3Event,
+): ConfiguredLoginPage | null {
   const config = _authGuardConfig;
   if (!config) return null;
   const { rawPath, search } = getRequestPathAndSearch(event);
   const requestPath = `${rawPath}${search}`;
+  const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
+  if (setupRequiredHtml) return { html: setupRequiredHtml, status: 503 };
   const loginHtml =
     config.getLoginHtml?.(event, requestPath) ?? config.loginHtml ?? null;
   if (!loginHtml) return null;
@@ -780,10 +794,13 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
     !loginHtml.includes("data-agent-native-app-origin-config")
       ? injectHeadScript(loginHtml, appOriginConfigScript)
       : loginHtml;
-  return injectLoginSocialImageMeta(
-    injectBetaOptOutPersistence(html, requestPath),
-    event,
-  );
+  return {
+    html: injectLoginSocialImageMeta(
+      injectBetaOptOutPersistence(html, requestPath),
+      event,
+    ),
+    status: 200,
+  };
 }
 
 /**
@@ -2053,6 +2070,12 @@ let trustCustomEmailVerification = false;
 interface AuthGuardConfig {
   loginHtml: string;
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
+  /**
+   * The page served instead of sign-in, or null when sign-in can work. Set
+   * only where the framework's own accounts sign people in; a custom
+   * `getSession` has its own requirements.
+   */
+  getSetupRequiredHtml?: (event: H3Event, rawPath: string) => string | null;
   authMode?: OnboardingHtmlOptions["authMode"];
   rootAuth: boolean;
   publicPaths: string[];
@@ -2224,16 +2247,38 @@ function getAuthOnboardingHtml(
   );
 }
 
+function getDeploySettingsRequiredPage(
+  event: H3Event,
+  rawPath: string,
+): string | null {
+  const keys = getSignInBlockingSettingKeys();
+  if (keys.length === 0) return null;
+  const { locale, dir } = resolveLocaleFromRequest({
+    acceptLanguage: getHeader(event, "accept-language"),
+  });
+  return getDeploySettingsRequiredHtml({
+    keys,
+    locale,
+    dir,
+    requestPath: rawPath,
+  });
+}
+
 function getOnboardingLoginHtmlConfig(
   options: AuthOptions,
   authMode?: OnboardingHtmlOptions["authMode"],
 ): Pick<
   AuthGuardConfig,
-  "loginHtml" | "getLoginHtml" | "authMode" | "rootAuth"
+  | "loginHtml"
+  | "getLoginHtml"
+  | "getSetupRequiredHtml"
+  | "authMode"
+  | "rootAuth"
 > {
   if (options.loginHtml) {
     return {
       loginHtml: options.loginHtml,
+      getSetupRequiredHtml: getDeploySettingsRequiredPage,
       authMode,
       rootAuth: options.rootAuth ?? true,
     };
@@ -2244,6 +2289,7 @@ function getOnboardingLoginHtmlConfig(
     loginHtml: getAuthOnboardingHtml(options, undefined, undefined, authMode),
     getLoginHtml: (event, rawPath) =>
       getAuthOnboardingHtml(options, event, rawPath, authMode),
+    getSetupRequiredHtml: getDeploySettingsRequiredPage,
   };
 }
 
@@ -3499,17 +3545,33 @@ function injectHeadScript(html: string, script: string): string {
   return `<!doctype html><html><head>${script}</head><body>${html}</body></html>`;
 }
 
+function setupRequiredResponse(html: string): Response {
+  // Never cached, unlike the sign-in page: once the setting is added and the
+  // app redeployed, the next visit must reach sign-in.
+  return new Response(html, {
+    status: 503,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...DISABLED_SSR_CACHE_HEADERS,
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
+}
+
 function loginHtmlResponse(
-  loginHtml: string,
+  config: AuthGuardConfig,
   event: H3Event,
+  requestPath: string,
   options: {
     includeRootAuthRedirect?: boolean;
     requestIndependent?: boolean;
   } = {},
 ): Response {
+  const setupRequiredHtml = config.getSetupRequiredHtml?.(event, requestPath);
+  if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
   const { search } = getRequestPathAndSearch(event);
   const appOriginConfigScript = getAppOriginClientConfigScript();
-  let html = loginHtml;
+  let html = config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
   if (
     appOriginConfigScript &&
     !html.includes("data-agent-native-app-origin-config")
@@ -3808,9 +3870,6 @@ function createAuthGuardFn(
       return;
     }
 
-    const loginHtml =
-      config.getLoginHtml?.(event, requestPath) ?? config.loginHtml;
-
     if (
       config.rootAuth &&
       p === "/" &&
@@ -3818,7 +3877,7 @@ function createAuthGuardFn(
         "/" &&
       isHtmlDocumentRequest(event, p)
     ) {
-      return loginHtmlResponse(loginHtml, event, {
+      return loginHtmlResponse(config, event, requestPath, {
         includeRootAuthRedirect: true,
         requestIndependent: true,
       });
@@ -3842,11 +3901,11 @@ function createAuthGuardFn(
         const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
-      return loginHtmlResponse(loginHtml, event);
+      return loginHtmlResponse(config, event, requestPath);
     }
 
     if (p === "/login" || p === "/signup") {
-      return loginHtmlResponse(loginHtml, event);
+      return loginHtmlResponse(config, event, requestPath);
     }
 
     if (
@@ -5306,6 +5365,13 @@ async function mountBetterAuthRoutes(
   app.use(
     DESKTOP_MAGIC_LINK_LANDING_PATH,
     defineEventHandler(async (event) => {
+      // Mounted before Better Auth starts, so it outlives an init failure; its
+      // form could never sign anyone in on a deploy missing a setting.
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
       if (getMethod(event) === "POST") {
         const body = await readBody<Record<string, unknown>>(event);
         const verificationURL = desktopMagicLinkVerificationUrl(event, body);

@@ -77,7 +77,7 @@ export interface RuntimeConfigReportOptions {
    * guess from key names and `NODE_ENV`, while the server resolves unpooled
    * and config-level database URLs and the workspace-derived auth secret, and
    * knows whether it is deployed at all. A runtime probe must never fall back
-   * to them, or the sign-in banner and the refusals can disagree.
+   * to them, or the in-app notice and the refusals can disagree.
    */
   missingDeploySettings?: MissingDeploySettings;
 }

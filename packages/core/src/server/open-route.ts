@@ -201,10 +201,10 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       if (allowAnonymous) {
         return redirect(event, target, requestHasEmbedAuthMarker(event));
       }
-      const html = getConfiguredLoginHtml(event);
-      if (html) {
-        return new Response(html, {
-          status: 200,
+      const loginPage = getConfiguredLoginHtml(event);
+      if (loginPage) {
+        return new Response(loginPage.html, {
+          status: loginPage.status,
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }

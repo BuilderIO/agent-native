@@ -1,10 +1,10 @@
 /**
  * The settings a deployed server refuses to run without, answered by the same
  * checks the refusals use: the database refusal in db/client.ts and the auth
- * secret refusal in `resolveAuthSecret()`. The `/_agent-native/ping?configuration=1`
- * probe reports this for the sign-in banner, so the banner shows exactly when
- * the server refuses. Do not give the probe or a refusal its own copy of these
- * rules.
+ * secret refusal in `resolveAuthSecret()`. The setup page that replaces sign-in
+ * and the `/_agent-native/ping?configuration=1` probe both read this, so they
+ * show exactly when the server refuses. Do not give either one, or a refusal,
+ * its own copy of these rules.
  */
 import {
   hasConfiguredA2ASecret,
@@ -55,13 +55,32 @@ export function getMissingDeploySettings(): MissingDeploySettings {
   return {
     databaseSource: getRefusedLocalDatabaseSource(),
     authSecretKey: getMissingAuthSecretKey(),
-    // The A2A processor's own refusal, so the banner names A2A_SECRET exactly
+    // The A2A processor's own refusal, so the probe names A2A_SECRET exactly
     // when A2A answers 503.
     a2aSecretMissing:
       isWorkspaceRuntime() &&
       isA2AProductionRuntime() &&
       !hasConfiguredA2ASecret(),
   };
+}
+
+/**
+ * The env keys whose absence stops accounts from being created or signed in,
+ * in the order the setup page names them. A workspace missing only
+ * `A2A_SECRET` still signs in, so it never blocks here; a workspace with
+ * neither secret is asked for `A2A_SECRET` alone, since it derives the auth
+ * secret too.
+ */
+export function getSignInBlockingSettingKeys(): string[] {
+  const { databaseSource, authSecretKey } = getMissingDeploySettings();
+  const keys: string[] = [];
+  // Name the key that resolved to local PGlite: an app-prefixed or Netlify
+  // key wins over DATABASE_URL, so setting DATABASE_URL would not fix it.
+  if (databaseSource !== null) {
+    keys.push(databaseSource === "default" ? "DATABASE_URL" : databaseSource);
+  }
+  if (authSecretKey !== null) keys.push(authSecretKey);
+  return keys;
 }
 
 /** Thrown when Better Auth cannot start without a configured signing secret. */

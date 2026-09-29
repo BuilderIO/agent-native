@@ -1022,9 +1022,10 @@ export class HostedRuntimeLocalDatabaseError extends Error {
  * The one decision behind the refusal: the database source this process must
  * refuse (the env key that resolved to local PGlite, or `"default"` when none
  * is set), or null when local PGlite is allowed. `assertHostedRuntimeDatabase()`
- * throws on it and the `/_agent-native/ping?configuration=1` probe reports it
- * for the sign-in banner, so the banner and the refusal cannot disagree. Do
- * not give either caller its own copy of these rules.
+ * throws on it, and the setup page that replaces sign-in and the
+ * `/_agent-native/ping?configuration=1` probe report it, so none of them can
+ * disagree with the refusal. Do not give any caller its own copy of these
+ * rules.
  *
  * The order is load-bearing:
  *

@@ -27,6 +27,7 @@ import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import { BUILT_IN_AUTH_MARKETING } from "./auth-marketing.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
+  getDeploySettingsRequiredHtml,
   getOnboardingHtml as getCoreOnboardingHtml,
   getResetPasswordHtml as getCoreResetPasswordHtml,
 } from "./onboarding-html.js";
@@ -1057,5 +1058,49 @@ describe("getOnboardingHtml", () => {
     const data = readAuthPageData(html);
     expect(data.publicOAuthOrigin).toBe("");
     expect(data.workspaceGatewayReturnOrigin).toBe("http://127.0.0.1:8080");
+  });
+});
+
+describe("getDeploySettingsRequiredHtml", () => {
+  it("names each key in the visitor's language", () => {
+    const html = getDeploySettingsRequiredHtml({
+      keys: ["DATABASE_URL", "A2A_SECRET"],
+      locale: "ja-JP",
+      dir: "ltr",
+    });
+
+    expect(html).toContain('<html lang="ja-JP" dir="ltr">');
+    expect(html).toContain(
+      "<h1>このデプロイのセットアップを完了してください</h1>",
+    );
+    expect(html).toContain(
+      "<code>DATABASE_URL</code>, <code>A2A_SECRET</code>",
+    );
+    expect(html).toContain("セットアップガイドを見る");
+    expect(html).not.toContain("{keys}");
+  });
+
+  it("lays out right-to-left locales right-to-left", () => {
+    const html = getDeploySettingsRequiredHtml({
+      keys: ["BETTER_AUTH_SECRET"],
+      locale: "ar-SA",
+      dir: "rtl",
+    });
+
+    expect(html).toContain('<html lang="ar-SA" dir="rtl">');
+    expect(html).toContain("<h1>أكمل إعداد عملية النشر هذه</h1>");
+  });
+
+  it("falls back to English for a locale without auth copy", () => {
+    const html = getDeploySettingsRequiredHtml({
+      keys: ["BETTER_AUTH_SECRET"],
+      locale: "xx-XX",
+      dir: "ltr",
+    });
+
+    expect(html).toContain("<h1>Finish setting up this deployment</h1>");
+    expect(html).toContain(
+      "Missing or invalid environment variables: <code>BETTER_AUTH_SECRET</code>. Add them",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import {
   getMissingAuthSecretKey,
   getMissingDeploySettings,
+  getSignInBlockingSettingKeys,
 } from "./deploy-settings.js";
 
 // Cleared explicitly so ambient deploy markers, deploy contexts, and secrets
@@ -223,8 +224,67 @@ describe("getMissingDeploySettings", () => {
   );
 });
 
-// resolveAuthSecret() and the banner must share one decision: the banner
-// shows a missing auth secret exactly when Better Auth refuses to start.
+describe("getSignInBlockingSettingKeys", () => {
+  const POSTGRES_URL = "postgres://app:placeholder@db.example.com/app";
+
+  it("names the database and auth secret for a bare standalone server", () => {
+    stubUnconfiguredDeploy();
+    stubProductionServer();
+
+    expect(getSignInBlockingSettingKeys()).toEqual([
+      "DATABASE_URL",
+      "BETTER_AUTH_SECRET",
+    ]);
+  });
+
+  it("asks a bare workspace server for A2A_SECRET alone, not both secrets", () => {
+    stubUnconfiguredDeploy();
+    stubProductionServer();
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+
+    expect(getSignInBlockingSettingKeys()).toEqual([
+      "DATABASE_URL",
+      "A2A_SECRET",
+    ]);
+  });
+
+  it("names the app-prefixed key that resolved to local PGlite", () => {
+    stubUnconfiguredDeploy();
+    stubProductionServer();
+    vi.stubEnv("APP_NAME", "chat");
+    vi.stubEnv("CHAT_DATABASE_URL", "pglite:./data/pglite");
+    vi.stubEnv("DATABASE_URL", POSTGRES_URL);
+    vi.stubEnv("BETTER_AUTH_SECRET", "explicit-secret");
+
+    expect(getSignInBlockingSettingKeys()).toEqual(["CHAT_DATABASE_URL"]);
+  });
+
+  it.each([
+    ["only BETTER_AUTH_SECRET", { BETTER_AUTH_SECRET: "explicit-secret" }],
+    ["only A2A_SECRET", { A2A_SECRET: "workspace-root-secret" }],
+  ])(
+    "lets a workspace with a database and %s sign in",
+    (_case, env: Record<string, string>) => {
+      stubUnconfiguredDeploy();
+      stubProductionServer();
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("DATABASE_URL", POSTGRES_URL);
+      for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+
+      expect(getSignInBlockingSettingKeys()).toEqual([]);
+    },
+  );
+
+  it("names nothing under local development", () => {
+    stubUnconfiguredDeploy();
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(getSignInBlockingSettingKeys()).toEqual([]);
+  });
+});
+
+// resolveAuthSecret() and the setup page must share one decision: the page
+// names a missing auth secret exactly when Better Auth refuses to start.
 describe("getMissingAuthSecretKey agrees with resolveAuthSecret()", () => {
   it.each([
     ["a standalone deploy without a secret", {}],

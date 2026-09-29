@@ -1,5 +1,5 @@
 /**
- * The `/_agent-native/ping?configuration=1` probe the sign-in banner reads.
+ * The `/_agent-native/ping?configuration=1` probe the in-app notice reads.
  *
  * `createCoreRoutesPlugin` mounts dozens of unrelated routes before `/ping`,
  * so booting the real plugin to reach this handler would stand up most of the
@@ -23,9 +23,9 @@ function probeSource(file: string, start: string, end: string): string {
 
 describe("configuration probe missing-settings line", () => {
   // Both copies must report the server's own answer. A copy that falls back to
-  // the env-name checks shows no banner on a Netlify function without
-  // NODE_ENV while sign-up is refused, or a banner for an unpooled-only URL or
-  // a workspace-derived auth secret that the server accepts.
+  // the env-name checks reports nothing on a Netlify function without
+  // NODE_ENV while sign-up is refused, or flags an unpooled-only URL or a
+  // workspace-derived auth secret that the server accepts.
   it.each([
     ["./core-routes-plugin.ts", "`${P}/ping`", "if (!options.disableHealth)"],
     ["./create-server.ts", '"/_agent-native/ping"', "if (options.envKeys)"],

@@ -552,8 +552,8 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   // signed session cookie on the next cold start (serverless filesystems
   // aren't persistent), and the legacy hardcoded fallback is identical across
   // every deploy that hits it — both are serious enough to fail the boot loudly
-  // so the deployer notices. The sign-in banner reports the same decision
-  // through getMissingDeploySettings(), so keep it the only one.
+  // so the deployer notices. The setup page that replaces sign-in reports the
+  // same decision through getMissingDeploySettings(), so keep it the only one.
   if (getMissingAuthSecretKey() !== null) {
     const report = getRuntimeConfigReport(
       process.env,
