@@ -75,8 +75,8 @@ For every PR you inspect, read:
    skipped, unknown, or failing separately;
  - the repository ownership and the affected app or framework boundary.
 
-Inspect repository rulesets as well as branch protection. List them with
-`gh api repos/BuilderIO/agent-native/rulesets`, then inspect each matching
+Inspect repository rulesets as well as branch protection. List every page with
+`gh api --paginate repos/BuilderIO/agent-native/rulesets`, then inspect each matching
 `/rulesets/<id>` definition's `conditions.ref_name` and
 all applicable rules for the PR base branch, including required status checks,
 deployments, and other non-status conditions. Only rulesets with
