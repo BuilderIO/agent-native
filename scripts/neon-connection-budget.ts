@@ -3,8 +3,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { closeDbExec, getDbExec } from "@agent-native/core/db";
-
 const WARM_REQUESTS = 5;
 const SITE_NAME = "neon-query-budget-probe";
 const DATABASE_APPLICATION_NAME = `agent-native:${SITE_NAME}`;
@@ -36,6 +34,13 @@ async function run(): Promise<void> {
 
   process.env.SITE_NAME = SITE_NAME;
   const coreRequire = createRequire(path.resolve("packages/core/package.json"));
+  const databaseClient = (await import(
+    pathToFileURL(coreRequire.resolve("@agent-native/core/db")).href
+  )) as {
+    closeDbExec: () => Promise<void>;
+    getDbExec: () => { execute: (query: string) => Promise<unknown> };
+  };
+  const { closeDbExec, getDbExec } = databaseClient;
   const postgresPath = coreRequire.resolve("postgres");
   const postgresModule = (await import(pathToFileURL(postgresPath).href)) as {
     default: (url: string, options: Record<string, unknown>) => PostgresClient;

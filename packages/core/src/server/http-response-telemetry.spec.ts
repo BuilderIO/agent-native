@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
+import { createDatabaseRequestTelemetry } from "../db/request-telemetry.js";
 import {
   type AgentSpan,
   __resetAgentTracerCache,
@@ -103,6 +104,17 @@ describe("http response telemetry", () => {
     });
     installHttpResponseTelemetryHooks(nitroApp);
 
+    const startupState = (globalThis as any)[
+      Symbol.for("@agent-native/core/db.startup-telemetry-state")
+    ] as {
+      captureUntil: number;
+      claimed: boolean;
+      telemetry: ReturnType<typeof createDatabaseRequestTelemetry>;
+    };
+    startupState.claimed = false;
+    startupState.captureUntil = Date.now() + 120_000;
+    startupState.telemetry = createDatabaseRequestTelemetry();
+
     await withDbTimeout("connect", async () => undefined, 100);
 
     const url = new URL(
@@ -116,10 +128,12 @@ describe("http response telemetry", () => {
     };
 
     await requestHooks[0](event);
+    expect(startupState.claimed).toBe(false);
     setHttpRequestTelemetryActionName(event as any, "list-visual-plans");
     await withDbTimeout("connect", async () => undefined, 100);
     await withDbTimeout("query", async () => undefined, 100);
     recordFrameworkReadyWait(event as any, 12);
+    expect(startupState.claimed).toBe(true);
     const response = new Response("{}", { status: 201 });
     await responseHooks[0](response, event);
 

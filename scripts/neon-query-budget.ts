@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 import { appendFileSync } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+
+import {
+  createDatabaseRequestTelemetry,
+  runWithDatabaseRequestTelemetry,
+} from "../packages/core/src/db/request-telemetry.ts";
 
 const BUDGET_PATH = "scripts/neon-query-budgets.json";
 const GENERATED_HANDLER = ".netlify/functions-internal/server/main.mjs";
@@ -96,7 +102,10 @@ export async function withSchemaProvisioningRuntime<T>(
   for (const key of SERVERLESS_ENV_KEYS) delete process.env[key];
   migrationRuntime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
   try {
-    return await run();
+    return await runWithDatabaseRequestTelemetry(
+      createDatabaseRequestTelemetry(),
+      run,
+    );
   } finally {
     for (const [key, value] of previousEnvironment) {
       if (value === undefined) delete process.env[key];
@@ -137,12 +146,17 @@ function fail(message: string): never {
 async function provisionTemplateSchema(template: string): Promise<void> {
   // Provision disposable PGlite before the production-marked handler loads.
   await withSchemaProvisioningRuntime(async () => {
+    const coreRequire = createRequire(
+      path.resolve("packages/core/package.json"),
+    );
     const [
       { runFrameworkReleaseMigrations },
       { runMigrations, withMigrationRuntime },
     ] = await Promise.all([
-      import("@agent-native/core/server"),
-      import("@agent-native/core/db"),
+      import(
+        pathToFileURL(coreRequire.resolve("@agent-native/core/server")).href
+      ),
+      import(pathToFileURL(coreRequire.resolve("@agent-native/core/db")).href),
     ]);
     const migrationModulePath =
       template === "dispatch"

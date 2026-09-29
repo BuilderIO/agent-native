@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  beginDatabaseOperation,
+  createDatabaseRequestTelemetry,
+} from "../packages/core/src/db/request-telemetry.ts";
+import {
   compareQueryBudget,
   parseCacheablePageMetrics,
   parsePrivateRequestMetrics,
@@ -48,6 +52,12 @@ describe("Neon cold-request query budgets", () => {
       __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
     };
     const previousMigrationRuntime = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    const startupState = (globalThis as any)[
+      Symbol.for("@agent-native/core/db.startup-telemetry-state")
+    ] as {
+      telemetry: ReturnType<typeof createDatabaseRequestTelemetry>;
+    };
+    const startupQueryCount = startupState.telemetry.queryCount;
     process.env.NETLIFY = "true";
     process.env.NETLIFY_FUNCTION_NAME = "serverless-fixture";
     process.env.CONTEXT = "production";
@@ -55,12 +65,16 @@ describe("Neon cold-request query budgets", () => {
 
     try {
       const fixtureEnvironment = await withSchemaProvisioningRuntime(
-        async () => ({
-          netlify: process.env.NETLIFY,
-          functionName: process.env.NETLIFY_FUNCTION_NAME,
-          context: process.env.CONTEXT,
-          migrationRuntime: runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__,
-        }),
+        async () => {
+          const endOperation = beginDatabaseOperation("query");
+          endOperation("success");
+          return {
+            netlify: process.env.NETLIFY,
+            functionName: process.env.NETLIFY_FUNCTION_NAME,
+            context: process.env.CONTEXT,
+            migrationRuntime: runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__,
+          };
+        },
       );
       assert.deepEqual(fixtureEnvironment, {
         netlify: undefined,
@@ -72,6 +86,7 @@ describe("Neon cold-request query budgets", () => {
       assert.equal(process.env.NETLIFY_FUNCTION_NAME, "serverless-fixture");
       assert.equal(process.env.CONTEXT, "production");
       assert.equal(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__, false);
+      assert.equal(startupState.telemetry.queryCount, startupQueryCount);
     } finally {
       for (const [key, value] of previousEnvironment) {
         if (value === undefined) delete process.env[key];

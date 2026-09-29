@@ -652,7 +652,6 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,
       db: createDatabaseRequestTelemetry(),
-      startupDb: claimStartupDatabaseTelemetry(),
     };
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
@@ -670,6 +669,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
   hooks.hook("response", async (response: Response, event: H3Event) => {
     const state = requestTelemetryState(event);
     if (!state) return;
+    state.startupDb ??= claimStartupDatabaseTelemetry();
 
     const durationMs = Math.max(0, Date.now() - state.startedAt);
     try {
