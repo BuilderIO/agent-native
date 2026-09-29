@@ -15,7 +15,7 @@ const mockCountUnread = vi.fn();
 const mockMarkNotificationRead = vi.fn();
 const mockMarkAllNotificationsRead = vi.fn();
 const mockDeleteNotification = vi.fn();
-const mockEmit = vi.fn();
+const mockEmitAsync = vi.fn();
 const mockGetSession = vi.fn();
 const completedDeliveries = new Set<string>();
 const pendingDeliveries = new Map<string, string>();
@@ -79,7 +79,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../event-bus/bus.js", () => ({
-  emit: (...args: unknown[]) => mockEmit(...args),
+  emitAsync: (...args: unknown[]) => mockEmitAsync(...args),
 }));
 
 vi.mock("../server/auth.js", () => ({
@@ -109,6 +109,7 @@ function createEvent(path: string, method = "GET") {
 describe("notifications registry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEmitAsync.mockResolvedValue(undefined);
     __resetNotificationChannels();
     mockGetSession.mockResolvedValue({ email: "boni@local" });
     mockListNotifications.mockResolvedValue([]);
@@ -211,14 +212,14 @@ describe("notifications registry", () => {
         }),
       );
       expect(stored?.id).toBe("n-1");
-      expect(mockEmit).toHaveBeenCalledWith(
+      expect(mockEmitAsync).toHaveBeenCalledWith(
         "notification.sent",
         expect.objectContaining({
           notificationId: "n-1",
           severity: "info",
           deliveredChannels: ["inbox"],
         }),
-        { owner: "boni@local" },
+        { owner: "boni@local", eventId: "notification.sent:n-1" },
       );
     });
 
@@ -261,7 +262,7 @@ describe("notifications registry", () => {
 
       await expect(request).rejects.toBe(controller.signal.reason);
       expect(deliver).not.toHaveBeenCalled();
-      expect(mockEmit).not.toHaveBeenCalled();
+      expect(mockEmitAsync).not.toHaveBeenCalled();
     });
 
     it("retries an idempotent inbox commit that finished just before abort", async () => {
@@ -310,16 +311,20 @@ describe("notifications registry", () => {
 
       await expect(request).rejects.toBe(controller.signal.reason);
       expect(deliver).not.toHaveBeenCalled();
-      expect(mockEmit).not.toHaveBeenCalled();
+      expect(mockEmitAsync).not.toHaveBeenCalled();
 
       await notifyWithDelivery(input, { owner: "boni@local" });
 
       expect(deliver).toHaveBeenCalledTimes(1);
-      expect(mockEmit).toHaveBeenCalledTimes(1);
-      expect(mockEmit).toHaveBeenCalledWith(
+      expect(mockEmitAsync).toHaveBeenCalledTimes(1);
+      expect(mockEmitAsync).toHaveBeenCalledWith(
         "notification.sent",
         expect.objectContaining({ notificationId: "n-1" }),
-        { owner: "boni@local" },
+        {
+          owner: "boni@local",
+          eventId:
+            "notification.sent:idem:boni@local:mail-rule:rule-1:message-1",
+        },
       );
     });
 
@@ -348,7 +353,7 @@ describe("notifications registry", () => {
       await notifyWithDelivery(input, { owner: "boni@local" });
 
       expect(deliver).toHaveBeenCalledTimes(1);
-      expect(mockEmit).toHaveBeenCalledTimes(1);
+      expect(mockEmitAsync).toHaveBeenCalledTimes(1);
       expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
         "idem:boni@local:mail-rule:rule-1:message-2",
         "slack",
@@ -356,6 +361,130 @@ describe("notifications registry", () => {
       );
       expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
         "idem:boni@local:mail-rule:rule-1:message-2",
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+    });
+
+    it("waits for notification.sent subscribers before completing its receipt", async () => {
+      let acceptEvent!: () => void;
+      mockEmitAsync.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          acceptEvent = resolve;
+        }),
+      );
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-async-acceptance",
+      };
+      const deliveryId =
+        "idem:boni@local:mail-rule:rule-1:message-async-acceptance";
+      let settled = false;
+      const request = notifyWithDelivery(input, { owner: "boni@local" }).then(
+        (result) => {
+          settled = true;
+          return result;
+        },
+      );
+
+      await vi.waitFor(() => expect(acceptEvent).toBeTypeOf("function"));
+      expect(mockEmitAsync).toHaveBeenCalledWith(
+        "notification.sent",
+        expect.objectContaining({ notificationId: "n-1" }),
+        {
+          owner: "boni@local",
+          eventId: `notification.sent:${deliveryId}`,
+        },
+      );
+      expect(settled).toBe(false);
+      expect(mockCompleteNotificationDelivery).not.toHaveBeenCalledWith(
+        deliveryId,
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+
+      acceptEvent();
+      await request;
+
+      expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
+        deliveryId,
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+    });
+
+    it("releases a rejected sent-event receipt and retries with the same event id", async () => {
+      mockEmitAsync
+        .mockRejectedValueOnce(new Error("trigger queue unavailable"))
+        .mockResolvedValueOnce(undefined);
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey: "mail-rule:rule-1:message-event-retry",
+      };
+      const deliveryId = "idem:boni@local:mail-rule:rule-1:message-event-retry";
+      const eventId = `notification.sent:${deliveryId}`;
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+      const eventReceiptRelease =
+        mockReleaseNotificationDelivery.mock.calls.find(
+          ([id, key, , kind]) =>
+            id === deliveryId &&
+            key === "notification.sent" &&
+            kind === "event",
+        );
+      expect(eventReceiptRelease).toBeDefined();
+      expect(mockMarkNotificationDeliveryUncertain).not.toHaveBeenCalledWith(
+        deliveryId,
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      expect(mockEmitAsync).toHaveBeenCalledTimes(2);
+      expect(mockEmitAsync.mock.calls.map(([, , meta]) => meta)).toEqual([
+        { owner: "boni@local", eventId },
+        { owner: "boni@local", eventId },
+      ]);
+      expect(mockCompleteNotificationDelivery).toHaveBeenCalledWith(
+        deliveryId,
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+    });
+
+    it("keeps the sent-event receipt uncertain if acceptance is confirmed but completion is ambiguous", async () => {
+      mockCompleteNotificationDelivery.mockRejectedValueOnce(
+        new Error("receipt write timed out"),
+      );
+      const input = {
+        severity: "info" as const,
+        title: "Mail arrived",
+        idempotencyKey:
+          "mail-rule:rule-1:message-accepted-completion-uncertain",
+      };
+      const deliveryId =
+        "idem:boni@local:mail-rule:rule-1:message-accepted-completion-uncertain";
+
+      await notifyWithDelivery(input, { owner: "boni@local" });
+      await notifyWithDelivery(input, { owner: "boni@local" });
+
+      expect(mockEmitAsync).toHaveBeenCalledTimes(1);
+      expect(mockMarkNotificationDeliveryUncertain).toHaveBeenCalledWith(
+        deliveryId,
+        "notification.sent",
+        expect.any(String),
+        "event",
+      );
+      expect(mockReleaseNotificationDelivery).not.toHaveBeenCalledWith(
+        deliveryId,
         "notification.sent",
         expect.any(String),
         "event",
@@ -375,7 +504,7 @@ describe("notifications registry", () => {
       await notifyWithDelivery(input, { owner: "boni@local" });
 
       expect(deliver).toHaveBeenCalledTimes(1);
-      expect(mockEmit).toHaveBeenCalledTimes(1);
+      expect(mockEmitAsync).toHaveBeenCalledTimes(1);
     });
 
     it("suppresses an idempotent retry after a channel throws during dispatch", async () => {
@@ -505,7 +634,7 @@ describe("notifications registry", () => {
         { owner: "boni@local" },
       );
 
-      const eventCall = mockEmit.mock.calls.find(
+      const eventCall = mockEmitAsync.mock.calls.find(
         ([name]) => name === "notification.sent",
       );
       expect(eventCall).toBeDefined();
@@ -561,7 +690,7 @@ describe("notifications registry", () => {
       expect(delivery.notification).toBeUndefined();
       expect(delivery.deliveredChannels).toEqual(["slack"]);
       expect(mockInsertNotification).not.toHaveBeenCalled();
-      expect(mockEmit).toHaveBeenCalledWith(
+      expect(mockEmitAsync).toHaveBeenCalledWith(
         "notification.sent",
         expect.objectContaining({
           notificationId: undefined,
