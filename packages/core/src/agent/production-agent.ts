@@ -5648,6 +5648,14 @@ export async function runAgentLoop(opts: {
           requestedActionStop = null;
         }
       };
+      let toolDoneEmitted = false;
+      const emitToolDone = (
+        event: Extract<AgentChatEvent, { type: "tool_done" }>,
+      ) => {
+        settleRepeatedToolCall(event.id);
+        send(event);
+        toolDoneEmitted = true;
+      };
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
@@ -5768,7 +5776,7 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({
+        emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -5806,7 +5814,7 @@ export async function runAgentLoop(opts: {
           tool: toolCall.name,
           input: toolCall.input as Record<string, string>,
         });
-        send({
+        emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -5917,7 +5925,7 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          send({
+          emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -5980,7 +5988,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({
+          emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -6057,7 +6065,7 @@ export async function runAgentLoop(opts: {
               tool: toolCall.name,
               input: toolCall.input as Record<string, string>,
             });
-            send({
+            emitToolDone({
               type: "tool_done",
               id: toolCall.id,
               tool: toolCall.name,
@@ -6093,7 +6101,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
           });
-          send({
+          emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -6136,14 +6144,6 @@ export async function runAgentLoop(opts: {
         tool: toolCall.name,
         input: toolCall.input as Record<string, string>,
       });
-
-      let toolDoneEmitted = false;
-      const emitToolDone = (
-        event: Extract<AgentChatEvent, { type: "tool_done" }>,
-      ) => {
-        send(event);
-        toolDoneEmitted = true;
-      };
 
       try {
         const toolCallSchemaError = toolCallErrors.get(toolCall.id);
