@@ -323,6 +323,47 @@ describe("scanDeprecatedImports", () => {
     ]);
   });
 
+  it("ignores removed namespace examples in regex literals", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-doctor-regex-"));
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.ts");
+    fs.writeFileSync(
+      file,
+      [
+        `import * as chat from "${moduleName}";`,
+        String.raw`const pattern = /chat\.createAgentChatAdapter/;`,
+        String.raw`if (enabled) /chat\.createAgentChatAdapter/.test(pattern);`,
+        "chat.createAgentChatAdapter();",
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        file,
+        line: 4,
+        symbols: ["createAgentChatAdapter"],
+        status: "removed",
+      }),
+    ]);
+  });
+
   it("reports removed chat exports through namespace and CommonJS imports", () => {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-doctor-import-forms-"),

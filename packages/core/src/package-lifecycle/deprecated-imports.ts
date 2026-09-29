@@ -31,6 +31,38 @@ const SKIP_DIRECTORIES = new Set([
   "dist",
   "node_modules",
 ]);
+const REGEX_PREFIX_KEYWORDS = new Set([
+  "await",
+  "case",
+  "delete",
+  "do",
+  "else",
+  "extends",
+  "finally",
+  "in",
+  "instanceof",
+  "new",
+  "of",
+  "return",
+  "throw",
+  "typeof",
+  "void",
+  "yield",
+  "if",
+  "while",
+  "for",
+  "with",
+  "switch",
+  "catch",
+]);
+const CONTROL_PAREN_KEYWORDS = new Set([
+  "if",
+  "while",
+  "for",
+  "with",
+  "switch",
+  "catch",
+]);
 
 export interface DeprecatedImportFinding {
   file: string;
@@ -164,12 +196,38 @@ function lineAt(text: string, index: number): number {
   return text.slice(0, index).split("\n").length;
 }
 
+function regexLiteralEnd(text: string, start: number): number | null {
+  let escaped = false;
+  let inCharacterClass = false;
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index] ?? "";
+    if (character === "\n" || character === "\r") return null;
+    if (escaped) {
+      escaped = false;
+    } else if (character === "\\") {
+      escaped = true;
+    } else if (character === "[" && !inCharacterClass) {
+      inCharacterClass = true;
+    } else if (character === "]" && inCharacterClass) {
+      inCharacterClass = false;
+    } else if (character === "/" && !inCharacterClass) {
+      index += 1;
+      while (/[a-z]/i.test(text[index] ?? "")) index += 1;
+      return index;
+    }
+  }
+  return null;
+}
+
 function codePositionMask(text: string): Uint8Array {
   const mask = new Uint8Array(text.length);
   const templateExpressionDepths: number[] = [];
+  const controlParens: boolean[] = [];
   let mode: "code" | "single" | "double" | "template" | "line" | "block" =
     "code";
   let escaped = false;
+  let canStartRegex = true;
+  let previousWord = "";
 
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index] ?? "";
@@ -199,6 +257,8 @@ function codePositionMask(text: string): Uint8Array {
         (mode === "double" && character === '"')
       ) {
         mode = "code";
+        canStartRegex = false;
+        previousWord = "";
       }
       continue;
     }
@@ -210,10 +270,14 @@ function codePositionMask(text: string): Uint8Array {
       } else if (character === "`") {
         templateExpressionDepths.pop();
         mode = "code";
+        canStartRegex = false;
+        previousWord = "";
       } else if (character === "$" && next === "{") {
         templateExpressionDepths[templateExpressionDepths.length - 1] = 1;
         index += 1;
         mode = "code";
+        canStartRegex = true;
+        previousWord = "";
       }
       continue;
     }
@@ -230,21 +294,102 @@ function codePositionMask(text: string): Uint8Array {
     }
     if (character === "'") {
       mode = "single";
+      canStartRegex = false;
+      previousWord = "";
       continue;
     }
     if (character === '"') {
       mode = "double";
+      canStartRegex = false;
+      previousWord = "";
       continue;
     }
     if (character === "`") {
       templateExpressionDepths.push(0);
       mode = "template";
+      previousWord = "";
+      continue;
+    }
+
+    // ponytail: regex-vs-division uses token context; use a parser if syntax coverage grows.
+    if (character === "/" && canStartRegex) {
+      const end = regexLiteralEnd(text, index);
+      if (end !== null) {
+        index = end - 1;
+        canStartRegex = false;
+        previousWord = "";
+        continue;
+      }
+    }
+
+    if (/\s/.test(character)) {
+      mask[index] = 1;
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(character)) {
+      let end = index + 1;
+      while (/[\w$]/.test(text[end] ?? "")) end += 1;
+      const word = text.slice(index, end);
+      mask.fill(1, index, end);
+      canStartRegex = REGEX_PREFIX_KEYWORDS.has(word);
+      previousWord = word;
+      index = end - 1;
+      continue;
+    }
+
+    if (/[0-9]/.test(character)) {
+      let end = index + 1;
+      while (/[\w.]/.test(text[end] ?? "")) end += 1;
+      mask.fill(1, index, end);
+      canStartRegex = false;
+      previousWord = "";
+      index = end - 1;
       continue;
     }
 
     mask[index] = 1;
     const templateDepthIndex = templateExpressionDepths.length - 1;
     const templateDepth = templateExpressionDepths[templateDepthIndex];
+    if (character === "(") {
+      controlParens.push(CONTROL_PAREN_KEYWORDS.has(previousWord));
+      canStartRegex = true;
+      previousWord = "(";
+    } else if (character === ")") {
+      canStartRegex = controlParens.pop() ?? false;
+      previousWord = ")";
+    } else if (
+      character === "[" ||
+      character === "{" ||
+      character === "," ||
+      character === ";" ||
+      character === ":"
+    ) {
+      canStartRegex = true;
+      previousWord = character;
+    } else if (character === "}" || character === "]") {
+      canStartRegex = character === "}";
+      previousWord = character;
+    } else if (character === ".") {
+      canStartRegex = false;
+      previousWord = ".";
+    } else if (character === "+" || character === "-") {
+      if (next === character) {
+        mask[index + 1] = 1;
+        index += 1;
+        canStartRegex = false;
+      } else {
+        canStartRegex = true;
+      }
+      previousWord = character;
+    } else if (character === "?") {
+      canStartRegex = next !== ".";
+      previousWord = "?";
+    } else {
+      canStartRegex = true;
+      previousWord = "";
+    }
+
     if (templateDepth === undefined || templateDepth === 0) continue;
     if (character === "{") {
       templateExpressionDepths[templateDepthIndex] = templateDepth + 1;
@@ -252,6 +397,7 @@ function codePositionMask(text: string): Uint8Array {
       if (templateDepth === 1) {
         templateExpressionDepths[templateDepthIndex] = 0;
         mode = "template";
+        canStartRegex = false;
       } else {
         templateExpressionDepths[templateDepthIndex] = templateDepth - 1;
       }
