@@ -107,7 +107,6 @@ import {
   documentQueryKey,
   startPreviewDocumentDraftRead,
   useContentNavigationContext,
-  useDocument,
   useDeleteDocument,
   useDocuments,
   usePageOpenDocument,
