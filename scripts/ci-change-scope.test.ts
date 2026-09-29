@@ -137,7 +137,7 @@ test("measures only the changed templates for a template-only change", () => {
   assert.deepEqual(scope.queryBudgetApps, ["forms", "mail"]);
 });
 
-test("measures every template when shared code or the budget changes", () => {
+test("measures every template for Core and budget changes, and Creative Context consumers", () => {
   const core = classifyChangedPaths([
     "packages/core/src/db/client.ts",
     "templates/forms/actions/list-forms.ts",
@@ -150,7 +150,13 @@ test("measures every template when shared code or the budget changes", () => {
 
   assert.deepEqual(core.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(creativeContext.checks.neon_query_budget, true);
-  assert.deepEqual(creativeContext.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+  assert.deepEqual(creativeContext.queryBudgetApps, [
+    "analytics",
+    "assets",
+    "content",
+    "design",
+    "slides",
+  ]);
   assert.equal(budget.checks.neon_query_budget, true);
   assert.deepEqual(budget.queryBudgetApps, [...QUERY_BUDGET_APPS]);
   assert.equal(full.full, true);
@@ -489,6 +495,10 @@ test("runs the change-scope test when the selector or its test changes", () => {
 
     assert.equal(scope.full, true, path);
     assert.deepEqual(scope.scriptTests, ["scripts/ci-change-scope.test.ts"]);
+    if (path === "scripts/ci-change-scope.ts") {
+      assert.equal(scope.checks.neon_query_budget, true);
+      assert.deepEqual(scope.queryBudgetApps, [...QUERY_BUDGET_APPS]);
+    }
   }
 });
 
