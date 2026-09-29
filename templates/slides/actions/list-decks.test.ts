@@ -71,6 +71,17 @@ beforeEach(() => {
 });
 
 describe("list-decks", () => {
+  it("returns a bounded preview gallery without selecting complete decks", async () => {
+    const result = await action.run({ limit: 12, includePreview: "true" });
+    expect(limitFn).toHaveBeenCalledWith(13);
+    expect(selectFn.mock.calls[0][0]).not.toHaveProperty("data");
+    expect(selectFn.mock.calls[0][0]).toHaveProperty("previewSlide");
+    expect(result.decks[0]).toMatchObject({
+      previewSlide: { id: "slide-1" },
+      aspectRatio: "4:3",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slides");
+  });
   it("applies title search before pagination without reading slide bodies", async () => {
     await action.run({ limit: 30, search: "Road%_map" });
     expect(whereFn).toHaveBeenCalledWith({

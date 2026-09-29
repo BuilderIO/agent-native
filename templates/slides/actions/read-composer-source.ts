@@ -1,6 +1,9 @@
 import { readPeerComposerSource } from "@agent-native/core/a2a";
 import { defineAction, fail } from "@agent-native/core/action";
-import { readComposerWebsiteSource } from "@agent-native/core/server";
+import {
+  readAgentKitIntegrationIntent,
+  readComposerWebsiteSource,
+} from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   composerSourceRequestSchema,
@@ -13,14 +16,15 @@ import listDecks from "./list-decks.js";
 
 export default defineAction({
   description:
-    "List or read Slides, Design, Figma, or public website prompt references. Website reads use a URL and return bounded extraction context. Never imports slides or creates a design system. Design and Figma references use the connected Design app.",
+    "List or read Slides, Design, Figma, public website, or connected integration prompt references. Integration references are invocation intents, not retrieved data. Website reads use a URL and return bounded extraction context. Never imports slides or creates a design system. Design and Figma references use the connected Design app.",
   schema: composerSourceRequestSchema,
   http: { method: "GET" },
   readOnly: true,
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {
-    if (!getRequestUserEmail()) {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) {
       fail("Sign in to attach a reference.", {
         statusCode: 401,
         errorCode: "unauthorized",
@@ -36,6 +40,27 @@ export default defineAction({
       return readComposerWebsiteSource(args.url, async (url) =>
         importFromUrl.run({ url }, ctx),
       );
+    }
+    if (args.source === "integration") {
+      if (args.operation !== "read" || !args.id) {
+        fail("Choose a connected integration to use.", {
+          errorCode: "composer_reference_required",
+        });
+      }
+      const reference = await readAgentKitIntegrationIntent("slides", args.id, {
+        userEmail,
+        orgId: ctx?.orgId ?? null,
+        ...(ctx?.credentialScope === "org"
+          ? { credentialScope: "org" as const }
+          : {}),
+      });
+      if (!reference) {
+        fail("This integration is no longer available to Slides.", {
+          errorCode: "agentkit_integration_unavailable",
+          statusCode: 403,
+        });
+      }
+      return composerSourceResultSchema.parse(reference);
     }
     if (args.source !== "slides") {
       if (ctx?.caller === "a2a") {

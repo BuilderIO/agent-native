@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "整合" } },
   templatesPage: {
     actions: "{{title}} 的範本操作",
     previewAction: "預覽",
@@ -824,7 +825,7 @@ const messages = {
     },
     importDeck: "匯入簡報",
     context: {
-      websiteReference: "附加網站",
+      websiteReference: "新增網站",
       websiteUrlLabel: "網站 URL",
       websiteUrl: "貼上網站 URL",
       figmaUrlLabel: "Figma 連結",
@@ -837,7 +838,7 @@ const messages = {
       searchPresentations: "搜尋簡報…",
       menu: {
         system: "使用設計系統",
-        figma: "附加 Figma",
+        figma: "新增 Figma",
         design: "參考設計",
         deck: "參考簡報",
         searchDesign: "搜尋設計…",

@@ -1,6 +1,7 @@
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 const messages = {
+  composer: { menu: { integrations: "연동" } },
   templatesPage: {
     actions: "{{title}} 템플릿 작업",
     previewAction: "미리보기",
@@ -847,7 +848,7 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
-      websiteReference: "웹사이트 첨부",
+      websiteReference: "웹사이트 추가",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -861,7 +862,7 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 첨부",
+        figma: "Figma 추가",
         design: "디자인 참조",
         deck: "프레젠테이션 참조",
         searchDesign: "디자인 검색…",

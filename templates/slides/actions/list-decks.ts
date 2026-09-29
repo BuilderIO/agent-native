@@ -68,7 +68,7 @@ function decodeDeckCursor(value: string): { updatedAt: string; id: string } {
 
 export default defineAction({
   description:
-    "List decks from the database with metadata. Use updatedSince, limit, and cursor for bounded incremental sync; paged responses are metadata-only, so use get-deck for slide content.",
+    "List accessible decks with metadata. Use updatedSince, limit, and cursor for bounded incremental sync, includePreview for the first slide, or get-deck for full slide content.",
   schema: z.object({
     compact: z
       .enum(["true", "false"])
@@ -84,7 +84,7 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe(
-        "Set to 'true' with light mode to include only the first slide preview",
+        "Set to 'true' with light mode or a bounded page to include only the first slide preview",
       ),
     light: z
       .enum(["true", "false"])
@@ -194,6 +194,18 @@ export default defineAction({
           createdAt: schema.decks.createdAt,
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
+          previewSlide:
+            args.includePreview === "true"
+              ? sql<
+                  string | null
+                >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`
+              : sql<null>`null`,
+          aspectRatio:
+            args.includePreview === "true"
+              ? sql<
+                  string | null
+                >`(${schema.decks.data}::jsonb ->> 'aspectRatio')`
+              : sql<null>`null`,
         })
         .from(schema.decks)
         .where(pagedWhere)
@@ -224,6 +236,15 @@ export default defineAction({
           normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        ...(args.includePreview === "true"
+          ? {
+              previewSlide: parseJsonProjection(
+                row.previewSlide,
+                "first slide preview",
+              ),
+              aspectRatio: row.aspectRatio,
+            }
+          : {}),
       }));
       return {
         count: decks.length,
