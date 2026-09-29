@@ -209,8 +209,8 @@ export const mailGmailQuotaBudgets = table(
     quotaCooldownAttempts: integer("quota_cooldown_attempts")
       .notNull()
       .default(0),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (t) => [index("mail_gmail_quota_budgets_owner_idx").on(t.ownerEmail)],
 );

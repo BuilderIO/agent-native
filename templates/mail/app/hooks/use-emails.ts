@@ -3257,7 +3257,10 @@ export function useUpdateSettings() {
               savedFiltersBase: base,
               requestSource: TAB_ID,
             },
-            { method: "PUT" },
+            {
+              method: "PUT",
+              headers: { "X-Request-Source": TAB_ID },
+            },
           ),
         );
       }
@@ -3265,7 +3268,10 @@ export function useUpdateSettings() {
         return callAction(
           "update-mail-preferences",
           { ...data, requestSource: TAB_ID },
-          { method: "PUT" },
+          {
+            method: "PUT",
+            headers: { "X-Request-Source": TAB_ID },
+          },
         );
       }
 
@@ -3295,7 +3301,10 @@ export function useUpdateSettings() {
             ...(intent && { pinnedLabelsBase: intent.base }),
             requestSource: TAB_ID,
           },
-          { method: "PUT" },
+          {
+            method: "PUT",
+            headers: { "X-Request-Source": TAB_ID },
+          },
         );
       });
     },

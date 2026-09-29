@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const quotaState = vi.hoisted(() => ({
   rows: new Map<string, any>(),
   clearCalls: 0,
+  failClear: false,
 }));
 
 vi.mock("./inbox-store.js", () => ({
@@ -77,6 +78,7 @@ vi.mock("./inbox-store.js", () => ({
     now = Date.now(),
   ) => {
     quotaState.clearCalls++;
+    if (quotaState.failClear) throw new Error("quota storage unavailable");
     const key = accountEmail.toLowerCase();
     const row = quotaState.rows.get(key);
     if (row && (row.cooldownUntil ?? 0) <= now) {
@@ -106,6 +108,7 @@ describe("googleFetch quota handling", () => {
   beforeEach(() => {
     quotaState.rows.clear();
     quotaState.clearCalls = 0;
+    quotaState.failClear = false;
     for (const token of [
       "gateway-token-a",
       "gateway-token-b",
@@ -178,6 +181,41 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow("Google API error (502): bad gateway");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves a successful Gmail mutation when quota cleanup fails", async () => {
+    quotaState.rows.set("account@example.com", {
+      windowStartedAt: Date.now(),
+      units: 0,
+      background: 0,
+      backfill: 0,
+      attempts: 1,
+    });
+    quotaState.failClear = true;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { id: "sent-message" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        "gateway-token-a",
+        {
+          method: "POST",
+          body: JSON.stringify({ raw: "message" }),
+        },
+      ),
+    ).resolves.toEqual({ id: "sent-message" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(quotaState.clearCalls).toBe(1);
+    expect(warning).toHaveBeenCalledWith(
+      "[google-api] Failed to clear Gmail quota cooldown after success:",
+      expect.any(Error),
+    );
+    warning.mockRestore();
   });
 
   it("preserves the final 503 error body after read retries are exhausted", async () => {
@@ -457,6 +495,12 @@ describe("googleFetch quota handling", () => {
     ).toBe(1);
     expect(
       estimateRequestCost(
+        "https://gmail.googleapis.com/gmail/v1/users/me/labels/INBOX",
+        "GET",
+      ),
+    ).toBe(1);
+    expect(
+      estimateRequestCost(
         "https://gmail.googleapis.com/gmail/v1/users/me/profile",
         "GET",
       ),
@@ -523,6 +567,41 @@ describe("googleFetch quota handling", () => {
       googleFetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         "shared-owner-token",
+      ),
+    ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the previous token mapped until its own expiry after rotation", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(429, { error: { message: "User-rate limit exceeded" } }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    registerGmailAccountToken(
+      "rotating-token-old",
+      "owner@example.com",
+      "rotating@example.com",
+    );
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "rotating-token-old",
+      ),
+    ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
+
+    registerGmailAccountToken(
+      "rotating-token-new",
+      "owner@example.com",
+      "rotating@example.com",
+    );
+
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "rotating-token-old",
       ),
     ).rejects.toBeInstanceOf(GmailQuotaCooldownError);
     expect(fetchMock).toHaveBeenCalledTimes(1);

@@ -122,6 +122,17 @@ describe("Inbox navigation commands", () => {
     );
   });
 
+  it("does not search Gmail for a focused contact on the SQL-backed inbox", () => {
+    const source = inboxSource();
+
+    expect(source).toContain(
+      "allowEmailSearch={\n              !isInboxView ||\n              (googleStatus.isSuccess && !isGoogleConnected)\n            }",
+    );
+    expect(source).toContain(
+      "enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch",
+    );
+  });
+
   it("lets Priority render a scored inbox page before later pages finish", () => {
     const page = inboxSource();
     const loadingStart = page.indexOf("const emailListLoading =");

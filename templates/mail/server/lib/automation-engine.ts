@@ -8,8 +8,6 @@ import { emitAsync, listSubscriptions } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
-  getOAuthTokens,
-  saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
   getRequestContext,
@@ -61,14 +59,13 @@ import {
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
-  createOAuth2Client,
   gmailListMessages,
   gmailGetMessage,
   gmailBatchGetMessages,
   gmailListHistory,
   gmailGetProfile,
 } from "./google-api.js";
-import { getOAuth2Credentials } from "./google-auth.js";
+import { getClientForConnectedAccount } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
 const MAX_PENDING_NOTIFICATION_ATTEMPTS = 8;
@@ -77,12 +74,6 @@ const MAX_RULE_EVALUATION_PAIRS_PER_MODEL_CALL = 32;
 const MAX_PROCESSED_IDS = 500;
 const PROCESSED_IDS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTOMATION_POLL_LEASE_MS = 5 * 60 * 1000;
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
 
 interface Watermark {
   lastHistoryId?: string;
@@ -140,44 +131,6 @@ async function resolveAnthropicKey(
     return userKey.key.trim();
   }
   return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
-}
-
-async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[automation-engine] Token refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-    }
-  }
-
-  return tokens.access_token;
 }
 
 async function getWatermark(ownerEmail: string): Promise<Watermark> {
@@ -2095,17 +2048,20 @@ export async function processAutomations(ownerEmail?: string): Promise<{
   const details: ProcessResult[] = [];
 
   for (const account of accounts) {
-    const accessToken = await getAccessToken(account.accountId);
-    if (!accessToken) continue;
-
     const accountOwnerEmail =
       (account as any).owner || ownerEmail || account.accountId;
 
     try {
+      const client = await getClientForConnectedAccount(
+        accountOwnerEmail,
+        account.accountId,
+      );
+      if (!client) continue;
+
       const result = await processAutomationsForAccount(
         accountOwnerEmail,
         account.accountId,
-        accessToken,
+        client.accessToken,
       );
       details.push(result);
     } catch (err: any) {

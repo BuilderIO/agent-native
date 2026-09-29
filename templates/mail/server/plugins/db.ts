@@ -420,6 +420,15 @@ ALTER TABLE mail_sync_accounts
 ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS full_sync_reconcile_passes INTEGER NOT NULL DEFAULT 0;`,
     },
+    {
+      version: 34,
+      name: "mail-gmail-quota-budget-timestamps-bigint",
+      sql: `-- guard:allow-destructive-ddl — widen quota timestamps so Date.now() values fit without losing existing data.
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
+ALTER TABLE mail_gmail_quota_budgets
+  ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
+    },
   ],
   { table: "mail_migrations" },
 );

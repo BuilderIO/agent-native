@@ -67,10 +67,12 @@ function ContactPanel({
   emailId,
   contactEmail,
   emails,
+  allowEmailSearch,
 }: {
   emailId: string | undefined;
   contactEmail?: string;
   emails: EmailMessage[];
+  allowEmailSearch: boolean;
 }) {
   const t = useT();
   const email = useMemo(
@@ -91,7 +93,7 @@ function ContactPanel({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
-    enabled: Boolean(normalizedDisplayEmail),
+    enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch,
   });
   const contactPageFetchesRef = useRef(0);
   const contactGenerationRef = useRef(0);
@@ -1150,6 +1152,10 @@ export function InboxPage() {
             emailId={contactEmailId}
             contactEmail={sidebarContactEmail}
             emails={emails}
+            allowEmailSearch={
+              !isInboxView ||
+              (googleStatus.isSuccess && !isGoogleConnected)
+            }
           />
         </div>
       )}

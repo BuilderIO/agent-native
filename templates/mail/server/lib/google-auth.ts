@@ -218,13 +218,16 @@ function isRetryableRefreshError(error: any): boolean {
 // existing row when omitted), and some callers (getAuthStatus) don't pass an
 // owner — keying on owner too would split the exact concurrent callers this
 // exists to coalesce.
-const refreshInflight = new Map<string, Promise<string>>();
+const refreshInflight = new Map<
+  string,
+  Promise<{ accessToken: string; expiresAt: number }>
+>();
 
 async function refreshAccessToken(
   accountId: string,
   tokens: GoogleTokens,
   owner?: string,
-): Promise<string> {
+): Promise<{ accessToken: string; expiresAt: number }> {
   if (!tokens.refresh_token) {
     await deleteOAuthTokens("google", accountId);
     throw new Error(
@@ -252,7 +255,10 @@ async function refreshAccessToken(
       tokens.expiry_date &&
       Date.now() < tokens.expiry_date
     ) {
-      return tokens.access_token;
+      return {
+        accessToken: tokens.access_token,
+        expiresAt: tokens.expiry_date,
+      };
     }
     const retryableError = err instanceof Error ? err : new Error(String(err));
     Object.assign(retryableError, { retryable: true });
@@ -274,7 +280,10 @@ async function refreshAccessToken(
     owner,
   );
 
-  return refreshed.access_token;
+  return {
+    accessToken: refreshed.access_token,
+    expiresAt: updatedTokens.expiry_date!,
+  };
 }
 
 async function getValidAccessToken(
@@ -289,6 +298,7 @@ async function getValidAccessToken(
   }
 
   let accessToken: string;
+  let expiresAt = tokens.expiry_date ?? Date.now() + 60 * 60_000;
   if (
     tokens.expiry_date &&
     tokens.access_token &&
@@ -298,19 +308,26 @@ async function getValidAccessToken(
   } else {
     const existing = refreshInflight.get(accountId);
     if (existing) {
-      accessToken = await existing;
+      const refreshed = await existing;
+      accessToken = refreshed.accessToken;
+      expiresAt = refreshed.expiresAt;
     } else {
-      const promise = refreshAccessToken(accountId, tokens, owner).finally(
-        () => {
-          refreshInflight.delete(accountId);
-        },
+      const promise = refreshAccessToken(accountId, tokens, owner).finally(() =>
+        refreshInflight.delete(accountId),
       );
       refreshInflight.set(accountId, promise);
-      accessToken = await promise;
+      const refreshed = await promise;
+      accessToken = refreshed.accessToken;
+      expiresAt = refreshed.expiresAt;
     }
   }
 
-  registerGmailAccountToken(accessToken, owner ?? accountId, accountId);
+  registerGmailAccountToken(
+    accessToken,
+    owner ?? accountId,
+    accountId,
+    expiresAt,
+  );
   return accessToken;
 }
 
@@ -400,7 +417,12 @@ export async function exchangeCode(
     tokens as unknown as Record<string, unknown>,
     owner ?? email,
   );
-  registerGmailAccountToken(tokens.access_token, owner ?? email, email);
+  registerGmailAccountToken(
+    tokens.access_token,
+    owner ?? email,
+    email,
+    tokens.expiry_date,
+  );
 
   try {
     await startWatch(tokens.access_token);

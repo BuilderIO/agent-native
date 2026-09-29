@@ -820,12 +820,20 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     "scheduled",
     "all",
   ].includes(view);
-  const { data: currentViewEmails = [] } = useEmails(
+  const { data: legacyCurrentViewEmails = [] } = useEmails(
     isMailboxView ? view : "inbox",
     undefined,
     undefined,
-    { enabled: isMailboxView },
+    {
+      enabled:
+        isMailboxView &&
+        (view !== "inbox" || (googleStatusReady && !hasAccounts)),
+    },
   );
+  const currentViewEmails =
+    view === "inbox" && hasAccounts
+      ? (inboxThreads.data?.items ?? [])
+      : legacyCurrentViewEmails;
   const reportSpam = useReportSpam();
   const blockSender = useBlockSender();
   const muteThread = useMuteThread();

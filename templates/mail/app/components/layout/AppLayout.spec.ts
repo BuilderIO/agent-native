@@ -20,6 +20,17 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      'enabled: isMailboxView && (view !== "inbox" || (googleStatusReady && !hasAccounts))',
+    );
+    expect(source).toContain(
+      'view === "inbox" && hasAccounts ? (inboxThreads.data?.items ?? [])',
+    );
+  });
+
   it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
     const source = appLayoutSource();
 

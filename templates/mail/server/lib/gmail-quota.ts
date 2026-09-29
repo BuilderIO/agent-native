@@ -7,11 +7,13 @@ import {
 
 export type { GmailQuotaLane } from "./inbox-store.js";
 
-type GmailQuotaAccount = { ownerEmail: string; accountEmail: string };
+type GmailQuotaAccount = {
+  ownerEmail: string;
+  accountEmail: string;
+  expiresAt: number;
+};
 
 const accountsByToken = new Map<string, GmailQuotaAccount>();
-const tokenByRegistration = new Map<string, string>();
-const registrationsByToken = new Map<string, Set<string>>();
 
 export class GmailQuotaAccountUnavailableError extends Error {
   constructor() {
@@ -24,32 +26,25 @@ export function registerGmailAccountToken(
   accessToken: string,
   ownerEmail: string,
   accountEmail: string,
+  expiresAt = Date.now() + 60 * 60_000,
 ): void {
   const owner = ownerEmail.toLowerCase();
   const account = accountEmail.toLowerCase();
-  const registration = `${owner}:${account}`;
-  const previousToken = tokenByRegistration.get(registration);
-  if (previousToken && previousToken !== accessToken) {
-    const registrations = registrationsByToken.get(previousToken);
-    registrations?.delete(registration);
-    if (!registrations?.size) {
-      registrationsByToken.delete(previousToken);
-      accountsByToken.delete(previousToken);
-    }
+  const now = Date.now();
+  for (const [token, registered] of accountsByToken) {
+    if (registered.expiresAt <= now) accountsByToken.delete(token);
   }
-  tokenByRegistration.set(registration, accessToken);
-  const registrations = registrationsByToken.get(accessToken) ?? new Set();
-  registrations.add(registration);
-  registrationsByToken.set(accessToken, registrations);
   accountsByToken.set(accessToken, {
     ownerEmail: owner,
     accountEmail: account,
+    expiresAt,
   });
 }
 
 function accountForToken(accessToken: string): GmailQuotaAccount {
   const account = accountsByToken.get(accessToken);
-  if (!account) {
+  if (!account || account.expiresAt <= Date.now()) {
+    accountsByToken.delete(accessToken);
     throw new GmailQuotaAccountUnavailableError();
   }
   return account;

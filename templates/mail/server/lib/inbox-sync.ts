@@ -2,6 +2,7 @@ import type { InboxSyncAccountStatus } from "@shared/inbox-threads.js";
 
 import {
   GmailQuotaCooldownError,
+  gmailGetLabel,
   gmailGetProfile,
   gmailListHistory,
   gmailListLabels,
@@ -156,6 +157,19 @@ async function readFreshInboxTotal(
   const labels = cachedGmailLabels(
     await gmailListLabels(accessToken, "backfill"),
   );
+  const inboxLabel = await gmailGetLabel(accessToken, "INBOX", "backfill");
+  const detailedInbox = cachedGmailLabels({ labels: [inboxLabel] })[0];
+  const existingInboxIndex = labels.findIndex(
+    (label) => label.id.toUpperCase() === "INBOX",
+  );
+  if (existingInboxIndex >= 0) {
+    labels[existingInboxIndex] = {
+      ...labels[existingInboxIndex],
+      ...detailedInbox,
+    };
+  } else {
+    labels.push(detailedInbox);
+  }
   return { labels, total: inboxThreadTotal(labels), updatedAt: Date.now() };
 }
 
@@ -884,12 +898,9 @@ export async function syncInboxAccount(
           changed = true;
         },
       );
-      if (
-        syncResult.status.state === "ready" &&
-        !syncResult.changed &&
-        !changed
-      ) {
-        syncResult = await runReconciliationStep(
+      if (!syncResult.restartedFullSync && Date.now() < deadline) {
+        const incrementalResult = syncResult;
+        const reconciliationResult = await runReconciliationStep(
           ownerEmail,
           accountEmail,
           accessToken,
@@ -900,6 +911,17 @@ export async function syncInboxAccount(
             changed = true;
           },
         );
+        syncResult = {
+          ...reconciliationResult,
+          status: {
+            ...reconciliationResult.status,
+            state:
+              incrementalResult.status.state === "initial"
+                ? "initial"
+                : reconciliationResult.status.state,
+          },
+          changed: incrementalResult.changed || reconciliationResult.changed,
+        };
       }
     } else if (row.historyId == null) {
       syncResult = await runFullSyncStep(

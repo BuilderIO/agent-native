@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
     getUserSetting: vi.fn(),
     readLocalEmails: vi.fn(),
     gmailGetProfile: vi.fn(),
+    gmailGetLabel: vi.fn(),
     gmailListThreads: vi.fn(),
     gmailListHistory: vi.fn(),
     gmailListLabels: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock("./local-email-store.js", () => ({
 }));
 
 vi.mock("./google-api.js", () => ({
+  gmailGetLabel: mocks.gmailGetLabel,
   gmailGetProfile: mocks.gmailGetProfile,
   gmailListThreads: mocks.gmailListThreads,
   gmailListHistory: mocks.gmailListHistory,
@@ -261,10 +263,14 @@ beforeEach(() => {
       {
         id: "INBOX",
         name: "INBOX",
-        threadsTotal: fakeRows.length,
-        threadsUnread: 0,
       },
     ],
+  }));
+  mocks.gmailGetLabel.mockImplementation(async () => ({
+    id: "INBOX",
+    name: "INBOX",
+    threadsTotal: fakeRows.length,
+    threadsUnread: 0,
   }));
   mocks.gmailListHistory.mockResolvedValue({
     history: [],
@@ -403,9 +409,7 @@ describe("syncInboxAccount — full sync", () => {
     mocks.gmailListThreads.mockResolvedValue({ threads: [] });
     mocks.countInboxThreads.mockResolvedValue(0);
     mocks.gmailListLabels.mockResolvedValue({
-      labels: [
-        { id: "INBOX", name: "INBOX", threadsTotal: 0, threadsUnread: 0 },
-      ],
+      labels: [{ id: "INBOX", name: "INBOX" }],
     });
 
     const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
@@ -414,6 +418,11 @@ describe("syncInboxAccount — full sync", () => {
     expect(result.backfillPending).toBeUndefined();
     expect(mocks.markThreadsOutOfInboxBeforeSync).toHaveBeenCalledTimes(1);
     expect(mocks.readInboxThreadIds).not.toHaveBeenCalled();
+    expect(mocks.gmailGetLabel).toHaveBeenCalledWith(
+      "tok",
+      "INBOX",
+      "backfill",
+    );
     expect(mocks.patchSyncAccount).toHaveBeenCalledWith(
       OWNER,
       ACCOUNT,
@@ -457,10 +466,14 @@ describe("syncInboxAccount — full sync", () => {
         {
           id: "INBOX",
           name: "INBOX",
-          threadsTotal: gmailInboxTotal,
-          threadsUnread: 0,
         },
       ],
+    }));
+    mocks.gmailGetLabel.mockImplementation(async () => ({
+      id: "INBOX",
+      name: "INBOX",
+      threadsTotal: gmailInboxTotal,
+      threadsUnread: 0,
     }));
     mocks.gmailBatchGetThreads.mockResolvedValueOnce([
       {
@@ -520,6 +533,52 @@ describe("syncInboxAccount — full sync", () => {
     }
   });
 
+  it("continues bounded reconciliation when incremental sync reports changes", async () => {
+    currentRow = baseRow({
+      historyId: "8000",
+      fullSyncPhase: "reconcile",
+      fullSyncReconcilePageToken: "",
+      fullSyncReconcilePendingIds: [],
+      fullSyncReconcilePasses: 1,
+      labelsUpdatedAt: Date.now(),
+    });
+    mocks.gmailListHistory.mockResolvedValue({
+      history: [
+        {
+          id: "8001",
+          messagesAdded: [{ message: { id: "t1-m1", threadId: "t1" } }],
+        },
+      ],
+      historyId: "8001",
+    });
+    mocks.gmailBatchGetThreads.mockResolvedValueOnce([
+      {
+        id: "t1",
+        data: thread("t1", { from: "a@ex.com", labelIds: ["INBOX"] }),
+      },
+    ]);
+    mocks.upsertInboxThreadRows.mockImplementation(async (rows: any[]) => {
+      fakeRows.push(...rows);
+    });
+    mocks.gmailListThreads.mockResolvedValue({ threads: [] });
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result).toMatchObject({ state: "ready", changed: true });
+    expect(mocks.gmailListThreads).toHaveBeenCalledWith(
+      "tok",
+      expect.objectContaining({
+        q: "in:inbox",
+        maxResults: 500,
+        pageToken: undefined,
+      }),
+      "backfill",
+    );
+    expect(currentRow.fullSyncPhase).toBeNull();
+    expect(currentRow.fullSyncReconcilePasses).toBe(0);
+    expect(fakeRows.map((row) => row.threadId)).toEqual(["t1"]);
+  });
+
   it("ends repeated permanent count mismatches without leaving sync in error", async () => {
     currentRow = baseRow({
       historyId: "8000",
@@ -534,9 +593,13 @@ describe("syncInboxAccount — full sync", () => {
     });
     mocks.gmailListThreads.mockResolvedValue({ threads: [] });
     mocks.gmailListLabels.mockResolvedValue({
-      labels: [
-        { id: "INBOX", name: "INBOX", threadsTotal: 1, threadsUnread: 0 },
-      ],
+      labels: [{ id: "INBOX", name: "INBOX" }],
+    });
+    mocks.gmailGetLabel.mockResolvedValue({
+      id: "INBOX",
+      name: "INBOX",
+      threadsTotal: 1,
+      threadsUnread: 0,
     });
     mocks.countInboxThreads.mockResolvedValue(0);
     const diagnostic = vi.spyOn(console, "warn").mockImplementation(() => {});

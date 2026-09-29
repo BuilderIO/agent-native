@@ -201,6 +201,20 @@ export function estimateRequestCost(url: string, method: string): number {
   return 5;
 }
 
+async function markGmailQuotaSuccessAfterResponse(
+  accessToken: string,
+  shouldClearCooldown: boolean,
+): Promise<void> {
+  try {
+    await markGmailQuotaSuccess(accessToken, shouldClearCooldown);
+  } catch (error) {
+    console.warn(
+      "[google-api] Failed to clear Gmail quota cooldown after success:",
+      error,
+    );
+  }
+}
+
 export async function googleFetch(
   url: string,
   accessToken: string,
@@ -237,7 +251,10 @@ export async function googleFetch(
 
     if (res.status === 204) {
       if (gmailRequest)
-        await markGmailQuotaSuccess(accessToken, clearCooldownAfterSuccess);
+        await markGmailQuotaSuccessAfterResponse(
+          accessToken,
+          clearCooldownAfterSuccess,
+        );
       return null;
     }
 
@@ -287,7 +304,10 @@ export async function googleFetch(
     }
 
     if (gmailRequest)
-      await markGmailQuotaSuccess(accessToken, clearCooldownAfterSuccess);
+      await markGmailQuotaSuccessAfterResponse(
+        accessToken,
+        clearCooldownAfterSuccess,
+      );
     return data;
   }
 }
@@ -473,6 +493,19 @@ export function gmailListLabels(
   lane: GmailQuotaLane = "interactive",
 ) {
   return googleFetch(`${GMAIL_BASE}/labels`, accessToken, undefined, lane);
+}
+
+export function gmailGetLabel(
+  accessToken: string,
+  labelId: string,
+  lane: GmailQuotaLane = "interactive",
+) {
+  return googleFetch(
+    `${GMAIL_BASE}/labels/${encodeURIComponent(labelId)}`,
+    accessToken,
+    undefined,
+    lane,
+  );
 }
 
 export function gmailCreateLabel(
@@ -711,7 +744,10 @@ async function gmailBatchGet(
     );
     throw new GmailQuotaCooldownError(cooldownMs);
   }
-  await markGmailQuotaSuccess(accessToken, clearCooldownAfterSuccess);
+  await markGmailQuotaSuccessAfterResponse(
+    accessToken,
+    clearCooldownAfterSuccess,
+  );
   return parsed;
 }
 

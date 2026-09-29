@@ -1,22 +1,8 @@
-import {
-  getOAuthTokens,
-  listOAuthAccountsByOwner,
-  saveOAuthTokens,
-} from "@agent-native/core/oauth-tokens";
+import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 
-import {
-  createOAuth2Client,
-  gmailGetMessage,
-  googleFetch,
-} from "./google-api.js";
-import { getOAuth2Credentials } from "./google-auth.js";
+import { gmailGetMessage, googleFetch } from "./google-api.js";
+import { getClientForConnectedAccount } from "./google-auth.js";
 import { buildRawEmail } from "./outgoing-email.js";
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
 
 function hasGmailScope(
   tokens: Record<string, unknown>,
@@ -45,31 +31,8 @@ async function getAccessToken(
   accountEmail: string,
   ownerEmail: string,
 ): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-  if (
-    tokens.refresh_token &&
-    tokens.expiry_date &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    const { clientId, clientSecret } = await getOAuth2Credentials(ownerEmail);
-    const oauth = createOAuth2Client(clientId, clientSecret, "");
-    const refreshed = await oauth.refreshToken(tokens.refresh_token);
-    const updated = {
-      ...tokens,
-      access_token: refreshed.access_token,
-      expiry_date: Date.now() + refreshed.expires_in * 1000,
-    };
-    await saveOAuthTokens(
-      "google",
-      accountEmail,
-      updated as unknown as Record<string, unknown>,
-    );
-    return refreshed.access_token;
-  }
-  return tokens.access_token;
+  const client = await getClientForConnectedAccount(ownerEmail, accountEmail);
+  return client?.accessToken ?? null;
 }
 
 async function resolveAccountEmail(

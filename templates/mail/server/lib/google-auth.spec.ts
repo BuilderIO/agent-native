@@ -34,6 +34,7 @@ import {
   gmailListThreads,
   GmailQuotaCooldownError,
   googleFetch,
+  registerGmailAccountToken,
 } from "./google-api.js";
 import {
   gmailBatchArchiveByAccount,
@@ -2453,6 +2454,12 @@ describe("getClientForConnectedAccount", () => {
       accessToken: "access-token",
       email: "connected@example.com",
     });
+    expect(registerGmailAccountToken).toHaveBeenCalledWith(
+      "access-token",
+      "owner@example.com",
+      "connected@example.com",
+      expect.any(Number),
+    );
   });
 
   it("falls back to the managed client when no OAuth row exists but it matches the managed grant", async () => {
