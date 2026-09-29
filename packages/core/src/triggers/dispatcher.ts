@@ -262,6 +262,22 @@ async function drainReadyTriggerQueue(
 
   const deadline = context.deadlineAt;
   const sweepStartedAt = Date.now();
+  const staleMailEventCutoff =
+    deps.appId === "mail"
+      ? new Date(sweepStartedAt - MAX_MAIL_TRIGGER_EVENT_AGE_MS).toISOString()
+      : undefined;
+  let staleMailExpiryIncomplete = false;
+  const readyQueryOptions = () => ({
+    ...DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+    ...(staleMailExpiryIncomplete && staleMailEventCutoff !== undefined
+      ? {
+          excludeStaleEventBefore: {
+            eventName: MAIL_RECEIVED_EVENT,
+            emittedBefore: staleMailEventCutoff,
+          },
+        }
+      : {}),
+  });
   if (
     context.signal?.aborted ||
     Date.now() + DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS >= deadline
@@ -315,21 +331,20 @@ async function drainReadyTriggerQueue(
       deadline;
 
   const expireStaleMailEventBatches = async () => {
-    if (deps.appId !== "mail") return;
-    const emittedBefore = new Date(
-      Date.now() - MAX_MAIL_TRIGGER_EVENT_AGE_MS,
-    ).toISOString();
+    if (deps.appId !== "mail" || staleMailEventCutoff === undefined) return;
     while (hasStaleMailExpiryBudget()) {
       const expired = await expireStaleAutomationTriggerEvents({
         appId: deps.appId,
         eventName: MAIL_RECEIVED_EVENT,
-        emittedBefore,
+        emittedBefore: staleMailEventCutoff,
         reason: "Expired because the mail event was older than 60 minutes.",
         limit: AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE,
         timeoutMs: DURABLE_TRIGGER_SWEEP_QUERY_TIMEOUT_MS,
       });
       reclaimedExpiredCount += expired;
-      if (expired < AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE) return;
+      staleMailExpiryIncomplete =
+        expired >= AUTOMATION_TRIGGER_EVENT_EXPIRY_BATCH_SIZE;
+      if (!staleMailExpiryIncomplete) return;
     }
   };
 
@@ -347,7 +362,7 @@ async function drainReadyTriggerQueue(
             ? { throughTriggerId: cycleStart }
             : {}),
         },
-        DURABLE_TRIGGER_SWEEP_QUERY_OPTIONS,
+        readyQueryOptions(),
       );
       if (context.signal?.aborted) return null;
 

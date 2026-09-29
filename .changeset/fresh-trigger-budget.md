@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve time for fresh automation triggers while stale Mail events expire.
+Keep fresh triggers eligible while bounded stale Mail expiry leaves a backlog.

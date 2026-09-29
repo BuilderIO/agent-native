@@ -93,8 +93,42 @@ const triggerQueueMocks = vi.hoisted(() => {
         appId?: string | null,
         limit = 100,
         cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
-      ) =>
-        [
+        options: {
+          excludeStaleEventBefore?: {
+            eventName: string;
+            emittedBefore: string;
+          };
+        } = {},
+      ) => {
+        const excludedStaleHeads = new Set(
+          options.excludeStaleEventBefore
+            ? rows
+                .filter(
+                  (row) =>
+                    row.appId === (appId ?? null) &&
+                    row.status === "pending" &&
+                    row.eventName ===
+                      options.excludeStaleEventBefore?.eventName &&
+                    Date.parse(row.emittedAt) <
+                      Date.parse(
+                        options.excludeStaleEventBefore?.emittedBefore ?? "",
+                      ),
+                )
+                .filter(
+                  (row) =>
+                    !rows.some(
+                      (earlier) =>
+                        earlier.appId === row.appId &&
+                        earlier.triggerId === row.triggerId &&
+                        earlier.sequenceId < row.sequenceId &&
+                        (earlier.status === "pending" ||
+                          earlier.status === "processing"),
+                    ),
+                )
+                .map((row) => row.triggerId)
+            : [],
+        );
+        return [
           ...new Set(
             rows
               .filter(
@@ -109,12 +143,14 @@ const triggerQueueMocks = vi.hoisted(() => {
         ]
           .filter(
             (triggerId) =>
+              !excludedStaleHeads.has(triggerId) &&
               (cursor.afterTriggerId === undefined ||
                 triggerId > cursor.afterTriggerId) &&
               (cursor.throughTriggerId === undefined ||
                 triggerId <= cursor.throughTriggerId),
           )
-          .slice(0, limit),
+          .slice(0, limit);
+      },
     ),
     getSweepCursor: vi.fn(async () => sweepCursor),
     setSweepCursor: vi.fn(
@@ -1070,7 +1106,7 @@ Respond to the event.`,
     expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(2);
   });
 
-  it("reserves fresh-trigger query time while expiring stale mail", async () => {
+  it("runs fresh triggers while stale mail remains after bounded expiry", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "mail.message.received";
     resourceListAllOwnersMock.mockResolvedValue([
@@ -1102,11 +1138,12 @@ Respond to the event.`,
     });
 
     const staleEmittedAt = new Date(now - 2 * 60 * 60_000).toISOString();
+    const staleEventCount = 5_001;
     const staleTriggerIds = Array.from(
       { length: 1 },
       (_, index) => `a-stale-trigger-${String(index).padStart(3, "0")}`,
     );
-    for (let index = 0; index < 1; index += 1) {
+    for (let index = 0; index < staleEventCount; index += 1) {
       const triggerId = staleTriggerIds[index % staleTriggerIds.length]!;
       triggerQueueMocks.rows.push({
         appId: "mail",
@@ -1183,7 +1220,7 @@ Respond to the event.`,
       triggerQueueMocks.claim.mockImplementation(claimImplementation);
     }
 
-    expect(triggerQueueMocks.expire).toHaveBeenCalledOnce();
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(4);
     expect(
       triggerQueueMocks.expire.mock.invocationCallOrder.at(-1),
     ).toBeLessThan(triggerQueueMocks.ready.mock.invocationCallOrder[0]!);
@@ -1211,7 +1248,14 @@ Respond to the event.`,
           row.triggerId.startsWith("a-stale-trigger-") &&
           row.status === "completed",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(4_000);
+    expect(
+      triggerQueueMocks.rows.filter(
+        (row) =>
+          row.triggerId.startsWith("a-stale-trigger-") &&
+          row.status === "pending",
+      ),
+    ).toHaveLength(1_001);
   });
 
   it("skips queue purging when the sweep has less than three query budgets left", async () => {

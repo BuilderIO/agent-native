@@ -289,7 +289,9 @@ export async function listReadyAutomationTriggerIds(
   appId?: string | null,
   limit = 100,
   cursor: { afterTriggerId?: string; throughTriggerId?: string } = {},
-  options: AutomationTriggerQueueQueryOptions = {},
+  options: AutomationTriggerQueueQueryOptions & {
+    excludeStaleEventBefore?: { eventName: string; emittedBefore: string };
+  } = {},
 ): Promise<string[]> {
   await ensureAutomationTriggerEventQueue();
   const now = Date.now();
@@ -298,23 +300,58 @@ export async function listReadyAutomationTriggerIds(
     cursor.afterTriggerId === undefined ? "" : "AND trigger_id > ?";
   const throughClause =
     cursor.throughTriggerId === undefined ? "" : "AND trigger_id <= ?";
+  const readyRowsSql = `FROM ${TABLE}
+          WHERE ${scope.sql}
+            AND ((status = 'pending' AND available_at <= ?)
+              OR (status = 'processing' AND
+                (claimed_at IS NULL OR claimed_at <= ?)))
+            ${afterClause}
+            ${throughClause}`;
+  const staleEventClause = options.excludeStaleEventBefore
+    ? `AND NOT EXISTS (
+        SELECT 1 FROM ${TABLE} AS stale
+        WHERE stale.app_id IS NOT DISTINCT FROM ready.app_id
+          AND stale.trigger_id = ready.trigger_id
+          AND stale.status = 'pending'
+          AND stale.event_name = ?
+          AND stale.emitted_at < ?
+          AND NOT EXISTS (
+            SELECT 1 FROM ${TABLE} AS earlier
+            WHERE earlier.app_id IS NOT DISTINCT FROM stale.app_id
+              AND earlier.trigger_id = stale.trigger_id
+              AND earlier.sequence_id < stale.sequence_id
+              AND earlier.status IN ('pending', 'processing')
+          )
+      )`
+    : "";
   const args = [
     ...scope.args,
     now,
     now - CLAIM_LEASE_MS(),
     ...(cursor.afterTriggerId === undefined ? [] : [cursor.afterTriggerId]),
     ...(cursor.throughTriggerId === undefined ? [] : [cursor.throughTriggerId]),
+    ...(options.excludeStaleEventBefore
+      ? [
+          options.excludeStaleEventBefore.eventName,
+          options.excludeStaleEventBefore.emittedBefore,
+        ]
+      : []),
     Math.max(1, Math.min(limit, 500)),
   ];
   const { rows } = await getDbExec().execute({
-    sql: `SELECT DISTINCT trigger_id
-          FROM ${TABLE}
-          WHERE ${scope.sql}
-            AND ((status = 'pending' AND available_at <= ?)
-              OR (status = 'processing' AND
-                (claimed_at IS NULL OR claimed_at <= ?)))
-            ${afterClause}
-            ${throughClause}
+    sql: options.excludeStaleEventBefore
+      ? `WITH ready AS (
+            SELECT DISTINCT app_id, trigger_id
+            ${readyRowsSql}
+          )
+          SELECT ready.trigger_id
+          FROM ready
+          WHERE TRUE
+            ${staleEventClause}
+          ORDER BY ready.trigger_id ASC
+          LIMIT ?`
+      : `SELECT DISTINCT trigger_id
+          ${readyRowsSql}
           ORDER BY trigger_id ASC
           LIMIT ?`,
     args,

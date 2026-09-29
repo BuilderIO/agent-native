@@ -270,6 +270,39 @@ describe("automation trigger event queue", () => {
     expect(query.args).toContain("mail");
   });
 
+  it("can skip a trigger whose next queued event is stale", async () => {
+    executeMock.mockResolvedValueOnce({ rows: [{ trigger_id: "resource-z" }] });
+
+    await listReadyAutomationTriggerIds(
+      "mail",
+      100,
+      {},
+      {
+        timeoutMs: 5_000,
+        excludeStaleEventBefore: {
+          eventName: "mail.message.received",
+          emittedBefore: "2026-09-27T10:00:00.000Z",
+        },
+      },
+    );
+
+    const query = executeMock.mock.calls[0]?.[0] as {
+      args: unknown[];
+      maxAttempts?: number;
+      sql: string;
+    };
+    expect(query.sql).toContain("WITH ready AS (");
+    expect(query.sql).toContain("stale.sequence_id");
+    expect(query.sql).toContain("earlier.sequence_id < stale.sequence_id");
+    expect(query.args).toEqual(
+      expect.arrayContaining([
+        "mail.message.received",
+        "2026-09-27T10:00:00.000Z",
+      ]),
+    );
+    expect(query.maxAttempts).toBe(1);
+  });
+
   it("bounds ready-trigger pages and keysets past the durable cursor", async () => {
     const triggerIds = Array.from({ length: 100 }, (_, index) => ({
       trigger_id: `resource-${index}`,
