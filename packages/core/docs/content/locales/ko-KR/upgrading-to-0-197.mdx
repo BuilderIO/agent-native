@@ -16,14 +16,16 @@ workspace 루트에서 명령을 실행하고 시작 전에 검토 가능한 소
 Core 0.197.0에 포함된 CLI를 사용해 해당 릴리스의 migration manifest를
 불러옵니다.
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 앱에 Core 0.197.0을 설치한 뒤에는 로컬 CLI 바이너리로 같은 미리보기를 실행할 수 있습니다:
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
---yes 없이 --codemods를 실행하면 dry run이며 파일을 쓰지 않습니다. 계속하기
-전에 예정된 dependency 변경, 파일 diff, 경고를 검토하세요.
+`--codemods` 명령은 `ts-morph`를 사용합니다. 앱에서 아직 이 패키지를 확인할 수 없다면 먼저 개발 의존성으로 설치하세요: `pnpm add -D ts-morph`.
+
+`--codemods`는 지원되는 import 변경을 기본적으로 적용합니다. 예정된 dependency 변경,
+파일 diff, 경고를 미리 확인하려면 `--dry-run`을 추가하세요. 이제 `--yes`는 필요하지 않습니다.
 
 codemod는 활성 Core 및 Toolkit migration manifest를 사용합니다. 선언 파일,
 생성 파일, dependency 디렉터리를 제외한 .ts 및 .tsx 파일만 검색해 지원되는
@@ -92,8 +94,11 @@ CLI는 다음 peer를 자동으로 추론하지 않습니다. 앱에서 사용�
 | LaunchDarkly 서버 측 기능 플래그                              | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 임베디드 터미널 세션                                          | node-pty; ws                                                                                     | >=1; >=8         |
 | 확장 HTML 서식 지정                                           | prettier                                                                                         | ^3.8.3           |
+| 기본 템플릿 소스 검색                                         | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Core에 이미 포함됨:** 웹 페이지를 Markdown으로 추출할 때 `linkedom`, `@mozilla/readability`, `turndown`을 사용합니다. Core가 일반 package dependency로 제공하므로 앱에서 따로 추가할 필요가 없습니다. Vite, React Router, Tailwind, Drizzle Kit 같은 빌드 및 프레임워크 peer는 이 표의 앱 기능이 아닙니다. 앱의 프레임워크 설정에 맞춰 유지하세요.
+
+기본 템플릿 소스 검색을 사용하려면 같은 버전의 코퍼스 패키지를 개발 의존성으로 추가하세요: `pnpm add -D @agent-native/core-corpus@0.197.0`.
 
 ## 3. 업그레이드 적용
 

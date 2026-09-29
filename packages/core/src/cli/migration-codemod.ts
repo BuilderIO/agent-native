@@ -582,7 +582,7 @@ function addDependencies(
     for (const packageName of missing.sort()) {
       dependencies[packageName] =
         packageName === "@agent-native/toolkit" && coreVersion
-          ? `^${coreVersion}`
+          ? `>=${coreVersion}`
           : "latest";
     }
     packageJson.dependencies = Object.fromEntries(

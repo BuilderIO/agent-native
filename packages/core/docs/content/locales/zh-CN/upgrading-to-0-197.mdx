@@ -13,14 +13,16 @@ description: "介绍迁移到 Core 0.197.0、Toolkit 导入、可选 peer 包和
 
 使用 Core 0.197.0 随附的 CLI，以加载该版本的 migration manifest：
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 在应用中安装 Core 0.197.0 后，也可以通过本地 CLI 二进制文件运行相同的预览：
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
-不带 --yes 的 --codemods 是 dry run，不会写入文件。请先查看计划中的
-依赖变更、文件差异和警告。
+`--codemods` 命令使用 `ts-morph`。如果应用尚不能解析该包，请先将其安装为开发依赖：`pnpm add -D ts-morph`。
+
+`--codemods` 默认会应用受支持的 import 修改。添加 `--dry-run` 可预览计划中的依赖变更、
+文件差异和警告。现在不再需要 `--yes`。
 
 codemod 使用当前生效的 Core 和 Toolkit migration manifest。它仅扫描 .ts 和
 .tsx 文件（跳过声明文件、生成文件和依赖目录），并重写受支持的 import
@@ -87,8 +89,11 @@ CLI 不会推断以下 peer。请根据应用实际使用的功能添加软件�
 | LaunchDarkly 服务端功能标志                                 | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 嵌入式终端会话                                              | node-pty; ws                                                                                     | >=1; >=8         |
 | 扩展 HTML 格式化                                            | prettier                                                                                         | ^3.8.3           |
+| 第一方模板源码搜索                                          | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Core 已包含：**网页转 Markdown 页面提取使用 `linkedom`、`@mozilla/readability` 和 `turndown`。Core 将它们作为常规软件包依赖包含在内，因此无需单独添加。Vite、React Router、Tailwind 和 Drizzle Kit 等构建及框架 peer 不属于此表中的应用功能；请让它们与应用的框架配置保持一致。
+
+如需搜索第一方模板源码，请将对应版本的 corpus 包作为开发依赖添加：`pnpm add -D @agent-native/core-corpus@0.197.0`。
 
 ## 3. 应用升级
 

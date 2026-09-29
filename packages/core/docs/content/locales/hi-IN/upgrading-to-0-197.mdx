@@ -16,14 +16,16 @@ feature settings नहीं देख सकती।
 Core 0.197.0 के साथ आने वाली CLI चलाएँ, ताकि उसी release का migration manifest
 लोड हो:
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 ऐप में Core 0.197.0 इंस्टॉल होने के बाद यही preview स्थानीय CLI binary से भी उपलब्ध है:
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
---yes के बिना --codemods केवल dry run है और कोई file नहीं लिखता। आगे बढ़ने से
-पहले dependency plan, file diff और warnings देखें।
+`--codemods` कमांड `ts-morph` का उपयोग करती है। अगर ऐप से यह पैकेज पहले से resolve नहीं होता, तो पहले इसे development dependency के रूप में इंस्टॉल करें: `pnpm add -D ts-morph`।
+
+`--codemods` समर्थित import बदलाव डिफ़ॉल्ट रूप से लागू करती है। आगे बढ़ने से पहले प्रस्तावित
+dependency बदलाव, file diff और warnings देखने के लिए `--dry-run` जोड़ें। अब `--yes` की ज़रूरत नहीं है।
 
 Codemod सक्रिय Core और Toolkit migration manifests का उपयोग करता है। यह केवल .ts
 और .tsx files देखता है (declaration files, generated files और dependency
@@ -93,8 +95,11 @@ CLI इन peers का अनुमान नहीं लगाता। ऐ�
 | LaunchDarkly server-side feature flags                      | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | Embedded terminal sessions                                  | node-pty; ws                                                                                     | >=1; >=8         |
 | Extension HTML formatting                                   | prettier                                                                                         | ^3.8.3           |
+| पहले-पक्ष के template स्रोत में खोज                         | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Core के साथ पहले से शामिल:** Web-to-Markdown पेज extraction में `linkedom`, `@mozilla/readability` और `turndown` का उपयोग होता है। Core इन्हें सामान्य package dependencies के रूप में देता है, इसलिए इन्हें अलग से जोड़ने की ज़रूरत नहीं है। Vite, React Router, Tailwind और Drizzle Kit जैसे build/framework peers इस तालिका में app features नहीं हैं; इन्हें ऐप के framework setup के अनुरूप रखें।
+
+पहले-पक्ष के template स्रोत में खोज के लिए, उसी version का corpus package development dependency के रूप में जोड़ें: `pnpm add -D @agent-native/core-corpus@0.197.0`।
 
 ## 3. Upgrade लागू करें
 

@@ -4878,7 +4878,8 @@
           "to": "@agent-native/toolkit/app/chat/agentkit-chat"
         },
         "MemoryRouter": {
-          "to": "@agent-native/toolkit/app/chat"
+          "to": "@agent-native/toolkit/app/chat",
+          "name": "AgentChatMemoryRouter"
         },
         "AgentAskPopover": {
           "to": "@agent-native/toolkit/app/chat"
@@ -6080,7 +6081,6 @@
   "removedExports": {
     "@agent-native/core/client": {
       "symbols": [
-        "AgentChatRuntimeContinuationEvent",
         "AgentNative",
         "AgentNativeCommandCallback",
         "AgentNativeCommandCallbackInfo",
@@ -6109,7 +6109,6 @@
       ],
       "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
       "symbolGuides": {
-        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
         "AgentNative": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
         "useAgentNativeScreenContext": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
         "AgentNativeCommandCallback": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
@@ -6124,7 +6123,6 @@
     },
     "@agent-native/core/client/chat": {
       "symbols": [
-        "AgentChatRuntimeContinuationEvent",
         "AssistantMessageActionBar",
         "AssistantMessageActionBarProps",
         "CodeAgentChatControlResult",
@@ -6141,14 +6139,10 @@
         "createAgentChatRuntimeAdapter",
         "createCodeAgentChatAdapter"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
-      "symbolGuides": {
-        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
-      }
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
     },
     "@agent-native/core/client/agent-chat": {
       "symbols": [
-        "AgentChatRuntimeContinuationEvent",
         "AssistantMessageActionBar",
         "AssistantMessageActionBarProps",
         "CodeAgentChatControlResult",
@@ -6165,10 +6159,7 @@
         "createAgentChatRuntimeAdapter",
         "createCodeAgentChatAdapter"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
-      "symbolGuides": {
-        "AgentChatRuntimeContinuationEvent": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
-      }
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
     },
     "@agent-native/core/client/host": {
       "symbols": [
@@ -6179,16 +6170,6 @@
         "AgentNativeFrameProps",
         "AgentNativeProps",
         "useAgentNativeScreenContext"
-      ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
-    },
-    "@agent-native/core/client/speak": {
-      "symbols": [
-        "SPEECH_MAX_CHARS",
-        "SpeechClipFailure",
-        "SpeechClipInput",
-        "SpeechClipResult",
-        "fetchSpeechClip"
       ],
       "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
     },

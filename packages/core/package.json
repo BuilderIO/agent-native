@@ -739,7 +739,7 @@
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
-    "@agent-native/core-corpus": ">=0.196.0",
+    "@agent-native/core-corpus": "workspace:>=0.196.0",
     "@ai-sdk/anthropic": ">=3",
     "@ai-sdk/cohere": ">=3",
     "@ai-sdk/google": ">=3",

@@ -15,7 +15,7 @@ import {
 } from "./migration-codemod.js";
 
 const roots: string[] = [];
-const toolkitRange = `^${bundledCorePackageVersion()}`;
+const toolkitRange = `>=${bundledCorePackageVersion()}`;
 
 afterEach(() => {
   for (const root of roots.splice(0)) {

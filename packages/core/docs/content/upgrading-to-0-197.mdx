@@ -16,15 +16,18 @@ database-backed feature settings.
 Use the CLI shipped with Core 0.197.0 so it loads that release's migration
 manifest:
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 After Core 0.197.0 is installed in the app, the same preview is available from
 its local CLI binary:
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
-This is a dry run because --codemods without --yes never writes. Review the
-planned dependency changes, file diff, and warnings before continuing.
+The `--codemods` command uses `ts-morph`. If it is not already resolvable in the app, install it as a development dependency first: `pnpm add -D ts-morph`.
+
+Add `--dry-run` to preview the upgrade, dependency changes, source diff, and
+warnings without writing files. Without that flag, `--codemods` applies
+supported rewrites.
 
 The codemod uses the active Core and Toolkit migration manifests. For import
 and re-export analysis, it scans only `.ts` and `.tsx` source files (excluding
@@ -105,6 +108,7 @@ engine needs `ai` plus the provider package selected by the engine:
 | LaunchDarkly server-side feature flags                       | @launchdarkly/node-server-sdk                                                                       | ^9.13.6          |
 | Embedded terminal sessions                                   | node-pty; ws                                                                                        | >=1; >=8         |
 | Extension HTML formatting                                    | prettier                                                                                            | ^3.8.3           |
+| First-party template source search                           | @agent-native/core-corpus                                                                           | 0.197.0          |
 
 **Already included with Core:** Web-to-Markdown page extraction uses `linkedom`,
 `@mozilla/readability`, and `turndown`. Core ships these as regular package
@@ -112,11 +116,13 @@ dependencies, so you do not need to add them separately. Build and framework
 peers such as Vite, React Router, Tailwind, and Drizzle Kit are not application
 features in this table; keep them aligned with the app's framework setup.
 
+For first-party template source search, add the matching corpus package as a development dependency: `pnpm add -D @agent-native/core-corpus@0.197.0`.
+
 ## 3. Apply the upgrade
 
 After reviewing the preview and confirming feature packages, apply the plan:
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --yes
+    npx agent-native upgrade --codemods
 
 This single command updates eligible @agent-native/\* dependency specs,
 aligns detected feature dependencies, runs the package manager, pins resolved

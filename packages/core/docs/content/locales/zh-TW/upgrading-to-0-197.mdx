@@ -14,14 +14,16 @@ description: "說明遷移至 Core 0.197.0、Toolkit 匯入、選用 peer 套件
 
 使用 Core 0.197.0 隨附的 CLI，載入該版本的 migration manifest：
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 在應用程式安裝 Core 0.197.0 後，也可透過本機 CLI 執行檔執行相同的預覽：
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
-不加 --yes 的 --codemods 是 dry run，不會寫入檔案。請先檢查預定的相依
-套件變更、檔案差異和警告。
+`--codemods` 命令使用 `ts-morph`。如果應用尚無法解析此套件，請先將它安裝為開發相依套件：`pnpm add -D ts-morph`。
+
+`--codemods` 預設會套用支援的 import 修改。加入 `--dry-run` 可預覽預定的相依套件變更、
+檔案差異和警告。現在不再需要 `--yes`。
 
 codemod 使用有效的 Core 和 Toolkit migration manifest。它會僅掃描 .ts 和
 .tsx 檔案（略過宣告檔、產生檔和相依目錄），並改寫支援的 import 和
@@ -88,8 +90,11 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 | LaunchDarkly 伺服器端功能旗標                               | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 內嵌終端工作階段                                            | node-pty; ws                                                                                     | >=1; >=8         |
 | 擴充功能 HTML 格式化                                        | prettier                                                                                         | ^3.8.3           |
+| 第一方範本原始碼搜尋                                        | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Core 已包含：**網頁轉 Markdown 頁面擷取使用 `linkedom`、`@mozilla/readability` 和 `turndown`。Core 將它們作為一般套件相依性包含在內，因此不需另外加入。Vite、React Router、Tailwind 和 Drizzle Kit 等建置與框架 peer 不屬於此表中的應用程式功能；請讓它們與應用程式的框架設定相符。
+
+如需搜尋第一方範本原始碼，請將對應版本的 corpus 套件加為開發相依套件：`pnpm add -D @agent-native/core-corpus@0.197.0`。
 
 ## 3. 套用升級
 

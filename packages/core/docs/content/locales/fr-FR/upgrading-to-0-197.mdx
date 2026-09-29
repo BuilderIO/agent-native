@@ -17,15 +17,17 @@ environnements distants ni les réglages de fonctionnalités stockés en base.
 Utilisez la CLI de Core 0.197.0 pour charger le manifeste de migration de cette
 version :
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 Une fois Core 0.197.0 installé dans l’application, le même aperçu est disponible via le binaire CLI local :
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
-Sans --yes, --codemods est une simulation qui n’écrit aucun fichier. Examinez
-les changements de dépendances prévus, le diff et les avertissements avant de
-continuer.
+La commande `--codemods` utilise `ts-morph`. Si le paquet ne peut pas déjà être résolu depuis l’application, installez-le d’abord comme dépendance de développement : `pnpm add -D ts-morph`.
+
+`--codemods` applique par défaut les modifications d’import prises en charge. Ajoutez
+`--dry-run` pour prévisualiser les changements de dépendances prévus, le diff des fichiers et
+les avertissements avant de continuer. `--yes` n’est plus nécessaire.
 
 Le codemod utilise les manifestes de migration actifs de Core et Toolkit. Il
 ne parcourt que les fichiers .ts et .tsx (hors fichiers de déclaration, fichiers
@@ -99,8 +101,11 @@ La CLI ne déduit pas ces peers. Ajoutez le package pour chaque fonctionnalité 
 | Indicateurs de fonctionnalité LaunchDarkly côté serveur         | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | Sessions de terminal intégré                                    | node-pty; ws                                                                                     | >=1; >=8         |
 | Formatage HTML des extensions                                   | prettier                                                                                         | ^3.8.3           |
+| Recherche dans les sources des modèles Agent-Native             | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Déjà inclus avec Core :** l’extraction de pages web vers Markdown utilise `linkedom`, `@mozilla/readability` et `turndown`. Core les fournit comme dépendances ordinaires ; il n’est donc pas nécessaire de les ajouter séparément. Les peers de build et de framework comme Vite, React Router, Tailwind et Drizzle Kit ne sont pas des fonctionnalités de l’application dans ce tableau ; gardez-les alignés sur sa configuration de framework.
+
+Pour rechercher dans le code source des modèles Agent-Native, ajoutez le paquet corpus correspondant comme dépendance de développement : `pnpm add -D @agent-native/core-corpus@0.197.0`.
 
 ## 3. Appliquer la mise à niveau
 

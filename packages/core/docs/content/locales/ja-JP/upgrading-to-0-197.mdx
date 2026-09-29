@@ -16,14 +16,16 @@ workspaceのルートでコマンドを実行し、開始前にレビュー可�
 Core 0.197.0に含まれるCLIを使い、このreleaseのmigration manifestを
 読み込みます。
 
-    npx @agent-native/core@0.197.0 upgrade --codemods
+    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
 
 アプリに Core 0.197.0 をインストールした後は、同じプレビューをローカル CLI バイナリから実行できます。
 
-    npx agent-native upgrade --codemods
+    npx agent-native upgrade --codemods --dry-run
 
---yesを付けない--codemodsはdry runで、ファイルを書き換えません。
-続行する前に、依存関係の変更案、ファイル差分、警告を確認してください。
+`--codemods` コマンドは `ts-morph` を使います。アプリからまだ解決できない場合は、先に開発依存関係としてインストールしてください: `pnpm add -D ts-morph`。
+
+`--codemods` は、サポートされる import の変更を既定で適用します。依存関係の変更案、
+ファイル差分、警告を事前に確認するには `--dry-run` を追加してください。`--yes` は不要になりました。
 
 codemodはCoreとToolkitの有効なmigration manifestを使います。.tsと
 .tsxファイルだけ（宣言ファイル、生成物、依存関係ディレクトリを除く）を
@@ -94,8 +96,11 @@ CLI は次の peer を自動判定しません。アプリで使う機能に応�
 | LaunchDarkly サーバー側 feature flag                            | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 埋め込みターミナルセッション                                    | node-pty; ws                                                                                     | >=1; >=8         |
 | 拡張機能の HTML 整形                                            | prettier                                                                                         | ^3.8.3           |
+| 組み込みテンプレートソース検索                                  | @agent-native/core-corpus                                                                        | 0.197.0          |
 
 **Core に含まれる依存関係:** Web-to-Markdown によるページ抽出では `linkedom`、`@mozilla/readability`、`turndown` を使います。これらは通常の Core パッケージ依存関係として含まれるため、別途追加する必要はありません。Vite、React Router、Tailwind、Drizzle Kit などのビルド／フレームワーク用 peer は、この表のアプリ機能には含めません。アプリのフレームワーク構成に合わせてください。
+
+組み込みテンプレートのソース検索を使う場合は、対応するバージョンのコーパスパッケージを開発依存関係として追加します: `pnpm add -D @agent-native/core-corpus@0.197.0`。
 
 ## 3. アップグレードを適用する
 

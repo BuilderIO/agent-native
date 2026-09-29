@@ -37,23 +37,23 @@ codemod limits, and a symbol-level path map.
 1. **Preview migration codemods first**
 
    ```bash
-   npx @agent-native/core@latest upgrade --codemods
+   npx @agent-native/core@latest upgrade --codemods --dry-run
    ```
 
-   Codemods are preview-by-default: read the diff before applying it. Do not
-   manually edit imports before running this command; the migration manifest is
-   the source of truth for renamed specifiers and symbols.
+   `--dry-run` previews the diff without writing. Do not manually edit imports
+   before applying the codemod; the migration manifest is the source of truth
+   for renamed specifiers and symbols.
 
 2. **Apply the reviewed upgrade and codemods**
 
    ```bash
-   npx @agent-native/core@latest upgrade --codemods --yes
+   npx agent-native upgrade --codemods
    ```
 
    This single invocation applies the codemods and runs the upgrade, including
    dependency installation, scaffold skill refresh, and typecheck when
    available. Do not run a second upgrade command just to apply the codemods.
-   From an already-installed CLI, use `pnpm exec agent-native upgrade --codemods --yes`.
+   From an already-installed CLI, use `pnpm exec agent-native upgrade --codemods`.
 
    What it does:
 

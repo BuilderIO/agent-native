@@ -6,7 +6,7 @@ import {
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { PLAN_LABS } from "@shared/labs";
 import { useMemo } from "react";

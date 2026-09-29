@@ -2570,7 +2570,7 @@ importers:
         specifier: workspace:^
         version: link:../agentkit
       '@agent-native/core-corpus':
-        specifier: workspace:^
+        specifier: workspace:>=0.196.0
         version: link:../core-corpus
       '@agent-native/recap-cli':
         specifier: workspace:^
