@@ -699,4 +699,49 @@ describe("browser recording startup cancellation", () => {
     );
     expect(audioCue.cleanup).toHaveBeenCalled();
   });
+
+  it("cancels a live upload when Cancel arrives during transcription startup", async () => {
+    useBrowserCameraCapture();
+    const cue = deferred<void>();
+    const transcription = deferred<TranscriptionCapture>();
+    const transcript = capture();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    mocks.transcribe.mockReturnValueOnce(transcription.promise);
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        systemAudioOn: false,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    expect(mediaRecorderStart).toHaveBeenCalledOnce();
+    expect(mocks.transcribe).toHaveBeenCalledOnce();
+
+    await mocks.emit("clips:recorder-cancel");
+    await flush();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/uploads/recording-1/abort"),
+      expect.objectContaining({
+        body: expect.stringContaining('"failureCode":"user_cancelled"'),
+      }),
+    );
+
+    transcription.resolve(transcript);
+    await failed;
+    await flush();
+    expect(transcript.cancel).toHaveBeenCalledOnce();
+    expect(audioCue.cleanup).toHaveBeenCalled();
+  });
 });

@@ -4989,33 +4989,6 @@ async function startRecordingInner(
     emitRecorderSession(params.serverUrl, id, false, params.micOn);
     emitState(false);
 
-    if (canTranscribeLocally) await restartHandoff.transcriptionTornDown;
-    transcriptionCapture = canTranscribeLocally
-      ? await startTranscriptionCapture(
-          {
-            deviceId: params.micId,
-            label: params.micLabel,
-          },
-          wantsSystemAudio,
-          { voiceProcessing: false },
-        )
-      : null;
-    if (stopped && transcriptionCapture) {
-      void transcriptionCapture.cancel().catch(() => {});
-      transcriptionCapture = null;
-    } else if (pausedAt != null && transcriptionCapture) {
-      console.log(
-        "[clips-recorder] recorder: paused during startup, pausing transcription",
-      );
-      void transcriptionCapture.pause().catch(() => {});
-    } else if (
-      canTranscribeLocally &&
-      !transcriptionCapture &&
-      shouldSaveLocalTranscriptionStartupFailure()
-    ) {
-      void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
-    }
-
     const performStop = async (): Promise<RecorderStopResult> => {
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopped = true;
@@ -5423,6 +5396,56 @@ async function startRecordingInner(
         return discardTake(true);
       },
     };
+
+    const cancelOnStartupAbort = () => {
+      void handle?.cancel().catch((err) => {
+        console.error("[clips-recorder] startup cancellation failed:", err);
+      });
+    };
+    params.signal?.addEventListener("abort", cancelOnStartupAbort, {
+      once: true,
+    });
+    try {
+      if (canTranscribeLocally) await restartHandoff.transcriptionTornDown;
+      throwIfRecordingStartAborted(params.signal);
+      if (stopped) throw new RecordingStartCancelledError();
+
+      transcriptionCapture = canTranscribeLocally
+        ? await startTranscriptionCapture(
+            {
+              deviceId: params.micId,
+              label: params.micLabel,
+            },
+            wantsSystemAudio,
+            { voiceProcessing: false },
+          )
+        : null;
+      if (stopped || params.signal?.aborted) {
+        await transcriptionCapture?.cancel().catch((err) => {
+          console.warn(
+            "[clips-recorder] late transcription startup cleanup failed:",
+            err,
+          );
+        });
+        transcriptionCapture = null;
+        throwIfRecordingStartAborted(params.signal);
+        throw new RecordingStartCancelledError();
+      }
+      if (pausedAt != null && transcriptionCapture) {
+        console.log(
+          "[clips-recorder] recorder: paused during startup, pausing transcription",
+        );
+        void transcriptionCapture.pause().catch(() => {});
+      } else if (
+        canTranscribeLocally &&
+        !transcriptionCapture &&
+        shouldSaveLocalTranscriptionStartupFailure()
+      ) {
+        void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
+      }
+    } finally {
+      params.signal?.removeEventListener("abort", cancelOnStartupAbort);
+    }
 
     const wrappedHandle = recorderWithCaptureSuspension(
       handle,
