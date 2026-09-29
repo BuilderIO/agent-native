@@ -30,9 +30,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     mod
   ));
 
-  // ../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
+  // ../../../../design-radius-center-handle/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js
   var require_resolve_uri_umd = __commonJS({
-    "../../node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
+    "../../../../design-radius-center-handle/framework/node_modules/.pnpm/@jridgewell+resolve-uri@3.1.2/node_modules/@jridgewell/resolve-uri/dist/resolve-uri.umd.js"(exports, module) {
       (function(global, factory) {
         typeof exports === "object" && typeof module !== "undefined" ? module.exports = factory() : typeof define === "function" && define.amd ? define(factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, global.resolveURI = factory());
       })(exports, (function() {
@@ -209,7 +209,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
   });
 
-  // ../../packages/toolkit/dist/canvas-interactions/canvas-interactions.js
+  // ../../../../design-radius-center-handle/framework/packages/toolkit/dist/canvas-interactions/canvas-interactions.js
   var DEFAULT_CANVAS_DRAG_THRESHOLD = 3;
   var DEFAULT_CANVAS_NUDGE = 1;
   var DEFAULT_CANVAS_ACCELERATED_NUDGE = 10;
@@ -617,7 +617,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     };
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
+  // ../../../../design-radius-center-handle/framework/node_modules/.pnpm/@jridgewell+sourcemap-codec@1.5.5/node_modules/@jridgewell/sourcemap-codec/dist/sourcemap-codec.mjs
   var comma = ",".charCodeAt(0);
   var semicolon = ";".charCodeAt(0);
   var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -716,7 +716,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     return a[0] - b[0];
   }
 
-  // ../../node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
+  // ../../../../design-radius-center-handle/framework/node_modules/.pnpm/@jridgewell+trace-mapping@0.3.31/node_modules/@jridgewell/trace-mapping/dist/trace-mapping.mjs
   var import_resolve_uri = __toESM(require_resolve_uri_umd(), 1);
   function stripFilename(path) {
     if (!path) return "";
@@ -10314,8 +10314,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sin = Math.sin(radians);
       var independent = {
         a: cos * scaleX,
-        b: sin * scaleY,
-        c: -sin * scaleX,
+        b: sin * scaleX,
+        c: -sin * scaleY,
         d: cos * scaleY
       };
       return {
@@ -10375,14 +10375,24 @@ export const editorChromeBridgeScript: string = `"use strict";
         y: (-matrix.b * dx + matrix.a * dy) / determinant
       };
     }
-    function radiusLocalDelta(el, screenDx, screenDy) {
-      var matrix = radiusViewportLinearTransform(el);
+    function radiusInverseLinearDelta(matrix, screenDx, screenDy) {
       var determinant = radiusTransformDeterminant(matrix);
       if (determinant === null) return null;
       return {
         x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
         y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant
       };
+    }
+    function radiusLocalDelta(el, screenDx, screenDy) {
+      return radiusInverseLinearDelta(
+        radiusViewportLinearTransform(el),
+        screenDx,
+        screenDy
+      );
+    }
+    function radiusSvgLocalDelta(el, screenDx, screenDy) {
+      var matrix = el.getScreenCTM();
+      return matrix ? radiusInverseLinearDelta(matrix, screenDx, screenDy) : null;
     }
     function cornerRadiusMap(cs, width, height) {
       return {
@@ -18089,12 +18099,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var screenDx = ev.clientX - startX;
         var screenDy = ev.clientY - startY;
         if (screenDx === 0 && screenDy === 0) return;
-        var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+        var local = radiusSvgLocalDelta(radiusEl, screenDx, screenDy);
         if (!local) return;
         radiusMoved = true;
-        var localX = local.x * (pathData.viewBox.width / cssBox.width);
-        var localY = local.y * (pathData.viewBox.height / cssBox.height);
-        var projected = localX * vertex.bisector.x + localY * vertex.bisector.y;
+        var projected = local.x * vertex.bisector.x + local.y * vertex.bisector.y;
         applyRadius(originRadius + projected * vertex.sinHalfAngle);
         applySelectionHandleHitGeometry(radiusEl);
         refreshOverlays();

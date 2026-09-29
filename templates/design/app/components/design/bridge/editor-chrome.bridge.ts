@@ -12802,8 +12802,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var sin = Math.sin(radians);
     var independent = {
       a: cos * scaleX,
-      b: sin * scaleY,
-      c: -sin * scaleX,
+      b: sin * scaleX,
+      c: -sin * scaleY,
       d: cos * scaleY,
     };
     return {
@@ -12876,14 +12876,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function radiusLocalDelta(el, screenDx, screenDy) {
-    var matrix = radiusViewportLinearTransform(el);
+  function radiusInverseLinearDelta(matrix, screenDx, screenDy) {
     var determinant = radiusTransformDeterminant(matrix);
     if (determinant === null) return null;
     return {
       x: (matrix.d * screenDx - matrix.c * screenDy) / determinant,
       y: (-matrix.b * screenDx + matrix.a * screenDy) / determinant,
     };
+  }
+
+  function radiusLocalDelta(el, screenDx, screenDy) {
+    return radiusInverseLinearDelta(
+      radiusViewportLinearTransform(el),
+      screenDx,
+      screenDy,
+    );
+  }
+
+  function radiusSvgLocalDelta(el, screenDx, screenDy) {
+    var matrix = el.getScreenCTM();
+    return matrix ? radiusInverseLinearDelta(matrix, screenDx, screenDy) : null;
   }
 
   function cornerRadiusMap(cs, width, height) {
@@ -23052,12 +23064,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
       if (screenDx === 0 && screenDy === 0) return;
-      var local = radiusLocalDelta(radiusEl, screenDx, screenDy);
+      var local = radiusSvgLocalDelta(radiusEl, screenDx, screenDy);
       if (!local) return;
       radiusMoved = true;
-      var localX = local.x * (pathData.viewBox.width / cssBox.width);
-      var localY = local.y * (pathData.viewBox.height / cssBox.height);
-      var projected = localX * vertex.bisector.x + localY * vertex.bisector.y;
+      var projected = local.x * vertex.bisector.x + local.y * vertex.bisector.y;
       applyRadius(originRadius + projected * vertex.sinHalfAngle);
       applySelectionHandleHitGeometry(radiusEl);
       refreshOverlays();
