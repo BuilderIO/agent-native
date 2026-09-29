@@ -156,19 +156,22 @@ These are existing surfaces to extend, not claims that V1 is implemented:
 
 Implement group roles and team instructions, skills, and memory in Core first. Then let owners share conversations with a team, record the team used when each conversation starts, and list shared team work with its linked runs. Reuse group-share access for other resource families where it is already supported. Agent and UI operations use the same actions and current-membership checks. Save each user's active-team choice for each organization across sessions and make it available to the agent in the current session. Always check current organization and team membership separately; the saved choice does not prove access.
 
-Before offering V1, prove these boundaries:
+### V1 acceptance criteria
 
-- Existing groups and older conversations are unchanged. Converted groups retain grants and connection permissions.
+- Non-converted groups and older conversations are unchanged. Converted groups retain grants and connection permissions.
 - Owners/admins can manage team members even when leads exist; leads can manage ordinary members only in their own team. Both paths preserve lead/member invariants, including bulk updates.
 - Active-team selection follows the user within each organization across sessions and devices; switching organizations does not carry another organization's selection into the current session.
-- Only the selected team's context loads alongside organization and personal context for a new conversation. Personal, team, and organization instructions and skills have a deterministic order. Switching teams never changes an existing conversation's bound context.
+- Only the selected team's context loads alongside organization and personal context when a conversation starts. On every later turn, the bound team's context loads even if the user selects another team. Personal, team, and organization instructions and skills have a deterministic order.
 - A former member, including the owner, cannot read or continue a bound conversation. Unshared work stays private.
 - Only the recorded owner can grant or revoke a chat team share, only for an allowed team, and only as `viewer`. Reject `commenter`, `editor`, and `admin` grants, and reject callers relying only on resource-admin authority.
 - Bound conversations cannot issue public share tokens, and tokens issued before binding cannot expose their transcript or linked runs after binding, membership loss, or team deletion.
-- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses access to the linked conversation, including on team or organization membership removal and team deletion. Test reconnect denial after access loss; an already-open stream may continue until disconnection under the same connection-scoped authorization as other run streams.
+- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses access to the linked conversation, including on team or organization membership removal and team deletion. An already-open stream may continue until disconnection under the same connection-scoped authorization as other run streams.
 - Deletion makes bound context and conversations inaccessible without deleting unrelated resources.
+- A failed or incomplete team-context lookup must not look like empty context or successful authorization.
 
-Test changes to group and organization membership against cached and listed access as well as direct access. A failed or incomplete team-context lookup must not look like empty context or successful authorization.
+### Verification
+
+Test changes to group and organization membership against cached and listed access as well as direct access. After access loss, test denial for each run path above, including reconnect and replay.
 
 ## Consequences and revisit criteria
 
