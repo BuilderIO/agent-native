@@ -382,7 +382,6 @@
     .analytics-chat-intro {
     width: 100%;
     max-width: min(640px, 95%);
-    margin-bottom: 0.875rem;
   }
 
   .analytics-chat-intro h1 {
