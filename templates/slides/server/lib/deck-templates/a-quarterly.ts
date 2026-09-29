@@ -162,6 +162,7 @@ ${kpi("Burn multiple", "0.0x", "+0.0x", 82)}
     },
     {
       layout: "content",
+      // guard:allow-unscoped — static sample HTML mentions “from teams”; this template contains no database query
       content: slide(
         3,
         `<div style="display:grid;grid-template-columns:1fr 250px;gap:32px;flex:1;margin-top:22px;">

@@ -28,10 +28,19 @@ When you add a new feature, work through these four areas in order:
 
 Build the user-facing interface — a page, component, dialog, or route. Use `useActionQuery` and `useActionMutation` from `@agent-native/core/client` to call actions for data fetching and mutations. Do not create a custom REST endpoint just so React can call action-backed data; the action endpoint already exists.
 
-**Auto-refresh on agent writes is non-negotiable** — when the agent mutates data, the UI must reflect the change without a manual refresh. There are two paths, and you must pick the right one:
+**Agent edits must refresh the UI without a background poll.** Local chat-run
+tool completions invalidate action queries and source counters after each
+side-effecting tool and again at run end. There are two query paths:
 
-- **`useActionQuery` / `useActionMutation`** — covered automatically. The framework's `useDbSync` invalidates `["action"]` on every change event, so every `useActionQuery` hook refetches on agent activity. No extra wiring required. **Prefer this path.**
-- **Raw `useQuery` with custom keys** — needs explicit wiring. Fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. The `action` source is the reliable signal (the agent runner emits it after every successful tool call); the resource-specific source (`"dashboards"`, `"analyses"`, `"settings"`, etc.) is bonus when emitted. Without this wiring, agent writes will be invisible until manual refresh — that breaks the framework's #1 promise.
+- **`useActionQuery` / `useActionMutation`** — local action mutations invalidate `['action']` observers, and chat-run tool completions invalidate them for agent writes. No background sync opt-in is needed for the current user's agent run. **Prefer this path.**
+- **Raw `useQuery` with custom keys** — fold `useChangeVersions([<source>, "action"])` from `@agent-native/core/client` into the `queryKey` and set `placeholderData: (prev) => prev`. Local chat-run side effects bump those counters too. Remote changes require the page's explicit `useDbSync({ realtime: { reason } })` opt-in only when data changes without the current user acting and must appear before refresh.
+
+Never opt in public, anonymous, marketing, docs, or SSR routes, settings,
+forms, or read-mostly lists. Refetch those on focus or navigation. Shared Slides
+editing and the Mail inbox are the current first-party examples that need
+remote updates. Each opted-in open tab adds a shared background transport and
+one poll per idle interval; hidden tabs pause, and idle polling backs off to 1,
+2, then 5 minutes. See `real-time-sync` for the decision rule and examples.
 
   ```tsx
   import { useChangeVersions } from "@agent-native/core/client/hooks";

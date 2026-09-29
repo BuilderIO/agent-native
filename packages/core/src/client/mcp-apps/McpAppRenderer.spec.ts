@@ -13,6 +13,10 @@ const appBridgeHarness = vi.hoisted(() => ({
   toolResult: null as any,
 }));
 
+const getMcpManagerForPrincipalMock = vi.hoisted(() =>
+  vi.fn<(...args: any[]) => Promise<any>>(),
+);
+
 vi.mock("@modelcontextprotocol/ext-apps/app-bridge", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -60,6 +64,17 @@ vi.mock("@modelcontextprotocol/ext-apps/app-bridge", async (importOriginal) => {
   return { ...actual, PostMessageTransport: TestPostMessageTransport };
 });
 
+vi.mock("../../server/agent-chat/mcp-glue.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../server/agent-chat/mcp-glue.js")
+    >();
+  return {
+    ...actual,
+    getMcpManagerForPrincipal: getMcpManagerForPrincipalMock,
+  };
+});
+
 import {
   AGENT_NATIVE_EMBED_MESSAGE_TYPES,
   AGENT_NATIVE_EMBED_PROTOCOL,
@@ -67,7 +82,6 @@ import {
 } from "../../embedding/protocol.js";
 import { callMcpTool, listVisibleMcpTools } from "../../mcp-client/app-api.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import { setGlobalMcpManager } from "../../server/agent-chat/mcp-glue.js";
 import { runWithRequestContext } from "../../server/request-context.js";
 import { OptionalPeerDependencyError } from "../../shared/optional-peer.js";
 import * as optionalPeers from "../../shared/optional-peer.js";
@@ -102,7 +116,7 @@ describe("McpAppRenderer security helpers", () => {
     appBridgeHarness.connected = null;
     appBridgeHarness.toolInput = null;
     appBridgeHarness.toolResult = null;
-    setGlobalMcpManager(null as any);
+    getMcpManagerForPrincipalMock.mockReset();
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -287,12 +301,12 @@ describe("McpAppRenderer security helpers", () => {
       },
     };
     const endpoints: string[] = [];
-    setGlobalMcpManager({
+    getMcpManagerForPrincipalMock.mockResolvedValue({
       getTools: () => [tool],
       getToolsForServer: (serverId: string) =>
         serverId === "apps" ? [tool] : [],
       callTool,
-    } as any);
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

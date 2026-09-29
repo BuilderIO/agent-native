@@ -4056,6 +4056,8 @@ function dispatchAgentKitCompatibilityEvent(
             result: tool.output,
             isError: tool.status !== "completed",
             completedSideEffect: tool.metadata?.completedSideEffect === true,
+            tabId,
+            eventId: tool.id,
           },
         }),
       );

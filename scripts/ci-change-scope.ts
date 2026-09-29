@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,8 @@ const DOCS_SUPPORT_PATHS = new Set([
   "scripts/i18n-no-translate-terms.txt",
   "scripts/i18n-raw-literal-baseline.txt",
 ]);
+
+const COMMUNITY_TEMPLATES_ROOT = "community-templates";
 
 // Agent instructions are inputs to core (bundled skills, prompt resources) and
 // to the skills package, and several guards read them, so they are not docs.
@@ -82,6 +84,12 @@ const CHECK_NAMES = [
   "changeset",
 ] as const;
 
+const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
+  "scripts/agent-friction-report.mjs",
+  "scripts/ci-change-scope.ts",
+  "scripts/ci-change-scope.test.ts",
+]);
+
 type CheckName = (typeof CHECK_NAMES)[number];
 
 export type CheckSelection = Record<CheckName, boolean>;
@@ -93,6 +101,7 @@ export type ChangeScope = {
   nonDocsPaths: string[];
   checks: CheckSelection;
   workspaceFilters: string[];
+  testWorkspaceFilters: string[];
   scriptTests: string[];
 };
 
@@ -165,7 +174,9 @@ export function scriptTestsForPaths(
 export function isWorkspacePath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
-    normalized.startsWith("packages/") || normalized.startsWith("templates/")
+    normalized.startsWith("packages/") ||
+    normalized.startsWith("templates/") ||
+    normalized.startsWith(`${COMMUNITY_TEMPLATES_ROOT}/`)
   );
 }
 
@@ -175,6 +186,13 @@ function workspaceRootForPath(path: string): string | undefined {
 
   if (parent === "packages" && segments[1]) {
     return `${parent}/${segments[1]}`;
+  }
+
+  if (parent === COMMUNITY_TEMPLATES_ROOT && segments[1]) {
+    const packageRoot = join(process.cwd(), parent, segments[1]);
+    return segments.length > 2 || existsSync(join(packageRoot, "package.json"))
+      ? `${parent}/${segments[1]}`
+      : parent;
   }
 
   if (parent !== "templates" || !segments[1]) return undefined;
@@ -193,18 +211,79 @@ function workspaceRootForPath(path: string): string | undefined {
   return `templates/${segments[1]}`;
 }
 
-export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
+function workspaceRootsForPaths(paths: readonly string[]): string[] {
   const roots = new Set<string>();
   for (const path of paths) {
     const root = workspaceRootForPath(path);
     if (root) roots.add(root);
   }
 
-  const filters = [...roots].sort().map((root) => `...{${root}}...`);
+  return [...roots].sort();
+}
+
+function communityWorkspaceRoots(): string[] {
+  const root = join(process.cwd(), COMMUNITY_TEMPLATES_ROOT);
+  if (!existsSync(join(root, "package.json"))) return [];
+  return [
+    COMMUNITY_TEMPLATES_ROOT,
+    ...readdirSync(root, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          existsSync(join(root, entry.name, "package.json")),
+      )
+      .map((entry) => `${COMMUNITY_TEMPLATES_ROOT}/${entry.name}`),
+  ].sort();
+}
+
+function workspaceFiltersForRoots(
+  roots: readonly string[],
+  includeDependencies: boolean,
+): string[] {
+  const selectedCommunityRoots = new Set(
+    roots.filter(
+      (root) =>
+        root === COMMUNITY_TEMPLATES_ROOT ||
+        root.startsWith(`${COMMUNITY_TEMPLATES_ROOT}/`),
+    ),
+  );
+  const selected = roots.map((root) =>
+    selectedCommunityRoots.has(root)
+      ? `./${root}`
+      : `...{${root}}${includeDependencies ? "..." : ""}`,
+  );
+  const communityRoots = communityWorkspaceRoots();
+  const excludedCommunityRoots =
+    selectedCommunityRoots.size === 0
+      ? [`!./${COMMUNITY_TEMPLATES_ROOT}/**`]
+      : communityRoots
+          .filter((root) => !selectedCommunityRoots.has(root))
+          .map((root) => `!./${root}`);
+  return [...selected, ...excludedCommunityRoots];
+}
+
+function workspaceFiltersForChangedPaths(
+  paths: readonly string[],
+  includeDependencies: boolean,
+): string[] {
+  const filters = workspaceFiltersForRoots(
+    workspaceRootsForPaths(paths),
+    includeDependencies,
+  );
   if (paths.some(isInstructionPath)) {
     filters.push(...INSTRUCTION_WORKSPACE_FILTERS);
   }
   return filters;
+}
+
+export function workspaceFiltersForPaths(paths: readonly string[]): string[] {
+  return workspaceFiltersForChangedPaths(paths, true);
+}
+
+export function testWorkspaceFiltersForPaths(
+  paths: readonly string[],
+): string[] {
+  return workspaceFiltersForChangedPaths(paths, false);
 }
 
 function isFullPath(path: string): boolean {
@@ -226,14 +305,30 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  return (
+    normalized === "AGENTS.md" ||
+    normalized.startsWith(".agents/") ||
+    QUERY_BUDGET_UNRELATED_SCRIPTS.has(normalized)
+  );
+}
+
 function buildChecks(
   changedPaths: readonly string[],
   full: boolean,
 ): CheckSelection {
   if (full) {
-    return Object.fromEntries(
+    const checks = Object.fromEntries(
       CHECK_NAMES.map((name) => [name, true]),
     ) as CheckSelection;
+    if (
+      changedPaths.length > 0 &&
+      changedPaths.every(isKnownQueryBudgetUnrelatedPath)
+    ) {
+      checks.neon_query_budget = false;
+    }
+    return checks;
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
@@ -312,6 +407,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
+  const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
   const full =
     changedPaths.length === 0 ||
     changedPaths.some(isFullPath) ||
@@ -332,6 +428,7 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
         ) as CheckSelection)
       : buildChecks(changedPaths, full),
     workspaceFilters,
+    testWorkspaceFilters,
     scriptTests: full ? [] : scriptTestsForPaths(changedPaths),
   };
 }
@@ -354,6 +451,7 @@ function writeOutputs(scope: ChangeScope): void {
       `changed_count=${scope.changedPaths.length}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
+      `test_workspace_filters=${JSON.stringify(scope.testWorkspaceFilters)}`,
       ...Object.entries(scope.checks).map(
         ([name, enabled]) => `${name}=${enabled ? "true" : "false"}`,
       ),
@@ -373,7 +471,8 @@ function writeOutputs(scope: ChangeScope): void {
         `- Changed paths: **${scope.changedPaths.length}**`,
         `- Docs-only change: **${scope.docsOnly ? "yes" : "no"}**`,
         `- Full fallback: **${scope.full ? "yes" : "no"}**`,
-        `- Workspace selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
+        `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
+        `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
         ...(preview.length > 0
           ? [
