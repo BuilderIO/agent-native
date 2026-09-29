@@ -164,6 +164,7 @@ export async function resumeIdentityRekeysForEmail(
     email,
     {
       ensureLedger: false,
+      cacheIdle: true,
     },
   );
 }

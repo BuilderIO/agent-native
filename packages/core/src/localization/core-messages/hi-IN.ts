@@ -1296,6 +1296,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "नया ईमेल",
   "settings.emailNewPlaceholder": "नया ईमेल दर्ज करें",
   "usage.builderCredits": "Builder क्रेडिट",
+  "featureFlags.builderCreditReferrals.name": "Builder क्रेडिट रेफ़रल",
+  "featureFlags.builderCreditReferrals.description":
+    "उपयोग में कनेक्टेड Builder वर्कस्पेस के रेफ़रल विवरण दिखाएँ।",
   "usage.inviteFriends": "दोस्तों को आमंत्रित करें",
   "usage.inviteCredits": "दोस्त के सदस्यता लेने पर {{amount}} Builder क्रेडिट पाएं।",
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",

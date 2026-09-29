@@ -4,6 +4,7 @@ import { builderFileUploadProvider } from "./builder.js";
 import {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
+  listFileUploadProviderStatusesForRequest,
   listFileUploadProviders,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
@@ -136,6 +137,37 @@ describe("file-upload registry", () => {
         builderFileUploadProvider,
       );
       expect(canAuthorizeBuilderApiRequestMock).toHaveBeenCalled();
+    });
+  });
+
+  describe("listFileUploadProviderStatusesForRequest", () => {
+    it("detects each provider once, in the order the active lookup walks", async () => {
+      const envBacked = {
+        ...makeProvider("env-backed", true),
+        isConfiguredForRequest: vi.fn(async () => false),
+      };
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => true),
+      };
+      registerFileUploadProvider(makeProvider("unconfigured", false));
+      registerFileUploadProvider(envBacked);
+      registerFileUploadProvider(s3);
+
+      const statuses = await listFileUploadProviderStatusesForRequest();
+
+      expect(
+        statuses.map(({ provider, configured }) => [provider.id, configured]),
+      ).toEqual([
+        ["unconfigured", false],
+        ["env-backed", true],
+        ["s3", true],
+      ]);
+      expect(envBacked.isConfiguredForRequest).not.toHaveBeenCalled();
+      expect(s3.isConfiguredForRequest).toHaveBeenCalledTimes(1);
+      expect(statuses.find((status) => status.configured)?.provider).toBe(
+        await getActiveFileUploadProviderForRequest(),
+      );
     });
   });
 

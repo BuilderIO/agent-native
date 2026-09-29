@@ -1367,6 +1367,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Novo e-mail",
   "settings.emailNewPlaceholder": "Digite o novo e-mail",
   "usage.builderCredits": "Créditos do Builder",
+  "featureFlags.builderCreditReferrals.name": "Indicações de créditos Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Mostrar os detalhes de indicação do espaço de trabalho Builder conectado em Uso.",
   "usage.inviteFriends": "Convide amigos",
   "usage.inviteCredits":
     "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",

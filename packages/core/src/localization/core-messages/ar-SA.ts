@@ -1343,6 +1343,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "البريد الإلكتروني الجديد",
   "settings.emailNewPlaceholder": "أدخل بريدًا إلكترونيًا جديدًا",
   "usage.builderCredits": "أرصدة Builder",
+  "featureFlags.builderCreditReferrals.name": "إحالات أرصدة Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "عرض تفاصيل إحالات مساحة عمل Builder المتصلة في الاستخدام.",
   "usage.inviteFriends": "ادعُ الأصدقاء",
   "usage.inviteCredits":
     "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
