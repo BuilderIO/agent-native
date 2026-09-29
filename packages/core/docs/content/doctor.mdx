@@ -37,7 +37,7 @@ A clean run:
 
 ```
 agent-native doctor: /path/to/app
-Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback, explicit-collab-access, migration-manifest
+Guards run: no-drizzle-push, no-empty-migrations, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback, explicit-collab-access, identity-columns-registered, resource-action-access, feature-dependencies, migration-manifest
 Clean — no findings.
 ```
 
@@ -51,40 +51,53 @@ A run with findings prints one line per finding and exits `1`:
 agent-native doctor found issues above. Fix them, or add a `// guard:allow-<check> — reason` opt-out with reviewer approval.
 ```
 
-## The nine guards {#guards}
+## Guards {#guards}
 
-v1 ships 9 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
+Doctor runs the enabled portable guards for the project. Source scans skip `node_modules`, `.git`, `dist`, `build`, and other build-output directories.
 
-| Guard                     | What it catches                                                                                                                                                                                                                            | Why it matters                                                                                                                                                                                                                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `no-drizzle-push`         | `drizzle-kit push` / `drizzle push` wired into a build/deploy script hook (`build`, `install`, `deploy`, `start`, `ci`, `release`, and their `pre`/`post` variants) or a `netlify.toml` build command                                      | `drizzle-kit push` can apply destructive schema changes on every deploy with no review step. Standalone `db:push` scripts are **not** flagged — those are explicit, human-invoked commands, not build hooks.                                                                               |
-| `no-unscoped-credentials` | `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential` called with only one argument                                                                                                                                | The one-arg form skips the required `{ userEmail, orgId }` context object, so a per-user credential lookup can read (or delete) another tenant's credential.                                                                                                                               |
-| `no-unscoped-queries`     | A query in `actions/` or `server/` against a table built with `...ownableColumns()`, with no `accessFilter` / `resolveAccess` / `assertAccess` and no explicit `ownerEmail` / `userEmail` / `orgId` filter anywhere in the enclosing block | An unscoped `select`/`update`/`delete`/`insert` on a shared table returns or mutates another user's rows. Also flags a `mentionProviders` search closure that queries an ownable table without access control — every user who types `@` in chat would otherwise see rows owned by others. |
-| `no-env-credentials`      | Any `process.env.<KEY>` read whose key isn't on the fixed deploy-var allowlist (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NODE_ENV`, …), plus any dynamic `process.env[key]` read                                                             | `process.env` is one shared value per deployment, read on every signed-in user's request — reading a per-user credential from it pools every tenant onto the same secret. A dynamic key can never be safely allowlisted.                                                                   |
-| `db-tool-scoping`         | A table in `server/db/schema.ts` with no `owner_email` / `org_id` column and no matching entry in `agent-native.json`'s `doctor.dbToolScopingDenylist`                                                                                     | The agent's raw `db-query` / `db-exec` / `db-patch` tools can only safely expose tenant-scoped tables; an unscoped table needs an explicit, reviewed exception.                                                                                                                            |
-| `no-env-mutation`         | Production code assigning to, or `delete`-ing, `process.env.KEY`                                                                                                                                                                           | `process.env` is process-scoped, not request-scoped. A warm serverless container handles many concurrent requests in one process, so mutating `process.env` in a request handler leaks state across users. Use `runWithRequestContext` instead.                                            |
-| `no-localhost-fallback`   | The literal `"local@localhost"`, or `?? DEV_MODE_USER_EMAIL` / `\|\| DEV_MODE_USER_EMAIL`, used as a fallback identity                                                                                                                     | Falling back to a sentinel identity when there's no session pools every unauthenticated request onto one shared tenant. Throw or return 401 instead.                                                                                                                                       |
-| `explicit-collab-access`  | A `createCollabPlugin(...)` call with no explicit `access` — must declare `access: { mode: "resource", resourceType }` or `access: { mode: "all-authenticated" }` (legacy `resourceType` is still accepted during migration)               | An implicit config can silently scope real-time collaboration delivery wrong — for example broadcasting deployment-wide when only one resource's viewers should see the edits.                                                                                                             |
-| `migration-manifest`      | Imports listed in an installed package's `migration-manifest.json`                                                                                                                                                                         | The import is scheduled to move or disappear. Preview and apply the supported codemod before the upgrade makes it a hard error.                                                                                                                                                            |
+| Guard                         | What it catches                                                                                                                                                                                                                            | Why it matters                                                                                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `no-drizzle-push`             | `drizzle-kit push` / `drizzle push` wired into a build/deploy script hook (`build`, `install`, `deploy`, `start`, `ci`, `release`, and their `pre`/`post` variants) or a `netlify.toml` build command                                      | `drizzle-kit push` can apply destructive schema changes on every deploy with no review step. Standalone `db:push` scripts are **not** flagged — those are explicit, human-invoked commands, not build hooks.                                                                               |
+| `no-empty-migrations`         | An empty `runMigrations([])` call in application source                                                                                                                                                                                    | An empty migration list adds startup work but performs no migration.                                                                                                                                                                                                                       |
+| `no-unscoped-credentials`     | `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential` called with only one argument                                                                                                                                | The one-arg form skips the required `{ userEmail, orgId }` context object, so a per-user credential lookup can read (or delete) another tenant's credential.                                                                                                                               |
+| `no-unscoped-queries`         | A query in `actions/` or `server/` against a table built with `...ownableColumns()`, with no `accessFilter` / `resolveAccess` / `assertAccess` and no explicit `ownerEmail` / `userEmail` / `orgId` filter anywhere in the enclosing block | An unscoped `select`/`update`/`delete`/`insert` on a shared table returns or mutates another user's rows. Also flags a `mentionProviders` search closure that queries an ownable table without access control — every user who types `@` in chat would otherwise see rows owned by others. |
+| `no-env-credentials`          | Any `process.env.<KEY>` read whose key isn't on the fixed deploy-var allowlist (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NODE_ENV`, …), plus any dynamic `process.env[key]` read                                                             | `process.env` is one shared value per deployment, read on every signed-in user's request — reading a per-user credential from it pools every tenant onto the same secret. A dynamic key can never be safely allowlisted.                                                                   |
+| `db-tool-scoping`             | A table in `server/db/schema.ts` with no `owner_email` / `org_id` column and no matching entry in `agent-native.json`'s `doctor.dbToolScopingDenylist`                                                                                     | The agent's raw `db-query` / `db-exec` / `db-patch` tools can only safely expose tenant-scoped tables; an unscoped table needs an explicit, reviewed exception.                                                                                                                            |
+| `no-env-mutation`             | Production code assigning to, or `delete`-ing, `process.env.KEY`                                                                                                                                                                           | `process.env` is process-scoped, not request-scoped. A warm serverless container handles many concurrent requests in one process, so mutating `process.env` in a request handler leaks state across users. Use `runWithRequestContext` instead.                                            |
+| `no-localhost-fallback`       | The literal `"local@localhost"`, or `?? DEV_MODE_USER_EMAIL` / `\|\| DEV_MODE_USER_EMAIL`, used as a fallback identity                                                                                                                     | Falling back to a sentinel identity when there's no session pools every unauthenticated request onto one shared tenant. Throw or return 401 instead.                                                                                                                                       |
+| `explicit-collab-access`      | A `createCollabPlugin(...)` call with no explicit `access` — must declare `access: { mode: "resource", resourceType }` or `access: { mode: "all-authenticated" }` (legacy `resourceType` is still accepted during migration)               | An implicit config can silently scope real-time collaboration delivery wrong — for example broadcasting deployment-wide when only one resource's viewers should see the edits.                                                                                                             |
+| `identity-columns-registered` | Identity-bearing columns in Core schema or SQL source that are missing from the identity rekey registry                                                                                                                                    | Email changes and offboarding must handle every identity-bearing column consistently.                                                                                                                                                                                                      |
+| `resource-action-access`      | Warns when a resource-scoped action in `actions/` has no declared `access` contract or `assertAccess`                                                                                                                                      | Resource-scoped actions need an explicit access check before they read or change a resource.                                                                                                                                                                                               |
+| `feature-dependencies`        | A configured feature whose required optional peer package is not resolvable                                                                                                                                                                | The feature cannot load until its optional peer dependency is installed.                                                                                                                                                                                                                   |
+| `migration-manifest`          | Imports listed in an installed package's `migration-manifest.json`                                                                                                                                                                         | The import is scheduled to move or disappear. Preview with `--dry-run`, then apply the supported codemod before the upgrade makes it a hard error.                                                                                                                                         |
 
 Guard names are stable identifiers — the same strings work in `--only`, `agent-native.json`'s `doctor.disabledGuards`, and every finding's `guard` field.
 
-Use the migration preflight directly:
+Run the migration preflight:
 
 ```bash
 agent-native doctor --only migration-manifest
+```
+
+Preview the upgrade and codemod diff without writing files:
+
+```bash
 npx agent-native upgrade --codemods --dry-run
+```
+
+Apply supported import rewrites:
+
+```bash
 npx agent-native upgrade --codemods
 ```
 
-`--dry-run` previews the upgrade and codemod diff without writing files. Run
-the command again without `--dry-run` to apply supported rewrites. `--yes` is
-accepted for compatibility and has no effect. Review the diff and warnings
-before applying. `migration-manifest` has no opt-out and cannot be disabled.
-Entries marked `planned` are warnings only and are not rewritten. Active entries
-are findings, and the codemod rewrites them only when the destination export is
-installed. Removed exports require a manual migration. Follow the guide linked
-in the finding or the [Core 0.197.0 migration guide](/docs/upgrading-to-0-197),
+`--codemods` applies supported rewrites by default; add `--dry-run` to preview
+without writing files. Review the diff and warnings before applying. `--yes` is
+accepted for compatibility and has no effect. `migration-manifest` has no opt-out
+and cannot be disabled. Entries marked `planned` are warnings only and are not
+rewritten. Active entries are findings, and the codemod rewrites them only when
+the destination export is installed. Removed exports require a manual migration.
+Follow the guide linked in the finding or the [Core 0.197.0 migration guide](/docs/upgrading-to-0-197),
 which lists the `ts-morph` and optional feature packages used by the migration.
 
 ## Flags and exit codes {#flags}
@@ -115,7 +128,7 @@ If the doctor pre-step itself throws — for example, because a source file is u
 
 ## Per-app configuration {#config}
 
-`agent-native.json`'s optional `"doctor"` key. A fresh app runs every v1 guard
+`agent-native.json`'s optional `"doctor"` key. A fresh app runs every enabled Doctor guard
 with zero config and fails builds on findings by default:
 
 ```json
@@ -175,6 +188,7 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
   "warnings": [],
   "guardsRun": [
     "no-drizzle-push",
+    "no-empty-migrations",
     "no-unscoped-credentials",
     "no-unscoped-queries",
     "no-env-credentials",
@@ -182,6 +196,9 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
     "no-env-mutation",
     "no-localhost-fallback",
     "explicit-collab-access",
+    "identity-columns-registered",
+    "resource-action-access",
+    "feature-dependencies",
     "migration-manifest"
   ],
   "workspaceApps": ["apps/mail", "apps/tasks"],

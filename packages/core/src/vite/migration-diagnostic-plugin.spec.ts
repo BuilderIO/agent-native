@@ -88,6 +88,89 @@ describe("Agent-Native migration Vite diagnostic", () => {
     );
   });
 
+  it("fails Vite startup and builds for moved Core and AgentKit stylesheets", async () => {
+    const { root } = createProject("export const value = 1;\n");
+    fs.writeFileSync(
+      path.join(root, "src/global.css"),
+      [
+        "@import '@agent-native/core/styles/agent-native.css';",
+        '@import "@agent-native/core/styles/agent-conversation.css";',
+        "@import url('@agent-native/core/styles/chat-history-list.css');",
+        '@import url("@agent-native/agentkit/react/styles.css");',
+        "@import url('@agent-native/agentkit/react/styles.css');",
+        "",
+      ].join("\n"),
+    );
+
+    const buildError = await build({
+      configFile: false,
+      root,
+      plugins: [migrationDiagnosticPlugin()],
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(buildError).toBeInstanceOf(Error);
+    const message = (buildError as Error).message;
+    expect(message).toContain("@agent-native/core/styles/agent-native.css");
+    expect(message).toContain("New home: @agent-native/toolkit/styles.css");
+    expect(message).toContain(
+      "@agent-native/core/styles/agent-conversation.css",
+    );
+    expect(message).toContain(
+      "New home: @agent-native/toolkit/app/styles/agent-conversation.css",
+    );
+    expect(message).toContain(
+      "@agent-native/core/styles/chat-history-list.css",
+    );
+    expect(message).toContain(
+      "New home: @agent-native/toolkit/app/styles/chat-history-list.css",
+    );
+    expect(message).toContain("@agent-native/agentkit/react/styles.css");
+    expect(message).toContain(
+      "New home: @agent-native/toolkit/app/agentkit/react/styles.css",
+    );
+    expect(message).toContain(AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND);
+    expect(message).toContain(AGENT_NATIVE_MIGRATION_GUIDE_URL);
+
+    const devError = await createServer({
+      configFile: false,
+      root,
+      plugins: [migrationDiagnosticPlugin()],
+      optimizeDeps: { noDiscovery: true, include: [] },
+      server: { middlewareMode: true, ws: false },
+    }).then(
+      (server) => {
+        return server.close().then(() => null);
+      },
+      (error: unknown) => error,
+    );
+
+    expect(devError).toBeInstanceOf(Error);
+    const devMessage = (devError as Error).message;
+    expect(devMessage).toContain("@agent-native/core/styles/agent-native.css");
+    expect(devMessage).toContain("New home: @agent-native/toolkit/styles.css");
+    expect(devMessage).toContain(
+      "@agent-native/core/styles/agent-conversation.css",
+    );
+    expect(devMessage).toContain(
+      "New home: @agent-native/toolkit/app/styles/agent-conversation.css",
+    );
+    expect(devMessage).toContain(
+      "@agent-native/core/styles/chat-history-list.css",
+    );
+    expect(devMessage).toContain(
+      "New home: @agent-native/toolkit/app/styles/chat-history-list.css",
+    );
+    expect(devMessage).toContain("@agent-native/agentkit/react/styles.css");
+    expect(devMessage).toContain(
+      "New home: @agent-native/toolkit/app/agentkit/react/styles.css",
+    );
+    expect(devMessage).toContain(AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND);
+    expect(devMessage).toContain(AGENT_NATIVE_MIGRATION_GUIDE_URL);
+  });
+
   it("fails builds for composer symbols imported from the Core client barrel", async () => {
     const { root } = createProject(
       [

@@ -442,6 +442,21 @@ export function checkMigrationManifest(
     const specifier = packageSpecifier(packageName, exportKey);
     const exportValue = exports[exportKey];
     if (exportValue === undefined) {
+      const move = moves[specifier];
+      const moveTargets = move ? activeMoveTargets(move) : [];
+      const migratedStylesheet = Boolean(
+        move &&
+        packageCatalog &&
+        previousTargets.length > 0 &&
+        previousTargets.every((target) => target.endsWith(".css")) &&
+        hasExactMove(moves, specifier) &&
+        moveTargets.length > 0 &&
+        moveTargets.every(
+          (target) =>
+            target.endsWith(".css") && targetIsExported(target, packageCatalog),
+        ),
+      );
+      if (migratedStylesheet) continue;
       violations.push({
         packageName,
         message: `${specifier} was removed from exports; keep the export and point it to a tombstone so consumers receive the upgrade guidance.`,

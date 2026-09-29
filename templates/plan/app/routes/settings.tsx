@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import {
   AccountSettingsCard,
   SettingsGroup,
@@ -7,7 +8,6 @@ import {
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/toolkit/app/settings";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { PLAN_LABS } from "@shared/labs";
 import { useMemo } from "react";
 

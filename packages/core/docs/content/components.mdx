@@ -201,12 +201,12 @@ Toolkit styles include the shared geometry. `@agent-native/toolkit/app-shell/pro
 
 | API                                  | Import path                            | Use when                                                                                         |
 | ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat`       | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat`       | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat`       | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat`       | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat`       | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat`       | You want the framework's thread tabs without `AgentPanel` chrome.                                |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |

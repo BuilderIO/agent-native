@@ -5,10 +5,13 @@ import {
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
-import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
-import { CommandMenu, useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { AppProviders } from "@agent-native/toolkit/app/providers";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/toolkit/app/shared";
 import { PLAN_KIND_ROUTE_SEGMENT } from "@shared/plan-routes";
 import {
   IconHierarchy2,

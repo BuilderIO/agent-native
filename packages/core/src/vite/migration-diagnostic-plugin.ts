@@ -27,7 +27,9 @@ function formatImportDiagnostic(
     .join(", ");
   const oldImport = finding.symbols.length
     ? `import { ${finding.symbols.join(", ")} } from "${finding.from}"`
-    : `import from "${finding.from}"`;
+    : path.extname(finding.file) === ".css"
+      ? `@import "${finding.from}";`
+      : `import from "${finding.from}"`;
   const move = moves[finding.from];
   const destinations = finding.symbols.length
     ? finding.symbols.map((symbol) => {

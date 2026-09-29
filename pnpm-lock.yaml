@@ -3400,6 +3400,9 @@ importers:
       '@agent-native/shared-app-config':
         specifier: workspace:*
         version: link:../shared-app-config
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../toolkit
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
