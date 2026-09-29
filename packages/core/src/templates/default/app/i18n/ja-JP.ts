@@ -647,8 +647,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "リストに戻る",
     promoteMustContain: "返信に含めるテキスト…",
-    promoteMustContainOptional: "返信に含めるテキスト（任意）",
-    promoteMustContainLabel: "昇格した評価の返信に含めるテキスト",
+    promoteMustContainOptional: "返信で確認する任意のテキスト…",
+    promoteMustContainLabel: "昇格した評価の返信で確認するテキスト",
     promoteNeedsContains:
       "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",
