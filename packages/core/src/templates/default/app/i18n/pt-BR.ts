@@ -666,6 +666,12 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Voltar à lista",
+    promoteMustContain: "A resposta deve conter…",
+    promoteMustContainOptional: "A resposta deve conter (opcional)",
+    promoteMustContainLabel:
+      "Texto que a resposta da avaliação promovida deve conter",
+    promoteNeedsContains:
+      "Esta execução não tem chamadas de ferramenta bem-sucedidas. Digite o texto que a resposta deve conter antes de promovê-la para uma avaliação.",
     spans: "Spans",
     type: "Tipo",
     name: "Nome",

@@ -279,7 +279,10 @@ export function assembleA2AFinalResponse(
     const partialResult = finalText.trim()
       ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
       : "";
-    throw new Error(formatA2ATerminalError(terminalError) + partialResult);
+    throw new A2ATerminalResponseError(
+      formatA2ATerminalError(terminalError) + partialResult,
+      terminalError.errorCode,
+    );
   }
   if (!finalText.trim()) {
     throw new Error(
@@ -287,6 +290,16 @@ export function assembleA2AFinalResponse(
     );
   }
   return { responseText, finalText, mutationReceipts };
+}
+
+class A2ATerminalResponseError extends Error {
+  readonly agentNativeErrorCode?: string;
+
+  constructor(message: string, errorCode?: string) {
+    super(message);
+    this.name = "A2ATerminalResponseError";
+    if (errorCode) this.agentNativeErrorCode = errorCode;
+  }
 }
 
 function terminalErrorFromOutcome(

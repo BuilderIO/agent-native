@@ -11,6 +11,7 @@ import type { Task, Message, TaskState, Artifact } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 
 export async function ensureTable(): Promise<void> {
@@ -36,6 +37,10 @@ export async function ensureTable(): Promise<void> {
       const createIdempotencyIndexSql =
         `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
         `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
+      const createRecoveryIndexSql =
+        `CREATE INDEX IF NOT EXISTS ${A2A_RECOVERY_INDEX} ` +
+        "ON a2a_tasks(created_at) " +
+        "WHERE status_state IN ('submitted', 'working', 'processing')";
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,
@@ -71,6 +76,7 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
       );
       await ensureIndexExists(A2A_IDEMPOTENCY_INDEX, createIdempotencyIndexSql);
+      await ensureIndexExists(A2A_RECOVERY_INDEX, createRecoveryIndexSql);
       await ensureTableExists("a2a_approvals", createApprovalsSql);
     })().catch((err) => {
       _initPromise = undefined;

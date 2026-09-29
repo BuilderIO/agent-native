@@ -607,11 +607,11 @@ function TraceDetailView({
             value={mustContain}
             onChange={(event) => setMustContain(event.target.value)}
             disabled={promote.isPending || !data}
-            placeholder={t(
+            placeholder={
               needsNeedle
-                ? "observability.promoteMustContain"
-                : "observability.promoteMustContainOptional",
-            )}
+                ? t("observability.promoteMustContain")
+                : t("observability.promoteMustContainOptional")
+            }
             aria-label={t("observability.promoteMustContainLabel")}
             className="w-56 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground disabled:opacity-50"
           />

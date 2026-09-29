@@ -91,6 +91,10 @@ import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
+import {
+  CONTENT_EDITABLE_MARK,
+  markStartupMilestone,
+} from "@/lib/startup-timing";
 
 import { BubbleToolbar } from "./BubbleToolbar";
 import {
@@ -105,6 +109,7 @@ import {
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
 import { AudioNode } from "./extensions/AudioNode";
+import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
@@ -2498,6 +2503,9 @@ export function createVisualEditorExtensions({
         nested: true,
       }),
       TaskListPasteNormalization,
+      ...(referenceDepth === 0
+        ? [BodyElementTiming.configure({ documentId })]
+        : []),
       ImageNode.configure({
         HTMLAttributes: { class: "notion-image" },
         documentId,
@@ -3999,10 +4007,15 @@ export function VisualEditor({
     [editable, registryBlockStore, notionPageId],
   );
 
+  const editableMarkedRef = useRef(false);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
-  }, [editor, editable]);
+    if (editable && !referenceDepth && !editableMarkedRef.current) {
+      editableMarkedRef.current = true;
+      markStartupMilestone(CONTENT_EDITABLE_MARK, documentId);
+    }
+  }, [editor, editable, referenceDepth, documentId]);
 
   const threadsRef = useRef(commentThreads);
   threadsRef.current = commentThreads;

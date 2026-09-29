@@ -588,6 +588,61 @@ describe("handleJsonRpc", () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 
+  it("persists a structured error code on a failed async task message", async () => {
+    const config: A2AConfig = {
+      ...customHandler,
+      handler: async () => {
+        throw Object.assign(new Error("The provider connection is missing."), {
+          agentNativeErrorCode: "missing_credentials",
+        });
+      },
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 26,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "read the provider data" }],
+          },
+        },
+      },
+      mockEvent(),
+      config,
+    );
+    const taskId = created.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(taskId, config);
+
+    const failed = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 27,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      mockEvent(),
+      config,
+    );
+
+    expect(failed.result.status).toMatchObject({
+      state: "failed",
+      message: {
+        parts: [
+          {
+            type: "text",
+            text: "The provider connection is missing.",
+          },
+        ],
+        metadata: { agentNativeErrorCode: "missing_credentials" },
+      },
+    });
+  });
+
   it("does not expose a task to the same user in another org scope", async () => {
     const ownerEvent = mockEvent();
     ownerEvent.context = {

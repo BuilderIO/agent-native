@@ -459,7 +459,7 @@ async function recordIdentityFailure(
       `User/membership no longer valid — leaving cron entry for admin review.`,
   );
   const alreadyRecorded =
-    meta.lastStatus === "skipped" && meta.lastError === reason;
+    meta.lastError === reason && hasRecentIdentityFailure(meta, now);
   meta.lastCheck = now.toISOString();
   meta.lastStatus = "skipped";
   meta.lastError = reason;
