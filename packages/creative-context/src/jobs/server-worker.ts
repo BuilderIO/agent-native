@@ -1,4 +1,7 @@
-import { isLocalDatabase } from "@agent-native/core/db";
+import {
+  isLocalDatabase,
+  isProductionServerlessFunctionRuntime,
+} from "@agent-native/core/db";
 import {
   awaitBootstrap,
   extractInternalBearerToken,
@@ -7,6 +10,7 @@ import {
   getH3App,
   isInBackgroundFunctionRuntime,
   readBody,
+  registerRecurringSweepHandler,
   verifyInternalToken,
   type NitroPluginDef,
 } from "@agent-native/core/server";
@@ -30,6 +34,7 @@ export const CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE = `${FRAMEWORK_ROUTE_PR
 const mountedApps = new WeakSet<object>();
 const delayedDispatches = new Map<string, ReturnType<typeof setTimeout>>();
 const sweepTimers = new Map<string, ReturnType<typeof setInterval>>();
+const recurringSweepRegistrations = new Map<string, () => void>();
 const maintenanceTimers = new Map<string, ReturnType<typeof setInterval>>();
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 24 * 60 * 60_000;
@@ -52,7 +57,15 @@ export function createCreativeContextWorkerPlugin(input: {
     registerCreativeContextBackgroundDispatcher((dispatch) =>
       scheduleHostedBackgroundDispatch({ ...dispatch, appId }),
     );
-    if (!isInBackgroundFunctionRuntime()) {
+    registerCreativeContextRecurringSweep({ appId });
+    // Serverless boots are per-request cold starts: a boot-time sweep costs
+    // every cold request its queries, and the interval only fires while some
+    // unrelated request keeps the instance warm. The platform scheduler drives
+    // the recurring sweep handler above there instead.
+    if (
+      !isInBackgroundFunctionRuntime() &&
+      !isProductionServerlessFunctionRuntime()
+    ) {
       startCreativeContextImportSweep({ appId });
       startCreativeContextDailyMaintenance({ appId });
     }
@@ -158,6 +171,54 @@ export function createCreativeContextWorkerPlugin(input: {
       },
     );
   };
+}
+
+export async function runCreativeContextRecurringSweep(input: {
+  appId: string;
+}): Promise<void> {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required.");
+  const [imports, background, maintenance] = await Promise.all([
+    processDueCreativeContextImportJobs({ appId }),
+    processDueCreativeContextBackgroundJobs({ appId }),
+    enqueueCreativeContextDailyMaintenance({ appId }),
+  ]);
+  const failures = [
+    imports.failed ? `${imports.failed} due import dispatch(es)` : null,
+    background.failed
+      ? `${background.failed} due background dispatch(es)`
+      : null,
+    maintenance.failed
+      ? `${maintenance.failed} daily maintenance enqueue(s)`
+      : null,
+  ].filter((failure): failure is string => failure !== null);
+  if (failures.length > 0) {
+    throw new Error(
+      `[creative-context] recurring sweep for ${appId} failed: ${failures.join(", ")}.`,
+    );
+  }
+}
+
+export function registerCreativeContextRecurringSweep(input: {
+  appId: string;
+}): () => void {
+  const appId = input.appId.trim();
+  if (!appId) throw new Error("appId is required.");
+  let dispose = recurringSweepRegistrations.get(appId);
+  if (!dispose) {
+    const unregister = registerRecurringSweepHandler(
+      `creative-context:${appId}`,
+      () => runCreativeContextRecurringSweep({ appId }),
+    );
+    dispose = () => {
+      unregister();
+      if (recurringSweepRegistrations.get(appId) === dispose) {
+        recurringSweepRegistrations.delete(appId);
+      }
+    };
+    recurringSweepRegistrations.set(appId, dispose);
+  }
+  return dispose;
 }
 
 export function startCreativeContextDailyMaintenance(input: {
