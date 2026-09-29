@@ -50,6 +50,20 @@ export function isDashboardFilter(value: unknown): value is DashboardFilter {
   );
 }
 
+export function isDateRangePresetFilter(filter: DashboardFilter): boolean {
+  if (filter.type !== "select" || !filter.options?.length) return false;
+  const isRange = (value: string) => /^\d+d$/.test(value);
+  return (
+    filter.options.some((option) => isRange(option.value)) &&
+    filter.options.every(
+      (option) =>
+        isRange(option.value) ||
+        option.value === "all" ||
+        option.value === "custom",
+    )
+  );
+}
+
 export function reviewDashboardFilters(
   value: unknown,
 ): DashboardFilter[] | undefined {
@@ -99,7 +113,17 @@ function resolveDateValue(
   if (value.toLowerCase() === "all") return allTimeValue;
 
   const resolved = resolveDefault(value, "date");
-  return ISO_DATE_RE.test(resolved) ? resolved : "";
+  if (!ISO_DATE_RE.test(resolved)) return "";
+  const parsed = new Date(`${resolved}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === resolved
+    ? resolved
+    : "";
+}
+
+function dateRangeStart(range: string): string {
+  const days = /^(\d+)d$/.exec(range);
+  return days ? daysAgo(Number(days[1])) : daysAgo(30);
 }
 
 export function resolveDefaultFilterVars(
@@ -133,6 +157,18 @@ export function resolveFilterVars(
         filter.type === "toggle-date"
           ? resolveDateValue(getParam(filter.id), ALL_TIME_START)
           : getParam(filter.id);
+    } else if (isDateRangePresetFilter(filter)) {
+      const value =
+        getParam(filter.id) || resolveDefault(filter.default, filter.type);
+      const startKey = filter.id + "Start";
+      const endKey = filter.id + "End";
+      const defaultRange = value === "custom" ? filter.default || "30d" : value;
+      const fallbackStart = dateRangeStart(defaultRange);
+      out[filter.id] = value;
+      out[startKey] =
+        resolveDateValue(getParam(startKey), fallbackStart) || fallbackStart;
+      out[endKey] =
+        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
     } else {
       const value = getParam(filter.id);
       out[filter.id] =

@@ -9,7 +9,12 @@ import {
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
+import {
+  isDateRangePresetFilter,
+  resolveDefault,
+} from "../app/pages/adhoc/sql-dashboard/filter-vars";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import type { DashboardFilter } from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
 import { serializeProgramDescriptorInput } from "../server/lib/dashboard-panel-query";
@@ -72,6 +77,14 @@ function buildDryRunVars(
       vars[`${key}End`] = todayUtc();
     } else if (f.type === "date" || f.type === "toggle-date") {
       if (def) vars[key] = resolveDateDefault(def);
+    } else if (
+      f.type === "select" &&
+      isDateRangePresetFilter(f as unknown as DashboardFilter)
+    ) {
+      const range = /^\d+d$/.test(def) ? def : "30d";
+      vars[key] = def || range;
+      vars[`${key}Start`] = resolveDefault(range, "date");
+      vars[`${key}End`] = todayUtc();
     } else {
       if (def) vars[key] = def;
     }

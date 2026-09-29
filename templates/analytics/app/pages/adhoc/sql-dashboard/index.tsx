@@ -311,6 +311,11 @@ const PanelCell = memo(function PanelCell({
     () =>
       interpolate(serializePanelSql(panel.sql), vars, {
         failClosedTimeVariables: true,
+        customDateRangeSupport:
+          (panel.source === "bigquery" || panel.source === "first-party") &&
+          panel.config?.timeScope !== "fixed-window" &&
+          panel.config?.timeScope !== "cohort-history" &&
+          panel.config?.timeScope !== "all-time",
       }),
     [panel.sql, vars],
   );
