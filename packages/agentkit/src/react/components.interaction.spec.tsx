@@ -1139,6 +1139,9 @@ describe("AgentKitChat interactions", () => {
           <AgentKitProvider controller={client} threadId="thread-plan">
             <AgentKitChat
               composerProps={{
+                // The composer focuses its editor 50 ms after mount, which
+                // dismisses a menu opened before then.
+                autoFocus: false,
                 planModeDisabled: true,
                 planModeDisabledReason: "Plan mode requires Desktop.",
               }}
