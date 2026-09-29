@@ -97,11 +97,6 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "無法傳送請求，請再試一次。",
   "observability.summaryExpired":
     "摘要尚未顯示。你可以重試，但代理程式可能仍在處理。",
-  "observability.promoteMustContain": "回覆必須包含…",
-  "observability.promoteMustContainOptional": "回覆必須包含（選填）",
-  "observability.promoteMustContainLabel": "提升的評估回覆必須包含的文字",
-  "observability.promoteNeedsContains":
-    "此執行沒有成功的工具呼叫。提升前，請輸入回覆必須包含的文字。",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "選擇你的角色",
   "onboarding.customizeRole": "讓我們為你客製化。",
