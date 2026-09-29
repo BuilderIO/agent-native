@@ -115,6 +115,9 @@ export function instrumentAgentKitAcceptanceTransport<T extends AgentTransport>(
         ? input
         : { ...input, afterSequence: sourceAfterSequence };
     for await (const event of originalSubscribeToRun(sourceInput, context)) {
+      // The runtime now publishes model-authored suggestions itself.
+      if (event.type === "suggestions.updated" && event.suggestions.length > 0)
+        injectedSuggestion = true;
       if (
         prompt !== acceptanceSuggestionSourcePrompt ||
         prompt === undefined ||

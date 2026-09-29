@@ -508,6 +508,7 @@
     "./client/resources/mcp-connection-resume": "./dist/client/resources/mcp-connection-resume.js",
     "./client/resources/mcp-integration-catalog": "./dist/client/resources/mcp-integration-catalog.js",
     "./client/resources/mcp-integration-logos": "./dist/client/resources/mcp-integration-logos.js",
+    "./client/resources/mcp-integration-setup": "./dist/client/resources/mcp-integration-setup.js",
     "./client/resources/resource-views": "./dist/client/resources/resource-views.js",
     "./client/resources/use-builtin-capabilities": "./dist/client/resources/use-builtin-capabilities.js",
     "./client/resources/use-mcp-servers": "./dist/client/resources/use-mcp-servers.js",
