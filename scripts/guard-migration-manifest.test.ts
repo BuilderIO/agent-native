@@ -30,6 +30,41 @@ describe("migration manifest guard", () => {
     );
   });
 
+  it("allows a removed stylesheet export only when its active Toolkit target is published", () => {
+    const core = {
+      name: "@agent-native/core",
+      exports: { ".": "./dist/index.js" },
+    };
+    const stylesheet = "@agent-native/core/styles/chat-history-list.css";
+    assert.deepEqual(
+      checkMigrationManifest(
+        core,
+        {
+          exports: {
+            "./styles/chat-history-list.css": [
+              "dist/styles/chat-history-list.css",
+            ],
+          },
+        },
+        {
+          moves: {
+            [stylesheet]: {
+              to: "@agent-native/toolkit/app/styles/chat-history-list.css",
+            },
+          },
+        },
+        {
+          "@agent-native/core": core,
+          "@agent-native/toolkit": {
+            name: "@agent-native/toolkit",
+            exports: { "./app/*": "./dist/app/*" },
+          },
+        },
+      ),
+      [],
+    );
+  });
+
   it("requires an exact manifest move for each tombstone export", () => {
     const violations = checkMigrationManifest(
       {
