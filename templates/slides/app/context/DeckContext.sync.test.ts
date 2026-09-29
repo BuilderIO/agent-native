@@ -63,7 +63,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(
     QueryClientProvider,
     { client: queryClient },
-    createElement(DeckProvider, { realtimeEnabled: true }, children),
+    createElement(DeckProvider, { realtimeEnabled: true, children }),
   );
 }
 
@@ -71,7 +71,7 @@ function noRealtimeWrapper({ children }: { children: ReactNode }) {
   return createElement(
     QueryClientProvider,
     { client: queryClient },
-    createElement(DeckProvider, null, children),
+    createElement(DeckProvider, { children }),
   );
 }
 
