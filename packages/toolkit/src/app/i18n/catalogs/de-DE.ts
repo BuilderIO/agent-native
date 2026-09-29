@@ -80,9 +80,9 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
   "observability.promoteMustContain": "Antwort muss enthalten …",
   "observability.promoteMustContainOptional":
-    "Antwort muss enthalten (optional)",
+    "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
-    "Text, den die hochgestufte Eval-Antwort enthalten muss",
+    "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",

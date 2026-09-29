@@ -7,7 +7,15 @@ description: セキュリティと移行のチェック。
 
 生成されたアプリと workspace のソースコードは、リポジトリの開発ワークフローで変更できます。意図的に workspace と書き込みツールを与えられたエージェント frame も変更できます。`agent-native doctor` はソースのセキュリティ上重要なコード不変条件を検査します。読み取り専用であり、コードを編集せず結果だけを報告します。
 
-`agent-native doctor` は 8 つのセキュリティ guard と `migration-manifest` の計 9 guard を実行します。後者はインストール済み `migration-manifest.json` の import を検出し、opt-out はできません。`agent-native doctor --only migration-manifest`、`npx @agent-native/core@latest upgrade --codemods`、確認後の `--yes` を使います。JSON の `guardsRun` には 9 件が出ます。
+`agent-native doctor` は 8 つのセキュリティ guard と `migration-manifest` の計 9 guard を実行します。後者はインストール済み `migration-manifest.json` の import を検出し、opt-out はできません。移行の事前確認を実行します。
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` はファイルを書き換えずに upgrade と codemod の差分を表示します。対応する書き換えを適用するには、`--dry-run` を外して再実行します。`--yes` は互換性のために受け付けますが、動作には影響しません。適用前に差分と警告を確認してください。`planned` の項目は警告のみで、書き換えません。active な項目は finding になります。codemod は移行先の export がインストール済みの場合にだけ書き換えます。削除された export は手動で移行してください。finding に記載された guide、または `ts-morph` と optional feature package を記載した [Core 0.197.0 移行ガイド](/docs/upgrading-to-0-197)を参照してください。JSON の `guardsRun` には 9 件が出ます。
 
 CLI は新しいすべての app と workspace に `pnpm doctor` と `pnpm agent-native:doctor` を追加します。workspace root から実行すると `apps/<name>` の各 app を検査します。finding がある場合、build はデフォルトで失敗します。`failOnBuild: false` はレビュー済みの例外に限り使用してください。
 

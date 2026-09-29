@@ -268,20 +268,76 @@ function resolveOptionalManifest(
   }
 }
 
+function isToolkitInstalled(projectRoot: string): boolean {
+  const require = createRequire(path.join(projectRoot, "package.json"));
+  try {
+    require.resolve("@agent-native/toolkit/package.json");
+    return true;
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException).code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+    ) {
+      return true;
+    }
+  }
+  try {
+    require.resolve("@agent-native/toolkit");
+    return true;
+  } catch {
+    let directory = projectRoot;
+    while (true) {
+      if (
+        fs.existsSync(
+          path.join(
+            directory,
+            "node_modules/@agent-native/toolkit/package.json",
+          ),
+        )
+      ) {
+        return true;
+      }
+      const parent = path.dirname(directory);
+      if (parent === directory) return false;
+      directory = parent;
+    }
+  }
+}
+
 export function loadMigrationManifestsForProject(
   projectRoot: string,
 ): MigrationManifest[] {
-  const paths = [
-    bundledCoreMigrationManifestPath(),
-    resolveOptionalManifest(
-      projectRoot,
-      "@agent-native/toolkit/migration-manifest.json",
-    ),
-  ];
-  return paths
-    .filter((manifestPath): manifestPath is string => Boolean(manifestPath))
-    .map(readMigrationManifest)
-    .filter((manifest): manifest is MigrationManifest => Boolean(manifest));
+  const corePath = bundledCoreMigrationManifestPath();
+  const coreManifest = readMigrationManifest(corePath);
+  if (!coreManifest) {
+    throw new Error(
+      "Required bundled Core migration manifest is missing at " +
+        corePath +
+        ".",
+    );
+  }
+
+  const toolkitPath = resolveOptionalManifest(
+    projectRoot,
+    "@agent-native/toolkit/migration-manifest.json",
+  );
+  if (!toolkitPath) {
+    if (isToolkitInstalled(projectRoot)) {
+      throw new Error(
+        "Could not resolve @agent-native/toolkit/migration-manifest.json although @agent-native/toolkit is installed.",
+      );
+    }
+    return [coreManifest];
+  }
+
+  const toolkitManifest = readMigrationManifest(toolkitPath);
+  if (!toolkitManifest) {
+    throw new Error(
+      "Required @agent-native/toolkit migration manifest is missing at " +
+        toolkitPath +
+        ".",
+    );
+  }
+  return [coreManifest, toolkitManifest];
 }
 
 export function resolveMigrationSymbolMove(

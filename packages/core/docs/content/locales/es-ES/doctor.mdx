@@ -7,7 +7,15 @@ description: Comprobaciones de seguridad y migración.
 
 Las apps y los workspaces generados contienen código fuente que puede cambiarse mediante el flujo de desarrollo del repositorio, incluso por un frame de agente al que se hayan concedido intencionalmente herramientas de workspace y escritura. `agent-native doctor` examina el código fuente para verificar invariantes de seguridad críticos. Es de solo lectura: nunca edita el código, solo informa.
 
-`agent-native doctor` ejecuta nueve guardas de código: las ocho guardas de seguridad y `migration-manifest`. Esta última encuentra imports que aparecen en el `migration-manifest.json` instalado; no admite opt-out. Usa `agent-native doctor --only migration-manifest`, previsualiza con `npx @agent-native/core@latest upgrade --codemods` y aplica con `--yes`. La salida JSON incluye los nueve nombres en `guardsRun`.
+`agent-native doctor` ejecuta nueve guardas de código: las ocho guardas de seguridad y `migration-manifest`. Esta última encuentra imports que aparecen en el `migration-manifest.json` instalado; no admite opt-out. Ejecuta directamente la comprobación previa de migración:
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` previsualiza la actualización y el diff del codemod sin escribir archivos. Vuelve a ejecutar el comando sin `--dry-run` para aplicar las reescrituras compatibles. `--yes` se acepta por compatibilidad y no cambia el comportamiento. Revisa el diff y las advertencias antes de aplicar. Las entradas `planned` solo son advertencias y no se reescriben. Las entradas activas son hallazgos. El codemod solo las reescribe si el export de destino está instalado. Los exports eliminados requieren una migración manual. Sigue la guía enlazada en el hallazgo o la [guía de migración de Core 0.197.0](/docs/upgrading-to-0-197), que enumera `ts-morph` y los paquetes opcionales de funciones. La salida JSON incluye los nueve nombres en `guardsRun`.
 
 El CLI añade a cada app y workspace nuevo los comandos `pnpm doctor` y `pnpm agent-native:doctor`. Desde la raíz de un workspace, comprueba cada app en `apps/<name>`. Las builds fallan ante hallazgos de forma predeterminada; usa `failOnBuild: false` solo como excepción revisada.
 

@@ -7,7 +7,15 @@ description: Vérifications de sécurité et de migration.
 
 Les apps et workspaces générés contiennent du code source modifiable dans le workflow de développement du dépôt, y compris par un frame d’agent auquel les outils de workspace et d’écriture ont été accordés intentionnellement. `agent-native doctor` analyse le code source pour vérifier les invariants de sécurité critiques. Il est en lecture seule : il ne modifie jamais le code, il signale seulement les résultats.
 
-`agent-native doctor` exécute neuf contrôles: les huit contrôles de sécurité et `migration-manifest`. Celui-ci détecte les imports présents dans le `migration-manifest.json` installé et n'a pas d'opt-out. Lancez `agent-native doctor --only migration-manifest`, prévisualisez avec `npx @agent-native/core@latest upgrade --codemods`, puis appliquez avec `--yes`. La sortie JSON liste les neuf noms dans `guardsRun`.
+`agent-native doctor` exécute neuf contrôles: les huit contrôles de sécurité et `migration-manifest`. Celui-ci détecte les imports présents dans le `migration-manifest.json` installé et n'a pas d'opt-out. Lancez directement le contrôle préalable de migration:
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` prévisualise la mise à niveau et le diff du codemod sans écrire de fichiers. Relancez la commande sans `--dry-run` pour appliquer les réécritures prises en charge. `--yes` est accepté par compatibilité et ne change pas le comportement. Vérifiez le diff et les avertissements avant l'application. Les entrées `planned` sont uniquement des avertissements et ne sont pas réécrites. Les entrées actives sont des constats. Le codemod ne les réécrit que si l'export de destination est installé. Les exports supprimés nécessitent une migration manuelle. Suivez le guide lié au constat ou le [guide de migration Core 0.197.0](/docs/upgrading-to-0-197), qui répertorie `ts-morph` et les packages optionnels des fonctionnalités. La sortie JSON liste les neuf noms dans `guardsRun`.
 
 Le CLI ajoute à chaque nouvelle app et à chaque workspace les commandes `pnpm doctor` et `pnpm agent-native:doctor`. Depuis la racine d'un workspace, chaque app sous `apps/<name>` est vérifiée. Les builds échouent par défaut en présence de constats; utilisez `failOnBuild: false` uniquement comme exception revue.
 

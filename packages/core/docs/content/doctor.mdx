@@ -73,16 +73,19 @@ Use the migration preflight directly:
 
 ```bash
 agent-native doctor --only migration-manifest
-npx @agent-native/core@latest upgrade --codemods
-npx @agent-native/core@latest upgrade --codemods --yes
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
 ```
 
-The first command reports a preview of imports that match the shipped manifest;
-the codemod command previews its diff by default, and `--yes` applies the
-reviewed rewrite. `migration-manifest` has no opt-out and cannot be disabled.
+`--dry-run` previews the upgrade and codemod diff without writing files. Run
+the command again without `--dry-run` to apply supported rewrites. `--yes` is
+accepted for compatibility and has no effect. Review the diff and warnings
+before applying. `migration-manifest` has no opt-out and cannot be disabled.
 Entries marked `planned` are warnings only and are not rewritten. Active entries
 are findings, and the codemod rewrites them only when the destination export is
-installed.
+installed. Removed exports require a manual migration. Follow the guide linked
+in the finding or the [Core 0.197.0 migration guide](/docs/upgrading-to-0-197),
+which lists the `ts-morph` and optional feature packages used by the migration.
 
 ## Flags and exit codes {#flags}
 

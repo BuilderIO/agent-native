@@ -679,6 +679,7 @@
         "@agent-native/core/shared/auth-page-types",
         "@agent-native/core/shared/framework-route-prefix",
         "@agent-native/core/shared/qa-test-email",
+        "@agent-native/core/shared/runtime-config",
         "@agent-native/core/shared/sign-in-journey",
         "@agent-native/core/shared/test-traffic"
       ]

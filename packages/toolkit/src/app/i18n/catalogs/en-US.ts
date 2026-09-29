@@ -74,9 +74,10 @@ const messages = {
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
   "observability.promoteMustContain": "Reply must contain…",
-  "observability.promoteMustContainOptional": "Reply must contain (optional)",
+  "observability.promoteMustContainOptional":
+    "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
-    "Text the promoted eval reply must contain",
+    "Text to check for in the promoted eval reply",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",

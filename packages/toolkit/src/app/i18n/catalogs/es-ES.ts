@@ -78,9 +78,9 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.plan": "Cambiar a la planificación de solo lectura",
   "observability.promoteMustContain": "La respuesta debe contener…",
   "observability.promoteMustContainOptional":
-    "La respuesta debe contener (opcional)",
+    "Texto opcional que se comprobará en la respuesta…",
   "observability.promoteMustContainLabel":
-    "Texto que debe contener la respuesta de la evaluación promovida",
+    "Texto que se comprobará en la respuesta de la evaluación promovida",
   "observability.promoteNeedsContains":
     "Esta ejecución no tiene ninguna llamada a herramienta exitosa. Introduce el texto que debe contener la respuesta antes de promoverla.",
   "observability.viewDetails": "Ver detalles",

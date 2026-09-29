@@ -644,9 +644,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "सूची पर वापस जाएँ",
     promoteMustContain: "जवाब में यह होना चाहिए…",
-    promoteMustContainOptional: "जवाब में यह होना चाहिए (वैकल्पिक)",
-    promoteMustContainLabel:
-      "प्रमोट किए गए eval जवाब में शामिल किया जाने वाला टेक्स्ट",
+    promoteMustContainOptional: "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
+    promoteMustContainLabel: "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
     promoteNeedsContains:
       "इस रन में कोई सफल टूल कॉल नहीं है। eval में प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
     spans: "Spans",

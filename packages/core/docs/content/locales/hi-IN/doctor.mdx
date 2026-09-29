@@ -7,7 +7,15 @@ description: सुरक्षा और माइग्रेशन जाँ�
 
 Generated apps और workspaces में source code होता है जिसे repository development workflow के माध्यम से बदला जा सकता है, जिसमें वह agent frame भी शामिल है जिसे जानबूझकर workspace और write tooling दी गई हो। `agent-native doctor` source में security-critical code invariants जाँचता है। यह read-only है: doctor code edit नहीं करता, केवल report करता है।
 
-`agent-native doctor` नौ guards चलाता है: आठ सुरक्षा guards और `migration-manifest`। यह installed `migration-manifest.json` में imports ढूँढता है और इसका opt-out नहीं है। `agent-native doctor --only migration-manifest` चलाएँ, `npx @agent-native/core@latest upgrade --codemods` से preview करें और `--yes` से लागू करें। JSON में `guardsRun` सभी नौ नाम दिखाता है।
+`agent-native doctor` नौ guards चलाता है: आठ सुरक्षा guards और `migration-manifest`। यह installed `migration-manifest.json` में imports ढूँढता है और इसका opt-out नहीं है। Migration preflight सीधे चलाएँ:
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` बिना files लिखे upgrade और codemod diff का preview दिखाता है। समर्थित rewrites लागू करने के लिए command को `--dry-run` के बिना फिर चलाएँ। `--yes` compatibility के लिए स्वीकार होता है, लेकिन behavior नहीं बदलता। लागू करने से पहले diff और warnings देखें। `planned` entries केवल warnings हैं और rewrite नहीं होतीं। Active entries findings हैं। Codemod उन्हें तभी rewrite करता है जब destination export installed हो। हटाए गए exports के लिए manual migration चाहिए। Finding में दिए गए guide या [Core 0.197.0 migration guide](/docs/upgrading-to-0-197) का पालन करें। इसमें `ts-morph` और optional feature packages सूचीबद्ध हैं। JSON में `guardsRun` सभी नौ नाम दिखाता है।
 
 CLI हर नए app और workspace में `pnpm doctor` तथा `pnpm agent-native:doctor` commands जोड़ता है। Workspace root से चलाने पर `apps/<name>` के हर app की जाँच होती है। Findings मिलने पर builds डिफ़ॉल्ट रूप से fail होती हैं; `failOnBuild: false` केवल reviewed exception के रूप में उपयोग करें।
 

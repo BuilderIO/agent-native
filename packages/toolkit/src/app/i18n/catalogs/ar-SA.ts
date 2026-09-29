@@ -77,9 +77,9 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
   "observability.promoteMustContain": "يجب أن تحتوي الإجابة على…",
   "observability.promoteMustContainOptional":
-    "يجب أن تحتوي الإجابة على (اختياري)",
+    "نص اختياري للتحقق من وجوده في الرد…",
   "observability.promoteMustContainLabel":
-    "النص الذي يجب أن تتضمنه إجابة التقييم المُروَّج",
+    "النص الذي سيتم التحقق منه في رد التقييم الذي تمت ترقيته",
   "observability.promoteNeedsContains":
     "لا تتضمن هذه الجولة أي استدعاء ناجح للأداة. أدخل نصًا يجب أن تحتوي عليه الإجابة قبل الترويج.",
   "observability.viewDetails": "عرض التفاصيل",

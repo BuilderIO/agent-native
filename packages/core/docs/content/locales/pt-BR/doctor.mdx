@@ -7,7 +7,15 @@ description: Verificações de segurança e migração.
 
 Apps e workspaces gerados contêm código-fonte que pode ser alterado no fluxo de desenvolvimento do repositório, inclusive por um frame de agente ao qual ferramentas de workspace e escrita foram concedidas intencionalmente. `agent-native doctor` verifica no código-fonte invariantes críticos de segurança. Ele é somente leitura: nunca edita o código, apenas relata resultados.
 
-`agent-native doctor` executa nove guardas: oito de segurança e `migration-manifest`. Ele encontra imports no `migration-manifest.json` instalado e não permite opt-out. Execute `agent-native doctor --only migration-manifest`, pré-visualize com `npx @agent-native/core@latest upgrade --codemods` e aplique com `--yes`. O JSON lista os nove nomes em `guardsRun`.
+`agent-native doctor` executa nove guardas: oito de segurança e `migration-manifest`. Ele encontra imports no `migration-manifest.json` instalado e não permite opt-out. Execute diretamente a verificação prévia da migração:
+
+```bash
+agent-native doctor --only migration-manifest
+npx agent-native upgrade --codemods --dry-run
+npx agent-native upgrade --codemods
+```
+
+`--dry-run` pré-visualiza o upgrade e o diff do codemod sem gravar arquivos. Execute novamente sem `--dry-run` para aplicar as reescritas compatíveis. `--yes` é aceito por compatibilidade e não altera o comportamento. Revise o diff e os avisos antes de aplicar. Entradas `planned` são apenas avisos e não são reescritas. Entradas ativas são achados. O codemod só as reescreve quando o export de destino está instalado. Exports removidos exigem migração manual. Siga o guia vinculado ao achado ou o [guia de migração do Core 0.197.0](/docs/upgrading-to-0-197), que lista `ts-morph` e os pacotes opcionais de recursos. O JSON lista os nove nomes em `guardsRun`.
 
 O CLI adiciona os comandos `pnpm doctor` e `pnpm agent-native:doctor` a cada novo app e workspace. A partir da raiz de um workspace, ele verifica cada app em `apps/<name>`. Builds falham por padrão quando há achados; use `failOnBuild: false` apenas como exceção revisada.
 

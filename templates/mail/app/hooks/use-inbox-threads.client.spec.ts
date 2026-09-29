@@ -194,6 +194,50 @@ describe("useInboxThreads tab previews", () => {
     queryClient.clear();
   });
 
+  it("keeps cached inbox rows visible during a background refresh", async () => {
+    let resolveRefresh!: (data: ListInboxThreadsResult) => void;
+    callActionWithRetry
+      .mockResolvedValueOnce(response())
+      .mockImplementationOnce(
+        () =>
+          new Promise<ListInboxThreadsResult>((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const input: ListInboxThreadsInput = {
+      tab: "important",
+      limit: 50,
+      offset: 0,
+    };
+    const wrapper = ({ children }: PropsWithChildren) =>
+      createElement(QueryClientProvider, { client: queryClient }, children);
+    const hook = renderHook(() => useInboxThreads(input), { wrapper });
+
+    await waitFor(() => expect(hook.result.current.data).toBeDefined());
+    act(() => {
+      void hook.result.current.refetch();
+    });
+    await waitFor(() => expect(callActionWithRetry).toHaveBeenCalledTimes(2));
+
+    expect(hook.result.current.isLoading).toBe(false);
+    expect(hook.result.current.data?.items[0]?.id).toBe("important-message");
+
+    await act(async () => {
+      resolveRefresh({
+        ...response(),
+        items: [thread("fresh-message", "fresh-thread")],
+      });
+    });
+    await waitFor(() =>
+      expect(hook.result.current.data?.items[0]?.id).toBe("fresh-message"),
+    );
+    hook.unmount();
+    queryClient.clear();
+  });
+
   it("refreshes the active list before continuing after a changed sync step", async () => {
     const requestOrder: string[] = [];
     callActionWithRetry.mockImplementation(async () => {
