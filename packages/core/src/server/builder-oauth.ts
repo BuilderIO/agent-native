@@ -12,10 +12,7 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
-import {
-  isPersonalProviderKeyUseRestricted,
-  readOrgMemberRole,
-} from "./personal-provider-key-policy.js";
+import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
   (...args) =>
@@ -143,40 +140,11 @@ function userOwnerOptions(ownerEmail: string) {
   };
 }
 
-/**
- * Whether `email` is an owner or admin of `orgId`, which puts the org's Builder
- * connection ahead of their own. A database that never created the org tables
- * has no managers. Any other failed read throws: guessing "member" would run a
- * manager's request on the personal connection the org's is meant to replace.
- */
-export async function isBuilderOrgManager(
-  orgId: string,
-  email: string,
-): Promise<boolean> {
-  try {
-    return isBuilderOrgManagerRole(await readOrgMemberRole(orgId, email));
-  } catch (error) {
-    if (isMissingOrgMembersTable(error)) return false;
-    throw error;
-  }
-}
-
-function isMissingOrgMembersTable(error: unknown): boolean {
-  const candidate = error as { code?: unknown; message?: unknown } | null;
-  if (candidate?.code === "42P01") return true;
-  return /relation ["']?org_members["']? does not exist/i.test(
-    String(candidate?.message ?? error),
-  );
-}
-
-// Read paths try a member's personal grant first, then the org grant. An
+// Read paths try the caller's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
 // a request runs on, so they skip a personal grant the org policy disallows
-// (disconnect still sees it so its owner can remove it), and put the org grant
-// first for a current owner or admin: a personal grant kept from before a
-// promotion would otherwise shadow the org's connection. Their own grant stays
-// the fallback, matching the key-pair resolver.
+// (disconnect still sees it so its owner can remove it).
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -196,11 +164,7 @@ async function resolveBuilderOAuthOptions(
     }));
   const personal = personalAllowed ? [userOptions] : [];
   const org = resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
-  const orgFirst =
-    forUse &&
-    !!resolvedOrgId &&
-    (await isBuilderOrgManager(resolvedOrgId, email));
-  return orgFirst ? [...org, ...personal] : [...personal, ...org];
+  return [...personal, ...org];
 }
 
 async function resolveBuilderOAuthOptionsForScope(
