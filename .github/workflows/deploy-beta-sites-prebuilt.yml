@@ -39,6 +39,9 @@ jobs:
     name: Resolve beta source revision
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Write access is only for the beta branch mirror; this job never checks out code.
+    permissions:
+      contents: write
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
     steps:
@@ -73,6 +76,70 @@ jobs:
             }
             core.setOutput('source_sha', sourceSha);
             core.info(`beta source is pinned to ${sourceSha}`);
+
+      # The beta branch feeds the legacy deploy-beta-sites.yml fallback. A mirror
+      # failure must not block publishing, so it only annotates the run.
+      - name: Mirror main to the beta branch
+        id: mirror-beta
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const repositoryId =
+              context.payload.repository?.node_id ??
+              (await github.rest.repos.get(repo)).data.node_id;
+            for (let attempt = 1; attempt <= 5; attempt++) {
+              try {
+                const mainSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/main' }))
+                  .data.object.sha;
+                let betaSha = null;
+                try {
+                  betaSha = (await github.rest.git.getRef({ ...repo, ref: 'heads/beta' }))
+                    .data.object.sha;
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+                if (!betaSha) {
+                  await github.rest.git.createRef({ ...repo, ref: 'refs/heads/beta', sha: mainSha });
+                  core.info(`Created beta at ${mainSha}.`);
+                  return;
+                }
+                const { status } = (await github.rest.repos.compareCommits({
+                  ...repo,
+                  base: betaSha,
+                  head: mainSha,
+                })).data;
+                // main only moves forward, so beta ahead of main means a newer
+                // run already mirrored a later main; never move beta backwards.
+                if (status === 'identical' || status === 'behind') {
+                  core.info(`beta ${betaSha} already includes main ${mainSha}.`);
+                  return;
+                }
+                // beforeOid is a server-side lease: the update is rejected if
+                // another run moved beta after the read above.
+                await github.graphql(
+                  `mutation($repositoryId: ID!, $afterOid: GitObjectID!, $beforeOid: GitObjectID!, $force: Boolean!) {
+                    updateRefs(input: {
+                      repositoryId: $repositoryId,
+                      refUpdates: [{ name: "refs/heads/beta", afterOid: $afterOid, beforeOid: $beforeOid, force: $force }]
+                    }) { clientMutationId }
+                  }`,
+                  {
+                    repositoryId,
+                    afterOid: mainSha,
+                    beforeOid: betaSha,
+                    force: status === 'diverged',
+                  },
+                );
+                core.info(`Mirrored main ${mainSha} to beta (was ${betaSha}, ${status}).`);
+                return;
+              } catch (error) {
+                if (attempt === 5) throw error;
+                core.info(`Beta mirror attempt ${attempt} failed: ${error.message}; retrying.`);
+                await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+              }
+            }
 
   discover-sites:
     name: Discover beta sites

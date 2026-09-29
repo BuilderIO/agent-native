@@ -78,7 +78,9 @@ jobs:
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
-        run: pnpm fmt:check && pnpm oxlint
+        # The tree carries ~15k pre-existing warnings; printing them buries
+        # the errors that actually fail this step.
+        run: pnpm fmt:check && pnpm oxlint --quiet
 
       - name: Check changed source files
         if: needs.change-scope.outputs.full != 'true'
