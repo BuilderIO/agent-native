@@ -382,14 +382,26 @@ const resolveCornerRadiusXY = loadPureBridgeFn<
 const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
   "isDirectCornerRadiusValue",
 );
-const composeRadiusLinearTransform = loadPureBridgeFn<
+const composeRadiusTransformMatrices = loadPureBridgeFn<
+  (parent: number[], child: number[]) => number[]
+>("composeRadiusTransformMatrices");
+const radiusTransformInverse = loadPureBridgeFn<
+  (matrix: { a: number; b: number; c: number; d: number } | null) => {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+    determinant: number;
+    scale: number;
+  } | null
+>("radiusTransformInverse");
+const radiusInverseLinearDelta = loadPureBridgeFn<
   (
-    transform: { a: number; b: number; c: number; d: number },
-    scaleX: number,
-    scaleY: number,
-    radians: number,
-  ) => { a: number; b: number; c: number; d: number }
->("composeRadiusLinearTransform");
+    matrix: { a: number; b: number; c: number; d: number },
+    screenDx: number,
+    screenDy: number,
+  ) => { x: number; y: number } | null
+>("radiusInverseLinearDelta", ["radiusTransformInverse"]);
 const radiusDragMaximums =
   loadPureBridgeFn<
     (
@@ -1042,10 +1054,67 @@ describe("editor-chrome bridge — corner radius math", () => {
     expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
   });
 
-  it("composes independent scale after a transformed element", () => {
+  it("composes full 3D transforms before projecting the radius plane", () => {
+    const cosX = Math.cos(Math.PI / 4);
+    const sinX = Math.sin(Math.PI / 4);
+    const cosY = Math.cos(Math.PI / 6);
+    const sinY = Math.sin(Math.PI / 6);
+    const rotateX = [
+      1,
+      0,
+      0,
+      0,
+      0,
+      cosX,
+      -sinX,
+      0,
+      0,
+      sinX,
+      cosX,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const rotateY = [
+      cosY,
+      0,
+      sinY,
+      0,
+      0,
+      1,
+      0,
+      0,
+      -sinY,
+      0,
+      cosY,
+      0,
+      0,
+      0,
+      0,
+      1,
+    ];
+    const combined = composeRadiusTransformMatrices(rotateY, rotateX);
+
+    expect(combined[0]).toBeCloseTo(cosY);
+    expect(combined[1]).toBeCloseTo(sinY * sinX);
+    expect(combined[5]).toBeCloseTo(cosX);
+    expect(combined[1]).not.toBeCloseTo(0);
+  });
+
+  it("conditions inverse radius mapping relative to transform scale", () => {
     expect(
-      composeRadiusLinearTransform({ a: 0, b: 1, c: -1, d: 0 }, 2, 3, 0),
-    ).toEqual({ a: 0, b: 3, c: -2, d: 0 });
+      radiusTransformInverse({ a: 0.001, b: 0, c: 0, d: 0.001 }),
+    ).not.toBeNull();
+    expect(
+      radiusInverseLinearDelta(
+        { a: 0.001, b: 0, c: 0, d: 0.001 },
+        0.001,
+        -0.002,
+      ),
+    ).toEqual({ x: 1, y: -2 });
+    expect(radiusTransformInverse({ a: 1e9, b: 0, c: 0, d: 1e-9 })).toBeNull();
   });
 
   it("leaves room for the adjacent corners before clamping a drag", () => {
