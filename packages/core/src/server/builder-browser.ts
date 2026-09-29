@@ -25,6 +25,11 @@ import {
   type BuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 import type { BuilderOAuthPermissionScope } from "./builder-oauth.js";
+import {
+  firstPublicBuilderPreviewOriginFromEnv,
+  isLoopbackBuilderRequestHost,
+  isTrustedBuilderRequestHost,
+} from "./builder-preview-origin.js";
 import { readDeployCredentialEnv } from "./credential-provider.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
@@ -1326,33 +1331,6 @@ function isLoopbackBuilderProxyPeer(event: H3Event): boolean {
   }
 }
 
-function isTrustedBuilderRequestHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
-      hostname === "builderio.xyz" ||
-      hostname.endsWith(".builderio.xyz") ||
-      hostname === "builderio.dev" ||
-      hostname.endsWith(".builderio.dev") ||
-      hostname === "builder.codes" ||
-      hostname.endsWith(".builder.codes") ||
-      hostname === "builder.io" ||
-      hostname.endsWith(".builder.io") ||
-      hostname === "builder.my" ||
-      hostname.endsWith(".builder.my") ||
-      hostname === "builder.cloud" ||
-      hostname.endsWith(".builder.cloud")
-    );
-  } catch {
-    return false;
-  }
-}
-
 function isBuilderCloudRequestHost(host: string | undefined): boolean {
   if (!host) return false;
   try {
@@ -1402,43 +1380,6 @@ function isRejectedDirectBuilderCloudHost(
 function getConfiguredBuilderFallbackOrigin(event: H3Event): string | null {
   const origin = getOrigin(event, { useForwardedHost: false });
   return isConfiguredAppOrigin(origin) ? origin : null;
-}
-
-function isLoopbackBuilderRequestHost(host: string | undefined): boolean {
-  if (!host) return false;
-  try {
-    const hostname = new URL(`http://${host}`).hostname.toLowerCase();
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function firstPublicBuilderPreviewOriginFromEnv(): string | null {
-  for (const key of [
-    "FUSION_ENV_ORIGIN",
-    "VITE_FUSION_ENV_ORIGIN",
-    "BUILDER_PREVIEW_URL",
-    "VITE_BUILDER_PREVIEW_URL",
-  ]) {
-    const raw = process.env[key];
-    if (!raw) continue;
-    try {
-      const url = new URL(raw);
-      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-      if (isLoopbackBuilderRequestHost(url.host)) continue;
-      if (!isTrustedBuilderRequestHost(url.host)) continue;
-      return url.origin;
-    } catch {
-      // Ignore malformed environment values.
-    }
-  }
-  return null;
 }
 
 export function getBuilderBrowserOriginForEvent(event: H3Event): string {

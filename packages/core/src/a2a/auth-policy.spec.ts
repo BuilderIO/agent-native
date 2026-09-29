@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { markServerRuntimeStarted } from "../db/server-runtime.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
@@ -21,6 +22,13 @@ const A2A_ENV_KEYS = [
   "K_SERVICE",
   "A2A_SECRET",
   "A2A_ALLOW_UNSIGNED_INTERNAL",
+  "AGENT_NATIVE_BUILD_PRODUCTION_SERVER",
+  "NETLIFY_FUNCTION_NAME",
+  "LAMBDA_TASK_ROOT",
+  "AWS_EXECUTION_ENV",
+  "AWS_SAM_LOCAL",
+  "VERCEL_FUNCTION_ID",
+  "VERCEL_REGION",
 ] as const;
 
 describe("a2a auth-policy", () => {
@@ -30,10 +38,14 @@ describe("a2a auth-policy", () => {
   beforeEach(() => {
     for (const key of A2A_ENV_KEYS) delete process.env[key];
     delete (globalThis as Record<string, unknown>).__cf_env;
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_SERVER_RUNTIME__;
   });
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_SERVER_RUNTIME__;
     if (hadCfEnv) {
       (globalThis as Record<string, unknown>).__cf_env ??= {};
     } else {
@@ -69,6 +81,55 @@ describe("a2a auth-policy", () => {
 
     it("requires NETLIFY to equal the literal string 'true'", () => {
       process.env.NETLIFY = "1";
+      expect(isA2AProductionRuntime()).toBe(false);
+    });
+
+    it("treats a started production server build as production without NODE_ENV", () => {
+      process.env.AGENT_NATIVE_BUILD_PRODUCTION_SERVER = "true";
+      markServerRuntimeStarted();
+      expect(isA2AProductionRuntime()).toBe(true);
+    });
+
+    it.each([
+      ["NETLIFY_FUNCTION_NAME", "server"],
+      ["LAMBDA_TASK_ROOT", "/var/task"],
+      ["VERCEL_FUNCTION_ID", "fn_1"],
+      ["VERCEL_REGION", "iad1"],
+    ])(
+      "treats a hosted invocation marked only by %s as production",
+      (key, value) => {
+        process.env[key] = value;
+        expect(isA2AProductionRuntime()).toBe(true);
+      },
+    );
+
+    it.each([
+      [
+        "netlify serve of the production build",
+        { NETLIFY_LOCAL: "true", NETLIFY_FUNCTION_NAME: "server" },
+      ],
+      [
+        "vercel dev",
+        { VERCEL: "1", VERCEL_ENV: "development", VERCEL_REGION: "dev1" },
+      ],
+      [
+        "sam local",
+        { AWS_SAM_LOCAL: "true", AWS_LAMBDA_FUNCTION_NAME: "my-func" },
+      ],
+    ])(
+      "does NOT treat %s as production, even with NODE_ENV production",
+      (_case, env: Record<string, string>) => {
+        Object.assign(process.env, env, {
+          NODE_ENV: "production",
+          AGENT_NATIVE_BUILD_PRODUCTION_SERVER: "true",
+        });
+        markServerRuntimeStarted();
+        expect(isA2AProductionRuntime()).toBe(false);
+      },
+    );
+
+    it("does not treat a production build that is not serving as production", () => {
+      process.env.AGENT_NATIVE_BUILD_PRODUCTION_SERVER = "true";
       expect(isA2AProductionRuntime()).toBe(false);
     });
 

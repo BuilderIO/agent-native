@@ -1993,6 +1993,23 @@ if (
   issues.push(`${betaPath} must reject manual source_ref values outside main`);
 }
 
+const netlifyCliSaveIndex = parsedStepIndex("Save the pinned Netlify CLI");
+const netlifyCliSave = reusableSteps[netlifyCliSaveIndex];
+const firstRepoInstallIndex = reusableSteps.findIndex((step) =>
+  String(step?.run ?? "").includes("pnpm install"),
+);
+if (
+  netlifyCliSaveIndex < 0 ||
+  !String(netlifyCliSave?.if ?? "").includes("inputs.target != 'preview'") ||
+  !String(asRecord(netlifyCliSave?.with)?.path ?? "").startsWith("~/") ||
+  firstRepoInstallIndex < 0 ||
+  netlifyCliSaveIndex > firstRepoInstallIndex
+) {
+  issues.push(
+    `${reusablePath} must save the Netlify CLI cache outside the checkout, before any repo install, and never from preview runs`,
+  );
+}
+
 if (issues.length) {
   for (const issue of issues) console.error(`::error::${issue}`);
   process.exit(1);

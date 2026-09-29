@@ -1347,6 +1347,57 @@ Respond to the event.`,
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
+  it("excludes stale mail heads when there is no expiry-query budget", async () => {
+    isProductionServerlessRuntimeMock.mockReturnValue(true);
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const now = Date.now();
+    triggerQueueMocks.rows.push({
+      appId: "mail",
+      id: "stale-head",
+      sequenceId: 1,
+      triggerId: "stale-trigger",
+      triggerOwner: "alice+triggers@agent-native.test",
+      triggerPath: "jobs/stale-trigger.md",
+      eventName: "mail.message.received",
+      eventId: "stale-event",
+      payload: {},
+      eventOwner: "alice+triggers@agent-native.test",
+      emittedAt: new Date(now - 2 * 60 * 60_000).toISOString(),
+      status: "pending",
+      attempts: 0,
+      failureAttempts: 0,
+      availableAt: 0,
+    });
+
+    const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+      ([id]) => id === "automation-trigger-queue",
+    )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      await sweep?.({ deadlineAt: now + 62_000 });
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(triggerQueueMocks.expire).not.toHaveBeenCalled();
+    expect(triggerQueueMocks.ready).toHaveBeenCalledWith(
+      "mail",
+      100,
+      expect.any(Object),
+      expect.objectContaining({
+        excludeStaleEventBefore: expect.objectContaining({
+          eventName: "mail.message.received",
+        }),
+      }),
+    );
+    expect(triggerQueueMocks.claim).not.toHaveBeenCalled();
+  });
+
   it("runs fresh triggers while stale mail remains after bounded expiry", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);
     const eventName = "mail.message.received";

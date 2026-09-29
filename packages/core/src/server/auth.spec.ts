@@ -343,6 +343,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (error: unknown) => String(error),
@@ -841,6 +842,7 @@ describe("server/auth", () => {
       }));
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
+        getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
@@ -3174,6 +3176,7 @@ describe("server/auth", () => {
 
     it("does not render an access-token login page when ACCESS_TOKEN is set", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("APP_BASE_PATH", "/demo");
       vi.doMock("./better-auth-instance.js", () => ({
@@ -3212,6 +3215,7 @@ describe("server/auth", () => {
 
     it("honors the deployment-wide SSR cache override on the login shell", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("APP_BASE_PATH", "/demo");
       vi.stubEnv(SSR_CACHE_ENV_VAR, "off");
       vi.doMock("./better-auth-instance.js", () => ({
@@ -3248,6 +3252,124 @@ describe("server/auth", () => {
       expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
         DISABLED_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
       );
+    });
+
+    describe("while sign-in cannot work", () => {
+      async function mountBetterAuthGuard(options?: { loginHtml?: string }) {
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: vi.fn(async () => new Response("{}")),
+            api: {
+              getSession: vi.fn(async () => null),
+              signInEmail: vi.fn(),
+              signUpEmail: vi.fn(),
+              signOut: vi.fn(),
+            },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app, options);
+        return app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+      }
+
+      it("serves an uncached setup page naming the missing setting instead of sign-in", async () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "");
+        const guard = await mountBetterAuthGuard();
+
+        const response = (await guard(
+          createMockEvent({ path: "/login" }),
+        )) as Response;
+
+        expect(response).toBeInstanceOf(Response);
+        expect(response.status).toBe(503);
+        expect(response.headers.get("Cache-Control")).toBe("no-store");
+        expect(response.headers.get("CDN-Cache-Control")).toBe("no-store");
+        expect(response.headers.get("Netlify-CDN-Cache-Control")).toBe(
+          "no-store",
+        );
+        const html = await response.text();
+        expect(html).toContain("<h1>Finish setting up this deployment</h1>");
+        expect(html).toContain("<code>BETTER_AUTH_SECRET</code>");
+        expect(html).toContain(
+          'href="https://www.agent-native.com/docs/deployment#persistent-database"',
+        );
+        expect(html).not.toContain("agent-native-auth-data");
+        expect(html).not.toContain("<form");
+      });
+
+      it("replaces an app's own login page too", async () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "");
+        const guard = await mountBetterAuthGuard({
+          loginHtml: "<!doctype html><title>Custom login</title>",
+        });
+
+        const response = (await guard(
+          createMockEvent({ path: "/login" }),
+        )) as Response;
+
+        expect(response.status).toBe(503);
+        expect(await response.text()).not.toContain("Custom login");
+      });
+
+      it("replaces the desktop magic-link landing form too", async () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "");
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => ({
+            handler: vi.fn(async () => new Response("{}")),
+            api: {
+              getSession: vi.fn(async () => null),
+              signInEmail: vi.fn(),
+              signUpEmail: vi.fn(),
+              signOut: vi.fn(),
+            },
+          })),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+        const landing = app.use.mock.calls.find(
+          (call: any[]) =>
+            call[0] === "/_agent-native/auth/magic-link/desktop-landing",
+        )?.[1];
+
+        const response = (await landing(
+          createMockEvent({
+            path: "/_agent-native/auth/magic-link/desktop-landing",
+            query: { token: "already-issued-token" },
+          }),
+        )) as Response;
+
+        expect(response.status).toBe(503);
+        const html = await response.text();
+        expect(html).toContain("Finish setting up this deployment");
+        expect(html).not.toContain("Continue signing in");
+      });
+
+      it("leaves a custom getSession's sign-in page alone", async () => {
+        vi.stubEnv("NODE_ENV", "production");
+        vi.stubEnv("BETTER_AUTH_SECRET", "");
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app, { getSession: async () => null });
+        const guard = app.use.mock.calls
+          .map((call: any[]) => call[0])
+          .find((arg: unknown) => typeof arg === "function");
+
+        const response = (await guard(
+          createMockEvent({ path: "/login" }),
+        )) as Response;
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toContain("Sign in is not configured");
+      });
     });
 
     it("custom auth without loginHtml does not render an access-token page", async () => {
@@ -4516,6 +4638,7 @@ describe("server/auth", () => {
 
     it("uses the continuation query when SSR renders the login entry", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("AUTH_MAGIC_LINK", "0");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -4654,6 +4777,7 @@ describe("server/auth", () => {
 
     it("renders the preview SSO flag in the request-scoped root login document", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("APP_NAME", "calendar");
       vi.stubEnv("SITE_NAME", "agent-native-calendar");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
@@ -4765,7 +4889,7 @@ describe("server/auth", () => {
       });
 
       const event = createMockEvent({ path: "/plan/open" });
-      const html = getConfiguredLoginHtml(event);
+      const html = getConfiguredLoginHtml(event)?.html;
 
       expect(html).toContain('"workspaceAppMountPaths":["/plan","/diagrams"]');
       expect(html).toContain("/plan/_agent-native/auth/session");
@@ -4879,6 +5003,7 @@ describe("server/auth", () => {
 
     it("simplifies login HTML when the return path contains an initial prompt", async () => {
       vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "login-page-secret");
       vi.stubEnv("AUTH_MAGIC_LINK", "0");
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
@@ -5096,6 +5221,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
+        getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
@@ -5181,6 +5307,7 @@ describe("server/auth", () => {
       });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
+        getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));
@@ -6080,6 +6207,71 @@ describe("server/auth", () => {
       expect(signUpEmail).toHaveBeenCalledTimes(1);
       expect(getBetterAuth).toHaveBeenCalledTimes(2);
     });
+
+    // On a deploy missing its database or auth secret, Better Auth fails at
+    // startup, so the fallback routes answer every sign-up and sign-in. With
+    // no database, the org auth-policy read is the first database access.
+    // Both must surface the refusal's code, not a generic failure, or the
+    // sign-in page cannot tell the user what to fix.
+    it.each([
+      ["database", "HostedRuntimeLocalDatabaseError", true],
+      ["auth secret", "MissingAuthSecretError", false],
+    ])(
+      "answers fallback sign-up and sign-in with the deploy-settings code when the %s is missing",
+      async (_setting, errorName, databaseRefused) => {
+        vi.stubEnv("NODE_ENV", "production");
+        delete process.env.ACCESS_TOKEN;
+        delete process.env.ACCESS_TOKENS;
+
+        const { DEPLOY_SETTINGS_REQUIRED_CODE } =
+          await import("../shared/runtime-config.js");
+        const refusal = Object.assign(new Error(`${errorName} refusal`), {
+          name: errorName,
+          code: DEPLOY_SETTINGS_REQUIRED_CODE,
+        });
+        vi.doMock("./better-auth-instance.js", () => ({
+          getBetterAuth: vi.fn(async () => {
+            throw refusal;
+          }),
+          getBetterAuthSync: vi.fn(() => undefined),
+        }));
+        vi.doMock("../db/client.js", () => ({
+          getDbExec: () => ({
+            execute: vi.fn(async () => {
+              if (databaseRefused) throw refusal;
+              return { rows: [] };
+            }),
+          }),
+          isLocalDatabase: () => databaseRefused,
+          retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        }));
+
+        const { autoMountAuth } = await import("./auth.js");
+        const app = createMockApp();
+        await autoMountAuth(app);
+
+        for (const route of [
+          "/_agent-native/auth/register",
+          "/_agent-native/auth/login",
+        ]) {
+          const handler = app.use.mock.calls.find(
+            (call: any[]) => call[0] === route,
+          )?.[1];
+          expect(handler).toBeTypeOf("function");
+
+          const event = createJsonPostEvent(route, {
+            email: "new@example.com",
+            password: "secret-password",
+          });
+          await expect(handler(event)).resolves.toEqual({
+            error:
+              "This deployment is missing required settings. Set them in the host's environment, then redeploy.",
+            code: DEPLOY_SETTINGS_REQUIRED_CODE,
+          });
+          expect(event.res.status).toBe(503);
+        }
+      },
+    );
 
     it("accepts HEAD on the auth session endpoint", async () => {
       vi.stubEnv("NODE_ENV", "production");

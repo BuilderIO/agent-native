@@ -3837,6 +3837,8 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
+        liveEditHealthProbeGenerationRef.current += 1;
+        liveEditRestartInFlightRef.current = false;
         if (trustedLateLiveEditReady && lateReadyRecovery) {
           lateLiveEditReadyRecoveryRef.current = null;
           if (lateReadyRecovery.registrationHandoffKey) {

@@ -22,10 +22,11 @@ const publisherSource = readFileSync(
   "scripts/changeset-publish-sequential.ts",
   "utf8",
 );
-const changesetCheckWorkflow = readFileSync(
-  ".github/workflows/changeset-check.yml",
-  "utf8",
-);
+const ciLintJob = (
+  parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
+    jobs: Record<string, { name: string; steps: Workflow[] }>;
+  }
+).jobs.lint;
 const trigger = workflow.on as Workflow;
 const dispatch = trigger.workflow_dispatch as Workflow;
 const inputs = dispatch.inputs as Workflow;
@@ -205,14 +206,29 @@ describe("npm package release workflow", () => {
   });
 
   it("installs the YAML parser before checking changesets in CI", () => {
-    assert.match(changesetCheckWorkflow, /pnpm\/action-setup/);
-    assert.match(
-      changesetCheckWorkflow,
-      /pnpm install --frozen-lockfile --ignore-scripts --filter agentnative/,
+    assert.equal(ciLintJob.name, "Lint & format");
+    const steps = ciLintJob.steps;
+    const install = steps.findIndex(
+      (step) => step.uses === "./.github/actions/setup-pnpm",
     );
-    assert.ok(
-      changesetCheckWorkflow.indexOf("pnpm install") <
-        changesetCheckWorkflow.indexOf("node scripts/check-changeset.mjs"),
+    const check = steps.findIndex(
+      (step) => step.run === "node scripts/check-changeset.mjs",
+    );
+    const bumpPolicy = steps.findIndex(
+      (step) => step.run === "node scripts/guard-no-major-changeset.mjs",
+    );
+    assert.ok(install >= 0 && install < check && check < bumpPolicy);
+    for (const index of [check, bumpPolicy]) {
+      const condition = String(steps[index].if);
+      assert.match(
+        condition,
+        /needs\.change-scope\.outputs\.changeset == 'true'/,
+      );
+      assert.match(condition, /head\.ref != 'changeset-release\/main'/);
+    }
+    assert.equal(
+      (steps[check].env as Workflow).GITHUB_BASE_REF,
+      "${{ github.base_ref }}",
     );
   });
 

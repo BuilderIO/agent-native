@@ -16,6 +16,7 @@ export interface ChatFirstAppItem {
   name: string;
   icon?: string;
   color?: string;
+  source?: "workspace" | "builtin" | "connected";
 }
 
 export type ChatFirstCopy = (
