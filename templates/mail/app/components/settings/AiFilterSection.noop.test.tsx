@@ -269,6 +269,18 @@ describe("AiFilterSection", () => {
     expect(document.getElementById("importance-rules")).not.toBeNull();
   });
 
+  it("uses the shared settings row for triage controls", () => {
+    renderSection();
+
+    const row = screen
+      .getByRole("switch", { name: "mail.aiFilter.toggle" })
+      .closest(".agent-native-settings-row");
+    expect(row?.textContent).toContain("mail.aiFilter.triageTitle");
+    expect(row?.querySelector("a")?.textContent).toBe(
+      "mail.aiFilter.manageAutomationsLink",
+    );
+  });
+
   it("scrolls to a deep-linked rule group after automation rules load", async () => {
     const scrollIntoView = vi.fn();
     let targetAvailable = false;

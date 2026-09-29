@@ -1,4 +1,3 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
   useActionMutation,
   useActionQuery,
@@ -239,12 +238,6 @@ export default function Settings() {
     [t],
   );
 
-  const whatsNew = (
-    <div className="w-full">
-      <ChangelogSettingsCard markdown={changelog} />
-    </div>
-  );
-
   // Language is on Account › Preferences, and replay storage is the
   // workspace's file storage on Organization › Infrastructure.
   return (
@@ -265,7 +258,7 @@ export default function Settings() {
       }
       notificationsSearchEntries={notificationsSearchEntries}
       labs={labs}
-      whatsNew={whatsNew}
+      whatsNewMarkdown={changelog}
     />
   );
 }

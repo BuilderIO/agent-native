@@ -3,7 +3,6 @@ import {
   readChatFirstModeState,
   writeChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgMembersPage, TeamPage } from "@agent-native/core/client/org";
@@ -181,11 +180,7 @@ export function DispatchSettingsPage({ changelog }: DispatchSettingsPageProps) {
           {connectAppsRow}
         </SettingsGroup>
       }
-      whatsNew={
-        <div className="mx-auto w-full max-w-2xl">
-          <ChangelogSettingsCard markdown={changelog} />
-        </div>
-      }
+      whatsNewMarkdown={changelog}
     />
   );
 }
