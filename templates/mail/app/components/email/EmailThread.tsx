@@ -3638,7 +3638,7 @@ export function HtmlEmailBody({
       >
         {!iframeReady && (
           <div
-            className="pointer-events-none absolute inset-0 z-10 space-y-2 px-1 pt-1"
+            className="pointer-events-none absolute inset-0 z-10 space-y-2 bg-background px-1 pt-1"
             aria-hidden="true"
           >
             <Skeleton className="h-3 w-full" />
@@ -3650,7 +3650,9 @@ export function HtmlEmailBody({
           </div>
         )}
         {/* A new document gets a new frame: Safari can leave a srcdoc frame
-            blank after navigating it in place. */}
+            blank after navigating it in place. The frame stays opaque and the
+            placeholder covers it, because Safari can skip painting a frame
+            that fades in from opacity 0 until the window resizes. */}
         <iframe
           key={iframeDocument}
           ref={iframeRef}
@@ -3658,10 +3660,6 @@ export function HtmlEmailBody({
           srcDoc={iframeDocument}
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           scrolling="no"
-          className={cn(
-            "transition-opacity duration-150 motion-reduce:transition-none",
-            iframeReady ? "opacity-100" : "opacity-0",
-          )}
           style={{
             width: "100%",
             height: `${height}px`,

@@ -54,7 +54,7 @@ describe("HtmlEmailBody frame", () => {
     );
 
     await waitFor(() => expect(isShowing(container)).toBe(true));
-    expect(bodyFrame(container).className).toContain("opacity-100");
+    expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
     expect(bodyFrame(container).contentDocument?.body.textContent).toContain(
       "Statement ready",
     );
