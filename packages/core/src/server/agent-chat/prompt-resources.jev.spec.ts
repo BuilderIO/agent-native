@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   rankJevCandidates: vi.fn(),
   track: vi.fn(),
   loadAgentsBundle: vi.fn(),
+  generateSkillsPromptBlock: vi.fn(() => ""),
   getRuntimeSkills: vi.fn(),
   getRuntimeSkillsForUser: vi.fn(),
   requestOrgId: vi.fn(() => null),
@@ -28,6 +29,8 @@ vi.mock("../../agent/jev-tool-prefetch.js", () => ({
 }));
 vi.mock("../agents-bundle.js", () => ({
   loadAgentsBundle: (...args: unknown[]) => mocks.loadAgentsBundle(...args),
+  generateSkillsPromptBlock: (...args: unknown[]) =>
+    mocks.generateSkillsPromptBlock(...args),
   getRuntimeSkills: (...args: unknown[]) => mocks.getRuntimeSkills(...args),
   getRuntimeSkillsForUser: (...args: unknown[]) =>
     mocks.getRuntimeSkillsForUser(...args),
@@ -70,7 +73,12 @@ import {
 describe("preloadJevContextForPrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadAgentsBundle.mockResolvedValue({ skills: {} });
+    mocks.loadAgentsBundle.mockResolvedValue({
+      skills: {},
+      agentsMd: "",
+      runtimeAgentsMd: "",
+      workspaceAgentsMd: "",
+    });
     mocks.getRuntimeSkills.mockReturnValue([
       {
         meta: {
