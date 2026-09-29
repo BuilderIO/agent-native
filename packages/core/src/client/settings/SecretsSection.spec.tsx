@@ -670,4 +670,37 @@ describe("SecretsSection", () => {
       "/_agent-native/secrets/adhoc/GEMINI_API_KEY?scope=workspace",
     ]);
   });
+
+  it("retains solid primary styling and excludes hover:text-inherit on solid actions", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "personal",
+        managedHere: true,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    await openRow("OpenAI API key");
+
+    const rotateBtn = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((btn) => btn.textContent?.includes("Rotate"));
+
+    expect(rotateBtn).toBeDefined();
+
+    const classes = rotateBtn!.className.split(/\s+/);
+    expect(classes).not.toContain("hover:text-inherit");
+    expect(classes).not.toContain("hover:bg-transparent");
+  });
 });

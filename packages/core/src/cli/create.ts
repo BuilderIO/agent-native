@@ -1000,8 +1000,8 @@ async function scaffoldOneAppIntoWorkspace(
   clack: typeof import("@clack/prompts"),
   showOutro = true,
   appPicker?: (apps: CommunityWorkspaceAppOption[]) => Promise<string>,
+  scaffoldTemplate: typeof scaffoldAppTemplate = scaffoldAppTemplate,
 ): Promise<boolean> {
-  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
   validateWorkspaceAppName(appName, clack, {
     allowDispatch: appName === "dispatch" && templateName === "dispatch",
   });
@@ -1021,7 +1021,7 @@ async function scaffoldOneAppIntoWorkspace(
   );
 
   try {
-    const resolution = await scaffoldAppTemplate(
+    const resolution = await scaffoldTemplate(
       appDir,
       templateName,
       communityScaffoldOptions(
@@ -1075,6 +1075,7 @@ async function scaffoldOneAppIntoWorkspace(
     renameGitignore(appDir);
     setupAgentSymlinks(appDir);
     await scaffoldRequiredPackages([templateName], workspace.workspaceRoot);
+    applyLocalWorkspaceOverrides(workspace.workspaceRoot);
     s.stop(`Scaffolded apps/${appName}.`);
   } catch (err: any) {
     if (err instanceof CreateWizardCancelledError) {
@@ -2181,51 +2182,52 @@ function postProcessStandalone(
   }
 
   const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
-  try {
-    const existing = fs.existsSync(wsPath)
-      ? fs.readFileSync(wsPath, "utf-8")
-      : "";
-    const sections: Record<string, Record<string, string>> = {
-      allowBuilds: {
-        esbuild: "true",
-        "node-pty": "true",
-        "tesseract.js": "true",
-      },
+  const existing = fs.existsSync(wsPath)
+    ? fs.readFileSync(wsPath, "utf-8")
+    : "";
+  const sections: Record<string, Record<string, string>> = {
+    allowBuilds: {
+      esbuild: "true",
+      // Its postinstall downloads the binary. Without this it installs empty
+      // and the deploy silently bundles no ffmpeg.
+      "ffmpeg-static": "true",
+      "node-pty": "true",
+      "tesseract.js": "true",
+    },
+  };
+  if (templateName !== "headless") {
+    sections.overrides = {
+      '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+      '"@assistant-ui/tap"': '"^0.5.14"',
+      nf3: '"0.3.17"',
     };
-    if (templateName !== "headless") {
-      sections.overrides = {
-        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
-        '"@assistant-ui/tap"': '"^0.5.14"',
-        nf3: '"0.3.17"',
-      };
-    }
-    if (templateName && getTemplate(templateName)) {
-      sections.overrides = {
-        ...sections.overrides,
-        ...TIPTAP_WORKSPACE_OVERRIDES,
-      };
-    }
-    const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
-    if (Object.keys(localFrameworkOverrides).length > 0) {
-      sections.overrides ??= {};
-      Object.assign(sections.overrides, localFrameworkOverrides);
-    }
-    const localRecapCli = localRecapCliOverride();
-    if (localRecapCli) {
-      sections.overrides ??= {};
-      sections.overrides['"@agent-native/recap-cli"'] =
-        JSON.stringify(localRecapCli);
-    }
-    let updated = mergeWorkspaceYamlSections(existing, sections);
-    updated = mergeWorkspaceYamlListItems(
-      updated,
-      "minimumReleaseAgeExclude",
-      MINIMUM_RELEASE_AGE_EXCLUDES,
-    );
-    if (updated !== existing) {
-      fs.writeFileSync(wsPath, updated);
-    }
-  } catch {}
+  }
+  if (templateName && getTemplate(templateName)) {
+    sections.overrides = {
+      ...sections.overrides,
+      ...TIPTAP_WORKSPACE_OVERRIDES,
+    };
+  }
+  const localFrameworkOverrides = getLocalFrameworkPackageOverrides();
+  if (Object.keys(localFrameworkOverrides).length > 0) {
+    sections.overrides ??= {};
+    Object.assign(sections.overrides, localFrameworkOverrides);
+  }
+  const localRecapCli = localRecapCliOverride();
+  if (localRecapCli) {
+    sections.overrides ??= {};
+    sections.overrides['"@agent-native/recap-cli"'] =
+      JSON.stringify(localRecapCli);
+  }
+  let updated = mergeWorkspaceYamlSections(existing, sections);
+  updated = mergeWorkspaceYamlListItems(
+    updated,
+    "minimumReleaseAgeExclude",
+    MINIMUM_RELEASE_AGE_EXCLUDES,
+  );
+  if (updated !== existing) {
+    fs.writeFileSync(wsPath, updated);
+  }
   if (hasNodePty) ensureNodePtyBuildDependency(targetDir);
 
   fixStandaloneTsconfig(targetDir, templateName);
@@ -2420,9 +2422,11 @@ export { parseWorkspaceScope };
 
 /** @internal — exported for E2E tests */
 export {
-  scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
   mergeWorkspaceYamlSections as _mergeWorkspaceYamlSections,
+  scaffoldWorkspaceRoot as _scaffoldWorkspaceRoot,
   mergeWorkspaceYamlListItems as _mergeWorkspaceYamlListItems,
+  scaffoldOneAppIntoWorkspace as _scaffoldOneAppIntoWorkspace,
+  CreateWizardCancelledError as _CreateWizardCancelledError,
   ensureGuardedScaffold as _ensureGuardedScaffold,
   scaffoldAppTemplate as _scaffoldAppTemplate,
   scaffoldRequiredPackages as _scaffoldRequiredPackages,
@@ -3291,6 +3295,40 @@ function githubTarballUrl(
   kind: "branch" | "tag",
 ): string {
   return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Text / filesystem helpers
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Merge key-value entries into named sections of a pnpm-workspace.yaml string
+ * without creating duplicate section headers. For each section:
+ *   - If the section already exists, new entries are injected after its header.
+ *   - If the section is absent, a new block is appended at the end.
+ * Entries already present (by key) are skipped.
+ */
+/**
+ * Whether `section` already has `key`. Scoped to the section body: a key
+ * mentioned in another section (`"node-pty@*"` under packageExtensions) must
+ * not stop it being written here. Quotes are ignored on both sides.
+ */
+function workspaceYamlSectionHasKey(
+  yaml: string,
+  section: string,
+  key: string,
+): boolean {
+  const header = new RegExp(`^${escapeRegExp(section)}:\\s*$`, "m").exec(yaml);
+  if (!header) return false;
+  const rest = yaml.slice(header.index + header[0].length);
+  // A column-zero comment is still inside the section; only a key ends it.
+  const end = rest.search(/\n(?=[^\s#])/);
+  const body = end === -1 ? rest : rest.slice(0, end);
+  const bare = key.replace(/^["']|["']$/g, "");
+  return body.split("\n").some((line) => {
+    const match = /^\s+(["']?)(.+?)\1\s*:/.exec(line);
+    return match !== null && match[2] === bare;
+  });
 }
 
 function mergeWorkspaceYamlSections(

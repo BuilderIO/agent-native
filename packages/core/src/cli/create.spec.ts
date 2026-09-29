@@ -21,6 +21,9 @@ import {
   _extractTarball,
   _mergeWorkspaceYamlListItems,
   _mergeWorkspaceYamlSections,
+  _postProcessStandalone,
+  _scaffoldOneAppIntoWorkspace,
+  _CreateWizardCancelledError,
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
@@ -151,6 +154,83 @@ describe("createApp", { timeout: 30000 }, () => {
         { overrides: { "new-lib": '"1.0.0"' } },
       ),
     ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("surfaces unsupported workspace YAML while post-processing", () => {
+    const targetDir = path.join(tmpDir, "unsupported-yaml");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetDir, "package.json"),
+      JSON.stringify({ name: "unsupported-yaml" }),
+    );
+    fs.writeFileSync(
+      path.join(targetDir, "pnpm-workspace.yaml"),
+      'overrides: { nf3: "0.3.17", # keep this pin documented\n  }\n',
+    );
+
+    expect(() =>
+      _postProcessStandalone("unsupported-yaml", targetDir, "chat"),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not persist local package overrides when a community picker cancels", async () => {
+    const previousLocalCore = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    const workspaceRoot = path.join(tmpDir, "workspace");
+    const workspaceYaml = 'packages:\n  - "apps/*"\n';
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    const clack = {
+      cancel: () => {},
+      note: () => {},
+      outro: () => {},
+      spinner: () => ({ start: () => {}, stop: () => {} }),
+    } as unknown as typeof import("@clack/prompts");
+    const appPicker = async () => {
+      throw new _CreateWizardCancelledError();
+    };
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (
+      _targetDir,
+      _template,
+      options,
+    ) => {
+      await options?.selectCommunityWorkspaceApp?.([
+        { name: "dashboard", label: "Dashboard" },
+      ]);
+      throw new Error("Expected the picker to cancel before scaffolding.");
+    };
+
+    try {
+      await expect(
+        _scaffoldOneAppIntoWorkspace(
+          { workspaceRoot, workspaceCoreName: "@test/shared" },
+          "dashboard",
+          "community:acme/apps",
+          clack,
+          false,
+          appPicker,
+          scaffoldTemplate,
+        ),
+      ).resolves.toBe(false);
+      expect(
+        fs.readFileSync(
+          path.join(workspaceRoot, "pnpm-workspace.yaml"),
+          "utf-8",
+        ),
+      ).toBe(workspaceYaml);
+      expect(fs.existsSync(path.join(workspaceRoot, "apps/dashboard"))).toBe(
+        false,
+      );
+    } finally {
+      if (previousLocalCore === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previousLocalCore;
+      }
+    }
   });
 
   it("does not treat commented release-age items as configured exceptions", () => {
@@ -1495,5 +1575,93 @@ describe("findEnclosingRepo", () => {
     } finally {
       delete process.env.GIT_CEILING_DIRECTORIES;
     }
+  });
+});
+
+describe("mergeWorkspaceYamlSections", () => {
+  it("writes an allowBuilds entry even when the name appears elsewhere", () => {
+    const yaml = [
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+      "allowBuilds:",
+      "  esbuild: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(out.indexOf("allowBuilds:"));
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  // The generator extends node-pty as "node-pty@*" under packageExtensions.
+  it("is not fooled by a key that only appears as part of another", () => {
+    const yaml = [
+      "packageExtensions:",
+      '  "node-pty@*":',
+      "    dependencies:",
+      '      node-gyp: "^12.4.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "node-pty": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  node-pty: true");
+  });
+
+  it("does not add a key the section already has", () => {
+    const yaml = "allowBuilds:\n  ffmpeg-static: true\n";
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("treats a quoted and an unquoted key as the same entry", () => {
+    const yaml = 'overrides:\n  "@assistant-ui/store": ">=0.2.9 <0.2.14"\n';
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      overrides: { '"@assistant-ui/store"': '">=0.2.9 <0.2.14"' },
+    });
+    expect(out.match(/@assistant-ui\/store/g)).toHaveLength(1);
+  });
+
+  it("stops at the section's end rather than reading the next one", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "overrides:",
+      '  "ffmpeg-static": "5.3.0"',
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    const allowBuilds = out.slice(
+      out.indexOf("allowBuilds:"),
+      out.indexOf("overrides:"),
+    );
+    expect(allowBuilds).toContain("ffmpeg-static: true");
+  });
+
+  it("reads past a column-zero comment inside the section", () => {
+    const yaml = [
+      "allowBuilds:",
+      "  esbuild: true",
+      "# lifecycle scripts",
+      "  ffmpeg-static: true",
+      "",
+    ].join("\n");
+    const out = _mergeWorkspaceYamlSections(yaml, {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out.match(/ffmpeg-static/g)).toHaveLength(1);
+  });
+
+  it("creates the section when the document has none", () => {
+    const out = _mergeWorkspaceYamlSections("", {
+      allowBuilds: { "ffmpeg-static": "true" },
+    });
+    expect(out).toContain("allowBuilds:\n  ffmpeg-static: true");
   });
 });
