@@ -89,8 +89,19 @@ function rewriteCssImports(
 ): MigrationCodemodFileChange | null {
   const before = fs.readFileSync(file, "utf-8");
   const after = before.replace(
-    /(@import\s+)(["'])([^"']+)\2/g,
-    (whole, prefix: string, quote: string, specifier: string) => {
+    /(@import\s+)(?:(["'])([^"']+)\2|url\((\s*)(["'])([^"']+)\5(\s*)\))/g,
+    (
+      whole,
+      prefix: string,
+      quote: string | undefined,
+      quotedSpecifier: string | undefined,
+      urlLeadingWhitespace: string | undefined,
+      urlQuote: string | undefined,
+      urlSpecifier: string | undefined,
+      urlTrailingWhitespace: string | undefined,
+    ) => {
+      const specifier = quotedSpecifier ?? urlSpecifier;
+      if (!specifier) return whole;
       const move = moves[specifier];
       if (!move) return whole;
       if (move.symbols) {
@@ -112,7 +123,9 @@ function rewriteCssImports(
         specifier,
         move.to,
       );
-      return `${prefix}${quote}${move.to}${quote}`;
+      return quote
+        ? `${prefix}${quote}${move.to}${quote}`
+        : `${prefix}url(${urlLeadingWhitespace}${urlQuote}${move.to}${urlQuote}${urlTrailingWhitespace})`;
     },
   );
   if (before === after) return null;

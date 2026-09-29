@@ -18,6 +18,7 @@ const SOURCE_EXTENSIONS = new Set([
   ".mts",
   ".cjs",
   ".cts",
+  ".css",
   ".ts",
   ".tsx",
 ]);
@@ -933,12 +934,31 @@ export function scanDeprecatedImports(
     /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
   const importTypeMember =
     /(?<![\w$.])\bimport\(\s*["']([^"']+)["']\s*\)\s*\.\s*([\w$]+)/g;
+  const cssImport =
+    /@import\s+(?:["']([^"']+)["']|url\(\s*(["'])([^"']+)\2\s*\))\s*;?/g;
 
   for (const file of files) {
     const sourceText = fs.readFileSync(file, "utf-8");
     const commentMask = new Uint8Array(sourceText.length);
     const codeMask = codePositionMask(sourceText, commentMask);
     const text = replaceCommentsWithWhitespace(sourceText, commentMask);
+    if (path.extname(file) === ".css") {
+      for (const match of text.matchAll(cssImport)) {
+        if (!codeMask[match.index ?? 0]) continue;
+        const from = match[1] ?? match[3];
+        const move = moves[from];
+        if (!move) continue;
+        findings.push({
+          file,
+          line: lineAt(text, match.index ?? 0),
+          from,
+          to: [move.to],
+          symbols: [],
+          status: migrationMoveStatus(move),
+        });
+      }
+      continue;
+    }
     for (const match of text.matchAll(fromDeclaration)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[3];

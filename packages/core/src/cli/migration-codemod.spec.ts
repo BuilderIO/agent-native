@@ -79,13 +79,29 @@ describe("runMigrationCodemods", () => {
     fs.mkdirSync(path.dirname(stylesheet), { recursive: true });
     fs.writeFileSync(
       stylesheet,
-      '@import "@agent-native/core/styles/agent-native.css";\n',
+      [
+        "@import '@agent-native/core/styles/agent-native.css';",
+        '@import "@agent-native/core/styles/agent-conversation.css";',
+        "@import url('@agent-native/core/styles/chat-history-list.css');",
+        '@import url("@agent-native/agentkit/react/styles.css");',
+        "@import url('@agent-native/agentkit/react/styles.css');",
+        "",
+      ].join("\n"),
     );
     const cssManifest: MigrationManifest = {
       sinceVersion: "0.110.0",
       moves: {
         "@agent-native/core/styles/agent-native.css": {
           to: "@agent-native/toolkit/styles.css",
+        },
+        "@agent-native/core/styles/agent-conversation.css": {
+          to: "@agent-native/toolkit/app/styles/agent-conversation.css",
+        },
+        "@agent-native/core/styles/chat-history-list.css": {
+          to: "@agent-native/toolkit/app/styles/chat-history-list.css",
+        },
+        "@agent-native/agentkit/react/styles.css": {
+          to: "@agent-native/toolkit/app/agentkit/react/styles.css",
         },
       },
     };
@@ -98,7 +114,14 @@ describe("runMigrationCodemods", () => {
     });
 
     expect(fs.readFileSync(stylesheet, "utf-8")).toBe(
-      '@import "@agent-native/toolkit/styles.css";\n',
+      [
+        "@import '@agent-native/toolkit/styles.css';",
+        '@import "@agent-native/toolkit/app/styles/agent-conversation.css";',
+        "@import url('@agent-native/toolkit/app/styles/chat-history-list.css');",
+        '@import url("@agent-native/toolkit/app/agentkit/react/styles.css");',
+        "@import url('@agent-native/toolkit/app/agentkit/react/styles.css');",
+        "",
+      ].join("\n"),
     );
     expect(
       JSON.parse(fs.readFileSync(packageFile, "utf-8")).dependencies,

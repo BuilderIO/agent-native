@@ -3380,6 +3380,15 @@
     "@agent-native/core/styles/agent-native.css": {
       "to": "@agent-native/toolkit/styles.css"
     },
+    "@agent-native/core/styles/agent-conversation.css": {
+      "to": "@agent-native/toolkit/app/styles/agent-conversation.css"
+    },
+    "@agent-native/core/styles/chat-history-list.css": {
+      "to": "@agent-native/toolkit/app/styles/chat-history-list.css"
+    },
+    "@agent-native/agentkit/react/styles.css": {
+      "to": "@agent-native/toolkit/app/agentkit/react/styles.css"
+    },
     "@agent-native/core/client/i18n": {
       "to": "@agent-native/core/client/i18n",
       "symbols": {
