@@ -91,6 +91,11 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "无法发送请求，请重试。",
   "observability.summaryExpired":
     "尚未显示摘要。你可以重试，但智能体可能仍在处理中。",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteMustContainLabel": "添加到评估的回复必须包含的文本",
+  "observability.promoteNeedsContains":
+    "此运行没有成功的工具调用。请在将其添加到评估前，输入回复必须包含的文本。",
   "onboarding.back": "返回",
   "onboarding.chooseRole": "选择你的角色",
   "onboarding.customizeRole": "让我们为你定制体验。",

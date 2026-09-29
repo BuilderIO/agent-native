@@ -94,6 +94,12 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "अनुरोध नहीं भेजा जा सका। फिर से कोशिश करें।",
   "observability.summaryExpired":
     "अभी तक कोई सारांश दिखाई नहीं दिया है। आप फिर से कोशिश कर सकते हैं, लेकिन एजेंट अभी भी काम कर रहा हो सकता है।",
+  "observability.promoteMustContain": "जवाब में यह होना चाहिए…",
+  "observability.promoteMustContainOptional": "जवाब में यह होना चाहिए (वैकल्पिक)",
+  "observability.promoteMustContainLabel":
+    "मूल्यांकन में जोड़े गए जवाब में शामिल होने वाला पाठ",
+  "observability.promoteNeedsContains":
+    "इस रन में कोई सफल टूल कॉल नहीं है। मूल्यांकन में जोड़ने से पहले वह पाठ दर्ज करें जो जवाब में होना चाहिए।",
   "onboarding.back": "वापस",
   "onboarding.chooseRole": "अपनी भूमिका चुनें",
   "onboarding.customizeRole": "आइए इसे आपके लिए अनुकूलित करें।",

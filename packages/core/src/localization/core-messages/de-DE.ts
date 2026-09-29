@@ -98,6 +98,13 @@ const messages: AgentChatTranslation = {
     "Anfrage konnte nicht gesendet werden. Bitte erneut versuchen.",
   "observability.summaryExpired":
     "Noch keine Zusammenfassung angezeigt. Du kannst es erneut versuchen, aber der Agent arbeitet möglicherweise noch.",
+  "observability.promoteMustContain": "Antwort muss enthalten …",
+  "observability.promoteMustContainOptional":
+    "Antwort muss enthalten (optional)",
+  "observability.promoteMustContainLabel":
+    "Text, den die Antwort des übernommenen Evaluierungslaufs enthalten muss",
+  "observability.promoteNeedsContains":
+    "Dieser Lauf enthält keinen erfolgreichen Toolaufruf. Gib den Text ein, den die Antwort enthalten muss, bevor du ihn in die Evaluation übernimmst.",
   "onboarding.back": "Zurück",
   "onboarding.chooseRole": "Wähle deine Rolle",
   "onboarding.customizeRole": "Wir passen das für dich an.",

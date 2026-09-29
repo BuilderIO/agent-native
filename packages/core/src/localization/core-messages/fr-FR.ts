@@ -98,6 +98,13 @@ const messages: AgentChatTranslation = {
   "observability.summaryFailed": "Impossible d’envoyer la demande. Réessayez.",
   "observability.summaryExpired":
     "Aucun résumé n’est encore apparu. Vous pouvez réessayer, mais l’agent est peut-être toujours en train de travailler.",
+  "observability.promoteMustContain": "La réponse doit contenir…",
+  "observability.promoteMustContainOptional":
+    "La réponse doit contenir (facultatif)",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation ajoutée doit contenir",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne comporte aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de l’ajouter à l’évaluation.",
   "onboarding.back": "Retour",
   "onboarding.chooseRole": "Choisissez votre rôle",
   "onboarding.customizeRole": "Personnalisons cette expérience pour vous.",
