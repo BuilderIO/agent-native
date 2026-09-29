@@ -90,6 +90,7 @@ async function getPublicDocumentForEvent(event: H3Event) {
   const { documents } = await import("../db/schema.js");
   const { and, eq, isNull } = await import("drizzle-orm");
 
+  // guard:allow-unscoped — this anonymous endpoint selects only an explicitly public, non-trashed document by its public URL id.
   const [doc] = await getDb()
     .select({
       id: documents.id,

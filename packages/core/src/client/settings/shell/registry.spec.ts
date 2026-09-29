@@ -80,6 +80,7 @@ describe("settings page registry", () => {
       "api-keys",
       "model",
       "instructions",
+      "personalization",
       "memory",
       "skills",
       "files",

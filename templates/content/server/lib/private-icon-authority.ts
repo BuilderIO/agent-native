@@ -25,7 +25,7 @@ async function authority(
   | { kind: "dispatch"; url: string; orgDomain?: string; identityId?: string }
 > {
   const dispatchUrl = resolveOrgDirectoryOrigin();
-  if (!dispatchUrl) return { kind: "local" };
+  if (!dispatchUrl || orgId === null) return { kind: "local" };
   if (!orgId)
     throw new Error("A workspace is required for federated private icons.");
   const orgDomain = (await getOrgDomain(orgId))?.trim() || undefined;

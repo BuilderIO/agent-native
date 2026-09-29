@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -17,6 +18,7 @@ const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const resolveOwnerEngineApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
+const filterInitialEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
@@ -133,10 +135,11 @@ vi.mock("../agent/production-agent.js", () => ({
   resolveOwnerEngineApiKey: resolveOwnerEngineApiKeyMock,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
-  filterInitialEngineTools: fakeFilterInitialEngineTools,
+  filterInitialEngineTools: filterInitialEngineToolsMock,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  registerBuiltinEngines: vi.fn(),
   getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
@@ -183,7 +186,10 @@ vi.mock("../usage/store.js", () => ({
   recordUsage: vi.fn(),
 }));
 
-vi.mock("../agent/run-manager.js", () => ({
+vi.mock("../agent/run-manager.js", async () => ({
+  ...(await vi.importActual<typeof import("../agent/run-manager.js")>(
+    "../agent/run-manager.js",
+  )),
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
@@ -347,6 +353,9 @@ describe("integration webhook handler engine resolution", () => {
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
+    filterInitialEngineToolsMock.mockImplementation(
+      fakeFilterInitialEngineTools,
+    );
     listIntegrationUsageBudgetsMock.mockResolvedValue([]);
     reserveIntegrationUsageBudgetMock.mockResolvedValue({
       allowed: true,
@@ -3352,6 +3361,99 @@ describe("integration webhook handler engine resolution", () => {
       }),
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
+
+  it("discovers and invokes a deferred app action during a messaging turn", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const actual = await vi.importActual<
+      typeof import("../agent/production-agent.js")
+    >("../agent/production-agent.js");
+    actionsToEngineToolsMock.mockImplementation(actual.actionsToEngineTools);
+    filterInitialEngineToolsMock.mockImplementation(
+      actual.filterInitialEngineTools,
+    );
+    runAgentLoopMock.mockImplementationOnce(actual.runAgentLoop);
+    const deferredRun = vi.fn(async () => "deferred result");
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        if (seenTools.length <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${seenTools.length}`,
+                name:
+                  seenTools.length === 1 ? "tool-search" : "deferred-action",
+                input: seenTools.length === 1 ? { query: "deferred" } : {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The deferred action completed." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    resolveEngineMock.mockResolvedValueOnce(engine);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const action = {
+      tool: {
+        description: "App action",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    };
+    await processIntegrationTask(pendingTask({ id: "task-deferred-action" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      engine,
+      actions: {
+        starter: action,
+        "deferred-action": {
+          ...action,
+          tool: { ...action.tool, description: "Deferred app action" },
+          run: deferredRun,
+        },
+        "call-agent": action,
+      },
+      initialToolNames: ["starter"],
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    await runAgentLoopMock.mock.results[0].value;
+    expect(seenTools).toHaveLength(3);
+    expect(seenTools[0]).toEqual(
+      expect.arrayContaining(["starter", "tool-search", "call-agent"]),
+    );
+    expect(seenTools[0]).not.toContain("deferred-action");
+    expect(seenTools[1]).toContain("deferred-action");
+    expect(deferredRun).toHaveBeenCalledOnce();
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "The deferred action completed." }),
+      expect.any(Object),
+      expect.any(Object),
     );
   });
 

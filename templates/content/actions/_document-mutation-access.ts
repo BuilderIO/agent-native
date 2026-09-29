@@ -34,6 +34,7 @@ export async function resolveDocumentAccessForMutation(
 ): Promise<ResolvedAccess> {
   const resolved = await resolveContentDocumentAccess(documentId);
   if (resolved) return resolved;
+  // guard:allow-unscoped — read only the id after all user/org access checks fail so Content can preserve its forbidden-versus-not-found diagnostic.
   const [existing] = await getDb()
     .select({ id: schema.documents.id })
     .from(schema.documents)

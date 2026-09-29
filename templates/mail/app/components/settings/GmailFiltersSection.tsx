@@ -542,11 +542,7 @@ function FilterRow({
   );
 }
 
-export function GmailFiltersSection({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+export function GmailFiltersSection() {
   const t = useT();
   const { data, isLoading, error } = useGmailFilters();
   const createFilter = useCreateGmailFilter();
@@ -578,23 +574,9 @@ export function GmailFiltersSection({
 
   return (
     <div>
-      {embedded ? (
-        <div className="mb-4 flex justify-end">{newFilterButton}</div>
-      ) : (
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-[16px] font-semibold text-foreground">
-              {t("mail.gmailFilters.title")}
-            </h2>
-            <p className="mt-0.5 text-[13px] text-muted-foreground">
-              {t("mail.gmailFilters.description")}
-            </p>
-          </div>
-          {newFilterButton}
-        </div>
-      )}
+      <div className="mb-4 flex justify-end">{newFilterButton}</div>
 
-      <div className={embedded ? "space-y-2" : "max-w-2xl space-y-2"}>
+      <div className="space-y-2">
         {showNewForm && (
           <FilterEditRow
             accounts={accounts}

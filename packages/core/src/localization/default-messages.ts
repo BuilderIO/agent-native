@@ -241,6 +241,13 @@ const messages = {
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
+    exportPack: "Export pack",
+    importPack: "Import pack",
+    exportPackSuccess: "Downloaded resource pack",
+    exportPackFailed: "Could not export pack",
+    importPackSuccess: "Imported {{imported}} files, skipped {{skipped}}",
+    importPackFailed: "Could not import pack",
+    importPackInvalid: "That file is not a valid resource pack",
     createFile: {
       nameLabel: "File name",
       namePlaceholder: "notes/ideas",
@@ -890,6 +897,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
@@ -1789,8 +1797,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
     promoteMustContain: "Reply must contain…",
-    promoteMustContainOptional: "Reply must contain (optional)",
-    promoteMustContainLabel: "Text the promoted eval reply must contain",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",

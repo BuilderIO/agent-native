@@ -74,6 +74,7 @@ import {
   favoritesSystemIds,
   setFavoriteMembership,
 } from "./_content-favorites.js";
+import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { provisionContentSpaces } from "./_content-spaces.js";
 import {
   documentContentHash,
@@ -854,6 +855,12 @@ export default defineAction({
 
     const titleChanged =
       args.title !== undefined && args.title !== existing.title;
+    const titleOrganizationIds =
+      titleChanged && requestUserEmail
+        ? (await listContentOrganizationMemberships(requestUserEmail)).map(
+            (membership) => membership.orgId,
+          )
+        : [];
     const contentChanged =
       content !== undefined && content !== existing.content;
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
@@ -1146,7 +1153,7 @@ export default defineAction({
           content = resolved.content;
         }
         const lockedTitleChanged =
-          args.title !== undefined && args.title !== historyBefore.title;
+          titleChanged && args.title !== historyBefore.title;
         const lockedContentChanged =
           content !== undefined && content !== historyBefore.content;
         const lockedDescriptionChanged =
@@ -1308,6 +1315,7 @@ export default defineAction({
             documentId: id,
             title: args.title,
             updatedAt,
+            organizationIds: titleOrganizationIds,
           });
         }
         if (lockedTitleChanged || lockedContentChanged) {

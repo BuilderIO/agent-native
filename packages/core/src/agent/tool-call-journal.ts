@@ -162,6 +162,7 @@ function takeMatchingOpenEntry(
 function isNonCompletedToolDone(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): boolean {
+  if (event.replayed === true) return true;
   if (event.completedSideEffect === false) return true;
   if (event.isError === true) return true;
 

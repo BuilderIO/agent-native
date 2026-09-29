@@ -3,7 +3,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import {
   createApp,
@@ -18,13 +19,18 @@ import {
   _discoverEnclosingRepo,
   _getCoreDependencyVersion,
   _extractTarball,
+  _mergeWorkspaceYamlListItems,
+  _mergeWorkspaceYamlSections,
+  _postProcessStandalone,
+  _prepareLocalWorkspaceOverrides,
+  _scaffoldOneAppIntoWorkspace,
+  _CreateWizardCancelledError,
   _parseCommunityTemplateSelection,
   _resolveCommunityTemplateSource,
   _discoverCommunityWorkspaceApps,
   _ensureGuardedScaffold,
   _normalizeCommunityWorkspaceAppDependencies,
   _materializeArchiveSymlinks,
-  _mergeWorkspaceYamlSections,
   _standaloneTemplatePromptOptions,
   _startShapePromptOptions,
   _tarExtractArgs,
@@ -49,9 +55,298 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("keeps commented workspace override sections intact when merging", () => {
+    const workspaceYaml = [
+      "overrides: # Application-specific pins",
+      '  nf3: "0.3.17"',
+      "# Keep the local package override below with this section.",
+      '  local-lib: "file:./local-lib"',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        nf3: '"0.3.17"',
+        "new-lib": '"1.0.0"',
+      },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(merged.match(/^  nf3:/gm)).toHaveLength(1);
+    expect(merged).toContain(
+      "# Keep the local package override below with this section.",
+    );
+    expect(merged).toContain('  new-lib: "1.0.0"');
+  });
+
+  it("recognizes quoted override keys at the workspace's existing indentation", () => {
+    const workspaceYaml = [
+      "overrides:",
+      "    '@agent-native/core': '1.2.3'",
+      "    other: 4.5.6",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: {
+        "@agent-native/core": "'1.2.3'",
+        "@agent-native/agentkit": "'2.3.4'",
+      },
+    });
+
+    expect(merged.match(/^    '@agent-native\/core':/gm)).toHaveLength(1);
+    expect(merged).toContain("    @agent-native/agentkit: '2.3.4'");
+  });
+
+  it("merges missing entries into flow-style workspace mappings", () => {
+    const workspaceYaml = [
+      'overrides: { nf3: "0.3.17" }',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlSections(workspaceYaml, {
+      overrides: { "new-lib": '"1.0.0"' },
+    });
+
+    expect(merged.match(/^overrides:/gm)).toHaveLength(1);
+    expect(parseYaml(merged)).toMatchObject({
+      overrides: { nf3: "0.3.17", "new-lib": "1.0.0" },
+    });
+  });
+
+  it("merges and deduplicates quoted entries in flow-style lists", () => {
+    const workspaceYaml = [
+      'minimumReleaseAgeExclude: ["@agent-native/toolkit"]',
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/toolkit"', '"@agent-native/recap-cli"'],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(parseYaml(merged).minimumReleaseAgeExclude).toEqual([
+      "@agent-native/toolkit",
+      "@agent-native/recap-cli",
+    ]);
+  });
+
+  it("fails clearly for scalar values in sections it needs to merge", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections("overrides: null", {
+        overrides: { "new-lib": '"1.0.0"' },
+      }),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not corrupt commented flow-style YAML collections", () => {
+    expect(() =>
+      _mergeWorkspaceYamlSections(
+        'overrides: { nf3: "0.3.17", # keep this pin documented\n  }',
+        { overrides: { "new-lib": '"1.0.0"' } },
+      ),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("surfaces unsupported workspace YAML while post-processing", () => {
+    const targetDir = path.join(tmpDir, "unsupported-yaml");
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(targetDir, "package.json"),
+      JSON.stringify({ name: "unsupported-yaml" }),
+    );
+    fs.writeFileSync(
+      path.join(targetDir, "pnpm-workspace.yaml"),
+      'overrides: { nf3: "0.3.17", # keep this pin documented\n  }\n',
+    );
+
+    expect(() =>
+      _postProcessStandalone("unsupported-yaml", targetDir, "chat"),
+    ).toThrow(/Convert it to block style before scaffolding/);
+  });
+
+  it("does not persist local package overrides when a community picker cancels", async () => {
+    const previousLocalCore = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    const workspaceRoot = path.join(tmpDir, "workspace");
+    const workspaceYaml = 'packages:\n  - "apps/*"\n';
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    const clack = {
+      cancel: () => {},
+      note: () => {},
+      outro: () => {},
+      spinner: () => ({ start: () => {}, stop: () => {} }),
+    } as unknown as typeof import("@clack/prompts");
+    const appPicker = async () => {
+      throw new _CreateWizardCancelledError();
+    };
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (
+      _targetDir,
+      _template,
+      options,
+    ) => {
+      await options?.selectCommunityWorkspaceApp?.([
+        { name: "dashboard", label: "Dashboard" },
+      ]);
+      throw new Error("Expected the picker to cancel before scaffolding.");
+    };
+
+    try {
+      await expect(
+        _scaffoldOneAppIntoWorkspace(
+          { workspaceRoot, workspaceCoreName: "@test/shared" },
+          "dashboard",
+          "community:acme/apps",
+          clack,
+          false,
+          appPicker,
+          scaffoldTemplate,
+        ),
+      ).resolves.toBe(false);
+      expect(
+        fs.readFileSync(
+          path.join(workspaceRoot, "pnpm-workspace.yaml"),
+          "utf-8",
+        ),
+      ).toBe(workspaceYaml);
+      expect(fs.existsSync(path.join(workspaceRoot, "apps/dashboard"))).toBe(
+        false,
+      );
+    } finally {
+      if (previousLocalCore === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previousLocalCore;
+      }
+    }
+  });
+
+  it("validates local overrides before mutating an existing workspace", async () => {
+    const workspaceRoot = path.join(tmpDir, "merge-failure-workspace");
+    const workspaceYaml = [
+      'packages:\n  - "apps/*"',
+      'overrides: { nf3: "0.3.17", # keep this pin documented',
+      "  }",
+      "",
+    ].join("\n");
+    const rootPackageJson = JSON.stringify({
+      name: "merge-failure-workspace",
+      scripts: { test: "vitest" },
+    });
+    fs.mkdirSync(path.join(workspaceRoot, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "pnpm-workspace.yaml"),
+      workspaceYaml,
+    );
+    fs.writeFileSync(path.join(workspaceRoot, "package.json"), rootPackageJson);
+    const clack = {
+      cancel: vi.fn(),
+      note: vi.fn(),
+      outro: vi.fn(),
+      spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+    } as unknown as typeof import("@clack/prompts");
+    const scaffoldTemplate: typeof _scaffoldAppTemplate = async (appDir) => {
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({ name: "calendar", dependencies: {} }),
+      );
+      return {};
+    };
+    const exit = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${code ?? 0})`);
+    });
+
+    await expect(
+      _scaffoldOneAppIntoWorkspace(
+        { workspaceRoot, workspaceCoreName: "@test/shared" },
+        "calendar",
+        "calendar",
+        clack,
+        false,
+        undefined,
+        scaffoldTemplate,
+        (targetDir) =>
+          _prepareLocalWorkspaceOverrides(
+            targetDir,
+            { '"@agent-native/toolkit"': '"file:./toolkit.tgz"' },
+            null,
+          ),
+      ),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(clack.cancel).toHaveBeenCalledWith(
+      expect.stringMatching(/Convert it to block style before scaffolding/),
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "apps/calendar"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(workspaceRoot, "packages/scheduling"))).toBe(
+      false,
+    );
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8"),
+    ).toBe(rootPackageJson);
+    expect(
+      fs.readFileSync(path.join(workspaceRoot, "pnpm-workspace.yaml"), "utf-8"),
+    ).toBe(workspaceYaml);
+  });
+
+  it("does not treat commented release-age items as configured exceptions", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude: # Exact internal packages",
+      "  - @agent-native/core",
+      "# Revisit this exception after the next stable release:",
+      "#  - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ["@agent-native/agentkit"],
+    );
+
+    expect(merged.match(/^minimumReleaseAgeExclude:/gm)).toHaveLength(1);
+    expect(merged.match(/^  - @agent-native\/agentkit$/gm)).toHaveLength(1);
+    expect(merged).toContain("#  - @agent-native/agentkit");
+  });
+
+  it("recognizes quoted release-age entries and preserves list indentation", () => {
+    const workspaceYaml = [
+      "minimumReleaseAgeExclude:",
+      '    - "@agent-native/core" # existing exception',
+      "    - @agent-native/agentkit",
+      "allowBuilds:",
+      "  esbuild: true",
+    ].join("\n");
+
+    const merged = _mergeWorkspaceYamlListItems(
+      workspaceYaml,
+      "minimumReleaseAgeExclude",
+      ['"@agent-native/core"', '"@agent-native/recap"'],
+    );
+
+    expect(merged.match(/^    - "@agent-native\/core"/gm)).toHaveLength(1);
+    expect(merged).toContain('    - "@agent-native/recap"');
+  });
+
   it("adds the guard contract to a community-style build without overwriting its doctor", () => {
     const root = path.join(tmpDir, "community-app");
     fs.mkdirSync(root, { recursive: true });
@@ -1059,6 +1354,21 @@ describe("community workspace template sources", () => {
         _parseCommunityTemplateSelection("community:acme/root-app?app=example"),
       ),
     ).rejects.toThrow("app selectors are only for workspace repositories");
+  });
+
+  it("sanitizes community app display names before terminal selection", () => {
+    const root = path.join(tmpDir, "terminal-safe-workspace");
+    writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
+    writeApp(root, "mail", {
+      displayName: "Inbox\u001b[2J\u009b31m\u202eHidden",
+    });
+
+    const [app] = _discoverCommunityWorkspaceApps(root);
+
+    expect(app?.label).toBe("Inbox�[2J�31m�Hidden");
+    expect(app?.label).not.toMatch(
+      /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/,
+    );
   });
 
   it("uses explicit app selectors without prompting and errors without a terminal selector", async () => {

@@ -33,7 +33,6 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useCreatePage } from "@/hooks/use-create-page";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useOptimisticDocumentTitle } from "@/hooks/use-optimistic-document-title";
-import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   applyRegisteredDocumentHistoryRestore,
@@ -41,7 +40,7 @@ import {
 } from "@/lib/document-history-restore-controller";
 
 import { Header } from "./Header";
-import { isContentFullWidthSettingsRoute } from "./settings-route-policy";
+import { isContentSettingsRoute } from "./settings-route-policy";
 import { SidebarTriggerContext } from "./sidebar-trigger";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -95,10 +94,7 @@ export function Layout({ children }: LayoutProps) {
   const chromePathname = pendingPathname ?? location.pathname;
   const t = useT();
   const creativeContextEnabled = useCreativeContextLab();
-  const fullWidthSettings = isContentFullWidthSettingsRoute(
-    chromePathname,
-    useSettingsRedesign(),
-  );
+  const fullWidthSettings = isContentSettingsRoute(chromePathname);
   const currentDocumentId = documentPageIdFromPathname(location.pathname);
   const pendingDocumentId = pendingPathname
     ? documentPageIdFromPathname(pendingPathname)

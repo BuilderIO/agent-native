@@ -1,12 +1,8 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  SettingsGroup,
-  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsAppArea,
-  type SettingsTabItem,
 } from "@agent-native/core/client/settings";
 import {
   IconAdjustments,
@@ -17,14 +13,12 @@ import {
   type Icon,
 } from "@tabler/icons-react";
 import { useMemo, type ReactNode } from "react";
-import { useLocation } from "react-router";
 
 import { IntelligenceSettings } from "@/components/crm/IntelligenceSettings";
 import { AdvancedSettings } from "@/components/crm/settings/AdvancedSettings";
 import { ConnectionSettings } from "@/components/crm/settings/ConnectionSettings";
 import { FieldsSettings } from "@/components/crm/settings/FieldsSettings";
 import { ListsSettings } from "@/components/crm/settings/ListsSettings";
-import { useSettingsRedesign } from "@/hooks/use-settings-redesign";
 
 import changelog from "../../CHANGELOG.md?raw";
 import {
@@ -36,31 +30,15 @@ export function meta() {
   return [{ title: "CRM settings" }];
 }
 
-const SETTINGS_SECTIONS: readonly string[] = [
-  "fields",
-  "lists",
-  "intelligence",
-  "connection",
-  "connections",
-  "mcp",
-  "advanced",
-];
-
-function sectionFromPath(pathname: string): string {
-  const section = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
-  return SETTINGS_SECTIONS.includes(section) ? section : "integrations";
-}
-
 interface CrmSettingsArea {
   labelKey: string;
   icon: Icon;
   keywords: string;
-  render: (embedded: boolean) => ReactNode;
+  render: () => ReactNode;
 }
 
 /**
- * CRM's own settings, in order. Today's Settings shows each as a tab; the
- * redesigned Settings shows them as tabs on CRM › General, where the tab
+ * CRM's own settings, in order, shown as tabs on CRM › General, where the tab
  * already names the panel.
  */
 const CRM_SETTINGS_AREAS: Record<CrmSettingsAreaId, CrmSettingsArea> = {
@@ -68,39 +46,37 @@ const CRM_SETTINGS_AREAS: Record<CrmSettingsAreaId, CrmSettingsArea> = {
     labelKey: "connection.tab",
     icon: IconPlugConnected,
     keywords: "provider hubspot salesforce native mode mirror sync",
-    render: (embedded) => <ConnectionSettings embedded={embedded} />,
+    render: () => <ConnectionSettings />,
   },
   fields: {
     labelKey: "fields.tab",
     icon: IconColumns3,
     keywords:
       "attributes schema columns slug type authority options status select stage",
-    render: (embedded) => <FieldsSettings embedded={embedded} />,
+    render: () => <FieldsSettings />,
   },
   lists: {
     labelKey: "lists.tab",
     icon: IconListDetails,
     keywords: "lists entries pipeline workflow stage board",
-    render: (embedded) => <ListsSettings embedded={embedded} />,
+    render: () => <ListsSettings />,
   },
   intelligence: {
     labelKey: "intelligence.tab",
     icon: IconWaveSine,
     keywords: "signals trackers keywords smart detectors call evidence",
-    render: (embedded) => <IntelligenceSettings embedded={embedded} />,
+    render: () => <IntelligenceSettings />,
   },
   advanced: {
     labelKey: "advanced.tab",
     icon: IconAdjustments,
     keywords: "danger reset reconfigure retention archive delete",
-    render: (embedded) => <AdvancedSettings embedded={embedded} />,
+    render: () => <AdvancedSettings />,
   },
 };
 
 export default function SettingsRoute() {
   const t = useT();
-  const location = useLocation();
-  const redesign = useSettingsRedesign().enabled;
   const agentSettingsTabs = useAgentSettingsTabs();
 
   const appAreas = useMemo<SettingsAppArea[]>(
@@ -112,79 +88,20 @@ export default function SettingsRoute() {
           label: t(area.labelKey),
           icon: area.icon,
           keywords: area.keywords,
-          content: area.render(true),
+          content: area.render(),
         };
       }),
     [t],
   );
 
-  const legacyTabs = useMemo<SettingsTabItem[]>(
-    () => [
-      ...CRM_SETTINGS_AREA_IDS.map((id): SettingsTabItem => {
-        const area = CRM_SETTINGS_AREAS[id];
-        return {
-          id,
-          label: t(area.labelKey),
-          icon: area.icon,
-          keywords: area.keywords,
-          ...(id === "advanced" ? { group: "workspace" } : {}),
-          content: area.render(false),
-        };
-      }),
-      ...agentSettingsTabs,
-    ],
-    [agentSettingsTabs, t],
-  );
-
-  const whatsNew = (
-    <div className="mx-auto w-full max-w-2xl">
-      <ChangelogSettingsCard markdown={changelog} />
-    </div>
-  );
-
-  if (redesign) {
-    // Language is on Account › Preferences, and CRM › General holds only
-    // core's rows plus CRM's own areas as tabs.
-    return (
-      <SettingsTabsPage
-        extraTabs={agentSettingsTabs}
-        appAreas={appAreas}
-        mcpAbout={t("settings.mcpAbout")}
-        whatsNew={whatsNew}
-      />
-    );
-  }
-
+  // Language is on Account › Preferences, and CRM › General holds only core's
+  // rows plus CRM's own areas as tabs.
   return (
     <SettingsTabsPage
-      defaultTab={sectionFromPath(location.pathname)}
-      extraTabs={legacyTabs}
-      general={
-        <div className="mx-auto w-full max-w-2xl space-y-6">
-          <div className="space-y-3">
-            <h1 className="text-xl font-semibold tracking-tight">
-              {t("settings.title")}
-            </h1>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t("settings.description")}
-            </p>
-          </div>
-
-          <SettingsGroup>
-            <SettingsRow
-              id="language"
-              label={t("settings.languageTitle")}
-              description={t("settings.languageDescription")}
-              control={
-                <div className="w-56">
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </div>
-              }
-            />
-          </SettingsGroup>
-        </div>
-      }
-      whatsNew={whatsNew}
+      extraTabs={agentSettingsTabs}
+      appAreas={appAreas}
+      mcpAbout={t("settings.mcpAbout")}
+      whatsNewMarkdown={changelog}
     />
   );
 }

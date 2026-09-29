@@ -218,7 +218,7 @@ describe("workspace private icons", () => {
       data: new TextEncoder().encode("<svg></svg>"),
       mimeType: "image/svg+xml",
     });
-    const read = event(`/org-1/${assetId}`);
+    const read = event(`/_agent-native/org/private-icons/org-1/${assetId}`);
     await expect(
       readWorkspacePrivateIconHandler(read as never),
     ).resolves.toBeInstanceOf(Buffer);
@@ -238,7 +238,7 @@ describe("workspace private icons", () => {
           },
         ],
       });
-    const request = event(`/${"org-1"}/${assetId}`);
+    const request = event(`/_agent-native/org/private-icons/org-1/${assetId}`);
     await expect(
       readWorkspacePrivateIconHandler(request as never),
     ).resolves.toEqual(Buffer.from([1, 2]));
@@ -248,7 +248,9 @@ describe("workspace private icons", () => {
   it("denies nonmembers and unreferenced asset IDs before reading bytes", async () => {
     mocks.execute.mockResolvedValueOnce({ rows: [] });
     await expect(
-      readWorkspacePrivateIconHandler(event(`/org-1/${assetId}`) as never),
+      readWorkspacePrivateIconHandler(
+        event(`/_agent-native/org/private-icons/org-1/${assetId}`) as never,
+      ),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.readIconAssetForAuthorizedReference).not.toHaveBeenCalled();
 
@@ -265,7 +267,9 @@ describe("workspace private icons", () => {
         ],
       });
     await expect(
-      readWorkspacePrivateIconHandler(event(`/org-1/${assetId}`) as never),
+      readWorkspacePrivateIconHandler(
+        event(`/_agent-native/org/private-icons/org-1/${assetId}`) as never,
+      ),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.readIconAssetForAuthorizedReference).not.toHaveBeenCalled();
   });
@@ -274,7 +278,9 @@ describe("workspace private icons", () => {
     mocks.execute.mockResolvedValueOnce({ rows: [{ role: "member" }] });
     await expect(
       readWorkspacePrivateIconHandler(
-        event(`/library/org-1/${assetId}`) as never,
+        event(
+          `/_agent-native/org/private-icons/library/org-1/${assetId}`,
+        ) as never,
       ),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.getIconAsset).not.toHaveBeenCalled();
@@ -294,7 +300,9 @@ describe("workspace private icons", () => {
     mocks.getIconAsset.mockResolvedValueOnce(null);
     await expect(
       readWorkspacePrivateIconHandler(
-        event(`/library/org-1/${assetId}`) as never,
+        event(
+          `/_agent-native/org/private-icons/library/org-1/${assetId}`,
+        ) as never,
       ),
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.readIconAssetForAuthorizedReference).not.toHaveBeenCalled();
@@ -318,7 +326,9 @@ describe("workspace private icons", () => {
       mimeType: "image/png",
     });
     await expect(
-      readWorkspacePrivateIconHandler(event(`/org-1/${assetId}`) as never),
+      readWorkspacePrivateIconHandler(
+        event(`/_agent-native/org/private-icons/org-1/${assetId}`) as never,
+      ),
     ).resolves.toEqual(Buffer.from([3]));
     expect(mocks.validateFederatedOrganizationMembership).toHaveBeenCalledWith(
       expect.anything(),

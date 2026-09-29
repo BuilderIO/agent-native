@@ -1,3 +1,4 @@
+import { alias } from "@agent-native/core/db/schema";
 import { parseIconValue } from "@agent-native/core/icons";
 import {
   accessFilter,
@@ -57,6 +58,7 @@ import {
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
+import { withRelationTargets } from "./_relation-values.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
@@ -180,7 +182,9 @@ export async function resolvePropertyDatabaseForDocument(
     const database = await getDatabaseById(databaseId);
     if (!database) throw new Error(`Database "${databaseId}" not found`);
     if (options.requireDatabaseAccess !== false) {
-      await assertAccess("document", database.documentId, role);
+      await assertAccess("document", database.documentId, role, undefined, {
+        skipResourceBody: true,
+      });
     }
     if (database.documentId === document.id) return database;
 
@@ -576,14 +580,21 @@ function normalizeStringList(value: unknown) {
 export async function listPropertiesForDocument(
   document: DocumentRow,
   databaseId?: string,
-  options: { requireDatabaseAccess?: boolean } = {},
+  options: {
+    requireDatabaseAccess?: boolean;
+    /** The caller's own resolvePropertyDatabaseForDocument result. */
+    database?: ContentDatabaseRow | null;
+  } = {},
 ) {
-  const database = await resolvePropertyDatabaseForDocument(
-    document,
-    databaseId,
-    "viewer",
-    options,
-  );
+  const database =
+    options.database === undefined
+      ? await resolvePropertyDatabaseForDocument(
+          document,
+          databaseId,
+          "viewer",
+          options,
+        )
+      : options.database;
   if (!database) return [];
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
@@ -649,31 +660,34 @@ export async function listPropertiesForDatabase(
     .orderBy(asc(schema.documentPropertyDefinitions.position));
 
   if (definitions.length === 0) return [];
-  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
-    db,
-    databaseId,
-  );
-
-  const values = valueDocument
-    ? await db
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.documentId, valueDocument.id))
-    : [];
+  const includeContainerDerivedValues =
+    options.includeContainerDerivedValues !== false;
+  const [
+    sourceManagedPropertyIds,
+    values,
+    databaseRowNumber,
+    blockContentByPropertyId,
+  ] = await Promise.all([
+    sourceManagedPropertyIdsForDatabase(db, databaseId),
+    valueDocument
+      ? db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(eq(schema.documentPropertyValues.documentId, valueDocument.id))
+      : [],
+    valueDocument &&
+    includeContainerDerivedValues &&
+    definitions.some((definition) => definition.type === "id")
+      ? databaseRowNumberForDocument(databaseId, valueDocument.id)
+      : undefined,
+    valueDocument
+      ? blockFieldContentsForDocument(valueDocument.id)
+      : new Map<string, string>(),
+  ]);
 
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
   );
-  const includeContainerDerivedValues =
-    options.includeContainerDerivedValues !== false;
-  const rowNumberByDocumentId =
-    valueDocument && includeContainerDerivedValues
-      ? await databaseRowNumbersByDocumentId(databaseId)
-      : new Map<string, number>();
-
-  const blockContentByPropertyId = valueDocument
-    ? await blockFieldContentsForDocument(valueDocument.id)
-    : new Map<string, string>();
 
   const blocksFieldIdentityById = valueDocument
     ? await readBlocksFieldIdentities({
@@ -715,9 +729,7 @@ export async function listPropertiesForDatabase(
           : storedOptions;
     const value =
       valueDocument && isComputedPropertyType(type) && type !== "formula"
-        ? computedPropertyValue(type, valueDocument, {
-            databaseRowNumber: rowNumberByDocumentId.get(valueDocument.id),
-          })
+        ? computedPropertyValue(type, valueDocument, { databaseRowNumber })
         : valueDocument && isBlocksPropertyType(type)
           ? resolveBlocksFieldValue({
               options,
@@ -799,7 +811,9 @@ export async function listPropertiesForDatabase(
     }
   }
 
-  return nextProperties;
+  if (!includeContainerDerivedValues) return nextProperties;
+  const [withTargets] = await withRelationTargets(db, [nextProperties]);
+  return withTargets;
 }
 
 function serializePropertyDefinition(
@@ -879,8 +893,8 @@ export async function listPropertiesForDatabaseDocuments(
     ]),
   );
 
-  const rowNumberByDocumentId = definitions.some((definition) =>
-    isComputedPropertyType(definition.type as DocumentPropertyType),
+  const rowNumberByDocumentId = definitions.some(
+    (definition) => definition.type === "id",
   )
     ? await databaseRowNumbersByDocumentId(databaseId)
     : new Map<string, number>();
@@ -1009,6 +1023,11 @@ export async function listPropertiesForDatabaseDocuments(
     result.set(document.id, nextProperties);
   }
 
+  const documentIdsInOrder = [...result.keys()];
+  const withTargets = await withRelationTargets(db, [...result.values()]);
+  documentIdsInOrder.forEach((documentId, index) => {
+    result.set(documentId, withTargets[index]!);
+  });
   return result;
 }
 
@@ -1089,9 +1108,10 @@ async function propertyValuesForLinkedDocuments(
   const accessibleDocumentIds = docs.map((doc) => doc.id);
 
   if (isComputedPropertyType(property.definition.type)) {
-    const rowNumberByDocumentId = property.definition.databaseId
-      ? await databaseRowNumbersByDocumentId(property.definition.databaseId)
-      : new Map<string, number>();
+    const rowNumberByDocumentId =
+      property.definition.type === "id" && property.definition.databaseId
+        ? await databaseRowNumbersByDocumentId(property.definition.databaseId)
+        : new Map<string, number>();
     return documentIds.map((documentId) => {
       const doc = docById.get(documentId);
       return doc
@@ -1181,6 +1201,32 @@ async function databaseRowNumbersByDocumentId(databaseId: string) {
   return new Map(
     items.map((item, index) => [item.documentId, index + 1] as const),
   );
+}
+
+async function databaseRowNumberForDocument(
+  databaseId: string,
+  documentId: string,
+): Promise<number | undefined> {
+  const db = getDb();
+  const item = schema.contentDatabaseItems;
+  const earlierItems = alias(item, "row_number_earlier_items");
+  const [row] = await db
+    .select({
+      rowNumber: sql<number>`(${db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(earlierItems)
+        .where(
+          and(
+            eq(earlierItems.databaseId, item.databaseId),
+            sql`(${earlierItems.position}, ${earlierItems.createdAt}, ${earlierItems.id}) <= (${item.position}, ${item.createdAt}, ${item.id})`,
+          ),
+        )})`,
+    })
+    .from(item)
+    .where(
+      and(eq(item.databaseId, databaseId), eq(item.documentId, documentId)),
+    );
+  return row?.rowNumber;
 }
 
 export function optionsForNewProperty(

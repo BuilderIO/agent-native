@@ -18,6 +18,7 @@ import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
@@ -649,7 +650,10 @@ function ensureAmplitude(): boolean {
   _amplitudeApiKey = key;
   if (_amplitudeLoadPromise) return false;
 
-  _amplitudeLoadPromise = import("@amplitude/analytics-browser")
+  _amplitudeLoadPromise = loadOptionalPeer(
+    "@amplitude/analytics-browser",
+    () => import("@amplitude/analytics-browser"),
+  )
     .then((module) => {
       module.init(key, { autocapture: false });
       _amplitudeModule = module;
@@ -660,8 +664,9 @@ function ensureAmplitude(): boolean {
       _pendingAmplitudeEvents = [];
       return module;
     })
-    .catch(() => {
+    .catch((error: unknown) => {
       _pendingAmplitudeEvents = [];
+      console.error("[agent-native] Browser analytics failed to load.", error);
       return null;
     })
     .finally(() => {
@@ -957,7 +962,10 @@ function ensureSentry(loadWithoutDsn = false): void {
   if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
   if (!dsn && !loadWithoutDsn) return;
-  _sentryLoadPromise = import("@sentry/browser")
+  _sentryLoadPromise = loadOptionalPeer(
+    "@sentry/browser",
+    () => import("@sentry/browser"),
+  )
     .then((module) => {
       _sentryModule = module;
       if (!dsn) {
@@ -1022,7 +1030,10 @@ function ensureSentry(loadWithoutDsn = false): void {
       _pendingSentryCaptures = [];
       return module;
     })
-    .catch(() => null)
+    .catch((error: unknown) => {
+      console.error("[agent-native] Browser Sentry failed to load.", error);
+      return null;
+    })
     .finally(() => {
       _sentryLoadPromise = null;
     });

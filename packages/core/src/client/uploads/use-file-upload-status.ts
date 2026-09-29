@@ -5,6 +5,7 @@ import {
   fetchFileUploadStatus,
   invalidateClientStatusRequest,
 } from "../client-status-requests.js";
+import { useAfterStartup } from "../use-after-paint.js";
 
 export const FILE_UPLOAD_STATUS_QUERY_KEY = [
   "agent-native",
@@ -24,6 +25,9 @@ export async function readFileUploadStatus(): Promise<{ configured: boolean }> {
 
 export function useFileUploadStatus(enabled = true) {
   const queryClient = useQueryClient();
+  // Mounted by every chat composer at startup, but only needed once someone
+  // attaches a file; the storage popover's retry reads it on demand before then.
+  const afterStartup = useAfterStartup();
 
   useEffect(() => {
     if (!enabled) return;
@@ -42,7 +46,7 @@ export function useFileUploadStatus(enabled = true) {
   return useQuery({
     queryKey: FILE_UPLOAD_STATUS_QUERY_KEY,
     queryFn: readFileUploadStatus,
-    enabled,
+    enabled: enabled && afterStartup,
     retry: false,
     staleTime: 60_000,
     refetchOnWindowFocus: false,

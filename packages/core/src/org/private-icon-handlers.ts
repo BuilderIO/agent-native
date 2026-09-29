@@ -146,7 +146,7 @@ export const readWorkspacePrivateIconHandler = defineEventHandler(
       });
     const path = getRequestURL(event).pathname;
     const match = path.match(
-      /^\/(library\/)?([A-Za-z0-9_-]{1,128})\/([0-9a-f-]{36})\/?$/i,
+      /^(?:\/_agent-native\/org\/private-icons)?\/(library\/)?([A-Za-z0-9_-]{1,128})\/([0-9a-f-]{36})\/?$/i,
     );
     if (!match || !ORG_ID.test(match[2]) || !ASSET_ID.test(match[3])) {
       throw createError({

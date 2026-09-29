@@ -24,6 +24,7 @@ const MockFederatedIconConflictError = vi.hoisted(
 );
 const mockEvaluateFeatureFlagStrict = vi.hoisted(() => vi.fn());
 const mockBootstrapAdminOrganization = vi.hoisted(() => vi.fn());
+const mockMarkActiveOrgSelectionChanged = vi.hoisted(() => vi.fn());
 const mockOffboardMember = vi.hoisted(() => vi.fn());
 const mockGetUserProfiles = vi.hoisted(() => vi.fn());
 const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
@@ -62,6 +63,8 @@ vi.mock("./context.js", () => ({
   createOrganization: vi.fn(),
   bootstrapAdminOrganization: (...args: any[]) =>
     mockBootstrapAdminOrganization(...args),
+  markActiveOrgSelectionChanged: (...args: any[]) =>
+    mockMarkActiveOrgSelectionChanged(...args),
 }));
 
 vi.mock("./federation.js", () => ({
@@ -149,6 +152,7 @@ import {
   setDomainHandler,
   setWorkspaceAppDefaultVisibilityHandler,
   createOrgHandler,
+  switchOrgHandler,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -417,6 +421,7 @@ describe("org handlers", () => {
     ).resolves.toEqual({ success: true });
     expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
       "member@example.test",
+      expect.objectContaining({ _url: expect.any(String) }),
     );
     expect(createOrganization).not.toHaveBeenCalled();
   });
@@ -439,6 +444,7 @@ describe("org handlers", () => {
     ).resolves.toEqual({ success: true });
     expect(mockBootstrapAdminOrganization).toHaveBeenCalledWith(
       "member@example.test",
+      expect.objectContaining({ _url: expect.any(String) }),
     );
     expect(createOrganization).not.toHaveBeenCalled();
   });
@@ -883,13 +889,15 @@ describe("org handlers", () => {
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
     mockRevokeFederatedOrganizationMember.mockResolvedValue(true);
 
+    const leaveEvent = makeEvent(
+      "/_agent-native/org/federation-removal/retry",
+      {
+        orgId: "org-1",
+        transferTo: "successor@example.test",
+      },
+    );
     await expect(
-      retryPendingFederatedRemovalHandler(
-        makeEvent("/_agent-native/org/federation-removal/retry", {
-          orgId: "org-1",
-          transferTo: "successor@example.test",
-        }),
-      ),
+      retryPendingFederatedRemovalHandler(leaveEvent),
     ).resolves.toEqual({ success: true, orgId: "org-1" });
     expect(mockRevokeFederatedOrganizationMember).toHaveBeenCalledWith(
       expect.anything(),
@@ -905,6 +913,9 @@ describe("org handlers", () => {
       "active-org-id",
       { orgId: null },
     );
+    // The member's own request: its next requests read the cleared selection
+    // on every instance.
+    expect(mockMarkActiveOrgSelectionChanged).toHaveBeenCalledWith(leaveEvent);
     expect(mockOffboardMember).toHaveBeenCalledWith(
       expect.anything(),
       "member@example.test",
@@ -1042,6 +1053,59 @@ describe("org handlers", () => {
     });
   });
 
+  describe("switchOrgHandler", () => {
+    it("points the caller's later requests at the new selection on every instance", async () => {
+      mockExecute.mockResolvedValueOnce({
+        rows: [{ role: "member", orgName: "Second" }],
+        rowsAffected: 0,
+      });
+      const event = makeEvent("/_agent-native/org/switch", { orgId: "org-2" });
+
+      await expect(switchOrgHandler(event)).resolves.toMatchObject({
+        orgId: "org-2",
+      });
+
+      expect(putUserSetting).toHaveBeenCalledWith(
+        "member@example.test",
+        "active-org-id",
+        { orgId: "org-2" },
+      );
+      expect(mockMarkActiveOrgSelectionChanged).toHaveBeenCalledWith(event);
+    });
+
+    it("answers a null switch with the current org without storing it", async () => {
+      mockGetOrgContext.mockResolvedValueOnce({
+        email: "member@example.test",
+        orgId: "org-1",
+        orgName: "First",
+        role: "member",
+      });
+      const event = makeEvent("/_agent-native/org/switch", { orgId: null });
+
+      await expect(switchOrgHandler(event)).resolves.toEqual({
+        orgId: "org-1",
+        orgName: "First",
+        role: "member",
+      });
+
+      expect(putUserSetting).not.toHaveBeenCalled();
+      expect(mockMarkActiveOrgSelectionChanged).not.toHaveBeenCalled();
+    });
+
+    it("leaves the selection alone when the caller is not a member", async () => {
+      mockExecute.mockResolvedValueOnce({ rows: [], rowsAffected: 0 });
+
+      await expect(
+        switchOrgHandler(
+          makeEvent("/_agent-native/org/switch", { orgId: "org-9" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+
+      expect(putUserSetting).not.toHaveBeenCalled();
+      expect(mockMarkActiveOrgSelectionChanged).not.toHaveBeenCalled();
+    });
+  });
+
   describe("deleteOrgHandler", () => {
     it("deletes invitations, settings, members, and the org, then repoints active-org-id", async () => {
       mockExecute
@@ -1053,9 +1117,8 @@ describe("org handlers", () => {
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 });
 
-      const result = await deleteOrgHandler(
-        makeEvent("/_agent-native/org", { name: "  example  " }),
-      );
+      const event = makeEvent("/_agent-native/org", { name: "  example  " });
+      const result = await deleteOrgHandler(event);
 
       expect(result).toEqual({
         success: true,
@@ -1093,6 +1156,7 @@ describe("org handlers", () => {
           orgId: "org-2",
         },
       );
+      expect(mockMarkActiveOrgSelectionChanged).toHaveBeenCalledWith(event);
     });
 
     it("repoints active-org-id to null (Personal) when the caller has no other org", async () => {

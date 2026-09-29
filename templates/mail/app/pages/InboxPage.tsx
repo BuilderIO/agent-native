@@ -14,6 +14,7 @@ import { EmailList, InboxZero } from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import {
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -23,7 +24,7 @@ import {
   EMPTY_LABELS,
   useEmails,
   useLabels,
-  useMarkRead,
+  useMarkThreadRead,
   useSettings,
 } from "@/hooks/use-emails";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -65,10 +66,12 @@ function ContactPanel({
   emailId,
   contactEmail,
   emails,
+  allowEmailSearch,
 }: {
   emailId: string | undefined;
   contactEmail?: string;
   emails: EmailMessage[];
+  allowEmailSearch: boolean;
 }) {
   const t = useT();
   const email = useMemo(
@@ -89,7 +92,7 @@ function ContactPanel({
     isFetchingNextPage,
     isFetchNextPageError,
   } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
-    enabled: Boolean(normalizedDisplayEmail),
+    enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch,
   });
   const contactPageFetchesRef = useRef(0);
   const contactGenerationRef = useRef(0);
@@ -168,6 +171,26 @@ function ContactPanel({
   );
 }
 
+function ContactPanelSkeleton() {
+  return (
+    <div aria-hidden="true" className="flex h-full flex-col">
+      <div className="space-y-1.5 px-4 pt-4 pb-3">
+        <Skeleton className="h-4 w-8" />
+        <Skeleton className="h-3 w-40 max-w-full" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+      <div className="flex items-center gap-2 px-4 py-2">
+        <Skeleton className="size-5 rounded-md" />
+        <Skeleton className="h-3 w-14" />
+      </div>
+      <div className="mx-4 h-px bg-border/30" />
+      <div className="px-4 py-2">
+        <Skeleton className="h-3 w-20" />
+      </div>
+    </div>
+  );
+}
+
 function formatSidebarSender(thread: ThreadSummary): string {
   if (thread.messageCount <= 1) {
     return thread.latestMessage.from.name || thread.latestMessage.from.email;
@@ -199,7 +222,7 @@ function ThreadListSidebar({
   onNavigateThread: (threadId: string) => void;
 }) {
   const navigate = useNavigate();
-  const markRead = useMarkRead();
+  const markThreadRead = useMarkThreadRead();
   const threads = useMemo(() => groupIntoThreads(emails), [emails]);
   const selectAllThreads = useCallback(() => {
     if (threads.length === 0) return;
@@ -228,12 +251,10 @@ function ThreadListSidebar({
               key={email.id}
               onClick={() => {
                 setSelectedIds(new Set());
-                if (!email.isRead)
-                  markRead.mutate({
-                    id: email.id,
-                    isRead: true,
+                if (thread.hasUnread)
+                  markThreadRead.mutate({
+                    threadId: threadKey,
                     accountEmail: email.accountEmail,
-                    threadId: email.threadId || email.id,
                   });
                 onNavigateThread(threadKey);
                 void navigate(`/${view}/${threadKey}${routeSearchSuffix}`);
@@ -527,15 +548,27 @@ export function InboxPage() {
     { enabled: isInboxView && inboxExtraOffsets.length > 0 },
   );
   const inboxItems = useMemo(
-    () => [
-      ...(inboxThreads.data?.items ?? []),
-      ...mergeInboxThreadPages(inboxExtraPages.map((page) => page.data)),
-    ],
+    () =>
+      mergeInboxThreadPages([
+        inboxThreads.data,
+        ...inboxExtraPages.map((page) => page.data),
+      ]),
     [inboxThreads.data?.items, inboxExtraPages],
   );
   const inboxHasNextPage =
     isInboxView && inboxThreads.data !== undefined
-      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total)
+      ? inboxThreadsHasNextPage(inboxItems.length, inboxThreads.data.total, {
+          complete:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.complete ??
+            inboxThreads.data.complete,
+          lastPageLength:
+            inboxExtraPages[inboxExtraPages.length - 1]?.data?.items.length ??
+            inboxThreads.data.items.length,
+          pageSize: INBOX_PAGE_SIZE,
+          totalIsLowerBound: inboxThreads.data.tabs.find(
+            (tab) => tab.id === inboxThreads.data.activeTabId,
+          )?.totalIsLowerBound,
+        })
       : false;
   const inboxIsFetchingNextPage = inboxExtraPages.some(
     (page) => page.isFetching,
@@ -1103,14 +1136,20 @@ export function InboxPage() {
         )}
       </div>
 
-      {/* Right contact panel — hidden during initial load or when maximized */}
-      {!emailListLoading && !(hasThread && isMaximized) && (
+      {!(hasThread && isMaximized) && (
         <div className="mail-contact-side-panel hidden w-[260px] shrink-0 flex-col border-s border-border/30 bg-muted/50 dark:bg-[var(--mail-sidebar-surface)]">
-          <ContactPanel
-            emailId={contactEmailId}
-            contactEmail={sidebarContactEmail}
-            emails={emails}
-          />
+          {emailListLoading ? (
+            <ContactPanelSkeleton />
+          ) : (
+            <ContactPanel
+              emailId={contactEmailId}
+              contactEmail={sidebarContactEmail}
+              emails={emails}
+              allowEmailSearch={
+                !isInboxView || (googleStatus.isSuccess && !isGoogleConnected)
+              }
+            />
+          )}
         </div>
       )}
     </div>

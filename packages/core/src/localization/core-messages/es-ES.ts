@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "No se pudo cargar el contexto.",
   "composer.contextLinkRequired": "Introduce un enlace.",
   "composer.submitFailed": "No se pudo enviar. Inténtalo de nuevo.",
+  "composer.attachmentsRemainAfterSubmit":
+    "El mensaje se envió, pero aún quedan archivos adjuntos. Quítalos antes de volver a enviar.",
   "composer.addContext": "Añadir contexto",
   "composer.contextActionFailed": "No se pudo añadir el contexto.",
   "composer.contextBack": "Atrás",
@@ -74,6 +76,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar archivos, agentes o recursos",
   "commands.new": "Igual que /clear",
   "commands.plan": "Cambiar a la planificación de solo lectura",
+  "observability.promoteMustContain": "La respuesta debe contener…",
+  "observability.promoteMustContainOptional":
+    "Texto opcional que se comprobará en la respuesta…",
+  "observability.promoteMustContainLabel":
+    "Texto que se comprobará en la respuesta de la evaluación promovida",
+  "observability.promoteNeedsContains":
+    "Esta ejecución no tiene ninguna llamada a herramienta exitosa. Introduce el texto que debe contener la respuesta antes de promoverla.",
   "observability.viewDetails": "Ver detalles",
   "observability.hideDetails": "Ocultar detalles",
   "observability.input": "Entrada",
@@ -394,6 +403,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Recomendado",
   "integrations.subtitle": "Conecta las herramientas que tu agente puede usar.",
   "mcpIntegrations.menuLabel": "Integraciones",
+  "mcpApps.optionalPeerRequired":
+    "Esta aplicación MCP requiere el paquete {{packageName}}. Instálalo con {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Conectar herramientas y servicios al agente",
   "mcpIntegrations.title": "Conectar integraciones",
@@ -1366,6 +1377,10 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Correo electrónico nuevo",
   "settings.emailNewPlaceholder": "Introduce un correo nuevo",
   "usage.builderCredits": "Créditos de Builder",
+  "featureFlags.builderCreditReferrals.name":
+    "Referidos de créditos de Builder",
+  "featureFlags.builderCreditReferrals.description":
+    "Mostrar los detalles de referidos del espacio de trabajo de Builder conectado en Uso.",
   "usage.inviteFriends": "Invita a tus amigos",
   "usage.inviteCredits":
     "Gana {{amount}} créditos de Builder cuando un amigo se suscriba.",

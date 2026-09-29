@@ -252,6 +252,8 @@ function AgentSidebarPanelSkeleton() {
 export interface AgentSidebarProps {
   children: React.ReactNode;
   enabled?: boolean;
+  screenRefreshEnabled?: boolean;
+  /** @deprecated Use screenRefreshEnabled when disabling this boundary. */
   screenRefreshOnlyWhenPanelActive?: boolean;
   emptyStateText?: string;
   suggestions?: AssistantChatProps["suggestions"];
@@ -327,7 +329,8 @@ interface HostedHarnessStatus {
 export function AgentSidebar({
   children,
   enabled = true,
-  screenRefreshOnlyWhenPanelActive = false,
+  screenRefreshEnabled = true,
+  screenRefreshOnlyWhenPanelActive,
   emptyStateText = "How can I help you?",
   defaultMode = "chat",
   suggestions,
@@ -1055,8 +1058,7 @@ export function AgentSidebar({
       maxWidth: "85vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_OVERLAY_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1075,8 +1077,7 @@ export function AgentSidebar({
       maxWidth: "100vw",
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
       zIndex: SIDEBAR_DRAWER_Z_INDEX,
-      "--agent-sidebar-background":
-        "var(--agent-native-lower-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       borderLeft: isLeft ? "none" : "1px solid hsl(var(--border))",
       borderRight: isLeft ? "1px solid hsl(var(--border))" : "none",
@@ -1090,8 +1091,7 @@ export function AgentSidebar({
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
-      "--agent-sidebar-background":
-        "var(--agent-native-raised-surface, hsl(var(--background)))",
+      "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "var(--agent-native-viewport-height, 100vh)",
@@ -1301,7 +1301,10 @@ export function AgentSidebar({
             counter, remounting only the main content subtree so it re-fetches
             its data. The sidebar above stays mounted, preserving chat state. */}
           <ScreenRefreshBoundary
-            active={!screenRefreshOnlyWhenPanelActive || shouldMountPanel}
+            active={
+              screenRefreshEnabled &&
+              (screenRefreshOnlyWhenPanelActive === false || shouldMountPanel)
+            }
           >
             {children}
           </ScreenRefreshBoundary>

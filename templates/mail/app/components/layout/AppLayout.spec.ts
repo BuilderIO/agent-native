@@ -20,6 +20,20 @@ function commandPaletteFocusSource(): string {
 }
 
 describe("AppLayout inbox tab bar", () => {
+  it("uses SQL inbox rows instead of the Gmail list API for connected accounts", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      'const useInboxThreadsForActionTargets = view === "inbox" && hasAccounts && activeSearchQuery === null && activeSavedFilterQuery === undefined && activeLabel === null',
+    );
+    expect(source).toContain(
+      'enabled: isMailboxView && (view !== "inbox" || (hasAccounts ? !useInboxThreadsForActionTargets : googleStatusReady))',
+    );
+    expect(source).toContain(
+      "const currentViewEmails = useInboxThreadsForActionTargets ? (inboxThreads.data?.items ?? []) : legacyCurrentViewEmails",
+    );
+  });
+
   it("leads Mail chat suggestions with inbox rules instead of generic prompts", () => {
     const source = appLayoutSource();
 
@@ -83,6 +97,14 @@ describe("AppLayout inbox tab bar", () => {
     expect(tabBar).toContain("sm:overflow-x-auto sm:hide-scrollbar");
     expect(source).toContain(
       'cn("relative shrink-0", tabsLoading && "invisible")',
+    );
+  });
+
+  it("shows inbox category tabs only in the inbox view", () => {
+    const source = appLayoutSource().replace(/\s+/g, " ");
+
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
     );
   });
 
@@ -507,7 +529,9 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain(
       "href: sysView.id === AI_FILTER_LABEL ? labelTabHref(AI_FILTER_LABEL)",
     );
-    expect(source).toContain("() => [...systemViewTabs, ...dataTabs]");
+    expect(source).toContain(
+      '() => [...systemViewTabs, ...(view === "inbox" ? dataTabs : [])]',
+    );
   });
 
   it("never shows a red list-labels banner — useLabels degrades on its own", () => {
@@ -518,14 +542,19 @@ describe("AppLayout inbox tab bar", () => {
     expect(source).toContain("data: labelsData");
   });
 
-  it("shows a compact inline indicator only while the inbox is syncing", () => {
+  it("shows an accessible spinner only while the inbox is syncing", () => {
     const source = appLayoutSource();
 
+    expect(source).toContain("const inboxSyncing =");
+    expect(source).toContain("inboxMetadata?.syncing === true");
     expect(source).toContain(
-      "const inboxSyncing = inboxMetadata?.syncing === true;",
+      'account.state === "ready" && account.backfillPending === true',
     );
     expect(source).toContain("{inboxSyncing && (");
-    expect(source).toContain('{t("mail.inbox.syncing")}');
+    expect(source).toContain('aria-label={t("mail.inbox.syncing")}');
+    expect(source).toContain('title={t("mail.inbox.syncing")}');
+    expect(source).toMatch(/<IconRefresh\s+aria-hidden="true"/);
+    expect(source).not.toContain('>{t("mail.inbox.syncing")}</span>');
   });
 
   it("reuses the existing Google reconnect UI for a needs_reauth account", () => {

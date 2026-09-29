@@ -169,6 +169,14 @@ describe("ObservabilityDashboard promote control", () => {
       (button) => button.textContent === "Promote to eval",
     );
     expect(promote).toBeTruthy();
+    expect(
+      container.querySelector<HTMLInputElement>("input")?.placeholder,
+    ).toBe("Optional text to check for in the reply…");
+    expect(
+      container
+        .querySelector<HTMLInputElement>("input")
+        ?.getAttribute("aria-label"),
+    ).toBe("Text to check for in the promoted eval reply");
     act(() => promote!.click());
 
     await vi.waitFor(() => {

@@ -1,5 +1,47 @@
 {
   "sinceVersion": "0.110.0",
+  "dependencies": [
+    {
+      "name": "@electric-sql/pglite",
+      "version": "^0.5.8",
+      "when": "pglite-database"
+    },
+    {
+      "name": "@sentry/node",
+      "version": "^10.60.0 || ^11.0.0",
+      "when": "server-sentry"
+    },
+    {
+      "name": "@sentry/browser",
+      "version": "^10.60.0 || ^11.0.0",
+      "when": "browser-sentry"
+    },
+    {
+      "name": "@sentry/vite-plugin",
+      "version": "^5.4.0",
+      "when": "sentry-source-map-upload"
+    },
+    {
+      "name": "@better-auth/sso",
+      "version": "1.7.4",
+      "when": "sso"
+    },
+    {
+      "name": "@better-auth/scim",
+      "version": "1.7.4",
+      "when": "scim"
+    },
+    {
+      "name": "@amplitude/analytics-browser",
+      "version": "^2.45.8",
+      "when": "amplitude"
+    },
+    {
+      "name": "botframework-connector",
+      "version": "^4.23.3",
+      "when": "microsoft-teams"
+    }
+  ],
   "moves": {
     "@agent-native/core/client": {
       "to": "@agent-native/core/client/agent-chat",
@@ -1354,6 +1396,68 @@
     },
     "@agent-native/core/client/visual-style-controls": {
       "to": "@agent-native/toolkit/design-tweaks"
+    }
+  },
+  "removedExports": {
+    "@agent-native/core/client": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+    },
+    "@agent-native/core/client/chat": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
+    },
+    "@agent-native/core/client/agent-chat": {
+      "symbols": [
+        "createAgentChatAdapter",
+        "CreateAgentChatAdapterOptions",
+        "createCodeAgentChatAdapter",
+        "CodeAgentChatController",
+        "CodeAgentChatControlResult",
+        "CodeAgentChatFollowUpMode",
+        "CodeAgentChatTranscriptEvent",
+        "CreateCodeAgentChatAdapterOptions",
+        "createAgentChatRuntimeAdapter",
+        "CreateAgentChatRuntimeAdapterOptions",
+        "codeAgentTranscriptEventsToContent",
+        "codeAgentTranscriptHasPendingApproval",
+        "AssistantMessageActionBar",
+        "AssistantMessageActionBarProps",
+        "FormattedMessageTimestamp"
+      ],
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md"
     }
   }
 }

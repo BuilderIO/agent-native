@@ -1,5 +1,13 @@
 # @agent-native/creative-context
 
+## 0.8.18
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- d2ba564: Keep agents from repeating completed mutations, stale reads, disabled features, or oversized discovery searches, and let them summarize cleanly when a loop is stopped.
+- b8845eb: Scope ownable reads and writes to their authorized user, organization, or share.
+
 ## 0.8.17
 
 ### Patch Changes

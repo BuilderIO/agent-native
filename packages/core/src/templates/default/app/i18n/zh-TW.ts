@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "正在中斷連線…",
   },
   settings: {
-    title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     agentTitle: "代理設定",
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "管理團隊存取和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    backHome: "返回首頁",
     emailChange: "變更電子郵件",
     emailChangeSent: "請查看電子郵件以確認此變更。",
     emailChangeError: "無法傳送確認信。",
@@ -625,8 +619,8 @@ const messages = {
     failedCount: "（{{count}} 個失敗）",
     backToList: "返回清單",
     promoteMustContain: "回覆必須包含…",
-    promoteMustContainOptional: "回覆必須包含（選填）",
-    promoteMustContainLabel: "升級後的評測回覆必須包含的文字",
+    promoteMustContainOptional: "回覆中要檢查的選填文字…",
+    promoteMustContainLabel: "在升級後的評估回覆中檢查的文字",
     promoteNeedsContains:
       "此執行沒有成功的工具呼叫。請先輸入回覆必須包含的文字，再將其升級為評測。",
     spans: "Spans",

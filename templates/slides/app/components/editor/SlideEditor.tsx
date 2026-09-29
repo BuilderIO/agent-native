@@ -3646,6 +3646,7 @@ export default function SlideEditor({
   // state. Gesture cancellation is deliberately ahead of selection clearing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key !== "Escape") return;
       const target = e.target instanceof Element ? e.target : null;
       const editing = editingElRef.current;
@@ -4504,6 +4505,58 @@ export default function SlideEditor({
     },
     [getRichTextEditorSurface, selectedElementSelector],
   );
+
+  const enableSelectedObjectPositioning = useCallback(() => {
+    const slideContent = getSlideContent();
+    const element =
+      resolveSelectedElement() ??
+      (selectedImg && slideContent
+        ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+        : selectedImg);
+    if (!element || isPersistedFreeformObject(element)) return;
+
+    const frozen = freezeElementForFreeformSelection(element);
+    if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+      frozen?.restoreDescendants?.();
+      frozen?.restoreMarkdownTree?.();
+      return;
+    }
+
+    preserveSlideObjectLayoutSpacer(element);
+    const positioningLayer = resolveSlidePositioningLayer(element);
+    if (!frozen.restoreMarkdownTree && positioningLayer) {
+      releaseSlideObjectFromLeftBoxes(element, positioningLayer);
+    }
+    const html = readCurrentSlideContentHtml();
+
+    if (frozen.restoreMarkdownTree) {
+      const objectId = element.getAttribute("data-slide-object-id");
+      if (objectId) {
+        const owner = element.parentElement ?? element.ownerDocument;
+        owner
+          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
+          .forEach((spacer) => {
+            if (
+              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
+            ) {
+              spacer.remove();
+            }
+          });
+      }
+      frozen.restoreMarkdownTree();
+    }
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+
+    const selector = getBuilderSelector(element);
+    if (selector) selectElementForStyling(element, selector);
+  }, [
+    freezeElementForFreeformSelection,
+    getSlideContent,
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectedImg,
+    selectElementForStyling,
+  ]);
 
   const applyStylePatchToElement = useCallback(
     (
@@ -8949,6 +9002,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}
@@ -8989,6 +9043,7 @@ export default function SlideEditor({
             : undefined
         }
         onChange={applySelectedStylePatch}
+        onEnablePositioning={enableSelectedObjectPositioning}
         onBackgroundChange={applySlideBackground}
         onArrange={handleArrangeSelected}
         onGroup={handleGroupSelected}

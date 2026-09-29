@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   BETA_FORCE_SESSION_STORAGE_KEY,
-  BETA_LANE_RETURN_STORAGE_KEY,
-  BETA_LANE_RETURNED_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -45,6 +43,7 @@ function runScript({
   workspaceRuntime = false,
   workspaceAppMountPaths,
   sessionProbe,
+  sessionBootstrap,
 }: {
   href: string | { current: string };
   embedded?: boolean;
@@ -59,6 +58,7 @@ function runScript({
   workspaceRuntime?: boolean;
   workspaceAppMountPaths?: string[];
   sessionProbe?: Promise<Record<string, unknown> | null>;
+  sessionBootstrap?: Promise<unknown>;
 }) {
   const result = {
     fetched: [] as string[],
@@ -93,6 +93,9 @@ function runScript({
           ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
         }
       : undefined,
+    ...(sessionBootstrap
+      ? { __agentNativeSessionBootstrap: sessionBootstrap }
+      : {}),
   } as Record<string, unknown>;
   window.parent = embedded ? {} : window;
 
@@ -118,7 +121,14 @@ function runScript({
 
   return Promise.resolve()
     .then(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
-    .then(() => ({ ...result, localStorage, sessionStorage }));
+    .then(() => ({
+      ...result,
+      localStorage,
+      sessionStorage,
+      sessionRead: window.__agentNativeSessionBootstrap as
+        | Promise<unknown>
+        | undefined,
+    }));
 }
 
 describe("getSsrBetaRedirectScript", () => {
@@ -133,9 +143,96 @@ describe("getSsrBetaRedirectScript", () => {
     });
 
     expect(result.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
     expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
+  });
+
+  describe("one session read per page", () => {
+    const marker = () =>
+      createStorage({
+        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
+      });
+
+    it("redirects from the session bootstrap's read without probing again", async () => {
+      const result = await runScript({
+        href: "https://plan.agent-native.com/inbox",
+        localStorage: marker(),
+        sessionBootstrap: Promise.resolve({
+          state: "available",
+          value: { email: "employee@builder.io" },
+        }),
+      });
+
+      expect(result.fetched).toEqual([]);
+      expect(result.redirectedTo).toBe(
+        "https://beta.plan.agent-native.com/inbox",
+      );
+    });
+
+    it("clears the marker when the bootstrap read comes back signed out", async () => {
+      const localStorage = marker();
+
+      const result = await runScript({
+        href: "https://plan.agent-native.com/inbox",
+        localStorage,
+        sessionBootstrap: Promise.resolve({
+          state: "unavailable",
+          status: 401,
+        }),
+      });
+
+      expect(result.fetched).toEqual([]);
+      expect(result.redirectedTo).toBeNull();
+      expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
+    });
+
+    it("keeps the marker when the bootstrap read is unreadable", async () => {
+      const localStorage = marker();
+
+      const result = await runScript({
+        href: "https://plan.agent-native.com/inbox",
+        localStorage,
+        sessionBootstrap: Promise.resolve({ state: "unavailable" }),
+      });
+
+      expect(result.fetched).toEqual([]);
+      expect(result.redirectedTo).toBeNull();
+      expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
+    });
+
+    it("hands its own probe to the app when no bootstrap read ran", async () => {
+      const result = await runScript({
+        href: "https://plan.agent-native.com/inbox",
+        localStorage: marker(),
+        session: { email: "employee@builder.io" },
+      });
+
+      expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
+      await expect(result.sessionRead).resolves.toEqual({
+        state: "available",
+        value: { email: "employee@builder.io" },
+      });
+    });
+
+    it("keeps a probe for another workspace mount separate from the app's read", async () => {
+      const appRead = Promise.resolve({
+        state: "available",
+        value: { email: "employee@builder.io" },
+      });
+
+      const result = await runScript({
+        href: "https://agent-workspace.builder.io/diagrams/inbox",
+        localStorage: marker(),
+        sessionPath: "/dispatch/_agent-native/auth/session",
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/dispatch", "/diagrams"],
+        sessionBootstrap: appRead,
+      });
+
+      expect(result.fetched).toEqual(["/diagrams/_agent-native/auth/session"]);
+      expect(result.sessionRead).toBe(appRead);
+    });
   });
 
   it("uses the mapped beta host for the workspace production alias", async () => {
@@ -147,7 +244,7 @@ describe("getSsrBetaRedirectScript", () => {
     });
 
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/inbox?agentNativeLaneRedirect=1",
+      "https://beta.agent-workspace.builder.io/inbox",
     );
   });
 
@@ -163,7 +260,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/plan/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/plan/inbox?agentNativeLaneRedirect=1",
+      "https://beta.agent-workspace.builder.io/plan/inbox",
     );
   });
 
@@ -178,7 +275,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/settings/inbox?agentNativeLaneRedirect=1",
+      "https://beta.agent-workspace.builder.io/settings/inbox",
     );
   });
 
@@ -195,7 +292,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/diagrams/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/diagrams/inbox?agentNativeLaneRedirect=1",
+      "https://beta.agent-workspace.builder.io/diagrams/inbox",
     );
   });
 
@@ -212,7 +309,7 @@ describe("getSsrBetaRedirectScript", () => {
 
     expect(result.fetched).toEqual(["/dispatch/_agent-native/auth/session"]);
     expect(result.redirectedTo).toBe(
-      "https://beta.agent-workspace.builder.io/settings/inbox?agentNativeLaneRedirect=1",
+      "https://beta.agent-workspace.builder.io/settings/inbox",
     );
   });
 
@@ -357,38 +454,6 @@ describe("getSsrBetaRedirectScript", () => {
     expect(localStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
   });
 
-  it("invalidates the production marker after beta sign-out before returning", async () => {
-    const productionStorage = createStorage({
-      [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
-    });
-    const betaStorage = createStorage();
-
-    const redirected = await runScript({
-      href: "https://plan.agent-native.com/inbox",
-      localStorage: productionStorage,
-    });
-    expect(redirected.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/inbox?agentNativeLaneRedirect=1",
-    );
-    expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).not.toBeNull();
-
-    const betaSignOut = await runScript({
-      href: "https://beta.plan.agent-native.com/inbox",
-      localStorage: betaStorage,
-    });
-    expect(betaSignOut.redirectedTo).toBeNull();
-    expect(betaSignOut.fetched).toEqual([]);
-
-    const returned = await runScript({
-      href: "https://plan.agent-native.com/inbox",
-      localStorage: productionStorage,
-      session: { error: "Not authenticated" },
-    });
-    expect(returned.redirectedTo).toBeNull();
-    expect(returned.fetched).toEqual(["/_agent-native/auth/session"]);
-    expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
-  });
-
   it("clears a marker when the current session belongs to a non-Builder user", async () => {
     const localStorage = createStorage({
       [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
@@ -501,267 +566,22 @@ describe("getSsrBetaRedirectScript", () => {
     const result = await pending;
 
     expect(result.redirectedTo).toBe(
-      "https://beta.plan.agent-native.com/settings?tab=profile&agentNativeLaneRedirect=1#security",
+      "https://beta.plan.agent-native.com/settings?tab=profile#security",
     );
   });
 
-  describe("automatic lane redirect that lands signed out on beta", () => {
-    const BETA_ARRIVAL =
-      "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs";
-
-    it("returns the visitor to the production page they were taken from", async () => {
-      const sessionStorage = createStorage();
-
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-      });
-
-      const target = new URL(result.redirectedTo ?? "");
-      expect(target.hostname).toBe("plan.agent-native.com");
-      expect(target.pathname).toBe("/inbox");
-      expect(target.hash).toBe("#runs");
-      expect(target.searchParams.get("tab")).toBe("all");
-      expect(
-        Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)),
-      ).toBeGreaterThan(Date.now());
-      expect(
-        Number(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)),
-      ).toBe(Number(target.searchParams.get(BETA_OPT_OUT_QUERY_PARAM)));
-      expect(sessionStorage.getItem(BETA_LANE_RETURN_STORAGE_KEY)).toBeNull();
+  it("never redirects a beta arrival back to production", async () => {
+    const result = await runScript({
+      href: "https://beta.plan.agent-native.com/inbox?tab=all&agentNativeLaneRedirect=1#runs",
+      sessionStatus: 401,
+      session: null,
     });
 
-    it("strips the lane marker from the beta URL it arrived on", async () => {
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(result.historyUrl).toBe(
-        "https://beta.plan.agent-native.com/inbox?tab=all#runs",
-      );
-    });
-
-    it("returns to the production page, not the sign-in URL beta navigated to", async () => {
-      const href = { current: BETA_ARRIVAL };
-      let resolveProbe:
-        | ((session: Record<string, unknown> | null) => void)
-        | undefined;
-      const sessionProbe = new Promise<Record<string, unknown> | null>(
-        (resolve) => {
-          resolveProbe = resolve;
-        },
-      );
-
-      const pending = runScript({
-        href,
-        sessionProbe,
-        sessionStatus: 401,
-      });
-      await Promise.resolve();
-      href.current = "https://beta.plan.agent-native.com/sign-in?c=abc123";
-      resolveProbe!(null);
-
-      const result = await pending;
-
-      const target = new URL(result.redirectedTo ?? "");
-      expect(target.hostname).toBe("plan.agent-native.com");
-      expect(target.pathname).toBe("/inbox");
-    });
-
-    it("stays on beta when the visitor does have a beta session", async () => {
-      const sessionStorage = createStorage();
-
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        session: { email: "employee@builder.io" },
-      });
-
-      expect(result.redirectedTo).toBeNull();
-      expect(sessionStorage.getItem(BETA_LANE_RETURN_STORAGE_KEY)).toBeNull();
-      expect(sessionStorage.getItem(BETA_LANE_RETURNED_STORAGE_KEY)).toBeNull();
-    });
-
-    it("leaves a deliberate switch to beta on beta's sign-in page", async () => {
-      const result = await runScript({
-        href: "https://beta.plan.agent-native.com/inbox",
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(result.redirectedTo).toBeNull();
-      expect(result.fetched).toEqual([]);
-    });
-
-    it("returns at most once per tab so the two lanes cannot ping-pong", async () => {
-      const sessionStorage = createStorage();
-
-      const first = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-      });
-      expect(first.redirectedTo).not.toBeNull();
-
-      const second = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(second.redirectedTo).toBeNull();
-      expect(second.fetched).toEqual([]);
-    });
-
-    it("does not return twice while the opt-out it issued is still in force", async () => {
-      const sessionStorage = createStorage();
-      const start = 1_700_000_000_000;
-
-      const first = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-        now: () => start,
-      });
-      expect(first.redirectedTo).not.toBeNull();
-
-      const second = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-        now: () => start + 2_000,
-      });
-
-      expect(second.redirectedTo).toBeNull();
-    });
-
-    it("returns again in the same tab once that opt-out has expired", async () => {
-      const sessionStorage = createStorage();
-      const start = 1_700_000_000_000;
-
-      const first = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-        now: () => start,
-      });
-      expect(first.redirectedTo).not.toBeNull();
-
-      const second = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage,
-        sessionStatus: 401,
-        session: null,
-        now: () => start + 9 * 60 * 60 * 1000,
-      });
-
-      expect(new URL(second.redirectedTo ?? "").hostname).toBe(
-        "plan.agent-native.com",
-      );
-    });
-
-    it("stays on beta when session storage cannot bound the return", async () => {
-      const sessionStorage = {
-        getItem() {
-          throw new Error("storage is denied");
-        },
-        removeItem() {
-          throw new Error("storage is denied");
-        },
-        setItem() {
-          throw new Error("storage is denied");
-        },
-      };
-
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage: sessionStorage as ReturnType<typeof createStorage>,
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(result.redirectedTo).toBeNull();
-      expect(result.fetched).toEqual([]);
-    });
-
-    it("treats an unreadable session as present rather than signed out", async () => {
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        sessionResponseOk: false,
-        session: null,
-      });
-
-      expect(result.redirectedTo).toBeNull();
-    });
-
-    it("leaves a desktop webview pinned to beta alone", async () => {
-      const result = await runScript({
-        href: BETA_ARRIVAL,
-        userAgent: "AgentNativeDesktop/1.0",
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(result.redirectedTo).toBeNull();
-      expect(result.fetched).toEqual([]);
-    });
-
-    it("keeps the return on the production host for a protocol-relative path", async () => {
-      const result = await runScript({
-        href: "https://beta.plan.agent-native.com//evil.example.com/x?agentNativeLaneRedirect=1",
-        sessionStatus: 401,
-        session: null,
-      });
-
-      expect(new URL(result.redirectedTo ?? "").hostname).toBe(
-        "plan.agent-native.com",
-      );
-    });
-
-    it("hands production an opt-out that suppresses the next lane redirect", async () => {
-      const betaStorage = createStorage();
-      const returned = await runScript({
-        href: BETA_ARRIVAL,
-        sessionStorage: betaStorage,
-        sessionStatus: 401,
-        session: null,
-      });
-
-      const productionStorage = createStorage({
-        [BETA_REDIRECT_STORAGE_KEY]: String(Date.now() + 60_000),
-      });
-      const backOnProduction = await runScript({
-        href: returned.redirectedTo ?? "",
-        localStorage: productionStorage,
-      });
-
-      expect(backOnProduction.redirectedTo).toBeNull();
-      expect(productionStorage.getItem(BETA_REDIRECT_STORAGE_KEY)).toBeNull();
-      expect(
-        Number(productionStorage.getItem(BETA_OPT_OUT_STORAGE_KEY)),
-      ).toBeGreaterThan(Date.now());
-    });
-
-    it("returns a signed-out Design beta arrival to Design's production page", async () => {
-      const result = await runScript({
-        href: "https://beta.design.agent-native.com/inbox?agentNativeLaneRedirect=1",
-        sessionStatus: 401,
-        session: null,
-      });
-
-      const target = new URL(result.redirectedTo ?? "");
-      expect(target.hostname).toBe("design.agent-native.com");
-      expect(target.pathname).toBe("/inbox");
-    });
+    expect(result.redirectedTo).toBeNull();
+    expect(result.fetched).toEqual([]);
+    expect(result.historyUrl).toBe(
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+    );
   });
 
   it("emits a marked inline script for head or shell injection", () => {

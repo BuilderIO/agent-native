@@ -67,15 +67,13 @@ describe("EnvironmentBadge", () => {
     ).toBe("https://plan.agent-native.com/projects/42?tab=activity#runs");
   });
 
-  it("marks an automatic beta redirect but leaves a manual switch unmarked", () => {
+  it("builds an automatic beta destination without a return marker", () => {
     expect(
       buildAutomaticBetaRedirectUrl(
         "https://plan.agent-native.com/projects/42?tab=activity#runs",
         "beta.plan.agent-native.com",
       ),
-    ).toBe(
-      "https://beta.plan.agent-native.com/projects/42?tab=activity&agentNativeLaneRedirect=1#runs",
-    );
+    ).toBe("https://beta.plan.agent-native.com/projects/42?tab=activity#runs");
     expect(
       buildEnvironmentUrl(
         "https://plan.agent-native.com/projects/42?tab=activity#runs",

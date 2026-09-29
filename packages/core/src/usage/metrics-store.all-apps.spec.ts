@@ -2,6 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
+const readDefaultAgentEngineSettingMock = vi.hoisted(() =>
+  vi.fn<() => Promise<Record<string, unknown> | null>>(),
+);
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: readDefaultAgentEngineSettingMock,
+}));
+
 // Real in-memory PGlite behind getDbExec so the all-apps and per-app queries
 // run the genuine SQL, including the app-key expression and GROUP BY.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
@@ -130,6 +141,8 @@ function sumBuckets(
 
 beforeEach(async () => {
   nextId = 1;
+  readDefaultAgentEngineSettingMock.mockReset();
+  readDefaultAgentEngineSettingMock.mockResolvedValue(null);
   pglite = await createTestPglite();
   await pglite.exec(TABLE_SQL);
   await pglite.exec(ORG_MEMBERS_SQL);
@@ -413,5 +426,94 @@ describe("listAppUsageMetrics all apps billing unit", () => {
     expect(
       metrics.byApp.reduce((sum, b) => sum + (b.builderCredits ?? 0), 0),
     ).toBe(3.75);
+  });
+
+  it("uses the default engine for legacy rows while preserving explicit engines", async () => {
+    process.env.AGENT_ENGINE = "builder";
+    resetAppConfigForTests();
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "clips",
+      costX100: 1_000,
+    });
+    await insertUsage({
+      owner: "owner@example.com",
+      app: "mail",
+      costX100: 2_000,
+      engine: "anthropic",
+    });
+
+    const metrics = await listAppUsageMetrics(
+      { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
+      { ownerEmail: "owner@example.com", orgId: "org-1", app: ALL_USAGE_APPS },
+    );
+
+    expect(metrics.billing.unit).toBe("mixed");
+    expect(metrics.totals).toMatchObject({
+      builderCredits: 0,
+      estimatedBuilderCredits: 2.5,
+      otherCostCents: 20,
+      otherCalls: 1,
+    });
+    expect(metrics.byApp).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          key: "mail",
+          estimatedBuilderCredits: 0,
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+    expect(metrics.dailyBy.app).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          key: "mail",
+          estimatedBuilderCredits: 0,
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+    expect(metrics.recent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          app: "clips",
+          estimatedBuilderCredits: 2.5,
+          otherCostCents: 0,
+        }),
+        expect.objectContaining({
+          app: "mail",
+          otherCostCents: 20,
+        }),
+      ]),
+    );
+  });
+
+  it("surfaces default-engine setting read failures", async () => {
+    process.env.AGENT_ENGINE = "ai-sdk:openai";
+    resetAppConfigForTests();
+    await insertUsage({ owner: "owner@example.com", app: "clips" });
+    const settingsError = new Error("settings unavailable");
+    readDefaultAgentEngineSettingMock.mockRejectedValueOnce(settingsError);
+
+    await expect(
+      listAppUsageMetrics(
+        { sinceDays: 30, scope: "me", builderCreditsEnabled: true },
+        {
+          ownerEmail: "owner@example.com",
+          orgId: "org-1",
+          app: ALL_USAGE_APPS,
+        },
+      ),
+    ).rejects.toBe(settingsError);
   });
 });

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { getOnboardingHtml } from "../../server/onboarding-html.js";
+import { getOnboardingHtml as getCoreOnboardingHtml } from "../../server/onboarding-html.js";
 import {
   AuthPage,
   isAuthenticatedAuthSession,
@@ -17,6 +17,14 @@ import {
   shouldStartWithLocalDev,
   type AuthPageProps,
 } from "./AuthPage.js";
+
+const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
+  getCoreOnboardingHtml({
+    ...opts,
+    renderSignInPage:
+      opts.renderSignInPage ??
+      ((props) => renderToString(<AuthPage {...props} />)),
+  });
 
 function propsFromHtml(html: string): AuthPageProps {
   const match = html.match(

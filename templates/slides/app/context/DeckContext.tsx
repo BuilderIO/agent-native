@@ -567,18 +567,33 @@ async function callDeckWriteAction<TResult>(
     ...payload,
     clientWrite: nextDeckClientWrite(deckId),
   };
-  const result = options?.keepalive
-    ? await requireKeepaliveAction(
-        actionName,
-        tryCallActionKeepalive<TResult>(actionName, body, {
-          method: options.method,
-          signal: options.signal,
-        }),
-      )
-    : await callAction<TResult>(actionName, body, {
-        ...(options?.method ? { method: options.method } : {}),
-        ...(options?.signal ? { signal: options.signal } : {}),
-      });
+  let result: TResult;
+  try {
+    result = options?.keepalive
+      ? await requireKeepaliveAction(
+          actionName,
+          tryCallActionKeepalive<TResult>(actionName, body, {
+            method: options.method,
+            signal: options.signal,
+          }),
+        )
+      : await callAction<TResult>(actionName, body, {
+          ...(options?.method ? { method: options.method } : {}),
+          ...(options?.signal ? { signal: options.signal } : {}),
+        });
+  } catch (error) {
+    if (
+      actionName === "patch-deck" &&
+      error &&
+      typeof error === "object" &&
+      "status" in error &&
+      error.status === 409 &&
+      !("code" in error && error.code === "client_build_mismatch")
+    ) {
+      await fetchDeckFromAPI(deckId);
+    }
+    throw error;
+  }
   rememberDeckServerRevision(deckId, result);
   return result;
 }
@@ -1712,7 +1727,13 @@ function refuseRenderArtifactWrite(
   if (import.meta.env.DEV) throw error;
 }
 
-export function DeckProvider({ children }: { children: ReactNode }) {
+export function DeckProvider({
+  children,
+  realtimeEnabled = false,
+}: {
+  children: ReactNode;
+  realtimeEnabled?: boolean;
+}) {
   const { data: org, isLoading: orgLoading } = useOrg();
   const t = useT();
   const tRef = useRef(t);
@@ -2640,7 +2661,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   }, [org?.orgId, orgLoading, reloadDecks, resetDeckScope]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !realtimeEnabled || isEmbedAuthActive()) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let lastListFetchAt = 0;
@@ -2736,7 +2757,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged, loading]);
+  }, [
+    loading,
+    realtimeEnabled,
+    refetchDeckListIfChanged,
+    refetchOpenDeckIfChanged,
+  ]);
 
   useEffect(() => {
     if (loading) return;
@@ -2773,11 +2799,67 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   ]);
 
   useEffect(() => {
-    if (isEmbedAuthActive()) return;
+    const sideEffectTabs = new Set<string>();
+
+    const onToolDone = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          completedSideEffect?: unknown;
+          tabId?: unknown;
+        }>
+      ).detail;
+      if (detail?.completedSideEffect !== true) return;
+      sideEffectTabs.add(
+        typeof detail.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__",
+      );
+    };
+    const onChatRunning = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          isRunning?: unknown;
+          tabId?: unknown;
+        }>
+      ).detail;
+      const tabId =
+        typeof detail?.tabId === "string" && detail.tabId
+          ? detail.tabId
+          : "__default__";
+      if (detail?.isRunning === true) {
+        sideEffectTabs.delete(tabId);
+        return;
+      }
+      if (detail?.isRunning !== false) return;
+      if (!sideEffectTabs.delete(tabId)) return;
+      const openId = currentOpenDeckIdFromWindow();
+      if (openId) {
+        void refetchOpenDeckIfChanged(openId).catch((error) => {
+          console.error(
+            `Failed to refresh deck ${openId} after agent run:`,
+            error,
+          );
+        });
+      } else {
+        runHomeGridListRefresh();
+      }
+    };
+
+    window.addEventListener("agent-native:tool-done", onToolDone);
+    window.addEventListener("agentNative.chatRunning", onChatRunning);
+
+    return () => {
+      window.removeEventListener("agent-native:tool-done", onToolDone);
+      window.removeEventListener("agentNative.chatRunning", onChatRunning);
+    };
+  }, [refetchOpenDeckIfChanged, runHomeGridListRefresh]);
+
+  useEffect(() => {
+    if (!realtimeEnabled || isEmbedAuthActive()) return;
     let stopped = false;
     let hasConnectedOnce = false;
-
     const unsubscribe = subscribeSyncEvents({
+      pauseWhenHidden: true,
       onEvents: (events) => {
         const changedDeckIds = new Map<string, string | undefined>();
         for (const data of events) {
@@ -2844,7 +2926,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       sseStreamConnectedRef.current = false;
       unsubscribe();
     };
-  }, [refetchOpenDeckIfChanged, resyncDeckState, runHomeGridListRefresh]);
+  }, [
+    realtimeEnabled,
+    refetchOpenDeckIfChanged,
+    resyncDeckState,
+    runHomeGridListRefresh,
+  ]);
 
   useEffect(() => {
     const onHidden = () => {

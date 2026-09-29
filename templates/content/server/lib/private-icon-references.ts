@@ -213,21 +213,20 @@ export async function syncPrivateViewIconReferences(
 async function isLiveReference(
   db: Database,
   reference: typeof schema.privateIconReferences.$inferSelect,
+  viewer: { userEmail?: string | null; orgId?: string | null },
 ): Promise<boolean> {
+  const access = await resolveAccess("document", reference.documentId, {
+    userEmail: viewer.userEmail ?? undefined,
+    orgId: viewer.orgId ?? undefined,
+  });
+  if (
+    !access ||
+    access.resource.trashedAt ||
+    (access.resource.orgId ?? null) !== reference.orgId
+  )
+    return false;
   if (reference.elementType === "document") {
-    const [document] = await db
-      .select({ icon: schema.documents.icon })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, reference.documentId),
-          isNull(schema.documents.trashedAt),
-        ),
-      )
-      .limit(1);
-    return (
-      !!document && privateIconAssetId(document.icon) === reference.assetId
-    );
+    return privateIconAssetId(access.resource.icon) === reference.assetId;
   }
   if (reference.elementType === "property") {
     const [property] = await db
@@ -282,18 +281,9 @@ async function isLiveReference(
     return !!view && privateIconAssetId(view.icon) === reference.assetId;
   }
   if (reference.elementType === "callout") {
-    const [document] = await db
-      .select({ content: schema.documents.content })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, reference.documentId),
-          isNull(schema.documents.trashedAt),
-        ),
-      )
-      .limit(1);
-    if (!document) return false;
-    return calloutPrivateIconAssetIds(document.content).has(reference.assetId);
+    return calloutPrivateIconAssetIds(access.resource.content).has(
+      reference.assetId,
+    );
   }
   return false;
 }
@@ -317,23 +307,7 @@ export async function resolveReadablePrivateIcon(
       .offset(offset);
     if (!references.length) return null;
     for (const reference of references) {
-      if (!(await isLiveReference(db, reference))) continue;
-      const [document] = await db
-        .select({ id: schema.documents.id })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, reference.documentId),
-            isNull(schema.documents.trashedAt),
-          ),
-        )
-        .limit(1);
-      if (!document) continue;
-      const access = await resolveAccess("document", reference.documentId, {
-        userEmail: viewer.userEmail ?? undefined,
-        orgId: viewer.orgId ?? undefined,
-      });
-      if (access && (access.resource.orgId ?? null) === reference.orgId) {
+      if (await isLiveReference(db, reference, viewer)) {
         return { orgId: reference.orgId };
       }
     }

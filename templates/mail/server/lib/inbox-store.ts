@@ -1,6 +1,6 @@
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -50,6 +50,10 @@ export type SyncAccountRow = {
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
+  fullSyncPhase: "reconcile" | null;
+  fullSyncReconcilePageToken: string | null;
+  fullSyncReconcilePendingIds: string[] | null;
+  fullSyncReconcilePasses: number;
   status: "idle" | "syncing" | "error" | "needs_reauth";
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -126,6 +130,12 @@ function toSyncAccountRow(
     fullSyncPageToken: row.fullSyncPageToken,
     fullSyncHistoryId: row.fullSyncHistoryId,
     fullSyncStartedAt: row.fullSyncStartedAt,
+    fullSyncPhase: row.fullSyncPhase,
+    fullSyncReconcilePageToken: row.fullSyncReconcilePageToken,
+    fullSyncReconcilePendingIds: row.fullSyncReconcilePendingIdsJson
+      ? parseJsonArray<string>(row.fullSyncReconcilePendingIdsJson, [])
+      : null,
+    fullSyncReconcilePasses: row.fullSyncReconcilePasses,
     status: row.status as SyncAccountRow["status"],
     lastError: row.lastError,
     lastSyncedAt: row.lastSyncedAt,
@@ -167,6 +177,44 @@ export async function readInboxThreads(
       desc(schema.mailInboxThreads.id),
     );
   return rows.map(toInboxThreadRow);
+}
+
+export async function countInboxThreads(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+      ),
+    );
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function readInboxThreadIds(
+  ownerEmail: string,
+  accountEmail: string,
+  threadIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = [...new Set(threadIds.filter(Boolean))];
+  if (ids.length === 0) return new Set();
+  const rows = await getDb()
+    .select({ threadId: schema.mailInboxThreads.threadId })
+    .from(schema.mailInboxThreads)
+    .where(
+      and(
+        eq(schema.mailInboxThreads.ownerEmail, ownerEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.accountEmail, accountEmail.toLowerCase()),
+        eq(schema.mailInboxThreads.inInbox, 1),
+        inArray(schema.mailInboxThreads.threadId, ids),
+      ),
+    );
+  return new Set(rows.map((row) => row.threadId));
 }
 
 export async function readSyncAccounts(
@@ -742,6 +790,185 @@ export async function ensureSyncAccountRow(
   return toSyncAccountRow(row);
 }
 
+export type GmailQuotaLane = "interactive" | "incremental" | "backfill";
+
+// ponytail: fixed windows can burst across boundaries; switch to a token bucket if that becomes observable.
+const GMAIL_QUOTA_WINDOW_MS = 60_000;
+const GMAIL_QUOTA_UNITS_PER_MINUTE = 6_000;
+const GMAIL_BACKGROUND_UNITS_PER_MINUTE = 3_000;
+const GMAIL_BACKFILL_UNITS_PER_MINUTE = 2_000;
+
+export async function reserveGmailQuota(
+  ownerEmail: string,
+  accountEmail: string,
+  units: number,
+  lane: GmailQuotaLane,
+  now = Date.now(),
+): Promise<{ retryAfterMs: number; quotaCooldownAttempts: number }> {
+  if (!Number.isSafeInteger(units) || units < 0) {
+    throw new Error(`Invalid Gmail quota cost: ${units}`);
+  }
+  if (units === 0) return { retryAfterMs: 0, quotaCooldownAttempts: 0 };
+  const laneLimit =
+    lane === "interactive"
+      ? GMAIL_QUOTA_UNITS_PER_MINUTE
+      : lane === "backfill"
+        ? GMAIL_BACKFILL_UNITS_PER_MINUTE
+        : GMAIL_BACKGROUND_UNITS_PER_MINUTE;
+  if (units > laneLimit) {
+    throw new Error(`Gmail quota request exceeds the ${lane} lane limit`);
+  }
+
+  const budgets = schema.mailGmailQuotaBudgets;
+  const owner = ownerEmail.toLowerCase();
+  const account = accountEmail.toLowerCase();
+  const id = account;
+  const expired = sql`(${budgets.quotaWindowStartedAt} = 0 OR ${budgets.quotaWindowStartedAt} <= ${now - GMAIL_QUOTA_WINDOW_MS})`;
+  const used = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaUnitsUsed} END`;
+  const backgroundUsed = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaBackgroundUnitsUsed} END`;
+  const backfillUsed = sql`CASE WHEN ${expired} THEN 0 ELSE ${budgets.quotaBackfillUnitsUsed} END`;
+  const backgroundLane = lane !== "interactive";
+  const backfillLane = lane === "backfill";
+  const rows = await getDb()
+    .insert(budgets)
+    .values({
+      id,
+      ownerEmail: owner,
+      accountEmail: account,
+      quotaWindowStartedAt: now,
+      quotaUnitsUsed: units,
+      quotaBackgroundUnitsUsed: backgroundLane ? units : 0,
+      quotaBackfillUnitsUsed: backfillLane ? units : 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: budgets.id,
+      set: {
+        ownerEmail: owner,
+        accountEmail: account,
+        quotaWindowStartedAt: sql`CASE WHEN ${expired} THEN ${now} ELSE ${budgets.quotaWindowStartedAt} END`,
+        quotaUnitsUsed: sql`CASE WHEN ${expired} THEN ${units} ELSE ${budgets.quotaUnitsUsed} + ${units} END`,
+        quotaBackgroundUnitsUsed: sql`CASE WHEN ${expired} THEN ${backgroundLane ? units : 0} ELSE ${budgets.quotaBackgroundUnitsUsed} + ${backgroundLane ? units : 0} END`,
+        quotaBackfillUnitsUsed: sql`CASE WHEN ${expired} THEN ${backfillLane ? units : 0} ELSE ${budgets.quotaBackfillUnitsUsed} + ${backfillLane ? units : 0} END`,
+        quotaCooldownUntil: sql`CASE WHEN ${budgets.quotaCooldownUntil} <= ${now} THEN NULL ELSE ${budgets.quotaCooldownUntil} END`,
+        updatedAt: now,
+      },
+      setWhere: and(
+        or(
+          isNull(budgets.quotaCooldownUntil),
+          lte(budgets.quotaCooldownUntil, now),
+        ),
+        sql`${used} + ${units} <= ${GMAIL_QUOTA_UNITS_PER_MINUTE}`,
+        ...(backgroundLane
+          ? [
+              sql`${backgroundUsed} + ${units} <= ${GMAIL_BACKGROUND_UNITS_PER_MINUTE}`,
+            ]
+          : []),
+        ...(backfillLane
+          ? [
+              sql`${backfillUsed} + ${units} <= ${GMAIL_BACKFILL_UNITS_PER_MINUTE}`,
+            ]
+          : []),
+      ),
+    })
+    .returning({ quotaCooldownAttempts: budgets.quotaCooldownAttempts });
+  if (rows.length > 0) {
+    return {
+      retryAfterMs: 0,
+      quotaCooldownAttempts: rows[0].quotaCooldownAttempts,
+    };
+  }
+
+  const current = await getDb()
+    .select({
+      quotaWindowStartedAt: budgets.quotaWindowStartedAt,
+      quotaCooldownUntil: budgets.quotaCooldownUntil,
+      quotaCooldownAttempts: budgets.quotaCooldownAttempts,
+    })
+    .from(budgets)
+    .where(eq(budgets.id, id))
+    .limit(1);
+  const row = current[0];
+  if (!row) throw new Error(`Missing Gmail quota budget row for ${id}`);
+  if (row.quotaCooldownUntil != null && row.quotaCooldownUntil > now) {
+    return {
+      retryAfterMs: row.quotaCooldownUntil - now,
+      quotaCooldownAttempts: row.quotaCooldownAttempts,
+    };
+  }
+  return {
+    retryAfterMs: Math.max(
+      1,
+      row.quotaWindowStartedAt + GMAIL_QUOTA_WINDOW_MS - now,
+    ),
+    quotaCooldownAttempts: row.quotaCooldownAttempts,
+  };
+}
+
+export async function recordGmailQuotaCooldown(
+  ownerEmail: string,
+  accountEmail: string,
+  retryAfterMs: number | undefined,
+  now = Date.now(),
+): Promise<number> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  const owner = ownerEmail.toLowerCase();
+  const account = accountEmail.toLowerCase();
+  const id = account;
+  const retryAfter = Math.max(0, Math.ceil(retryAfterMs ?? 0));
+  const remainingWindow = sql`GREATEST(1, ${budgets.quotaWindowStartedAt} + ${GMAIL_QUOTA_WINDOW_MS} - ${now})`;
+  const exponentialDelay = sql`LEAST(60000, (1000 * POWER(2, LEAST(${budgets.quotaCooldownAttempts}, 6)))::bigint)`;
+  const cooldownDelay = sql`GREATEST(${retryAfter}, ${remainingWindow}) + ${exponentialDelay}`;
+  const rows = await getDb()
+    .insert(budgets)
+    .values({
+      id,
+      ownerEmail: owner,
+      accountEmail: account,
+      quotaWindowStartedAt: now,
+      quotaCooldownUntil: now + retryAfter + 1_000,
+      quotaCooldownAttempts: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: budgets.id,
+      set: {
+        ownerEmail: owner,
+        accountEmail: account,
+        quotaCooldownUntil: sql`GREATEST(COALESCE(${budgets.quotaCooldownUntil}, 0), ${now} + (${cooldownDelay})::bigint)`,
+        quotaCooldownAttempts: sql`${budgets.quotaCooldownAttempts} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning({ quotaCooldownUntil: budgets.quotaCooldownUntil });
+  const until = rows[0]?.quotaCooldownUntil;
+  if (until == null)
+    throw new Error(`Failed to record Gmail cooldown for ${id}`);
+  return until - now;
+}
+
+export async function clearGmailQuotaCooldownAfterSuccess(
+  accountEmail: string,
+  now = Date.now(),
+): Promise<void> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  await getDb()
+    .update(budgets)
+    .set({ quotaCooldownUntil: null, quotaCooldownAttempts: 0, updatedAt: now })
+    .where(
+      and(
+        eq(budgets.id, accountEmail.toLowerCase()),
+        sql`${budgets.quotaCooldownAttempts} > 0`,
+        or(
+          isNull(budgets.quotaCooldownUntil),
+          lte(budgets.quotaCooldownUntil, now),
+        ),
+      ),
+    );
+}
+
 export class SyncClaimLostError extends Error {
   constructor(accountEmail: string) {
     super(`Sync claim for ${accountEmail} was lost to another worker`);
@@ -828,6 +1055,10 @@ export type SyncAccountPatch = Partial<{
   fullSyncPageToken: string | null;
   fullSyncHistoryId: string | null;
   fullSyncStartedAt: number | null;
+  fullSyncPhase: "reconcile" | null;
+  fullSyncReconcilePageToken: string | null;
+  fullSyncReconcilePendingIds: string[] | null;
+  fullSyncReconcilePasses: number;
   status: SyncAccountRow["status"];
   lastError: string | null;
   lastSyncedAt: number | null;
@@ -889,6 +1120,12 @@ export async function patchSyncAccount(
   const { labels, ...rest } = patch;
   const set: Record<string, unknown> = { ...rest, updatedAt: Date.now() };
   if (labels !== undefined) set.labelsJson = JSON.stringify(labels);
+  if (patch.fullSyncReconcilePendingIds !== undefined) {
+    set.fullSyncReconcilePendingIdsJson = patch.fullSyncReconcilePendingIds
+      ? JSON.stringify(patch.fullSyncReconcilePendingIds)
+      : null;
+    delete set.fullSyncReconcilePendingIds;
+  }
   const conditions = [
     eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
   ];
@@ -916,6 +1153,10 @@ export async function resetSyncAccountProgress(
       fullSyncPageToken: null,
       fullSyncHistoryId: null,
       fullSyncStartedAt: null,
+      fullSyncPhase: null,
+      fullSyncReconcilePageToken: null,
+      fullSyncReconcilePendingIds: null,
+      fullSyncReconcilePasses: 0,
       status: "idle",
       lastError: null,
       syncClaimId: null,

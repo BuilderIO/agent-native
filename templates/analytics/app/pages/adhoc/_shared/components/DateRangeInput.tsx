@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import { DatePicker } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 
@@ -18,14 +20,21 @@ export function DateRangeInput({
   onEndChange,
   className,
 }: DateRangeInputProps) {
+  const t = useT();
   return (
     <div className={cn("flex flex-col gap-1", className)}>
       <label className="text-xs text-muted-foreground font-medium">
         {label}
       </label>
-      <div className="flex items-center gap-1.5">
+      <div
+        role="group"
+        aria-label={label}
+        className="flex items-center gap-1.5"
+      >
         <DatePicker value={startDate} onChange={onStartChange} />
-        <span className="text-xs text-muted-foreground">to</span>
+        <span className="text-xs text-muted-foreground">
+          {t("sqlDashboard.to")}
+        </span>
         <DatePicker value={endDate} onChange={onEndChange} />
       </div>
     </div>

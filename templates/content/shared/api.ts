@@ -192,6 +192,17 @@ export interface ContentNavigationContext {
   workspaceFilesDatabaseId: string | null;
 }
 
+export interface ContentLinkTarget {
+  documentId: string;
+  title: string;
+  icon: string | null;
+}
+
+export interface ContentLinkTargetsResponse {
+  links: Array<ContentLinkTarget & { id: string }>;
+  sources: Array<ContentLinkTarget & { sourcePath: string }>;
+}
+
 export interface DocumentDiscoveryPagination {
   offset: number;
   limit: number;
@@ -258,11 +269,27 @@ export type DocumentPropertySystemRole =
   | "files_parent"
   | "files_source";
 
+/** A linked row of a relation property, resolved for the current viewer. */
+export interface DocumentPropertyRelationTarget {
+  documentId: string;
+  title: string;
+  icon: string | null;
+  /** Set only when the viewer can read the target database. */
+  databaseId: string | null;
+  databaseDocumentId: string | null;
+}
+
 export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
   blocksField?: BlocksFieldIdentity;
+  /**
+   * Relation properties only: the linked rows this viewer may see, in value
+   * order. IDs in `value` without a target here are unavailable (restricted or
+   * trashed — deliberately indistinguishable).
+   */
+  relationTargets?: DocumentPropertyRelationTarget[];
 }
 
 export interface DocumentPropertiesResponse {
@@ -292,6 +319,11 @@ export interface SetDocumentPropertyRequest {
   propertyId: string;
   value: DocumentPropertyValue;
   expectedBlocksFieldRevision?: number;
+  /**
+   * Client-only hint: titles for relation IDs, shown until the server's
+   * resolved targets arrive. The action ignores it.
+   */
+  relationTargets?: DocumentPropertyRelationTarget[];
 }
 
 export interface DuplicateDocumentPropertyRequest {

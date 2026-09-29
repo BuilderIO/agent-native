@@ -1,4 +1,3 @@
-import { resolveOrgDirectoryOrigin } from "@agent-native/core/mcp";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import { createError, defineEventHandler, setResponseHeader } from "h3";
 
@@ -28,7 +27,7 @@ export default defineEventHandler(async (event) => {
       });
       if (!reference && session?.email) {
         const scopes = [session.orgId ?? null];
-        if (session.orgId && !resolveOrgDirectoryOrigin()) scopes.push(null);
+        if (session.orgId) scopes.push(null);
         for (const orgId of scopes) {
           if (
             await ownsPrivateIcon({

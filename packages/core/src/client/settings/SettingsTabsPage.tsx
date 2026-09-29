@@ -24,7 +24,6 @@ import {
 import { Link, useInRouterContext, useLocation } from "react-router";
 
 import { appMountPath, appMountedPath } from "../../client/api-path.js";
-import { SETTINGS_REDESIGN_FLAG } from "../../feature-flags/registry.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import type { LabDefinition } from "../../labs/registry.js";
 import {
@@ -32,7 +31,6 @@ import {
   STANDARD_APP_ROUTES,
 } from "../../navigation/index.js";
 import { legacySettingsTabIdsForPage } from "../../navigation/settings-redirects.js";
-import { useFeatureFlagState } from "../feature-flags/use-feature-flag.js";
 import { useT } from "../i18n.js";
 import { LabsSettings } from "../labs/LabsSettings.js";
 import { cn } from "../utils.js";
@@ -69,8 +67,8 @@ export interface SettingsTabItem {
   keywords?: string;
   searchEntries?: SettingsSearchEntry[];
   /**
-   * Where the redesigned Settings shell (`settings-redesign` flag) puts this
-   * app tab. By default it becomes its own page in the app's group;
+   * Where the redesigned Settings shell puts this app tab. By default it
+   * becomes its own page in the app's group;
    * `"app-area"` makes it a tab on the app's General page (`/settings/app/<id>`).
    * Ignored by today's tabs.
    */
@@ -104,14 +102,15 @@ export interface SettingsAppArea {
 
 export interface SettingsTabsPageProps {
   /**
-   * Today's General tab. The redesigned app General page shows
+   * The tabbed page's General tab, for surfaces that opt out of the Settings
+   * shell (`redesign={false}`). The shell's app General page shows
    * `generalGroups` instead when a template passes both.
    */
   general?: ReactNode;
   /**
-   * The app's own groups on its General page in the redesigned Settings,
-   * between core's Agent and This browser groups. Today's General tab shows
-   * `general` when both are passed, else these.
+   * The app's own groups on its General page in the Settings shell, between
+   * core's Agent and This browser groups. Only the shell renders these: they
+   * may call `useSettingsShell()`, which throws outside it.
    */
   generalGroups?: ReactNode;
   /** The app's own areas, as tabs on its General page (see `SettingsAppArea`). */
@@ -160,8 +159,7 @@ export interface SettingsTabsPageProps {
   whatsNewMarkdown?: string;
   /**
    * Set false on surfaces that are not an app's Settings (the desktop shell's
-   * own settings) so they never adopt the redesigned shell or wait on the
-   * `settings-redesign` flag.
+   * own settings) so they never adopt the redesigned shell.
    */
   redesign?: boolean;
 }
@@ -358,8 +356,7 @@ function isEditableElement(element: Element | null): boolean {
 }
 
 function SettingsTabsPageContent({
-  general: generalTab,
-  generalGroups,
+  general,
   account,
   team,
   whatsNew,
@@ -394,7 +391,6 @@ function SettingsTabsPageContent({
   const autoFocusedSearchRef = useRef(false);
   const controlledHashRef = useRef<string | null>(null);
   const t = useT();
-  const general = generalTab ?? generalGroups;
   const notificationsFallbackLabel = t(
     "agentChat.settingsShell.page.notifications",
   );
@@ -1001,14 +997,7 @@ function LegacySettingsTabsPage(props: SettingsTabsPageProps) {
 }
 
 function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
-  const flag = useFeatureFlagState(SETTINGS_REDESIGN_FLAG.key);
   const initialValueRef = useRef(props.value);
-  // Hold the shell's geometry until the answer arrives; painting today's tabs
-  // first and swapping is the flash this gate exists to prevent.
-  if (flag.status === "loading") {
-    return <SettingsShellSkeleton className={props.className} />;
-  }
-  if (!flag.enabled) return <LegacySettingsTabsPage {...props} />;
   return (
     <Suspense fallback={<SettingsShellSkeleton className={props.className} />}>
       <SettingsShell
@@ -1045,8 +1034,8 @@ function RedesignedSettingsTabsPage(props: SettingsTabsPageProps) {
 }
 
 export function SettingsTabsPage(props: SettingsTabsPageProps) {
-  // No query client means no action surface to read the flag from, so the
-  // flag fails closed exactly as it does for a signed-out viewer.
+  // The shell's pages read through the action surface, which needs a query
+  // client; without one only today's tabs can render.
   const queryClient = useContext(QueryClientContext);
   if (props.redesign === false || !queryClient) {
     return <LegacySettingsTabsPage {...props} />;

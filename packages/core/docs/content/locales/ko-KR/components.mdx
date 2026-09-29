@@ -183,22 +183,22 @@ Toolkit 스타일에는 공유 치수가 포함됩니다. `@agent-native/toolkit
 
 ## 에이전트 및 채팅 UI {#agent-chat-ui}
 
-| API                                  | 가져오기 경로                                   | 다음 경우에 사용                                                                   |
-| ------------------------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client` 또는 `/client/chat` | 앱 주변에 완전한 사이드바가 필요합니다.                                            |
-| `<AgentToggleButton>`                | `@agent-native/core/client` 또는 `/client/chat` | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                          |
-| `<AgentPanel>`                       | `@agent-native/core/client` 또는 `/client/chat` | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다. |
-| `<AgentChatSurface>`                 | `@agent-native/core/client` 또는 `/client/chat` | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                      |
-| `<AssistantChat>`                    | `@agent-native/core/client` 또는 `/client/chat` | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다.             |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 또는 `/client/chat` | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                        |
-| `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 또는 `/client/chat` | 정규화된 채팅 이벤트를 스트리밍하는 BYO 에이전트 엔드포인트가 있습니다.            |
-| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 또는 `/client/chat` | OpenAI 상담원 SDK 스트림이 있고 그 주변에 표준 채팅 UI가 있기를 원합니다.          |
-| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 또는 `/client/chat` | OpenAI 응답 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.               |
-| `createAgUiChatRuntime()`            | `@agent-native/core/client` 또는 `/client/chat` | AG-UI 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                     |
-| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client` 또는 `/client/chat` | Claude 에이전트 SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.              |
-| `createVercelAiChatRuntime()`        | `@agent-native/core/client` 또는 `/client/chat` | Vercel AI SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                    |
-| `useChatThreads()`                   | `@agent-native/core/client` 또는 `/client/chat` | 맞춤 스레드 목록, 기록 선택기 또는 범위 지정 채팅 UI가 필요합니다.                 |
-| `sendToAgentChat()`                  | `@agent-native/core/client` 또는 `/client/chat` | 제품 작업은 상담원 채팅에서 직접 수행해야 합니다.                                  |
+| API                                  | 가져오기 경로                          | 다음 경우에 사용                                                                   |
+| ------------------------------------ | -------------------------------------- | ---------------------------------------------------------------------------------- |
+| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | 앱 주변에 완전한 사이드바가 필요합니다.                                            |
+| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | 사이드바에 헤더 버튼을 직접 렌더링합니다.                                          |
+| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | 자신만의 레이아웃, 경로, 대화 상자 또는 측면 열에 전체 패널이 포함되기를 원합니다. |
+| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | 사이드바 래퍼 없이 패널 또는 페이지 모드에서 채팅을 원합니다.                      |
+| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | 표준 대화 및 작성기 런타임을 유지하면서 주변 크롬을 소유하고 싶습니다.             |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | `AgentPanel` 크롬이 없는 프레임워크의 스레드 탭을 원합니다.                        |
+| `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | 정규화된 채팅 이벤트를 스트리밍하는 BYO 에이전트 엔드포인트가 있습니다.            |
+| `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | OpenAI 상담원 SDK 스트림이 있고 그 주변에 표준 채팅 UI가 있기를 원합니다.          |
+| `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | OpenAI 응답 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.               |
+| `createAgUiChatRuntime()`            | `@agent-native/core/client/agent-chat` | AG-UI 이벤트 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                     |
+| `createClaudeAgentChatRuntime()`     | `@agent-native/core/client/agent-chat` | Claude 에이전트 SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.              |
+| `createVercelAiChatRuntime()`        | `@agent-native/core/client/agent-chat` | Vercel AI SDK 스트림이 있고 이를 채팅 UI로 정규화하려고 합니다.                    |
+| `useChatThreads()`                   | `@agent-native/core/client/agent-chat` | 맞춤 스레드 목록, 기록 선택기 또는 범위 지정 채팅 UI가 필요합니다.                 |
+| `sendToAgentChat()`                  | `@agent-native/core/client/agent-chat` | 제품 작업은 상담원 채팅에서 직접 수행해야 합니다.                                  |
 
 `AgentChatRuntime`는 표준 채팅 셸에 대한 BYO 에이전트 계약입니다. 패스
 외부 에이전트가 전원을 공급해야 하는 경우 `runtime`에서 `<AssistantChat>`까지
@@ -212,7 +212,7 @@ Agent-Native가 작곡가, 대본, 도구 카드를 보관하는 동안 대화
 가장 짧은 사용자 정의 경로는 여전히 사전 배선된 표면입니다:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -222,7 +222,10 @@ export default function ChatRoute() {
 표준 런타임에 대한 맞춤 크롬의 경우:
 
 ```tsx
-import { AssistantChat, useChatThreads } from "@agent-native/core/client/chat";
+import {
+  AssistantChat,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -438,7 +441,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 작업 결과가 앱 품질 UI로 렌더링되어야 하는 경우 기본 도구 위젯을 사용하세요.
 일반 JSON 대신 내부 채팅. 재사용 가능한 내장 출력에는 다음이 포함됩니다.
 `DataTableWidget`, `DataChartWidget` 및 `DataWidgetResult`; 수출되었습니다
-`@agent-native/core/client/chat` 및 루트 클라이언트 항목에서. 참조
+`@agent-native/core/client/widgets` 및 루트 클라이언트 항목에서. 참조
 작업 결과 계약에 대한 [Native 채팅 UI](/docs/native-chat-ui)
 
 | API                              | 다음 경우에 사용                                                                          |

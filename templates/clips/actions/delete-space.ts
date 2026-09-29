@@ -27,8 +27,12 @@ export default defineAction({
 
     const needle = `%"${args.id.replace(/%/g, "")}"%`;
     const affected = await db
-      .select()
+      .select({
+        id: schema.recordings.id,
+        spaceIds: schema.recordings.spaceIds,
+      })
       .from(schema.recordings)
+      // guard:allow-unscoped — after organization-admin authorization, this cleanup scans recordings in that organization to remove references to its deleted space.
       .where(
         and(
           eq(schema.recordings.organizationId, existing.organizationId),
@@ -44,7 +48,13 @@ export default defineAction({
           spaceIds: stringifySpaceIds(ids),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.recordings.id, r.id));
+        // guard:allow-unscoped — keep the cleanup update in the same organization-admin tenant scope as its source query.
+        .where(
+          and(
+            eq(schema.recordings.id, r.id),
+            eq(schema.recordings.organizationId, existing.organizationId),
+          ),
+        );
     }
 
     await db

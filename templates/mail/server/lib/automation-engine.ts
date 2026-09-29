@@ -8,8 +8,6 @@ import { emitAsync, listSubscriptions } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
-  getOAuthTokens,
-  saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
 import {
   getRequestContext,
@@ -61,14 +59,13 @@ import {
   type AutomationModelSettings,
 } from "./automation-model.js";
 import {
-  createOAuth2Client,
   gmailListMessages,
   gmailGetMessage,
   gmailBatchGetMessages,
   gmailListHistory,
   gmailGetProfile,
 } from "./google-api.js";
-import { getOAuth2Credentials } from "./google-auth.js";
+import { getClientForConnectedAccount } from "./google-auth.js";
 
 const MAX_EMAILS_PER_RUN = 50;
 const MAX_PENDING_NOTIFICATION_ATTEMPTS = 8;
@@ -81,13 +78,6 @@ const AUTOMATION_POLL_LEASE_MS = 5 * 60 * 1000;
 function throwIfAborted(signal?: AbortSignal): void {
   signal?.throwIfAborted();
 }
-
-interface StoredTokens {
-  access_token: string;
-  refresh_token?: string;
-  expiry_date?: number;
-}
-
 interface Watermark {
   lastHistoryId?: string;
   pageToken?: string;
@@ -144,44 +134,6 @@ async function resolveAnthropicKey(
     return userKey.key.trim();
   }
   return readDeployCredentialEnv("ANTHROPIC_API_KEY") || undefined;
-}
-
-async function getAccessToken(accountEmail: string): Promise<string | null> {
-  const tokens = (await getOAuthTokens("google", accountEmail)) as unknown as
-    | StoredTokens
-    | undefined;
-  if (!tokens?.access_token) return null;
-
-  if (
-    tokens.expiry_date &&
-    tokens.refresh_token &&
-    tokens.expiry_date < Date.now() + 5 * 60 * 1000
-  ) {
-    try {
-      const { clientId, clientSecret } =
-        await getOAuth2Credentials(accountEmail);
-      const oauth = createOAuth2Client(clientId, clientSecret, "");
-      const refreshed = await oauth.refreshToken(tokens.refresh_token);
-      const updated = {
-        ...tokens,
-        access_token: refreshed.access_token,
-        expiry_date: Date.now() + refreshed.expires_in * 1000,
-      };
-      await saveOAuthTokens(
-        "google",
-        accountEmail,
-        updated as unknown as Record<string, unknown>,
-      );
-      return refreshed.access_token;
-    } catch (err: any) {
-      console.error(
-        `[automation-engine] Token refresh failed for ${accountEmail}:`,
-        err.message,
-      );
-    }
-  }
-
-  return tokens.access_token;
 }
 
 async function getWatermark(
@@ -461,16 +413,29 @@ async function refreshReceivedEventCursor(
   signal?: AbortSignal,
 ): Promise<void> {
   const watermarkKey = receivedEventSettingKey(accountEmail, "watermark");
-  const profile = await gmailGetProfile(accessToken, signal);
+  const historyId = await getCurrentHistoryId(accessToken, signal);
+  await putUserSetting(ownerEmail, watermarkKey, {
+    lastHistoryId: historyId,
+    lastTimestamp: Date.now(),
+  } as any);
+  throwIfAborted(signal);
+}
+
+async function getCurrentHistoryId(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const profile = await gmailGetProfile(
+    accessToken,
+    "incremental",
+    false,
+    signal,
+  );
   throwIfAborted(signal);
   if (typeof profile.historyId !== "string" || !profile.historyId) {
     throw new Error("Gmail did not return a history cursor for Mail events.");
   }
-  await putUserSetting(ownerEmail, watermarkKey, {
-    lastHistoryId: profile.historyId,
-    lastTimestamp: Date.now(),
-  } as any);
-  throwIfAborted(signal);
+  return profile.historyId;
 }
 
 async function emitNewReceivedEvents(
@@ -504,9 +469,6 @@ async function emitNewReceivedEvents(
     ((storedWatermark as any).pendingHistoryId !== undefined &&
       (typeof (storedWatermark as any).pendingHistoryId !== "string" ||
         !(storedWatermark as any).pendingHistoryId)) ||
-    ((storedWatermark as any).fallbackPageToken !== undefined &&
-      (typeof (storedWatermark as any).fallbackPageToken !== "string" ||
-        !(storedWatermark as any).fallbackPageToken)) ||
     ((storedWatermark as any).pendingMessageIds !== undefined &&
       (!Array.isArray((storedWatermark as any).pendingMessageIds) ||
         !(storedWatermark as any).pendingMessageIds.every(
@@ -638,10 +600,13 @@ async function fetchNewInboxMessages(
     lastTimestamp: Date.now(),
   };
   let fallbackToList = !watermark.lastHistoryId;
+  let historyExpired = false;
+  let pageToken = watermark.lastHistoryId ? watermark.pageToken : undefined;
+  let historyId = watermark.lastHistoryId
+    ? watermark.pendingHistoryId
+    : undefined;
 
   if (watermark.lastHistoryId) {
-    let pageToken = watermark.pageToken;
-    let historyId = watermark.pendingHistoryId;
     while (messageIds.length < MAX_EMAILS_PER_RUN) {
       let history: any;
       try {
@@ -654,24 +619,33 @@ async function fetchNewInboxMessages(
             maxResults: MAX_EMAILS_PER_RUN,
             ...(pageToken ? { pageToken } : {}),
           },
+          "incremental",
           signal,
         );
         throwIfAborted(signal);
       } catch (err: any) {
         if (signal?.aborted) signal.throwIfAborted();
         if (err instanceof Error && err.name === "AbortError") throw err;
+        if (
+          err instanceof Error &&
+          /^Google API error \(404\):/.test(err.message)
+        ) {
+          historyExpired = true;
+          historyId = await getCurrentHistoryId(accessToken, signal);
+          pageToken = undefined;
+          nextWatermark = {
+            lastHistoryId: historyId,
+            lastTimestamp: Date.now(),
+          };
+          break;
+        }
         if (pageToken) throw err;
         console.warn(
           "[automation-engine] History list failed, falling back to message list:",
-          err.message,
+          err instanceof Error ? err.message : String(err),
         );
-        if (watermark.fallbackPageToken) {
-          // Keep the original cursor until the fallback pages are drained.
-          break;
-        }
-        nextWatermark = {
-          lastTimestamp: Date.now(),
-        };
+        if (watermark.fallbackPageToken) break;
+        nextWatermark = { lastTimestamp: Date.now() };
         fallbackToList = true;
         break;
       }
@@ -698,7 +672,7 @@ async function fetchNewInboxMessages(
       if (!pageToken) {
         nextWatermark = {
           lastHistoryId: historyId || watermark.lastHistoryId,
-          ...(watermark.fallbackPageToken
+          ...(!historyExpired && watermark.fallbackPageToken
             ? { fallbackPageToken: watermark.fallbackPageToken }
             : {}),
           lastTimestamp: Date.now(),
@@ -717,7 +691,7 @@ async function fetchNewInboxMessages(
           : historyId || watermark.lastHistoryId,
         ...(pageToken ? { pageToken } : {}),
         ...(pageToken && historyId ? { pendingHistoryId: historyId } : {}),
-        ...(watermark.fallbackPageToken
+        ...(!historyExpired && watermark.fallbackPageToken
           ? { fallbackPageToken: watermark.fallbackPageToken }
           : {}),
         ...(pendingMessageIds.length ? { pendingMessageIds } : {}),
@@ -726,7 +700,7 @@ async function fetchNewInboxMessages(
     } else if (historyId) {
       nextWatermark = {
         lastHistoryId: historyId,
-        ...(watermark.fallbackPageToken
+        ...(!historyExpired && watermark.fallbackPageToken
           ? { fallbackPageToken: watermark.fallbackPageToken }
           : {}),
         lastTimestamp: Date.now(),
@@ -734,10 +708,15 @@ async function fetchNewInboxMessages(
     }
   }
 
-  if (fallbackToList || watermark.fallbackPageToken) {
+  if (!historyExpired && (fallbackToList || watermark.fallbackPageToken)) {
     try {
       if (fallbackToList) {
-        const profile = await gmailGetProfile(accessToken, signal);
+        const profile = await gmailGetProfile(
+          accessToken,
+          "incremental",
+          false,
+          signal,
+        );
         throwIfAborted(signal);
         if (typeof profile.historyId !== "string" || !profile.historyId) {
           throw new Error(
@@ -759,6 +738,7 @@ async function fetchNewInboxMessages(
             ? { pageToken: watermark.fallbackPageToken }
             : {}),
         },
+        "incremental",
         signal,
       );
       throwIfAborted(signal);
@@ -818,6 +798,7 @@ async function fetchNewInboxMessages(
       accessToken,
       messageIds,
       "metadata",
+      "incremental",
       signal,
     );
     throwIfAborted(signal);
@@ -854,6 +835,7 @@ async function fetchNewInboxMessages(
             accessToken,
             id,
             "metadata",
+            "incremental",
             signal,
           );
           throwIfAborted(signal);
@@ -2002,7 +1984,11 @@ async function runAutomationsForAccount(
       claimToken,
       signal,
     );
-    const labelCache = await buildLabelCache(accessToken, signal);
+    const labelCache = await buildLabelCache(
+      accessToken,
+      "incremental",
+      signal,
+    );
     throwIfAborted(signal);
     const rulesById = new Map(rules.map((r) => [r.id, r]));
     const aiDecisions: AiFilterDecision[] = [];
@@ -2038,6 +2024,7 @@ async function runAutomationsForAccount(
           ownerEmail,
           accountEmail,
           labelCache,
+          lane: "incremental",
           signal,
           notificationIdempotencyKey: mailNotificationIdempotencyKey(
             ruleId,
@@ -2251,18 +2238,20 @@ export async function processAutomations(
 
   for (const account of accounts) {
     throwIfAborted(signal);
-    const accessToken = await getAccessToken(account.accountId);
-    throwIfAborted(signal);
-    if (!accessToken) continue;
-
     const accountOwnerEmail =
       (account as any).owner || ownerEmail || account.accountId;
+    const client = await getClientForConnectedAccount(
+      accountOwnerEmail,
+      account.accountId,
+    );
+    throwIfAborted(signal);
+    if (!client) continue;
 
     try {
       const result = await processAutomationsForAccount(
         accountOwnerEmail,
         account.accountId,
-        accessToken,
+        client.accessToken,
         signal,
       );
       details.push(result);

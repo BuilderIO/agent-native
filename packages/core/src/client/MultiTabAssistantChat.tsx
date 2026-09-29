@@ -139,11 +139,23 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
       ? { approvedToolCalls: send.approvedToolCalls, hideUserMessage: true }
       : {}),
   };
-  if (Object.keys(options).length > 0) {
-    ref.sendMessage(send.message, send.images, options);
-  } else {
-    ref.sendMessage(send.message, send.images);
-  }
+  const submission =
+    Object.keys(options).length > 0
+      ? ref.sendMessage(send.message, send.images, options)
+      : ref.sendMessage(send.message, send.images);
+  void submission.then(
+    (result) => {
+      if (result.status === "rejected") {
+        reportAgentChatSubmitResult(send.submitMessageId, false, result.reason);
+      }
+    },
+    () =>
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "submission-failed",
+      ),
+  );
 }
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {

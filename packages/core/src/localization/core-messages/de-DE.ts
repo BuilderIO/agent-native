@@ -10,6 +10,8 @@ const messages: AgentChatTranslation = {
   "composer.contextLoadFailed": "Kontext konnte nicht geladen werden.",
   "composer.contextLinkRequired": "Gib einen Link ein.",
   "composer.submitFailed": "Senden fehlgeschlagen. Versuche es erneut.",
+  "composer.attachmentsRemainAfterSubmit":
+    "Die Nachricht wurde gesendet, aber einige Anhänge sind noch vorhanden. Entferne sie, bevor du erneut sendest.",
   "composer.addContext": "Kontext hinzufügen",
   "composer.contextActionFailed": "Kontext konnte nicht hinzugefügt werden.",
   "composer.contextBack": "Zurück",
@@ -76,6 +78,13 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
   "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
+  "observability.promoteMustContain": "Antwort muss enthalten …",
+  "observability.promoteMustContainOptional":
+    "Optionaler Text, nach dem in der Antwort gesucht wird…",
+  "observability.promoteMustContainLabel":
+    "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteNeedsContains":
+    "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
   "observability.hideDetails": "Details ausblenden",
   "observability.input": "Eingabe",
@@ -396,6 +405,8 @@ const messages: AgentChatTranslation = {
   "integrations.recommended": "Empfohlen",
   "integrations.subtitle": "Verbinde die Tools, die dein Agent nutzen kann.",
   "mcpIntegrations.menuLabel": "Integrationen",
+  "mcpApps.optionalPeerRequired":
+    "Diese MCP-App benötigt das Paket {{packageName}}. Installiere es mit {{installCommand}}.",
   "mcpIntegrations.menuDescription":
     "Tools und Dienste mit dem Agenten verbinden",
   "mcpIntegrations.title": "Integrationen verbinden",
@@ -1364,6 +1375,9 @@ const messages: AgentChatTranslation = {
   "settings.emailNewLabel": "Neue E-Mail-Adresse",
   "settings.emailNewPlaceholder": "Neue E-Mail-Adresse eingeben",
   "usage.builderCredits": "Builder-Credits",
+  "featureFlags.builderCreditReferrals.name": "Builder-Guthabenempfehlungen",
+  "featureFlags.builderCreditReferrals.description":
+    "Empfehlungsdetails des verbundenen Builder-Arbeitsbereichs unter „Nutzung“ anzeigen.",
   "usage.inviteFriends": "Freunde einladen",
   "usage.inviteCredits":
     "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",
