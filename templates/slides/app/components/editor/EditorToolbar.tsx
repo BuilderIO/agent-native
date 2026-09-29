@@ -22,6 +22,8 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconLoader2,
   IconAdjustments,
   IconPencilPlus,
@@ -155,6 +157,10 @@ interface EditorToolbarProps {
   onImportDeckBackup?: (file: File) => Promise<{ slideCount: number }>;
   onAddEmptySlide?: () => void;
   addSlideGenerating?: boolean;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 const TOOLBAR_ICON_BUTTON_CLASS =
@@ -214,6 +220,10 @@ export default function EditorToolbar({
   onImportDeckBackup,
   onAddEmptySlide,
   addSlideGenerating,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   canEdit = true,
   canComment = canEdit,
 }: EditorToolbarProps) {
@@ -283,6 +293,14 @@ export default function EditorToolbar({
     !currentSlide?.transition || currentSlide.transition === "none"
       ? "instant"
       : currentSlide.transition;
+  const undoModifier =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘"
+      : "Ctrl";
+  const undoShortcut = `${undoModifier} Z`;
+  const redoShortcut =
+    undoModifier === "⌘" ? `${undoModifier} ⇧ Z` : `${undoModifier} Shift Z`;
 
   const openFileImport = useCallback(() => {
     if (storageQuery.isLoading) {
@@ -932,6 +950,29 @@ export default function EditorToolbar({
             )}
 
             <DropdownMenuSeparator />
+            {(onUndo || onRedo) && (
+              <>
+                <DropdownMenuGroup>
+                  {onUndo && (
+                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                      <IconArrowBackUp className="size-4" />
+                      {t("editorToolbar.undoWithShortcut", {
+                        shortcut: undoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                  {onRedo && (
+                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                      <IconArrowForwardUp className="size-4" />
+                      {t("editorToolbar.redoWithShortcut", {
+                        shortcut: redoShortcut,
+                      })}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={onShowHistory}>
                 <IconHistory className="size-4" />
