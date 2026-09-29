@@ -8,6 +8,7 @@ import {
   encryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { createTtlCache } from "../shared/ttl-cache.js";
 
 export interface IdentityRekeyDb {
   unsafe(
@@ -505,6 +506,30 @@ export interface IdentityRekeyResult {
   oauthRevokedCount: number;
 }
 
+/**
+ * Emails whose last ledger probe found nothing pending. Every authenticated
+ * request probes for a rekey to resume, and the answer is almost always "none".
+ * Only `beginIdentityRekey` and `failIdentityRekey` leave a row pending, and
+ * both clear this; a pending row written by another process (the CLI, another
+ * instance) is picked up at most one TTL late, which only delays the automatic
+ * retry of a rekey that already failed once.
+ */
+const IDLE_REKEY_PROBE_TTL_MS = 15_000;
+const idleRekeyEmails = createTtlCache<true>({
+  ttlMs: IDLE_REKEY_PROBE_TTL_MS,
+  maxEntries: 4_096,
+});
+let rekeyLedgerGeneration = 0;
+
+function markRekeyLedgerPending(): void {
+  rekeyLedgerGeneration += 1;
+  idleRekeyEmails.clear();
+}
+
+export function __resetIdleIdentityRekeyProbeCacheForTests(): void {
+  idleRekeyEmails.clear();
+}
+
 export type IdentityRekeyLedgerStatus = "pending" | "done";
 
 export interface IdentityRekeyLedgerRow {
@@ -579,13 +604,17 @@ export async function beginIdentityRekey(
   const current = existing[0];
   if (current) {
     const id = String(current.id);
-    await db.unsafe(
-      `UPDATE identity_rekeys
-       SET status = 'pending', error = NULL, actor_email = $1,
-           updated_at = $2, completed_at = NULL
-       WHERE id = $3`,
-      [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
-    );
+    try {
+      await db.unsafe(
+        `UPDATE identity_rekeys
+         SET status = 'pending', error = NULL, actor_email = $1,
+             updated_at = $2, completed_at = NULL
+         WHERE id = $3`,
+        [actorEmail?.trim().toLowerCase() ?? null, Date.now(), id],
+      );
+    } finally {
+      markRekeyLedgerPending();
+    }
     return {
       id,
       oldEmail: normalizedOld,
@@ -595,18 +624,22 @@ export async function beginIdentityRekey(
     };
   }
   const id = randomUUID();
-  await db.unsafe(
-    `INSERT INTO identity_rekeys
-       (id, old_email, new_email, status, actor_email, created_at, updated_at)
-     VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
-    [
-      id,
-      normalizedOld,
-      normalizedNew,
-      actorEmail?.trim().toLowerCase() ?? null,
-      Date.now(),
-    ],
-  );
+  try {
+    await db.unsafe(
+      `INSERT INTO identity_rekeys
+         (id, old_email, new_email, status, actor_email, created_at, updated_at)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $5)`,
+      [
+        id,
+        normalizedOld,
+        normalizedNew,
+        actorEmail?.trim().toLowerCase() ?? null,
+        Date.now(),
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
   return {
     id,
     oldEmail: normalizedOld,
@@ -635,16 +668,20 @@ export async function failIdentityRekey(
   ledgerId: string,
   error: unknown,
 ): Promise<void> {
-  await db.unsafe(
-    `UPDATE identity_rekeys
-     SET status = 'pending', error = $1, updated_at = $2
-     WHERE id = $3`,
-    [
-      error instanceof Error ? error.message : String(error),
-      Date.now(),
-      ledgerId,
-    ],
-  );
+  try {
+    await db.unsafe(
+      `UPDATE identity_rekeys
+       SET status = 'pending', error = $1, updated_at = $2
+       WHERE id = $3`,
+      [
+        error instanceof Error ? error.message : String(error),
+        Date.now(),
+        ledgerId,
+      ],
+    );
+  } finally {
+    markRekeyLedgerPending();
+  }
 }
 
 export async function executeIdentityRekey(
@@ -673,8 +710,16 @@ export async function executeIdentityRekey(
 export async function resumePendingIdentityRekeys(
   db: IdentityRekeyDb,
   email: string,
-  options: { ensureLedger?: boolean } = {},
+  options: { ensureLedger?: boolean; cacheIdle?: boolean } = {},
 ): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (options.cacheIdle && idleRekeyEmails.get(normalizedEmail)) return;
+  const generation = rekeyLedgerGeneration;
+  const rememberIdle = () => {
+    if (options.cacheIdle && generation === rekeyLedgerGeneration) {
+      idleRekeyEmails.set(normalizedEmail, true);
+    }
+  };
   if (options.ensureLedger !== false) await ensureIdentityRekeyLedger(db);
   let rows: Array<Record<string, unknown>> & { count?: number };
   try {
@@ -684,7 +729,7 @@ export async function resumePendingIdentityRekeys(
        WHERE status = 'pending'
          AND (LOWER(old_email) = LOWER($1) OR LOWER(new_email) = LOWER($1))
        ORDER BY created_at ASC`,
-      [email.trim().toLowerCase()],
+      [normalizedEmail],
     );
   } catch (error) {
     const code = (error as { code?: unknown }).code;
@@ -694,9 +739,15 @@ export async function resumePendingIdentityRekeys(
         /relation ["'`]?identity_rekeys["'`]? does not exist|no such table: ["'`]?identity_rekeys/i.test(
           String((error as { message?: unknown }).message ?? error),
         ))
-    )
+    ) {
+      rememberIdle();
       return;
+    }
     throw error;
+  }
+  if (rows.length === 0) {
+    rememberIdle();
+    return;
   }
   for (const row of rows) {
     const id = String(row.id);
