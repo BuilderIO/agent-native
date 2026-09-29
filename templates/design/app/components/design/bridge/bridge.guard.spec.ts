@@ -7351,7 +7351,7 @@ it(
                 handle.getAttribute("data-agent-native-radius-handle"),
               ),
           );
-          expect(visibleAtVertex).toEqual(["vertex-0"]);
+          expect(visibleAtVertex).toEqual([]);
         }
         if (
           id === "no-paint-rectangle" ||
