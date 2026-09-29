@@ -358,7 +358,7 @@ export function Composer({
   const t = useT();
   const chatPlaceholder =
     chatEligibility === "checking" || chatEligibility === "eligible"
-      ? "Message the agent…  (@ to mention)"
+      ? t("composer.messageAgent")
       : chatEligibility === "unavailable"
         ? t("setup.providerStatusUnavailable")
         : t("setup.connectToStart");
@@ -855,9 +855,7 @@ export function Composer({
           onSelectionChange={(event) =>
             setSelection(event.nativeEvent.selection)
           }
-          placeholder={
-            canChat ? "Message the agent…  (@ to mention)" : chatPlaceholder
-          }
+          placeholder={chatPlaceholder}
           placeholderTextColor={mutedForeground}
           multiline
           editable={(chatReady || providerStatus === "unknown") && !isRestoring}

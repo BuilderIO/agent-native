@@ -699,7 +699,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
-  it("keeps a fresh chat editable until its model catalog resolves", async () => {
+  it("keeps a fresh chat editable and preserves the host send gate", async () => {
     const engines = [
       {
         name: "builder",
@@ -717,7 +717,12 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     document.body.appendChild(el);
     const localRoot = createRoot(el);
     act(() => {
-      localRoot.render(<MultiTabAssistantChat storageKey="pending-catalog" />);
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey="pending-catalog"
+          composerSubmissionDisabled
+        />,
+      );
     });
 
     expect(
@@ -752,7 +757,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       el
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-composer-submission-disabled"),
-    ).toBe("false");
+    ).toBe("true");
 
     await act(async () => localRoot.unmount());
     el.remove();

@@ -3206,7 +3206,9 @@ export function MultiTabAssistantChat({
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
                   composerDisabled={Boolean(parentMap[tabId])}
-                  composerSubmissionDisabled={modelSelectionPending}
+                  composerSubmissionDisabled={
+                    props.composerSubmissionDisabled || modelSelectionPending
+                  }
                   composerDisabledPlaceholder={
                     parentMap[tabId]
                       ? translate("agentChat.composer.subAgentReadOnly")
