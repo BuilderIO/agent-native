@@ -698,7 +698,7 @@ const PR_REVIEW_GATE_WAIVER_RE =
   /\b(?:(?:don't|do\s+not|never|stop|instead\s+of|rather\s+than|without)\s+wait(?:ing)?\s+for)\b(?:\s+[\w’'-]+){0,5}\s*$/i;
 const PR_REVIEW_GATE_COMPLETION = String.raw`(?:(?:has|have)\s+)?(?:pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off)`;
 const PR_REVIEW_GATE_CONDITION_AFTER_RE = new RegExp(
-  String.raw`^\s*(?:${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,20}\bfirst\b|(?:is|are|has\s+been|have\s+been)\s+required\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)`,
+  String.raw`^\s*(?:${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|${PR_REVIEW_GATE_COMPLETION}[^.!?]{0,40}\bthen\s+(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,40}\b(?:before|prior\s+to|then)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|(?:must|needs?\s+to|has\s+to|have\s+to)\s+(?:pass|succeed|complete|finish|sign\s+off|approve)\b[^.!?]{0,20}\bfirst\b|(?:is|are|has\s+been|have\s+been)\s+(?:still\s+)?required\b[^.!?]{0,40}\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b|before\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b)`,
   "i",
 );
 const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
@@ -708,7 +708,7 @@ const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
   /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
-  /\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
+  /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
   /\b(?:(?:if|when)\b[^.!?]{0,80}\b(?:no changes?(?:\s+(?:are|is))?\s+needed|nothing to change)\b[^.!?]{0,100}\bmerge\b|if\s+we(?:\s+are|['’]re)\s+happy\b[^.!?]{0,40}\bwe\s+merge\b)[^.!?]*/gi;
 const PR_REVIEW_MERGE_PROHIBITION_RE =
@@ -777,13 +777,22 @@ function hasActivePrReviewMergeGate(sentence) {
           after,
         )) ||
       (PR_REVIEW_GATE_CONDITION_AFTER_RE.test(after) &&
-        !PR_REVIEW_GATE_OTHER_SCOPE_RE.test(after)) ||
+        !isOtherProductMergeGate(sentence, match)) ||
       PR_REVIEW_GATE_COMMA_MERGE_RE.test(after)
     ) {
       return true;
     }
   }
   return false;
+}
+
+function isOtherProductMergeGate(sentence, gate) {
+  const otherScope = PR_REVIEW_GATE_OTHER_SCOPE_RE.exec(sentence);
+  return (
+    otherScope &&
+    gate.index >= otherScope.index &&
+    gate.index < otherScope.index + otherScope[0].length
+  );
 }
 
 const PR_REVIEW_HANDOFF_RE = new RegExp(
@@ -815,7 +824,15 @@ const PR_REVIEW_HANDOFF_MATCHER = {
             .match(
               /^\s*[.!?]\s*wait(?:ing)?\s+for\b[^.!?]{0,100}\b(?:first|before\s+(?:we\s+)?merging?)\b[^.!?]*/i,
             )?.[0] ?? "";
-        const reviewText = `${sentence}${nextWait}`;
+        const nextSentence =
+          text
+            .slice(match.index + sentence.length)
+            .match(/^\s*[.!?]\s*[^.!?]{0,160}/)?.[0] ?? "";
+        const nextMergeRequirement =
+          /\b(?:before|prior\s+to)\s+(?:we\s+(?:can\s+)?)?(?:the\s+)?(?:PR\s+)?merg(?:e|ing)\b/i.test(
+            nextSentence,
+          );
+        const reviewText = `${sentence}${nextWait || (nextMergeRequirement ? nextSentence : "")}`;
         return (
           !PR_REVIEW_MERGE_PROHIBITION_RE.test(reviewText) &&
           !hasActivePrReviewMergeGate(reviewText)
@@ -917,6 +934,14 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, merge with the security team's sign-off."],
   [false, "If no changes are needed, merge with review sign-off."],
   [
+    false,
+    "If no changes are needed, this PR is ready to merge. Security approval is still required before we merge.",
+  ],
+  [
+    false,
+    "If no changes are needed, this PR is ready to merge. The security team must sign off before we can merge.",
+  ],
+  [
     true,
     "If no changes are needed, merge with the security team's sign-off notes.",
   ],
@@ -945,6 +970,10 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [
     false,
     "If no changes are needed, merge this PR; all CI checks must pass first.",
+  ],
+  [
+    false,
+    "If no changes are needed, merge this PR; all CI checks must pass first, and require Steve's decision before any major product changes.",
   ],
   [
     false,
