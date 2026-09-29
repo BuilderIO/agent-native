@@ -567,7 +567,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
     expect(
       onRuntimeLayerSnapshotReadinessChange.mock.calls.filter(
-        ([ready]) => ready === true,
+        ([readiness]) => readiness.status === "ready",
       ),
     ).toHaveLength(0);
 

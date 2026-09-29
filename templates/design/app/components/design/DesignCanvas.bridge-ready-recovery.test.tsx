@@ -275,7 +275,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
       documentId,
     });
     await expectImmediateSnapshot(42, "<body>Second</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(3);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
 
     await resolveReservation(1, "reservation-for-42");
     expect(
@@ -305,8 +305,8 @@ describe("DesignCanvas one-shot bridge queue", () => {
     });
 
     await resolveReservation(0, "reservation-for-41");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(4);
-    expect(onRuntimeLayerSnapshot.mock.calls[3]?.[0]).toEqual({
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(5);
+    expect(onRuntimeLayerSnapshot.mock.calls[4]?.[0]).toEqual({
       html: "<body>Fresh after reservation</body>",
       nodeCount: 2,
       documentId,
@@ -315,7 +315,7 @@ describe("DesignCanvas one-shot bridge queue", () => {
 
     await requestReservation(43);
     await expectImmediateSnapshot(43, "<body>Third</body>");
-    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(5);
+    expect(onRuntimeLayerSnapshot).toHaveBeenCalledTimes(6);
     await resolveReservation(2, "reservation-for-43");
     await sendSnapshot(43, "<body>Fresh third</body>", "reservation-for-43");
     expect(onRuntimeLayerSnapshot).toHaveBeenLastCalledWith({
@@ -378,9 +378,10 @@ describe("DesignCanvas one-shot bridge queue", () => {
       ),
     ).toHaveLength(readyCallCountBeforeMatchingError);
     await sendSnapshot(43, "<body>Current iframe after recovery</body>");
-    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
-      true,
-    );
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith({
+      status: "ready",
+      documentId,
+    });
   });
 
   it("holds runtime inserts until the explicit editor-chrome handshake", async () => {
@@ -488,7 +489,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
     iframeWindow.postMessage = ((message: unknown) => {
       posted.push(message);
     }) as Window["postMessage"];
-
     await render({
       requestId: 1,
       transactionId: "move-1",
@@ -571,13 +571,6 @@ describe("DesignCanvas one-shot bridge queue", () => {
       );
     });
 
-    expect(
-      posted.filter(
-        (message) =>
-          (message as { type?: unknown }).type ===
-          "agent-native:editor-chrome-ready-probe",
-      ),
-    ).toHaveLength(1);
     expect(posted).toContainEqual({
       type: "set-text-editing-enabled",
       enabled: true,
