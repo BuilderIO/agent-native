@@ -897,6 +897,46 @@ describe("browser recording startup cancellation", () => {
     ).toHaveLength(2);
   });
 
+  it("retries abort when create fails after cancellation", async () => {
+    useBrowserCameraCapture();
+    const createResponse = deferred<Response>();
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/create-recording")) return createResponse.promise;
+      return new Response("{}", { status: 200 });
+    });
+    const controller = new AbortController();
+    const pending = startRecording({
+      ...params,
+      mode: "camera",
+      cameraOn: true,
+      micOn: false,
+      systemAudioOn: false,
+      signal: controller.signal,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await flush();
+    const id = createdRecordingId();
+    controller.abort();
+    await failed;
+    await flush();
+
+    createResponse.reject(new TypeError("connection closed after create"));
+    await flush();
+
+    const abortCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes(`/api/uploads/${id}/abort`),
+    );
+    expect(abortCalls).toHaveLength(2);
+    expect(
+      abortCalls.every(([, options]) =>
+        String(options?.body).includes('"failureCode":"user_cancelled"'),
+      ),
+    ).toBe(true);
+  });
+
   it("cancels startup when Stop arrives during the countdown", async () => {
     useBrowserCameraCapture();
     const playBeforeCapture = vi.fn(async () => {});

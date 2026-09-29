@@ -1668,12 +1668,12 @@ async function createServerRecording(
         result.uploadMode === "streaming" ? "streaming" : "buffered";
       return { id: result.id, uploadMode };
     } catch (err) {
-      if (!cancellationRequested) {
-        abortCreatedRecording(
-          "Recording creation failed before the server returned its ID",
-          "upload_failed",
-        );
-      }
+      abortCreatedRecording(
+        cancellationRequested
+          ? "Recording cancelled during startup"
+          : "Recording creation failed before the server returned its ID",
+        cancellationRequested ? "user_cancelled" : "upload_failed",
+      );
       throw err;
     }
   })();
