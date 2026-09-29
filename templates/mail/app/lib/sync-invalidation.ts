@@ -17,10 +17,11 @@ export function shouldInvalidateMailQueryForActionEvent(
     }
 
     return (
-      actionKeys.has("sync-inbox") &&
+      (actionKeys.has("sync-inbox") ||
+        actionKeys.has("update-mail-preferences")) &&
       ((queryKey[0] === "action" &&
         (queryKey[1] === "list-inbox-threads" ||
-          queryKey[1] === "list-labels")) ||
+          (actionKeys.has("sync-inbox") && queryKey[1] === "list-labels"))) ||
         queryKey[0] === "mail-inbox-overview")
     );
   }

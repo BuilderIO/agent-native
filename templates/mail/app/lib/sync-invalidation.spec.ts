@@ -56,6 +56,29 @@ describe("shouldInvalidateMailQueryForActionEvent", () => {
     ).toBe(false);
   });
 
+  it("targets inbox reads for preference action events", () => {
+    const events = [{ source: "action", key: "update-mail-preferences" }];
+
+    expect(
+      shouldInvalidateMailQueryForActionEvent(inboxThreadsQuery, events),
+    ).toBe(true);
+    expect(
+      shouldInvalidateMailQueryForActionEvent(inboxOverviewQuery, events),
+    ).toBe(true);
+    expect(shouldInvalidateMailQueryForActionEvent(labelsQuery, events)).toBe(
+      false,
+    );
+    expect(
+      shouldInvalidateMailQueryForActionEvent(queuedDraftsQuery, events),
+    ).toBe(false);
+    expect(
+      shouldInvalidateMailQueryForActionEvent(
+        { queryKey: ["emails", "inbox"] },
+        events,
+      ),
+    ).toBe(false);
+  });
+
   it("does not invalidate action queries for settings events", () => {
     const events = [{ source: "settings" }];
 

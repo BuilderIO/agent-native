@@ -2446,6 +2446,42 @@ describe("gmailBatchArchiveByAccount", () => {
     expect(gmailModifyThread).toHaveBeenCalledOnce();
   });
 
+  it("processes resolved threadless targets before deferring a quota-limited suffix", async () => {
+    const targets = Array.from({ length: 101 }, (_, index) => ({
+      id: `message-${index}`,
+      accountEmail: ACCOUNT,
+    }));
+    let quotaDeferred = false;
+    vi.mocked(gmailGetMessage).mockImplementation(async (_token, id) => {
+      if (id === targets[49].id && !quotaDeferred) {
+        quotaDeferred = true;
+        throw new GmailQuotaCooldownError("message lookup cooldown", 2_000);
+      }
+      return { threadId: `thread-${id}` } as any;
+    });
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_accessToken, threadIds) =>
+        threadIds.map((threadId) => ({
+          id: threadId,
+          data: { messages: [{ id: threadId.replace("thread-", "") }] },
+        })),
+    );
+
+    const first = await gmailBatchArchiveByAccount(OWNER, targets);
+
+    expect(first.succeeded).toEqual(targets.slice(0, 49).map(({ id }) => id));
+    expect(first.remaining).toEqual(targets.slice(49).map(({ id }) => id));
+    expect(first.retryAfterSeconds).toBe(2);
+
+    const retryTargets = targets.filter(({ id }) =>
+      first.remaining.includes(id),
+    );
+    const second = await gmailBatchArchiveByAccount(OWNER, retryTargets);
+
+    expect(second.succeeded).toEqual(targets.slice(49, 99).map(({ id }) => id));
+    expect(second.remaining).toEqual(targets.slice(99).map(({ id }) => id));
+  });
+
   it("returns every selected target when refreshing threads hits a quota cooldown", async () => {
     const targets = Array.from({ length: 3 }, (_, index) => ({
       id: `message-${index}`,

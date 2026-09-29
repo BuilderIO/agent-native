@@ -620,12 +620,8 @@ describe("list-inbox-threads action — local mode (no connected Google account)
 });
 
 describe("list-inbox-threads action — managed workspace grant (no per-user OAuth row)", () => {
-  it("discovers only the canonical managed account before its first sync row exists", async () => {
+  it("discovers a managed grant before its first sync row exists", async () => {
     mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
-    mocks.listWorkspaceConnectionsForApp.mockResolvedValue([
-      { accountId: "managed@example.com", status: "connected" },
-      { accountId: "other-managed@example.com", status: "connected" },
-    ]);
     mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: true,
       connection: {
@@ -654,5 +650,34 @@ describe("list-inbox-threads action — managed workspace grant (no per-user OAu
       { accountEmail: "managed@example.com", state: "initial" },
     ]);
     expect(result.syncing).toBe(true);
+  });
+
+  it("exposes only the managed account selected by the sync resolver", async () => {
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([]);
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValue([
+      { accountId: "managed@example.com", status: "connected" },
+      { accountId: "other-managed@example.com", status: "connected" },
+    ]);
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        accountId: "managed@example.com",
+        status: "connected",
+      },
+    });
+    mocks.readSyncAccounts.mockResolvedValue([]);
+
+    const result = await action.run(
+      { limit: 50, offset: 0 } as any,
+      undefined as any,
+    );
+
+    expect(mocks.listWorkspaceConnectionsForApp).not.toHaveBeenCalled();
+    expect(mocks.readInboxThreads).toHaveBeenCalledWith(OWNER, {
+      accountEmails: ["managed@example.com"],
+    });
+    expect(result.accounts.map((account) => account.accountEmail)).toEqual([
+      "managed@example.com",
+    ]);
   });
 });

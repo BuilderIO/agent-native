@@ -2310,11 +2310,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
         } catch (error: any) {
           if (error instanceof GmailQuotaCooldownError) {
             remaining.push(
-              ...accountEntries
-                .slice(accountIndex)
-                .flatMap(([, targetsForAccount]) =>
-                  targetsForAccount.map((candidate) => candidate.id),
-                ),
+              ...accountTargets.slice(targetIndex).map(({ id }) => id),
             );
             retryAfterSeconds = error.details.retryAfterSeconds;
             quotaDeferred = true;
@@ -2340,8 +2336,6 @@ async function gmailBatchModifyThreadsByAccountInternal(
 
       knownTargets.push({ target, threadId });
     }
-
-    if (quotaDeferred) break;
 
     const threadIdsToRefresh = [
       ...new Set(knownTargets.map(({ threadId }) => threadId)),
@@ -2560,7 +2554,7 @@ async function gmailBatchModifyThreadsByAccountInternal(
         );
       }
     }
-    if (unknownWorkDeferred || threadLookupsDeferred) {
+    if (quotaDeferred || unknownWorkDeferred || threadLookupsDeferred) {
       remaining.push(
         ...accountEntries
           .slice(accountIndex + 1)
