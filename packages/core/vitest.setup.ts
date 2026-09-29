@@ -20,7 +20,8 @@ function isProcessAlive(pid: number): boolean {
 // process lock admits one process at a time, so parallel files collide on it.
 if (!process.env.DATABASE_URL) {
   // Vitest kills its workers rather than letting them exit, so each process
-  // removes the directories dead ones left behind instead of its own.
+  // removes the directories dead ones left behind instead of its own. That
+  // includes one under this process's PID, which the OS may have reused.
   for (const name of readdirSync(os.tmpdir())) {
     const pid = Number(name.slice(DATA_DIR_PREFIX.length).split(".")[0]);
     if (
@@ -29,7 +30,7 @@ if (!process.env.DATABASE_URL) {
     ) {
       continue;
     }
-    if (isProcessAlive(pid)) continue;
+    if (pid !== process.pid && isProcessAlive(pid)) continue;
     rmSync(path.join(os.tmpdir(), name), { recursive: true, force: true });
   }
   const dataDir = path.join(os.tmpdir(), `${DATA_DIR_PREFIX}${process.pid}`);
