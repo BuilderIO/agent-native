@@ -199,6 +199,23 @@ describe("DesignCanvas one-shot bridge queue", () => {
     const readinessRequest = readinessRequests[readinessRequests.length - 1];
     expect(readinessRequest?.readinessRequestId).toEqual(expect.any(Number));
     const readinessRequestId = readinessRequest!.readinessRequestId!;
+    const readinessChangeCount =
+      onRuntimeLayerSnapshotReadinessChange.mock.calls.length;
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    expect(
+      iframePostMessage.mock.calls.filter(
+        ([message]) =>
+          (message as { type?: string })?.type ===
+          "request-runtime-layer-snapshot",
+      ),
+    ).toHaveLength(readinessRequests.length);
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenCalledTimes(
+      readinessChangeCount,
+    );
     await sendSnapshot(40, "<body>Old iframe</body>", undefined, {
       documentId: "runtime-document-old",
       readinessRequestId,
@@ -298,6 +315,44 @@ describe("DesignCanvas one-shot bridge queue", () => {
     await sendBridgeMessage({ type: "agent-native:runtime-reloading" });
     expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
       false,
+    );
+    await sendBridgeMessage({
+      type: "agent-native:editor-chrome-ready",
+      documentId,
+      routePath: "/",
+    });
+    const postReloadReadinessRequests = iframePostMessage.mock.calls
+      .map(
+        ([message]) =>
+          message as { type?: string; readinessRequestId?: number },
+      )
+      .filter((message) => message.type === "request-runtime-layer-snapshot");
+    const postReloadReadinessRequest =
+      postReloadReadinessRequests[postReloadReadinessRequests.length - 1];
+    expect(postReloadReadinessRequest?.readinessRequestId).toEqual(
+      expect.any(Number),
+    );
+    const postReloadReadinessRequestId =
+      postReloadReadinessRequest!.readinessRequestId!;
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId + 1,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      false,
+    );
+    await sendBridgeMessage({
+      type: "agent-native:runtime-layer-snapshot-error",
+      payload: {
+        documentId,
+        readinessRequestId: postReloadReadinessRequestId,
+      },
+    });
+    expect(onRuntimeLayerSnapshotReadinessChange).toHaveBeenLastCalledWith(
+      true,
     );
   });
 

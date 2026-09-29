@@ -3574,7 +3574,6 @@ export function DesignCanvas({
         const requestId = e.data.payload?.requestId;
         const documentId = e.data.payload?.documentId;
         if (
-          e.data.type === "agent-native:runtime-layer-snapshot-unchanged" &&
           editorChromeReadyRef.current &&
           onRuntimeLayerSnapshotReadinessChange &&
           documentId === readyRuntimeLayerDocumentIdRef.current &&
@@ -3895,6 +3894,13 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:editor-chrome-ready") {
+        const documentId =
+          typeof e.data.documentId === "string" && e.data.documentId
+            ? e.data.documentId
+            : null;
+        const shouldRefreshRuntimeLayerSnapshot =
+          !editorChromeReadyRef.current ||
+          documentId !== readyRuntimeLayerDocumentIdRef.current;
         liveEditHealthProbeGenerationRef.current += 1;
         liveEditRestartInFlightRef.current = false;
         if (trustedLateLiveEditReady && lateReadyRecovery) {
@@ -3910,15 +3916,14 @@ export function DesignCanvas({
           setRegisteredLiveEditBridgeKey(lateReadyRecovery.bridgeKey);
         }
         lateLiveEditReadyRecoveryRef.current = null;
-        readyRuntimeLayerDocumentIdRef.current =
-          typeof e.data.documentId === "string" && e.data.documentId
-            ? e.data.documentId
-            : null;
+        readyRuntimeLayerDocumentIdRef.current = documentId;
         bridgeReadyRef.current = true;
         editorChromeReadyRef.current = true;
         onBridgeReady?.();
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
-        refreshRuntimeLayerSnapshotAfterReady();
+        if (shouldRefreshRuntimeLayerSnapshot) {
+          refreshRuntimeLayerSnapshotAfterReady();
+        }
         liveEditRestartAttemptRef.current = 0;
         if (liveEditSameInstanceRearmTimerRef.current !== undefined) {
           window.clearTimeout(liveEditSameInstanceRearmTimerRef.current);
