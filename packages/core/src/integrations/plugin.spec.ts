@@ -2537,6 +2537,54 @@ describe("integrations plugin routes", () => {
     expect(Object.keys(options.actions)).not.toContain("call-agent");
   });
 
+  it("uses the app's initialToolNames for the first request and keeps the rest registered", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const incomingAdapter: PlatformAdapter = {
+      ...adapter,
+      parseIncomingMessage: async () => ({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        text: "hello",
+        senderName: "QA User",
+        platformContext: {},
+        timestamp: Date.now(),
+      }),
+    };
+    handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [incomingAdapter],
+      systemPrompt: "Base prompt.",
+      initialToolNames: ["eager-action"],
+      actions: {
+        "eager-action": {
+          tool: { description: "Loaded up front", parameters: {} },
+          run: async () => "ok",
+        } as any,
+        "deferred-action": {
+          tool: { description: "Found through tool-search", parameters: {} },
+          run: async () => "ok",
+        } as any,
+      },
+    })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    const [, options] = handleWebhookMock.mock.calls[0];
+    expect(options.initialToolNames).toEqual(["eager-action"]);
+    expect(Object.keys(options.actions)).toEqual(
+      expect.arrayContaining(["eager-action", "deferred-action"]),
+    );
+  });
+
   it("politely declines a Slack DM when the default identity ladder declines", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
