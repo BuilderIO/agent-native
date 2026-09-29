@@ -196,7 +196,6 @@ interface EmailListProps {
   emails?: EmailMessage[];
   isLoading?: boolean;
   isFetching?: boolean;
-  isSyncing?: boolean;
   emailsError?: Error | null;
   accountErrors?: AccountError[];
   labels?: Label[];
@@ -506,7 +505,6 @@ export function EmailList({
   emails: emailsProp,
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
-  isSyncing = false,
   emailsError: emailsErrorProp,
   accountErrors: accountErrorsProp,
   labels: labelsProp,
@@ -2797,7 +2795,6 @@ export function EmailList({
             );
           })}
         </div>
-        {isSyncing && <MailLoadingRows count={4} />}
         <AlertDialog
           open={retryUncertainJobId !== null}
           onOpenChange={(open) => !open && setRetryUncertainJobId(null)}

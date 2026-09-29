@@ -1212,10 +1212,9 @@ async function _doEnsureTable(): Promise<void> {
   });
 
   try {
-    const { getBuiltinAgents, BUILTIN_AGENTS_FOR_SEEDING } =
+    const { getBuiltinAgentsForSeeding } =
       await import("../server/agent-discovery.js");
-    void getBuiltinAgents;
-    const builtins = BUILTIN_AGENTS_FOR_SEEDING;
+    const builtins = getBuiltinAgentsForSeeding();
     for (const agent of builtins) {
       const agentJson = JSON.stringify(
         {

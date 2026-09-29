@@ -7,6 +7,10 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
 
+import {
+  BUILTIN_AGENTS_ENV_KEY,
+  workspaceBuiltinAgentsJson,
+} from "../server/builtin-agents.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -740,6 +744,11 @@ export async function runWorkspaceDev(
     readyResolve = resolve;
   });
 
+  function builtinAgentsEnv(): Record<string, string> {
+    const json = workspaceBuiltinAgentsJson(root);
+    return json ? { [BUILTIN_AGENTS_ENV_KEY]: json } : {};
+  }
+
   function workspaceAppsJson(): string {
     return JSON.stringify(
       apps.map((workspaceApp) => ({
@@ -865,6 +874,7 @@ export async function runWorkspaceDev(
           AGENT_NATIVE_WORKSPACE: "1",
           AGENT_NATIVE_WORKSPACE_APP_ID: app.id,
           AGENT_NATIVE_WORKSPACE_APPS_JSON: workspaceAppsJson(),
+          ...builtinAgentsEnv(),
           AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: app.audience,
           AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: JSON.stringify(
             app.publicPaths,

@@ -140,7 +140,10 @@ When testing Claude through ngrok, use a production build (`pnpm exec agent-nati
 then `pnpm exec agent-native start`) or a deployed preview/production URL. Claude's
 transplant path works with production asset chunks; raw Vite dev modules such
 as `/app/root.tsx` can be app-auth protected and fail dynamic imports from the
-Claude resource origin.
+Claude resource origin. A production build refuses local PGlite and a generated
+auth secret, so set `DATABASE_URL` to a Postgres database (a local Postgres or a
+Neon branch) and `BETTER_AUTH_SECRET` (from `openssl rand -hex 32`) before
+`agent-native start`.
 
 For known first-party handoffs, prefer a direct action with `mcpApp` over
 letting the model hunt through screens. Examples: Mail `manage-draft` for email

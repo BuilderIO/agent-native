@@ -34,7 +34,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentSidebar: (props: {
     children: React.ReactNode;
     defaultOpen?: boolean;
-    screenRefreshOnlyWhenPanelActive?: boolean;
+    screenRefreshEnabled?: boolean;
   }) => {
     agentSidebarSpy(props);
     agentSidebarProps.push(props);
@@ -129,11 +129,12 @@ describe("RootShell tree stability", () => {
   it("keeps closed Docs sidebars out of screen-refresh sync", async () => {
     const { RootShell } = await import("./root");
     render(<RootShell mounted />);
+    await vi.dynamicImportSettled();
 
-    await vi.waitFor(() => expect(agentSidebarProps).toHaveLength(1));
-    expect(agentSidebarProps[0]).toMatchObject({
+    await vi.waitFor(() => expect(agentSidebarProps.length).toBeGreaterThan(0));
+    expect(agentSidebarProps.at(-1)).toMatchObject({
       defaultOpen: false,
-      screenRefreshOnlyWhenPanelActive: true,
+      screenRefreshEnabled: false,
     });
   });
 
