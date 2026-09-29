@@ -645,6 +645,7 @@ export default {
     fieldRequired: "{{label}} est obligatoire",
     linkDisabled: "{{title}} désactivé",
     linkEnabled: "{{title}} activé",
+    advanced: "Avancé",
     linkVisibility: "Visibilité du lien",
     linkVisibilityDescription:
       "Désactivez cette option pour désactiver la page publique.",

@@ -607,6 +607,7 @@ export default {
     fieldRequired: "{{label}}은(는) 필수입니다",
     linkDisabled: "{{title}} 비활성화됨",
     linkEnabled: "{{title}} 활성화됨",
+    advanced: "고급",
     linkVisibility: "링크 가시성",
     linkVisibilityDescription:
       "공개 페이지를 비활성화하려면 이 기능을 끄십시오.",

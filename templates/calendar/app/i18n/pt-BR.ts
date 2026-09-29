@@ -632,6 +632,7 @@ export default {
     fieldRequired: "{{label}} é obrigatório",
     linkDisabled: "{{title}} desativado",
     linkEnabled: "{{title}} habilitado",
+    advanced: "Avançado",
     linkVisibility: "Visibilidade do link",
     linkVisibilityDescription: "Desligue isso para desativar a página pública.",
     loadingMeetingTypes: "Carregando tipos de reunião",

@@ -582,6 +582,7 @@ export default {
     fieldRequired: "{{label}} 为必填项",
     linkDisabled: "{{title}} 禁用",
     linkEnabled: "{{title}}已启用",
+    advanced: "高级",
     linkVisibility: "链接可见性",
     linkVisibilityDescription: "关闭此功能可禁用公共页面。",
     loadingMeetingTypes: "正在加载会议类型",
