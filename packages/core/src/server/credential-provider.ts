@@ -1703,6 +1703,23 @@ export async function getBuilderKeyConnections(
   return connections;
 }
 
+/**
+ * Whether a Builder private key is stored as the workspace connection an
+ * org's members fall back to when the org holds none of its own (see
+ * `resolveScopedBuilderCredentials`). Throws when the store cannot be read.
+ */
+export async function hasWorkspaceBuilderKeyConnection(
+  orgId: string,
+): Promise<boolean> {
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  const secrets = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY"],
+    scope: "workspace",
+    scopeId: orgId,
+  });
+  return Boolean(secrets.get("BUILDER_PRIVATE_KEY"));
+}
+
 // ---------------------------------------------------------------------------
 // Generic request-scoped secret resolution
 //

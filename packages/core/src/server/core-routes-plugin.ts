@@ -244,6 +244,7 @@ import {
   canUseDeployCredentialFallbackForRequest,
   CredentialStoreUnavailableError,
   getBuilderKeyConnections,
+  hasWorkspaceBuilderKeyConnection,
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveSecret,
@@ -580,19 +581,22 @@ export const BUILDER_ORG_ALREADY_CONNECTED_ERROR_CODE =
   "builder_org_already_connected";
 
 /**
- * Whether the organization holds a Builder.io connection, as an OAuth grant or
- * a key pair. Throws when the credential store can't be read, so a caller
- * never mistakes "could not look" for "not connected" and overwrites it.
+ * Whether the organization's members share a Builder.io connection: an org
+ * OAuth grant, an org key pair, or the workspace key pair they fall back to.
+ * An org write would take over from any of them. Throws when the credential
+ * store can't be read, so a caller never mistakes "could not look" for "not
+ * connected" and overwrites it.
  */
 export async function hasBuilderOrgConnection(
   ownerEmail: string,
   orgId: string,
 ): Promise<boolean> {
-  const [grant, keys] = await Promise.all([
+  const [grant, keys, workspaceKeys] = await Promise.all([
     hasStoredBuilderOAuthGrant(ownerEmail, "org", orgId),
     getBuilderKeyConnections(ownerEmail, orgId),
+    hasWorkspaceBuilderKeyConnection(orgId),
   ]);
-  return grant || Boolean(keys.org);
+  return grant || Boolean(keys.org) || workspaceKeys;
 }
 
 /**
@@ -3592,7 +3596,8 @@ export function createCoreRoutesPlugin(
               status.agentNativeProvisioningEnabled &&
               Boolean(provisioningToken) &&
               connections.grants !== null &&
-              !connections.grants.org,
+              !connections.grants.org &&
+              effective !== "workspace",
             agentNativeProvisioningToken: provisioningToken,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           };
