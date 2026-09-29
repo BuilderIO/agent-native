@@ -27,7 +27,7 @@ export async function loadOptionalPeer<T>(
   }
 }
 
-function isMissingPeer(error: unknown, packageName: string): boolean {
+export function isMissingPeer(error: unknown, packageName: string): boolean {
   const seen = new Set<object>();
   let current = error;
   for (let depth = 0; depth < 8; depth++) {

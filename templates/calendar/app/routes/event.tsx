@@ -4,8 +4,8 @@ import {
   isInAgentEmbed,
   postNavigate,
 } from "@agent-native/core/client/navigation";
-import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { getCalendarAttendeeCount, type CalendarEvent } from "@shared/api";
 import {
   IconClock,

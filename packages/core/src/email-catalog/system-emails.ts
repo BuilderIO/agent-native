@@ -1,4 +1,4 @@
-import englishMessages from "../localization/core-messages/en-US.js";
+import { BILLING_NOTICE_MESSAGES } from "../localization/billing-notice-messages.js";
 import {
   renderChangeEmailConfirmationEmail,
   renderChangeEmailVerificationEmail,
@@ -42,10 +42,10 @@ export function registerCoreSystemEmails(): void {
     sender: "The configured EMAIL_FROM, branded with the app name.",
     preview: () =>
       renderBuilderCreditLimitEmail({
-        subject: englishMessages["billing.builderCreditLimitTitle"],
-        heading: englishMessages["billing.builderCreditLimitTitle"],
-        body: englishMessages["billing.builderCreditLimitEmailBody"],
-        upgradeLabel: englishMessages["billing.builderCreditUpgrade"],
+        subject: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+        heading: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitTitle,
+        body: BILLING_NOTICE_MESSAGES["en-US"].builderCreditLimitEmailBody,
+        upgradeLabel: BILLING_NOTICE_MESSAGES["en-US"].builderCreditUpgrade,
         upgradeUrl: builderSubscriptionUpgradeUrl("builder_credit_limit_email"),
       }),
   });

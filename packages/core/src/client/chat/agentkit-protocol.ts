@@ -43,7 +43,7 @@ import {
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeCapabilities,

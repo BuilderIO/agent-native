@@ -1,13 +1,6 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AccountSettingsCard,
-  SettingsGroup,
-  SettingsRow,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
+import { AccountSettingsCard, SettingsGroup, SettingsRow, SettingsTabsPage, useAgentSettingsTabs, type SettingsSearchEntry } from "@agent-native/toolkit/app/settings";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 

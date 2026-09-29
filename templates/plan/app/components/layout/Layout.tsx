@@ -1,15 +1,9 @@
-import {
-  AgentSidebar,
-  isAgentChatHomeHandoffActive,
-  isAssistantChatHistoryVersion,
-  useAgentChatHomeHandoff,
-  useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryVersion,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { isAgentChatHomeHandoffActive, isAssistantChatHistoryVersion, useAgentChatHomeHandoff, useAgentChatHomeHandoffLinks, type AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";

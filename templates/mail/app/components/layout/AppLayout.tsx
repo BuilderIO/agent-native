@@ -1,27 +1,14 @@
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
-import { NotificationsBell } from "@agent-native/core/client/notifications";
-import {
-  BuilderCreditNotice,
-  InvitationBanner,
-  OrgSwitcher,
-} from "@agent-native/core/client/org";
-import {
-  AgentNativeIcon,
-  AppSidebarFooter,
-  AppSidebarHeader,
-  EnvironmentBadge,
-  FeedbackButton,
-  RouterSidebarLink,
-} from "@agent-native/core/client/ui";
+import { NotificationsBell } from "@agent-native/toolkit/app/notifications";
+import { BuilderCreditNotice, InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { AgentNativeIcon, AppSidebarFooter, AppSidebarHeader, EnvironmentBadge, RouterSidebarLink } from "@agent-native/toolkit/app/shared";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {

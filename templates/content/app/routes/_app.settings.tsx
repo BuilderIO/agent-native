@@ -1,11 +1,6 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AccountSettingsCard,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client/settings";
+import { AccountSettingsCard, SettingsTabsPage, useAgentSettingsTabs, type SettingsSearchEntry } from "@agent-native/toolkit/app/settings";
 import {
   createCreativeContextAgentTab,
   type CreativeContextAgentTabFactory,

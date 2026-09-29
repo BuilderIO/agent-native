@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
-} from "../chat-first.js";
+} from "../chat-first-state.js";
 import { createAgentKitProtocolAdapter } from "./agentkit-protocol.js";
 import { createAgentNativeChatRuntime } from "./runtime.js";
 import type {

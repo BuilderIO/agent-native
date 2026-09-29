@@ -1,21 +1,17 @@
 import {
   generateTabId,
-  AgentChatSurface,
   buildDynamicAgentSuggestions,
   type AgentDynamicSuggestionContext,
   isAssistantChatHistoryVersion,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
   setAgentChatContextItem,
   removeAgentChatContextItem,
   useAgentChatContext,
-  useExternalAgentHost,
 } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -27,7 +23,6 @@ import {
   type AttributedRecentEdit,
   type OtherPresence,
 } from "@agent-native/core/client/collab";
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
@@ -49,17 +44,11 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
 import {
-  buildReviewThreads,
   useReviewComments,
   useSendReviewThreadToAgent,
-  type ReviewThread,
 } from "@agent-native/core/client/review";
-import {
-  ShareButton,
-  withShareLinkAttribution,
-} from "@agent-native/core/client/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import type { ReviewComment } from "@agent-native/core/review";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
@@ -71,6 +60,19 @@ import {
   useCreativeContextState,
   readCreativeContextState,
 } from "@agent-native/creative-context/client";
+import {
+  AgentChatSurface,
+  useExternalAgentHost,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  buildReviewThreads,
+  type ReviewThread,
+} from "@agent-native/toolkit/app/review";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   LiveCursorOverlay,
   PresenceBar,

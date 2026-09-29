@@ -1,10 +1,6 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  AccountSettingsCard,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+import { AccountSettingsCard, SettingsTabsPage, useAgentSettingsTabs } from "@agent-native/toolkit/app/settings";
 import { CLIPS_LABS } from "@shared/labs";
 import { useMemo } from "react";
 

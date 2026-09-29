@@ -32,16 +32,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { createElement } from "react";
-import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  AuthPage,
   isAgentNativeDesktop,
   isElectron,
   normalizeOAuthReturnPath,
-} from "../client/auth/AuthPage.js";
+} from "../client/auth/auth-page-helpers.js";
 import {
   decodeContinuation,
   encodeContinuation,
@@ -60,7 +57,7 @@ const getOnboardingHtml: typeof getCoreOnboardingHtml = (opts = {}) =>
     ...opts,
     renderSignInPage:
       opts.renderSignInPage ??
-      ((props) => renderToString(createElement(AuthPage, props))),
+      ((props) => `<main data-auth-view="${props.initialView}" />`),
   });
 
 interface JourneyRuntime {

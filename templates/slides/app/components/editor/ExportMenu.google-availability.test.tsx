@@ -25,7 +25,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "/slides",
 }));
 
-vi.mock("@agent-native/core/client/integrations", () => ({
+vi.mock("@agent-native/toolkit/app/integrations", () => ({
   startWorkspaceProviderOAuth: vi.fn(),
 }));
 

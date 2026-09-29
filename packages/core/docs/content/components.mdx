@@ -19,11 +19,11 @@ components when you can, and drop down a layer when you need custom product UI.
 Import browser UI from focused client subpaths:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -201,12 +201,12 @@ Toolkit styles include the shared geometry. `@agent-native/toolkit/app-shell/pro
 
 | API                                  | Import path                            | Use when                                                                                         |
 | ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | You want the complete sidebar around your app.                                                   |
-| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | You render your own header button for the sidebar.                                               |
-| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
-| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
-| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat` | You want the complete sidebar around your app.                                                   |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat` | You render your own header button for the sidebar.                                               |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat` | You want the full panel in your own layout, route, dialog, or side column.                       |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat` | You want chat in panel or page mode without the sidebar wrapper.                                 |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat` | You want to own surrounding chrome while keeping the standard conversation and composer runtime. |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat` | You want the framework's thread tabs without `AgentPanel` chrome.                                |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | You have a BYO agent endpoint that streams normalized chat events.                               |
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | You have an OpenAI Agents SDK stream and want the standard chat UI around it.                    |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | You have an OpenAI Responses event stream and want it normalized into the chat UI.               |
@@ -228,7 +228,7 @@ full app shapes, see [Agent Surfaces](/docs/agent-surfaces).
 The shortest custom route is still a pre-wired surface:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -238,10 +238,8 @@ export default function ChatRoute() {
 For custom chrome around the standard runtime:
 
 ```tsx
-import {
-  AssistantChat,
-  useChatThreads,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -268,11 +266,11 @@ for the connector usage, the normalized event stream, and when to reach for
 
 ## Chat Field And Composer {#composer}
 
-Use `@agent-native/core/client/composer` when you need to place the same chat
+Use `@agent-native/toolkit/app/chat/composer` when you need to place the same chat
 field used by the sidebar inside custom UI.
 
 Toolkit owns the shared Tiptap and composer UI implementation. The
-`@agent-native/core/client/composer` entry is its framework-wired wrapper: it
+`@agent-native/toolkit/app/chat/composer` entry is its framework-wired wrapper: it
 binds the Core runtime adapters used by attachments, mentions, skills, voice,
 and model selection. Reusable packages that need portable bare UI can import
 `@agent-native/toolkit/composer` instead, but must render it inside
@@ -289,7 +287,7 @@ and model selection. Reusable packages that need portable bare UI can import
 Most custom UIs should start with `PromptComposer`:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -341,7 +339,7 @@ The picker configuration accepts:
 An app can register already-authorized choices. Here, `labels` contains localized app copy and `stageReference` updates the host's staged context:
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -445,7 +443,7 @@ The snapshot preserves `undefined` versus an explicit empty array. It rejects mo
 
 ## Conversation Rendering {#conversation}
 
-Use `@agent-native/core/client/conversation` for transcript-style rendering
+Use `@agent-native/toolkit/app/chat/conversation` for transcript-style rendering
 outside the full agent runtime.
 
 | API                                             | Use when                                                         |
@@ -571,7 +569,7 @@ import {
 
 ## Rich Editor {#rich-editor}
 
-Use `@agent-native/core/client/editor` when you need the shared markdown editor
+Use `@agent-native/toolkit/editor` when you need the shared markdown editor
 surface used by plans, content, resources, and collaborative document
 experiences.
 
@@ -589,7 +587,7 @@ experiences.
 The basic controlled editor is just markdown in and markdown out:
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -606,7 +604,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -702,9 +700,9 @@ function WorkspaceResources() {
 | Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
 | Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
 | Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |
-| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/core/client/observability` |
+| Observability | `<ObservabilityDashboard>`, `<ThumbsFeedback>`         | `@agent-native/toolkit/app/observability` |
 | Resources     | `<ResourcesPanel>`, `<ResourceTree>`, resource hooks   | `@agent-native/core/client/resources`     |
-| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/core/client/editor`        |
+| Rich editor   | `<SharedRichEditor>`, slash commands, block node hooks | `@agent-native/toolkit/editor`            |
 
 ## One-Off Text Completion {#one-off-text-completion}
 

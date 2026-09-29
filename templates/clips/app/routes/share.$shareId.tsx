@@ -1,4 +1,3 @@
-import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
@@ -11,13 +10,14 @@ import {
   getBrowserTabId,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+import { AgentPanel } from "@agent-native/toolkit/app/chat";
 import {
   AgentNativeIcon,
-  buildSignInReturnHref,
   DefaultSpinner,
   EnvironmentBadge,
-} from "@agent-native/core/client/ui";
-import { usePersistentSidebarCollapsed } from "@agent-native/toolkit/app-shell";
+} from "@agent-native/toolkit/app/shared";
 import {
   isImageRecording,
   screenshotFileExtension,

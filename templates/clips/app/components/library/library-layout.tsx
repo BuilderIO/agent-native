@@ -1,20 +1,11 @@
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
-import {
-  InvitationBanner,
-  OrgSwitcher,
-  useOrgRole,
-} from "@agent-native/core/client/org";
-import {
-  AppSidebarFooter,
-  AppSidebarHeader,
-} from "@agent-native/core/client/ui";
+import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { useOrgRole } from "@agent-native/core/client/org";
+import { AppSidebarFooter, AppSidebarHeader } from "@agent-native/toolkit/app/shared";
 import { CLIPS_MEETINGS, CLIPS_WISPRFLOW } from "@shared/labs";
 import {
   IconInbox,

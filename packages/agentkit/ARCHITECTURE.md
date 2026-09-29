@@ -5,11 +5,11 @@ its agent interaction and experience layer. Toolkit is the semantic
 design-system and workspace layer. These layers are designed to work together
 without collapsing their ownership boundaries.
 
-| Layer        | Owns                                                                                       | Does not own                                    |
-| ------------ | ------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| Agent-Native | Actions, SQL, application state, agent execution, auth, access, persistence, deployment    | Portable conversation UI contracts              |
-| AgentKit     | Protocol, event validation, client state, transports, React bindings, agent UI composition | App data, authorization policy, agent execution |
-| Toolkit      | Semantic controls, composer building blocks, design-system adapters, workspace UI          | Conversation state or backend behavior          |
+| Layer        | Owns                                                                                    | Does not own                                    |
+| ------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Agent-Native | Actions, SQL, application state, agent execution, auth, access, persistence, deployment | Portable conversation UI contracts              |
+| AgentKit     | Protocol, event validation, client state, transports                                    | App data, authorization policy, agent execution |
+| Toolkit      | React runtime and agent UI, semantic controls, composer building blocks, workspace UI   | Conversation state or backend behavior          |
 
 AgentKit also runs with another backend. That backend must own the same
 execution and security responsibilities that Agent-Native normally provides.
@@ -22,7 +22,7 @@ versioned AgentKit protocol + validation
               ↓ transport
 headless AgentKit client + event reducer
               ↓ subscription
-React provider + AgentKit UI using Toolkit semantics
+Toolkit React provider + AgentKit UI using Toolkit semantics
               ↓ composition
 app slots, registries, callbacks, and workspace chrome
 ```
@@ -243,14 +243,14 @@ runtime:
 
 ## Public distribution
 
-Applications install one package, `@agent-native/agentkit`. The root import
-exposes only the dependency-free protocol and headless client. HTTP, React, and
-conformance live behind the explicit `/http`, `/react`, and `/conformance`
-subpaths, so a server, native client, or alternate renderer does not load
-unrelated runtime code. The five former sibling packages (`agentkit-protocol`,
-`agentkit-client`, `agentkit-adapters`, `agentkit-conformance`, and
-`agentkit-react`) map onto those subpaths; the
-[README](./README.md#package-layout) carries the mapping.
+Applications install `@agent-native/agentkit` for the protocol, headless client,
+HTTP transport, and conformance tools. React bindings and conversation UI live
+in `@agent-native/toolkit/app/agentkit/*`; those Core-aware app surfaces consume
+Core through its optional peer dependency. A server, native client, or alternate
+renderer can install AgentKit without React or Toolkit. The five former sibling
+packages (`agentkit-protocol`, `agentkit-client`, `agentkit-adapters`,
+`agentkit-conformance`, and `agentkit-react`) map to the entries documented in
+the [README](./README.md#package-layout).
 
 ## Stability path
 

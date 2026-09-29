@@ -1,4 +1,4 @@
-import type { PromptComposerProps } from "@agent-native/core/client/composer";
+import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
 

@@ -1,0 +1,557 @@
+// @vitest-environment happy-dom
+
+import { QueryClient } from "@tanstack/react-query";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const useSessionMock = vi.fn();
+vi.mock("@agent-native/core/client/use-session", () => ({
+  useSession: () => useSessionMock(),
+}));
+vi.mock("@agent-native/toolkit/ui/sonner", () => ({
+  Toaster: (props: {
+    richColors?: boolean;
+    position?: string;
+    offset?: unknown;
+    mobileOffset?: unknown;
+  }) => (
+    <div
+      data-testid="toolkit-toaster"
+      data-rich-colors={String(Boolean(props.richColors))}
+      data-position={props.position}
+      data-offset={JSON.stringify(props.offset)}
+      data-mobile-offset={JSON.stringify(props.mobileOffset)}
+    />
+  ),
+}));
+
+import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
+
+import { AppProviders } from "./AppProviders.js";
+
+let container: HTMLDivElement;
+let root: Root;
+let originalLocation: Location;
+let originalParent: Window;
+let originalFetch: typeof window.fetch;
+let originalModelContext: PropertyDescriptor | undefined;
+let originalDocumentTitle: string;
+let replaceMock: ReturnType<typeof vi.fn>;
+
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  originalDocumentTitle = document.title;
+  document.title = "";
+  replaceMock = vi.fn();
+  originalFetch = window.fetch;
+  originalModelContext = Object.getOwnPropertyDescriptor(
+    document,
+    "modelContext",
+  );
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: vi
+      .fn()
+      .mockRejectedValue(new Error("configuration probe unavailable")),
+  });
+  originalLocation = window.location;
+  originalParent = window.parent;
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: {
+      pathname: "/inbox",
+      search: "",
+      hash: "",
+      origin: "https://app.example.com",
+      href: "https://app.example.com/inbox",
+      replace: replaceMock,
+    },
+  });
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: originalLocation,
+  });
+  Object.defineProperty(window, "parent", {
+    configurable: true,
+    value: originalParent,
+  });
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: originalFetch,
+  });
+  if (originalModelContext) {
+    Object.defineProperty(document, "modelContext", originalModelContext);
+  } else {
+    delete (document as Document & { modelContext?: unknown }).modelContext;
+  }
+  document.title = originalDocumentTitle;
+  vi.clearAllMocks();
+});
+
+function renderProviders(props: {
+  isPublicPath?: boolean;
+  sessionBypass?: boolean;
+  skipFirstRunOnboarding?: boolean;
+  disableWebMcp?: boolean;
+  children?: React.ReactNode;
+}) {
+  const { children, ...providerProps } = props;
+  act(() => {
+    root.render(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        toaster={null}
+        {...providerProps}
+      >
+        {children ?? <div data-testid="app-content">content</div>}
+      </AppProviders>,
+    );
+  });
+}
+
+let statefulAppMounts = 0;
+
+function StatefulApp() {
+  const [mount] = React.useState(() => ++statefulAppMounts);
+  return <div data-testid="stateful-app">{mount}</div>;
+}
+
+function setupWebMcpManifest() {
+  const modelContext = {
+    registerTool: vi.fn(async () => {}),
+    getTools: vi.fn(async () => []),
+    executeTool: vi.fn(async () => ""),
+  };
+  Object.defineProperty(document, "modelContext", {
+    configurable: true,
+    value: modelContext,
+  });
+  const fetchMock = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify([
+          {
+            name: "view-screen",
+            description: "Read the current screen",
+            inputSchema: { type: "object" },
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+  );
+  Object.defineProperty(window, "fetch", {
+    configurable: true,
+    value: fetchMock,
+  });
+  return { fetchMock, modelContext };
+}
+
+const SIGNED_OUT_SESSION = {
+  session: null,
+  isLoading: false,
+  status: "unauthenticated" as const,
+};
+
+const SIGNED_IN_SESSION = {
+  session: { userId: "user-1", email: "user@example.com" },
+  isLoading: false,
+  status: "authenticated" as const,
+};
+
+describe("AppProviders session gate", () => {
+  it("uses Toolkit's theme-aware toaster by default", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    const toaster = container.querySelector('[data-testid="toolkit-toaster"]');
+    expect(toaster?.getAttribute("data-rich-colors")).toBe("true");
+    expect(toaster?.getAttribute("data-position")).toBe("bottom-left");
+    expect(toaster?.getAttribute("data-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 32 }),
+    );
+    expect(toaster?.getAttribute("data-mobile-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 16 }),
+    );
+  });
+
+  it("preserves a custom toaster without adding default offsets", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={<div data-testid="custom-toaster" />}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="custom-toaster"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="toolkit-toaster"]'),
+    ).toBeNull();
+  });
+
+  it("renders public paths directly without redirecting or gating a session", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ isPublicPath: true });
+
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).toBeNull();
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("emits the session bootstrap on private SSR paths only", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const privateMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false}>
+        <div>content</div>
+      </AppProviders>,
+    );
+    const publicMarkup = renderToStaticMarkup(
+      <AppProviders queryClient={new QueryClient()} i18n={false} isPublicPath>
+        <div>content</div>
+      </AppProviders>,
+    );
+
+    expect(privateMarkup).toContain('data-agent-native-session-bootstrap="1"');
+    expect(privateMarkup).toContain("AbortController");
+    expect(privateMarkup).toContain("abort()");
+    expect(publicMarkup).not.toContain("data-agent-native-session-bootstrap");
+  });
+
+  it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit public-path persistPreference opt-in session-aware", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          toaster={null}
+          isPublicPath
+          disableWebMcp
+          i18n={{ persistPreference: true }}
+        >
+          <div data-testid="app-content">content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(useSessionMock).toHaveBeenCalled();
+  });
+
+  it("skips WebMCP registration for signed-out public-path visitors", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(() => {
+      expect(useSessionMock).toHaveBeenCalled();
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("registers WebMCP actions on signed-in public paths", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/webmcp/manifest",
+          expect.objectContaining({ credentials: "same-origin" }),
+        );
+        expect(modelContext.registerTool).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "view-screen" }),
+          expect.anything(),
+        );
+      },
+      { timeout: 4000, interval: 50 },
+    );
+  });
+
+  it("does not start WebMCP registration while the session is unavailable", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+    expect(modelContext.registerTool).not.toHaveBeenCalled();
+  });
+
+  it("starts WebMCP registration when an unavailable session becomes authenticated", async () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable" as const,
+    });
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    renderProviders({ isPublicPath: true });
+
+    await vi.waitFor(
+      () => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/_agent-native/webmcp/manifest",
+          expect.objectContaining({ credentials: "same-origin" }),
+        );
+        expect(modelContext.registerTool).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "view-screen" }),
+          expect.anything(),
+        );
+      },
+      { timeout: 4000, interval: 50 },
+    );
+  });
+
+  it("allows template roots to disable automatic WebMCP registration", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const { fetchMock } = setupWebMcpManifest();
+
+    renderProviders({ isPublicPath: true, disableWebMcp: true });
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/_agent-native/webmcp/manifest",
+      expect.anything(),
+    );
+  });
+
+  it("gates private paths and redirects signed-out visitors after hydration", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({});
+
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).not.toBeNull();
+    expect(container.firstElementChild?.tagName).toBe("SCRIPT");
+    expect(useSessionMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
+    );
+  });
+
+  it("allows token-authenticated private surfaces to bypass the session gate", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ sessionBypass: true });
+
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('script[data-agent-native-beta-redirect="1"]'),
+    ).toBeNull();
+    expect(useSessionMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session gate when a route skips first-run onboarding", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+    expect(useSessionMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation("/inbox")}`,
+    );
+  });
+
+  it("preserves app state when a route toggles onboarding suppression", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    statefulAppMounts = 0;
+
+    renderProviders({
+      skipFirstRunOnboarding: false,
+      children: <StatefulApp />,
+    });
+    const mount = container.querySelector(
+      '[data-testid="stateful-app"]',
+    )?.textContent;
+
+    renderProviders({
+      skipFirstRunOnboarding: true,
+      children: <StatefulApp />,
+    });
+
+    expect(
+      container.querySelector('[data-testid="stateful-app"]')?.textContent,
+    ).toBe(mount);
+    expect(statefulAppMounts).toBe(1);
+  });
+
+  it("registers WebMCP actions on token-authenticated private surfaces", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const { fetchMock, modelContext } = setupWebMcpManifest();
+
+    renderProviders({ sessionBypass: true });
+
+    // Bypass surfaces register immediately: a token-authenticated MCP embed's
+    // host may call tools right away, so the manifest fetch must not wait out
+    // the paint-aligned window (only the session-gated variant defers).
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/_agent-native/webmcp/manifest",
+        expect.objectContaining({ credentials: "same-origin" }),
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(modelContext.registerTool).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "view-screen" }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("applies theme updates only when they come from the embedding parent", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const parent = {} as Window;
+    const unrelated = {} as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parent,
+    });
+
+    renderProviders({ isPublicPath: true });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: unrelated,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: parent,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("dark");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:theme-change", {
+          detail: {
+            type: "agent-native-theme-update",
+            theme: "light",
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
+  });
+
+  it("repairs structured route titles before they reach the browser tab", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    document.title = "Manage agent";
+
+    renderProviders({ isPublicPath: true });
+
+    act(() => {
+      document.title = '[{"id":"automation-1","status":"success"}]';
+    });
+
+    await vi.waitFor(() => expect(document.title).toBe("Manage agent"));
+  });
+});

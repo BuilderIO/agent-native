@@ -1,10 +1,4 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import {
-  ChatFirstAppPane,
-  defaultChatFirstCopy,
-  type ChatFirstCopy,
-} from "@agent-native/core/client/chat-first";
 import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionMutation,
@@ -13,6 +7,12 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import {
+  ChatFirstAppPane,
+  defaultChatFirstCopy,
+  type ChatFirstCopy,
+} from "@agent-native/toolkit/app/chat/chat-first";
 import {
   IconAlertTriangle,
   IconArrowLeft,

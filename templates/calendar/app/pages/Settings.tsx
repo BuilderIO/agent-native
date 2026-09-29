@@ -1,9 +1,5 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import {
-  AccountSettingsCard,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-} from "@agent-native/core/client/settings";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
+import { AccountSettingsCard, SettingsTabsPage, useAgentSettingsTabs } from "@agent-native/toolkit/app/settings";
 
 import changelog from "../../CHANGELOG.md?raw";
 import {

@@ -1,11 +1,5 @@
-import {
-  AgentSidebar,
-  focusAgentChat,
-  isAgentChatHomeHandoffActive,
-  navigateWithAgentChatViewTransition,
-  useAgentChatHomeHandoff,
-  useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { isAgentChatHomeHandoffActive, navigateWithAgentChatViewTransition, useAgentChatHomeHandoff, useAgentChatHomeHandoffLinks } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";

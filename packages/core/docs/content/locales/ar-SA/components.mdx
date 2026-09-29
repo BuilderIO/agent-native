@@ -13,11 +13,11 @@ description: "العناصر الأساسية العامة React للوكيل ا
 استيراد المتصفح UI من مسارات العميل الفرعية المركزة:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-import { PromptComposer } from "@agent-native/core/client/composer";
-import { AgentConversation } from "@agent-native/core/client/conversation";
+import { AgentSidebar } from "@agent-native/toolkit/app/chat";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
+import { AgentConversation } from "@agent-native/toolkit/app/chat/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { ResourcesPanel } from "@agent-native/core/client/resources";
 ```
 
@@ -189,12 +189,12 @@ import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
 
 | API                                  | مسار الاستيراد                         | استخدم عندما                                                                        |
 | ------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------- |
-| `<AgentSidebar>`                     | `@agent-native/core/client/agent-chat` | تريد الشريط الجانبي الكامل حول تطبيقك.                                              |
-| `<AgentToggleButton>`                | `@agent-native/core/client/agent-chat` | يمكنك عرض زر الرأس الخاص بك للشريط الجانبي.                                         |
-| `<AgentPanel>`                       | `@agent-native/core/client/agent-chat` | تريد اللوحة الكاملة في التخطيط أو المسار أو مربع الحوار أو العمود الجانبي الخاص بك. |
-| `<AgentChatSurface>`                 | `@agent-native/core/client/agent-chat` | تريد الدردشة في وضع اللوحة أو الصفحة بدون غلاف الشريط الجانبي.                      |
-| `<AssistantChat>`                    | `@agent-native/core/client/agent-chat` | تريد امتلاك Chrome المحيط مع الاحتفاظ بالمحادثة القياسية ووقت تشغيل الملحن.         |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client/agent-chat` | تريد علامات تبويب مؤشر ترابط إطار العمل بدون `AgentPanel` chrome.                   |
+| `<AgentSidebar>`                     | `@agent-native/toolkit/app/chat` | تريد الشريط الجانبي الكامل حول تطبيقك.                                              |
+| `<AgentToggleButton>`                | `@agent-native/toolkit/app/chat` | يمكنك عرض زر الرأس الخاص بك للشريط الجانبي.                                         |
+| `<AgentPanel>`                       | `@agent-native/toolkit/app/chat` | تريد اللوحة الكاملة في التخطيط أو المسار أو مربع الحوار أو العمود الجانبي الخاص بك. |
+| `<AgentChatSurface>`                 | `@agent-native/toolkit/app/chat` | تريد الدردشة في وضع اللوحة أو الصفحة بدون غلاف الشريط الجانبي.                      |
+| `<AssistantChat>`                    | `@agent-native/toolkit/app/chat` | تريد امتلاك Chrome المحيط مع الاحتفاظ بالمحادثة القياسية ووقت تشغيل الملحن.         |
+| `<MultiTabAssistantChat>`            | `@agent-native/toolkit/app/chat` | تريد علامات تبويب مؤشر ترابط إطار العمل بدون `AgentPanel` chrome.                   |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client/agent-chat` | لديك نقطة نهاية وكيل BYO تعمل على بث أحداث الدردشة الطبيعية.                        |
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client/agent-chat` | لديك ساحة بث OpenAI Agents SDK وتريد الدردشة القياسية UI حوله.                      |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client/agent-chat` | لديك تدفق أحداث ردود OpenAI وتريد تطبيعه في الدردشة UI.                             |
@@ -216,7 +216,7 @@ import { TemplatePreviewDialog } from "@agent-native/toolkit/app-shell";
 لا يزال أقصر مسار مخصص سطحًا مزودًا بأسلاك مسبقًا:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/agent-chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -226,10 +226,8 @@ export default function ChatRoute() {
 بالنسبة إلى Chrome المخصص في وقت التشغيل القياسي:
 
 ```tsx
-import {
-  AssistantChat,
-  useChatThreads,
-} from "@agent-native/core/client/agent-chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { useChatThreads } from "@agent-native/core/client/agent-chat";
 
 function CustomChat({ projectSlug }: { projectSlug: string }) {
   const threads = useChatThreads(undefined, projectSlug);
@@ -256,7 +254,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## حقل الدردشة والملحن {#composer}
 
-استخدم `@agent-native/core/client/composer` عندما تحتاج إلى حقل الدردشة نفسه
+استخدم `@agent-native/toolkit/app/chat/composer` عندما تحتاج إلى حقل الدردشة نفسه
 الذي يستخدمه الشريط الجانبي داخل UI مخصص. توفّر `@agent-native/toolkit/composer`
 واجهة Tiptap ومكوّنات UI المحمولة المجردة؛ وعند استخدامها مع خدمات إطار العمل، غلّفها
 بـ `ComposerRuntimeAdaptersProvider` وقدّم الخدمات. Core هو الغلاف الموصّل للمرفقات والإشارات والمهارات والصوت واختيار النموذج.
@@ -272,7 +270,7 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 يجب أن تبدأ معظم UI المخصصة بـ `PromptComposer`:
 
 ```tsx
-import { PromptComposer } from "@agent-native/core/client/composer";
+import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 <PromptComposer
   placeholder="Ask the agent..."
@@ -324,7 +322,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 يمكن للتطبيق تسجيل خيارات مصرح بها مسبقًا. تحتوي `labels` هنا على نصوص التطبيق المترجمة، وتحدّث `stageReference` السياق المجهّز لدى المضيف:
 
 ```tsx
-import type { ComposerContextMenuItem } from "@agent-native/core/client/composer";
+import type { ComposerContextMenuItem } from "@agent-native/toolkit/app/chat/composer";
 import { Link } from "react-router";
 
 const contextMenuItems: ComposerContextMenuItem[] = [
@@ -428,7 +426,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 ## عرض المحادثة {#conversation}
 
-استخدم `@agent-native/core/client/conversation` لعرض نمط النص
+استخدم `@agent-native/toolkit/app/chat/conversation` لعرض نمط النص
 خارج وقت تشغيل الوكيل الكامل.
 
 | API                                             | استخدم عندما                                             |
@@ -543,7 +541,7 @@ import {
 
 ## محرر منسق {#rich-editor}
 
-استخدم `@agent-native/core/client/editor` عندما تحتاج إلى محرر Markdown المشترك
+استخدم `@agent-native/toolkit/editor` عندما تحتاج إلى محرر Markdown المشترك
 السطح الذي تستخدمه الخطط والمحتوى والموارد والمستندات التعاونية
 التجارب.
 
@@ -561,7 +559,7 @@ import {
 المحرر الأساسي الذي يتم التحكم فيه هو مجرد تخفيض للداخل وتخفيض للخارج:
 
 ```tsx
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 <SharedRichEditor
   value={markdown}
@@ -578,7 +576,7 @@ import {
   emailToColor,
   useCollaborativeDoc,
 } from "@agent-native/core/client/collab";
-import { SharedRichEditor } from "@agent-native/core/client/editor";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 
 const editorUser = {
   name: user.name,
@@ -674,9 +672,9 @@ function WorkspaceResources() {
 | الإشعارات       | `<NotificationsBell>`                                      | `@agent-native/core/client/notifications` |
 | التقدم          | `<RunsTray>`، خطافات التقدم وأنواعها                       | `@agent-native/core/client/progress`      |
 | التأهيل         | `useOnboarding()`، خطافات لوحة التثبيت                     | `@agent-native/core/client/onboarding`    |
-| قابلية الملاحظة | `<ObservabilityDashboard>`, `<ThumbsFeedback>`             | `@agent-native/core/client/observability` |
+| قابلية الملاحظة | `<ObservabilityDashboard>`, `<ThumbsFeedback>`             | `@agent-native/toolkit/app/observability` |
 | الموارد         | `<ResourcesPanel>`، `<ResourceTree>`، ربط الموارد          | `@agent-native/core/client/resources`     |
-| محرر غني        | `<SharedRichEditor>`، أوامر الشرطة المائلة، ربط عقدة الحظر | `@agent-native/core/client/editor`        |
+| محرر غني        | `<SharedRichEditor>`، أوامر الشرطة المائلة، ربط عقدة الحظر | `@agent-native/toolkit/editor`            |
 
 ## إكمال النص لمرة واحدة {#one-off-text-completion}
 

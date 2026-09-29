@@ -1,16 +1,9 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
-import {
-  type AgentChatContextItem,
-  type ComposerContextMenuItem,
-  type ComposerContextSnapshot,
-  type PromptComposerProps,
-  type PromptComposerSubmitOptions,
-  type TiptapComposerHandle,
-} from "@agent-native/core/client/composer";
+import { type AgentChatContextItem, type ComposerContextMenuItem, type ComposerContextSnapshot, type PromptComposerProps, type PromptComposerSubmitOptions, type TiptapComposerHandle } from "@agent-native/toolkit/app/chat/composer/index";
 import { useT } from "@agent-native/core/client/i18n";
-import { LazyChunkErrorBoundary } from "@agent-native/core/client/lazy-chunk-error-boundary";
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
+import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import { useOrg } from "@agent-native/core/client/org";
 import { useEagerFileUploads } from "@agent-native/toolkit/composer/use-eager-file-uploads";
 import {

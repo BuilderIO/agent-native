@@ -1,4 +1,4 @@
-import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";

@@ -1,21 +1,13 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { ObservabilityDashboard } from "@agent-native/core/client/observability";
+import { ObservabilityDashboard } from "@agent-native/toolkit/app/observability";
 import { useOrg } from "@agent-native/core/client/org";
-import {
-  AccountSettingsCard,
-  SettingsGroup,
-  SettingsRow,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsAppArea,
-  type SettingsTabItem,
-} from "@agent-native/core/client/settings";
+import { AccountSettingsCard, SettingsGroup, SettingsRow, SettingsTabsPage, useAgentSettingsTabs, type SettingsAppArea, type SettingsTabItem } from "@agent-native/toolkit/app/settings";
 import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import {
   createCreativeContextAgentTab,

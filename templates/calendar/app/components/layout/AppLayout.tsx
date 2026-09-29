@@ -1,10 +1,7 @@
-import {
-  AgentSidebar,
-  AgentToggleButton,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar, AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InvitationBanner } from "@agent-native/core/client/org";
+import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { useAppearanceSync } from "@agent-native/core/client/ui";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";

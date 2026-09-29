@@ -1,19 +1,11 @@
-import {
-  AgentSidebar,
-  focusAgentChat,
-  isAgentChatHomeHandoffActive,
-  isAssistantChatHistoryVersion,
-  navigateWithAgentChatViewTransition,
-  useAgentChatHomeHandoff,
-  useAgentChatHomeHandoffLinks,
-  useGuidedQuestionFlow,
-  type AssistantChatHistoryConfig,
-  type AssistantChatHistoryVersion,
-} from "@agent-native/core/client/agent-chat";
+import { AgentSidebar, focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { isAgentChatHomeHandoffActive, isAssistantChatHistoryVersion, navigateWithAgentChatViewTransition, useAgentChatHomeHandoff, useAgentChatHomeHandoffLinks, type AssistantChatHistoryVersion } from "@agent-native/core/client/agent-chat";
+import { useGuidedQuestionFlow } from "@agent-native/toolkit/app/chat/agentkit-chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
-import { isSettingsPathname } from "@agent-native/core/client/settings";
+import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,

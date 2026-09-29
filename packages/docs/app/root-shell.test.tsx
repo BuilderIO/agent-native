@@ -28,19 +28,21 @@ function ShellSettledProbe() {
   );
 }
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/toolkit/app/chat", () => ({
   AgentSidebar: ({ children }: { children: React.ReactNode }) => {
     agentSidebarSpy();
     return <div data-testid="real-sidebar">{children}</div>;
   },
 }));
-vi.mock("@agent-native/core/client/host", () => ({
+vi.mock("@agent-native/core/client/route-warmup", () => ({
   AgentNativeRouteWarmup: () => null,
-  defineClientAction: (action: unknown) => action,
   isClientRouteUrl: (url: { pathname: string }) =>
     !url.pathname.startsWith("/cdn-cgi/"),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/host", () => ({
+  defineClientAction: (action: unknown) => action,
+}));
+vi.mock("@agent-native/toolkit/app/providers", () => ({
   AgentNativeWebMcpActionRegistration: () => null,
 }));
 vi.mock("@agent-native/core/client/webmcp", () => ({

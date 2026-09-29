@@ -1,10 +1,6 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { ChangelogSettingsCard } from "@agent-native/toolkit/app/changelog";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  SettingsTabsPage,
-  useAgentSettingsTabs,
-  type SettingsAppArea,
-} from "@agent-native/core/client/settings";
+import { SettingsTabsPage, useAgentSettingsTabs, type SettingsAppArea } from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustments,
   IconColumns3,
