@@ -13,7 +13,7 @@
     "@agent-native/browser-control-extension-core": "workspace:*"
   },
   "devDependencies": {
-    "@types/chrome": "0.2.2",
+    "@types/chrome": "0.3.0",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

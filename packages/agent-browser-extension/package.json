@@ -16,7 +16,7 @@
     "@agent-native/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/chrome": "0.2.2",
+    "@types/chrome": "0.3.0",
     "happy-dom": "20.11.1",
     "sharp": "0.35.3",
     "tsx": "4.23.1",
