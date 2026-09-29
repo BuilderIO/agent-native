@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { closeDbExec, getDbExec } from "@agent-native/core/db";
+
 const WARM_REQUESTS = 5;
 const SITE_NAME = "neon-query-budget-probe";
 const DATABASE_APPLICATION_NAME = `agent-native:${SITE_NAME}`;
@@ -33,12 +35,6 @@ async function run(): Promise<void> {
   if (!databaseUrl) fail("DATABASE_URL is required for the Postgres probe");
 
   process.env.SITE_NAME = SITE_NAME;
-  const core = (await import("../packages/core/dist/db/client.js")) as {
-    closeDbExec: () => Promise<void>;
-    getDbExec: () => {
-      execute: (sql: string) => Promise<{ rows: unknown[] }>;
-    };
-  };
   const coreRequire = createRequire(path.resolve("packages/core/package.json"));
   const postgresPath = coreRequire.resolve("postgres");
   const postgresModule = (await import(pathToFileURL(postgresPath).href)) as {
@@ -74,7 +70,7 @@ async function run(): Promise<void> {
     const observedSessionCounts: number[] = [];
     const observedOpenConnections: number[] = [];
     for (let request = 0; request < WARM_REQUESTS + 1; request += 1) {
-      await core.getDbExec().execute("SELECT 1 AS query_budget_probe");
+      await getDbExec().execute("SELECT 1 AS query_budget_probe");
       const stats = await readStats();
       observedSessionCounts.push(stats.sessions - baseline.sessions);
       observedOpenConnections.push(stats.openConnections);
@@ -97,7 +93,7 @@ async function run(): Promise<void> {
       );
     }
   } finally {
-    await core.closeDbExec();
+    await closeDbExec();
     await observer.end({ timeout: 5 });
   }
 }

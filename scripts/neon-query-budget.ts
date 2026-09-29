@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { appendFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -14,13 +14,46 @@ const METRIC_NAMES = [
   "db-migrations",
 ] as const;
 const PGLITE_DATABASE_URL = "pglite:memory";
+const SERVERLESS_ENV_KEYS = [
+  "NETLIFY",
+  "NETLIFY_FUNCTION_NAME",
+  "AWS_LAMBDA_FUNCTION_NAME",
+  "AWS_LAMBDA_FUNCTION_VERSION",
+  "AWS_EXECUTION_ENV",
+  "LAMBDA_TASK_ROOT",
+  "VERCEL",
+  "VERCEL_FUNCTION_ID",
+  "VERCEL_REGION",
+  "CF_PAGES",
+] as const;
+
+const TEMPLATE_MIGRATION_EXPORTS: Record<string, string[]> = {
+  analytics: ["runAnalyticsMigrations"],
+  assets: ["runAssetsMigrations"],
+  brain: ["runBrainMigrations"],
+  calendar: ["runCalendarMigrations"],
+  clips: ["migrations"],
+  content: ["runContentMigrations", "runContentSourceMigrations"],
+  crm: ["runCrmMigrations"],
+  design: ["runDesignMigrations"],
+  factory: ["runFactoryMigrations"],
+  forms: ["runFormsMigrations"],
+  mail: ["runMailMigrations"],
+  plan: ["runPlanMigrations"],
+  slides: ["runSlidesMigrations"],
+  tasks: ["runTasksMigrations"],
+};
+
+type MigrationRuntimeGlobal = typeof globalThis & {
+  __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+};
 
 export interface QueryBudgetMetrics {
   queries: number;
   rowsReturned: number;
   catalogQueries: number;
   migrationTableQueries: number;
-  newConnections: number;
+  poolAcquisitions: number;
 }
 
 export interface TemplateQueryBudget {
@@ -50,6 +83,34 @@ export interface QueryBudgetFile {
   templates: Record<string, TemplateQueryBudget>;
 }
 
+export async function withSchemaProvisioningRuntime<T>(
+  run: () => Promise<T>,
+): Promise<T> {
+  const previousEnvironment = new Map(
+    SERVERLESS_ENV_KEYS.map((key) => [key, process.env[key]]),
+  );
+  const migrationRuntime = globalThis as MigrationRuntimeGlobal;
+  const previousMigrationRuntime =
+    migrationRuntime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+
+  for (const key of SERVERLESS_ENV_KEYS) delete process.env[key];
+  migrationRuntime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of previousEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    if (previousMigrationRuntime === undefined) {
+      delete migrationRuntime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    } else {
+      migrationRuntime.__AGENT_NATIVE_MIGRATION_RUNTIME__ =
+        previousMigrationRuntime;
+    }
+  }
+}
+
 const TEMPLATE_ACTIONS: Record<string, string | null> = {
   analytics: "list-analyses",
   assets: "list-assets",
@@ -71,6 +132,59 @@ const TEMPLATE_ACTIONS: Record<string, string | null> = {
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+async function provisionTemplateSchema(template: string): Promise<void> {
+  // Provision disposable PGlite before the production-marked handler loads.
+  await withSchemaProvisioningRuntime(async () => {
+    const [
+      { runFrameworkReleaseMigrations },
+      { runMigrations, withMigrationRuntime },
+    ] = await Promise.all([
+      import("@agent-native/core/server"),
+      import("@agent-native/core/db"),
+    ]);
+    const migrationModulePath =
+      template === "dispatch"
+        ? path.resolve("packages/dispatch/src/db/migrations.ts")
+        : template === "factory"
+          ? path.resolve(
+              "templates/factory/server/plugins/factory-migrations.ts",
+            )
+          : template === "tasks"
+            ? path.resolve("templates/tasks/server/db/migrations.ts")
+            : path.resolve("templates", template, "server/plugins/db.ts");
+    let migrationModule: Record<string, unknown> = {};
+    try {
+      await access(migrationModulePath);
+      migrationModule = (await import(
+        pathToFileURL(migrationModulePath).href
+      )) as Record<string, unknown>;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    const migrationExports = TEMPLATE_MIGRATION_EXPORTS[template] ?? [];
+    await withMigrationRuntime(async () => {
+      await runFrameworkReleaseMigrations(null);
+      if (template === "dispatch") {
+        const dispatchMigrations = migrationModule.dispatchMigrations;
+        if (!Array.isArray(dispatchMigrations)) {
+          fail("Dispatch migration module did not export dispatchMigrations");
+        }
+        await runMigrations(dispatchMigrations, {
+          table: "dispatch_migrations",
+        })(null);
+      }
+      for (const exportName of migrationExports) {
+        const runMigration = migrationModule[exportName];
+        if (typeof runMigration !== "function") {
+          fail(`${template} migration module did not export ${exportName}`);
+        }
+        await runMigration(null);
+      }
+    });
+  });
 }
 
 function metricValue(source: string, key: string): number | undefined {
@@ -97,7 +211,7 @@ export function parsePrivateRequestMetrics(
   }
   return {
     queries: values[0]!,
-    newConnections: values[1]!,
+    poolAcquisitions: values[1]!,
     rowsReturned: values[2]!,
     catalogQueries: values[3]!,
     migrationTableQueries: values[4]!,
@@ -145,7 +259,7 @@ export function parseCacheablePageMetrics(
     rowsReturned: requestRows! + startupRows!,
     catalogQueries: requestCatalog! + startupCatalog!,
     migrationTableQueries: requestMigrations! + startupMigrations!,
-    newConnections: requestConnections! + startupConnections!,
+    poolAcquisitions: requestConnections! + startupConnections!,
   };
 }
 
@@ -212,8 +326,9 @@ export async function measureTemplate(
 
   Object.assign(globalThis, {
     __AGENT_NATIVE_EMBEDDED_RUNTIME__: true,
-    __AGENT_NATIVE_MIGRATION_RUNTIME__: true,
   });
+
+  await provisionTemplateSchema(template);
 
   const handlerPath = path.resolve("templates", template, GENERATED_HANDLER);
   const imported = (await import(pathToFileURL(handlerPath).href)) as Record<
@@ -339,12 +454,12 @@ async function readBudgetFile(): Promise<QueryBudgetFile> {
 function printMarkdown(report: QueryBudgetReport): string {
   const format = (metric: QueryBudgetMetrics | null) =>
     metric
-      ? `${metric.queries} / ${metric.rowsReturned} / ${metric.catalogQueries} / ${metric.migrationTableQueries} / ${metric.newConnections}`
+      ? `${metric.queries} / ${metric.rowsReturned} / ${metric.catalogQueries} / ${metric.migrationTableQueries} / ${metric.poolAcquisitions}`
       : "N/A";
   return [
     `### ${report.template}`,
     "",
-    "| Request | Queries / rows / catalog / migration / connections | HTTP |",
+    "| Request | Queries / rows / catalog / migration / pool acquisitions | HTTP |",
     "| --- | ---: | ---: |",
     `| Main page, including startup | ${format(report.page)} | ${report.statuses.page} |`,
     `| Main list action (${report.action ?? "not applicable"}) | ${format(report.listAction)} | ${report.statuses.listAction ?? "N/A"} |`,

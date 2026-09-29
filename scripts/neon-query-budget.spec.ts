@@ -5,6 +5,7 @@ import {
   compareQueryBudget,
   parseCacheablePageMetrics,
   parsePrivateRequestMetrics,
+  withSchemaProvisioningRuntime,
   type QueryBudgetReport,
 } from "./neon-query-budget.ts";
 
@@ -19,7 +20,7 @@ describe("Neon cold-request query budgets", () => {
         rowsReturned: 10,
         catalogQueries: 3,
         migrationTableQueries: 5,
-        newConnections: 2,
+        poolAcquisitions: 2,
       },
     );
   });
@@ -38,13 +39,59 @@ describe("Neon cold-request query budgets", () => {
     );
   });
 
+  it("provisions fixture schemas outside serverless mode and restores runtime state", async () => {
+    const keys = ["NETLIFY", "NETLIFY_FUNCTION_NAME", "CONTEXT"] as const;
+    const previousEnvironment = new Map(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    const runtime = globalThis as typeof globalThis & {
+      __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
+    };
+    const previousMigrationRuntime = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_FUNCTION_NAME = "serverless-fixture";
+    process.env.CONTEXT = "production";
+    runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = false;
+
+    try {
+      const fixtureEnvironment = await withSchemaProvisioningRuntime(
+        async () => ({
+          netlify: process.env.NETLIFY,
+          functionName: process.env.NETLIFY_FUNCTION_NAME,
+          context: process.env.CONTEXT,
+          migrationRuntime: runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__,
+        }),
+      );
+      assert.deepEqual(fixtureEnvironment, {
+        netlify: undefined,
+        functionName: undefined,
+        context: "production",
+        migrationRuntime: true,
+      });
+      assert.equal(process.env.NETLIFY, "true");
+      assert.equal(process.env.NETLIFY_FUNCTION_NAME, "serverless-fixture");
+      assert.equal(process.env.CONTEXT, "production");
+      assert.equal(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__, false);
+    } finally {
+      for (const [key, value] of previousEnvironment) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      if (previousMigrationRuntime === undefined) {
+        delete runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
+      } else {
+        runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = previousMigrationRuntime;
+      }
+    }
+  });
+
   it("checks request-scoped counters against a measured baseline", () => {
     const privateMetrics = parsePrivateRequestMetrics(
       "app;dur=5, db-queries;dur=3, db-connects;dur=1, db-rows;dur=8, db-catalog;dur=2, db-migrations;dur=1",
     );
     assert.deepEqual(privateMetrics, {
       queries: 3,
-      newConnections: 1,
+      poolAcquisitions: 1,
       rowsReturned: 8,
       catalogQueries: 2,
       migrationTableQueries: 1,

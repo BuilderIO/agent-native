@@ -59,6 +59,20 @@ function median(values: number[]): number {
     : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 
+function hasCompleteTrailingWeek(
+  points: readonly TransferPoint[],
+  index: number,
+): boolean {
+  if (index < 7) return false;
+  const point = points[index]!;
+  return points
+    .slice(index - 7, index)
+    .every(
+      (previous, offset) =>
+        previous.date === utcDayOffset(point.date, offset - 7),
+    );
+}
+
 export function findTransferAlerts(points: TransferPoint[]): TransferAlert[] {
   const byProject = new Map<string, TransferPoint[]>();
   for (const point of points) {
@@ -74,11 +88,9 @@ export function findTransferAlerts(points: TransferPoint[]): TransferAlert[] {
     );
     for (let index = 0; index < sorted.length; index++) {
       const point = sorted[index]!;
-      const previous = sorted.slice(Math.max(0, index - 7), index);
-      const trailingMedianBytes =
-        previous.length === 7
-          ? median(previous.map(({ bytes }) => bytes))
-          : null;
+      const trailingMedianBytes = hasCompleteTrailingWeek(sorted, index)
+        ? median(sorted.slice(index - 7, index).map(({ bytes }) => bytes))
+        : null;
       const reasons: string[] = [];
       if (
         point.bytes > DAILY_THRESHOLD_BYTES &&
@@ -130,6 +142,11 @@ export function extractConsumptionRows(
 ): TransferPoint[] {
   const root = object(payload);
   if (!root) throw new Error("Neon consumption response was not an object.");
+  if (Array.isArray(root.unavailable) && root.unavailable.length > 0) {
+    throw new Error(
+      "Neon consumption response was incomplete; some projects are unavailable.",
+    );
+  }
   const rows = root.projects;
   if (!Array.isArray(rows))
     throw new Error("Neon consumption response did not contain project rows.");
@@ -285,6 +302,32 @@ async function fetchTransferPoints(
   }
 }
 
+function projectsMissingMedianBaseline(
+  points: TransferPoint[],
+  date: string,
+): string[] {
+  const byProject = new Map<string, TransferPoint[]>();
+  for (const point of points) {
+    const history = byProject.get(point.projectId) ?? [];
+    history.push(point);
+    byProject.set(point.projectId, history);
+  }
+
+  return [...byProject.values()]
+    .map((history) => history.sort((a, b) => a.date.localeCompare(b.date)))
+    .filter((history) => {
+      const index = history.findIndex((point) => point.date === date);
+      const today = history[index];
+      return (
+        today !== undefined &&
+        today.bytes > DAILY_THRESHOLD_BYTES &&
+        today.bytes <= ABSOLUTE_THRESHOLD_BYTES &&
+        !hasCompleteTrailingWeek(history, index)
+      );
+    })
+    .map((history) => history[0]!.projectName);
+}
+
 function formatGb(bytes: number | null): string {
   return bytes === null ? "n/a" : (bytes / GIGABYTE).toFixed(1);
 }
@@ -430,24 +473,7 @@ async function run(): Promise<void> {
   const projects = await listProjects();
   if (projects.size === 0) throw new Error("Neon project list was empty.");
   const fetched = await fetchTransferPoints(projects, from, throughExclusive);
-  const points = [...projects.entries()].flatMap(([projectId, projectName]) => {
-    const byDate = new Map(
-      fetched
-        .filter((point) => point.projectId === projectId)
-        .map((point) => [point.date, point.bytes]),
-    );
-    return Array.from({ length: 8 }, (_, index) => {
-      const date = utcDayOffset(from, index);
-      return {
-        projectId,
-        projectName,
-        date,
-        // Neon omits a daily metric when its value is zero.
-        bytes: byDate.get(date) ?? 0,
-      };
-    });
-  });
-  const alerts = findTransferAlerts(points).filter(
+  const alerts = findTransferAlerts(fetched).filter(
     ({ date }) => date === lastFullDay,
   );
 
@@ -455,6 +481,17 @@ async function run(): Promise<void> {
     `Neon public transfer for ${lastFullDay} (GB, trailing seven complete days):`,
   );
   console.log(formatAlertTable(alerts));
+  const incompleteBaselines = projectsMissingMedianBaseline(
+    fetched,
+    lastFullDay,
+  );
+  if (incompleteBaselines.length > 0) {
+    console.error(
+      `[neon-transfer-alert] could not run the median check: ${incompleteBaselines.join(", ")} exceeded 50 GB but lacked seven consecutive returned daily measurements. Missing values were not treated as zero.`,
+    );
+    process.exitCode = 2;
+    return;
+  }
   if (dryRun || alerts.length === 0) return;
   if (!send) return;
   await postSlack(alerts);

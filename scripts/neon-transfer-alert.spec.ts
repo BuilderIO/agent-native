@@ -50,6 +50,17 @@ describe("Neon transfer alert", () => {
     ]);
   });
 
+  it("rejects incomplete consumption responses instead of turning unavailable projects into zero", () => {
+    assert.throws(
+      () =>
+        extractConsumptionRows(
+          { projects: [], unavailable: ["quiet-project"] },
+          projectNames,
+        ),
+      /consumption response was incomplete/,
+    );
+  });
+
   it("alerts only when the daily and trailing-median thresholds are both exceeded", () => {
     const baseline: TransferPoint[] = Array.from({ length: 7 }, (_, index) => ({
       projectId: "p1",
@@ -67,6 +78,27 @@ describe("Neon transfer alert", () => {
 
     const qualifying = { ...thresholdOnly, bytes: 50_000_000_001 };
     assert.equal(findTransferAlerts([...baseline, qualifying]).length, 1);
+  });
+
+  it("does not use missing dates as zero-valued median observations", () => {
+    const incompleteBaseline: TransferPoint[] = [1, 2, 4, 5, 6, 7].map(
+      (day) => ({
+        projectId: "p1",
+        projectName: "Example",
+        date: `2026-09-${String(day).padStart(2, "0")}`,
+        bytes: 0,
+      }),
+    );
+    const qualifying = {
+      projectId: "p1",
+      projectName: "Example",
+      date: "2026-09-08",
+      bytes: 60_000_000_000,
+    };
+    assert.equal(
+      findTransferAlerts([...incompleteBaseline, qualifying]).length,
+      0,
+    );
   });
 
   it("runs the full synthetic September scenario backtest without posting", () => {
