@@ -12,7 +12,7 @@ import {
 } from "./html-shell.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIR = join(HERE, "..", "client", "extensions");
+const CLIENT_DIR = join(HERE, "../../../toolkit/src/app/extensions");
 
 describe("buildExtensionHtml", () => {
   it("uses a constrained iframe CSP", () => {

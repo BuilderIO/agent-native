@@ -88,7 +88,12 @@ import {
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import type { AgentThreadState } from "@agent-native/agentkit/client";
-import { hasActiveAgentRuns } from "@agent-native/agentkit/client";
+import {
+  AgentKitCapabilityError,
+  hasActiveAgentRuns,
+  isCurrentAgentSuggestion,
+  selectAgentSuggestions,
+} from "@agent-native/agentkit/client";
 import {
   inferAgentActivityKind,
   type AgentActivity,
@@ -610,7 +615,7 @@ export function AgentActivityItem({
       data-status={activity.status}
     >
       <div className="agentkit-activity-row">
-        {activityIcon(activity.kind)}
+        <ActivitySourceIcon activity={activity} threadId={threadId} />
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
@@ -664,8 +669,28 @@ function objectReferenceIdentity(
     : "";
 }
 
-function activityClusterIdentity(activity: AgentActivity): string {
+function ActivitySourceIcon({
+  activity,
+  threadId,
+  compact = false,
+}: {
+  activity: AgentActivity;
+  threadId: string;
+  compact?: boolean;
+}) {
+  const { registry } = useAgentKit();
+  const thread = useAgentThread(threadId);
+  const tool = thread.tools[activity.id];
+  const source = tool ? registry.toolSource?.(tool) : undefined;
+  return source ? source.icon : compact ? null : activityIcon(activity.kind);
+}
+
+function activityClusterIdentity(
+  activity: AgentActivity,
+  sourceId?: string,
+): string {
   return [
+    sourceId ?? "",
     activity.kind,
     activity.label.trim(),
     activity.status,
@@ -707,7 +732,7 @@ function RepeatedActivityCluster({
           setOpen((current) => !current);
         }}
       >
-        {activityIcon(activity.kind)}
+        <ActivitySourceIcon activity={activity} threadId={threadId} />
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
@@ -797,7 +822,25 @@ export function formatAgentKitDuration(
     : `${hours}${hour} ${remainingMinutes}${minute}`;
 }
 
+function reasoningMessageId(event: AgentEvent): string | undefined {
+  if (event.type === "reasoning.delta" && event.text.trim()) {
+    return event.messageId;
+  }
+  if (
+    (event.type === "message.created" || event.type === "message.completed") &&
+    event.message.role === "assistant" &&
+    event.message.parts.some(
+      (part) => part.type === "reasoning" && part.text.trim(),
+    )
+  ) {
+    return event.message.id;
+  }
+  return undefined;
+}
+
 function workEventIdentity(event: AgentEvent): string | undefined {
+  const messageId = reasoningMessageId(event);
+  if (messageId) return `reasoning:${messageId}`;
   if (
     event.type === "activity.started" ||
     event.type === "activity.updated" ||
@@ -874,7 +917,12 @@ export function AgentActivityGroup({
     : thread.events;
   const activityMap = new Map<string, AgentActivity>();
   const toolMap = new Map<string, AgentToolCall>();
+  const reasoningMap = new Map<string, AgentMessage>();
+  const messagesById = new Map(
+    thread.messages.map((message) => [message.id, message]),
+  );
   const firstSequence = new Map<string, number>();
+  const latestSequence = new Map<string, number>();
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const remember = (id: string, sequence: number) => {
@@ -884,6 +932,28 @@ export function AgentActivityGroup({
     firstSequence.set(id, sequence);
   };
   for (const event of runEvents) {
+    const messageId = reasoningMessageId(event);
+    const message = messageId ? messagesById.get(messageId) : undefined;
+    if (
+      message?.role === "assistant" &&
+      message.parts.some(
+        (part) =>
+          part.type === "reasoning" &&
+          part.visibility !== "hidden" &&
+          part.text.trim(),
+      )
+    ) {
+      const id = `reasoning:${message.id}`;
+      reasoningMap.set(id, message);
+      activityMap.set(id, {
+        id,
+        kind: "reasoning",
+        label: labels.reasoning,
+        status: message.status === "streaming" ? "running" : "completed",
+      });
+      remember(id, event.sequence);
+      latestSequence.set(id, event.sequence);
+    }
     if (
       event.type === "activity.started" ||
       event.type === "activity.updated" ||
@@ -895,6 +965,7 @@ export function AgentActivityGroup({
         thread.activities[event.activity.id] ?? event.activity,
       );
       remember(event.activity.id, event.sequence);
+      latestSequence.set(event.activity.id, event.sequence);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
       toolMap.set(
@@ -902,11 +973,13 @@ export function AgentActivityGroup({
         thread.tools[event.toolCall.id] ?? event.toolCall,
       );
       remember(event.toolCall.id, event.sequence);
+      latestSequence.set(event.toolCall.id, event.sequence);
     }
     if (event.type === "tool.delta") {
       const tool = thread.tools[event.toolCallId];
       if (tool) toolMap.set(tool.id, tool);
       remember(event.toolCallId, event.sequence);
+      latestSequence.set(event.toolCallId, event.sequence);
     }
   }
   const items = itemOrder.flatMap((id) => {
@@ -924,18 +997,30 @@ export function AgentActivityGroup({
   });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
-    const Renderer = tool
-      ? (registry.tools?.[tool.name] ?? slots.tool)
-      : undefined;
-    return tool && Renderer && tool.status !== "running"
-      ? [{ tool, Renderer }]
-      : [];
+    const Renderer = tool ? registry.tools?.[tool.name] : undefined;
+    if (!tool || tool.status === "running") return [];
+    if (Renderer) return [{ tool, Renderer }];
+    if (tool.metadata?.chatUI || tool.metadata?.mcpApp) {
+      return slots.tool ? [{ tool, Renderer: slots.tool }] : [];
+    }
+    return [];
   });
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
   const activityItems = items.filter(
     (activity) => !durableToolResultIds.has(activity.id),
+  );
+  const latestActivity = activityItems.reduce<AgentActivity | undefined>(
+    (current, activity) => {
+      if (activity.status !== "running") return current;
+      if (!current) return activity;
+      return (latestSequence.get(activity.id) ?? -1) >=
+        (latestSequence.get(current.id) ?? -1)
+        ? activity
+        : current;
+    },
+    undefined,
   );
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
@@ -964,6 +1049,7 @@ export function AgentActivityGroup({
   const activelyWorking =
     throughSequence === undefined &&
     (run === undefined ? running : run.status === "running");
+  const currentActivity = activelyWorking ? latestActivity : undefined;
   const visiblyRunning =
     throughSequence === undefined && activelyWorking && running;
   const [elapsedAt, setElapsedAt] = useState<number>();
@@ -991,38 +1077,52 @@ export function AgentActivityGroup({
     (afterSequence === undefined &&
       run !== undefined &&
       ["completed", "failed", "cancelled"].includes(run.status));
-  const [open, setOpen] = useState(visiblyRunning);
-  const previousRunningRef = useRef(visiblyRunning);
-  useEffect(() => {
-    if (previousRunningRef.current === visiblyRunning) return;
-    previousRunningRef.current = visiblyRunning;
-    setOpen(visiblyRunning);
-  }, [visiblyRunning]);
   if (items.length === 0) return null;
-  const displayGroups: AgentActivity[][] = [];
+  const displayGroups = new Map<ActivityBucket, AgentActivity[][]>(
+    ACTIVITY_BUCKET_ORDER.map((bucket) => [bucket, []]),
+  );
+  const clusterIdentity = (activity: AgentActivity) => {
+    const tool = toolMap.get(activity.id);
+    return activityClusterIdentity(
+      activity,
+      tool ? registry.toolSource?.(tool)?.id : undefined,
+    );
+  };
   for (const activity of activityItems) {
     const sourceTool = toolMap.get(activity.id);
     const hasCustomToolRenderer = Boolean(
-      sourceTool &&
-      !activityMap.has(activity.id) &&
-      (registry.tools?.[sourceTool.name] ?? slots.tool),
+      sourceTool && registry.tools?.[sourceTool.name],
     );
     const hasCustomActivityRenderer = Boolean(
       registry.activities?.[activity.kind] ?? slots.activity,
     );
-    const previous = displayGroups.at(-1);
+    const bucket = activityBucketForKind(activity.kind);
+    const bucketGroups = displayGroups.get(bucket)!;
+    const previous = bucketGroups.at(-1);
     if (
       !hasCustomToolRenderer &&
       !hasCustomActivityRenderer &&
+      !reasoningMap.has(activity.id) &&
       previous &&
-      activityClusterIdentity(previous[0] as AgentActivity) ===
-        activityClusterIdentity(activity)
+      !reasoningMap.has(previous[0]!.id) &&
+      clusterIdentity(previous[0] as AgentActivity) ===
+        clusterIdentity(activity)
     ) {
       previous.push(activity);
     } else {
-      displayGroups.push([activity]);
+      bucketGroups.push([activity]);
     }
   }
+  const hasExpandableActivity = ACTIVITY_BUCKET_ORDER.some(
+    (bucket) => displayGroups.get(bucket)!.length > 0,
+  );
+  const activityBucketLabels = {
+    thinking: "Thinking",
+    research: "Research",
+    actions: "Actions",
+    other: "Other",
+    ...labels.activityBuckets,
+  };
   const formatDuration = (ms: number) =>
     formatAgentKitDuration(ms, {
       hour: labels.durationHourShort,
@@ -1043,6 +1143,21 @@ export function AgentActivityGroup({
       : labels.activities;
   return (
     <>
+      {items
+        .filter((activity) => activity.status === "failed")
+        .map((activity) => (
+          <div key={activity.id} className="agentkit-run-failure" role="alert">
+            <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+            <div className="agentkit-run-failure-copy">
+              <strong>{activity.label}</strong>
+              <span>
+                {toolMap.get(activity.id)?.error?.message ??
+                  activity.detail ??
+                  labels.error}
+              </span>
+            </div>
+          </div>
+        ))}
       {durableToolResults.length ? (
         <div data-agentkit-tool-results="true">
           {durableToolResults.map(({ tool, Renderer }) => (
@@ -1050,73 +1165,213 @@ export function AgentActivityGroup({
           ))}
         </div>
       ) : null}
-      {displayGroups.length ? (
-        <details
-          className="agentkit-activities"
-          data-running={visiblyRunning ? "true" : undefined}
-          open={open}
-        >
-          <summary
-            className="agentkit-activities-summary"
-            onClick={(event) => {
-              event.preventDefault();
-              setOpen((current) => !current);
-            }}
-          >
-            <IconActivity aria-hidden="true" className="agentkit-icon" />
-            <span className="agentkit-activities-label">{summaryLabel}</span>
-            {!completedRunSummary ? (
-              <span className="agentkit-activities-count">
-                {activityItems.length}
-              </span>
-            ) : null}
-            <IconChevronRight
-              aria-hidden="true"
-              className="agentkit-icon agentkit-summary-chevron"
-            />
-          </summary>
-          <div className="agentkit-activities-list">
-            {displayGroups.map((activities) => {
-              const activity = activities[0] as AgentActivity;
-              if (activities.length > 1) {
-                return (
-                  <RepeatedActivityCluster
-                    key={`cluster:${activity.id}`}
-                    activities={activities}
-                    threadId={threadId}
-                  />
-                );
-              }
-              const sourceTool = toolMap.get(activity.id);
-              const ToolRenderer = sourceTool
-                ? (registry.tools?.[sourceTool.name] ?? slots.tool)
-                : undefined;
-              if (sourceTool && ToolRenderer && !activityMap.has(activity.id)) {
-                return (
-                  <ToolRenderer
-                    key={sourceTool.id}
-                    value={sourceTool}
-                    threadId={threadId}
-                  />
-                );
-              }
-              const Renderer =
-                registry.activities?.[activity.kind] ??
-                slots.activity ??
-                AgentActivityItem;
-              return (
-                <Renderer
-                  key={activity.id}
-                  value={activity}
+      {hasExpandableActivity ? (
+        <AgentWorkDisclosure
+          label={summaryLabel}
+          running={visiblyRunning}
+          current={
+            currentActivity ? (
+              <span
+                className="agentkit-activities-current"
+                data-running="true"
+                data-agentkit-current-activity="true"
+                aria-live="polite"
+              >
+                <ActivitySourceIcon
+                  activity={currentActivity}
                   threadId={threadId}
+                  compact
                 />
+                <span className="agentkit-activities-current-label">
+                  {currentActivity.label}
+                </span>
+              </span>
+            ) : null
+          }
+        >
+          <div className="agentkit-activities-list">
+            {ACTIVITY_BUCKET_ORDER.map((bucket) => {
+              const groups = displayGroups.get(bucket)!;
+              if (groups.length === 0) return null;
+              return (
+                <section
+                  key={bucket}
+                  className="agentkit-activity-bucket"
+                  data-activity-bucket={bucket}
+                  aria-label={activityBucketLabels[bucket]}
+                >
+                  <h3 className="agentkit-activity-bucket-title">
+                    {activityBucketLabels[bucket]}
+                  </h3>
+                  <div className="agentkit-activity-bucket-items">
+                    {groups.map((activities) => {
+                      const activity = activities[0] as AgentActivity;
+                      const reasoningMessage = reasoningMap.get(activity.id);
+                      if (reasoningMessage) {
+                        return (
+                          <AgentReasoningParts
+                            key={activity.id}
+                            message={reasoningMessage}
+                            threadId={threadId}
+                            active={
+                              activelyWorking &&
+                              currentActivity?.id === activity.id
+                            }
+                          />
+                        );
+                      }
+                      if (activities.length > 1) {
+                        return (
+                          <RepeatedActivityCluster
+                            key={`cluster:${activity.id}`}
+                            activities={activities}
+                            threadId={threadId}
+                          />
+                        );
+                      }
+                      const sourceTool = toolMap.get(activity.id);
+                      const ToolRenderer = sourceTool
+                        ? (registry.tools?.[sourceTool.name] ?? slots.tool)
+                        : undefined;
+                      if (sourceTool && ToolRenderer) {
+                        return (
+                          <ToolRenderer
+                            key={sourceTool.id}
+                            value={sourceTool}
+                            threadId={threadId}
+                          />
+                        );
+                      }
+                      const Renderer =
+                        registry.activities?.[activity.kind] ??
+                        slots.activity ??
+                        AgentActivityItem;
+                      return (
+                        <Renderer
+                          key={activity.id}
+                          value={activity}
+                          threadId={threadId}
+                        />
+                      );
+                    })}
+                  </div>
+                </section>
               );
             })}
           </div>
-        </details>
-      ) : null}
+        </AgentWorkDisclosure>
+      ) : (
+        <div className="agentkit-activities-static">
+          <span className="agentkit-activities-label">{summaryLabel}</span>
+          {currentActivity ? (
+            <span
+              className="agentkit-activities-current"
+              data-running="true"
+              data-agentkit-current-activity="true"
+              aria-live="polite"
+            >
+              <ActivitySourceIcon
+                activity={currentActivity}
+                threadId={threadId}
+                compact
+              />
+              <span className="agentkit-activities-current-label">
+                {currentActivity.label}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      )}
     </>
   );
+}
+
+function AgentWorkDisclosure({
+  label,
+  running,
+  current,
+  children,
+}: {
+  label: string;
+  running?: boolean;
+  current?: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="agentkit-activities"
+      data-running={running ? "true" : undefined}
+      open={open}
+    >
+      <summary
+        className="agentkit-activities-summary"
+        onClick={(event) => {
+          event.preventDefault();
+          setOpen((value) => !value);
+        }}
+      >
+        <span className="agentkit-activities-heading">
+          <span className="agentkit-activities-label">{label}</span>
+          <IconChevronRight
+            aria-hidden="true"
+            className="agentkit-icon agentkit-summary-chevron"
+          />
+        </span>
+        {current}
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+function AgentReasoningParts({
+  message,
+  threadId,
+  active,
+}: {
+  message: AgentMessage;
+  threadId: string;
+  active: boolean;
+}) {
+  return message.parts.map((part, index) =>
+    part.type === "reasoning" &&
+    part.visibility !== "hidden" &&
+    part.text.trim() ? (
+      <AgentMessagePartView
+        key={index}
+        value={part}
+        threadId={threadId}
+        active={active}
+        resetKey={`${threadId}:${message.id}:${index}`}
+      />
+    ) : null,
+  );
+}
+
+type ActivityBucket = "thinking" | "research" | "actions" | "other";
+
+const ACTIVITY_BUCKET_ORDER: ActivityBucket[] = [
+  "thinking",
+  "research",
+  "actions",
+  "other",
+];
+
+function activityBucketForKind(kind: string): ActivityBucket {
+  if (kind === "reasoning" || kind === "model" || kind === "status") {
+    return "thinking";
+  }
+  if (kind === "search" || kind === "read") return "research";
+  if (
+    kind === "write" ||
+    kind === "edit" ||
+    kind === "command" ||
+    kind === "check"
+  ) {
+    return "actions";
+  }
+  return "other";
 }
 
 export function AgentCollaborationFeed({
@@ -1822,6 +2077,7 @@ export function AgentMessagePartView({
   userMessage = false,
 }: AgentMessagePartViewProps) {
   const { labels, slots, registry } = useAgentKit();
+  if (part.type === "reasoning" && part.visibility === "hidden") return null;
   const RegisteredRenderer = registry.messageParts?.[part.type];
   if (RegisteredRenderer) {
     return (
@@ -1866,8 +2122,13 @@ export function AgentMessagePartView({
     case "reasoning": {
       const Renderer = slots.reasoning;
       return Renderer ? (
-        <Renderer value={part} threadId={threadId} />
-      ) : part.visibility === "hidden" ? null : (
+        <Renderer
+          value={part}
+          threadId={threadId}
+          active={active}
+          resetKey={resetKey}
+        />
+      ) : (
         <details
           className="agentkit-reasoning"
           data-active={active ? "true" : undefined}
@@ -2290,7 +2551,7 @@ export function AgentMessageActions({
     forkAction.error ??
     regenerateAction.error;
   return (
-    <div className="agentkit-message-actions">
+    <div className="agentkit-message-actions" data-role={message.role}>
       {message.role === "assistant" ? (
         <>
           <div className="agentkit-message-actions-leading">
@@ -2614,6 +2875,15 @@ export function AgentMessageView({
       thread.annotationMessageIds[annotation.id] === message.id &&
       !embeddedAnnotationIds.has(annotation.id),
   );
+  if (
+    !message.parts.length &&
+    !attachedWidgets.length &&
+    !attachedAnnotations.length
+  ) {
+    return Supplement ? (
+      <Supplement value={message} threadId={threadId} />
+    ) : null;
+  }
   return (
     <article
       className="agentkit-message"
@@ -2775,6 +3045,7 @@ export interface AgentKitComposerProps extends Omit<
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
+  composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
   className?: string;
   queueWhileRunning?: boolean;
@@ -2836,6 +3107,7 @@ export function AgentKitComposer({
   onAttachmentRequest,
   contextButtonTooltipDisabled,
   onTextChange,
+  composerRef: hostComposerRef,
   contextItems,
   onRemoveContextItem,
   extraActionButton,
@@ -2870,6 +3142,14 @@ export function AgentKitComposer({
   const modelSelectionCapability = useAgentCapability("modelSelection");
   const canQueue = queueCapability.enabled;
   const canUpload = uploadsCapability.enabled && attachmentsEnabled !== false;
+  const uploadGateRef = useRef({
+    enabled: canUpload,
+    reason: uploadsCapability.reason,
+  });
+  uploadGateRef.current = {
+    enabled: canUpload,
+    reason: uploadsCapability.reason,
+  };
   // The host opts in through showModelSelector, so a capability the backend
   // never reported keeps the selector instead of silently removing a control
   // the host asked for. Only an explicit denial or outage takes it away.
@@ -2882,7 +3162,23 @@ export function AgentKitComposer({
     (execute: () => Promise<unknown>) => execute(),
     threadId,
   );
-  const composerRef = useRef<TiptapComposerHandle>(null);
+  const localComposerRef = useRef<TiptapComposerHandle>(null);
+  const composerRef = hostComposerRef ?? localComposerRef;
+  const selectedSuggestionRef = useRef<
+    AgentKitSuggestionsRenderProps["suggestions"][number] | undefined
+  >(undefined);
+  const suggestionScope = useRef({ threadId, enabled: false, mounted: true });
+  suggestionScope.current = {
+    ...suggestionScope.current,
+    threadId,
+    enabled: !disabled && suggestionsCapability.enabled && !editingMessage,
+  };
+  useEffect(() => {
+    suggestionScope.current.mounted = true;
+    return () => {
+      suggestionScope.current.mounted = false;
+    };
+  }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const executionMode = mode ?? uncontrolledMode;
@@ -2966,11 +3262,36 @@ export function AgentKitComposer({
     files: PromptComposerFile[],
     references: Parameters<PromptComposerProps["onSubmit"]>[2], // i18n-ignore: Type-only callback tuple, not rendered copy.
     options: Parameters<PromptComposerProps["onSubmit"]>[3],
+    suggestion?: AgentKitSuggestionsRenderProps["suggestions"][number],
   ) => {
+    const assertSuggestionCurrent = () => {
+      if (
+        suggestion &&
+        (!suggestionScope.current.enabled ||
+          !suggestionScope.current.mounted ||
+          suggestionScope.current.threadId !== threadId ||
+          !isCurrentAgentSuggestion(controller.getThread(threadId), suggestion))
+      )
+        throw new Error(labels.error);
+    };
+    assertSuggestionCurrent();
+    if (!editingMessage && onSubmitOverride) {
+      const submitOptions = suggestion ? { ...options, suggestion } : options;
+      await onSubmitOverride(text, files, references, submitOptions);
+      return;
+    }
+    if (files.length && !uploadGateRef.current.enabled) {
+      throw new AgentKitCapabilityError(
+        "uploads",
+        "unavailable",
+        uploadGateRef.current.reason ?? labels.error,
+      );
+    }
     const effort = options.effort;
     const contextItemsForSubmission = options.contextItems ?? contextItems;
     const metadata = {
       ...(editingMessage?.metadata ?? {}),
+      ...(suggestion ? { suggestion } : {}),
       ...(contextItemsForSubmission === undefined
         ? {}
         : { contextItems: contextItemsForSubmission }),
@@ -3015,10 +3336,9 @@ export function AgentKitComposer({
         previousMessage?.id,
       );
       onThreadForked(forkedThread);
-      const uploadedAttachments =
-        uploadFiles.length && canUpload
-          ? await controller.uploadFiles(forkedThread.id, uploadFiles)
-          : [];
+      const uploadedAttachments = uploadFiles.length
+        ? await controller.uploadFiles(forkedThread.id, uploadFiles)
+        : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
           part.type === "file",
@@ -3027,6 +3347,7 @@ export function AgentKitComposer({
         threadId: forkedThread.id,
         intent: "immediate",
         text,
+        composerModeContext: options.composerModeContext,
         contextItems: contextItemsForSubmission,
         references,
         options: runOptions,
@@ -3054,15 +3375,11 @@ export function AgentKitComposer({
         attachments: [...payload.attachments],
         options: payload.options,
         metadata: sendMetadata,
+        onLocalSubmit: options.onLocalSubmit,
       });
       editContext?.setMessage(null);
       return;
     }
-    if (onSubmitOverride) {
-      await onSubmitOverride(text, files, references, options);
-      return;
-    }
-
     const submissionThread = controller.getThread(threadId);
     const activeAtSubmit = hasActiveRuns(submissionThread);
     const draft = createAgentKitComposerSubmission({
@@ -3073,19 +3390,20 @@ export function AgentKitComposer({
           ? "queued"
           : "immediate",
       text,
+      composerModeContext: options.composerModeContext,
       contextItems: contextItemsForSubmission,
       references,
       options: runOptions,
     });
-    const attachments =
-      uploadFiles.length && canUpload
-        ? await control.uploadFiles(uploadFiles)
-        : [];
+    const attachments = uploadFiles.length
+      ? await control.uploadFiles(uploadFiles)
+      : [];
     const payload = Object.freeze({
       ...draft,
       attachments: snapshotComposerValue(attachments),
     });
     await beforeSend?.(payload);
+    assertSuggestionCurrent();
     const sendMetadata = {
       ...payload.options.metadata,
       ...(payload.references.length ? { references: payload.references } : {}),
@@ -3098,6 +3416,7 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      onLocalSubmit: options.onLocalSubmit,
     };
     if (payload.intent === "queued") {
       await control.queueMessage(message);
@@ -3144,24 +3463,29 @@ export function AgentKitComposer({
       .finally(focusComposer);
   const selectSuggestion: AgentKitSuggestionsRenderProps["onSelect"] = (
     suggestion,
-  ) =>
-    void command
-      .execute(async () => {
-        if (!(await prepareHostSubmit())) return;
-        await submitMessage(agentSuggestionPrompt(suggestion), [], [], {
-          intent:
-            hasActiveRuns(controller.getThread(threadId)) &&
-            queueWhileRunning &&
-            canQueue
-              ? "queued"
-              : "immediate",
-          contextItems,
-        });
-      })
+  ) => {
+    if (
+      disabled ||
+      !suggestionsCapability.enabled ||
+      selectedSuggestionRef.current ||
+      !isCurrentAgentSuggestion(controller.getThread(threadId), suggestion)
+    )
+      return;
+    const composer = composerRef.current;
+    if (!composer) return;
+    selectedSuggestionRef.current = suggestion;
+    void composer
+      .submitWithText(agentSuggestionPrompt(suggestion))
       .catch(() => undefined)
-      .finally(focusComposer);
+      .finally(() => {
+        if (selectedSuggestionRef.current === suggestion)
+          selectedSuggestionRef.current = undefined;
+        focusComposer();
+      });
+  };
   const Queue = slots.queue;
   const Suggestions = slots.suggestions;
+  const suggestions = selectAgentSuggestions(thread);
   return (
     <div className={`agentkit-composer-stack ${className ?? ""}`}>
       {queueCapability.visible ? (
@@ -3231,17 +3555,20 @@ export function AgentKitComposer({
           />
         )
       ) : null}
-      {suggestionsCapability.visible && thread.suggestions.length ? (
+      {suggestionsCapability.enabled &&
+      !disabled &&
+      !editingMessage &&
+      suggestions.length ? (
         Suggestions ? (
           <Suggestions
-            suggestions={thread.suggestions}
+            suggestions={suggestions}
             threadId={threadId}
             pending={command.pending}
             onSelect={selectSuggestion}
           />
         ) : (
           <AgentSuggestionBar
-            suggestions={thread.suggestions.map((suggestion) => ({
+            suggestions={suggestions.map((suggestion) => ({
               ...suggestion,
               disabled: command.pending || Boolean(disabled),
             }))}
@@ -3322,7 +3649,13 @@ export function AgentKitComposer({
           focusComposer();
           try {
             await command.execute(async () => {
-              await submitMessage(text, files, references, options);
+              await submitMessage(
+                text,
+                files,
+                references,
+                options,
+                selectedSuggestionRef.current,
+              );
             });
           } finally {
             focusComposer();
@@ -3742,6 +4075,12 @@ export function AgentKitChat({
     () => firstWorkEvents(thread.events),
     [thread.events],
   );
+  const groupedReasoningMessageIds = new Set(
+    runWorkStarts.flatMap((event) => {
+      const messageId = reasoningMessageId(event);
+      return messageId ? [messageId] : [];
+    }),
+  );
   const hasRunWork = (
     runId: RunId,
     afterSequence?: number,
@@ -3781,7 +4120,7 @@ export function AgentKitChat({
     throughSequence?: number;
   }) => (
     <AgentKitSurfaceBoundary
-      key={`run-work:${runId}:${anchor}`}
+      key={`run-work:${threadId}:${runId}:${anchor}`}
       surface="activity"
       resetKey={`${runId}:${anchor}:${thread.events.length}`}
     >
@@ -3833,13 +4172,52 @@ export function AgentKitChat({
         }),
       );
     }
+    const displayMessage =
+      message.role === "assistant"
+        ? {
+            ...message,
+            parts: message.parts.filter(
+              (part) =>
+                part.type !== "reasoning" &&
+                (part.type !== "text" || part.text.trim()),
+            ),
+          }
+        : message;
+    if (
+      message.role === "assistant" &&
+      !groupedReasoningMessageIds.has(message.id) &&
+      message.parts.some(
+        (part) =>
+          part.type === "reasoning" &&
+          part.visibility !== "hidden" &&
+          part.text.trim(),
+      )
+    ) {
+      const active =
+        message.status === "streaming" && displayMessage.parts.length === 0;
+      transcriptItems.push(
+        <AgentWorkDisclosure
+          key={`reasoning:${threadId}:${message.id}`}
+          label={active ? labels.working : labels.worked}
+          running={active}
+        >
+          <div className="agentkit-activities-list">
+            <AgentReasoningParts
+              message={message}
+              threadId={threadId}
+              active={active}
+            />
+          </div>
+        </AgentWorkDisclosure>,
+      );
+    }
     transcriptItems.push(
       <AgentKitSurfaceBoundary
-        key={`message:${message.id}`}
+        key={`message:${threadId}:${message.id}`}
         surface="message"
         resetKey={`${message.id}:${thread.events.length}`}
       >
-        <Message value={message} threadId={threadId} />
+        <Message value={displayMessage} threadId={threadId} />
       </AgentKitSurfaceBoundary>,
     );
     if (isAssistantBoundary && runId) {
@@ -3949,7 +4327,7 @@ export function AgentKitChat({
               {transcriptItems}
               {approvalEntries.map(([approvalId, request]) => (
                 <AgentKitSurfaceBoundary
-                  key={approvalId}
+                  key={`${threadId}:${approvalId}`}
                   surface="approval"
                   resetKey={`${approvalId}:${thread.events.length}`}
                 >
@@ -3969,7 +4347,7 @@ export function AgentKitChat({
               ))}
               {connectionRequestEntries.map(([requestId, request]) => (
                 <AgentKitSurfaceBoundary
-                  key={requestId}
+                  key={`${threadId}:${requestId}`}
                   surface="connection-request"
                   resetKey={`${requestId}:${request.status}`}
                 >

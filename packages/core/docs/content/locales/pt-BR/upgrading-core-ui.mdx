@@ -36,7 +36,7 @@ declaração por símbolo, preservando aliases e imports somente de tipos. Tamb�
 reescreve caminhos simples de CSS @import e adiciona uma dependência ausente
 quando uma reescrita resolvida cruza o limite de um pacote.
 
-O diagnóstico também detecta formas CommonJS com `require()` e formas de `import()` dinâmico, mas o codemod não reescreve essas expressões de chamada. Substitua-as usando o novo destino indicado no relatório e execute novamente o Vite ou `agent-native doctor`. Caminhos CSS `@import url(...)` são modificados pelo codemod com ou sem aspas.
+O diagnóstico também detecta formas CommonJS com `require()` e formas de `import()` dinâmico. O codemod reescreve chamadas `import()` literais quando o módulo antigo tem um único novo destino. Ele deixa `require()` e imports dinâmicos que precisam de divisão por símbolo sem alterações e emite um aviso; substitua-os usando o novo destino indicado no relatório e execute novamente o Vite ou `agent-native doctor`. Caminhos CSS `@import url(...)` são modificados pelo codemod com ou sem aspas.
 
 Ele não altera os pontos de chamada nem move seus arquivos. Movimentos não
 resolvidos ou planejados permanecem sem alteração e geram avisos. Ele não pode
@@ -71,8 +71,8 @@ O CLI adiciona estas dependências quando as verificações do ambiente local co
 | Sentry no servidor                             | @sentry/node                 | ^10.60.0 ou ^11.0.0 | `SENTRY_SERVER_DSN`, `SENTRY_DSN` ou a tupla de chaves do Sentry                                |
 | Sentry no navegador                            | @sentry/browser              | ^10.60.0 ou ^11.0.0 | DSN do Sentry cliente, `SENTRY_DSN` ou a tupla de chaves                                        |
 | Envio de source maps do Sentry durante o build | @sentry/vite-plugin          | ^5.4.0              | `SENTRY_AUTH_TOKEN`, organização e projeto definidos                                            |
-| Autenticação SSO                               | @better-auth/sso             | 1.7.4               | `AUTH_SSO` habilitado                                                                           |
-| Autenticação SCIM                              | @better-auth/scim            | 1.7.4               | `AUTH_SCIM` habilitado                                                                          |
+| Autenticação SSO                               | @better-auth/sso             | 1.7.6               | `AUTH_SSO` habilitado                                                                           |
+| Autenticação SCIM                              | @better-auth/scim            | 1.7.6               | `AUTH_SCIM` habilitado                                                                          |
 | Amplitude                                      | @amplitude/analytics-browser | ^2.45.8             | `VITE_AMPLITUDE_API_KEY` definida                                                               |
 | Microsoft Teams                                | botframework-connector       | ^4.23.3             | `MICROSOFT_TEAMS_APP_ID` e `MICROSOFT_TEAMS_APP_PASSWORD` definidos                             |
 
@@ -108,14 +108,20 @@ Para pesquisar no código-fonte dos templates próprios, adicione o pacote de co
 ## 3. Aplicar o upgrade
 
 Depois de revisar a simulação e confirmar os pacotes dos recursos, aplique o
-plano:
+plano com a CLI versionada. Isso importa se o app ainda usa Core 0.196 ou outra
+CLI mais antiga, que contém um manifesto de migração anterior:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Depois que Core 0.198.0 estiver instalado no app, o mesmo comando fica disponível
+na CLI local:
 
     npx agent-native upgrade --codemods
 
-Esse único comando atualiza especificações elegíveis de dependências
-@agent-native/\*, alinha as dependências de recursos detectados, executa o
-gerenciador de pacotes, fixa as versões resolvidas do Agent-Native, aplica os
-codemods compatíveis, atualiza as skills de scaffold e executa o script
+Ambas as invocações atualizam especificações elegíveis de dependências
+@agent-native/\*, alinham as dependências de recursos detectados, executam o
+gerenciador de pacotes, fixam as versões resolvidas do Agent-Native, aplicam os
+codemods compatíveis, atualizam as skills de scaffold e executam o script
 typecheck da raiz quando existir. Não execute outro upgrade apenas para aplicar
 os codemods. Corrija avisos e erros do app no código do app; não adicione
 overrides nem patches do framework.
@@ -126,13 +132,20 @@ Revise o diff completo, especialmente avisos de codemods ignorados e versões de
 dependências, e então execute:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Use o comando equivalente de typecheck para npm ou Yarn e execute os testes e o
-build relevantes do app. Confirme que a tabela de peers opcionais cobre as
-configurações locais e de produção. Pesquise os imports antigos da tabela
-abaixo; ocorrências restantes devem ser intencionais, não suportadas pelo
-manifesto ou explicadas por um aviso.
+O Doctor executa por padrão as verificações `migration-manifest` e
+`feature-dependencies`. Ele informa imports antigos e peers opcionais ausentes
+para recursos detectados pela configuração local. Ele não pode verificar
+configurações remotas de deployment nem configurações de recursos armazenadas no
+banco de dados, então confirme essas informações separadamente.
+
+Use o comando equivalente de typecheck para npm ou Yarn. Execute os scripts de
+teste e build do app quando existirem, normalmente `pnpm test` e `pnpm build`.
+Confirme que a tabela de peers opcionais cobre as configurações locais e de
+produção. Pesquise os imports antigos da tabela abaixo; ocorrências restantes
+devem ser intencionais, não suportadas pelo manifesto ou explicadas por um aviso.
 
 ## Caminhos antigos e destinos representativos
 

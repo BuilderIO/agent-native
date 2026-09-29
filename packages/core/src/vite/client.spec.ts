@@ -3459,6 +3459,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const Text = stub;");
     expect(code).toContain("export const XmlElement = stub;");
     expect(code).toContain("export const UndoManager = stub;");
+    expect(code).toContain("export const ySyncPluginKey = stub;");
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const DOMSerializer = stub;");
@@ -3626,6 +3627,9 @@ describe("local-core dev aliases and router dedupe", () => {
     expect(deps).toContain("react-dom/server");
     expect(deps).toContain("react-router");
     expect(deps).not.toContain("@agent-native/core > react-router");
+    expect(deps).toContain(
+      "@agent-native/toolkit > lowlight > highlight.js/lib/core",
+    );
     expect(deps).toContain("@agent-native/toolkit > highlight.js/lib/core");
     expect(deps).toContain(
       "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
@@ -3737,6 +3741,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/app/agentkit/react/components",
           "@agent-native/toolkit/app/agentkit/react/context",
           "@agent-native/toolkit/app/agentkit/react/root",
+          "@agent-native/toolkit/app/chat/agentkit-chat/index",
           "@agent-native/core/client/agent-native-icon",
           "@agent-native/core/client/agentkit-chat/composer",
           "@agent-native/core/client/agentkit-chat/connections",
@@ -3764,6 +3769,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@agent-native/toolkit/ui/sheet",
           "@agent-native/toolkit/ui/sonner",
           "@agent-native/toolkit/ui/tooltip",
+          "@agent-native/toolkit > lowlight > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",
           "@agent-native/toolkit > highlight.js/lib/languages/css",
@@ -4226,6 +4232,7 @@ describe("local-core dev aliases and router dedupe", () => {
           "@assistant-ui/store": "0.2.13",
           "@assistant-ui/tap": "0.5.16",
           "highlight.js": "11.11.1",
+          lowlight: "3.3.0",
           "react-markdown": "10.1.0",
           recharts: "3.9.2",
         },
@@ -4262,6 +4269,9 @@ describe("local-core dev aliases and router dedupe", () => {
     );
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/toolkit > @assistant-ui/tap",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/toolkit > lowlight > highlight.js/lib/core",
     );
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/toolkit > highlight.js/lib/core",

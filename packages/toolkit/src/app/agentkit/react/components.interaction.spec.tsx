@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, createRef, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+
+import type { TiptapComposerHandle } from "../../../composer/TiptapComposer.js";
 
 vi.mock("../../../design-system/index.js", async (importOriginal) => {
   const actual =
@@ -38,6 +40,94 @@ import { AgentKitChat, AgentMessageActions } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
 describe("AgentKitChat interactions", () => {
+  it.each(["default", "compact"] as const)(
+    "clears the %s composer before startRun resolves and preserves the next draft",
+    async (layoutVariant) => {
+      const started = Promise.withResolvers<{ runId: string }>();
+      const startRun = vi.fn(() => started.promise);
+      const client = new AgentKitClient({
+        transport: {
+          startRun,
+          async *subscribeToRun() {},
+          async cancelRun() {},
+        },
+      });
+      const composerRef = createRef<TiptapComposerHandle>();
+      const container = document.createElement("div");
+      container.style.width = layoutVariant === "compact" ? "320px" : "960px";
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const actEnvironment = globalThis as typeof globalThis & {
+        IS_REACT_ACT_ENVIRONMENT?: boolean;
+      };
+      const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+      try {
+        await act(async () => {
+          root.render(
+            <AgentKitProvider controller={client} threadId="thread-latency">
+              <AgentKitChat
+                composerProps={{
+                  composerRef,
+                  layoutVariant,
+                  autoFocus: false,
+                  showModelSelector: false,
+                  modelStatusChecksEnabled: false,
+                  voiceEnabled: false,
+                  includeDefaultSlashSkills: false,
+                }}
+              />
+            </AgentKitProvider>,
+          );
+        });
+        const editor = container.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        )!;
+        expect(editor).not.toBeNull();
+        await act(async () => composerRef.current!.setText("First prompt"));
+        const send = container.querySelector<HTMLButtonElement>(
+          '[data-agent-composer-slot="send-button"]',
+        )!;
+        expect(send.disabled).toBe(false);
+        await act(async () => {
+          send.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+        expect(startRun).toHaveBeenCalledOnce();
+        expect(
+          container.querySelector('.agentkit-message[data-role="user"]')
+            ?.textContent,
+        ).toContain("First prompt");
+        expect(client.getThread("thread-latency").activeRunIds).toEqual([]);
+        expect(editor.textContent).toBe("");
+
+        await act(async () => composerRef.current!.setText("Next draft"));
+        await act(async () => started.resolve({ runId: "run-latency" }));
+
+        expect(editor.textContent).toBe("Next draft");
+        expect(startRun).toHaveBeenCalledOnce();
+        expect(client.getThread("thread-latency").messages).toHaveLength(1);
+      } finally {
+        await act(async () => {
+          started.resolve({ runId: "run-latency" });
+        });
+        await act(async () => root.unmount());
+        await client.shutdown();
+        container.remove();
+        if (previousActEnvironment === undefined) {
+          delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+        } else {
+          actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+        }
+      }
+    },
+  );
+
   it("offers fork from the message actions menu", async () => {
     const forkThread = vi.fn(async (input) => ({
       id: `${input.threadId}-fork`,
@@ -425,7 +515,7 @@ describe("AgentKitChat interactions", () => {
         'button[data-agent-composer-slot="plus-button"]',
       );
       expect(plusButton).not.toBeNull();
-      expect(plusButton?.getAttribute("aria-haspopup")).toBe("dialog");
+      expect(plusButton?.getAttribute("aria-haspopup")).toBe("menu");
 
       const previewButton = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Preview review.png"]',
@@ -1138,8 +1228,6 @@ describe("AgentKitChat interactions", () => {
           <AgentKitProvider controller={client} threadId="thread-plan">
             <AgentKitChat
               composerProps={{
-                // The composer focuses its editor 50 ms after mount, which
-                // dismisses a menu opened before then.
                 autoFocus: false,
                 planModeDisabled: true,
                 planModeDisabledReason: "Plan mode requires Desktop.",
@@ -1158,15 +1246,17 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
         expect(modeButton!.getAttribute("aria-expanded")).toBe("true");
       });
-      const planOption = Array.from(
-        document.body.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((button) =>
-        button.textContent?.includes("Plan mode requires Desktop."),
-      );
-      expect(planOption?.disabled).toBe(true);
-      expect(planOption?.getAttribute("title")).toBe(
-        "Plan mode requires Desktop.",
-      );
+      await vi.waitFor(() => {
+        const planOption = Array.from(
+          document.body.querySelectorAll<HTMLButtonElement>("button"),
+        ).find((button) =>
+          button.textContent?.includes("Plan mode requires Desktop."),
+        );
+        expect(planOption?.disabled).toBe(true);
+        expect(planOption?.getAttribute("title")).toBe(
+          "Plan mode requires Desktop.",
+        );
+      });
       expect(
         container
           .querySelector<HTMLButtonElement>(

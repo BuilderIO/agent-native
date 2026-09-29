@@ -51,6 +51,11 @@ import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
 configureTracking({
+  sessionReplay: {
+    console: false,
+    network: false,
+    sensitiveQueryParams: ["q"],
+  },
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-mail",

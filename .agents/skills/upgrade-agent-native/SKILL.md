@@ -37,7 +37,7 @@ codemod limits, and a symbol-level path map.
 1. **Preview migration codemods first**
 
    ```bash
-   npx @agent-native/core@latest upgrade --codemods --dry-run
+   npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
    ```
 
    `--dry-run` previews the diff without writing. Do not manually edit imports
@@ -47,13 +47,22 @@ codemod limits, and a symbol-level path map.
 2. **Apply the reviewed upgrade and codemods**
 
    ```bash
-   npx agent-native upgrade --codemods
+   npx @agent-native/core@0.198.0 upgrade --codemods
    ```
 
-   This single invocation applies the codemods and runs the upgrade, including
-   dependency installation, scaffold skill refresh, and typecheck when
-   available. Do not run a second upgrade command just to apply the codemods.
-   From an already-installed CLI, use `pnpm exec agent-native upgrade --codemods`.
+   Use the versioned CLI while the app still has Core 0.196 or another older
+   Core version: its local CLI carries an older migration manifest. After Core
+   0.198.0 is installed, `npx agent-native upgrade --codemods` (or
+   `pnpm exec agent-native upgrade --codemods` from an already-installed CLI)
+   uses the matching manifest. Either invocation applies supported codemods and
+   runs the upgrade, including dependency installation, scaffold skill refresh,
+   and typecheck when available. Do not run a second upgrade command just to
+   apply the codemods.
+
+   Afterward, run `npx agent-native doctor` from the app root. Its default
+   `migration-manifest` and `feature-dependencies` checks report stale imports
+   and missing optional peers detected from local settings. Confirm remote
+   deployment settings separately because Doctor cannot inspect them.
 
    What it does:
 
