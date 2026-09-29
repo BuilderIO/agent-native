@@ -267,15 +267,22 @@ const CONTENT_ROOT_EXCLUSIONS = new Set([
   "templates/content/vitest.config.ts",
 ]);
 
-// Unit tests change no product behavior unless a product record cites them as
-// evidence. E2E, parity, and conformance suites always stay evidence.
-function isContentUnitTest(normalized: string): boolean {
-  if (!normalized.startsWith("templates/content/")) return false;
-  if (/\/(?:e2e|parity)\/|\.e2e\./.test(normalized)) return false;
-  if (/parity|conformance/i.test(normalized)) return false;
+// E2E, parity, and conformance suites are the proof a Feature or Capability
+// relies on, wherever they sit under Content.
+function isContentProofSuite(normalized: string): boolean {
   return (
-    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
-    normalized.includes("/__tests__/")
+    normalized.startsWith(`${CONTENT_ROOT}/`) &&
+    (/\/(?:e2e|parity)\/|\.e2e\./.test(normalized) ||
+      /parity|conformance/i.test(normalized))
+  );
+}
+
+// Unit tests change no product behavior unless a product record cites them.
+function isContentUnitTest(normalized: string): boolean {
+  return (
+    normalized.startsWith(`${CONTENT_ROOT}/`) &&
+    (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(normalized) ||
+      normalized.includes("/__tests__/"))
   );
 }
 
@@ -294,14 +301,10 @@ export function citedEvidencePaths(catalog: ProductCatalog): Set<string> {
     for (const entry of evidence) {
       if (typeof entry !== "string") continue;
       // Records cite proof relative to the record, the Content root, or the
-      // repository root. Keep every reading so a cited test is never dropped.
-      if (entry.startsWith("./") || entry.startsWith("../")) {
-        cited.add(
-          path.posix.normalize(path.posix.join(recordDirectory, entry)),
-        );
-      } else {
-        cited.add(path.posix.normalize(path.posix.join(CONTENT_ROOT, entry)));
-        cited.add(path.posix.normalize(entry));
+      // repository root, and the spelling does not say which. Matching is
+      // exact, so keeping every reading can only keep a file as evidence.
+      for (const base of [recordDirectory, CONTENT_ROOT, ""]) {
+        cited.add(path.posix.normalize(path.posix.join(base, entry)));
       }
     }
   }
@@ -313,9 +316,10 @@ export function directContentEvidence(
   citedEvidence: ReadonlySet<string> = new Set(),
 ): string | undefined {
   const normalized = file.replaceAll("\\", "/");
-  if (isContentUnitTest(normalized) && !citedEvidence.has(normalized)) {
-    return undefined;
+  if (citedEvidence.has(normalized) || isContentProofSuite(normalized)) {
+    return normalized;
   }
+  if (isContentUnitTest(normalized)) return undefined;
   const prefixes = [
     "templates/content/actions/",
     "templates/content/app/",
@@ -338,14 +342,6 @@ export function directContentEvidence(
   if (
     /^templates\/content\/[^/]+$/.test(normalized) &&
     !CONTENT_ROOT_EXCLUSIONS.has(normalized)
-  ) {
-    return normalized;
-  }
-  if (
-    normalized.startsWith("templates/content/") &&
-    /(?:content.*parity|parity.*content|content.*conformance|conformance.*content)/i.test(
-      normalized,
-    )
   ) {
     return normalized;
   }
