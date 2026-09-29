@@ -673,9 +673,10 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "volver a la lista",
     promoteMustContain: "La respuesta debe incluir…",
-    promoteMustContainOptional: "La respuesta debe incluir (opcional)",
+    promoteMustContainOptional:
+      "Texto opcional que se comprobará en la respuesta…",
     promoteMustContainLabel:
-      "Texto que debe incluir la respuesta de evaluación promovida",
+      "Texto que se comprobará en la respuesta de la evaluación promovida",
     promoteNeedsContains:
       "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
     spans: "Spans",

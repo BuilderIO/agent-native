@@ -625,8 +625,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "返回列表",
     promoteMustContain: "回复必须包含…",
-    promoteMustContainOptional: "回复必须包含（可选）",
-    promoteMustContainLabel: "晋升后的评测回复必须包含的文本",
+    promoteMustContainOptional: "回复中要检查的可选文本…",
+    promoteMustContainLabel: "在升级后的评测回复中检查的文本",
     promoteNeedsContains:
       "此运行没有成功的工具调用。请先输入回复必须包含的文本，再将其晋升为评测。",
     spans: "Spans",

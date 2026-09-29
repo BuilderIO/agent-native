@@ -643,8 +643,8 @@ const messages = {
     failedCount: "({{count}} failed)",
     backToList: "목록으로 돌아가기",
     promoteMustContain: "답변에 포함할 내용…",
-    promoteMustContainOptional: "답변에 포함할 내용 (선택 사항)",
-    promoteMustContainLabel: "승격된 평가 답변에 포함되어야 하는 텍스트",
+    promoteMustContainOptional: "답변에서 확인할 선택적 텍스트…",
+    promoteMustContainLabel: "승격된 평가 답변에서 확인할 텍스트",
     promoteNeedsContains:
       "이 실행에는 성공한 도구 호출이 없습니다. 평가로 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
     spans: "Spans",
