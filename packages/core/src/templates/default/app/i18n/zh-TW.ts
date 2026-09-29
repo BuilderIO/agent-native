@@ -18,11 +18,6 @@ const messages = {
     disconnecting: "正在中斷連線…",
   },
   settings: {
-    title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     agentTitle: "代理設定",
     agentDescription:
       "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
@@ -31,7 +26,6 @@ const messages = {
     workspaceDescription: "管理團隊存取和共用工作區資源。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    backHome: "返回首頁",
     emailChange: "變更電子郵件",
     emailChangeSent: "請查看電子郵件以確認此變更。",
     emailChangeError: "無法傳送確認信。",

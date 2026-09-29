@@ -7,7 +7,6 @@ export default {
     connecting: "Connexion...",
     clipboardUnavailable: "L’accès au presse-papiers n’est pas disponible",
     disconnect: "Déconnecter",
-    notConnected: "Non connecté",
     loadFailed: "Impossible de charger ces données.",
     retry: "Réessayer",
     saving: "Enregistrement...",
@@ -209,10 +208,6 @@ export default {
   },
   settings: {
     title: "Paramètres",
-    description: "Configurez votre calendrier et vos intégrations.",
-    languageTitle: "Langue",
-    languageDescription: "Choisissez la langue de l'interface de Calendar.",
-    languageLabel: "Langue de l'interface",
     agentTitle: "Gérer l'agent",
     agentDescription:
       "Gérez le modèle de l'agent, les clés API, les automatisations, la voix et les autres contrôles.",
@@ -227,13 +222,8 @@ export default {
     zoomConnectFailed: "Impossible de connecter Zoom",
     zoomDisconnected: "Zoom déconnecté",
     zoomDisconnectFailed: "Impossible de déconnecter Zoom",
-    general: "Général",
-    generalDescription: "Valeurs par défaut du calendrier et réservations.",
-    timezone: "Fuseau horaire",
-    saveSettings: "Enregistrer",
     saved: "Paramètres enregistrés",
     saveFailed: "Échec de l'enregistrement",
-    appearance: "Apparence",
     appearanceDescription:
       "Choisissez un thème de couleur pour votre espace, ou demandez à l'agent.",
     desktopNotifications: "Notifications de bureau",
@@ -248,20 +238,10 @@ export default {
       "Synchronisez vos événements et gérez tout au même endroit.",
     zoomDescription:
       "Connectez Zoom pour créer des liens de réunion pour les événements et les réservations.",
-    zoomNotConfigured: "Non configuré",
     zoomCredentialsPrompt:
       "Ajoutez les identifiants OAuth Zoom pour activer la connexion.",
-    bookingTitleLabel: "Titre de secours de la page de réservation",
     bookingTitlePlaceholder: "Réserver une réunion",
-    bookingTitleHelp:
-      "Utilisé seulement quand un lien de réservation n'a pas de titre. Créez, ouvrez et copiez les URL publiques depuis Liens de réservation.",
-    bookingDescriptionLabel: "Description de secours de la page de réservation",
     bookingDescriptionPlaceholder: "Choisissez un horaire qui vous convient.",
-    bookingDescriptionHelp:
-      "Utilisé seulement quand un lien de réservation n'a pas sa propre description.",
-    defaultDurationLabel: "Durée d'événement par défaut (minutes)",
-    defaultDurationHelp:
-      "Durée par défaut des nouveaux événements et créneaux de réservation. Chaque lien de réservation peut la remplacer.",
     weekStartLabel: "La semaine commence le",
     weekStartSunday: "Dimanche - samedi",
     weekStartMonday: "Lundi - dimanche",

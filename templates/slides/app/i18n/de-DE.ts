@@ -48,14 +48,10 @@ const messages = {
   settings: {
     agentObservability: "Agentenbeobachtbarkeit",
     title: "Einstellungen",
-    description: "Sprach- und Arbeitsbereichseinstellungen für diese App.",
     labs: "Labs",
     labsIntro: "Teste experimentelle Funktionen vor ihrer Veröffentlichung.",
     labLayoutOverflowWarningDescription:
       "Die Layout-Überlaufwarnung im Editor anzeigen.",
-    emailNotifications: "E-Mail-Benachrichtigungen",
-    emailNotificationsDescription:
-      "Erhalte eine E-Mail, wenn jemand dein Deck kommentiert oder in einem Thread antwortet.",
     saveFailed: "Speichern fehlgeschlagen",
     notificationsEmail: "E-Mail",
     commentsAndReplies: "Kommentare und Antworten",
@@ -64,10 +60,6 @@ const messages = {
     retry: "Erneut versuchen",
     mcpAbout:
       "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
-    languageTitle: "Sprache",
-    languageDescription:
-      "Wähle die Sprache der Oberfläche. Diese Einstellung wird in deinem Konto gespeichert.",
-    languageLabel: "Oberflächensprache",
     workspaceTitle: "Arbeitsbereich",
     workspaceDescription:
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
