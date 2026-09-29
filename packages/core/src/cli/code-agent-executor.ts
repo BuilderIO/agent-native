@@ -132,6 +132,7 @@ const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
+const MCP_CONFIG_REMOVE_ATTEMPTS = 3;
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
 const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5";
@@ -680,23 +681,35 @@ async function executeClaudeCliRun(options: {
 
   let mcpConfigDir: string | undefined;
   let followUpInput!: Parameters<typeof executeCodeAgentRun>[0];
-  // A delete failure is recorded in the transcript. It only fails the run when
-  // a follow-up is waiting, which then stays queued (see below).
+  // Every exit path (success, failure, pause) gets the same bounded retries.
+  // A config still on disk afterwards is recorded in the transcript, and on
+  // the success path it fails the run (see below).
   const removeMcpConfig = () => {
-    if (!mcpConfigDir) return;
-    try {
-      fs.rmSync(mcpConfigDir, { recursive: true, force: true });
-      mcpConfigDir = undefined;
-    } catch (error) {
-      appendCodeAgentTranscriptEvent({
-        runId: options.run.id,
-        kind: "note",
-        message: `Could not remove the temporary Claude MCP config at ${mcpConfigDir}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        metadata: { engine: CLAUDE_CLI_ENGINE_NAME },
-      });
+    const dir = mcpConfigDir;
+    if (!dir) return;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < MCP_CONFIG_REMOVE_ATTEMPTS; attempt++) {
+      try {
+        fs.rmSync(dir, {
+          recursive: true,
+          force: true,
+          maxRetries: 2,
+          retryDelay: 50,
+        });
+        mcpConfigDir = undefined;
+        return;
+      } catch (error) {
+        lastError = error;
+      }
     }
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "note",
+      message: `Could not remove the temporary Claude MCP config at ${dir}: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+      metadata: { engine: CLAUDE_CLI_ENGINE_NAME },
+    });
   };
   try {
     // Deliver the same host-scoped servers the Codex path receives (see
@@ -761,19 +774,12 @@ async function executeClaudeCliRun(options: {
       },
     });
 
-    // A follow-up starts a new CLI run, so it must not start while the
-    // credential-bearing config is still on disk. Leave it queued and fail
-    // this run instead.
-    if (mcpConfigDir) removeMcpConfig();
-    const followUpsQueued = getCodeAgentRunRecord(options.run.id)?.metadata
-      ?.pendingFollowUps;
-    if (
-      mcpConfigDir &&
-      Array.isArray(followUpsQueued) &&
-      followUpsQueued.length > 0
-    ) {
+    // A run is not complete while the credential-bearing config is still on
+    // disk, and a follow-up must not start a new CLI run beside it: fail this
+    // run and leave any follow-up queued.
+    if (mcpConfigDir) {
       throw new Error(
-        `Could not remove the temporary Claude MCP config at ${mcpConfigDir}; the queued follow-up was not started.`,
+        `Could not remove the temporary Claude MCP config at ${mcpConfigDir}; any queued follow-up was not started.`,
       );
     }
     const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
