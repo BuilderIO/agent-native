@@ -13,6 +13,7 @@ import {
   discoverAgents,
   getBuiltinAgents,
   isBuiltinAgentCatalogId,
+  loadWorkspaceAppsManifest,
   normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "@agent-native/core/server/agent-discovery";
@@ -27,9 +28,19 @@ export default defineAction({
     const { hiddenAgentIds = [] } = await import("../server/index.js").then(
       (m) => m.getDispatchConfig(),
     );
-    const discovered = await discoverAgents("dispatch");
+    const [discovered, workspaceApps] = await Promise.all([
+      discoverAgents("dispatch"),
+      loadWorkspaceAppsManifest(),
+    ]);
+    // A mounted workspace app with a built-in's id is a workspace app; the
+    // built-in settings never apply to it.
+    const workspaceIds = new Set(
+      (workspaceApps ?? []).map((app) => normalizeAgentId(app.id)),
+    );
     const builtins = getBuiltinAgents("dispatch");
-    const builtinIds = new Set(builtins.map((agent) => agent.id));
+    const builtinIds = new Set(
+      builtins.map((agent) => agent.id).filter((id) => !workspaceIds.has(id)),
+    );
     const builtinHomeUrls = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
     );

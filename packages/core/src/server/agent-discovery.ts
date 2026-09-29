@@ -354,7 +354,11 @@ export function getBuiltinAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): DiscoveredAgent[] {
-  return builtinAgentsFor(readBuiltinAgentsConfig().include, selfAppId, options);
+  return builtinAgentsFor(
+    readBuiltinAgentsConfig().include,
+    selfAppId,
+    options,
+  );
 }
 
 /**
@@ -752,6 +756,7 @@ function isFrameworkMonorepo(): boolean {
   try {
     cwd = process.cwd();
   } catch {
+    // coercion-ok: runtimes without a cwd are never the framework checkout.
     return false;
   }
   if (frameworkMonorepoCache?.cwd === cwd) return frameworkMonorepoCache.value;

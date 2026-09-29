@@ -1751,7 +1751,10 @@ export function Layout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      if (chatFirstAppsQuery.isLoading || chatFirstConnectedAppsQuery.isLoading) {
+      if (
+        chatFirstAppsQuery.isLoading ||
+        chatFirstConnectedAppsQuery.isLoading
+      ) {
         pendingChatFirstOpenAppRef.current = detail;
         return;
       }

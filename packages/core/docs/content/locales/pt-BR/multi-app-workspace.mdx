@@ -232,6 +232,31 @@ Para regras específicas da empresa (domínios de lista de permissões, aplicaç
 
 A organização ativa flui automaticamente: escopo de linha `session.orgId` → `AGENT_ORG_ID` → SQL, de modo que os dados marcados com `org_id` ficam invisíveis para outras organizações, até mesmo para o agente. Consulte [Security & Data Scoping](/docs/security) para o modelo completo.
 
+## Apps integrados {#builtin-apps}
+
+Por padrão, todo workspace pode acessar os apps próprios hospedados (Mail, Calendar, Content, Design, Clips e os demais) como agentes integrados. Escolha quais o seu workspace oferece com `agent-native.builtinAgents` no `package.json` da raiz:
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"],
+      "defaultEnabled": ["mail"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"` (padrão, todos os apps próprios públicos), `"none"` (nenhum) ou `"selected"` (somente `include`).
+- `include`: os apps integrados que este workspace oferece quando `mode` é `"selected"`. Os demais continuam desconhecidos para o workspace.
+- `defaultEnabled`: quais apps oferecidos uma nova organização tem ativados. Por padrão, todos os oferecidos.
+
+IDs desconhecidos geram um aviso e são ignorados. Um app independente pode usar a mesma chave no próprio `package.json`. `agent-native dev` e os deploys do workspace repassam o valor a cada app como `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+
+Depois, proprietários e administradores da organização ativam ou desativam os apps oferecidos em **Dispatch → Configurações → Apps integrados**, ou pelas ações `list-builtin-agents` e `set-builtin-agents-enabled`. Essa escolha vale por organização e controla a lista de apps, a descoberta de agentes e as chamadas entre agentes. Apps montados no workspace e agentes remotos conectados nunca são afetados, e o acesso de apps MCP continua sendo uma permissão de roteamento separada.
+
 ## Servidores MCP compartilhados {#shared-mcp}
 
 As opções recomendadas para compartilhar servidores MCP entre aplicativos de espaço de trabalho, em ordem de preferência:

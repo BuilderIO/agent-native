@@ -232,6 +232,31 @@ pnpm dev
 
 活动组织自动流动：`session.orgId` → `AGENT_ORG_ID` → SQL 行范围，因此用 `org_id` 标记的数据对于其他组织甚至代理来说都是不可见的。完整模型请参见 [Security & Data Scoping](/docs/security)。
 
+## 内置应用 {#builtin-apps}
+
+默认情况下，每个工作区都可以将托管的第一方应用（Mail、Calendar、Content、Design、Clips 等）作为内置代理使用。在根目录 `package.json` 中通过 `agent-native.builtinAgents` 选择工作区提供哪些应用：
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"],
+      "defaultEnabled": ["mail"]
+    }
+  }
+}
+```
+
+- `mode`：`"all"`（默认，所有公开的第一方应用）、`"none"`（不提供内置应用）或 `"selected"`（仅 `include` 中的应用）。
+- `include`：当 `mode` 为 `"selected"` 时此工作区提供的内置应用。其他应用对该工作区不可见。
+- `defaultEnabled`：新组织默认启用的已提供应用。默认为所有已提供的应用。
+
+未知 ID 会记录警告并被忽略。独立应用可以在自己的 `package.json` 中使用同一个键。`agent-native dev` 和工作区部署会将该值作为 `AGENT_NATIVE_BUILTIN_AGENTS_JSON` 传递给每个应用。
+
+之后，组织所有者和管理员可以在 **Dispatch → 设置 → 内置应用** 中，或通过 `list-builtin-agents` 和 `set-builtin-agents-enabled` 操作启用或停用已提供的应用。该选择按组织生效，控制应用列表、代理发现和代理间调用。已挂载的工作区应用和已连接的远程代理不受影响，MCP 应用访问仍是独立的路由权限。
+
 ## 共享MCP服务器 {#shared-mcp}
 
 跨工作区应用共享 MCP 服务器的推荐选项（按优先顺序排列）：

@@ -200,6 +200,13 @@ const messages = {
       selectedApps: "Ausgewählte Apps",
       loading: "Loading",
       grantedCount: "{{count}} granted",
+      builtinAppsTitle: "Integrierte Apps",
+      builtinAppsEnableAll: "Alle aktivieren",
+      builtinAppsDisableAll: "Alle deaktivieren",
+      builtinAppsUpdated: "Integrierte Apps aktualisiert",
+      builtinAppsAdminOnly:
+        "Nur Organisationsinhaber und Administratoren können integrierte Apps ändern.",
+      builtinAppToggle: "{{name}} aktivieren",
       exposeAllAppsMcp: "Alle Apps über Dispatch MCP verfügbar machen",
       copyUrl: "URL kopieren",
       metricsUnavailable: "Messwerte nicht verfügbar",

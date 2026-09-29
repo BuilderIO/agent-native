@@ -232,6 +232,31 @@ Für unternehmensspezifische Regeln (Domains auf Zulassungsliste, Durchsetzung v
 
 Aktive Organisation fließt automatisch: `session.orgId` → `AGENT_ORG_ID` → SQL Zeilenbereich, sodass mit `org_id` getaggte Daten für andere Organisationen, selbst für den Agenten, unsichtbar sind. Das vollständige Modell finden Sie unter [Security & Data Scoping](/docs/security).
 
+## Integrierte Apps {#builtin-apps}
+
+Standardmäßig kann jeder Workspace die gehosteten First-Party-Apps (Mail, Calendar, Content, Design, Clips und weitere) als integrierte Agents erreichen. Welche davon Ihr Workspace anbietet, legen Sie mit `agent-native.builtinAgents` in der Root-`package.json` fest:
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"],
+      "defaultEnabled": ["mail"]
+    }
+  }
+}
+```
+
+- `mode`: `"all"` (Standard, alle öffentlichen First-Party-Apps), `"none"` (keine integrierten Apps) oder `"selected"` (nur `include`).
+- `include`: die integrierten Apps, die dieser Workspace bei `mode: "selected"` anbietet. Alle anderen bleiben dem Workspace unbekannt.
+- `defaultEnabled`: welche angebotenen Apps eine neue Organisation zu Beginn aktiviert hat. Standardmäßig alle angebotenen.
+
+Unbekannte IDs erzeugen eine Warnung und werden ignoriert. Eine Standalone-App kann denselben Schlüssel in ihrer eigenen `package.json` verwenden. `agent-native dev` und Workspace-Deployments übergeben den Wert als `AGENT_NATIVE_BUILTIN_AGENTS_JSON` an jede App.
+
+Organisationsinhaber und Administratoren schalten angebotene Apps anschließend unter **Dispatch → Einstellungen → Integrierte Apps** oder über die Actions `list-builtin-agents` und `set-builtin-agents-enabled` ein oder aus. Diese Auswahl gilt pro Organisation und steuert die App-Liste, die Agent-Erkennung und Agent-zu-Agent-Aufrufe. Eingebundene Workspace-Apps und verbundene Remote-Agents sind nie betroffen, und der MCP-App-Zugriff bleibt eine separate Routing-Berechtigung.
+
 ## Freigegebene MCP-Server {#shared-mcp}
 
 Die empfohlenen Optionen für die gemeinsame Nutzung von MCP-Servern über Workspace-Apps hinweg, in der Reihenfolge ihrer Präferenz:

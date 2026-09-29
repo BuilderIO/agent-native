@@ -88,7 +88,9 @@ export function parseBuiltinAgentsConfig(raw: unknown): {
     include = [...DEFAULT_BUILTIN_AGENT_IDS];
   } else {
     if (record.include === undefined) {
-      warnings.push(`builtinAgents.include is required when mode is "selected"`);
+      warnings.push(
+        `builtinAgents.include is required when mode is "selected"`,
+      );
     }
     include =
       parseIdList(record.include, "builtinAgents.include", warnings) ?? [];
@@ -164,7 +166,7 @@ export function readBuiltinAgentsConfig(): BuiltinAgentsConfig {
   try {
     cwd = process.cwd();
   } catch {
-    // Edge runtimes without a cwd rely on the env value.
+    // coercion-ok: edge runtimes without a cwd rely on the env value.
   }
   const key = `${getAppConfig().workspace.builtinAgentsJson ?? ""}\0${cwd}`;
   if (cachedConfig?.key === key) return cachedConfig.config;

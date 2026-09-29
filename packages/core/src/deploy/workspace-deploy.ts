@@ -213,7 +213,8 @@ export async function runWorkspaceDeploy(
   // Child builds inherit process.env, and the function shims embed it so
   // deployed apps see the builder config without the workspace package.json.
   const builtinAgentsJson = workspaceBuiltinAgentsJson(workspaceRoot);
-  if (builtinAgentsJson) process.env[BUILTIN_AGENTS_ENV_KEY] = builtinAgentsJson;
+  if (builtinAgentsJson)
+    process.env[BUILTIN_AGENTS_ENV_KEY] = builtinAgentsJson;
   const workspaceApps = await readWorkspaceAppManifest(
     workspaceRoot,
     apps,

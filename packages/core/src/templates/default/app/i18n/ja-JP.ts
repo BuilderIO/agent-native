@@ -196,6 +196,13 @@ const messages = {
       selectedApps: "選択したアプリ",
       loading: "Loading",
       grantedCount: "{{count}} granted",
+      builtinAppsTitle: "組み込みアプリ",
+      builtinAppsEnableAll: "すべて有効にする",
+      builtinAppsDisableAll: "すべて無効にする",
+      builtinAppsUpdated: "組み込みアプリを更新しました",
+      builtinAppsAdminOnly:
+        "組み込みアプリを変更できるのは組織のオーナーと管理者のみです。",
+      builtinAppToggle: "{{name}} を有効にする",
       exposeAllAppsMcp: "Dispatch MCP を通じてすべてのアプリを公開する",
       copyUrl: "URL をコピー",
       metricsUnavailable: "メトリクスが利用できません",

@@ -600,7 +600,10 @@ export function WorkspaceAppHost({
   );
   const workspaceApps = useMemo(
     () =>
-      mergeChatFirstWorkspaceApps(workspaceAppsQuery.data, enabledBuiltinAppIds),
+      mergeChatFirstWorkspaceApps(
+        workspaceAppsQuery.data,
+        enabledBuiltinAppIds,
+      ),
     [enabledBuiltinAppIds, workspaceAppsQuery.data],
   );
   const visibleWorkspaceApps = useMemo(

@@ -549,6 +549,13 @@ const messages = {
       selectedApps: "Selected apps",
       loading: "Loading",
       grantedCount: "{{count}} granted",
+      builtinAppsTitle: "Built-in apps",
+      builtinAppsEnableAll: "Enable all",
+      builtinAppsDisableAll: "Disable all",
+      builtinAppsUpdated: "Built-in apps updated",
+      builtinAppsAdminOnly:
+        "Only organization owners and admins can change built-in apps.",
+      builtinAppToggle: "Enable {{name}}",
       exposeAllAppsMcp: "Expose all apps through Dispatch",
       copyUrl: "Copy URL",
       metricsUnavailable: "Metrics unavailable",

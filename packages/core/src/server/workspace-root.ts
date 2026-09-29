@@ -5,6 +5,7 @@ export function readJson(file: string): any {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
+    // coercion-ok: a missing or unparsable package.json is not a workspace marker.
     return null;
   }
 }

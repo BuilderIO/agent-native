@@ -110,7 +110,13 @@ describe("getBuiltinAgents builder config", () => {
   it('offers the framework default when unconfigured ("all")', () => {
     const offered = ids(getBuiltinAgents("dispatch"));
     expect(offered).toEqual(
-      expect.arrayContaining(["calendar", "clips", "content", "design", "mail"]),
+      expect.arrayContaining([
+        "calendar",
+        "clips",
+        "content",
+        "design",
+        "mail",
+      ]),
     );
     expect(offered).not.toContain("dispatch");
   });

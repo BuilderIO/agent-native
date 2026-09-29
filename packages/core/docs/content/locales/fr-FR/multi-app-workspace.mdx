@@ -232,6 +232,31 @@ Pour les règles spécifiques à l'entreprise (domaines de liste verte, applicat
 
 L'organisation active circule automatiquement : `session.orgId` → `AGENT_ORG_ID` → Portée des lignes SQL, de sorte que les données marquées avec `org_id` sont invisibles pour les autres organisations, même pour l'agent. Voir [Security & Data Scoping](/docs/security) pour le modèle complet.
 
+## Applications intégrées {#builtin-apps}
+
+Par défaut, chaque espace de travail peut joindre les applications propriétaires hébergées (Mail, Calendar, Content, Design, Clips, etc.) en tant qu’agents intégrés. Choisissez celles que votre espace de travail propose avec `agent-native.builtinAgents` dans le `package.json` racine :
+
+```json
+{
+  "agent-native": {
+    "workspaceCore": "@my-company-platform/shared",
+    "builtinAgents": {
+      "mode": "selected",
+      "include": ["mail", "calendar"],
+      "defaultEnabled": ["mail"]
+    }
+  }
+}
+```
+
+- `mode` : `"all"` (par défaut, toutes les applications propriétaires publiques), `"none"` (aucune) ou `"selected"` (uniquement `include`).
+- `include` : les applications intégrées proposées par cet espace de travail lorsque `mode` vaut `"selected"`. Les autres restent inconnues de l’espace de travail.
+- `defaultEnabled` : les applications proposées activées pour une nouvelle organisation. Par défaut, toutes celles proposées.
+
+Les identifiants inconnus génèrent un avertissement et sont ignorés. Une application autonome peut utiliser la même clé dans son propre `package.json`. `agent-native dev` et les déploiements d’espace de travail transmettent la valeur à chaque application via `AGENT_NATIVE_BUILTIN_AGENTS_JSON`.
+
+Les propriétaires et administrateurs de l’organisation activent ou désactivent ensuite les applications proposées dans **Dispatch → Paramètres → Applications intégrées**, ou via les actions `list-builtin-agents` et `set-builtin-agents-enabled`. Ce choix s’applique par organisation et contrôle la liste des applications, la découverte des agents et les appels entre agents. Les applications montées de l’espace de travail et les agents distants connectés ne sont jamais concernés, et l’accès des applications MCP reste une autorisation de routage distincte.
+
 ## Serveurs MCP partagés {#shared-mcp}
 
 Les options recommandées pour partager les serveurs MCP entre les applications d'espace de travail, par ordre de préférence :

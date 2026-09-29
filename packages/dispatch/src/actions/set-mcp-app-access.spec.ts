@@ -70,4 +70,24 @@ describe("set-mcp-app-access", () => {
     ).rejects.toThrow(/Unknown app/);
     expect(mocks.setAccess).not.toHaveBeenCalled();
   });
+
+  it("only routes to built-ins that are part of the workspace", async () => {
+    // discoverAgents already omits built-ins the builder or admin turned off.
+    mocks.discoverAgents.mockResolvedValue([{ id: "crm" }]);
+
+    await expect(
+      setMcpAppAccess.run({
+        mode: "selected-apps",
+        selectedAppIds: ["mail"],
+      }),
+    ).rejects.toThrow(/Unknown app/);
+    await setMcpAppAccess.run({
+      mode: "selected-apps",
+      selectedAppIds: ["crm"],
+    });
+    expect(mocks.setAccess).toHaveBeenCalledWith({
+      mode: "selected-apps",
+      selectedAppIds: ["crm"],
+    });
+  });
 });

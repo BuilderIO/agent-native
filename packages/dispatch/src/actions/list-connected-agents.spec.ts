@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   resourceListAccessible: vi.fn(async (): Promise<unknown[]> => []),
   parseRemoteAgentManifest: vi.fn(),
   shouldIncludeRemoteAgentManifest: vi.fn(() => true),
+  loadWorkspaceAppsManifest: vi.fn(
+    async (): Promise<Array<{ id: string }> | null> => null,
+  ),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -34,6 +37,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: (...args: unknown[]) => mocks.discoverAgents(...args),
   getBuiltinAgents: (...args: unknown[]) => mocks.getBuiltinAgents(...args),
+  loadWorkspaceAppsManifest: () => mocks.loadWorkspaceAppsManifest(),
   isBuiltinAgentCatalogId: (id: string) =>
     ["calendar", "clips", "mail"].includes(id.trim().toLowerCase()),
   normalizeAgentId: (id: string) => id.trim().toLowerCase(),
@@ -114,5 +118,27 @@ describe("list-connected-agents", () => {
       "partner",
     ]);
     expect(agents[0]).toMatchObject({ source: "custom" });
+  });
+
+  it("tags a mounted workspace app as workspace even when its id matches a built-in", async () => {
+    const mail = {
+      id: "mail",
+      name: "Mail",
+      description: "",
+      url: "https://workspace.example.test/mail",
+      color: "#000000",
+    };
+    mocks.getBuiltinAgents.mockReturnValue([
+      { ...mail, url: "https://mail.agent-native.com" },
+    ]);
+    mocks.discoverAgents.mockResolvedValue([mail]);
+    mocks.resourceListAccessible.mockImplementation(async () => []);
+    mocks.loadWorkspaceAppsManifest.mockResolvedValueOnce([{ id: "mail" }]);
+
+    const { default: action } = await import("./list-connected-agents.js");
+    const [entry] = await action.run({});
+
+    expect(entry).toMatchObject({ id: "mail", source: "workspace" });
+    expect(entry).not.toHaveProperty("homeUrl");
   });
 });
