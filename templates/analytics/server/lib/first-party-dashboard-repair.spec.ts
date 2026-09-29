@@ -81,6 +81,7 @@ import {
   MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
   PRE_COHORT_HISTORY_RETENTION_OVER_TIME_SQL,
   PRE_CAPPED_RETENTION_OVER_TIME_SQL,
+  PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
@@ -803,6 +804,33 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     const panels = JSON.parse(updateCalls[0]![0].config).panels;
     expect(panels[0].sql).toBe(signups.sql);
     expect(panels[1].sql).toBe(retention.sql);
+  });
+
+  it("repairs the exact prior capped-spine retention query", async () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...retention,
+            sql: PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      retention.sql,
+    );
   });
 
   it("repairs the exact pre-cohort-history retention query", async () => {

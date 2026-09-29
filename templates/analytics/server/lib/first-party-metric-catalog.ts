@@ -416,8 +416,8 @@ const PRE_CAPPED_RETENTION_DATE_SPINE_CTES = `anchor_dates AS (
     INTERVAL '1 day'
   ) AS anchor_date
 )`;
-// guard:allow-unbounded-read — base and cohort_history have explicit date and scope bounds.
-const RETENTION_OVER_TIME_SQL = `WITH base AS (
+// guard:allow-unbounded-read — exact legacy query used only for persisted-query repair.
+export const PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL = `WITH base AS (
   SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
   FROM analytics_events
   WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
@@ -440,6 +440,61 @@ const RETENTION_OVER_TIME_SQL = `WITH base AS (
   ) activity
   GROUP BY user_key
 ), ${RETENTION_DATE_SPINE_CTES}, cohort_windows AS (
+  SELECT a.date, f.user_key, f.cohort_date
+  FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date
+), cohort_sizes AS (
+  SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date
+), periods AS (
+  SELECT '1-7d return' AS period, ${daysAgoSql(7)} AS mature_through
+  UNION ALL SELECT '7-14d return' AS period, ${daysAgoSql(14)} AS mature_through
+), retained AS (
+  SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD')
+  GROUP BY cw.date
+  UNION ALL
+  SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained
+  FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD')
+  GROUP BY cw.date
+)
+SELECT a.date, p.period,
+  CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0) ELSE NULL END AS retained_users,
+  COALESCE(cs.users, 0) AS cohort_users,
+  CASE WHEN a.date <= p.mature_through AND cs.users >= ${RETENTION_MIN_COHORT_SIZE} THEN COALESCE(r.retained, 0)::float / NULLIF(cs.users, 0) ELSE NULL END AS rate
+FROM anchor_dates a CROSS JOIN periods p
+LEFT JOIN cohort_sizes cs ON cs.date = a.date
+LEFT JOIN retained r ON r.date = a.date AND r.period = p.period
+ORDER BY a.date, p.period`;
+// guard:allow-unbounded-read — base and cohort_history have explicit date and scope bounds.
+const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
+  SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+  FROM analytics_events
+  CROSS JOIN date_spine_bounds
+  WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+    AND date_spine_bounds.start_date <= date_spine_bounds.end_date
+    AND (
+      ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD'))
+      OR ('{{timeRange}}' <> 'custom' AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER})
+    )
+    AND event_date <= to_char(LEAST(date_spine_bounds.end_date + INTERVAL '14 days', CURRENT_DATE)::date, 'YYYY-MM-DD')
+), cohort_history AS (
+  SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+  FROM analytics_events
+  CROSS JOIN date_spine_bounds
+  WHERE '{{timeRange}}' = 'custom'
+    AND ${SIGNED_IN_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}
+    AND date_spine_bounds.start_date <= date_spine_bounds.end_date
+    AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD')
+    AND event_date < to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD')
+    AND event_date <= ${todaySql()}
+), first_seen AS (
+  SELECT user_key, MIN(event_date) AS cohort_date
+  FROM (
+    SELECT user_key, event_date FROM base
+    UNION ALL
+    SELECT user_key, event_date FROM cohort_history
+  ) activity
+  GROUP BY user_key
+), cohort_windows AS (
   SELECT a.date, f.user_key, f.cohort_date
   FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date
 ), cohort_sizes AS (
@@ -558,6 +613,7 @@ export function repairFirstPartyObservedRetentionPanels(
           PRE_FULL_SPINE_RETENTION_OVER_TIME_SQL,
           PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
           PRE_CAPPED_RETENTION_OVER_TIME_SQL,
+          PRE_SOURCE_SCAN_BOUNDS_RETENTION_OVER_TIME_SQL,
         ],
         sql: RETENTION_OVER_TIME_SQL,
         legacyDescription: [

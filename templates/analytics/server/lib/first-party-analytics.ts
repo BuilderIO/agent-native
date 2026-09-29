@@ -71,6 +71,29 @@ const FIRST_PARTY_QUERY_TABLE_NAMES = [
   "session_recordings",
 ] as const;
 const FIRST_PARTY_QUERY_TABLES = new Set<string>(FIRST_PARTY_QUERY_TABLE_NAMES);
+const POSTGRES_SET_RETURNING_FUNCTIONS = new Set([
+  "generate_series",
+  "generate_subscripts",
+  "json_array_elements",
+  "json_array_elements_text",
+  "json_each",
+  "json_each_text",
+  "json_object_keys",
+  "json_populate_recordset",
+  "json_to_recordset",
+  "jsonb_array_elements",
+  "jsonb_array_elements_text",
+  "jsonb_each",
+  "jsonb_each_text",
+  "jsonb_object_keys",
+  "jsonb_path_query",
+  "jsonb_populate_recordset",
+  "jsonb_to_recordset",
+  "regexp_matches",
+  "regexp_split_to_table",
+  "string_to_table",
+  "unnest",
+]);
 const FIRST_PARTY_ROLLUP_TABLES = new Set([
   "analytics_event_daily_rollups",
   "analytics_user_days",
@@ -1053,6 +1076,20 @@ function collectAnalyticsSqlSources(sql: string): {
   return { cteNames, sources };
 }
 
+function validateAnalyticsSqlSetReturningFunctions(sql: string): void {
+  const tokens = tokenizeAnalyticsSql(sql);
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    if (
+      POSTGRES_SET_RETURNING_FUNCTIONS.has(tokens[i].value.toLowerCase()) &&
+      tokens[i + 1].value === "("
+    ) {
+      throw new Error(
+        `First-party analytics queries cannot call set-returning function ${tokens[i].value}`,
+      );
+    }
+  }
+}
+
 export function validateFirstPartyAnalyticsSql(sql: string): void {
   const stripped = stripSqlLiterals(sql).trim();
   const lowered = stripped.toLowerCase();
@@ -1115,6 +1152,7 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
       `First-party analytics queries can only read ${FIRST_PARTY_QUERY_TABLE_LIST} (found ${source.ref})`,
     );
   }
+  validateAnalyticsSqlSetReturningFunctions(sql);
   if (!usesAllowedTable) {
     throw new Error(`Query must read from ${FIRST_PARTY_QUERY_TABLE_LIST}`);
   }

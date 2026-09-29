@@ -591,6 +591,19 @@ describe("validateFirstPartyAnalyticsSql", () => {
     ).toThrow("cannot read from table function custom_series");
   });
 
+  it("rejects set-returning functions in SELECT and CTE expressions", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT pg_catalog /* split */ . /* split */ generate_series(1, 2) AS day FROM analytics_events",
+      ),
+    ).toThrow("cannot call set-returning function generate_series");
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "WITH expanded AS (SELECT unnest(ARRAY[1, 2]) AS value FROM analytics_events) SELECT value FROM expanded",
+      ),
+    ).toThrow("cannot call set-returning function unnest");
+  });
+
   it("rejects direct replay chunk queries", () => {
     expect(() =>
       validateFirstPartyAnalyticsSql(
