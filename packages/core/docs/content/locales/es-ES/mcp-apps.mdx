@@ -18,6 +18,12 @@ Las aplicaciones MCP son la extensión oficial `io.modelcontextprotocol/ui` que 
 
 Dentro del chat de una aplicación Agent-Native, prefiera [native chat renderers](/docs/native-chat-ui) para widgets propios como tablas, gráficos, resultados escritos y posibilidades de aprobación. Utilice aplicaciones MCP para UI en línea externo/entre hosts en Claude, ChatGPT, Copilot, Cursor y otros hosts compatibles, con la acción `link` como respaldo de enlace profundo universal.
 
+## Extensiones de plugins de OpenAI {#openai-plugin-extensions}
+
+Las extensiones de plugins de OpenAI añaden puntos de acceso junto a las herramientas MCP invocadas por el modelo. Cuando las aplicaciones MCP en línea están habilitadas, la herramienta compartida `open_app` anuncia un punto de acceso en la barra lateral global y otro en el panel lateral de una conversación. ChatGPT la invoca con `{}`; Core abre la página principal de la aplicación actual como una aplicación MCP en línea. Las aplicaciones que usan el servidor MCP compartido no necesitan registro individual. Consulta la [guía de extensiones de plugins de OpenAI](https://developers.openai.com/plugins/build/extensions) y la [especificación de extensiones MCP](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Los botones de las rutas de aplicaciones insertadas pueden llamar a `sendToAgentChat(...)` para continuar la conversación. Core envía el estado seleccionado mediante `ui/update-model-context` con `annotations.audience: ["assistant"]` y luego envía el mensaje visible mediante `ui/message`. Los visores de archivos, las menciones del compositor y otras extensiones especializadas necesitan contratos de entrada específicos de la aplicación.
+
 ## Autoría: aplicaciones MCP opcionales UI {#mcp-apps}
 
 Para los hosts que admiten la extensión de aplicaciones MCP, una acción también puede anunciar un recurso UI en línea con `mcpApp`. Esta es una mejora progresiva para los flujos en los que el agente externo debe entregar al usuario una superficie interactiva en lugar de solo texto, por ejemplo, revisar un borrador de correo electrónico, editar una invitación de calendario o elegir entre variantes del panel generado.

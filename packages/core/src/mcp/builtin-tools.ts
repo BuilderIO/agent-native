@@ -735,53 +735,53 @@ function openAppTool(
   requestMeta?: { origin?: string },
 ): ActionEntry {
   return {
-    tool: tool(
-      "Build a deep link that opens an app at a specific view/record or " +
-        "focused route/component. No side " +
-        "effects — returns a URL the user can click to land in the running UI. " +
-        "Set embed:true when a UI-capable MCP host should render the live app " +
-        "or focused route/component inline. Omit view and path to land on the " +
-        "app's home page.",
-      {
-        app: { type: "string", description: "App id, e.g. 'mail'" },
-        view: {
-          type: "string",
-          description:
-            "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
+    tool: {
+      ...tool(
+        "Build a deep link that opens an app at a specific view/record or " +
+          "focused route/component. No side " +
+          "effects — returns a URL the user can click to land in the running UI. " +
+          "Set embed:true when a UI-capable MCP host should render the live app " +
+          "or focused route/component inline. Omit view and path to land on the " +
+          "app's home page. Omit app to open this app.",
+        {
+          app: { type: "string", description: "App id, e.g. 'mail'" },
+          view: {
+            type: "string",
+            description:
+              "Target view, e.g. 'inbox' (maps to navigate command). Optional — omit (along with path) to open the app's home page.",
+          },
+          path: {
+            type: "string",
+            description:
+              "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
+          },
+          params: {
+            type: "object",
+            description:
+              "Optional record-focus / filter params, e.g. { threadId: 'abc' }",
+          },
+          embed: {
+            type: "boolean",
+            description:
+              "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
+          },
+          chrome: {
+            type: "string",
+            enum: ["full", "minimal"],
+            description:
+              "Embed chrome preference for compatible app routes. Defaults to full.",
+          },
         },
-        path: {
-          type: "string",
-          description:
-            "Optional app route to open directly, e.g. '/extensions/abc', '/adhoc/q2', or '/chart?panel=...'. Must be same-origin relative. Omit (along with view) to open the app's home page.",
-        },
-        params: {
-          type: "object",
-          description:
-            "Optional record-focus / filter params, e.g. { threadId: 'abc' }",
-        },
-        embed: {
-          type: "boolean",
-          description:
-            "Render the full app or focused route/component inline in MCP Apps when the host supports it.",
-        },
-        chrome: {
-          type: "string",
-          enum: ["full", "minimal"],
-          description:
-            "Embed chrome preference for compatible app routes. Defaults to full.",
-        },
-      },
-      ["app"],
-    ),
+      ),
+      title: `Open ${config.title?.trim() || config.name}`,
+    },
     readOnly: true,
     parallelSafe: true,
     run: async (args: Record<string, any>) => {
-      const app = String(args.app ?? "").trim();
+      const requestedApp = String(args.app ?? "").trim();
+      const app = requestedApp || currentAppId(config);
       const view = String(args.view ?? "").trim();
       const path = safeAppPath(args.path) || (view ? null : "/");
-      if (!app) {
-        throw new Error("open_app requires 'app'.");
-      }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
       if (raw && typeof raw === "object") {
@@ -795,7 +795,10 @@ function openAppTool(
       }
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
-      let embed = args.embed === true || args.embed === "true";
+      let embed =
+        (!requestedApp && !view && !args.path) ||
+        args.embed === true ||
+        args.embed === "true";
       if (
         args.embed == null &&
         (embeddedParam === true || embeddedParam === "true")

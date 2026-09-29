@@ -18,6 +18,12 @@ MCP 應用程式是官方的 `io.modelcontextprotocol/ui` 擴充功能，可讓�
 
 在 Agent-Native 應用自己的聊天中，首選 [native chat renderers](/docs/native-chat-ui) 作為第一方小工具，例如表格、圖表、鍵入的結果和核准功能可用性。在 Claude、ChatGPT、Copilot、Cursor 和其他相容主機中使用 MCP 應用程式進行外部/跨主機行內 UI，並使用操作 `link` 作為通用深層連結回退。
 
+## OpenAI 外掛擴充功能 {#openai-plugin-extensions}
+
+OpenAI 外掛擴充功能會在模型呼叫的 MCP 工具之外新增應用程式啟動點。啟用行內 MCP Apps 後，共用的 `open_app` 工具會同時提供全域側邊欄和對話側邊面板的進入點。ChatGPT 會以 `{}` 呼叫該工具；Core 會以行內 MCP App 開啟目前應用程式的首頁。使用共用 MCP 伺服器的應用程式不需要個別註冊。請參閱 [OpenAI 外掛擴充功能指南](https://developers.openai.com/plugins/build/extensions)和 [MCP 擴充功能規格](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)。
+
+嵌入式應用程式路由中的按鈕可以呼叫 `sendToAgentChat(...)` 以繼續對話。Core 會透過 `ui/update-model-context` 傳送所選狀態，並設定 `annotations.audience: ["assistant"]`，接著透過 `ui/message` 傳送使用者可見的提示。檔案檢視器、撰寫器提及和其他專用擴充功能仍需應用程式專屬的輸入契約。
+
 ## 創作：可選的 MCP 應用 UI {#mcp-apps}
 
 對於支援 MCP 應用擴充功能的主機，操作還可以使用 `mcpApp` 通告行內 UI 資源。這是對流程的漸進增強，外部代理應向使用者提供互動式介面而不僅僅是文字，例如檢視電子郵件草稿、編輯行事曆邀請或在產生的儀表板變體之間進行選取。

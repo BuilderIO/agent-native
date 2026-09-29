@@ -18,6 +18,12 @@ MCP 应用程序是官方的 `io.modelcontextprotocol/ui` 扩展，可让兼容�
 
 在 Agent-Native 应用自己的聊天中，首选 [native chat renderers](/docs/native-chat-ui) 作为第一方小部件，例如表格、图表、键入的结果和批准功能可供性。在 Claude、ChatGPT、Copilot、Cursor 和其他兼容主机中使用 MCP 应用程序进行外部/跨主机内联 UI，并使用操作 `link` 作为通用深层链接回退。
 
+## OpenAI 插件扩展 {#openai-plugin-extensions}
+
+OpenAI 插件扩展为模型调用的 MCP 工具增加应用启动入口。启用内联 MCP Apps 后，共享的 `open_app` 工具会同时提供全局侧边栏入口和会话侧边栏入口。ChatGPT 使用 `{}` 调用该工具；Core 会以内联 MCP App 的形式打开当前应用主页。使用共享 MCP 服务器的应用无需逐个注册。请参阅 [OpenAI 插件扩展指南](https://developers.openai.com/plugins/build/extensions)和 [MCP 扩展规范](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md)。
+
+嵌入式应用路由中的按钮可以调用 `sendToAgentChat(...)` 以继续对话。Core 使用 `ui/update-model-context` 发送所选状态并设置 `annotations.audience: ["assistant"]`，然后通过 `ui/message` 发送用户可见的提示。文件查看器、输入框提及及其他专用扩展仍需要应用专属的输入契约。
+
 ## 创作：可选的 MCP 应用 UI {#mcp-apps}
 
 对于支持 MCP 应用扩展的主机，操作还可以使用 `mcpApp` 通告内联 UI 资源。这是对流程的渐进增强，外部代理应向用户提供交互式界面而不仅仅是文本，例如查看电子邮件草稿、编辑日历邀请或在生成的仪表板变体之间进行选择。

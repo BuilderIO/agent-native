@@ -1406,17 +1406,12 @@ export function embedApp(
       if (data && data.structuredContent && typeof data.structuredContent === "object") {
         params.structuredContent = data.structuredContent;
       }
-      if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-        openAiBridge.setWidgetState({
-          ...objectValue(openAiBridge.widgetState),
-          agentNativeModelContext: params
-        });
+      if (app && typeof app.updateModelContext === "function") {
+        await ensureHostAppConnected();
+        await app.updateModelContext(params);
         return { ok: true };
       }
-      if (!app || typeof app.updateModelContext !== "function") return { ok: false };
-      await ensureHostAppConnected();
-      await app.updateModelContext(params);
-      return { ok: true };
+      return await wrapperRpcRequest("ui/update-model-context", params);
     }
 
     async function openHostLink(data) {
@@ -1458,7 +1453,7 @@ export function embedApp(
         .then((result) => {
           sendToAppFrame({
             type: "agentNative.mcpHost.response",
-            data: { requestId, ok: true, result }
+            data: { requestId, ok: !(result && (result.ok === false || result.isError === true)), result }
           });
         })
         .catch((err) => {
@@ -1488,34 +1483,23 @@ export function embedApp(
           : undefined;
       try {
         const contextContent = context
-          ? [{ type: "text", text: context }, ...content.filter((part) => part && part.type !== "text")]
+          ? [{ type: "text", text: context, annotations: { audience: ["assistant"] } }, ...content.filter((part) => part && part.type !== "text")]
           : content.filter((part) => part && part.type !== "text");
         const modelContext = {
-          content: contextContent,
+          content: contextContent.map((part) => ({
+            ...part,
+            annotations: { ...(objectValue(part.annotations)), audience: ["assistant"] }
+          })),
           ...(structuredContent !== undefined ? { structuredContent } : {})
         };
-        if (openAiBridge && typeof openAiBridge.setWidgetState === "function") {
-          openAiBridge.setWidgetState({
-            ...objectValue(openAiBridge.widgetState),
-            agentNativeChatContext: context || null,
-            agentNativeModelContext: modelContext
-          });
-        } else if (app && typeof app.updateModelContext === "function") {
-          await ensureHostAppConnected();
-          await app.updateModelContext(modelContext);
+        const contextResult = await updateHostModelContext(modelContext);
+        if (contextResult && contextResult.ok === false) {
+          console.warn("[agent-native] MCP host rejected model context update", contextResult);
         }
       } catch (err) {
         console.warn("[agent-native] MCP host rejected model context update", err);
       }
       try {
-        if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
-          await openAiBridge.sendFollowUpMessage({
-            prompt: message,
-            scrollToBottom: true
-          });
-          respondToWrapperRequest(requestId, { ok: true });
-          return;
-        }
         let result = null;
         if (app && typeof app.sendMessage === "function") {
           await ensureHostAppConnected();
@@ -1529,18 +1513,23 @@ export function embedApp(
             content
           });
         }
-        if (result && result.isError) {
-          console.warn("[agent-native] MCP host rejected chat message", result);
-          respondToWrapperRequest(requestId, { ok: false, result });
-          return;
-        }
-        if (result && result.ok === false) {
-          console.warn("[agent-native] MCP host chat bridge failed", result);
-          respondToWrapperRequest(requestId, { ok: false, result });
-          return;
+        if ((result && result.isError) || (result && result.ok === false)) {
+          throw new Error("MCP host rejected the chat message.");
         }
         respondToWrapperRequest(requestId, { ok: true, result });
       } catch (err) {
+        if (openAiBridge && typeof openAiBridge.sendFollowUpMessage === "function") {
+          try {
+            await openAiBridge.sendFollowUpMessage({
+              prompt: message,
+              scrollToBottom: true
+            });
+            respondToWrapperRequest(requestId, { ok: true });
+            return;
+          } catch (fallbackError) {
+            err = fallbackError;
+          }
+        }
         console.warn("[agent-native] MCP host chat bridge failed", err);
         respondToWrapperRequest(requestId, { ok: false, error: err && err.message ? err.message : String(err) });
       }

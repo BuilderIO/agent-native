@@ -18,6 +18,12 @@ MCP Apps sind die offizielle `io.modelcontextprotocol/ui`-Erweiterung, mit der k
 
 Im eigenen Chat einer Agent-Native-App bevorzugen Sie [native chat renderers](/docs/native-chat-ui) für Erstanbieter-Widgets wie Tabellen, Diagramme, eingegebene Ergebnisse und Genehmigungsangebote. Verwenden Sie MCP-Apps für externe/hostübergreifende Inline-UI in Claude, ChatGPT, Copilot, Cursor und anderen kompatiblen Hosts mit der Aktion `link` als universellem Deep-Link-Fallback.
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions ergänzen die von Modellen aufgerufenen MCP-Tools um Startpunkte. Wenn Inline-MCP-Apps aktiviert sind, kündigt das gemeinsame Tool `open_app` einen globalen Einstiegspunkt in der Seitenleiste und einen im Seitenbereich eines Chats an. ChatGPT ruft es mit `{}` auf; Core öffnet die Startseite der aktuellen App als Inline-MCP-App. Apps, die den gemeinsamen MCP-Server verwenden, brauchen keine eigene Registrierung. Siehe den [OpenAI-Leitfaden zu Plugin Extensions](https://developers.openai.com/plugins/build/extensions) und die [MCP-Extensions-Spezifikation](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Schaltflächen in eingebetteten App-Routen können `sendToAgentChat(...)` aufrufen, um die Unterhaltung fortzusetzen. Core sendet den ausgewählten Zustand mit `ui/update-model-context` und `annotations.audience: ["assistant"]` und übermittelt danach die sichtbare Eingabe mit `ui/message`. Dateivorschauen, Composer-Erwähnungen und andere spezialisierte Erweiterungen benötigen app-spezifische Eingabeverträge.
+
 ## Erstellung: optionale MCP Apps UI {#mcp-apps}
 
 Für Hosts, die die MCP Apps-Erweiterung unterstützen, kann eine Aktion auch eine Inline-UI-Ressource mit `mcpApp` ankündigen. Hierbei handelt es sich um eine progressive Verbesserung für Abläufe, bei denen der externe Agent dem Benutzer eine interaktive Oberfläche statt nur Text zur Verfügung stellen soll – zum Beispiel die Überprüfung eines E-Mail-Entwurfs, die Bearbeitung einer Kalendereinladung oder die Auswahl zwischen generierten Dashboard-Varianten.

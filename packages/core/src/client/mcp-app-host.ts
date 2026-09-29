@@ -244,7 +244,6 @@ function updateSnapshotFromOpenAiBridge(bridge: OpenAiAppBridge): void {
       view: bridge.view,
     },
     capabilities: {
-      updateModelContext: typeof bridge.setWidgetState === "function",
       openLink: typeof bridge.openExternal === "function",
       displayModes:
         typeof bridge.requestDisplayMode === "function"
@@ -399,14 +398,12 @@ function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
 }
 
 interface OpenAiAppBridge {
-  widgetState?: unknown;
   displayMode?: unknown;
   maxHeight?: unknown;
   locale?: unknown;
   theme?: unknown;
   view?: unknown;
   userAgent?: unknown;
-  setWidgetState?: (state: unknown) => void;
   sendFollowUpMessage?: (args: {
     prompt: string;
     scrollToBottom?: boolean;
@@ -427,6 +424,18 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
 
 function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
+}
+
+function assistantOnlyContent(
+  content: McpAppModelContextContentPart[],
+): McpAppModelContextContentPart[] {
+  return content.map((part) => ({
+    ...part,
+    annotations: {
+      ...objectValue(part.annotations),
+      audience: ["assistant"],
+    },
+  }));
 }
 
 function normalizeMcpAppHostRequestMode(
@@ -480,7 +489,6 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
   const openAiBridge = readOpenAiBridge();
   if (openAiBridge) {
     updateSnapshotFromOpenAiBridge(openAiBridge);
-    return true;
   }
 
   if (!directMcpAppInit) {
@@ -525,21 +533,6 @@ async function postDirectHostRequest(
   const openAiBridge = readOpenAiBridge();
   if (openAiBridge) {
     updateSnapshotFromOpenAiBridge(openAiBridge);
-    if (
-      type === AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.UPDATE_MODEL_CONTEXT &&
-      typeof openAiBridge.setWidgetState === "function"
-    ) {
-      openAiBridge.setWidgetState({
-        ...objectValue(openAiBridge.widgetState),
-        agentNativeModelContext: {
-          ...(Array.isArray(data.content) ? { content: data.content } : {}),
-          ...(data.structuredContent !== undefined
-            ? { structuredContent: data.structuredContent }
-            : {}),
-        },
-      });
-      return true;
-    }
     if (
       type === AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.OPEN_LINK &&
       typeof openAiBridge.openExternal === "function" &&
@@ -596,28 +589,26 @@ export function sendMcpAppHostMessage(
       : [{ type: "text", text: chat.message }];
     const contextContent = context
       ? [
-          { type: "text", text: context },
+          {
+            type: "text",
+            text: context,
+            annotations: { audience: ["assistant"] },
+          },
           ...content.filter((part) => part && part.type !== "text"),
         ]
       : content.filter((part) => part && part.type !== "text");
-    if (
-      openAiBridge &&
-      typeof openAiBridge.sendFollowUpMessage === "function"
-    ) {
-      updateSnapshotFromOpenAiBridge(openAiBridge);
-      if (typeof openAiBridge.setWidgetState === "function") {
-        openAiBridge.setWidgetState({
-          ...objectValue(openAiBridge.widgetState),
-          agentNativeChatContext: context,
-          agentNativeModelContext: {
-            content: contextContent,
-            ...requestModePayload,
-            ...(chat.structuredContent !== undefined
-              ? { structuredContent: chat.structuredContent }
-              : {}),
-          },
-        });
-      }
+    const modelContext = {
+      content: assistantOnlyContent(contextContent),
+      ...(chat.structuredContent !== undefined
+        ? { structuredContent: chat.structuredContent }
+        : {}),
+    };
+
+    if (openAiBridge) updateSnapshotFromOpenAiBridge(openAiBridge);
+    try {
+      await waitForDirectMcpAppInitialized();
+    } catch (error) {
+      if (!openAiBridge?.sendFollowUpMessage) throw error;
       await openAiBridge.sendFollowUpMessage({
         prompt: chat.message,
         scrollToBottom: true,
@@ -625,25 +616,33 @@ export function sendMcpAppHostMessage(
       });
       return true;
     }
-
-    await waitForDirectMcpAppInitialized();
     try {
-      await postJsonRpcRequest("ui/update-model-context", {
-        content: contextContent,
-        ...requestModePayload,
-        ...(chat.structuredContent !== undefined
-          ? { structuredContent: chat.structuredContent }
-          : {}),
-      });
-    } catch {
-      // Best effort: a host without model-context support should still receive
-      // the visible chat message.
+      await postJsonRpcRequest("ui/update-model-context", modelContext);
+    } catch (error) {
+      console.warn(
+        "[agent-native] MCP host rejected model context update",
+        error,
+      );
     }
-    await postJsonRpcRequest("ui/message", {
-      role: "user",
-      content,
-      ...requestModePayload,
-    });
+    try {
+      const result = await postJsonRpcRequest("ui/message", {
+        role: "user",
+        content,
+      });
+      if (
+        isRecord(result) &&
+        (result.isError === true || result.ok === false)
+      ) {
+        throw new Error("MCP Apps host rejected the chat message.");
+      }
+    } catch (error) {
+      if (!openAiBridge?.sendFollowUpMessage) throw error;
+      await openAiBridge.sendFollowUpMessage({
+        prompt: chat.message,
+        scrollToBottom: true,
+        ...requestModePayload,
+      });
+    }
     return true;
   })().catch(() => false);
 }
@@ -675,7 +674,9 @@ export function updateMcpAppModelContext(
   return postHostRequest(
     AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.UPDATE_MODEL_CONTEXT,
     {
-      ...(Array.isArray(update.content) ? { content: update.content } : {}),
+      ...(Array.isArray(update.content)
+        ? { content: assistantOnlyContent(update.content) }
+        : {}),
       ...(update.structuredContent !== undefined
         ? { structuredContent: update.structuredContent }
         : {}),

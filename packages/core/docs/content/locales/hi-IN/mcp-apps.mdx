@@ -18,6 +18,12 @@ MCP ऐप्स आधिकारिक `io.modelcontextprotocol/ui` एक्
 
 Agent-Native ऐप की अपनी चैट के अंदर, टेबल, चार्ट, टाइप किए गए परिणाम और अनुमोदन व्यय जैसे प्रथम-पक्ष विजेट के लिए [native chat renderers](/docs/native-chat-ui) को प्राथमिकता दें। Claude, ChatGPT, Copilot, कर्सर और अन्य संगत होस्ट में बाहरी/क्रॉस-होस्ट इनलाइन UI के लिए MCP ऐप्स का उपयोग करें, एक्शन `link` के साथ यूनिवर्सल डीप-लिंक फ़ॉलबैक के रूप में।
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+OpenAI Plugin Extensions, मॉडल द्वारा बुलाए जाने वाले MCP टूल के साथ ऐप खोलने के बिंदु जोड़ते हैं। Inline MCP Apps सक्षम होने पर साझा `open_app` टूल वैश्विक साइडबार और बातचीत के साइड पैनल, दोनों के लिए entrypoint देता है। ChatGPT इसे `{}` के साथ बुलाता है; Core मौजूदा ऐप का होम पेज inline MCP App के रूप में खोलता है। साझा MCP सर्वर इस्तेमाल करने वाले ऐप को अलग से पंजीकरण करने की ज़रूरत नहीं होती। [OpenAI Plugin Extensions गाइड](https://developers.openai.com/plugins/build/extensions) और [MCP Extensions स्पेक](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md) देखें।
+
+Embedded app route के बटन बातचीत जारी रखने के लिए `sendToAgentChat(...)` बुला सकते हैं। Core चुनी गई स्थिति को `ui/update-model-context` से `annotations.audience: ["assistant"]` के साथ भेजता है और फिर दिखने वाला संदेश `ui/message` से भेजता है। फ़ाइल व्यूअर, composer mentions और अन्य विशेष extensions के लिए ऐप-विशिष्ट input contract चाहिए।
+
 ## संलेखन: वैकल्पिक MCP ऐप्स UI {#mcp-apps}
 
 उन होस्टों के लिए जो MCP ऐप्स एक्सटेंशन का समर्थन करते हैं, एक कार्रवाई `mcpApp` के साथ एक इनलाइन UI संसाधन का विज्ञापन भी कर सकती है। यह प्रवाह के लिए एक प्रगतिशील वृद्धि है जहां बाहरी एजेंट को उपयोगकर्ता को केवल पाठ के बजाय एक इंटरैक्टिव सतह सौंपनी चाहिए - उदाहरण के लिए ईमेल ड्राफ्ट की समीक्षा करना, कैलेंडर आमंत्रण संपादित करना, या जेनरेट किए गए डैशबोर्ड वेरिएंट के बीच चयन करना।

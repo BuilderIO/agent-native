@@ -18,6 +18,12 @@ Os aplicativos MCP são a extensão `io.modelcontextprotocol/ui` oficial que per
 
 No próprio bate-papo do aplicativo Agent-Native, prefira [native chat renderers](/docs/native-chat-ui) para widgets originais, como tabelas, gráficos, resultados digitados e recursos de aprovação. Use aplicativos MCP para UI em linha externo/entre hosts em Claude, ChatGPT, Copilot, Cursor e outros hosts compatíveis, com a ação `link` como substituto de deep-link universal.
 
+## OpenAI Plugin Extensions {#openai-plugin-extensions}
+
+As OpenAI Plugin Extensions adicionam pontos de entrada às ferramentas MCP chamadas pelo modelo. Quando os MCP Apps inline estão habilitados, a ferramenta compartilhada `open_app` anuncia um ponto na barra lateral global e outro no painel lateral de uma conversa. O ChatGPT a chama com `{}`; o Core abre a página inicial do app atual como um MCP App inline. Apps que usam o servidor MCP compartilhado não precisam de registro individual. Consulte o [guia OpenAI de Plugin Extensions](https://developers.openai.com/plugins/build/extensions) e a [especificação MCP Extensions](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Botões nas rotas de apps incorporados podem chamar `sendToAgentChat(...)` para continuar a conversa. O Core envia o estado selecionado por `ui/update-model-context` com `annotations.audience: ["assistant"]` e depois envia o prompt visível por `ui/message`. Visualizadores de arquivos, menções no compositor e outras extensões especializadas precisam de contratos de entrada específicos do app.
+
 ## Autoria: aplicativos MCP opcionais UI {#mcp-apps}
 
 Para hosts que suportam a extensão MCP Apps, uma ação também pode anunciar um recurso UI embutido com `mcpApp`. Esta é uma melhoria progressiva para fluxos em que o agente externo deve entregar ao usuário uma superfície interativa em vez de apenas texto — por exemplo, revisando um rascunho de e-mail, editando um convite de calendário ou escolhendo entre variantes de painel geradas.

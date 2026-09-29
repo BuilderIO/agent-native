@@ -18,6 +18,12 @@ Les applications MCP sont l'extension officielle `io.modelcontextprotocol/ui` qu
 
 Dans le chat d'une application Agent-Native, préférez [native chat renderers](/docs/native-chat-ui) pour les widgets propriétaires tels que les tableaux, les graphiques, les résultats saisis et les possibilités d'approbation. Utilisez les applications MCP pour les UI externes/inter-hôtes en ligne dans Claude, ChatGPT, Copilot, Cursor et d'autres hôtes compatibles, avec l'action `link` comme solution de secours universelle pour les liens profonds.
 
+## Extensions de plugins OpenAI {#openai-plugin-extensions}
+
+Les extensions de plugins OpenAI ajoutent des points de lancement aux outils MCP appelés par le modèle. Lorsque les applications MCP en ligne sont activées, l'outil partagé `open_app` annonce un point d'entrée dans la barre latérale globale et un autre dans le panneau latéral d'une conversation. ChatGPT l'appelle avec `{}` ; Core ouvre la page d'accueil de l'application actuelle comme application MCP en ligne. Les applications qui utilisent le serveur MCP partagé n'ont pas besoin d'enregistrement individuel. Consultez le [guide OpenAI des extensions de plugins](https://developers.openai.com/plugins/build/extensions) et la [spécification des extensions MCP](https://github.com/openai/mcp-extensions/blob/main/docs/spec.md).
+
+Les boutons des routes d'applications intégrées peuvent appeler `sendToAgentChat(...)` pour poursuivre la conversation. Core envoie l'état sélectionné avec `ui/update-model-context` et `annotations.audience: ["assistant"]`, puis transmet le message visible avec `ui/message`. Les visionneuses de fichiers, les mentions du composeur et les autres extensions spécialisées nécessitent des contrats d'entrée propres à l'application.
+
 ## Création : applications MCP en option UI {#mcp-apps}
 
 Pour les hôtes qui prennent en charge l'extension d'applications MCP, une action peut également annoncer une ressource UI en ligne avec `mcpApp`. Il s'agit d'une amélioration progressive pour les flux dans lesquels l'agent externe doit fournir à l'utilisateur une surface interactive au lieu d'un simple texte – par exemple, consulter un brouillon d'e-mail, modifier une invitation de calendrier ou choisir entre les variantes de tableau de bord générées.

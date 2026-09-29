@@ -20,6 +20,11 @@ describe("embedApp", () => {
     expect(html).toContain("app.updateModelContext");
     expect(html).toContain("app.sendMessage");
     expect(html).toContain('return await rpcRequest("ui/message"');
+    expect(html).toContain(
+      'return await wrapperRpcRequest("ui/update-model-context", params)',
+    );
+    expect(html).toContain("await updateHostModelContext(modelContext)");
+    expect(html).toContain('annotations: { audience: ["assistant"] }');
     expect(html).not.toContain('rpcNotify("ui/message"');
     expect(html).toContain("window.openai");
     expect(html).toContain('"openai:set_globals"');
@@ -32,7 +37,7 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridge.sendFollowUpMessage");
     expect(html).toContain("prompt: message");
     expect(html).toContain("const modelContext = {");
-    expect(html).toContain("agentNativeModelContext: modelContext");
+    expect(html).not.toContain("agentNativeModelContext");
     expect(html).not.toContain('context.trim() + "\\\\n\\\\n" + message');
     expect(html).toContain(
       'const record = data && typeof data === "object" ? data : {}',
