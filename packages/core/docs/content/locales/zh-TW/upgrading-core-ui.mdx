@@ -1,22 +1,22 @@
 ---
-title: "將現有應用程式升級至 Core 0.197.0"
-description: "說明遷移至 Core 0.197.0、Toolkit 匯入、選用 peer 套件與驗證步驟的操作指南。"
+title: "將現有應用程式升級至 Core 0.198.0"
+description: "說明遷移至 Core 0.198.0、Toolkit 匯入、選用 peer 套件與驗證步驟的操作指南。"
 ---
 
-# 將現有應用程式升級至 Core 0.197.0
+# 將現有應用程式升級至 Core 0.198.0
 
-依照本指南將現有應用程式升級至 Core 0.197.0。請在應用程式或 workspace
+依照本指南將現有應用程式升級至 Core 0.198.0。請在應用程式或 workspace
 根目錄執行命令，並在開始前保留可供審閱的原始碼差異。請另外檢查遠端
 部署設定：CLI 可以讀取本機環境檔案，但無法查看遠端環境或儲存在資料庫
 中的功能設定。
 
 ## 1. 預覽升級和 import codemod
 
-使用 Core 0.197.0 隨附的 CLI，載入該版本的 migration manifest：
+使用 Core 0.198.0 隨附的 CLI，載入該版本的 migration manifest：
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-在應用程式安裝 Core 0.197.0 後，也可透過本機 CLI 執行檔執行相同的預覽：
+在應用程式安裝 Core 0.198.0 後，也可透過本機 CLI 執行檔執行相同的預覽：
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -43,16 +43,16 @@ import/export；也不能依 symbol 拆分 CSS import。
 更新的 @agent-native/\* 版本、根據本機設定判定的功能相依套件、package
 manager 安裝、scaffold skill 更新，以及根 package 有 typecheck script
 時的 typecheck。命令會將 package spec 改為 registry 目前的 latest，接著
-固定安裝解析出的版本。請在 0.197.0 是預期使用的目前版本時執行；日後
+固定安裝解析出的版本。請在 0.198.0 是預期使用的目前版本時執行；日後
 若需要精確版本，請確認解析後的 pin。
 
 ## 2. 確認 Toolkit 和選用套件
 
-移至 `@agent-native/toolkit/*` 的匯入需要安裝 `@agent-native/toolkit`。codemod 會在將受支援且可解析的匯入或匯出移至 Toolkit 時加入該相依套件。若應用程式使用 Toolkit 匯出但未加入相依套件，請安裝與 Core 0.197.0 相符的 Toolkit 版本：
+移至 `@agent-native/toolkit/*` 的匯入需要安裝 `@agent-native/toolkit`。codemod 會在將受支援且可解析的匯入或匯出移至 Toolkit 時加入該相依套件。若應用程式使用 Toolkit 匯出但未加入相依套件，請安裝與 Core 0.198.0 相符的 Toolkit 版本：
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### 由升級 CLI 選取的相依套件
 
@@ -92,11 +92,11 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 | LaunchDarkly 伺服器端功能旗標                               | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 內嵌終端工作階段                                            | node-pty; ws                                                                                     | >=1; >=8         |
 | 擴充功能 HTML 格式化                                        | prettier                                                                                         | ^3.8.3           |
-| 第一方範本原始碼搜尋                                        | @agent-native/core-corpus                                                                        | 0.197.0          |
+| 第一方範本原始碼搜尋                                        | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Core 已包含：**網頁轉 Markdown 頁面擷取使用 `linkedom`、`@mozilla/readability` 和 `turndown`。Core 將它們作為一般套件相依性包含在內，因此不需另外加入。Vite、React Router、Tailwind 和 Drizzle Kit 等建置與框架 peer 不屬於此表中的應用程式功能；請讓它們與應用程式的框架設定相符。
 
-如需搜尋第一方範本原始碼，請將對應版本的 corpus 套件加為開發相依套件：`pnpm add -D @agent-native/core-corpus@0.197.0`。
+如需搜尋第一方範本原始碼，請將對應版本的 corpus 套件加為開發相依套件：`pnpm add -D @agent-native/core-corpus@0.198.0`。
 
 ## 3. 套用升級
 
@@ -114,7 +114,7 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 
 檢查完整差異，尤其是略過的 codemod 警告和相依套件版本，然後執行：
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 npm 或 Yarn 請使用對應的 typecheck 命令，並執行應用程式相關的測試和
@@ -156,4 +156,4 @@ migration manifest 依 symbol 對應，因此同一舊模組中的 export 也可
 | @agent-native/agentkit/react 及其 React 子路徑                                                                                   | @agent-native/toolkit/app/agentkit                                                                                                                           |
 
 正式來源 URL：
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx)。
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx)。

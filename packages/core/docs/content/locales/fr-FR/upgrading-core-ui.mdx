@@ -1,12 +1,12 @@
 ---
-title: "Mettre à niveau les applications existantes vers Core 0.197.0"
-description: "Guide étape par étape pour migrer vers Core 0.197.0, les imports Toolkit, les peers facultatifs et la vérification."
+title: "Mettre à niveau les applications existantes vers Core 0.198.0"
+description: "Guide étape par étape pour migrer vers Core 0.198.0, les imports Toolkit, les peers facultatifs et la vérification."
 ---
 
-# Mettre à niveau les applications existantes vers Core 0.197.0
+# Mettre à niveau les applications existantes vers Core 0.198.0
 
 Suivez ce guide pour mettre à niveau une application existante vers Core
-0.197.0. Exécutez les commandes depuis la racine de l’application ou du
+0.198.0. Exécutez les commandes depuis la racine de l’application ou du
 workspace et conservez un diff révisable avant de commencer. Vérifiez
 séparément les réglages des environnements de déploiement : la CLI peut lire les
 fichiers d’environnement locaux, mais elle ne peut pas inspecter les
@@ -14,12 +14,12 @@ environnements distants ni les réglages de fonctionnalités stockés en base.
 
 ## 1. Prévisualiser la mise à niveau et les codemods d’import
 
-Utilisez la CLI de Core 0.197.0 pour charger le manifeste de migration de cette
+Utilisez la CLI de Core 0.198.0 pour charger le manifeste de migration de cette
 version :
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-Une fois Core 0.197.0 installé dans l’application, le même aperçu est disponible via le binaire CLI local :
+Une fois Core 0.198.0 installé dans l’application, le même aperçu est disponible via le binaire CLI local :
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -53,17 +53,17 @@ dépendances de fonctionnalités déduites de la configuration locale,
 installation du gestionnaire de paquets, actualisation des skills de scaffold
 et typecheck si le package racine a ce script. La commande passe les versions
 des packages à latest dans le registre, puis épingle les versions réellement
-résolues par l’installation. Exécutez-la lorsque 0.197.0 est la version actuelle
+résolues par l’installation. Exécutez-la lorsque 0.198.0 est la version actuelle
 voulue ; si vous exigez ensuite une version précise, vérifiez les versions
 épinglées.
 
 ## 2. Confirmer Toolkit et les packages facultatifs
 
-Les imports déplacés vers `@agent-native/toolkit/*` nécessitent `@agent-native/toolkit`. Le codemod ajoute Toolkit lorsqu’un import ou export pris en charge et résolu y est déplacé. Si l’application utilise un export Toolkit sans que la dépendance ait été ajoutée, installez la version Toolkit correspondante à Core 0.197.0 :
+Les imports déplacés vers `@agent-native/toolkit/*` nécessitent `@agent-native/toolkit`. Le codemod ajoute Toolkit lorsqu’un import ou export pris en charge et résolu y est déplacé. Si l’application utilise un export Toolkit sans que la dépendance ait été ajoutée, installez la version Toolkit correspondante à Core 0.198.0 :
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### Dépendances sélectionnées par la CLI de mise à niveau
 
@@ -103,11 +103,11 @@ La CLI ne déduit pas ces peers. Ajoutez le package pour chaque fonctionnalité 
 | Indicateurs de fonctionnalité LaunchDarkly côté serveur         | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | Sessions de terminal intégré                                    | node-pty; ws                                                                                     | >=1; >=8         |
 | Formatage HTML des extensions                                   | prettier                                                                                         | ^3.8.3           |
-| Recherche dans les sources des modèles Agent-Native             | @agent-native/core-corpus                                                                        | 0.197.0          |
+| Recherche dans les sources des modèles Agent-Native             | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Déjà inclus avec Core :** l’extraction de pages web vers Markdown utilise `linkedom`, `@mozilla/readability` et `turndown`. Core les fournit comme dépendances ordinaires ; il n’est donc pas nécessaire de les ajouter séparément. Les peers de build et de framework comme Vite, React Router, Tailwind et Drizzle Kit ne sont pas des fonctionnalités de l’application dans ce tableau ; gardez-les alignés sur sa configuration de framework.
 
-Pour rechercher dans le code source des modèles Agent-Native, ajoutez le paquet corpus correspondant comme dépendance de développement : `pnpm add -D @agent-native/core-corpus@0.197.0`.
+Pour rechercher dans le code source des modèles Agent-Native, ajoutez le paquet corpus correspondant comme dépendance de développement : `pnpm add -D @agent-native/core-corpus@0.198.0`.
 
 ## 3. Appliquer la mise à niveau
 
@@ -130,7 +130,7 @@ n’ajoutez pas d’overrides ou de patches du framework.
 Examinez le diff complet, notamment les avertissements de codemod ignorés et
 les versions de dépendances, puis exécutez :
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 Utilisez la commande typecheck équivalente pour npm ou Yarn, ainsi que les
@@ -176,4 +176,4 @@ donne des exemples, pas la liste complète des symboles déplacés.
 | @agent-native/agentkit/react et ses sous-chemins React                                                                           | @agent-native/toolkit/app/agentkit                                                                                                                                     |
 
 URL canonique de la source :
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

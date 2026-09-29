@@ -27,7 +27,7 @@ npx agent-native upgrade --codemods --dry-run
 npx agent-native upgrade --codemods
 ```
 
-`--codemods` は対応する書き換えをデフォルトで適用します。ファイルを書き換えずにプレビューするには `--dry-run` を追加してください。適用前に差分と警告を確認してください。`--yes` は互換性のために受け付けますが、動作には影響しません。`migration-manifest` は無効化できません。`planned` の項目は警告のみで、書き換えません。active な項目は finding になり、codemod は移行先の export がインストール済みの場合にだけ書き換えます。削除された export は手動で移行してください。finding に記載された guide、または `ts-morph` と optional feature package を記載した [Core 0.197.0 移行ガイド](/docs/upgrading-to-0-197)を参照してください。JSON の `guardsRun` には実際に実行された guard が記載されます。
+`--codemods` は対応する書き換えをデフォルトで適用します。ファイルを書き換えずにプレビューするには `--dry-run` を追加してください。適用前に差分と警告を確認してください。`--yes` は互換性のために受け付けますが、動作には影響しません。`migration-manifest` は無効化できません。`planned` の項目は警告のみで、書き換えません。active な項目は finding になり、codemod は移行先の export がインストール済みの場合にだけ書き換えます。削除された export は手動で移行してください。finding に記載された guide、または `ts-morph` と optional feature package を記載した [Core 0.198.0 移行ガイド](/docs/upgrading-core-ui)を参照してください。JSON の `guardsRun` には実際に実行された guard が記載されます。
 
 CLI は新しいすべての app と workspace に `pnpm doctor` と `pnpm agent-native:doctor` を追加します。workspace root から実行すると `apps/<name>` の各 app を検査します。finding がある場合、build はデフォルトで失敗します。`failOnBuild: false` はレビュー済みの例外に限り使用してください。
 

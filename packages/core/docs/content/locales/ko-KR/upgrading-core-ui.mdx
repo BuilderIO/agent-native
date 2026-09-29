@@ -1,11 +1,11 @@
 ---
-title: "기존 앱을 Core 0.197.0으로 업그레이드"
-description: "Core 0.197.0 마이그레이션, Toolkit import, 선택적 peer 패키지 및 검증을 위한 단계별 가이드입니다."
+title: "기존 앱을 Core 0.198.0으로 업그레이드"
+description: "Core 0.198.0 마이그레이션, Toolkit import, 선택적 peer 패키지 및 검증을 위한 단계별 가이드입니다."
 ---
 
-# 기존 앱을 Core 0.197.0으로 업그레이드
+# 기존 앱을 Core 0.198.0으로 업그레이드
 
-이 가이드를 따라 기존 앱을 Core 0.197.0으로 업그레이드하세요. 앱 또는
+이 가이드를 따라 기존 앱을 Core 0.198.0으로 업그레이드하세요. 앱 또는
 workspace 루트에서 명령을 실행하고 시작 전에 검토 가능한 소스 관리 diff를
 남기세요. 원격 배포 설정은 별도로 확인해야 합니다. CLI는 로컬 환경 파일은
 읽을 수 있지만 원격 환경이나 데이터베이스에 저장된 기능 설정을 확인할 수
@@ -13,12 +13,12 @@ workspace 루트에서 명령을 실행하고 시작 전에 검토 가능한 소
 
 ## 1. 업그레이드와 import codemod 미리 보기
 
-Core 0.197.0에 포함된 CLI를 사용해 해당 릴리스의 migration manifest를
+Core 0.198.0에 포함된 CLI를 사용해 해당 릴리스의 migration manifest를
 불러옵니다.
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-앱에 Core 0.197.0을 설치한 뒤에는 로컬 CLI 바이너리로 같은 미리보기를 실행할 수 있습니다:
+앱에 Core 0.198.0을 설치한 뒤에는 로컬 CLI 바이너리로 같은 미리보기를 실행할 수 있습니다:
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -47,16 +47,16 @@ framework override 또는 patch, 대기 중인 @agent-native/\* 버전 갱신, �
 설정에서 추론한 기능 dependency, package manager 설치, scaffold skill 갱신,
 루트 package에 typecheck script가 있을 때의 typecheck가 포함됩니다.
 명령은 package spec을 registry의 현재 latest로 바꾼 뒤 설치에서 해결된
-버전을 pin합니다. 0.197.0을 의도한 현재 릴리스로 사용할 시점에 실행하고,
+버전을 pin합니다. 0.198.0을 의도한 현재 릴리스로 사용할 시점에 실행하고,
 나중에 정확한 버전이 필요하면 해결된 pin을 확인하세요.
 
 ## 2. Toolkit 및 선택적 패키지 확인
 
-`@agent-native/toolkit/*`으로 이동한 import에는 `@agent-native/toolkit`이 필요합니다. 지원되고 해석 가능한 import 또는 export를 이동하면 codemod가 Toolkit을 추가합니다. 앱에서 Toolkit export를 사용하는데 dependency가 추가되지 않았다면 Core 0.197.0에 맞는 Toolkit 버전을 설치하세요:
+`@agent-native/toolkit/*`으로 이동한 import에는 `@agent-native/toolkit`이 필요합니다. 지원되고 해석 가능한 import 또는 export를 이동하면 codemod가 Toolkit을 추가합니다. 앱에서 Toolkit export를 사용하는데 dependency가 추가되지 않았다면 Core 0.198.0에 맞는 Toolkit 버전을 설치하세요:
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### 업그레이드 CLI가 선택하는 dependency
 
@@ -96,11 +96,11 @@ CLI는 다음 peer를 자동으로 추론하지 않습니다. 앱에서 사용�
 | LaunchDarkly 서버 측 기능 플래그                              | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 임베디드 터미널 세션                                          | node-pty; ws                                                                                     | >=1; >=8         |
 | 확장 HTML 서식 지정                                           | prettier                                                                                         | ^3.8.3           |
-| 기본 템플릿 소스 검색                                         | @agent-native/core-corpus                                                                        | 0.197.0          |
+| 기본 템플릿 소스 검색                                         | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Core에 이미 포함됨:** 웹 페이지를 Markdown으로 추출할 때 `linkedom`, `@mozilla/readability`, `turndown`을 사용합니다. Core가 일반 package dependency로 제공하므로 앱에서 따로 추가할 필요가 없습니다. Vite, React Router, Tailwind, Drizzle Kit 같은 빌드 및 프레임워크 peer는 이 표의 앱 기능이 아닙니다. 앱의 프레임워크 설정에 맞춰 유지하세요.
 
-기본 템플릿 소스 검색을 사용하려면 같은 버전의 코퍼스 패키지를 개발 의존성으로 추가하세요: `pnpm add -D @agent-native/core-corpus@0.197.0`.
+기본 템플릿 소스 검색을 사용하려면 같은 버전의 코퍼스 패키지를 개발 의존성으로 추가하세요: `pnpm add -D @agent-native/core-corpus@0.198.0`.
 
 ## 3. 업그레이드 적용
 
@@ -120,7 +120,7 @@ Agent-Native 버전을 pin하고 지원되는 codemod를 적용하며 scaffold s
 생략된 codemod 경고와 dependency 버전을 포함해 전체 diff를 검토한 뒤
 실행합니다.
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 npm 또는 Yarn에서는 해당 typecheck 명령을 사용하고 앱에 필요한 테스트와
@@ -164,4 +164,4 @@ migration manifest는 symbol별로 이동을 정의하므로 같은 이전 모�
 | @agent-native/agentkit/react 및 React 하위 경로                                                                                  | @agent-native/toolkit/app/agentkit                                                                                                                           |
 
 정식 source URL:
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

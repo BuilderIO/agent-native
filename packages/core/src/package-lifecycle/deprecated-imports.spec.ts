@@ -179,7 +179,7 @@ describe("scanDeprecatedImports", () => {
           symbols: ["AgentNative"],
           migrationGuide: "https://example.test/agentkit-chat.md",
           symbolGuides: {
-            AgentNative: "https://example.test/upgrading-to-0-197.mdx",
+            AgentNative: "https://example.test/upgrading-core-ui.mdx",
           },
         },
       },
@@ -195,7 +195,7 @@ describe("scanDeprecatedImports", () => {
         expect.objectContaining({
           from: "@agent-native/core/client",
           symbols: ["AgentNative"],
-          migrationGuide: "https://example.test/upgrading-to-0-197.mdx",
+          migrationGuide: "https://example.test/upgrading-core-ui.mdx",
         }),
       ]),
     );

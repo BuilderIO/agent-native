@@ -6075,16 +6075,16 @@
       ],
       "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/migrations/agentkit-chat.md",
       "symbolGuides": {
-        "AgentNative": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "useAgentNativeScreenContext": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "AgentNativeCommandCallback": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "AgentNativeCommandCallbackInfo": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "AgentNativeProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "AgentNativeFrame": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "AgentNativeFrameProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "HistoryTimeline": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "VersionHistoryPanel": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
-        "VersionHistoryPanelProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+        "AgentNative": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "useAgentNativeScreenContext": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "AgentNativeCommandCallback": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "AgentNativeCommandCallbackInfo": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "AgentNativeProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "AgentNativeFrame": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "AgentNativeFrameProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "HistoryTimeline": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "VersionHistoryPanel": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
+        "VersionHistoryPanelProps": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx"
       }
     },
     "@agent-native/core/client/chat": {
@@ -6137,7 +6137,7 @@
         "AgentNativeProps",
         "useAgentNativeScreenContext"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx"
     },
     "@agent-native/core/client/history": {
       "symbols": [
@@ -6145,7 +6145,7 @@
         "VersionHistoryPanel",
         "VersionHistoryPanelProps"
       ],
-      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx"
+      "migrationGuide": "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx"
     }
   }
 }

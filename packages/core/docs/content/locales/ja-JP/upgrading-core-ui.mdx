@@ -1,11 +1,11 @@
 ---
-title: "既存アプリをCore 0.197.0へアップグレードする"
-description: "Core 0.197.0への移行、Toolkitのimport、任意のpeer package、検証手順を説明します。"
+title: "既存アプリをCore 0.198.0へアップグレードする"
+description: "Core 0.198.0への移行、Toolkitのimport、任意のpeer package、検証手順を説明します。"
 ---
 
-# 既存アプリをCore 0.197.0へアップグレードする
+# 既存アプリをCore 0.198.0へアップグレードする
 
-この手順に沿って、既存アプリをCore 0.197.0へ移行します。アプリまたは
+この手順に沿って、既存アプリをCore 0.198.0へ移行します。アプリまたは
 workspaceのルートでコマンドを実行し、開始前にレビュー可能な差分を
 用意してください。リモートのデプロイ設定は別途確認します。CLIは
 ローカルの環境ファイルを読み取れますが、リモート環境やデータベースに
@@ -13,12 +13,12 @@ workspaceのルートでコマンドを実行し、開始前にレビュー可�
 
 ## 1. アップグレードとimport codemodをプレビューする
 
-Core 0.197.0に含まれるCLIを使い、このreleaseのmigration manifestを
+Core 0.198.0に含まれるCLIを使い、このreleaseのmigration manifestを
 読み込みます。
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-アプリに Core 0.197.0 をインストールした後は、同じプレビューをローカル CLI バイナリから実行できます。
+アプリに Core 0.198.0 をインストールした後は、同じプレビューをローカル CLI バイナリから実行できます。
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -48,17 +48,17 @@ overrideやpatch、保留中の@agent-native/\* version更新、ローカル設�
 判定されたfeature dependency、package managerによるinstall、scaffold
 skillの更新、root packageにscriptがある場合のtypecheckが表示されます。
 コマンドはpackage specをregistryの現在のlatestに変更し、install後に
-解決されたversionをpinします。0.197.0が意図する最新releaseである
+解決されたversionをpinします。0.198.0が意図する最新releaseである
 タイミングで実行してください。後日、正確なversionが必要な場合は
 解決されたpinを確認します。
 
 ## 2. Toolkit とオプションパッケージを確認する
 
-`@agent-native/toolkit/*` に移動した import には `@agent-native/toolkit` が必要です。対応済みで解決可能な import または export を移動すると、codemod が Toolkit を追加します。アプリが Toolkit の export を使っていて依存関係が追加されなかった場合は、Core 0.197.0 に対応する Toolkit のバージョンをインストールしてください。
+`@agent-native/toolkit/*` に移動した import には `@agent-native/toolkit` が必要です。対応済みで解決可能な import または export を移動すると、codemod が Toolkit を追加します。アプリが Toolkit の export を使っていて依存関係が追加されなかった場合は、Core 0.198.0 に対応する Toolkit のバージョンをインストールしてください。
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### アップグレード CLI が選択する依存関係
 
@@ -98,11 +98,11 @@ CLI は次の peer を自動判定しません。アプリで使う機能に応�
 | LaunchDarkly サーバー側 feature flag                            | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 埋め込みターミナルセッション                                    | node-pty; ws                                                                                     | >=1; >=8         |
 | 拡張機能の HTML 整形                                            | prettier                                                                                         | ^3.8.3           |
-| 組み込みテンプレートソース検索                                  | @agent-native/core-corpus                                                                        | 0.197.0          |
+| 組み込みテンプレートソース検索                                  | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Core に含まれる依存関係:** Web-to-Markdown によるページ抽出では `linkedom`、`@mozilla/readability`、`turndown` を使います。これらは通常の Core パッケージ依存関係として含まれるため、別途追加する必要はありません。Vite、React Router、Tailwind、Drizzle Kit などのビルド／フレームワーク用 peer は、この表のアプリ機能には含めません。アプリのフレームワーク構成に合わせてください。
 
-組み込みテンプレートのソース検索を使う場合は、対応するバージョンのコーパスパッケージを開発依存関係として追加します: `pnpm add -D @agent-native/core-corpus@0.197.0`。
+組み込みテンプレートのソース検索を使う場合は、対応するバージョンのコーパスパッケージを開発依存関係として追加します: `pnpm add -D @agent-native/core-corpus@0.198.0`。
 
 ## 3. アップグレードを適用する
 
@@ -123,7 +123,7 @@ overrideやpatchは追加しないでください。
 差分全体、特にcodemodがスキップした警告とdependency versionを確認し、
 次を実行します。
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 npmまたはYarnでは対応するtypecheck commandを使い、アプリに必要な
@@ -168,4 +168,4 @@ exportでも別々の移動先になる場合があります。次の表は代�
 | @agent-native/agentkit/reactとそのReact subpath                                                                                  | @agent-native/toolkit/app/agentkit                                                                                                                          |
 
 正規のsource URL:
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

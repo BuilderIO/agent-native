@@ -66,7 +66,7 @@ export function migrationDiagnosticPlugin(): Plugin {
         ? "Removed exports need app-level changes; follow the migration guide."
         : "",
     ].filter(Boolean);
-    return `Agent-Native found imports moved from Core:\n\n${details}\n\n${actions.join("\n")}\nSee the 0.197 migration runbook: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`;
+    return `Agent-Native found imports moved from Core:\n\n${details}\n\n${actions.join("\n")}\nSee the 0.198 migration runbook: ${AGENT_NATIVE_MIGRATION_GUIDE_URL}`;
   };
 
   return {

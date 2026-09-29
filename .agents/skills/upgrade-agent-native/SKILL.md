@@ -29,8 +29,8 @@ install → refresh scaffold skills → verify, then fix **app** code only.
 
 ## How
 
-For the Core 0.197.0 package and import migration, follow the
-[Core 0.197.0 upgrade runbook](../../../packages/core/docs/content/upgrading-to-0-197.mdx).
+For the Core 0.198.0 package and import migration, follow the
+[Core 0.198.0 upgrade runbook](../../../packages/core/docs/content/upgrading-core-ui.mdx).
 It covers the preview and apply commands, Toolkit and optional peer packages,
 codemod limits, and a symbol-level path map.
 

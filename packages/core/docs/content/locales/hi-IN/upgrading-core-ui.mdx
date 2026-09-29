@@ -1,11 +1,11 @@
 ---
-title: "मौजूदा ऐप्स को Core 0.197.0 पर अपग्रेड करें"
-description: "Core 0.197.0 माइग्रेशन, Toolkit imports, वैकल्पिक peer packages और जाँच के लिए चरण-दर-चरण निर्देश।"
+title: "मौजूदा ऐप्स को Core 0.198.0 पर अपग्रेड करें"
+description: "Core 0.198.0 माइग्रेशन, Toolkit imports, वैकल्पिक peer packages और जाँच के लिए चरण-दर-चरण निर्देश।"
 ---
 
-# मौजूदा ऐप्स को Core 0.197.0 पर अपग्रेड करें
+# मौजूदा ऐप्स को Core 0.198.0 पर अपग्रेड करें
 
-मौजूदा ऐप को Core 0.197.0 पर लाने के लिए यह निर्देश अपनाएँ। कमांड ऐप या
+मौजूदा ऐप को Core 0.198.0 पर लाने के लिए यह निर्देश अपनाएँ। कमांड ऐप या
 workspace के root से चलाएँ और शुरू करने से पहले ऐसा source-control diff रखें
 जिसकी समीक्षा की जा सके। दूरस्थ deployment settings अलग से जाँचें: CLI स्थानीय
 environment files पढ़ सकती है, लेकिन remote environments या database में रखी
@@ -13,12 +13,12 @@ feature settings नहीं देख सकती।
 
 ## 1. Upgrade और import codemods का preview देखें
 
-Core 0.197.0 के साथ आने वाली CLI चलाएँ, ताकि उसी release का migration manifest
+Core 0.198.0 के साथ आने वाली CLI चलाएँ, ताकि उसी release का migration manifest
 लोड हो:
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-ऐप में Core 0.197.0 इंस्टॉल होने के बाद यही preview स्थानीय CLI binary से भी उपलब्ध है:
+ऐप में Core 0.198.0 इंस्टॉल होने के बाद यही preview स्थानीय CLI binary से भी उपलब्ध है:
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -48,16 +48,16 @@ overrides या patches, लंबित @agent-native/\* version bumps, local 
 पहचाने गए feature dependencies, package-manager install, scaffold skills refresh
 और root package में typecheck script होने पर typecheck। Command package specs को
 registry के मौजूदा latest पर ले जाता है और install द्वारा resolve किए गए
-versions को pin करता है। इसे तभी चलाएँ जब 0.197.0 आपका इच्छित current release
+versions को pin करता है। इसे तभी चलाएँ जब 0.198.0 आपका इच्छित current release
 हो; बाद में exact version चाहिए तो resolved pins जाँचें।
 
 ## 2. Toolkit और वैकल्पिक पैकेज की पुष्टि करें
 
-`@agent-native/toolkit/*` में स्थानांतरित imports के लिए `@agent-native/toolkit` चाहिए। समर्थित और resolved import या export को Toolkit में ले जाने पर codemod Toolkit जोड़ता है। यदि ऐप Toolkit export का उपयोग करता है और dependency नहीं जोड़ी गई, तो Core 0.197.0 से मेल खाने वाला Toolkit संस्करण इंस्टॉल करें:
+`@agent-native/toolkit/*` में स्थानांतरित imports के लिए `@agent-native/toolkit` चाहिए। समर्थित और resolved import या export को Toolkit में ले जाने पर codemod Toolkit जोड़ता है। यदि ऐप Toolkit export का उपयोग करता है और dependency नहीं जोड़ी गई, तो Core 0.198.0 से मेल खाने वाला Toolkit संस्करण इंस्टॉल करें:
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### अपग्रेड CLI द्वारा चुनी गई dependencies
 
@@ -97,11 +97,11 @@ CLI इन peers का अनुमान नहीं लगाता। ऐ�
 | LaunchDarkly server-side feature flags                      | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | Embedded terminal sessions                                  | node-pty; ws                                                                                     | >=1; >=8         |
 | Extension HTML formatting                                   | prettier                                                                                         | ^3.8.3           |
-| पहले-पक्ष के template स्रोत में खोज                         | @agent-native/core-corpus                                                                        | 0.197.0          |
+| पहले-पक्ष के template स्रोत में खोज                         | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Core के साथ पहले से शामिल:** Web-to-Markdown पेज extraction में `linkedom`, `@mozilla/readability` और `turndown` का उपयोग होता है। Core इन्हें सामान्य package dependencies के रूप में देता है, इसलिए इन्हें अलग से जोड़ने की ज़रूरत नहीं है। Vite, React Router, Tailwind और Drizzle Kit जैसे build/framework peers इस तालिका में app features नहीं हैं; इन्हें ऐप के framework setup के अनुरूप रखें।
 
-पहले-पक्ष के template स्रोत में खोज के लिए, उसी version का corpus package development dependency के रूप में जोड़ें: `pnpm add -D @agent-native/core-corpus@0.197.0`।
+पहले-पक्ष के template स्रोत में खोज के लिए, उसी version का corpus package development dependency के रूप में जोड़ें: `pnpm add -D @agent-native/core-corpus@0.198.0`।
 
 ## 3. Upgrade लागू करें
 
@@ -121,7 +121,7 @@ app code में ठीक करें; framework overrides या patches �
 पूरा diff देखें, खासकर छोड़ी गई codemod warnings और dependency versions, फिर
 चलाएँ:
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 npm या Yarn के लिए समकक्ष typecheck command चलाएँ और ऐप के संबंधित tests तथा
@@ -166,4 +166,4 @@ exports अलग-अलग destinations पर जा सकते हैं।
 | @agent-native/agentkit/react और इसके React subpaths                                                                              | @agent-native/toolkit/app/agentkit                                                                                                                                  |
 
 Canonical source URL:
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

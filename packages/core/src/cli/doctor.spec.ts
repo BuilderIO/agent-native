@@ -269,7 +269,7 @@ describe("runDoctorScan", () => {
         guard: "migration-manifest",
         file: "app/root.tsx",
         message:
-          "@agent-native/core/client (PromptComposer) moves to PromptComposer → @agent-native/toolkit/app/chat. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+          "@agent-native/core/client (PromptComposer) moves to PromptComposer → @agent-native/toolkit/app/chat. Run: npx agent-native upgrade --codemods. Migration guide: https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
       }),
     ]);
   });
@@ -340,7 +340,7 @@ describe("runDoctorScan", () => {
       }),
     ]);
     expect(report.findings[0]?.message).toContain(
-      "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx",
+      "https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx",
     );
   });
 
@@ -426,7 +426,7 @@ describe("runDoctorScan", () => {
               symbols: ["AgentNative"],
               migrationGuide: "https://example.test/agentkit-chat.md",
               symbolGuides: {
-                AgentNative: "https://example.test/upgrading-to-0-197.mdx",
+                AgentNative: "https://example.test/upgrading-core-ui.mdx",
               },
             },
           },
@@ -460,7 +460,7 @@ describe("runDoctorScan", () => {
       report.findings.find((finding) =>
         finding.message.includes("AgentNative was removed"),
       )?.message,
-    ).toContain("https://example.test/upgrading-to-0-197.mdx");
+    ).toContain("https://example.test/upgrading-core-ui.mdx");
   });
 
   it("uses the installed Core package's matching chat migration guide", () => {

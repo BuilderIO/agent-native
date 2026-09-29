@@ -1,22 +1,22 @@
 ---
-title: "ترقية التطبيقات الحالية إلى Core 0.197.0"
-description: "دليل خطوة بخطوة لترحيل Core 0.197.0، واستيرادات Toolkit، والحزم النظيرة الاختيارية، والتحقق."
+title: "ترقية التطبيقات الحالية إلى Core 0.198.0"
+description: "دليل خطوة بخطوة لترحيل Core 0.198.0، واستيرادات Toolkit، والحزم النظيرة الاختيارية، والتحقق."
 ---
 
-# ترقية التطبيقات الحالية إلى Core 0.197.0
+# ترقية التطبيقات الحالية إلى Core 0.198.0
 
-استخدم هذا الدليل لترقية تطبيق موجود إلى إصدار Core 0.197.0. نفّذ الأوامر من
+استخدم هذا الدليل لترقية تطبيق موجود إلى إصدار Core 0.198.0. نفّذ الأوامر من
 جذر التطبيق أو مساحة العمل، واحتفظ بفروق التغييرات لمراجعتها قبل البدء. افحص
 إعدادات النشر عن بُعد بشكل منفصل: يمكن للأداة قراءة ملفات البيئة المحلية، لكنها
 لا تستطيع فحص البيئات البعيدة أو إعدادات الميزات المخزنة في قاعدة البيانات.
 
 ## 1. معاينة الترقية وتحويلات الاستيراد
 
-استخدم واجهة الأوامر المرفقة بإصدار Core 0.197.0 لتحميل بيان الترحيل الخاص به:
+استخدم واجهة الأوامر المرفقة بإصدار Core 0.198.0 لتحميل بيان الترحيل الخاص به:
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-بعد تثبيت Core 0.197.0 في التطبيق، تتوفر المعاينة نفسها عبر ملف CLI التنفيذي المحلي:
+بعد تثبيت Core 0.198.0 في التطبيق، تتوفر المعاينة نفسها عبر ملف CLI التنفيذي المحلي:
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -45,16 +45,16 @@ namespace أو side-effect أو star، ولا تقسّم استيرادات CSS
 الإعدادات المحلية، والتثبيت، وتحديث مهارات scaffold، وفحص typecheck عند وجود
 هذا البرنامج النصي في الحزمة الجذرية. يحدّث الأمر مواصفات الحزم إلى latest
 الحالية في السجل ثم يثبت الإصدارات التي حلّها التثبيت. شغّله عندما يكون
-0.197.0 هو الإصدار الحالي المقصود، وتحقق من الإصدارات المثبتة إذا كنت تحتاج
+0.198.0 هو الإصدار الحالي المقصود، وتحقق من الإصدارات المثبتة إذا كنت تحتاج
 إلى إصدار محدد.
 
 ## 2. تأكيد Toolkit والحزم الاختيارية
 
-تتطلب الاستيرادات المنقولة إلى `@agent-native/toolkit/*` تثبيت `@agent-native/toolkit`. تضيف التحويلات Toolkit عند نقل استيراد أو تصدير مدعوم ومحلول إليها. إذا كان التطبيق يستخدم تصديراً من Toolkit ولم تُضف تبعية، ثبّت إصدار Toolkit المطابق لـ Core 0.197.0:
+تتطلب الاستيرادات المنقولة إلى `@agent-native/toolkit/*` تثبيت `@agent-native/toolkit`. تضيف التحويلات Toolkit عند نقل استيراد أو تصدير مدعوم ومحلول إليها. إذا كان التطبيق يستخدم تصديراً من Toolkit ولم تُضف تبعية، ثبّت إصدار Toolkit المطابق لـ Core 0.198.0:
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### التبعيات التي يختارها CLI تلقائياً
 
@@ -94,11 +94,11 @@ namespace أو side-effect أو star، ولا تقسّم استيرادات CSS
 | علامات الميزات من LaunchDarkly على الخادم                         | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | جلسات الطرفية المضمنة                                             | node-pty; ws                                                                                     | >=1; >=8         |
 | تنسيق HTML للإضافات                                               | prettier                                                                                         | ^3.8.3           |
-| البحث في مصدر القوالب المضمّنة                                    | @agent-native/core-corpus                                                                        | 0.197.0          |
+| البحث في مصدر القوالب المضمّنة                                    | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **مضمنة مع Core:** يستخدم استخراج صفحات الويب إلى Markdown الحزم `linkedom` و`@mozilla/readability` و`turndown`. يضم Core هذه الحزم كتبعيات عادية، لذا لا تحتاج إلى إضافتها منفصلة. حزم البناء والإطار مثل Vite وReact Router وTailwind وDrizzle Kit ليست ميزات تطبيق في هذا الجدول؛ أبقها متوافقة مع إعداد إطار التطبيق.
 
-للبحث في مصدر القوالب المضمّنة، أضف حزمة corpus المطابقة كتَبعية تطوير: `pnpm add -D @agent-native/core-corpus@0.197.0`.
+للبحث في مصدر القوالب المضمّنة، أضف حزمة corpus المطابقة كتَبعية تطوير: `pnpm add -D @agent-native/core-corpus@0.198.0`.
 
 ## 3. تطبيق الترقية
 
@@ -117,7 +117,7 @@ namespace أو side-effect أو star، ولا تقسّم استيرادات CSS
 
 راجع كامل الفرق، خصوصاً تحذيرات التحويلات المتروكة وإصدارات التبعيات، ثم شغّل:
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 استخدم أمر typecheck المكافئ لـ npm أو Yarn، وشغّل الاختبارات والبناء المناسبين
@@ -160,4 +160,4 @@ namespace أو side-effect أو star، ولا تقسّم استيرادات CSS
 | @agent-native/agentkit/react ومسارات React الفرعية                                                                               | @agent-native/toolkit/app/agentkit                                                                                                                              |
 
 عنوان المصدر الأساسي:
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx).
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx).

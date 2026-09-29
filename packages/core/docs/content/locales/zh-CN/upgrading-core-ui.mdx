@@ -1,21 +1,21 @@
 ---
-title: "将现有应用升级到 Core 0.197.0"
-description: "介绍迁移到 Core 0.197.0、Toolkit 导入、可选 peer 包和验证步骤的操作指南。"
+title: "将现有应用升级到 Core 0.198.0"
+description: "介绍迁移到 Core 0.198.0、Toolkit 导入、可选 peer 包和验证步骤的操作指南。"
 ---
 
-# 将现有应用升级到 Core 0.197.0
+# 将现有应用升级到 Core 0.198.0
 
-按照本指南将现有应用升级到 Core 0.197.0。请在应用或 workspace 根目录运行
+按照本指南将现有应用升级到 Core 0.198.0。请在应用或 workspace 根目录运行
 命令，并在开始前保留可审阅的源代码差异。请单独检查远程部署配置：CLI
 可以读取本地环境文件，但无法查看远程环境或保存在数据库中的功能设置。
 
 ## 1. 预览升级和 import codemod
 
-使用 Core 0.197.0 随附的 CLI，以加载该版本的 migration manifest：
+使用 Core 0.198.0 随附的 CLI，以加载该版本的 migration manifest：
 
-    npx @agent-native/core@0.197.0 upgrade --codemods --dry-run
+    npx @agent-native/core@0.198.0 upgrade --codemods --dry-run
 
-在应用中安装 Core 0.197.0 后，也可以通过本地 CLI 二进制文件运行相同的预览：
+在应用中安装 Core 0.198.0 后，也可以通过本地 CLI 二进制文件运行相同的预览：
 
     npx agent-native upgrade --codemods --dry-run
 
@@ -42,16 +42,16 @@ import/export；也不能按 symbol 拆分 CSS import。
 更新的 @agent-native/\* 版本、根据本地配置推断的功能依赖、package manager
 安装、scaffold skill 更新，以及根 package 存在 typecheck script 时的
 typecheck。命令会将 package spec 更新为 registry 当前的 latest，然后固定
-安装解析出的版本。请在 0.197.0 是预期当前版本时运行；如果之后需要精确
+安装解析出的版本。请在 0.198.0 是预期当前版本时运行；如果之后需要精确
 版本，请确认解析后的 pin。
 
 ## 2. 确认 Toolkit 和可选软件包
 
-迁移到 `@agent-native/toolkit/*` 的导入需要安装 `@agent-native/toolkit`。codemod 会在将受支持且可解析的导入或导出迁移到 Toolkit 时添加该依赖。如果应用使用了 Toolkit 导出但未添加依赖，请安装与 Core 0.197.0 对应的 Toolkit 版本：
+迁移到 `@agent-native/toolkit/*` 的导入需要安装 `@agent-native/toolkit`。codemod 会在将受支持且可解析的导入或导出迁移到 Toolkit 时添加该依赖。如果应用使用了 Toolkit 导出但未添加依赖，请安装与 Core 0.198.0 对应的 Toolkit 版本：
 
-    pnpm add @agent-native/toolkit@0.197.0
-    # npm install @agent-native/toolkit@0.197.0
-    # yarn add @agent-native/toolkit@0.197.0
+    pnpm add @agent-native/toolkit@0.198.0
+    # npm install @agent-native/toolkit@0.198.0
+    # yarn add @agent-native/toolkit@0.198.0
 
 ### 由升级 CLI 选择的依赖
 
@@ -91,11 +91,11 @@ CLI 不会推断以下 peer。请根据应用实际使用的功能添加软件�
 | LaunchDarkly 服务端功能标志                                 | @launchdarkly/node-server-sdk                                                                    | ^9.13.6          |
 | 嵌入式终端会话                                              | node-pty; ws                                                                                     | >=1; >=8         |
 | 扩展 HTML 格式化                                            | prettier                                                                                         | ^3.8.3           |
-| 第一方模板源码搜索                                          | @agent-native/core-corpus                                                                        | 0.197.0          |
+| 第一方模板源码搜索                                          | @agent-native/core-corpus                                                                        | 0.198.0          |
 
 **Core 已包含：**网页转 Markdown 页面提取使用 `linkedom`、`@mozilla/readability` 和 `turndown`。Core 将它们作为常规软件包依赖包含在内，因此无需单独添加。Vite、React Router、Tailwind 和 Drizzle Kit 等构建及框架 peer 不属于此表中的应用功能；请让它们与应用的框架配置保持一致。
 
-如需搜索第一方模板源码，请将对应版本的 corpus 包作为开发依赖添加：`pnpm add -D @agent-native/core-corpus@0.197.0`。
+如需搜索第一方模板源码，请将对应版本的 corpus 包作为开发依赖添加：`pnpm add -D @agent-native/core-corpus@0.198.0`。
 
 ## 3. 应用升级
 
@@ -113,7 +113,7 @@ CLI 不会推断以下 peer。请根据应用实际使用的功能添加软件�
 
 检查完整差异，特别是跳过的 codemod 警告和依赖版本，然后运行：
 
-    npx @agent-native/core@0.197.0 upgrade check
+    npx @agent-native/core@0.198.0 upgrade check
     pnpm typecheck
 
 使用 npm 或 Yarn 对应的 typecheck 命令，并运行应用相关的测试和构建。确认
@@ -155,4 +155,4 @@ migration manifest 按 symbol 映射，因此同一旧模块中的 export 也可
 | @agent-native/agentkit/react 及其 React 子路径                                                                                   | @agent-native/toolkit/app/agentkit                                                                                                                             |
 
 规范来源 URL：
-[upgrading-to-0-197.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-to-0-197.mdx)。
+[upgrading-core-ui.mdx](https://github.com/BuilderIO/agent-native/blob/main/packages/core/docs/content/upgrading-core-ui.mdx)。

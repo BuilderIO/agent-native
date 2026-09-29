@@ -27,7 +27,7 @@ npx agent-native upgrade --codemods --dry-run
 npx agent-native upgrade --codemods
 ```
 
-`--codemods` 預設會套用支援的重寫。加入 `--dry-run` 可只預覽而不寫入檔案。套用前請檢查 diff 和警告。`--yes` 為相容性保留，不會改變行為。`migration-manifest` 無法停用。`planned` 項目只會顯示為警告，不會被重寫。active 項目會列為問題；codemod 只有在目標 export 已安裝時才會重寫。已移除的 export 需要手動遷移。請遵循 finding 中連結的指南，或參閱列出 `ts-morph` 和可選功能套件的 [Core 0.197.0 遷移指南](/docs/upgrading-to-0-197)。JSON `guardsRun` 會列出實際執行的 guard。
+`--codemods` 預設會套用支援的重寫。加入 `--dry-run` 可只預覽而不寫入檔案。套用前請檢查 diff 和警告。`--yes` 為相容性保留，不會改變行為。`migration-manifest` 無法停用。`planned` 項目只會顯示為警告，不會被重寫。active 項目會列為問題；codemod 只有在目標 export 已安裝時才會重寫。已移除的 export 需要手動遷移。請遵循 finding 中連結的指南，或參閱列出 `ts-morph` 和可選功能套件的 [Core 0.198.0 遷移指南](/docs/upgrading-core-ui)。JSON `guardsRun` 會列出實際執行的 guard。
 
 CLI 會為每個新建的 app 與 workspace 加入 `pnpm doctor` 及 `pnpm agent-native:doctor` 指令。從 workspace 根目錄執行時，會檢查 `apps/<name>` 下的每個 app。發現問題時，build 預設會失敗；只有經過審查的例外才應使用 `failOnBuild: false`。
 

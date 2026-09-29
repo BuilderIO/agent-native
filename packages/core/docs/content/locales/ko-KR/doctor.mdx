@@ -27,7 +27,7 @@ npx agent-native upgrade --codemods --dry-run
 npx agent-native upgrade --codemods
 ```
 
-`--codemods`는 지원되는 rewrite를 기본적으로 적용합니다. 파일을 쓰지 않고 미리 보려면 `--dry-run`을 추가하세요. 적용 전에 diff와 경고를 검토하세요. `--yes`는 호환성을 위해 허용되지만 동작을 바꾸지 않습니다. `migration-manifest`는 비활성화할 수 없습니다. `planned` 항목은 경고로만 표시되며 다시 쓰지 않습니다. Active 항목은 finding이며 codemod는 대상 export가 설치된 경우에만 다시 씁니다. 제거된 export는 수동 마이그레이션이 필요합니다. finding에 연결된 가이드 또는 `ts-morph`와 선택적 기능 패키지를 안내하는 [Core 0.197.0 마이그레이션 가이드](/docs/upgrading-to-0-197)를 따르세요. JSON `guardsRun`에는 실제로 실행된 guard가 나옵니다.
+`--codemods`는 지원되는 rewrite를 기본적으로 적용합니다. 파일을 쓰지 않고 미리 보려면 `--dry-run`을 추가하세요. 적용 전에 diff와 경고를 검토하세요. `--yes`는 호환성을 위해 허용되지만 동작을 바꾸지 않습니다. `migration-manifest`는 비활성화할 수 없습니다. `planned` 항목은 경고로만 표시되며 다시 쓰지 않습니다. Active 항목은 finding이며 codemod는 대상 export가 설치된 경우에만 다시 씁니다. 제거된 export는 수동 마이그레이션이 필요합니다. finding에 연결된 가이드 또는 `ts-morph`와 선택적 기능 패키지를 안내하는 [Core 0.198.0 마이그레이션 가이드](/docs/upgrading-core-ui)를 따르세요. JSON `guardsRun`에는 실제로 실행된 guard가 나옵니다.
 
 CLI는 새 앱과 workspace마다 `pnpm doctor` 및 `pnpm agent-native:doctor` 명령을 추가합니다. workspace 루트에서 실행하면 `apps/<name>` 아래의 모든 앱을 검사합니다. finding이 있으면 build가 기본적으로 실패하며, `failOnBuild: false`는 검토된 예외로만 사용하세요.
 
