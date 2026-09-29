@@ -7800,6 +7800,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         selectionOverlay.removeAttribute(
           "data-agent-native-suppress-handle-transition"
         );
+        if (lastHoverClientPoint) {
+          updateRadiusHandleHover({
+            clientX: lastHoverClientPoint.x,
+            clientY: lastHoverClientPoint.y
+          });
+        }
       }
     }
     function updateRadiusHandleHover(e) {
@@ -19393,7 +19399,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
       stopNativeInteraction(e);
-      lastHoverClientPoint = { x: e.clientX, y: e.clientY };
       hoveredEl = resolveHoverTarget(
         e.clientX,
         e.clientY,
@@ -19453,6 +19458,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "pointermove",
       function(e) {
+        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
         updateRadiusHandleHover(e);
         if (isOverlayElement(e.target)) return;
         if (pendingShieldDrag || activeDragCancel) {
@@ -19467,6 +19473,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "mousemove",
       function(e) {
+        lastHoverClientPoint = { x: e.clientX, y: e.clientY };
         updateRadiusHandleHover(e);
         if (isOverlayElement(e.target)) return;
         if (pendingShieldDrag || activeDragCancel) {
@@ -19505,6 +19512,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           updateSpacingOverlay(selectedEl);
           return;
         }
+        lastHoverClientPoint = null;
+        hoveredRadiusHandleKey = "";
+        applySelectionHandleHitGeometry(selectedEl);
         clearHoverGate();
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
