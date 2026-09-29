@@ -7,11 +7,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Corner-radius handles only appear on shapes with a visible fill or stroke.
+- Local editing setup now points to Chrome's Allow prompt and includes a settings fallback.
 - The browser permission guide points to Allow and the Connection is secure step.
 - The Chrome fallback guide shows the Local network Allow option.
 
 ### Fixed
 
+- Design warnings wait for the current preview to finish loading
+- Mixed padding and margin values across selected layers now open separate side controls
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
+- The source-location warning no longer appears while an app preview is loading.
 - Clearing a prompt removes its final character
 - Design tweak controls stay intact when an edit contains invalid definitions
 - Live previews no longer stay stuck when the running app reloads.

@@ -2864,6 +2864,12 @@ export function AgentKitComposer({
   const editContext = useContext(AgentMessageEditContext);
   const editingMessage = editContext?.message ?? null;
   const threadId = requestedThreadId ?? contextThreadId;
+  const submitFailureDraftScopeRef = useRef<string | null>(null);
+  const getSubmitFailureDraftScope = useCallback(() => {
+    const scope = submitFailureDraftScopeRef.current;
+    submitFailureDraftScopeRef.current = null;
+    return scope;
+  }, []);
   const queueCapability = useAgentCapability("messageQueue");
   const suggestionsCapability = useAgentCapability("suggestions");
   const uploadsCapability = useAgentCapability("uploads");
@@ -2967,6 +2973,7 @@ export function AgentKitComposer({
     references: Parameters<PromptComposerProps["onSubmit"]>[2], // i18n-ignore: Type-only callback tuple, not rendered copy.
     options: Parameters<PromptComposerProps["onSubmit"]>[3],
   ) => {
+    submitFailureDraftScopeRef.current = null;
     const effort = options.effort;
     const contextItemsForSubmission = options.contextItems ?? contextItems;
     const metadata = {
@@ -3014,6 +3021,7 @@ export function AgentKitComposer({
         threadId,
         previousMessage?.id,
       );
+      submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
       onThreadForked(forkedThread);
       const uploadedAttachments =
         uploadFiles.length && canUpload
@@ -3055,6 +3063,7 @@ export function AgentKitComposer({
         options: payload.options,
         metadata: sendMetadata,
       });
+      submitFailureDraftScopeRef.current = null;
       editContext?.setMessage(null);
       return;
     }
@@ -3271,7 +3280,6 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         submissionDisabled={command.pending}
-        submitting={command.pending && !onSubmitOverride}
         clearOnSubmitImmediately
         willQueue={active && queueWhileRunning && canQueue}
         showModelSelector={showModelSelector && canSelectModel}
@@ -3295,6 +3303,7 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         onBeforeSubmit={onBeforeSubmit}
+        getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         onAttachmentError={reportAttachmentError}
         interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
         planModeDisabled={planModeDisabled}

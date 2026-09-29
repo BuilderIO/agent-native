@@ -7,7 +7,18 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Undo and redo are available in the editor menu
 - Settings pages now share the account layout, with dated updates that load in batches.
+
+### Fixed
+
+- Dragging an object out of a layout preserves its original space.
+- Fixed deck edits failing to save during simultaneous collaboration
+- Pasted text no longer blocks deck creation
+- Position controls are available before you manually move an object
+- Pressing Escape after editing text closes the selection outline.
+- Slides opens reference selection after sign-in when no design or reference context is selected.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 
 ## 2026-09-28
 

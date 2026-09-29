@@ -7,11 +7,14 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Pin the Mail sidebar to keep folder navigation visible.
 - Mail loading screens match the current inbox layout.
 - Mail shows the first messages sooner and keeps them visible while background sync finishes.
 
 ### Fixed
 
+- The open chat panel is separated from your inbox by a visible divider.
+- Sent chat prompts clear immediately, while reply progress appears in the conversation.
 - Existing compose drafts keep their attachments when revised
 - Scheduled email changes refresh the inbox and schedule list
 

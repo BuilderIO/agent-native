@@ -508,6 +508,51 @@ type ComposerDraftEditor = {
 };
 
 const COMPOSER_DRAFT_SAVE_DELAY_MS = 300;
+const COMPOSER_DRAFT_FORMAT = "agent-composer-draft-v1";
+
+function readComposerDraft(value: string): {
+  html: string;
+  slotReferences: AgentComposerReference[];
+} {
+  if (!value.startsWith(`{"format":"${COMPOSER_DRAFT_FORMAT}"`)) {
+    return { html: value, slotReferences: [] };
+  }
+  const parsed = JSON.parse(value);
+  if (
+    parsed?.format !== COMPOSER_DRAFT_FORMAT ||
+    typeof parsed.html !== "string" ||
+    !Array.isArray(parsed.slotReferences)
+  ) {
+    throw new Error("Stored composer draft has an invalid format.");
+  }
+  return { html: parsed.html, slotReferences: parsed.slotReferences };
+}
+
+function writeComposerDraft(
+  draftKey: string | null,
+  html: string,
+  slotReferences: AgentComposerReference[],
+): void {
+  if (!draftKey) return;
+  try {
+    if (!html.trim() && slotReferences.length === 0) {
+      localStorage.removeItem(draftKey);
+    } else if (slotReferences.length > 0) {
+      localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          format: COMPOSER_DRAFT_FORMAT,
+          html,
+          slotReferences,
+        }),
+      );
+    } else {
+      localStorage.setItem(draftKey, html);
+    }
+  } catch {
+    // coercion-ok: Browser storage is optional and can be unavailable or full.
+  }
+}
 
 function composerDocumentHasContent(doc: ComposerDocument): boolean {
   if (doc.textContent.trim().length > 0) return true;
@@ -529,17 +574,13 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
 function persistComposerDraft(
   draftKey: string | null,
   editor: ComposerDraftEditor,
+  slotReferences: AgentComposerReference[],
 ): void {
-  if (!draftKey) return;
-  try {
-    if (!composerDocumentHasContent(editor.state.doc)) {
-      localStorage.removeItem(draftKey);
-    } else {
-      localStorage.setItem(draftKey, editor.getHTML());
-    }
-  } catch {
-    // coercion-ok: browser storage is optional and can be unavailable or full.
+  if (!composerDocumentHasContent(editor.state.doc) && !slotReferences.length) {
+    writeComposerDraft(draftKey, "", []);
+    return;
   }
+  writeComposerDraft(draftKey, editor.getHTML(), slotReferences);
 }
 
 function clearComposerDraft(
@@ -872,6 +913,8 @@ export interface TiptapComposerProps {
   ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: () => boolean | Promise<boolean>;
+  /** Scope where a failed submission should be recovered after the host forks. */
+  getSubmitFailureDraftScope?: () => string | null;
   /**
    * Clear the editor after an onSubmit handler runs. Standalone workflows that
    * may fail outside the composer can keep the draft visible for quick edits.
@@ -2550,6 +2593,7 @@ export function TiptapComposer({
   initialTextKey,
   onSubmit,
   onBeforeSubmit,
+  getSubmitFailureDraftScope,
   clearOnSubmit = true,
   clearOnSubmitImmediately = false,
   onTextChange,
@@ -2871,7 +2915,7 @@ export function TiptapComposer({
     cancelScheduledDraftPersist();
     const ed = draftEditorRef.current;
     if (!ed || !isComposerEditorUsable(ed)) return;
-    persistComposerDraft(draftKeyRef.current, ed);
+    persistComposerDraft(draftKeyRef.current, ed, slotReferencesRef.current);
   }, [cancelScheduledDraftPersist]);
   const scheduleComposerDraftPersist = useCallback(
     (ed: ComposerDraftEditor) => {
@@ -2884,7 +2928,7 @@ export function TiptapComposer({
         if (draftKeyRef.current !== key || draftEditorRef.current !== ed) {
           return;
         }
-        persistComposerDraft(key, ed);
+        persistComposerDraft(key, ed, slotReferencesRef.current);
       }, COMPOSER_DRAFT_SAVE_DELAY_MS);
     },
     [cancelScheduledDraftPersist],
@@ -3280,7 +3324,7 @@ export function TiptapComposer({
     draftEditorRef.current = editor;
     const flush = () => {
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor);
+      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
     };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
@@ -3288,7 +3332,7 @@ export function TiptapComposer({
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
       cancelScheduledDraftPersist();
-      persistComposerDraft(draftKey, editor);
+      persistComposerDraft(draftKey, editor, slotReferencesRef.current);
       if (draftEditorRef.current === editor) draftEditorRef.current = null;
     };
   }, [cancelScheduledDraftPersist, draftKey, editor]);
@@ -4157,21 +4201,92 @@ export function TiptapComposer({
         return false;
       };
 
+      const clearImmediately = clearOnSubmitImmediately && clearOnSubmit;
+      const clearedBeforePreflight =
+        clearImmediately && Boolean(onBeforeSubmit);
+      const restoreSubmittedDraft = () => {
+        if (!clearImmediately) return;
+        const forkScope = getSubmitFailureDraftScope?.();
+        const recoveryKey = forkScope
+          ? getComposerDraftKey(forkScope)
+          : submittingDraftKey;
+        const isForkRecovery = recoveryKey !== submittingDraftKey;
+        let currentDraft: string | null = null;
+        try {
+          currentDraft = recoveryKey ? localStorage.getItem(recoveryKey) : null;
+        } catch {
+          // coercion-ok: Browser storage is optional and can be unavailable or full.
+        }
+        if (
+          currentDraft !== null &&
+          (isForkRecovery || currentDraft !== submittingDraftSnapshot)
+        ) {
+          return;
+        }
+
+        const editorIsCurrentScope =
+          isComposerEditorUsable(ed) && draftKeyRef.current === recoveryKey;
+        if (editorIsCurrentScope) {
+          if (
+            composerDocumentHasContent(ed.state.doc) ||
+            slotReferencesRef.current.length > 0
+          ) {
+            return;
+          }
+          ed.commands.setContent(submittedEditorDocument.toJSON());
+          updateSlotReferences(submittedSlotReferences);
+          const restored = syncComposerState();
+          setEditorHasText(
+            restored.text.trim().length > 0 || restored.references.length > 0,
+          );
+          onTextChangeRef.current?.(restored.text);
+          flushComposerDraft();
+          return;
+        }
+
+        if (
+          composerDocumentHasContent(submittedEditorDocument) ||
+          submittedSlotReferences.length > 0
+        ) {
+          writeComposerDraft(
+            recoveryKey,
+            submittedDraftHtml,
+            submittedSlotReferences,
+          );
+        }
+      };
+
       if (handleLocalSubmission()) return true;
+
+      if (clearedBeforePreflight) {
+        cancelActiveVoice();
+        clearEditorAfterSubmit(
+          submittingDraftSnapshot,
+          submittedSlotReferences,
+        );
+      }
 
       if (onBeforeSubmit) {
         submitInFlightRef.current = true;
         try {
           const shouldSubmit = await onBeforeSubmit();
-          if (!shouldSubmit) return false;
+          if (!shouldSubmit) {
+            restoreSubmittedDraft();
+            return false;
+          }
+        } catch (error) {
+          restoreSubmittedDraft();
+          throw error;
         } finally {
           submitInFlightRef.current = false;
         }
       }
-      if (!isComposerEditorUsable(ed)) return false;
-      if (!isCurrentDraftScope()) return false;
+      if (!isComposerEditorUsable(ed) || !isCurrentDraftScope()) {
+        restoreSubmittedDraft();
+        return false;
+      }
 
-      if (onBeforeSubmit) {
+      if (onBeforeSubmit && !clearedBeforePreflight) {
         const current = syncComposerState();
         if (textOverride === undefined) {
           text = current.text;
@@ -4218,14 +4333,21 @@ export function TiptapComposer({
           contextItemsProvidedRef.current ? contextItemsRef.current : undefined,
         );
       } catch (error) {
-        if (!(error instanceof ComposerContextError)) throw error;
-        if (error.code === "not-ready") return false;
+        if (!(error instanceof ComposerContextError)) {
+          restoreSubmittedDraft();
+          throw error;
+        }
+        if (error.code === "not-ready") {
+          restoreSubmittedDraft();
+          return false;
+        }
         setContextSubmissionError(
           t("agentChat.composer.contextLimitExceeded", {
             defaultValue:
               "Context is too large. Remove an item or attach a smaller selection.",
           }),
         );
+        restoreSubmittedDraft();
         return false;
       }
 
@@ -4277,7 +4399,7 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        if (clearSubmittedDraft()) {
+        if (clearedBeforePreflight || clearSubmittedDraft()) {
           setComposerMode(null);
           composerModeRef.current = null;
         }
@@ -4289,50 +4411,9 @@ export function TiptapComposer({
         if (submitInFlightRef.current) return false;
         const submittedAttachments = [...attachments];
         submitInFlightRef.current = true;
-        const restoreSubmittedDraft = () => {
-          if (
-            !clearOnSubmitImmediately ||
-            !clearOnSubmit ||
-            !isCurrentDraftScope()
-          ) {
-            return;
-          }
-          if (!isComposerEditorUsable(ed)) {
-            if (
-              submittingDraftKey &&
-              composerDocumentHasContent(submittedEditorDocument)
-            ) {
-              try {
-                if (localStorage.getItem(submittingDraftKey) === null) {
-                  localStorage.setItem(submittingDraftKey, submittedDraftHtml);
-                }
-              } catch (error) {
-                console.error(
-                  "Could not restore submitted composer draft",
-                  error,
-                );
-              }
-            }
-            return;
-          }
-          if (
-            composerDocumentHasContent(ed.state.doc) ||
-            slotReferencesRef.current.length > 0
-          ) {
-            return;
-          }
-          ed.commands.setContent(submittedEditorDocument.toJSON());
-          updateSlotReferences(submittedSlotReferences);
-          const restored = syncComposerState();
-          setEditorHasText(
-            restored.text.trim().length > 0 || restored.references.length > 0,
-          );
-          onTextChangeRef.current?.(restored.text);
-          flushComposerDraft();
-        };
         try {
           setContextSubmissionError(null);
-          if (clearOnSubmitImmediately && clearOnSubmit) {
+          if (clearImmediately && !clearedBeforePreflight) {
             cancelActiveVoice();
             clearSubmittedDraft();
           }
@@ -4417,7 +4498,7 @@ export function TiptapComposer({
         composerRuntime.send();
       }
       cancelActiveVoice();
-      clearSubmittedDraft();
+      if (!clearedBeforePreflight) clearSubmittedDraft();
       return true;
     },
     [
@@ -4433,6 +4514,7 @@ export function TiptapComposer({
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
       clearOnSubmitImmediately,
+      getSubmitFailureDraftScope,
       onBeforeSubmit,
       extractComposerPayload,
       syncComposerState,
@@ -4707,10 +4789,12 @@ export function TiptapComposer({
     }
     const shouldRestoreSavedDraft = !hasCheckedInitialDraftRef.current;
     hasCheckedInitialDraftRef.current = true;
+    const savedDraft = saved ? readComposerDraft(saved) : null;
 
     try {
-      if (saved && editor.isEmpty && shouldRestoreSavedDraft) {
-        editor.commands.setContent(saved);
+      if (savedDraft && editor.isEmpty && shouldRestoreSavedDraft) {
+        editor.commands.setContent(savedDraft.html);
+        updateSlotReferences(savedDraft.slotReferences);
         editor.commands.focus("end");
         if (initialText !== undefined) initialTextKeyRef.current = key;
       } else if (initialText === undefined) {
@@ -4725,7 +4809,10 @@ export function TiptapComposer({
         return;
       }
       const trimmed = editor.getText({ blockSeparator: "\n" }).trim();
-      setEditorHasText(composerDocumentHasContent(editor.state.doc));
+      setEditorHasText(
+        composerDocumentHasContent(editor.state.doc) ||
+          slotReferencesRef.current.length > 0,
+      );
       composerRuntime.setText(trimmed);
       onTextChangeRef.current?.(trimmed);
       scheduleComposerDraftPersist(editor);
@@ -4739,6 +4826,7 @@ export function TiptapComposer({
     initialText,
     initialTextKey,
     scheduleComposerDraftPersist,
+    updateSlotReferences,
   ]);
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.

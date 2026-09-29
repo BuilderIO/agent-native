@@ -579,11 +579,13 @@ describe("controlled composer context", () => {
       container.querySelector('[role="status"]')?.getAttribute("aria-label"),
     ).toBe("common.loading");
     expect(container.textContent).not.toContain("checkingProvider");
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-agent-composer-slot="send-button"]',
-      )?.disabled,
-    ).toBe(true);
+    const sendButton = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="send-button"]',
+    );
+    expect(sendButton?.disabled).toBe(true);
+    expect(sendButton?.getAttribute("aria-busy")).toBeNull();
+    expect(sendButton?.getAttribute("aria-label")).not.toBe("common.loading");
+    expect(sendButton?.querySelector(".animate-spin")).toBeNull();
   });
 
   it("submits edits made while an async readiness check is pending", async () => {
