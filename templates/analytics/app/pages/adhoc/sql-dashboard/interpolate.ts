@@ -7,6 +7,10 @@ export interface InterpolateOptions {
   customDateRangeSupport?: boolean;
 }
 
+// ponytail: daily date spines cap custom ranges at roughly ten years; use per-query budgets if wider history becomes a supported need.
+const MAX_CUSTOM_DATE_RANGE_DAYS = 3660;
+const DAY_MILLISECONDS = 86_400_000;
+
 export function interpolateDashboardPanelSql(
   sql: string | undefined | null,
   vars: Record<string, string>,
@@ -126,6 +130,16 @@ export function interpolate(
       const start = vars[name + "Start"];
       const end = vars[name + "End"];
       if (!isValidDate(start) || !isValidDate(end) || start > end) {
+        return "SELECT __invalid_custom_date_range__";
+      }
+      if (
+        /generate_series|generate_date_array/i.test(sourceSql) &&
+        (Date.parse(`${end}T00:00:00.000Z`) -
+          Date.parse(`${start}T00:00:00.000Z`)) /
+          DAY_MILLISECONDS +
+          1 >
+          MAX_CUSTOM_DATE_RANGE_DAYS
+      ) {
         return "SELECT __invalid_custom_date_range__";
       }
       const customRange = addCustomDateRange(sourceSql, name);

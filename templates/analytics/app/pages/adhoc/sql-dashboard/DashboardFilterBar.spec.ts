@@ -281,6 +281,20 @@ describe("resolveFilterVars", () => {
     ).toBe("SELECT __invalid_custom_date_range__");
   });
 
+  it("fails closed when a custom range would generate an oversized date spine", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM UNNEST(GENERATE_DATE_ARRAY(DATE('{{timeRangeStart}}'), DATE('{{timeRangeEnd}}')))",
+        {
+          timeRange: "custom",
+          timeRangeStart: "2000-01-01",
+          timeRangeEnd: "2026-01-01",
+        },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
   it("keeps fixed-window panel queries outside custom range rewriting", () => {
     const sql = interpolateDashboardPanelSql(
       "SELECT * FROM events WHERE '{{timeRange}}' = '365d'",

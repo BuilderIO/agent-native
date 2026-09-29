@@ -13,7 +13,10 @@ import {
   isDateRangePresetFilter,
   resolveDefault,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
-import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
+import {
+  interpolate,
+  interpolateDashboardPanelSql,
+} from "../app/pages/adhoc/sql-dashboard/interpolate";
 import type { DashboardFilter } from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
@@ -458,7 +461,7 @@ export async function validatePanelSql(
           );
           if (timeScopeError) return timeScopeError;
           await validateFirstPartyAnalyticsSqlForScope(
-            interpolate(raw, vars),
+            interpolateDashboardPanelSql(raw, vars, p),
             firstPartyScope(),
           );
         } catch (e: any) {
@@ -490,7 +493,7 @@ export async function validatePanelSql(
     if (p.source !== "bigquery") continue;
     const raw = typeof p.sql === "string" ? p.sql : "";
     if (!raw.trim()) continue;
-    const sql = interpolate(raw, vars);
+    const sql = interpolateDashboardPanelSql(raw, vars, p);
     if (!sql.trim()) continue;
     bigQueryPanels.push({ index: i, panel: p, sql });
   }
