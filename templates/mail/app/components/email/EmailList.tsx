@@ -351,18 +351,36 @@ function MailLoadingState({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex-1 overflow-y-auto">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
-          >
-            <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
-            <div className="h-3 w-28 animate-pulse rounded bg-muted" />
-            <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
-            <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-          </div>
-        ))}
+        <MailLoadingRows count={12} />
       </div>
+    </div>
+  );
+}
+
+function MailLoadingRows({ count }: { count: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          key={index}
+          className="email-list-row flex h-[48px] items-center px-3 sm:h-[38px]"
+        >
+          <div className="me-2 flex h-full w-5 shrink-0 items-center justify-center">
+            <div className="h-[7px] w-[7px] animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="me-3 flex w-[100px] shrink-0 items-center sm:w-[160px]">
+            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          </div>
+          {index % 2 === 1 && (
+            <div className="me-2 h-4 w-14 shrink-0 animate-pulse rounded bg-muted" />
+          )}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <div className="h-3 w-36 shrink-0 animate-pulse rounded bg-muted" />
+            <div className="h-3 min-w-0 flex-1 animate-pulse rounded bg-muted" />
+          </div>
+          <div className="ms-2 h-3 w-12 shrink-0 animate-pulse rounded bg-muted" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -2779,21 +2797,7 @@ export function EmailList({
             );
           })}
         </div>
-        {isSyncing && (
-          <div aria-hidden="true">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div
-                key={index}
-                className="flex h-[48px] items-center gap-3 px-4 sm:h-[38px]"
-              >
-                <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted" />
-                <div className="h-3 w-28 animate-pulse rounded bg-muted" />
-                <div className="h-3 flex-1 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-12 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        )}
+        {isSyncing && <MailLoadingRows count={4} />}
         <AlertDialog
           open={retryUncertainJobId !== null}
           onOpenChange={(open) => !open && setRetryUncertainJobId(null)}
