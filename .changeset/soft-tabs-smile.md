@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/toolkit": patch
 ---
 
 Keep What's new available in the legacy settings fallback.

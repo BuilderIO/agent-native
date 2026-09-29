@@ -531,7 +531,7 @@ describe("SettingsTabsPage", () => {
     );
     expect(whatsNewTab).not.toBeNull();
 
-    act(() => {
+    await act(async () => {
       whatsNewTab!.click();
     });
 
