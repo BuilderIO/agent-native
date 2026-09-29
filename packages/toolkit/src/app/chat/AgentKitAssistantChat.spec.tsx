@@ -653,9 +653,94 @@ describe("AgentKitAssistantChat host behavior", () => {
     await mount(baseProps({ providerStatusChecksEnabled: true }));
 
     expect(chatMocks.composerProps.disabled).toBe(false);
-    expect(chatMocks.composerProps.submissionDisabled).toBe(true);
-    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
+    expect(chatMocks.composerProps.requireAgentEngine).toBe(false);
+    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(true);
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("queues composer sends until provider readiness resolves", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await flush();
+
+    await act(async () => {
+      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
+        true,
+      );
+      await chatMocks.composerProps.onSubmit(
+        "Send after provider discovery",
+        [],
+        [],
+        {},
+      );
+    });
+
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    const stateKey = [...chatMocks.appState.keys()].find((key) =>
+      key.startsWith("agentkit-deferred-provider-submissions:"),
+    );
+    expect(stateKey).toBeDefined();
+    expect(chatMocks.appState.get(stateKey!)).toMatchObject({
+      submissions: [{ text: "Send after provider discovery" }],
+    });
+
+    await act(async () => {
+      chatMocks.readiness = {
+        canChat: true,
+        missing: false,
+        state: "configured",
+      };
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]?.text).toBe(
+      "Send after provider discovery",
+    );
+    expect(chatMocks.appState.has(stateKey!)).toBe(false);
+  });
+
+  it("keeps the draft rejected if provider status becomes missing before submit", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+    await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(true);
+
+    await act(async () => {
+      chatMocks.readiness = {
+        canChat: false,
+        missing: true,
+        state: "missing",
+      };
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ providerStatusChecksEnabled: true })}
+        />,
+      );
+    });
+
+    await expect(
+      chatMocks.composerProps.onSubmit("Keep until connected", [], [], {}),
+    ).rejects.toThrow("agentChat.recovery.deferredSubmissionFailed");
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(
+      [...chatMocks.appState.keys()].some((key) =>
+        key.startsWith("agentkit-deferred-provider-submissions:"),
+      ),
+    ).toBe(false);
   });
 
   it("sends a draft once provider readiness resolves", async () => {

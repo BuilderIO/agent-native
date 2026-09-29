@@ -234,7 +234,6 @@ export default function PromptPopover({
     storageQuery.data?.configured === true && !storageQuery.isError;
   const inline = presentation === "inline";
   const [submitting, setSubmitting] = useState(false);
-  const [checkingProvider, setCheckingProvider] = useState(false);
   const submittingRef = useRef(false);
   const [retainingAttachments, setRetainingAttachments] = useState(false);
   const retainingAttachmentsRef = useRef(false);
@@ -574,16 +573,6 @@ export default function PromptPopover({
     ],
   );
 
-  const handleBeforeSubmit = useCallback(async () => {
-    if (!onBeforeSubmit) return true;
-    setCheckingProvider(true);
-    try {
-      return await onBeforeSubmit();
-    } finally {
-      setCheckingProvider(false);
-    }
-  }, [onBeforeSubmit]);
-
   useImperativeHandle(
     controllerRef,
     () => ({
@@ -788,7 +777,7 @@ export default function PromptPopover({
                 attachmentAdapter={slidesPromptAttachmentAdapter}
                 showModelSelector={showModelSelector}
                 modelStatusChecksEnabled={modelStatusChecksEnabled}
-                submissionDisabled={submissionDisabled || checkingProvider}
+                submissionDisabled={submissionDisabled}
                 maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
                 documentAttachmentLimitLabel="Slides reference files"
                 disabled={
@@ -801,7 +790,7 @@ export default function PromptPopover({
                 submitting={submitting}
                 placeholder={placeholder}
                 onSubmit={handleSubmit}
-                onBeforeSubmit={handleBeforeSubmit}
+                onBeforeSubmit={onBeforeSubmit}
                 onAttachmentsChange={handleAttachmentsChange}
                 onTextChange={setPromptText}
                 draftScope={draftScope}

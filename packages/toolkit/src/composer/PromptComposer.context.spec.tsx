@@ -584,6 +584,46 @@ describe("controlled composer context", () => {
     ).toBe(true);
   });
 
+  it("lets a host queue submissions while provider status is unresolved", async () => {
+    const composerRef = React.createRef<TiptapComposerHandle>();
+    const onBeforeSubmit = vi.fn(async () => true);
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{
+            models: {
+              useAgentEngineConfigured: () => ({
+                state: "unknown",
+                missing: false,
+              }),
+            },
+          }}
+        >
+          <PromptComposer
+            composerRef={composerRef}
+            onBeforeSubmit={onBeforeSubmit}
+            onSubmit={onSubmit}
+            initialText="Queue this message"
+            initialTextKey="queued-provider-submit"
+            requireAgentEngine={false}
+            showModelSelector={false}
+            includeDefaultSlashSkills={false}
+          />
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+
+    await act(async () =>
+      expect(
+        await composerRef.current!.submitWithText("Queue this message"),
+      ).toBe(true),
+    );
+
+    expect(onBeforeSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
   it("submits edits made while an async readiness check is pending", async () => {
     let resolveReadiness!: (ready: boolean) => void;
     const readiness = new Promise<boolean>((resolve) => {

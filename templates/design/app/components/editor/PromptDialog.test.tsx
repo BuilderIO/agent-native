@@ -324,7 +324,7 @@ describe("PromptPopover inline home", () => {
       await Promise.resolve();
     });
     expect(mockComposer.current?.submitting).toBe(false);
-    expect(mockComposer.current?.submissionDisabled).toBe(true);
+    expect(mockComposer.current?.submissionDisabled).toBe(false);
     expect(mockComposer.current?.disabled).not.toBe(true);
     expect(onSubmit).not.toHaveBeenCalled();
 

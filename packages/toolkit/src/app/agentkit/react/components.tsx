@@ -2751,6 +2751,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
+    | "requireAgentEngine"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -2834,6 +2835,7 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  requireAgentEngine,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -3289,6 +3291,7 @@ export function AgentKitComposer({
         onAgentChange={onAgentChange}
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
+        requireAgentEngine={requireAgentEngine}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
