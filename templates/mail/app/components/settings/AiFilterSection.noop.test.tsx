@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   automationsError: false,
   automationsLoading: false,
   automationsHasData: true,
+  recentBackfillsError: false,
   triageEnabled: true,
   updateAiFilterSettings: vi.fn(),
   createRule: vi.fn(),
@@ -41,12 +42,14 @@ const mocks = vi.hoisted(() => ({
   refetchAutomations: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string, values?: Record<string, unknown>) =>
     values ? `${key} ${Object.values(values).join(" ")}` : key,
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   actionErrorMessage: (error: unknown) => String(error),
   useActionQuery: () => ({
     data: mocks.jevAvailabilityError
@@ -59,7 +62,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
   sendToAgentChat: mocks.sendToAgentChat,
 }));
 
@@ -98,7 +104,8 @@ vi.mock("@/hooks/use-ai-filter", () => ({
   useRecentAiFilterBackfills: () => ({
     data: mocks.backfillStatus ? [mocks.backfillStatus] : [],
     isLoading: false,
-    isError: false,
+    isError: mocks.recentBackfillsError,
+    isFetching: false,
     refetch: mocks.refetchBackfill,
   }),
   latestAiFilterDecisions: (state: { decisions: Array<Record<string, any>> }) =>
@@ -183,6 +190,7 @@ describe("AiFilterSection", () => {
     mocks.automationsError = false;
     mocks.automationsLoading = false;
     mocks.automationsHasData = true;
+    mocks.recentBackfillsError = false;
     mocks.triageEnabled = true;
     mocks.accounts = [];
     mocks.createRule.mockReset().mockResolvedValue({ id: "created-rule" });
@@ -779,13 +787,19 @@ describe("AiFilterSection", () => {
           previews: [],
         },
       ],
+      error: "Email service is briefly busy.",
       undoToken: "undo-token",
     };
     renderSection();
 
     expect(
-      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+      await screen.findByText("mail.aiFilter.ruleBackfillMatches 1"),
     ).not.toBeNull();
+    expect(screen.getByText("mail.aiFilter.ruleBackfillFailed")).not.toBeNull();
+    expect(screen.getByText("Email service is briefly busy.")).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "mail.actions.undo" }));
 
     await waitFor(() => {
@@ -794,6 +808,128 @@ describe("AiFilterSection", () => {
         runId: "backfill-run",
         undoToken: "undo-token",
       });
+    });
+  });
+
+  it("does not retry applied changes after the undo token expires", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 1,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 1,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "Email service is briefly busy.",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.ruleBackfillFailed"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "mail.error.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("shows one retryable status error instead of failing every rule", async () => {
+    mocks.recentBackfillsError = true;
+    mocks.rules = [
+      importantRule(),
+      {
+        ...importantRule(),
+        id: "other-rule",
+        name: "AI other",
+      },
+    ];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 10,
+      processedThreads: 4,
+      matchedThreads: 1,
+      appliedThreads: 0,
+      failedThreads: 1,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 1,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+        {
+          ruleId: "other-rule",
+          name: "AI other",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    expect(
+      await screen.findByText("mail.aiFilter.backfillStatusLoadFailed"),
+    ).not.toBeNull();
+    expect(screen.queryByText("mail.aiFilter.ruleBackfillFailed")).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => expect(mocks.refetchBackfill).toHaveBeenCalled());
+  });
+
+  it("retries a failed backfill when there are no applied changes to undo", async () => {
+    mocks.rules = [importantRule()];
+    mocks.backfillStatus = {
+      runId: "backfill-run",
+      status: "failed",
+      totalThreads: 0,
+      processedThreads: 0,
+      matchedThreads: 0,
+      appliedThreads: 0,
+      failedThreads: 0,
+      perRule: [
+        {
+          ruleId: "important-rule",
+          name: "AI important",
+          matchedCount: 0,
+          appliedCount: 0,
+          suggestedCount: 0,
+          previews: [],
+        },
+      ],
+      error: "fetch failed",
+    };
+    renderSection();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "mail.error.tryAgain" }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.manageAiFilterBackfill).toHaveBeenCalledWith({
+        operation: "start",
+        ruleIds: ["important-rule"],
+      });
+      expect(mocks.refetchBackfill).toHaveBeenCalled();
     });
   });
 

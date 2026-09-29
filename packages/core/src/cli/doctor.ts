@@ -18,6 +18,7 @@ import type { GuardFinding, GuardResult } from "../guards/index.js";
 import {
   AGENT_NATIVE_MIGRATION_GUIDE_URL,
   AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  loadMigrationManifestsForProject,
   resolveMigrationSymbolMove,
   scanDeprecatedImports,
   type MigrationManifest,
@@ -199,9 +200,11 @@ function runGuard(
       };
     }
     case "migration-manifest": {
+      const manifests =
+        migrationManifests ?? loadMigrationManifestsForProject(root);
       const imports = scanDeprecatedImports({
         root,
-        manifests: migrationManifests,
+        manifests,
       });
       return {
         name,
@@ -211,8 +214,8 @@ function runGuard(
               finding.status === "active" || finding.status === "removed",
           )
           .map((finding) => {
-            const move = migrationManifests
-              ?.map((manifest) => manifest.moves[finding.from])
+            const move = manifests
+              .map((manifest) => manifest.moves[finding.from])
               .find(Boolean);
             const destinations = finding.symbols.length
               ? finding.symbols

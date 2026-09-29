@@ -38,10 +38,15 @@ async function today(client: PGliteClient): Promise<string> {
   return result.rows[0]!.today;
 }
 
-async function seedSignup(client: PGliteClient, id: string, date: string) {
+async function seedSignup(
+  client: PGliteClient,
+  id: string,
+  date: string,
+  template = "analytics",
+) {
   await client.query(
-    "INSERT INTO analytics_events (id, event_name, event_date, app, template) VALUES ($1, 'signup', $2, 'analytics', 'analytics')",
-    [id, date],
+    "INSERT INTO analytics_events (id, event_name, event_date, app, template) VALUES ($1, 'signup', $2, $3, $3)",
+    [id, date, template],
   );
 }
 
@@ -116,5 +121,50 @@ describe("signups-over-time panel SQL", () => {
       { date: offsetDate(start, 1), template: "unknown", count: 0 },
       { date: end, template: "unknown", count: 0 },
     ]);
+  });
+
+  it("bounds all-time signup sources to the displayed date spine", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const currentDate = await today(client);
+    const firstVisibleDate = offsetDate(currentDate, -3659);
+    const beforeVisibleDate = offsetDate(currentDate, -3660);
+    const recentDate = offsetDate(currentDate, -1);
+    await seedSignup(client, "old-signup", beforeVisibleDate, "content");
+    await seedSignup(client, "recent-signup", recentDate);
+
+    const panel = buildPanel("signups-over-time")!;
+    const sql = interpolateDashboardPanelSql(
+      panel.sql,
+      {
+        timeRange: "all",
+        timeRangeStart: "",
+        timeRangeEnd: "",
+        emailFilter: "",
+        appFilter: "",
+      },
+      panel,
+    );
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{ date: string; template: string; count: number }>;
+      }
+    ).rows;
+
+    expect(rows).toHaveLength(3660);
+    expect(rows[0]).toMatchObject({
+      date: firstVisibleDate,
+      template: "analytics",
+      count: 0,
+    });
+    expect(rows[rows.length - 1]).toMatchObject({
+      date: currentDate,
+      template: "analytics",
+      count: 0,
+    });
+    expect(rows.find((row) => row.date === recentDate)?.count).toBe(1);
+    expect(new Set(rows.map((row) => row.template))).toEqual(
+      new Set(["analytics"]),
+    );
   });
 });

@@ -478,13 +478,22 @@ export async function listOAuthTokenOwners(
 export async function hasOAuthTokens(
   provider: string,
   owner: string,
+  accountId?: string | null,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
-  const { rows } = await client.execute({
-    sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
-    args: [provider, owner],
-  });
+  const normalizedAccountId = accountId?.trim();
+  const { rows } = await client.execute(
+    normalizedAccountId
+      ? {
+          sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? AND account_id = ? LIMIT 1`,
+          args: [provider, owner, normalizedAccountId],
+        }
+      : {
+          sql: `SELECT 1 FROM ${table} WHERE provider = ? AND owner = ? LIMIT 1`,
+          args: [provider, owner],
+        },
+  );
   return rows.length > 0;
 }

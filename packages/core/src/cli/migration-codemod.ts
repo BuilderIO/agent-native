@@ -4,8 +4,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import {
+  Node,
   Project,
   QuoteKind,
+  SyntaxKind,
   type ImportDeclaration,
   type ImportSpecifierStructure,
   type SourceFile,
@@ -425,6 +427,60 @@ function rewriteImportDeclaration(
   return true;
 }
 
+function rewriteDynamicImports(
+  sourceFile: SourceFile,
+  moves: Record<string, MigrationMove>,
+  root: string,
+  pendingDependencies: PendingDependency[],
+  warnings: string[],
+  targetExists: (specifier: string, sourceFile?: string) => boolean,
+): void {
+  for (const call of sourceFile.getDescendantsOfKind(
+    SyntaxKind.CallExpression,
+  )) {
+    if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) continue;
+    const argument = call.getArguments()[0];
+    if (
+      !Node.isStringLiteral(argument) &&
+      !Node.isNoSubstitutionTemplateLiteral(argument)
+    ) {
+      continue;
+    }
+
+    const originalSpecifier = argument.getLiteralValue();
+    const move = moves[originalSpecifier];
+    if (!move) continue;
+    if (move.symbols && Object.keys(move.symbols).length > 0) {
+      warnings.push(
+        `${sourceFile.getFilePath()}: cannot split dynamic import from ${originalSpecifier} across symbol destinations`,
+      );
+      continue;
+    }
+    if (migrationMoveStatus(move) === "planned") {
+      warnSkippedTarget(warnings, sourceFile.getFilePath(), move.to, "planned");
+      continue;
+    }
+    if (!targetExists(move.to, sourceFile.getFilePath())) {
+      warnSkippedTarget(
+        warnings,
+        sourceFile.getFilePath(),
+        move.to,
+        "unresolved",
+      );
+      continue;
+    }
+
+    argument.replaceWithText(JSON.stringify(move.to));
+    recordIntroducedDependency(
+      pendingDependencies,
+      sourceFile.getFilePath(),
+      root,
+      originalSpecifier,
+      move.to,
+    );
+  }
+}
+
 function rewriteExportDeclarations(
   sourceFile: SourceFile,
   moves: Record<string, MigrationMove>,
@@ -647,6 +703,14 @@ export function runMigrationCodemods(
         targetExists,
       );
     }
+    rewriteDynamicImports(
+      sourceFile,
+      moves,
+      root,
+      pendingDependencies,
+      warnings,
+      targetExists,
+    );
     rewriteExportDeclarations(
       sourceFile,
       moves,

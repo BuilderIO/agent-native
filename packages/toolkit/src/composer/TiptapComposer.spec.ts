@@ -348,11 +348,17 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       container
-        .querySelector<HTMLButtonElement>('button[aria-label="Add..."]')
-        ?.click();
+        .querySelector<HTMLButtonElement>('button[aria-label="Add context"]')
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
     });
     act(() => {
-      Array.from(document.querySelectorAll("button"))
+      Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
         .find((button) => button.textContent?.trim() === "Schedule Task")
         ?.click();
     });
@@ -463,6 +469,7 @@ describe("createTiptapComposerExtensions", () => {
             React.createElement(TiptapComposer, {
               disabled,
               contextMenuItems,
+              includeDefaultMentionSearch: false,
               includeDefaultSlashSkills: false,
               plusMenuMode: "hidden",
               toolbarSlot: React.createElement(
@@ -506,7 +513,6 @@ describe("createTiptapComposerExtensions", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     };
-    await clickMenuItem("Add context");
     await clickMenuItem("Source");
     expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
@@ -2481,6 +2487,82 @@ describe("TiptapComposer slash commands", () => {
         description: "Switch back to acting",
         duration: 1800,
       }),
+    );
+  });
+
+  it("loads and attaches a runtime skill from the slash menu by default", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        skills: [
+          {
+            name: "design-systems",
+            description: "Create design systems",
+            path: ".agents/skills/design-systems/SKILL.md",
+            source: "codebase",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onReferencesChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onSubmit: vi.fn(),
+            onReferencesChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const editor = container.querySelector(
+      ".agent-composer-prosemirror",
+    ) as HTMLElement;
+    editor.focus();
+    await act(async () => {
+      editor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "/",
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/_agent-native/agent-chat/skills", {
+      signal: expect.any(AbortSignal),
+    });
+    const skill = document.body.querySelector<HTMLButtonElement>(
+      '[data-mention-index="0"]',
+    );
+    expect(skill?.textContent).toContain("design-systems");
+    act(() => skill?.click());
+
+    expect(onReferencesChange).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "skill",
+          name: "design-systems",
+          path: ".agents/skills/design-systems/SKILL.md",
+        }),
+      ]),
     );
   });
 });

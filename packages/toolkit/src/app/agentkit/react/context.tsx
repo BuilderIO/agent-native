@@ -2,6 +2,7 @@ import {
   selectActiveAgentRoster,
   type AgentKitController,
   type AgentKitSnapshot,
+  type SendMessageInput,
 } from "@agent-native/agentkit/client";
 import type {
   AgentActivity,
@@ -154,7 +155,14 @@ export interface AgentKitSlots {
   suggestions?: ComponentType<AgentKitSuggestionsRenderProps>;
 }
 
+export interface AgentKitToolSource {
+  id: string;
+  icon: ReactNode;
+}
+
 export interface AgentKitRegistry {
+  /** Resolve the same source identity and badge for live and historical tool activity. */
+  toolSource?: (tool: AgentToolCall) => AgentKitToolSource | undefined;
   widgets?: Record<string, ComponentType<AgentKitRenderProps<AgentWidget>>>;
   tools?: Record<string, ComponentType<AgentKitRenderProps<AgentToolCall>>>;
   activities?: Record<
@@ -190,6 +198,12 @@ export interface AgentKitLabels {
   connectionFailed: string;
   connectionAdminRequired: string;
   activities: string;
+  activityBuckets?: {
+    thinking: string;
+    research: string;
+    actions: string;
+    other: string;
+  };
   working: string;
   workingFor: string;
   worked: string;
@@ -273,6 +287,12 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   connectionFailed: "Connection failed",
   connectionAdminRequired: "Ask a workspace admin to connect this service.",
   activities: "Agent activity",
+  activityBuckets: {
+    thinking: "Thinking",
+    research: "Research",
+    actions: "Actions",
+    other: "Other",
+  },
   working: "Working",
   workingFor: "Working for {{duration}}",
   worked: "Worked",
@@ -792,22 +812,14 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
         text: string,
         options?: Parameters<AgentKitController["sendMessage"]>[0]["options"],
       ) => controller.sendMessage({ threadId, text, options }),
-      sendMessage: (
-        input: Omit<
-          Parameters<AgentKitController["sendMessage"]>[0],
-          "threadId"
-        >,
-      ) => controller.sendMessage({ ...input, threadId }),
+      sendMessage: (input: Omit<SendMessageInput, "threadId">) =>
+        controller.sendMessage({ ...input, threadId }),
       load: () => controller.loadThread(threadId),
       resubscribe: (runId: string) =>
         controller.resubscribeRun(threadId, runId),
       queue: (text: string) => controller.queueMessage({ threadId, text }),
-      queueMessage: (
-        input: Omit<
-          Parameters<AgentKitController["queueMessage"]>[0],
-          "threadId"
-        >,
-      ) => controller.queueMessage({ ...input, threadId }),
+      queueMessage: (input: Omit<SendMessageInput, "threadId">) =>
+        controller.queueMessage({ ...input, threadId }),
       cancel: (runId: string) => controller.cancelRun(threadId, runId),
       approve: (
         runId: string,

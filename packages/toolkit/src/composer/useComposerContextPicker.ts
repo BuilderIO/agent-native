@@ -12,6 +12,9 @@ import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 export interface ComposerContextPickerItem {
   id: string;
   title: string;
+  description?: string | null;
+  preview?: ReactNode;
+  metadata?: ReactNode;
   disabled?: boolean;
   url?: string;
 }
@@ -76,7 +79,7 @@ export type ComposerContextPickerConfig = {
 ) &
   (
     | {
-        presentation?: "submenu" | { type: "dialog"; mode: "url" };
+        presentation?: "submenu" | { type: "dialog"; mode: "single" | "url" };
         onSelect: (
           item: ComposerContextPickerItem,
           request: ComposerContextPickerRequest,
@@ -86,6 +89,7 @@ export type ComposerContextPickerConfig = {
         presentation: {
           type: "dialog";
           mode: "multiple";
+          layout?: "list" | "gallery";
           onAttach: (
             items: readonly ComposerContextPickerItem[],
             request: ComposerContextPickerRequest,
@@ -138,7 +142,7 @@ export function useComposerContextPicker({
     ReadonlyMap<string, ComposerContextPickerItem>
   >(() => new Map());
   const [stage, setStage] = useState<"link" | "results">(
-    config.link || presentation ? "link" : "results",
+    config.link || presentation?.mode === "url" ? "link" : "results",
   );
   const [link, setLink] = useState("");
   const [location, setLocation] = useState<PickerLocation>({
@@ -225,7 +229,7 @@ export function useComposerContextPicker({
   };
   const back = () => {
     invalidateSelection();
-    if (stage === "results" && (config.link || presentation)) {
+    if (stage === "results" && (config.link || presentation?.mode === "url")) {
       setStage("link");
       setChosen(new Map());
       setLocation({ search: "", page: 1 });

@@ -61,6 +61,7 @@ const FULL_CHECK_FILES = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
+  "scripts/ci-change-scope.test.ts",
   "tsconfig.json",
   "vitest.shared.ts",
 ]);
@@ -87,7 +88,6 @@ const CHECK_NAMES = [
 
 const QUERY_BUDGET_UNRELATED_SCRIPTS = new Set([
   "scripts/agent-friction-report.mjs",
-  "scripts/ci-change-scope.ts",
   "scripts/ci-change-scope.test.ts",
 ]);
 
@@ -112,6 +112,15 @@ export const QUERY_BUDGET_APPS = [
   "slides",
   "tasks",
 ] as const;
+
+// These templates depend on @agent-native/creative-context at runtime.
+const CREATIVE_CONTEXT_QUERY_BUDGET_APPS = [
+  "analytics",
+  "assets",
+  "content",
+  "design",
+  "slides",
+] as const satisfies readonly (typeof QUERY_BUDGET_APPS)[number][];
 
 // Apps the SSR cold-start smoke builds and imports. Shared packages rebuild
 // every one; a template change rebuilds only that template.
@@ -187,9 +196,14 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
-    if (!isGuardScopedScriptPath(path)) continue;
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
+      continue;
+    }
+    if (
+      !isGuardScopedScriptPath(path) &&
+      path !== "scripts/ci-change-scope.ts"
+    ) {
       continue;
     }
     const stem = path.replace(/\.(?:ts|mts|mjs|js)$/u, "");
@@ -363,7 +377,13 @@ function queryBudgetAppsFor(
   if (full || measuresEveryQueryBudgetApp(changedPaths)) {
     return [...QUERY_BUDGET_APPS];
   }
-  return changedQueryBudgetApps(changedPaths);
+  const selectedApps = new Set(changedQueryBudgetApps(changedPaths));
+  if (hasPath(changedPaths, "packages/creative-context/")) {
+    for (const app of CREATIVE_CONTEXT_QUERY_BUDGET_APPS) {
+      selectedApps.add(app);
+    }
+  }
+  return QUERY_BUDGET_APPS.filter((app) => selectedApps.has(app));
 }
 
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
@@ -429,6 +449,7 @@ function buildChecks(
   const assetsChanged = hasPath(changedPaths, "templates/assets/");
   const neonQueryBudgetChanged =
     measuresEveryQueryBudgetApp(changedPaths) ||
+    hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
 
   return {

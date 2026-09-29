@@ -22,6 +22,7 @@ import {
 } from "./upgrade.js";
 
 const tmpRoots: string[] = [];
+const toolkitVersionRange = ">=0.23.0";
 const upgradeEnvKeys = [
   "APP_NAME",
   "AGENT_NATIVE_WORKSPACE_APP_ID",
@@ -124,6 +125,27 @@ function writeInstalledPackage(
   fs.writeFileSync(
     path.join(packageDir, "package.json"),
     `${JSON.stringify({ name, version })}\n`,
+  );
+}
+
+function writeToolkitMigrationManifest(toolkitDir: string): void {
+  const packagePath = path.join(toolkitDir, "package.json");
+  const pkg = JSON.parse(fs.readFileSync(packagePath, "utf-8")) as {
+    exports?: Record<string, string>;
+  };
+  fs.writeFileSync(
+    packagePath,
+    `${JSON.stringify({
+      ...pkg,
+      exports: {
+        ...pkg.exports,
+        "./migration-manifest.json": "./migration-manifest.json",
+      },
+    })}\n`,
+  );
+  fs.writeFileSync(
+    path.join(toolkitDir, "migration-manifest.json"),
+    `${JSON.stringify({ sinceVersion: "0.110.0", moves: {} })}\n`,
   );
 }
 
@@ -601,7 +623,7 @@ describe("runUpgrade", () => {
     ).toBe(0);
 
     expect(out.join("\n")).toContain("[planned] feature-dependencies");
-    expect(out.join("\n")).toContain("@better-auth/sso 1.7.4");
+    expect(out.join("\n")).toContain("@better-auth/sso 1.7.6");
     expect(out.join("\n")).toContain(
       "Remote deployment environment and database-backed feature settings cannot be inspected",
     );
@@ -776,6 +798,7 @@ describe("runUpgrade", () => {
             path.join(toolkitDir, "editor.js"),
             "export const RichMarkdownEditor = {};\n",
           );
+          writeToolkitMigrationManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -797,7 +820,7 @@ describe("runUpgrade", () => {
     expect(installDependencies).toEqual([
       expect.objectContaining({
         "@agent-native/core": "latest",
-        "@agent-native/toolkit": ">=0.196.0",
+        "@agent-native/toolkit": toolkitVersionRange,
       }),
     ]);
     expect(fs.readFileSync(source, "utf-8")).toContain(
@@ -832,6 +855,7 @@ describe("runUpgrade", () => {
       })}\n`,
     );
     fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+    writeToolkitMigrationManifest(toolkitDir);
     const { io, err } = captureIo();
 
     const code = await runUpgrade(
@@ -878,6 +902,7 @@ describe("runUpgrade", () => {
             })}\n`,
           );
           fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+          writeToolkitMigrationManifest(toolkitDir);
         }
         return {
           status: 0,
@@ -902,7 +927,7 @@ describe("runUpgrade", () => {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     ) as { dependencies: Record<string, string> };
-    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(">=0.196.0");
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe(toolkitVersionRange);
   });
 
   it("reports dependency changes when installation fails before source rewrites", async () => {
@@ -952,7 +977,7 @@ describe("runUpgrade", () => {
     };
     expect(result.codemod.files).toEqual(["package.json"]);
     expect(result.codemod.diff).toContain(
-      '"@agent-native/toolkit": ">=0.196.0"',
+      `"@agent-native/toolkit": "${toolkitVersionRange}"`,
     );
   });
 

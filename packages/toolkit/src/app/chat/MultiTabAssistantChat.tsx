@@ -3158,7 +3158,7 @@ export function MultiTabAssistantChat({
                   contextScope={scope}
                   contextNamespace={contextNamespace}
                   isolateHistoryByScope={isolateHistoryByScope}
-                  isActiveComposer={tabId === activeThreadId}
+                  isActiveComposer={!contentHidden && tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
@@ -3206,14 +3206,18 @@ export function MultiTabAssistantChat({
                   // the in-flight team chunk. Disable the composer and show a
                   // hint so users know to send via the orchestrator chat instead.
                   composerDisabled={
-                    Boolean(parentMap[tabId]) || modelSelectionPending
+                    props.composerDisabled ||
+                    Boolean(parentMap[tabId]) ||
+                    modelSelectionPending
                   }
                   composerDisabledPlaceholder={
-                    parentMap[tabId]
-                      ? translate("agentChat.composer.subAgentReadOnly")
-                      : modelSelectionPending
-                        ? translate("agentChat.composer.loadingModels")
-                        : undefined
+                    props.composerDisabled && props.composerDisabledPlaceholder
+                      ? props.composerDisabledPlaceholder
+                      : parentMap[tabId]
+                        ? translate("agentChat.composer.subAgentReadOnly")
+                        : modelSelectionPending
+                          ? translate("agentChat.composer.loadingModels")
+                          : props.composerDisabledPlaceholder
                   }
                 />
               </div>
