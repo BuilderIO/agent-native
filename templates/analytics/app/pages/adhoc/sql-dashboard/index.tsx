@@ -168,7 +168,7 @@ import {
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
 import { dashboardExtensionSlotId } from "./extension-slot";
-import { interpolate } from "./interpolate";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
@@ -309,14 +309,7 @@ const PanelCell = memo(function PanelCell({
   );
   const resolvedSql = useMemo(
     () =>
-      interpolate(serializePanelSql(panel.sql), vars, {
-        failClosedTimeVariables: true,
-        customDateRangeSupport:
-          (panel.source === "bigquery" || panel.source === "first-party") &&
-          panel.config?.timeScope !== "fixed-window" &&
-          panel.config?.timeScope !== "cohort-history" &&
-          panel.config?.timeScope !== "all-time",
-      }),
+      interpolateDashboardPanelSql(serializePanelSql(panel.sql), vars, panel),
     [panel.sql, vars],
   );
   const handleSelectForChat = useCallback(

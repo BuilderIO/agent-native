@@ -462,6 +462,15 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(panels[1].sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
     expect(panels[1].sql).toContain("coverage_dates AS");
     expect(panels[1].sql).toContain(
+      "DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 5 DAY)",
+    );
+    expect(panels[1].sql).toContain(
+      "LEAST(DATE_ADD(DATE('{{timeRangeEnd}}'), INTERVAL 14 DAY), CURRENT_DATE())",
+    );
+    expect(panels[1].sql).toContain(
+      "DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)",
+    );
+    expect(panels[1].sql).toContain(
       "coverage.observed_days = coverage.expected_days",
     );
     expect(panels[0].source).toBe("bigquery");

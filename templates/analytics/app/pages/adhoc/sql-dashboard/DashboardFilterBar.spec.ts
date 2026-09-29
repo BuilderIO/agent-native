@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
-import { interpolate } from "./interpolate";
+import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
 function daysAgo(n: number): string {
@@ -74,14 +74,14 @@ describe("resolveFilterVars", () => {
   });
 
   it("applies custom bounds to the BigQuery preset predicate", () => {
-    const sql = interpolate(
+    const sql = interpolateDashboardPanelSql(
       "SELECT * FROM events WHERE ('{{timeRange}}' IN ('', 'all') OR ('{{timeRange}}' = '365d' AND e.event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)))",
       {
         timeRange: "custom",
         timeRangeStart: "2026-08-01",
         timeRangeEnd: "2026-08-15",
       },
-      { customDateRangeSupport: true },
+      { source: "bigquery" },
     );
 
     expect(sql).toContain(
@@ -183,6 +183,27 @@ describe("resolveFilterVars", () => {
     expect(vars.windowEnd).toBe(daysAgo(0));
   });
 
+  it("does not replace invalid explicit date-range bounds with defaults", () => {
+    const filters: DashboardFilter[] = [
+      { id: "window", label: "Window", type: "date-range", default: "7d" },
+    ];
+    const params: Record<string, string> = {
+      windowStart: "2026-02-31",
+      windowEnd: "2026-02-31",
+    };
+    const vars = resolveFilterVars(filters, (key) => params[key] || "");
+
+    expect(vars.windowStart).toBe("");
+    expect(vars.windowEnd).toBe("");
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE event_date BETWEEN DATE('{{windowStart}}') AND DATE('{{windowEnd}}')",
+        vars,
+        { source: "bigquery" },
+      ),
+    ).toContain("__missing_dashboard_time_filter__");
+  });
+
   it("resolves custom bounds for a preset date filter", () => {
     const filters: DashboardFilter[] = [
       {
@@ -206,10 +227,46 @@ describe("resolveFilterVars", () => {
     const vars = resolveFilterVars(filters, (key) => params[key] || "");
     expect(vars).toMatchObject(params);
 
+    params.timeRangeStart = "2026-02-31";
     params.timeRangeEnd = "2026-02-31";
+    const invalid = resolveFilterVars(filters, (key) => params[key] || "");
+    expect(invalid.timeRangeStart).toBe("");
+    expect(invalid.timeRangeEnd).toBe("");
     expect(
-      resolveFilterVars(filters, (key) => params[key] || "").timeRangeEnd,
-    ).toBe(daysAgo(0));
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        invalid,
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("fails closed for reversed custom date ranges", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM events WHERE '{{timeRange}}' = 'custom'",
+        {
+          timeRange: "custom",
+          timeRangeStart: "2026-08-15",
+          timeRangeEnd: "2026-08-01",
+        },
+        { source: "bigquery" },
+      ),
+    ).toBe("SELECT __invalid_custom_date_range__");
+  });
+
+  it("keeps fixed-window panel queries outside custom range rewriting", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE '{{timeRange}}' = '365d'",
+      {
+        timeRange: "custom",
+        timeRangeStart: "2026-08-01",
+        timeRangeEnd: "2026-08-15",
+      },
+      { source: "bigquery", config: { timeScope: "fixed-window" } },
+    );
+
+    expect(sql).toBe("SELECT * FROM events WHERE 'custom' = '365d'");
   });
 
   it("keeps a text default literal", () => {

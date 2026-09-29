@@ -7,12 +7,41 @@ export interface InterpolateOptions {
   customDateRangeSupport?: boolean;
 }
 
+export function interpolateDashboardPanelSql(
+  sql: string | undefined | null,
+  vars: Record<string, string>,
+  panel: { source?: unknown; config?: unknown },
+): string {
+  const config =
+    typeof panel.config === "object" &&
+    panel.config !== null &&
+    !Array.isArray(panel.config)
+      ? (panel.config as Record<string, unknown>)
+      : {};
+  return interpolate(sql, vars, {
+    failClosedTimeVariables: true,
+    customDateRangeSupport:
+      (panel.source === "bigquery" || panel.source === "first-party") &&
+      config.timeScope !== "fixed-window" &&
+      config.timeScope !== "cohort-history" &&
+      config.timeScope !== "all-time",
+  });
+}
+
 function isTimeVariable(name: string): boolean {
   return name === "timeRange" || /(?:Start|End)$/.test(name);
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isValidDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
 }
 
 // ponytail: support the BigQuery and Postgres preset predicates in Analytics; extend when a new range shape is added.
@@ -87,12 +116,13 @@ export function interpolate(
   let sourceSql = sql;
   if (options.customDateRangeSupport) {
     for (const [name, value] of Object.entries(vars)) {
-      if (
-        value !== "custom" ||
-        !(name + "Start" in vars) ||
-        !(name + "End" in vars)
-      ) {
+      if (value !== "custom") {
         continue;
+      }
+      const start = vars[name + "Start"];
+      const end = vars[name + "End"];
+      if (!isValidDate(start) || !isValidDate(end) || start > end) {
+        return "SELECT __invalid_custom_date_range__";
       }
       const customRange = addCustomDateRange(sourceSql, name);
       if (!customRange.supported)

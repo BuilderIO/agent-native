@@ -121,6 +121,16 @@ function resolveDateValue(
     : "";
 }
 
+function resolveDateParam(
+  raw: string,
+  fallback: string,
+  allTimeValue: string,
+): string {
+  return raw.trim()
+    ? resolveDateValue(raw, allTimeValue)
+    : resolveDateValue(fallback, allTimeValue);
+}
+
 function dateRangeStart(range: string): string {
   const days = /^(\d+)d$/.exec(range);
   return days ? daysAgo(Number(days[1])) : daysAgo(30);
@@ -144,14 +154,12 @@ export function resolveFilterVars(
     if (filter.type === "date-range") {
       const startKey = `${filter.id}Start`;
       const endKey = `${filter.id}End`;
-      out[startKey] =
-        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
-        resolveDateValue(
-          resolveDefault(filter.default, filter.type),
-          ALL_TIME_START,
-        );
-      out[endKey] =
-        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
+      out[startKey] = resolveDateParam(
+        getParam(startKey),
+        resolveDefault(filter.default, filter.type),
+        ALL_TIME_START,
+      );
+      out[endKey] = resolveDateParam(getParam(endKey), daysAgo(0), daysAgo(0));
     } else if (filter.type === "toggle" || filter.type === "toggle-date") {
       out[filter.id] =
         filter.type === "toggle-date"
@@ -165,16 +173,18 @@ export function resolveFilterVars(
       const defaultRange = value === "custom" ? filter.default || "30d" : value;
       const fallbackStart = dateRangeStart(defaultRange);
       out[filter.id] = value;
-      out[startKey] =
-        resolveDateValue(getParam(startKey), fallbackStart) || fallbackStart;
-      out[endKey] =
-        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
+      out[startKey] = resolveDateParam(
+        getParam(startKey),
+        fallbackStart,
+        fallbackStart,
+      );
+      out[endKey] = resolveDateParam(getParam(endKey), daysAgo(0), daysAgo(0));
     } else {
       const value = getParam(filter.id);
       out[filter.id] =
         filter.type === "date"
-          ? resolveDateValue(value, ALL_TIME_START) ||
-            resolveDateValue(
+          ? resolveDateParam(
+              value,
               resolveDefault(filter.default, filter.type),
               ALL_TIME_START,
             )
