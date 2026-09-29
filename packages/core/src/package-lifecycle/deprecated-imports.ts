@@ -166,10 +166,16 @@ function appendRemovedNamespaceFindings(
   from: string,
   namespace: string,
   removedExport: RemovedExportManifest | undefined,
+  namespaceBindingIndex?: number,
 ): void {
   if (!removedExport) return;
-  const shadowedRanges = namespaceShadowedRanges(text, codeMask, namespace);
-  const namespacePattern = `\\b${escapeRegExp(namespace)}`;
+  const shadowedRanges = namespaceShadowedRanges(
+    text,
+    codeMask,
+    namespace,
+    namespaceBindingIndex,
+  );
+  const namespacePattern = `(?<![\\w$.])\\b${escapeRegExp(namespace)}`;
   for (const symbol of removedExport.symbols) {
     const symbolPattern = escapeRegExp(symbol);
     const property = `${symbolPattern}\\b`;
@@ -182,7 +188,7 @@ function appendRemovedNamespaceFindings(
       const index = match.index ?? 0;
       if (
         !codeMask[index] ||
-        shadowedRanges.some(({ start, end }) => index > start && index < end)
+        shadowedRanges.some(({ start, end }) => index >= start && index < end)
       ) {
         continue;
       }
@@ -201,7 +207,32 @@ function appendRemovedNamespaceFindings(
 
 type CodeRange = { start: number; end: number };
 
-// ponytail: block-bodied scopes only; add a parser if diagnostics need wider syntax coverage.
+// ponytail: scope matching is syntax-limited; add a parser if real diagnostics need wider coverage.
+function conciseArrowBodyEnd(
+  text: string,
+  codeMask: Uint8Array,
+  start: number,
+): number {
+  const stack: string[] = [];
+  const closes: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  for (let index = start; index < text.length; index += 1) {
+    if (!codeMask[index]) continue;
+    const character = text[index] ?? "";
+    if (character in closes) {
+      stack.push(character);
+    } else if (")]}".includes(character)) {
+      if (closes[stack.at(-1) ?? ""] === character) {
+        stack.pop();
+      } else if (stack.length === 0) {
+        return index;
+      }
+    } else if ((character === "," || character === ";") && stack.length === 0) {
+      return index;
+    }
+  }
+  return text.length;
+}
+
 function matchingCodePairs(
   text: string,
   codeMask: Uint8Array,
@@ -277,6 +308,7 @@ function namespaceShadowedRanges(
   text: string,
   codeMask: Uint8Array,
   namespace: string,
+  namespaceBindingIndex?: number,
 ): CodeRange[] {
   const bracePairs = matchingCodePairs(text, codeMask, "{", "}");
   const parenPairs = matchingCodePairs(text, codeMask, "(", ")");
@@ -322,6 +354,30 @@ function namespaceShadowedRanges(
       }
       continue;
     }
+    if (arrow) {
+      const shadowsNamespace = bindingPatternHasName(
+        text.slice(open + 1, close),
+        namespace,
+      );
+      const isNamespaceBinding =
+        namespaceBindingIndex !== undefined &&
+        namespaceBindingIndex > open &&
+        namespaceBindingIndex < close;
+      if (text[body] === "{") {
+        const end = bracePairs.get(body);
+        if (end !== undefined) {
+          const range = { start: body, end };
+          functionScopes.push(range);
+          if (shadowsNamespace && !isNamespaceBinding) shadowed.push(range);
+        }
+      } else if (shadowsNamespace && !isNamespaceBinding) {
+        shadowed.push({
+          start: body,
+          end: conciseArrowBodyEnd(text, codeMask, body),
+        });
+      }
+      continue;
+    }
     if (text[body] !== "{") continue;
     if (
       !arrow &&
@@ -339,18 +395,32 @@ function namespaceShadowedRanges(
   }
 
   const singleParamArrow = new RegExp(
-    `\\b${escapeRegExp(namespace)}\\s*=>\\s*\\{`,
+    `(?<![\\w$.])${escapeRegExp(namespace)}\\s*=>`,
     "g",
   );
   for (const match of text.matchAll(singleParamArrow)) {
     const index = match.index ?? 0;
     if (!codeMask[index]) continue;
-    const body = text.indexOf("{", index + match[0].indexOf("=>") + 2);
-    const end = bracePairs.get(body);
-    if (end === undefined) continue;
-    const range = { start: body, end };
-    functionScopes.push(range);
-    shadowed.push(range);
+    if (
+      namespaceBindingIndex !== undefined &&
+      namespaceBindingIndex >= index &&
+      namespaceBindingIndex < index + match[0].length
+    ) {
+      continue;
+    }
+    const body = skipWhitespace(index + match[0].length);
+    if (text[body] === "{") {
+      const end = bracePairs.get(body);
+      if (end === undefined) continue;
+      const range = { start: body, end };
+      functionScopes.push(range);
+      shadowed.push(range);
+    } else {
+      shadowed.push({
+        start: body,
+        end: conciseArrowBodyEnd(text, codeMask, body),
+      });
+    }
   }
 
   const declaration =
@@ -681,9 +751,9 @@ export function scanDeprecatedImports(
   const importEquals =
     /\bimport\s+([\w$]+)\s*=\s*require\(\s*["']([^"']+)["']\s*\)/g;
   const commonJsMember =
-    /\brequire\(\s*["']([^"']+)["']\s*\)\s*(?:\.\s*([\w$]+)|\[\s*["']([^"']+)["']\s*\])/g;
+    /\brequire\(\s*["']([^"']+)["']\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
   const dynamicImportMember =
-    /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\[\s*["']([^"']+)["']\s*\])/g;
+    /\(\s*await\s+import\(\s*["']([^"']+)["']\s*\)\s*\)\s*(?:\?\.\s*([\w$]+)|\.\s*([\w$]+)|\?\.\s*\[\s*["']([^"']+)["']\s*\]|\[\s*["']([^"']+)["']\s*\])/g;
 
   for (const file of sourceFiles(root)) {
     const text = fs.readFileSync(file, "utf-8");
@@ -810,14 +880,19 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(dynamicImportThenNamespace)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
+      const namespace = match[2] ?? match[3];
+      const namespaceBindingIndex = namespace
+        ? (match.index ?? 0) + match[0].lastIndexOf(namespace)
+        : undefined;
       appendRemovedNamespaceFindings(
         findings,
         file,
         text,
         codeMask,
         from,
-        match[2] ?? match[3],
+        namespace,
         removedExports[from],
+        namespaceBindingIndex,
       );
     }
     for (const match of text.matchAll(importEquals)) {
@@ -835,7 +910,7 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(commonJsMember)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
-      const symbol = match[2] ?? match[3];
+      const symbol = match[2] ?? match[3] ?? match[4] ?? match[5];
       appendRemovedImportFinding(
         findings,
         file,
@@ -849,7 +924,7 @@ export function scanDeprecatedImports(
     for (const match of text.matchAll(dynamicImportMember)) {
       if (!codeMask[match.index ?? 0]) continue;
       const from = match[1];
-      const symbol = match[2] ?? match[3] ?? match[4];
+      const symbol = match[2] ?? match[3] ?? match[4] ?? match[5];
       appendRemovedImportFinding(
         findings,
         file,

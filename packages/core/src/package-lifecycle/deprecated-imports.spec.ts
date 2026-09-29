@@ -508,6 +508,7 @@ describe("scanDeprecatedImports", () => {
         `(await import("${moduleName}")).createAgentChatAdapter();`,
         `(await import("${moduleName}"))?.createAgentChatAdapter?.();`,
         `(await import("${moduleName}"))["createAgentChatAdapter"]();`,
+        `(await import("${moduleName}"))?.["createAgentChatAdapter"]?.();`,
         `object.import("${moduleName}").createAgentChatAdapter();`,
         `notimport("${moduleName}").createAgentChatAdapter();`,
         `import("${moduleName}").createAgentChatAdapter();`,
@@ -532,7 +533,7 @@ describe("scanDeprecatedImports", () => {
         ],
       }),
     ).toEqual(
-      [1, 2, 3].map((line) =>
+      [1, 2, 3, 4].map((line) =>
         expect.objectContaining({
           file,
           line,
@@ -557,7 +558,10 @@ describe("scanDeprecatedImports", () => {
         "function localShadow() { const chat = {}; chat.createAgentChatAdapter(); }",
         "function blockShadow() { { let chat = {}; chat.createAgentChatAdapter(); } }",
         "function loopShadow() { for (const chat of []) { chat.createAgentChatAdapter(); } }",
+        "function propertyChain() { other.chat.createAgentChatAdapter(); }",
+        "values.map((chat: unknown) => chat.createAgentChatAdapter());",
         "const arrowShadow = (chat: unknown) => { chat.createAgentChatAdapter(); };",
+        "values.map(chat => chat.createAgentChatAdapter());",
         "chat.createAgentChatAdapter();",
       ].join("\n"),
     );
@@ -581,12 +585,56 @@ describe("scanDeprecatedImports", () => {
     ).toEqual([
       expect.objectContaining({
         file,
-        line: 7,
+        line: 10,
         from: moduleName,
         symbols: ["createAgentChatAdapter"],
         status: "removed",
       }),
     ]);
+  });
+
+  it("reports optional direct require access to removed chat exports", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-require-opt-"),
+    );
+    roots.push(root);
+    const moduleName = "@agent-native/core/client/agent-chat";
+    const file = path.join(root, "consumer.cjs");
+    fs.writeFileSync(
+      file,
+      [
+        `require("${moduleName}")?.createAgentChatAdapter?.();`,
+        `require("${moduleName}")?.["createAgentChatAdapter"]?.();`,
+      ].join("\n"),
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {},
+            removedExports: {
+              [moduleName]: {
+                symbols: ["createAgentChatAdapter"],
+                migrationGuide: "https://example.test/agentkit-chat.md",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual(
+      [1, 2].map((line) =>
+        expect.objectContaining({
+          file,
+          line,
+          from: moduleName,
+          symbols: ["createAgentChatAdapter"],
+          status: "removed",
+        }),
+      ),
+    );
   });
 });
 
@@ -617,14 +665,54 @@ describe("readMigrationManifest dependencies", () => {
         manifestPath,
         JSON.stringify({ ...base, dependencies: [invalid] }),
       );
-      expect(readMigrationManifest(manifestPath)).toBeNull();
+      expect(() => readMigrationManifest(manifestPath)).toThrow(
+        /Invalid migration manifest.*dependencies/,
+      );
     }
 
     fs.writeFileSync(
       manifestPath,
       JSON.stringify({ ...base, dependencies: {} }),
     );
-    expect(readMigrationManifest(manifestPath)).toBeNull();
+    expect(() => readMigrationManifest(manifestPath)).toThrow(
+      /Invalid migration manifest.*dependencies/,
+    );
+  });
+
+  it("rejects malformed move and removed-export records before scanning", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-migration-shapes-"));
+    roots.push(root);
+    const manifestPath = path.join(root, "migration-manifest.json");
+    const base = { sinceVersion: "0.111.0", moves: {} };
+
+    for (const [manifest, field] of [
+      [{ ...base, moves: null }, "moves"],
+      [{ ...base, moves: { "@agent-native/core/client": null } }, "moves"],
+      [{ ...base, removedExports: null }, "removedExports"],
+      [
+        {
+          ...base,
+          removedExports: {
+            "@agent-native/core/client": {
+              symbols: "createAgentChatAdapter",
+              migrationGuide: "https://example.test/guide.md",
+            },
+          },
+        },
+        "removedExports",
+      ],
+    ] as const) {
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+      expect(() => readMigrationManifest(manifestPath)).toThrow(
+        new RegExp(`Invalid migration manifest.*${field}`),
+      );
+    }
+  });
+
+  it("returns null only when the optional manifest file is absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-missing-manifest-"));
+    roots.push(root);
+    expect(readMigrationManifest(path.join(root, "missing.json"))).toBeNull();
   });
 
   it("keeps the feature dependency records in the bundled Core manifest", () => {
