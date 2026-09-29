@@ -10,8 +10,8 @@ const TERABYTE = 1_000_000_000_000;
 const DAILY_THRESHOLD_BYTES = 50 * GIGABYTE;
 const ABSOLUTE_THRESHOLD_BYTES = TERABYTE;
 const API_MIN_INTERVAL_MS = 1_300;
-const LIVE_BACKTEST_FROM = "2026-09-01";
-const LIVE_BACKTEST_TO = "2026-09-28";
+const PROJECT_PAGE_SIZE = 400;
+const LIVE_BACKTEST_DAYS = 28;
 let lastApiRequestAt = 0;
 
 export interface TransferPoint {
@@ -233,7 +233,7 @@ async function listProjects(): Promise<Map<string, string>> {
   for (;;) {
     page += 1;
     const url = new URL(`${API_BASE}/projects`);
-    url.searchParams.set("limit", "400");
+    url.searchParams.set("limit", String(PROJECT_PAGE_SIZE));
     url.searchParams.set("org_id", ORG_ID);
     url.searchParams.set("timeout", "30000");
     if (cursor) url.searchParams.set("cursor", cursor);
@@ -255,6 +255,7 @@ async function listProjects(): Promise<Map<string, string>> {
         throw new Error("Neon project list contained an invalid project row.");
       projects.set(project.id, project.name);
     }
+    if (payload.projects.length < PROJECT_PAGE_SIZE) return projects;
     const pagination = object(payload.pagination);
     const nextCursor =
       typeof pagination?.cursor === "string" ? pagination.cursor : undefined;
@@ -273,6 +274,14 @@ function utcDayOffset(day: string, offset: number): string {
   const date = new Date(`${day}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
+}
+
+export function liveBacktestRange(now = new Date()): {
+  from: string;
+  to: string;
+} {
+  const to = utcDayOffset(now.toISOString().slice(0, 10), -1);
+  return { from: utcDayOffset(to, 1 - LIVE_BACKTEST_DAYS), to };
 }
 
 async function fetchTransferPoints(
@@ -509,16 +518,23 @@ async function run(): Promise<void> {
     }
     const projects = await listProjects();
     if (projects.size === 0) throw new Error("Neon project list was empty.");
-    const from = utcDayOffset(LIVE_BACKTEST_FROM, -7);
-    const throughExclusive = utcDayOffset(LIVE_BACKTEST_TO, 1);
+    const { from: backtestFrom, to: backtestTo } = liveBacktestRange();
+    const from = utcDayOffset(backtestFrom, -7);
+    const throughExclusive = utcDayOffset(backtestTo, 1);
     const points = await fetchTransferPoints(projects, from, throughExclusive);
     const alerts = findTransferAlerts(points).filter(
-      ({ date }) => date >= LIVE_BACKTEST_FROM && date <= LIVE_BACKTEST_TO,
+      ({ date }) => date >= backtestFrom && date <= backtestTo,
     );
     console.log(
-      `Live Neon API backtest ${LIVE_BACKTEST_FROM} through ${LIVE_BACKTEST_TO}; fetched ${from} through ${utcDayOffset(throughExclusive, -1)} for trailing medians. This mode never posts to Slack.`,
+      `Live Neon API backtest ${backtestFrom} through ${backtestTo}; fetched ${from} through ${utcDayOffset(throughExclusive, -1)} for trailing medians. This mode never posts to Slack.`,
     );
     console.log(formatAlertTable(alerts));
+    if (backtestFrom > "2026-09-03" || backtestTo < "2026-09-24") {
+      console.log(
+        "September expected-alert checks skipped because those dates are outside the rolling backtest window.",
+      );
+      return;
+    }
     const scenarios = [
       {
         label: "Docs on 2026-09-03",

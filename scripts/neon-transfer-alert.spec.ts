@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   extractConsumptionRows,
   findTransferAlerts,
+  liveBacktestRange,
   publishDailyTransferAlerts,
   type TransferPoint,
 } from "./neon-transfer-alert.js";
@@ -12,6 +13,13 @@ import {
 const projectNames = new Map([["quiet-project", "Quiet Project"]]);
 
 describe("Neon transfer alert", () => {
+  it("uses the last 28 complete UTC days for live backtests", () => {
+    assert.deepEqual(liveBacktestRange(new Date("2026-10-01T12:00:00Z")), {
+      from: "2026-09-03",
+      to: "2026-09-30",
+    });
+  });
+
   it("parses the documented project-period-consumption response shape", () => {
     const points = extractConsumptionRows(
       {

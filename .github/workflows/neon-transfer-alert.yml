@@ -11,7 +11,7 @@ on:
         default: false
         type: boolean
       backtest_live:
-        description: Backtest Sep 1–28 with Neon history, without posting to Slack
+        description: Backtest the last 28 complete days with Neon history, without posting to Slack
         required: false
         default: false
         type: boolean
@@ -42,7 +42,7 @@ jobs:
       - name: Verify alert parser and offline backtest
         run: pnpm test:neon-transfer-alert
 
-      - name: Backtest September with live Neon history (no Slack)
+      - name: Backtest recent days with live Neon history (no Slack)
         if: github.event_name == 'workflow_dispatch' && inputs.backtest_live
         run: pnpm ops:neon-transfer-alert --backtest-live
 
