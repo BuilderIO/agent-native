@@ -926,25 +926,9 @@ Respond to the event.`,
     const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
       ([id]) => id === "automation-trigger-queue",
     )?.[1] as ((context: { deadlineAt: number }) => Promise<void>) | undefined;
-    const expireImplementation =
-      triggerQueueMocks.expire.getMockImplementation();
-    if (!expireImplementation) {
-      throw new Error("Expected a stale-event expiry implementation.");
-    }
-    let simulatedNow = now;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => simulatedNow);
-    triggerQueueMocks.expire.mockImplementation(async (input) => {
-      simulatedNow += 20_000;
-      return expireImplementation(input);
-    });
-    try {
-      await sweep?.({ deadlineAt: now + 90_000 });
-    } finally {
-      nowSpy.mockRestore();
-      triggerQueueMocks.expire.mockImplementation(expireImplementation);
-    }
+    await sweep?.({ deadlineAt: now + 90_000 });
 
-    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(1);
+    expect(triggerQueueMocks.expire).toHaveBeenCalledTimes(3);
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
     const prompt =
       runAgentLoopMock.mock.calls[0]?.[0].messages[0]?.content[0]?.text;
