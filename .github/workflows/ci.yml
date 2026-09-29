@@ -560,6 +560,14 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
+      - name: Check IME Escape preserves inline slide text editing
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
+
+      - name: Check typing fidelity across Slides text surfaces
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
   brain-evals:
     name: Brain evals
     needs: change-scope

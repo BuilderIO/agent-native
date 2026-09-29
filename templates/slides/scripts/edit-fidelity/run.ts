@@ -868,7 +868,13 @@ async function runTextSurfaceQa(page: Page, base: string) {
       for (const lineBreak of element.querySelectorAll("br")) {
         lineBreak.replaceWith(" ");
       }
-      return element.textContent ?? "";
+      element.style.cssText = "position:fixed;left:-100000px;top:0";
+      document.body.append(element);
+      try {
+        return element.innerText;
+      } finally {
+        element.remove();
+      }
     }, html);
   const slideOne = "text-surface-slide-one";
   const slideTwo = "text-surface-slide-two";
@@ -884,6 +890,12 @@ async function runTextSurfaceQa(page: Page, base: string) {
   );
   await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
   await ensureSignedIn(page);
+  const blockText = await slideText("<p>First<br>line</p><p>Second</p>");
+  if (normalizeText(blockText) !== "First line Second") {
+    problems.push(
+      `slide text: saved block markup produced ${JSON.stringify(blockText)}`,
+    );
+  }
   const title = `[edit-fidelity] text surface QA ${Date.now()}`;
   const created = await action(page, "create-deck", {
     title,

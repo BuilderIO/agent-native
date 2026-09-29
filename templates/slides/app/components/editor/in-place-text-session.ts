@@ -2258,6 +2258,8 @@ export function startInPlaceTextSession(
     if (!active) return;
     active = false;
     unlisten(el);
+    document.removeEventListener("pointerup", onPointerUp);
+    document.removeEventListener("pointercancel", onPointerUp);
     unscroll();
     for (const [ancestor] of pinnedScroll) {
       ancestor.removeEventListener("scroll", unscroll);
@@ -2302,6 +2304,8 @@ export function startInPlaceTextSession(
   el.setAttribute("contenteditable", "true");
   el.setAttribute("data-editing-block", "true");
   listen(el);
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
   for (const [ancestor] of pinnedScroll) {
     ancestor.addEventListener("scroll", unscroll);
   }

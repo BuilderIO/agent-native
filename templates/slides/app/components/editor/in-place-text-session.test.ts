@@ -441,6 +441,26 @@ describe("in-place text session: entering and ending", () => {
     expect([selection.anchorNode, selection.anchorOffset]).toEqual([text, 7]);
   });
 
+  it("restores the saved selection when a pointer drag ends outside the editor", () => {
+    const el = mount('<p id="t">Alpha beta</p>');
+    const text = el.firstChild as Text;
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    session = startInPlaceTextSession(el);
+    selectBackward(text, 1, text, 5);
+    outside.focus();
+
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    outside.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.getSelection()!.removeAllRanges();
+    el.focus();
+
+    const selection = window.getSelection()!;
+    expect(selection.toString()).toBe("lpha");
+    expect(selection.anchorOffset).toBe(5);
+    expect(selection.focusOffset).toBe(1);
+  });
+
   it("refuses an element that is already editable", () => {
     const el = mount('<p id="t" contenteditable="true">x</p>');
     expect(() => startInPlaceTextSession(el)).toThrow(/already editable/);
