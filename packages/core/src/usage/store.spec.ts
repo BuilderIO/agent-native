@@ -87,6 +87,11 @@ beforeEach(async () => {
     source_id TEXT,
     created_at BIGINT NOT NULL
   )`);
+  await pglite.exec(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`);
   for (const key of [
     "AGENT_NATIVE_APP_ID",
     "APP_ID",
