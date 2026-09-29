@@ -532,11 +532,11 @@ Use this worktree's branch. Batch fixes with one
 branches. Behind/pending never justify syncing.
 
 A ship request authorizes a new PR. Push to someone else's PR only with
-explicit current authorization for that exact PR; a link or inherited ship
-authority is insufficient. If authorized, continue through `ship`; otherwise
-prepare the handoff and mark publishing pending authorization. Carry each
-channel's start cursor, grouped reports, evidence, owning seam, sibling results,
-and dispositions into the PR body.
+explicit authorization for that exact PR in the current request; a link or
+inherited ship authority is insufficient. If authorized, continue through
+`ship`; otherwise prepare the handoff and mark publishing pending authorization.
+Carry each channel's start cursor, grouped reports, evidence, owning seam,
+sibling results, and dispositions into the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 If a tracker was supplied, carry its exact row ids and the reproduction ledger
