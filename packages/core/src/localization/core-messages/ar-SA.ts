@@ -89,6 +89,12 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "لم يتم الالتقاط",
   "observability.openFullConversation": "فتح المحادثة الكاملة",
   "observability.learnAboutTab": "تعرّف على علامة التبويب",
+  "observability.promoteMustContain": "يجب أن يتضمن الرد…",
+  "observability.promoteMustContainLabel":
+    "النص الذي يجب أن يتضمنه رد التقييم المُرقّى",
+  "observability.promoteMustContainOptional": "يجب أن يتضمن الرد (اختياري)",
+  "observability.promoteNeedsContains":
+    "لا تتضمن هذه الجولة أي استدعاء ناجح لأداة. أدخل النص الذي يجب أن يتضمنه الرد قبل الترقية.",
   "observability.summarizeWithAgent": "تلخيص باستخدام الوكيل",
   "observability.regenerateSummary": "إعادة إنشاء الملخص",
   "observability.summarizeWithAgentHelp":

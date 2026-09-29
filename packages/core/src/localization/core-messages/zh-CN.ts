@@ -84,6 +84,11 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "未捕获",
   "observability.openFullConversation": "打开完整对话",
   "observability.learnAboutTab": "了解此选项卡",
+  "observability.promoteMustContain": "回复必须包含…",
+  "observability.promoteMustContainLabel": "晋升后的评估回复必须包含的文本",
+  "observability.promoteMustContainOptional": "回复必须包含（可选）",
+  "observability.promoteNeedsContains":
+    "此运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.summarizeWithAgent": "让智能体总结",
   "observability.regenerateSummary": "重新生成摘要",
   "observability.summarizeWithAgentHelp":

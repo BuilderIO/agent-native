@@ -93,6 +93,13 @@ const messages: AgentChatTranslation = {
   "observability.notCaptured": "Non capturé",
   "observability.openFullConversation": "Ouvrir la conversation complète",
   "observability.learnAboutTab": "En savoir plus sur cet onglet",
+  "observability.promoteMustContain": "La réponse doit contenir…",
+  "observability.promoteMustContainLabel":
+    "Texte que la réponse de l’évaluation promue doit contenir",
+  "observability.promoteMustContainOptional":
+    "La réponse doit contenir (facultatif)",
+  "observability.promoteNeedsContains":
+    "Cette exécution ne contient aucun appel d’outil réussi. Saisissez le texte que la réponse doit contenir avant de promouvoir l’évaluation.",
   "observability.summarizeWithAgent": "Résumer avec l’agent",
   "observability.regenerateSummary": "Régénérer le résumé",
   "observability.summarizeWithAgentHelp":
