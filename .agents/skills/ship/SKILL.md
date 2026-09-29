@@ -31,10 +31,16 @@ PR open. A merged shipment also leaves the worktree ready for the next task.
   live author, head repository, branch, head OID, and base; recheck the head.
 - Preserve unrelated or incomplete concurrent work. Never reset, clean, stash,
   overwrite, rebase, or force-push it.
-- `/ship` starts in `ship_mode=merge-authorized`: merge once the gates below
-  pass unless the user explicitly says to leave the PR open. If they opt out,
-  switch to `ship_mode=ready-only`; keep fixing CI and review feedback until the
-  PR is ready, then leave it open and do not rotate the branch.
+- `/ship` starts in `ship_mode=merge-authorized` for a new PR or a PR authored
+  by the current user. For an existing PR authored by someone else, an exact
+  current-request authorization to push is push-only: use
+  `ship_mode=ready-only` and leave the PR open. Use `merge-authorized` for
+  that PR only when the same request separately authorizes merging that exact
+  PR. A general ship request or earlier merge authorization does not change
+  this. Otherwise, merge once the gates below pass unless the user explicitly
+  says to leave the PR open. If they opt out, switch to `ship_mode=ready-only`;
+  keep fixing CI and review feedback until the PR is ready, then leave it open
+  and do not rotate the branch.
 - Before the guarded merge, persist its exact verified PR head OID as
   `ship_merge_head_oid` in the active goal or task transcript. Continue in the
   foreground through post-merge disposition. Carry the immutable value through
