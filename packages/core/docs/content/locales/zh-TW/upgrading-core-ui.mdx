@@ -100,11 +100,17 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 
 ## 3. 套用升級
 
-檢查預覽並確認功能套件後，套用計畫：
+檢查預覽並確認功能套件後，使用指定版本的 CLI 套用計畫。如果應用程式仍
+使用 Core 0.196 或更舊的 CLI，這一點很重要，因為舊 CLI 內含較舊的遷移
+manifest：
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+在應用程式安裝 Core 0.198.0 後，可從本機 CLI 執行相同命令：
 
     npx agent-native upgrade --codemods
 
-這個命令會更新符合條件的 @agent-native/\* dependency spec，調整偵測到的
+兩種呼叫都會更新符合條件的 @agent-native/\* dependency spec，調整偵測到的
 功能相依套件、執行 package manager、固定解析後的 Agent-Native 版本、
 套用支援的 codemod、更新 scaffold skill，並在根目錄有 typecheck script
 時執行。無須為了套用 codemod 再執行一次 upgrade。請在應用程式程式碼中
@@ -115,11 +121,17 @@ CLI 不會推斷以下 peer。請依應用程式使用的功能加入套件，�
 檢查完整差異，尤其是略過的 codemod 警告和相依套件版本，然後執行：
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npm 或 Yarn 請使用對應的 typecheck 命令，並執行應用程式相關的測試和
-build。確認選用 peer 表涵蓋本機與部署環境的功能設定。搜尋下表中的舊
-import；剩餘結果應為刻意保留、manifest 不支援，或已有警告說明。
+Doctor 預設會執行 `migration-manifest` 和 `feature-dependencies` 檢查。它會
+回報舊 import，以及依本機設定偵測到的功能所缺少的選用 peer。它無法檢查
+遠端部署設定或儲存在資料庫中的功能設定，請另外確認這些設定。
+
+npm 或 Yarn 請使用對應的 typecheck 命令。如果應用程式有測試和 build
+指令，請執行它們，通常是 `pnpm test` 和 `pnpm build`。確認選用 peer 表涵蓋
+本機與部署環境的功能設定。搜尋下表中的舊 import；剩餘結果應為刻意保留、
+manifest 不支援，或已有警告說明。
 
 ## 舊路徑和代表性目的地
 

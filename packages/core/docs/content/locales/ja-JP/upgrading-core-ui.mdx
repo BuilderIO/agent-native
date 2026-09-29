@@ -106,11 +106,18 @@ CLI は次の peer を自動判定しません。アプリで使う機能に応�
 
 ## 3. アップグレードを適用する
 
-プレビューとfeature packageを確認したら計画を適用します。
+プレビューとfeature packageを確認したら、versionを指定したCLIで計画を
+適用します。appがCore 0.196など古いCLIを使っている場合、CLI内のmigration
+manifestも古いため、この点が重要です。
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+appにCore 0.198.0をインストールした後は、local CLIから同じcommandを
+実行できます。
 
     npx agent-native upgrade --codemods
 
-この1つのcommandで、対象となる@agent-native/\* dependency specを更新し、
+どちらの実行方法でも、対象となる@agent-native/\* dependency specを更新し、
 検出したfeature dependencyを調整し、package managerを実行し、解決した
 Agent-Native versionをpinし、対応codemodを適用します。さらにscaffold
 skillを更新し、rootにtypecheck scriptがあれば実行します。codemod適用
@@ -124,13 +131,20 @@ overrideやpatchは追加しないでください。
 次を実行します。
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-npmまたはYarnでは対応するtypecheck commandを使い、アプリに必要な
-testとbuildも実行します。ローカルおよびデプロイ済みのfeature設定が
-任意peerの表で網羅されていることを確認します。次の表にある旧importを
-検索してください。残った一致は意図的なもの、manifest非対応のもの、
-または警告で説明されたものに限ります。
+Doctorは既定で`migration-manifest`と`feature-dependencies`を確認します。
+古いimportと、ローカル設定から検出されたfeatureに必要なoptional peerの
+不足を報告します。リモートのデプロイ設定やデータベース内のfeature設定は
+確認できないため、別途確認してください。
+
+npmまたはYarnでは対応するtypecheck commandを使います。アプリにtestと
+buildのscriptがある場合は実行してください。多くの場合は`pnpm test`と
+`pnpm build`です。ローカルおよびデプロイ済みのfeature設定が任意peerの
+表で網羅されていることを確認します。次の表にある旧importを検索して
+ください。残った一致は意図的なもの、manifest非対応のもの、または警告で
+説明されたものに限ります。
 
 ## 古いpathと移行先の例
 

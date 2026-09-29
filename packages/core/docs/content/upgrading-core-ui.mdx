@@ -125,12 +125,19 @@ For first-party template source search, add the matching corpus package as a dev
 
 ## 3. Apply the upgrade
 
-After reviewing the preview and confirming feature packages, apply the plan:
+After reviewing the preview and confirming feature packages, apply the plan
+with the same versioned CLI. This matters when the app still has Core 0.196 or
+another older CLI installed: an older CLI carries an older migration manifest.
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Once Core 0.198.0 is installed, the same command is available from the app's
+local CLI:
 
     npx agent-native upgrade --codemods
 
-This single command updates eligible @agent-native/\* dependency specs,
-aligns detected feature dependencies, runs the package manager, pins resolved
+Either invocation updates eligible @agent-native/\* dependency specs, aligns
+detected feature dependencies, runs the package manager, pins resolved
 Agent-Native versions, applies supported codemods, refreshes scaffold skills,
 and runs the root typecheck script when one exists. Do not run a second
 upgrade command just to apply the codemods. Resolve warnings and app-level
@@ -142,13 +149,19 @@ Review the complete diff, especially skipped codemod warnings and dependency
 versions, then run:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Use the equivalent typecheck command for npm or Yarn, and run the app's
-relevant tests and build. Confirm that local and deployed feature settings are
-covered by the optional-peer table. Search for old imports shown in the table
-below; remaining matches should be intentional, unsupported by the manifest,
-or called out by a warning.
+Doctor runs the `migration-manifest` and `feature-dependencies` checks by
+default. It reports stale imports and optional peers missing for features
+detected from local configuration. It cannot inspect remote deployment
+settings or database-backed feature settings, so confirm those separately.
+
+Use the equivalent typecheck command for npm or Yarn. Run the app's test and
+build scripts when present, usually `pnpm test` and `pnpm build`. Confirm that
+local and deployed feature settings are covered by the optional-peer table.
+Search for old imports shown in the table below; remaining matches should be
+intentional, unsupported by the manifest, or called out by a warning.
 
 ## Old paths and representative destinations
 

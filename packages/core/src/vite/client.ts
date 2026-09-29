@@ -1267,7 +1267,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
-    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
+    {
+      specifier: "lowlight > highlight.js/lib/core",
+      packageName: "lowlight",
+    },
     { specifier: "html2canvas" },
     { specifier: "i18next" },
     { specifier: "input-otp" },
@@ -1431,9 +1434,11 @@ function getAgentKitOptimizeDeps(cwd: string): string[] {
       ? ["class-variance-authority"]
       : []),
     ...(hasDep("sonner", cwd) ? ["sonner"] : []),
+    ...(hasToolkitDep("lowlight", cwd)
+      ? ["@agent-native/toolkit > lowlight > highlight.js/lib/core"]
+      : []),
     ...(hasToolkitDep("highlight.js", cwd)
       ? [
-          "@agent-native/toolkit > highlight.js/lib/core",
           "@agent-native/toolkit > highlight.js/lib/languages/bash",
           "@agent-native/toolkit > highlight.js/lib/languages/css",
           "@agent-native/toolkit > highlight.js/lib/languages/javascript",
@@ -2736,6 +2741,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "XmlElement",
     "XmlFragment",
     "XmlText",
+    "ySyncPluginKey",
   ];
   return {
     name: "agent-native-ssr-stub-heavy-libs",

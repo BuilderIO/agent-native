@@ -108,14 +108,20 @@ Para buscar en el código fuente de las plantillas propias, añade el paquete de
 ## 3. Aplicar la actualización
 
 Después de revisar la simulación y confirmar los paquetes de funciones, aplica
-el plan:
+el plan con la CLI versionada. Esto importa si la app aún tiene Core 0.196 u
+otra CLI anterior, porque incluye un manifiesto de migración antiguo:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Cuando Core 0.198.0 ya esté instalado en la app, el comando está disponible en
+la CLI local:
 
     npx agent-native upgrade --codemods
 
-Este único comando actualiza las versiones aptas de dependencias
-@agent-native/\*, alinea las dependencias de funciones detectadas, ejecuta el
-gestor de paquetes, fija las versiones de Agent-Native resueltas, aplica los
-codemods compatibles, actualiza las skills de scaffold y ejecuta el script
+Ambas invocaciones actualizan las versiones aptas de dependencias
+@agent-native/\*, alinean las dependencias de funciones detectadas, ejecutan el
+gestor de paquetes, fijan las versiones de Agent-Native resueltas, aplican los
+codemods compatibles, actualizan las skills de scaffold y ejecutan el script
 typecheck raíz si existe. No ejecutes otro comando upgrade solo para aplicar los
 codemods. Corrige las advertencias y los errores de la aplicación en su propio
 código; no añadas overrides ni patches del framework.
@@ -126,13 +132,21 @@ Revisa el diff completo, en especial las advertencias de codemods omitidos y
 las versiones de dependencias, y ejecuta:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Usa el comando de typecheck equivalente de npm o Yarn, y ejecuta las pruebas y
-la compilación pertinentes de la aplicación. Confirma que la tabla de peers
-opcionales cubra la configuración local y la desplegada. Busca los imports
-antiguos de la tabla siguiente; los resultados restantes deben ser
-intencionados, no compatibles con el manifiesto o explicados por una advertencia.
+Doctor ejecuta de forma predeterminada las comprobaciones `migration-manifest` y
+`feature-dependencies`. Informa de imports obsoletos y de peers opcionales que
+faltan para las funciones detectadas en la configuración local. No puede
+inspeccionar la configuración de despliegue remota ni los ajustes de funciones
+guardados en la base de datos, así que confírmalos por separado.
+
+Usa el comando de typecheck equivalente de npm o Yarn. Ejecuta los scripts de
+pruebas y compilación de la aplicación cuando existan, normalmente `pnpm test` y
+`pnpm build`. Confirma que la tabla de peers opcionales cubra la configuración
+local y la desplegada. Busca los imports antiguos de la tabla siguiente; los
+resultados restantes deben ser intencionados, no compatibles con el manifiesto o
+explicados por una advertencia.
 
 ## Rutas antiguas y destinos representativos
 

@@ -108,14 +108,20 @@ Para pesquisar no código-fonte dos templates próprios, adicione o pacote de co
 ## 3. Aplicar o upgrade
 
 Depois de revisar a simulação e confirmar os pacotes dos recursos, aplique o
-plano:
+plano com a CLI versionada. Isso importa se o app ainda usa Core 0.196 ou outra
+CLI mais antiga, que contém um manifesto de migração anterior:
+
+    npx @agent-native/core@0.198.0 upgrade --codemods
+
+Depois que Core 0.198.0 estiver instalado no app, o mesmo comando fica disponível
+na CLI local:
 
     npx agent-native upgrade --codemods
 
-Esse único comando atualiza especificações elegíveis de dependências
-@agent-native/\*, alinha as dependências de recursos detectados, executa o
-gerenciador de pacotes, fixa as versões resolvidas do Agent-Native, aplica os
-codemods compatíveis, atualiza as skills de scaffold e executa o script
+Ambas as invocações atualizam especificações elegíveis de dependências
+@agent-native/\*, alinham as dependências de recursos detectados, executam o
+gerenciador de pacotes, fixam as versões resolvidas do Agent-Native, aplicam os
+codemods compatíveis, atualizam as skills de scaffold e executam o script
 typecheck da raiz quando existir. Não execute outro upgrade apenas para aplicar
 os codemods. Corrija avisos e erros do app no código do app; não adicione
 overrides nem patches do framework.
@@ -126,13 +132,20 @@ Revise o diff completo, especialmente avisos de codemods ignorados e versões de
 dependências, e então execute:
 
     npx @agent-native/core@0.198.0 upgrade check
+    npx agent-native doctor
     pnpm typecheck
 
-Use o comando equivalente de typecheck para npm ou Yarn e execute os testes e o
-build relevantes do app. Confirme que a tabela de peers opcionais cobre as
-configurações locais e de produção. Pesquise os imports antigos da tabela
-abaixo; ocorrências restantes devem ser intencionais, não suportadas pelo
-manifesto ou explicadas por um aviso.
+O Doctor executa por padrão as verificações `migration-manifest` e
+`feature-dependencies`. Ele informa imports antigos e peers opcionais ausentes
+para recursos detectados pela configuração local. Ele não pode verificar
+configurações remotas de deployment nem configurações de recursos armazenadas no
+banco de dados, então confirme essas informações separadamente.
+
+Use o comando equivalente de typecheck para npm ou Yarn. Execute os scripts de
+teste e build do app quando existirem, normalmente `pnpm test` e `pnpm build`.
+Confirme que a tabela de peers opcionais cobre as configurações locais e de
+produção. Pesquise os imports antigos da tabela abaixo; ocorrências restantes
+devem ser intencionais, não suportadas pelo manifesto ou explicadas por um aviso.
 
 ## Caminhos antigos e destinos representativos
 
