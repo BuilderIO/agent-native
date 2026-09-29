@@ -152,7 +152,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     );
   });
 
-  it("re-arms the ready watchdog after a live document reload and stops showing an endless preparing state", async () => {
+  it("re-arms the ready watchdog after repeated live document reloads and stops showing an endless preparing state", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url =
         typeof input === "string"
@@ -171,6 +171,30 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
 
     await renderLiveEditCanvas();
     const iframe = container.querySelector("iframe")!;
+    await act(async () => {
+      postReadyHandshake(iframe.contentWindow ?? undefined);
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").not.toContain("Preparing live editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4200);
+      await flushMicrotasks();
+    });
+    expect(healthCallCount()).toBe(0);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:runtime-reloading" },
+          origin: BRIDGE_URL,
+          source: iframe.contentWindow,
+        }),
+      );
+      await flushMicrotasks();
+    });
+    expect(container.textContent ?? "").toContain("Preparing live editor");
+
     await act(async () => {
       postReadyHandshake(iframe.contentWindow ?? undefined);
       await flushMicrotasks();
