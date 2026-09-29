@@ -374,7 +374,11 @@ export async function runDataProgram(
     };
   }
 
-  const program = await getDataProgram(args.programId, args.appId);
+  const program = await getDataProgram(
+    args.programId,
+    args.appId,
+    accessContextFrom(args.ctx),
+  );
   if (!program) {
     return failure(
       "program_not_found",

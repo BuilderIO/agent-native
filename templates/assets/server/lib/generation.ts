@@ -10,6 +10,7 @@ import {
   resolveSecret,
   type ServiceProviderId,
 } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import sharp from "sharp";
 
@@ -1549,7 +1550,12 @@ export async function selectReferences(input: {
   const [library] = await db
     .select({ settings: schema.assetLibraries.settings })
     .from(schema.assetLibraries)
-    .where(eq(schema.assetLibraries.id, input.libraryId))
+    .where(
+      and(
+        eq(schema.assetLibraries.id, input.libraryId),
+        accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+      ),
+    )
     .limit(1);
   const rows = await db
     .select()

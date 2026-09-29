@@ -150,6 +150,7 @@ import {
   readAnalyticsClientPlatformHeader,
   readBrowserSessionIdHeader,
 } from "./agent-run-context.js";
+import { isAnonymousWaitlistSessionEmail } from "./anonymous-identity.js";
 import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
@@ -312,6 +313,7 @@ import {
   ScopedKeyStorageError,
   type ScopedKeySaveRequestScope,
 } from "./scoped-key-storage.js";
+import { createSpeakHandler } from "./speak.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
@@ -1333,9 +1335,7 @@ function isValidWaitlistEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-export function isAnonymousWaitlistSessionEmail(email: string): boolean {
-  return email.startsWith("anon-") && email.endsWith("@agent-native.com");
-}
+export { isAnonymousWaitlistSessionEmail };
 
 export function resolveWaitlistEmail(
   sessionEmail: string | undefined,
@@ -1660,10 +1660,6 @@ export function recordBuilderConnectionAudit(input: {
   });
 }
 
-function isAgentNativeAnonymousOwner(email: string | undefined): boolean {
-  return /^anon-[^@]+@agent-native\.com$/i.test(email ?? "");
-}
-
 export function isBuilderConnectCallbackOwner(
   pendingOwner: string,
   sessionOwner: string | undefined,
@@ -1796,8 +1792,8 @@ export async function resolveBuilderOwnerContextForRequest(
     if (
       signedOwner &&
       (signedOwner === session.email ||
-        (isAgentNativeAnonymousOwner(signedOwner) &&
-          isAgentNativeAnonymousOwner(session.email)))
+        (isAnonymousWaitlistSessionEmail(signedOwner) &&
+          isAnonymousWaitlistSessionEmail(session.email)))
     ) {
       // Public docs/app surfaces can mint a new anonymous session inside the
       // popup when cookies do not round-trip. Keep the signed flow owner in
@@ -1805,7 +1801,7 @@ export async function resolveBuilderOwnerContextForRequest(
       return {
         email: signedOwner,
         session: signedOwner === session.email ? session : null,
-        anonymous: isAgentNativeAnonymousOwner(signedOwner),
+        anonymous: isAnonymousWaitlistSessionEmail(signedOwner),
       };
     }
     return { email: session.email, session, anonymous: false };
@@ -1815,7 +1811,7 @@ export async function resolveBuilderOwnerContextForRequest(
     return {
       email: signedOwner,
       session: null,
-      anonymous: isAgentNativeAnonymousOwner(signedOwner),
+      anonymous: isAnonymousWaitlistSessionEmail(signedOwner),
     };
   }
 
@@ -3925,7 +3921,7 @@ export function createCoreRoutesPlugin(
           }
           if (
             ownerContext.anonymous ||
-            isAgentNativeAnonymousOwner(ownerEmail)
+            isAnonymousWaitlistSessionEmail(ownerEmail)
           ) {
             setResponseStatus(event, 401);
             setResponseHeader(
@@ -5842,6 +5838,10 @@ export function createCoreRoutesPlugin(
         `${P}/transcribe-voice`,
         createTranscribeVoiceHandler(),
       );
+
+      // ─── Speech synthesis ────────────────────────────────────────────
+      // POST /_agent-native/speak — text → audio/mpeg bytes
+      getH3App(nitroApp).use(`${P}/speak`, createSpeakHandler());
 
       // ─── Google realtime transcription session bridge ───────────────
       // POST /_agent-native/transcribe-stream/session — resolve the user's

@@ -64,11 +64,8 @@ contract.
 - When shipping from a worktree, commit, push, and open or update the PR there;
   leave the shared checkout untouched.
 - Never push to someone else's PR without explicit authorization for that exact
-  PR in the current request; this does not authorize merging. Before each
-  push, resolve the active GitHub login with `gh api user --jq .login`, include
-  `author` in the live PR query, and compare `author.login` with that login.
-  Verify the head repository, branch, head OID, and base, then recheck the head.
-  See `ship` and `babysit-pr` for the verification gate.
+  PR in this request. This does not authorize merging. See `ship` and
+  `babysit-pr` for the live author/head verification gate.
 - Use root `.tmp/` for repo-local temp files; it is gitignored.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
@@ -143,10 +140,10 @@ exist, and both are narrow on purpose.
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
-`no-heavy-dashboard-list-reads`, and `external-result-contract` check only
-lines this branch added, so the pre-existing backlog stays a separate
-cleanup. Each guard has a documented opt-out pragma, and every opt-out is a
-decision a reviewer should see.
+`no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`, and
+`external-result-contract` check only lines this branch added, so the
+pre-existing backlog stays a separate cleanup. Each guard has a documented
+opt-out pragma, and every opt-out is a decision a reviewer should see.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via

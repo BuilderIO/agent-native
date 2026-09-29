@@ -6,6 +6,7 @@ import { warnAgent } from "../agent/action-warnings.js";
 import { getAppConfig } from "../app-config/index.js";
 import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
+import { isAnonymousWaitlistSessionEmail } from "../server/anonymous-identity.js";
 import { crossSiteCookieAttrs, getSession } from "../server/auth.js";
 import { shouldWriteFirstRunOnboardingEligibility } from "../server/first-run-onboarding-build-mode.js";
 import {
@@ -261,6 +262,9 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   const session = await getSession(event);
   const email = session?.email;
   if (!email) return EMPTY_CONTEXT;
+  if (isAnonymousWaitlistSessionEmail(email)) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
   if (hasExplicitPersonalOrgScope(event)) {
     return { email, orgId: null, orgName: null, role: null };
   }

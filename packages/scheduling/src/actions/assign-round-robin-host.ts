@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -17,6 +18,11 @@ export default defineAction({
       .default("lowest-recent-bookings"),
   }),
   run: async (args) => {
+    const eventTypeAccess = await assertAccess(
+      "event-type",
+      args.eventTypeId,
+      "viewer",
+    );
     const { getDb, schema } = getSchedulingContext();
     const hostRows = await getDb()
       .select()
@@ -38,9 +44,11 @@ export default defineAction({
     for (const h of hosts) {
       metrics.set(h.userEmail, {
         recentBookingCount: await countBookingsByHostInRange(
+          args.eventTypeId,
           h.userEmail,
           from,
           to,
+          eventTypeAccess.resource.orgId,
         ),
         noShowRate: 0,
       });
