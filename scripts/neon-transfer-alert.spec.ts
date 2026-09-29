@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   extractConsumptionRows,
   findTransferAlerts,
+  hasUnavailableProjects,
   liveBacktestRange,
   publishDailyTransferAlerts,
   type TransferPoint,
@@ -18,6 +19,18 @@ describe("Neon transfer alert", () => {
       from: "2026-09-03",
       to: "2026-09-30",
     });
+  });
+
+  it("rejects either documented Neon unavailable-project field", () => {
+    assert.equal(
+      hasUnavailableProjects({ unavailable_project_ids: ["p1"] }),
+      true,
+    );
+    assert.equal(hasUnavailableProjects({ unavailable: ["p1"] }), true);
+    assert.equal(
+      hasUnavailableProjects({ unavailable_project_ids: [] }),
+      false,
+    );
   });
 
   it("parses the documented project-period-consumption response shape", () => {

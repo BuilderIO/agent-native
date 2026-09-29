@@ -11,6 +11,7 @@ const DAILY_THRESHOLD_BYTES = 50 * GIGABYTE;
 const ABSOLUTE_THRESHOLD_BYTES = TERABYTE;
 const API_MIN_INTERVAL_MS = 1_300;
 const PROJECT_PAGE_SIZE = 400;
+const PROJECT_LIST_TIMEOUT_MS = 25_000;
 const LIVE_BACKTEST_DAYS = 28;
 let lastApiRequestAt = 0;
 
@@ -202,6 +203,14 @@ export function extractConsumptionRows(
   return [...totals.values()];
 }
 
+export function hasUnavailableProjects(
+  payload: Record<string, unknown>,
+): boolean {
+  return [payload.unavailable_project_ids, payload.unavailable].some(
+    (value) => Array.isArray(value) && value.length > 0,
+  );
+}
+
 async function neonGet(url: URL): Promise<unknown> {
   if (!API_KEY) throw new Error("NEON_API_KEY is required for the live alert.");
   const waitMs = Math.max(
@@ -235,20 +244,16 @@ async function listProjects(): Promise<Map<string, string>> {
     const url = new URL(`${API_BASE}/projects`);
     url.searchParams.set("limit", String(PROJECT_PAGE_SIZE));
     url.searchParams.set("org_id", ORG_ID);
-    url.searchParams.set("timeout", "30000");
+    url.searchParams.set("timeout", String(PROJECT_LIST_TIMEOUT_MS));
     if (cursor) url.searchParams.set("cursor", cursor);
     const payload = object(await neonGet(url));
     if (!payload || !Array.isArray(payload.projects)) {
       throw new Error("Neon project response did not contain a projects list.");
     }
-    if (
-      Array.isArray(payload.unavailable_project_ids) &&
-      payload.unavailable_project_ids.length
-    ) {
+    if (hasUnavailableProjects(payload))
       throw new Error(
-        `Neon project list was incomplete; ${payload.unavailable_project_ids.length} projects are unavailable.`,
+        "Neon project list was incomplete; projects are unavailable.",
       );
-    }
     for (const rawProject of payload.projects) {
       const project = object(rawProject);
       if (typeof project?.id !== "string" || typeof project.name !== "string")
