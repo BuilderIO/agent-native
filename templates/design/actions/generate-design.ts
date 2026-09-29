@@ -68,6 +68,7 @@ import {
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
 function designDeepLink(designId: string, screenId?: string): string {
   return buildDeepLink({
@@ -536,35 +537,7 @@ const generateDesignAction = defineAction({
     tweaks: z
       .preprocess(
         (v) => (typeof v === "string" ? JSON.parse(v) : v),
-        z
-          .array(
-            z.object({
-              id: z.string(),
-              label: z.string(),
-              type: z.enum([
-                "color-swatch",
-                "color-swatches",
-                "segment",
-                "slider",
-                "toggle",
-              ]),
-              options: z
-                .array(
-                  z.object({
-                    label: z.string(),
-                    value: z.string(),
-                    color: z.string().optional(),
-                  }),
-                )
-                .optional(),
-              min: z.number().optional(),
-              max: z.number().optional(),
-              step: z.number().optional(),
-              defaultValue: z.union([z.string(), z.number(), z.boolean()]),
-              cssVar: z.string().optional(),
-            }),
-          )
-          .optional(),
+        tweakDefinitionsSchema.optional(),
       )
       .optional()
       .describe(

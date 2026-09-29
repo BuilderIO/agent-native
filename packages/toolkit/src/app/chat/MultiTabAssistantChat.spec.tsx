@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
+  AGENT_CHAT_SUBMIT_RESULT_EVENT,
   AGENT_CHAT_CONTEXT_CHANGED_EVENT,
   cancelAgentChatSubmit,
   claimAgentChatOpenRequest,
@@ -63,7 +64,7 @@ function legacyOpenTabsStorageKey(
 }
 
 const chatHandleMocks = vi.hoisted(() => ({
-  sendMessage: vi.fn(),
+  sendMessage: vi.fn(async () => ({ status: "submitted" as const })),
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
@@ -454,6 +455,33 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected queued submission instead of leaving it unhandled", async () => {
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.sendMessage.mockRejectedValueOnce(
+      new Error("attachment upload failed"),
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Create a deck",
+        submitMessageId: "failed-send",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    expect(results).toContainEqual({
+      submitMessageId: "failed-send",
+      delivered: false,
+      reason: "submission-failed",
+    });
   });
 
   it("routes a correlated continuation to its original tab after focus changes", async () => {

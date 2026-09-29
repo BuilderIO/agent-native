@@ -527,6 +527,9 @@ export default function DeckEditor() {
     reorderSlides,
     setDeckSlides,
     undo,
+    redo,
+    canUndo,
+    canRedo,
     loading,
     loadError,
   } = useDecks();
@@ -3709,6 +3712,10 @@ export default function DeckEditor() {
         onToggleLayers={canEdit ? toggleLayers : undefined}
         onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
         addSlideGenerating={addSlideGenerating}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={canEdit ? undo : undefined}
+        onRedo={canEdit ? redo : undefined}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         onDownloadBackup={handleDownloadDeckBackup}
         onImportDeckBackup={handleImportDeckBackup}

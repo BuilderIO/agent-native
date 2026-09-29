@@ -130,6 +130,15 @@ describe("mergeRenderedEdits", () => {
     '  <div class="card" style="left:10px;top:20px"><img src="https://img.logo.dev/acme.com" alt="Acme"><p>Body</p><svg width="4"><circle r="2"/></svg></div>\n' +
     "</div>";
 
+  it("persists a zero border-width style edit", () => {
+    const border =
+      '<div class="fmd-slide"><div class="card" style="border: 2px solid #222">Card</div></div>';
+    const { root, save } = mount(border);
+    q(root, ".card").style.setProperty("border-width", "0px");
+
+    expect(save().html).toContain("border-width: 0px");
+  });
+
   it("appends typed text inside the edited element only", () => {
     const { root, save } = mount(stored);
     q(root, "h2 em").append(" ok");
