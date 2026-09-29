@@ -29,6 +29,10 @@ test("does not treat implementation and instruction paths as docs-only", () => {
   assert.equal(isDocsPath(".agents/skills/qa/SKILL.md"), false);
   assert.equal(isDocsPath(".github/workflows/ci.yml"), false);
   assert.equal(isDocsPath("scripts/ci-test-lanes.ts"), false);
+  assert.equal(
+    isWorkspacePath("community-templates/demo-clip-library/src/index.ts"),
+    true,
+  );
 });
 
 test("normalizes paths from git output", () => {
@@ -129,14 +133,21 @@ test("skips cold-request query budgets for full tooling and instruction changes"
   assert.equal(scope.checks.neon_query_budget, false);
 });
 
-test("selects dependency-aware checks for a template change", () => {
+test("keeps build dependencies while tests follow changed-package dependents", () => {
   const scope = classifyChangedPaths([
     "templates/calendar/app/components/EventCard.tsx",
   ]);
 
   assert.equal(scope.docsOnly, false);
   assert.equal(scope.full, false);
-  assert.deepEqual(scope.workspaceFilters, ["...{templates/calendar}..."]);
+  assert.deepEqual(scope.workspaceFilters, [
+    "...{templates/calendar}...",
+    "!./community-templates/**",
+  ]);
+  assert.deepEqual(scope.testWorkspaceFilters, [
+    "...{templates/calendar}",
+    "!./community-templates/**",
+  ]);
   assert.equal(scope.checks.lint, true);
   assert.equal(scope.checks.typecheck, true);
   assert.equal(scope.checks.fast_tests, true);
@@ -149,11 +160,33 @@ test("selects dependency-aware checks for a template change", () => {
   assert.equal(scope.checks.brain_evals, false);
 });
 
+test("does not select Design dependencies for test or typecheck", () => {
+  const scope = classifyChangedPaths([
+    "templates/design/app/components/Canvas.tsx",
+  ]);
+
+  assert.deepEqual(scope.workspaceFilters, [
+    "...{templates/design}...",
+    "!./community-templates/**",
+  ]);
+  assert.deepEqual(scope.testWorkspaceFilters, [
+    "...{templates/design}",
+    "!./community-templates/**",
+  ]);
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 
   assert.equal(scope.full, false);
-  assert.deepEqual(scope.workspaceFilters, ["...{packages/core}..."]);
+  assert.deepEqual(scope.workspaceFilters, [
+    "...{packages/core}...",
+    "!./community-templates/**",
+  ]);
+  assert.deepEqual(scope.testWorkspaceFilters, [
+    "...{packages/core}",
+    "!./community-templates/**",
+  ]);
   assert.equal(scope.checks.content, true);
   assert.equal(scope.checks.core_integration, true);
   assert.equal(scope.checks.plan_e2e, true);
@@ -217,7 +250,67 @@ test("keeps package metadata targeted but runs the drizzle guard", () => {
 test("includes nested template workspaces in selectors", () => {
   assert.deepEqual(
     workspaceFiltersForPaths(["templates/clips/desktop/src/main.ts"]),
-    ["...{templates/clips/desktop}..."],
+    ["...{templates/clips/desktop}...", "!./community-templates/**"],
+  );
+});
+
+test("keeps community template changes targeted to their workspace", () => {
+  const scope = classifyChangedPaths([
+    "community-templates/demo-clip-library/src/index.ts",
+  ]);
+
+  assert.equal(scope.full, false);
+  assert.equal(scope.checks.typecheck, true);
+  assert.equal(scope.checks.fast_tests, true);
+  assert.equal(scope.checks.build, true);
+  assert.deepEqual(scope.workspaceFilters.slice(0, 1), [
+    "./community-templates/demo-clip-library",
+  ]);
+  assert.deepEqual(scope.testWorkspaceFilters.slice(0, 1), [
+    "./community-templates/demo-clip-library",
+  ]);
+  assert.ok(scope.workspaceFilters.includes("!./community-templates"));
+  assert.ok(
+    scope.workspaceFilters.includes("!./community-templates/account-tiering"),
+  );
+  assert.ok(
+    !scope.workspaceFilters.includes(
+      "!./community-templates/demo-clip-library",
+    ),
+  );
+});
+
+test("keeps mixed Core and community changes from selecting every community app", () => {
+  const scope = classifyChangedPaths([
+    "packages/core/src/index.ts",
+    "community-templates/demo-clip-library/src/index.ts",
+  ]);
+
+  assert.equal(scope.full, false);
+  assert.ok(scope.workspaceFilters.includes("...{packages/core}..."));
+  assert.ok(
+    scope.workspaceFilters.includes("./community-templates/demo-clip-library"),
+  );
+  assert.ok(scope.workspaceFilters.includes("!./community-templates"));
+  assert.ok(
+    scope.workspaceFilters.includes("!./community-templates/account-tiering"),
+  );
+  assert.ok(
+    !scope.workspaceFilters.includes(
+      "!./community-templates/demo-clip-library",
+    ),
+  );
+});
+
+test("selects the community root package when its manifest changes", () => {
+  const scope = classifyChangedPaths(["community-templates/package.json"]);
+
+  assert.equal(scope.full, false);
+  assert.deepEqual(scope.workspaceFilters.slice(0, 1), [
+    "./community-templates",
+  ]);
+  assert.ok(
+    scope.workspaceFilters.includes("!./community-templates/demo-clip-library"),
   );
 });
 
