@@ -10,7 +10,7 @@ import { discoverAgents, findAgent } from "../server/agent-discovery.js";
 
 export const tool: ActionTool = {
   description:
-    "Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use this before building a capability locally, before telling the user what is or is not possible across apps, and whenever the user asks which app they should use for something. Ask the owning app's agent with a natural-language call-agent message by default; published action contracts are optional details for exact bounded reads, not a substitute for the specialist agent. Pass `app` for one peer's full capability list. This is generated from live deployments - never hand-maintain or cache a list of workspace apps in code, docs, or markdown.",
+    "Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use only when the current request needs another app's data or capability and its owner is unclear, or when the user asks which app to use. Do not use it as a preflight for ordinary local work. Ask the owning app's agent with a natural-language call-agent message by default; published action contracts are optional details for exact bounded reads, not a substitute for the specialist agent. Pass `app` for one peer's full capability list. This is generated from live deployments - never hand-maintain or cache a list of workspace apps in code, docs, or markdown.",
   parameters: {
     type: "object",
     properties: {

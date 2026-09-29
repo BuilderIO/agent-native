@@ -1071,6 +1071,18 @@ describe("loadResourcesForPrompt", () => {
       expect(prompt).toContain("<available-apps>");
       expect(prompt).toContain("Analytics (analytics)");
       expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain(
+        "This list is a directory, not a request to involve another app.",
+      );
+      expect(prompt).toContain(
+        "Use `call-agent` only when the user's requested outcome depends on data or a capability only that app can provide",
+      );
+      expect(prompt).toContain(
+        "Use `describe-workspace-apps` only when that relevant cross-app need exists",
+      );
+      expect(prompt).not.toContain(
+        "Before building a capability another app may already own",
+      );
       expect(prompt).toContain("<context-note>");
       expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
       expect(prompt).toContain("Treat them as unread, not as absent");
