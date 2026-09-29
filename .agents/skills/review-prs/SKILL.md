@@ -326,6 +326,15 @@ non-review requirement is pending, failed, unknown, or unsatisfied, do not use
 `--admin`; wait for that requirement. When the gate holds, use the guarded
 admin merge:
 
+This revalidation is client-side, not atomic with GitHub's admin merge.
+`--match-head-commit` protects the PR head SHA but does not pin status
+conclusions or ruleset configuration. Re-read active protections and required
+contexts for the exact head in one final pass, then invoke the merge immediately.
+If that evidence changes or cannot be read, stop and restart the gate. This
+leaves a narrow time-of-check/time-of-use window inherent in the admin merge
+API; it never authorizes merging with a known failed, pending, or unknown
+non-review requirement.
+
 ```bash
 gh pr merge <number> --repo BuilderIO/agent-native --squash --admin \
   --match-head-commit <verified-head-oid>

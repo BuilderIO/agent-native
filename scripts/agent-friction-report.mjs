@@ -707,6 +707,8 @@ const PR_REVIEW_GATE_COMMA_MERGE_RE = new RegExp(
 );
 const PR_REVIEW_GATE_NEGATION_AFTER_RE =
   /^\s*(?:(?:(?:is|are)\s+)?not\s+(?:required|needed|necessary|a\s+prerequisite)|(?:isn't|aren't|isn['’]t|aren['’]t)\s+(?:required|needed|necessary)|(?:is|are)\s+(?:optional|waived))\b/i;
+const PR_REVIEW_GATE_PRECONDITION_RE =
+  /\b(?:after|once|when|if|unless|provided(?:\s+that)?)\b[^.!?]{0,80}\b(?:CI|checks?|tests?|builds?|approvals?|security(?:\s+team)?|reviewers?|product[-\s]+owners?|ux(?:[-\s]+owners?)?|Steve(?:['’]s)?)\b[^.!?]{0,40}\b(?:green|pass(?:es|ed|ing)?|succeed(?:s|ed)?|complete(?:s|d)?|finish(?:es|ed)?|sign(?:s|ed)?[-\s]+off|approve(?:s|d)?|required|needed|necessary)\b/i;
 const PR_REVIEW_GATE_OTHER_SCOPE_RE =
   /\b(?:(?:Steve(?:['’]s)?|product[-\s]+owners?(?:['’]s)?|ux[-\s]+owners?(?:['’]s)?)\b[^.!?]{0,40})?(?:decision|approval|sign[-\s]+off)\b[^.!?]{0,40}\b(?:any\s+(?:major\s+)?product\s+changes?|(?:other|another|unrelated)\s+(?:(?:major\s+)?product\s+)?changes?|(?:other|another|unrelated)\s+(?:PRs?|pull\s+requests?))\b/i;
 const PR_REVIEW_READY_MERGE_RE =
@@ -833,9 +835,19 @@ function followingPrReviewMergeRequirement(text, match) {
 }
 
 function isUnblockedPrReviewReadyCorrection(text, match) {
-  const reviewText = `${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
+  const preceding = text.slice(0, match.index);
+  const sentencePrefix = preceding.slice(
+    Math.max(
+      preceding.lastIndexOf("."),
+      preceding.lastIndexOf("!"),
+      preceding.lastIndexOf("?"),
+      preceding.lastIndexOf("\n"),
+    ) + 1,
+  );
+  const reviewText = `${sentencePrefix}${match[0]}${followingPrReviewMergeRequirement(text, match)}`;
   return (
     !PR_REVIEW_MERGE_PROHIBITION_RE.test(reviewText) &&
+    !PR_REVIEW_GATE_PRECONDITION_RE.test(sentencePrefix) &&
     !hasActivePrReviewMergeGate(reviewText)
   );
 }
@@ -1023,6 +1035,8 @@ const PR_REVIEW_HANDOFF_REGEX_CASES = [
   [false, "If no changes are needed, approval is required before merging."],
   [false, "If no changes are needed, merge only after Steve approves."],
   [false, "If no changes are needed, merge only with product-owner approval."],
+  [false, "Once CI is green, if no changes are needed, merge."],
+  [true, "CI is green. If no changes are needed, merge the CI fix."],
   [
     false,
     "If no changes are needed, merge it only with the security reviewer's approval.",
