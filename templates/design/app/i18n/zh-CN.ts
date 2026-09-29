@@ -1427,7 +1427,7 @@ export default {
         "在 Chrome 的提示中选择“允许”，以启用实时编辑。",
       permissionPromptNoPrompt: "没有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
-        "点击地址栏左侧的站点控制图标，打开网站设置，然后允许访问设备上的应用。",
+        "点击地址栏左侧的站点控制图标，打开网站设置，然后将本地网络设为“允许”。",
       permissionPromptRetry: "重试连接",
     },
   },

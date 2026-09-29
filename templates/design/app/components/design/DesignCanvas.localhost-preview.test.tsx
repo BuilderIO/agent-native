@@ -95,7 +95,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       permissionHelp?.querySelector("summary")?.click();
     });
     expect(permissionHelp?.textContent).toContain(
-      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+      "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
     );
     expect(
       Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>
@@ -105,6 +105,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "/local-network-access-prompt.png",
       "/local-network-access-settings.png",
     ]);
+    expect(
+      permissionHelp?.querySelector<HTMLImageElement>(
+        'img[src="/local-network-access-prompt.png"]',
+      )?.alt,
+    ).toContain("Local network to Allow");
   });
 
   it("shows the Chrome permission prompt and closes from its X button", async () => {
@@ -122,9 +127,11 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
     });
 
-    expect(
-      document.querySelector('img[src="/local-network-access-permission.png"]'),
-    ).not.toBeNull();
+    const permissionImage = document.querySelector<HTMLImageElement>(
+      'img[src="/local-network-access-permission.png"]',
+    );
+    expect(permissionImage).not.toBeNull();
+    expect(permissionImage?.alt).toContain("Allow");
     const dismissButton = Array.from(
       document.body.querySelectorAll("button"),
     ).find((button) => button.textContent?.trim() === "Close");
@@ -1129,7 +1136,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     });
     expect(permissionHelp?.open).toBe(true);
     expect(permissionHelp?.textContent).toContain(
-      "Click the site controls icon to the left of the address bar, open Site settings, then allow access to apps on your device.",
+      "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
     );
     expect(
       Array.from(permissionHelp?.querySelectorAll("img") ?? []).map((image) =>

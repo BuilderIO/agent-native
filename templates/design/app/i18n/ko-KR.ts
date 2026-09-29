@@ -1471,7 +1471,7 @@ export default {
         "실시간 편집을 사용하려면 Chrome 프롬프트에서 ‘허용’을 선택하세요.",
       permissionPromptNoPrompt: "Chrome 프롬프트가 표시되지 않나요?",
       permissionPromptSettingsInstructions:
-        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 기기의 앱에 대한 액세스를 허용하세요.",
+        "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
     },
   },

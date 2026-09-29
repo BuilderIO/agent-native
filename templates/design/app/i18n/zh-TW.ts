@@ -1519,7 +1519,7 @@ export default {
         "在 Chrome 的提示中選擇「允許」，即可啟用即時編輯。",
       permissionPromptNoPrompt: "沒有看到 Chrome 提示？",
       permissionPromptSettingsInstructions:
-        "點擊網址列左側的網站控制圖示，開啟網站設定，然後允許存取裝置上的 App。",
+        "點擊網址列左側的網站控制圖示，開啟網站設定，然後將本機網路設為「允許」。",
       permissionPromptRetry: "重試連線",
     },
   },
