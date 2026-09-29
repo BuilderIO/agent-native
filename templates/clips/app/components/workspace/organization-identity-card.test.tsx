@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
     data: undefined as unknown,
     isPending: false,
     isError: false,
+    isFetched: false,
   },
 }));
 
@@ -58,13 +59,23 @@ beforeEach(() => {
   state.orgFetching = false;
   state.actionCalls = [];
   state.actionParams = [];
-  state.actionResult = { data: undefined, isPending: false, isError: false };
+  state.actionResult = {
+    data: undefined,
+    isPending: false,
+    isError: false,
+    isFetched: false,
+  };
 });
 
 describe("OrganizationIdentityCard", () => {
   it("renders nothing and fires no org read after the only organization is deleted", () => {
     state.org = { orgId: null };
-    state.actionResult = { data: undefined, isPending: true, isError: false };
+    state.actionResult = {
+      data: undefined,
+      isPending: true,
+      isError: false,
+      isFetched: false,
+    };
 
     const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
 
@@ -87,7 +98,12 @@ describe("OrganizationIdentityCard", () => {
 
   it("still reports a genuine load failure while an organization is active", () => {
     state.org = { orgId: "org_1" };
-    state.actionResult = { data: undefined, isPending: false, isError: true };
+    state.actionResult = {
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetched: false,
+    };
 
     const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
 
@@ -98,7 +114,12 @@ describe("OrganizationIdentityCard", () => {
   it("waits instead of flashing the error while the active org is still in flight", () => {
     state.org = { orgId: "org_deleted" };
     state.orgFetching = true;
-    state.actionResult = { data: undefined, isPending: false, isError: true };
+    state.actionResult = {
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetched: false,
+    };
 
     const markup = renderToStaticMarkup(<OrganizationIdentityCard />);
 
@@ -106,13 +127,32 @@ describe("OrganizationIdentityCard", () => {
     expect(markup).toContain("skeleton");
   });
 
-  it("scopes the branding request to the active organization", () => {
+  it("shares the active-org request while it belongs to the active organization", () => {
     state.org = { orgId: "org_2" };
-    state.actionResult = { data: undefined, isPending: true, isError: false };
+    state.actionResult = {
+      data: undefined,
+      isPending: true,
+      isError: false,
+      isFetched: false,
+    };
 
     renderToStaticMarkup(<OrganizationIdentityCard />);
 
-    expect(state.actionParams).toEqual([{ organizationId: "org_2" }]);
+    expect(state.actionParams).toEqual([undefined]);
+  });
+
+  it("scopes the branding request when the shared one belongs to another organization", () => {
+    state.org = { orgId: "org_2" };
+    state.actionResult = {
+      data: { organization: { id: "org_1", name: "Old" }, members: [] },
+      isPending: false,
+      isError: false,
+      isFetched: true,
+    };
+
+    renderToStaticMarkup(<OrganizationIdentityCard />);
+
+    expect(state.actionParams).toEqual([undefined, { organizationId: "org_2" }]);
   });
 
   it("renders the editor for an admin of an active organization", () => {
@@ -131,6 +171,7 @@ describe("OrganizationIdentityCard", () => {
       },
       isPending: false,
       isError: false,
+      isFetched: true,
     };
 
     const markup = renderToStaticMarkup(<OrganizationIdentityCard />);

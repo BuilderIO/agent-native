@@ -220,19 +220,26 @@ export function useTagRecording() {
   >("tag-recording");
 }
 
-export function useOrganizationState(
+/**
+ * One active-org request shared by every caller. A requested org is served
+ * from it only when its id matches, so an org switch never shows the
+ * previous org's state; otherwise that org is fetched on its own.
+ */
+export function useOrganizationState<
+  T extends { organization?: { id: string } | null } = any,
+>(
   organizationId?: string,
   options: { enabled?: boolean } = {},
 ) {
   const enabled = options.enabled ?? true;
-  const active = useActionQuery<any>("list-organization-state", undefined, {
+  const active = useActionQuery<T>("list-organization-state", undefined, {
     enabled,
   });
   const needsOtherOrganization =
     Boolean(organizationId) &&
     active.isFetched &&
     active.data?.organization?.id !== organizationId;
-  const other = useActionQuery<any>(
+  const other = useActionQuery<T>(
     "list-organization-state",
     { organizationId },
     { enabled: enabled && needsOtherOrganization },

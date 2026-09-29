@@ -1,4 +1,4 @@
-import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import { useMemo } from "react";
@@ -10,6 +10,7 @@ import {
   type RecordingVisibility,
 } from "@/components/workspace/branding-editor";
 import type { MemberRole } from "@/components/workspace/members-list";
+import { useOrganizationState } from "@/hooks/use-library";
 import { organizationLogoUrl } from "@/lib/organization-logo";
 
 interface OrganizationStateResponse {
@@ -43,11 +44,9 @@ export function OrganizationIdentityCard() {
   const hasActiveOrg = Boolean(activeOrgId);
 
   const { data, isPending, isError } =
-    useActionQuery<OrganizationStateResponse>(
-      "list-organization-state",
-      activeOrgId ? { organizationId: activeOrgId } : undefined,
-      { enabled: hasActiveOrg },
-    );
+    useOrganizationState<OrganizationStateResponse>(activeOrgId ?? undefined, {
+      enabled: hasActiveOrg,
+    });
 
   const organization = data?.organization ?? null;
   const members = useMemo(() => data?.members ?? [], [data?.members]);
