@@ -303,8 +303,9 @@ export function citedEvidencePaths(catalog: ProductCatalog): Set<string> {
       // Records cite proof relative to the record, the Content root, or the
       // repository root, and the spelling does not say which. Matching is
       // exact, so keeping every reading can only keep a file as evidence.
+      const citation = entry.replaceAll("\\", "/");
       for (const base of [recordDirectory, CONTENT_ROOT, ""]) {
-        cited.add(path.posix.normalize(path.posix.join(base, entry)));
+        cited.add(path.posix.normalize(path.posix.join(base, citation)));
       }
     }
   }

@@ -267,6 +267,7 @@ describe("Content impact analysis", () => {
           '  - "actions/root-cited.db.test.ts"',
           '  - "./templates/content/app/lib/dot-cited.test.ts"',
           '  - "packages/core/src/cited-proof.ts"',
+          "  - 'app\\lib\\backslash-cited.test.ts'",
         ].join("\n"),
       ),
     );
@@ -292,6 +293,10 @@ describe("Content impact analysis", () => {
       true,
     );
     assert.equal(applicable("packages/core/src/cited-proof.ts"), true);
+    assert.equal(
+      applicable("templates/content/app/lib/backslash-cited.test.ts"),
+      true,
+    );
     assert.equal(
       applicable("templates/content/app/lib/uncited.test.ts"),
       false,
