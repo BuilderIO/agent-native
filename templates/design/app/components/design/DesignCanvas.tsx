@@ -3283,6 +3283,11 @@ export function DesignCanvas({
     Boolean(rawExternalPreviewUrl) &&
     !interactMode &&
     !readOnly;
+  const liveEditConnectionFailed =
+    liveEditFrameRequiresBridge &&
+    (bridgeRegistrationFailedForCurrentKey ||
+      bridgeConnectionLostError?.bridgeKey === liveEditBridgeKey ||
+      liveEditSameInstanceStalledError?.bridgeKey === liveEditBridgeKey);
   const liveEditInteractionBlocked =
     liveEditFrameRequiresBridge &&
     (!usesLiveEditInjectedBridge ||
@@ -7033,7 +7038,9 @@ export function DesignCanvas({
           title={t("designEditor.designPreview")}
         />
       )}
-      {externalPreviewUrl && !previewFrameLoaded ? (
+      {externalPreviewUrl &&
+      !previewFrameLoaded &&
+      !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
           <Spinner className="size-4 shrink-0" />
           <span className="truncate !text-[11px] font-medium">
